@@ -110,7 +110,7 @@
       <span class="min-w-0 truncate px-2 py-1.5" title={value}>{value}</span>
     {/if}
     <span
-      class="flex shrink-0 items-center opacity-0 group-focus-within/url:opacity-100 group-hover/url:opacity-100 roomy:opacity-100"
+      class="flex shrink-0 items-center can-hover:opacity-0 can-hover:group-focus-within/url:opacity-100 can-hover:group-hover/url:opacity-100"
     >
       {#if editable}
         <Button

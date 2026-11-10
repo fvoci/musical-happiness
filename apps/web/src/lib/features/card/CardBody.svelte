@@ -45,7 +45,7 @@
   const people = $derived(
     board.orderedMembers.map((member) => ({
       id: member.userId,
-      name: workspace.userName(member.userId) ?? m.shared_unknown_user(),
+      name: workspace.userName(member.userId) ?? m['centerPanel.unknown-user'](),
     })),
   );
 
@@ -102,6 +102,7 @@
       editable={!card.conflict}
       users={people}
       {resolveUser}
+      label={m.card_body()}
       placeholder={m.card_body_placeholder()}
       class="min-h-24 text-base outline-none"
       onChange={(doc: DocNode | null) => {

@@ -32,6 +32,6 @@
   "card_upload_failed": "Not uploaded",
   "card_upload_dismiss": "Dismiss {name}",
   "card_comments_none": "No comments yet.",
-  "card_comment_delete": "Delete the comment",
+  "card_comment_delete_from": "Delete the comment from {when}",
   "card_comment_send_hint": "Ctrl+Enter sends"
 }

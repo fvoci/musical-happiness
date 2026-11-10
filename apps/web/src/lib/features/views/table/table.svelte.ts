@@ -10,6 +10,7 @@ import { tick } from 'svelte';
 
 import type { MenuAction } from '$lib/components/menu/actions.ts';
 import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
+import { readerPointer } from '$lib/components/drag/reader-pointer.ts';
 import { Sortable, type SortableMove } from '$lib/drag/sortable.svelte.ts';
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { moveItems, type ListOrder } from '$lib/logic/drop-target.ts';
@@ -200,6 +201,7 @@ export class TableController {
   readonly columnSort = new Sortable({
     scope: 'column',
     axis: 'x',
+    pointer: readerPointer,
     order: () => this.#columnOrder,
     onDrop: ({ itemIds, to }) => {
       if (to.kind !== 'index') return;
@@ -280,6 +282,8 @@ export class TableController {
 
   readonly rows = new Sortable({
     order: () => this.#rowOrder,
+    // The reader's setting decides whether a row a finger picked up buzzes.
+    pointer: readerPointer,
     onDrop: (move) => {
       this.#dropRows(move);
     },
@@ -388,6 +392,7 @@ export class TableController {
       regional: workspace.regional,
       nameFormat: workspace.nameFormat,
       users: workspace.users,
+      people: this.#board.people,
       presentation: this.#presentation.current,
     };
   });

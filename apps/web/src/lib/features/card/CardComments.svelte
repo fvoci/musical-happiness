@@ -62,7 +62,7 @@
   {/if}
   <ol class="flex flex-col gap-4 empty:hidden" aria-live="polite" aria-relevant="additions">
     {#each card.comments as comment (comment.id)}
-      {@const author = workspace.userName(comment.createdBy) ?? m.shared_unknown_user()}
+      {@const author = workspace.userName(comment.createdBy) ?? m['centerPanel.unknown-user']()}
       <li class="flex gap-3" data-comment={comment.id}>
         <Avatar
           name={author}
@@ -90,7 +90,9 @@
         </div>
         {#if board.canComment && comment.createdBy === workspace.me?.id}
           <IconButton
-            label={m.card_comment_delete()}
+            label={m.card_comment_delete_from({
+              when: displayDateTime(comment.createAt, context),
+            })}
             class="shrink-0 text-muted-foreground"
             onclick={() => void card.deleteComment(comment.id)}
           >

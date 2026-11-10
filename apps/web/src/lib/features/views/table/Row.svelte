@@ -256,7 +256,7 @@
           locale={reader.locale}
           regional={reader.regional}
           nameFormat={reader.nameFormat}
-          users={reader.users}
+          users={reader.people}
           presentation={reader.presentation}
           onChange={(value: StoredValue | undefined) => {
             host.setValue(card.id, column.id, value);

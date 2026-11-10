@@ -7,7 +7,8 @@
  * editor's image node asks here.
  *
  * What the address may assume about the server (its design, sections 5.1 and
- * 5.6; nothing of it is built here yet, and the resolver is written in W2):
+ * 5.6; the server's side of it is not built yet, and the app sets a resolver
+ * for the in-memory backend in the meantime, src/app/App.svelte):
  *
  * - The session is a cookie that scripts cannot read. The app never holds a
  *   token, so an address carries none, and nothing is fetched by script to be

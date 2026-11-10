@@ -1,7 +1,7 @@
 {
   "kanban_columns": "Columns",
   "kanban_no_grouping": "This board has no property that cards can be grouped by.",
-  "kanban_card_count": "{count} cards",
+  "kanban_card_count": "Cards: {count}",
   "kanban_column_menu": "Column menu: {name}",
   "kanban_new_card_in": "New card in {name}",
   "kanban_rename": "Rename",

@@ -140,20 +140,6 @@
     };
   });
 
-  /**
-   * The document as it would be stored right now, `null` for an empty body.
-   * For a caller that has to know without waiting for the next `onChange`
-   * (to save as a card closes). `null` too while the body cannot be edited.
-   */
-  export function storedDoc(): DocNode | null {
-    return !editor || unreadable ? null : storedOf(editor);
-  }
-
-  /** Puts the cursor into the text. */
-  export function focus(): void {
-    editor?.commands.focus();
-  }
-
   // A change from outside: read `doc` again. Not on the first run, which the
   // editor's own creation covers, and never because `doc` itself changed.
   let seen: number | undefined;

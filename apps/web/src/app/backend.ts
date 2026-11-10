@@ -12,12 +12,6 @@ import type { Backend } from '$lib/state/index.ts';
 
 export interface StartedBackend {
   backend: Backend;
-  /**
-   * The same data seen by somebody else, when the backend can do that: the
-   * in-memory one can. The development panel uses it to let "another person"
-   * change a card while the reader has it open.
-   */
-  asSomeoneElse?: () => Backend;
 }
 
 /** Where the in-memory backend keeps the reader's settings between visits. */
@@ -64,5 +58,5 @@ export async function startBackend(): Promise<StartedBackend> {
     backend,
     someoneElse: asSomeoneElse,
   };
-  return { backend, asSomeoneElse };
+  return { backend };
 }

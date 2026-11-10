@@ -39,9 +39,7 @@
   const filter = $derived(view.fields.filter);
   const entries = $derived(clauseEntries(filter));
   const nested = $derived(nestedGroupCount(filter));
-  const people = $derived(
-    board.orderedMembers.flatMap((member) => board.workspace.user(member.userId) ?? []),
-  );
+  const people = $derived(board.people);
 
   let root = $state<HTMLElement | null>(null);
 

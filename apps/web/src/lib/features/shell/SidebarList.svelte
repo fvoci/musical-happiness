@@ -28,8 +28,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
-  import { display } from '$lib/display.svelte.ts';
-  import { DRAG_SETTINGS } from '$lib/drag/settings.ts';
+  import { readerPointer } from '$lib/components/drag/reader-pointer.ts';
   import { Sortable } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Board } from '$lib/logic/wire.ts';
@@ -102,12 +101,8 @@
     },
     listLabel: categoryName,
     zoneLabel: categoryName,
-    pointer: {
-      // Read when the list is attached: the reader's setting decides whether a lifted board buzzes.
-      get touchVibration() {
-        return display.resolved.vibration ? DRAG_SETTINGS.touchVibration : 0;
-      },
-    },
+    // The reader's setting decides whether a lifted board buzzes.
+    pointer: readerPointer,
   });
 
   const drag = $derived(sortable.active);

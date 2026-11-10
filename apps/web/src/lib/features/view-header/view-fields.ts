@@ -18,12 +18,6 @@ import {
 
 type ViewFields = BoardView['fields'];
 
-/** The pseudo property that stands for the marks of comments and description on a card. */
-export const BADGES_COLUMN_ID = '__badges';
-
-/** The width a new table gives its title column, in pixels. */
-export const DEFAULT_TITLE_COLUMN_WIDTH = 280;
-
 /** The kinds of view that can be added. A calendar cannot, until there is a calendar view. */
 export const ADDABLE_VIEW_TYPES = ['board', 'table', 'gallery'] as const;
 export type AddableViewType = (typeof ADDABLE_VIEW_TYPES)[number];
@@ -77,6 +71,8 @@ export function groupingFields(
 /**
  * The fields a new view starts with: a board grouped by the first select
  * property, a table that shows every property, a gallery that shows titles.
+ * A table stores no width for its title column: until the reader sets one
+ * the table gives the column what the room it has allows (table/columns.ts).
  */
 export function newViewFields(
   viewType: AddableViewType,
@@ -92,38 +88,25 @@ export function newViewFields(
       ...fields,
       ...groupingFields(undefined),
       visiblePropertyIds: templates.map((template) => template.id),
-      columnWidths: { [TITLE_COLUMN_ID]: DEFAULT_TITLE_COLUMN_WIDTH },
     };
   }
   return { ...fields, visiblePropertyIds: [TITLE_COLUMN_ID] };
 }
 
-/** One line of the list of what a view shows on its cards. */
+/** One line of the list of what a view shows on its cards: a property of the board. */
 export interface PropertyToggle {
   id: string;
-  /** `title` and `badges` are not properties of the board; the screen has their names. */
-  kind: 'title' | 'property' | 'badges';
-  template?: PropertyTemplate;
+  template: PropertyTemplate;
 }
 
 /**
- * What can be shown or hidden in a view of this kind, in the order of the
- * list. A gallery can hide its titles; a board, a gallery and a calendar can
- * show the marks of comments and description. A table always has its title
- * column and has no marks.
+ * What can be shown or hidden in a view, in the order of the list: the
+ * properties of the board. The title is always shown, and so are the marks
+ * of a description and of a checklist on a card (card-face/CardFace.svelte),
+ * so neither has a switch; a switch nothing reads would only look like one.
  */
-export function propertyToggles(
-  viewType: ViewType,
-  templates: readonly PropertyTemplate[],
-): PropertyToggle[] {
-  const toggles: PropertyToggle[] = templates.map((template) => ({
-    id: template.id,
-    kind: 'property',
-    template,
-  }));
-  if (viewType === 'gallery') toggles.unshift({ id: TITLE_COLUMN_ID, kind: 'title' });
-  if (viewType !== 'table') toggles.push({ id: BADGES_COLUMN_ID, kind: 'badges' });
-  return toggles;
+export function propertyToggles(templates: readonly PropertyTemplate[]): PropertyToggle[] {
+  return templates.map((template) => ({ id: template.id, template }));
 }
 
 /** The visible properties with `propertyId` shown or hidden. A newly shown one goes last. */

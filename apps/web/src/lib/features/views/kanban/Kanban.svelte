@@ -21,7 +21,7 @@
   import { untrack } from 'svelte';
 
   import { display } from '$lib/display.svelte.ts';
-  import { DRAG_SETTINGS } from '$lib/drag/settings.ts';
+  import { readerPointer } from '$lib/components/drag/reader-pointer.ts';
   import { Sortable, type SortableMove } from '$lib/drag/sortable.svelte.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { pane } from '$lib/layout/room.svelte.ts';
@@ -106,7 +106,7 @@
   /** The name a column shows: of its option, or of the person it stands for. */
   function nameOf(group: BoardGroup): string {
     if (isOption || group.option.id === '') return group.option.value;
-    return board.workspace.userName(group.option.id) ?? m.shared_unknown_user();
+    return board.workspace.userName(group.option.id) ?? m['centerPanel.unknown-user']();
   }
   const names = $derived(
     new Map([...visible, ...groups.hidden].map((group) => [group.option.id, nameOf(group)])),
@@ -214,13 +214,6 @@
 
   // ------------------------------------------------------------- dragging
 
-  /** The device buzzes when a resting finger has picked something up, unless the reader turned that off. */
-  const pointer = {
-    get touchVibration(): number {
-      return display.resolved.vibration ? DRAG_SETTINGS.touchVibration : 0;
-    },
-  };
-
   const cardSort = new Sortable({
     order: () => lists,
     onDrop: onCardDrop,
@@ -238,7 +231,8 @@
       ),
     selection: () => selectedIds,
     zones: () => (settable ? groups.hidden.map((group) => hiddenIdOf(group.option.id)) : []),
-    pointer,
+    // The device buzzes when a resting finger has picked something up, unless the reader turned that off.
+    pointer: readerPointer,
   });
 
   const columnSort = new Sortable({
@@ -252,7 +246,8 @@
     },
     messages: COLUMN_MESSAGES,
     itemLabel: (id) => nameOfOption(optionIdOf(id)),
-    pointer,
+    // The device buzzes when a resting finger has picked something up, unless the reader turned that off.
+    pointer: readerPointer,
   });
 
   /**

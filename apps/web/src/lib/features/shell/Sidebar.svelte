@@ -54,7 +54,7 @@
   let query = $state('');
 
   const myName = $derived(
-    (workspace.me && workspace.userName(workspace.me.id)) ?? m.shared_unknown_user(),
+    (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
   );
 
   /**

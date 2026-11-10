@@ -7,7 +7,6 @@
   usually flips several.
 -->
 <script lang="ts">
-  import { m } from '$lib/i18n/paraglide/messages.js';
   import type { BoardView } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Switch } from '$lib/ui/switch/index.js';
@@ -16,14 +15,10 @@
 
   let { board, view }: { board: BoardStore; view: BoardView } = $props();
 
-  const toggles = $derived(
-    propertyToggles(view.fields.viewType, board.board?.cardProperties ?? []),
-  );
+  const toggles = $derived(propertyToggles(board.board?.cardProperties ?? []));
 
   function nameOf(toggle: PropertyToggle): string {
-    if (toggle.kind === 'title') return m['default-properties.title']();
-    if (toggle.kind === 'badges') return m['default-properties.badges']();
-    return toggle.template?.name ?? '';
+    return toggle.template.name;
   }
 
   function show(propertyId: string, visible: boolean): void {

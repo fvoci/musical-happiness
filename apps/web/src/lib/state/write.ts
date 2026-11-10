@@ -54,10 +54,6 @@ export class PendingWrites<T extends Versioned> {
     this.#held.set(version.id, newer(this.#held.get(version.id), version) ?? version);
     return false;
   }
-
-  busy(id: string): boolean {
-    return this.#under.has(id);
-  }
 }
 
 /** `items` with `item` put in place of the one with its identifier, or added. */

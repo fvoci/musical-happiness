@@ -52,7 +52,7 @@
   const boards = $derived(workspace.sidebar.flatMap((entry) => entry.boards));
   const titleOf = (board: Board): string => board.title || m['Sidebar.untitled-board']();
   const myName = $derived(
-    (workspace.me && workspace.userName(workspace.me.id)) ?? m.shared_unknown_user(),
+    (workspace.me && workspace.userName(workspace.me.id)) ?? m['centerPanel.unknown-user'](),
   );
 
   function open(event: MouseEvent, id: string): void {

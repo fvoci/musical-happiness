@@ -55,11 +55,10 @@ const cards = (page: Page): Locator => page.locator('[data-card]');
 const layout = (page: Page): Promise<string | null> => header(page).getAttribute('data-layout');
 
 /**
- * The shell is a stand-in for now and keeps its list of boards beside the
- * page at every width, which on a compact page leaves the board a sliver no
- * device will have. There the list is taken out, so that the pane is the
- * page, as it is once the list is a drawer. A shell whose list takes no room
- * on a compact page is left alone.
+ * Written while the shell was a stand-in that kept its list of boards beside
+ * the page at every width. The shell that is there now makes the list a
+ * drawer on a compact page, so this finds nothing to take out; it stays for
+ * a page that should ever lay the list beside a pane that narrow.
  */
 async function givePaneItsRoom(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -423,7 +422,8 @@ test.describe('views', () => {
     const added = await storedView(page);
     expect(added.fields.viewType).toBe('table');
     expect(added.fields.visiblePropertyIds).toEqual(everyProperty);
-    expect(added.fields.columnWidths).toEqual({ __title: 280 });
+    // No width is stored for the title column: the table gives it one by its room.
+    expect(added.fields.columnWidths).toEqual({});
 
     // Renamed.
     await viewCommand(page, 'rename');

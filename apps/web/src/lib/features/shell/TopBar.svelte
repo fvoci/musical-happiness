@@ -106,7 +106,7 @@
       {#each members.slice(0, FACES) as member (member.userId)}
         <li class="-ml-1.5 flex first:ml-0">
           <Avatar
-            name={workspace.userName(member.userId) ?? m.shared_unknown_user()}
+            name={workspace.userName(member.userId) ?? m['centerPanel.unknown-user']()}
             colorKey={member.userId}
             locale={workspace.locale}
             class="size-7 ring-2 ring-background"

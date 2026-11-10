@@ -113,13 +113,21 @@ export class BoardStore {
   readonly orderedViews = $derived.by(() => orderViews(this.views, this.workspace.locale));
   /** The cards that are cards, not templates for new ones. */
   readonly realCards = $derived(this.cards.filter((card) => !card.fields.isTemplate));
-  readonly cardTemplates = $derived(this.cards.filter((card) => card.fields.isTemplate));
   readonly orderedMembers = $derived.by(() =>
     orderMembers(
       this.members,
       (userId) => this.workspace.userName(userId) ?? '',
       this.workspace.locale,
     ),
+  );
+  /**
+   * The people a person property of this board can be set to, and a filter
+   * can ask for: its members, in their order. Whoever is named on a card
+   * without being a member any more is still shown by name
+   * (`workspace.users`), but is not offered.
+   */
+  readonly people = $derived(
+    this.orderedMembers.flatMap((member) => this.workspace.user(member.userId) ?? []),
   );
 
   /** What the reader is on this board. */

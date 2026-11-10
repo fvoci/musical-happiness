@@ -13,7 +13,6 @@ import {
   sortCandidates,
 } from '$lib/features/view-header/sort-edit.ts';
 import {
-  BADGES_COLUMN_ID,
   groupableProperties,
   groupingFields,
   groupingOf,
@@ -68,12 +67,12 @@ describe('a new view', () => {
     expect(fields.visibleOptionIds).toEqual([]);
   });
 
-  it('as a table shows every property, ungrouped, with a title column of the usual width', () => {
+  it('as a table shows every property, ungrouped, and leaves the width of the title column to the table', () => {
     const fields = newViewFields('table', TEMPLATES);
     expect(fields.viewType).toBe('table');
     expect(fields.visiblePropertyIds).toEqual(['hours', 'status', 'tags', 'owner', 'made']);
     expect(fields.groupById).toBe('');
-    expect(fields.columnWidths).toEqual({ [TITLE_COLUMN_ID]: 280 });
+    expect(fields.columnWidths).toEqual({});
   });
 
   it('as a gallery shows the titles', () => {
@@ -144,14 +143,10 @@ describe('grouping', () => {
 });
 
 describe('the properties a view shows', () => {
-  it('can be every property of the board; a gallery adds its titles, all but a table the marks', () => {
-    const ids = (viewType: BoardView['fields']['viewType']): string[] =>
-      propertyToggles(viewType, TEMPLATES).map((toggle) => toggle.id);
-    const own = TEMPLATES.map((template) => template.id);
-    expect(ids('table')).toEqual(own);
-    expect(ids('board')).toEqual([...own, BADGES_COLUMN_ID]);
-    expect(ids('calendar')).toEqual([...own, BADGES_COLUMN_ID]);
-    expect(ids('gallery')).toEqual([TITLE_COLUMN_ID, ...own, BADGES_COLUMN_ID]);
+  it('can be every property of the board, and nothing a view does not read', () => {
+    expect(propertyToggles(TEMPLATES).map((toggle) => toggle.id)).toEqual(
+      TEMPLATES.map((template) => template.id),
+    );
   });
 
   it('get a newly shown one at the end, and lose a hidden one where it was', () => {

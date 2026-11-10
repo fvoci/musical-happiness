@@ -1424,17 +1424,6 @@ test.describe('with the keyboard alone', () => {
 test.describe('screenshots', () => {
   test.skip(!process.env.FVOCI_SCREENS, 'set FVOCI_SCREENS=1 to take the screenshots');
 
-  /**
-   * Until the shell is built its stand-in keeps a sidebar of 256 pixels at
-   * every width, which leaves a phone 156 pixels of table. For the pictures
-   * of the two narrower stages it is taken away, so that they show the table
-   * in the room the real shell will give it.
-   */
-  async function hideStandInSidebar(page: Page, stage: string): Promise<void> {
-    if (stage === 'expanded') return;
-    await page.addStyleTag({ content: '[data-testid="app-shell"] > nav.w-64 { display: none; }' });
-  }
-
   for (const scheme of ['light', 'dark'] as const) {
     test(`the table, ${scheme}`, async ({ page }, testInfo) => {
       const stage = STAGES[testInfo.project.name] ?? testInfo.project.name;
@@ -1443,7 +1432,6 @@ test.describe('screenshots', () => {
       await page.emulateMedia({ colorScheme: scheme });
 
       await openView(page, 'Project Tasks', 'Task Overview');
-      await hideStandInSidebar(page, stage);
       await page.waitForLoadState('networkidle');
       await page.evaluate(() => document.fonts.ready);
       await shot('table');
@@ -1474,12 +1462,10 @@ test.describe('screenshots', () => {
       await page.keyboard.press('Escape');
 
       await openView(page, 'Sprint Planner', 'By Sprint');
-      await hideStandInSidebar(page, stage);
       await page.waitForLoadState('networkidle');
       await shot('table-grouped');
 
       await openView(page, 'Company Goals & OKRs', 'By Quarter');
-      await hideStandInSidebar(page, stage);
       await page.waitForLoadState('networkidle');
       await shot('table-read-only');
     });

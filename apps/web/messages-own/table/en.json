@@ -26,5 +26,5 @@
   "table_column_moved": "{item}: column {position} of {count}.",
   "table_column_dropped": "Dropped the {item} column at place {position} of {count}.",
   "table_column_cancelled": "Moving the {item} column was cancelled. It is back at place {position} of {count}.",
-  "table_drag_outside": "Release to cancel"
+  "table_drag_outside": "Let go to cancel."
 }
