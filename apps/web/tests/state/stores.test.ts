@@ -3,11 +3,13 @@
  * is taken back when it is refused, undo takes it back on purpose, and what
  * other people do arrives by itself.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { BackendError } from '$lib/state/index.ts';
+import type { ChangeListener } from '$lib/state/backend.ts';
 import { droppedCardOrder, placeAmongAll } from '$lib/state/card-order.ts';
 import { sidebarOf } from '$lib/state/order.ts';
+import { reread } from '$lib/state/write.ts';
 
 import { loadTemplates, openFirstBoard, settle, setup, STATUS } from './support.ts';
 
@@ -502,5 +504,48 @@ describe('what other people do', () => {
     await other.patchCard(board.boardId, beta?.id ?? '', { title: 'unseen' });
     await settle();
     expect(board.card(beta?.id)?.title).toBe('Beta');
+  });
+});
+
+describe('reading again after changes may have been missed', () => {
+  it('takes what was missed into an open board, and keeps it on screen meanwhile', async () => {
+    const made = setup();
+    const listeners: ChangeListener[] = [];
+    const watch = made.backend.watchBoard.bind(made.backend);
+    vi.spyOn(made.backend, 'watchBoard').mockImplementation((boardId, listener) => {
+      listeners.push(listener);
+      return watch(boardId, listener);
+    });
+    const { world, board } = await openFirstBoard(made);
+    const card = board.cards.find((each) => each.title === 'Alpha');
+    const gone = board.cards.find((each) => each.title === 'Gamma');
+    if (!card || !gone) throw new Error('the seed changed');
+
+    // Changed and deleted behind the store's back: no message came.
+    world.blocks.set(card.id, {
+      ...world.blocks.get(card.id),
+      title: 'Changed while away',
+      updateAt: card.updateAt + 1000,
+    } as never);
+    world.blocks.delete(gone.id);
+    for (const listener of listeners) listener({ kind: 'resync' });
+    expect(board.status).toBe('ready');
+    await settle();
+    await vi.waitFor(() => {
+      expect(board.card(card.id)?.title).toBe('Changed while away');
+    });
+    expect(board.card(gone.id)).toBeUndefined();
+  });
+});
+
+describe('a list read again', () => {
+  const item = (id: string, updateAt: number) => ({ id, updateAt });
+
+  it('takes what was read, keeps what is newer on screen or held by a write, and what came meanwhile', () => {
+    const shown = [item('a', 5), item('b', 1), item('c', 1), item('d', 1), item('new', 1)];
+    const before = ['a', 'b', 'c', 'd'];
+    const read = [item('a', 3), item('b', 2), item('c', 2)];
+    const next = reread(shown, read, before, (one) => one.id !== 'c');
+    expect(next).toEqual([item('a', 5), item('b', 2), item('c', 1), item('new', 1)]);
   });
 });

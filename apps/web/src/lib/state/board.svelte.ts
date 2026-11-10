@@ -53,7 +53,7 @@ import {
   viewPatches,
 } from './patches.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
-import { PendingWrites, put, take } from './write.ts';
+import { PendingWrites, put, reread, take } from './write.ts';
 
 function roleOf(member: BoardMember | undefined): MemberRole {
   if (!member) return '';
@@ -139,6 +139,8 @@ export class BoardStore {
 
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
+  /** Readings again (`#refresh`) begun: the latest is the one that counts. */
+  #refreshing = 0;
   #stopWatching: (() => void) | undefined;
 
   constructor(workspace: Workspace, boardId: string) {
@@ -271,10 +273,17 @@ export class BoardStore {
 
   /**
    * Reads the board again over what is shown, after changes may have been
-   * missed (`resync`). Unlike `load`, the board stays on screen meanwhile.
+   * missed (`resync`). Unlike `load`, the board stays on screen meanwhile;
+   * what is read is merged with it (`reread`): a write under way, or a
+   * change that arrived while reading, is not taken back. Of two readings
+   * that overlap, the later one counts.
    */
   async #refresh(): Promise<void> {
     if (this.status !== 'ready') return;
+    this.#refreshing += 1;
+    const reading = this.#refreshing;
+    const cardsBefore = this.cards.map((card) => card.id);
+    const viewsBefore = this.views.map((view) => view.id);
     try {
       const [board, views, cards, members] = await Promise.all([
         this.#backend.board(this.boardId),
@@ -282,12 +291,23 @@ export class BoardStore {
         this.#backend.cards(this.boardId),
         this.#backend.members(this.boardId),
       ]);
-      this.board = board;
-      this.views = views;
-      this.cards = cards;
+      // A newer reading has begun meanwhile: it is the one that counts.
+      if (reading !== this.#refreshing) return;
+      if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
+      this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
+      const shown = this.cards;
+      this.cards = reread(shown, cards, cardsBefore, (card) => this.#cardWrites.receive(card));
       this.members = members;
       void this.workspace.learnUsers(members.map((member) => member.userId));
+      const open = this.openCard;
+      if (open) {
+        const card = this.card(open.cardId);
+        if (card) open.cardChanged(card);
+        else if (cardsBefore.includes(open.cardId)) open.forget([open.cardId]);
+        void open.refresh();
+      }
     } catch (error) {
+      if (reading !== this.#refreshing) return;
       if (isBackendError(error) && error.status === 404) {
         this.missing = true;
         this.status = 'failed';

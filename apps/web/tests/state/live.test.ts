@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LiveChanges, type LiveReads } from '$lib/api/live.ts';
-import type { Change } from '$lib/state/index.ts';
+import { BackendError, type Change } from '$lib/state/index.ts';
 
 class FakeSocket extends EventTarget {
   static made: FakeSocket[] = [];
@@ -67,7 +67,6 @@ const reads: LiveReads = {
         synthetic: false,
       },
     ]),
-  categories: () => Promise.resolve([]),
 };
 
 /** Lets the promises that are due run. */
@@ -171,15 +170,93 @@ describe('changes from the server', () => {
     expect(self.map((change) => change.kind)).toEqual(['board', 'boardDeleted']);
   });
 
-  it('reads all the members of a board when one of them changes', async () => {
-    const { socket, board } = await connected();
+  it('reads all the members of a watched board when one changes, and the sidebar soon after', async () => {
+    const members = vi.spyOn(reads, 'members');
+    const { socket, board, self } = await connected();
     socket.message({
       action: 'UPDATE_MEMBER',
       teamId: 't',
       member: { boardId: 'b1', userId: 'u2', schemeViewer: true },
     });
+    // A board nobody here watches: its members are not read.
+    socket.message({
+      action: 'DELETE_MEMBER',
+      teamId: 't',
+      member: { boardId: 'b9', userId: 'u2' },
+    });
     await settle();
     expect(board).toMatchObject([{ kind: 'members', boardId: 'b1', members: [{ userId: 'u' }] }]);
+    expect(members.mock.calls).toEqual([['b1']]);
+    // Being added to a board, or taken off one, shows in the sidebar: read once for both.
+    expect(self).toEqual([]);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(self).toEqual([{ kind: 'resync' }]);
+    members.mockRestore();
+  });
+
+  it('tells only the later of two readings of members, and a board taken away as gone', async () => {
+    let answer: (value: Awaited<ReturnType<LiveReads['members']>>) => void = () => undefined;
+    const members = vi
+      .spyOn(reads, 'members')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      )
+      .mockImplementationOnce(() => Promise.reject(new BackendError(403, { message: 'no' })));
+    const { socket, board } = await connected();
+    const message = {
+      action: 'UPDATE_MEMBER',
+      teamId: 't',
+      member: { boardId: 'b1', userId: 'u2' },
+    };
+    socket.message(message);
+    socket.message(message);
+    await settle();
+    answer([]);
+    await settle();
+    expect(board).toEqual([{ kind: 'boardDeleted', boardId: 'b1' }]);
+    members.mockRestore();
+  });
+
+  it('reads the sidebar again on a message of the categories', async () => {
+    const { socket, self, board } = await connected();
+    socket.message({ action: 'UPDATE_CATEGORY', teamId: 't', category: {} });
+    socket.message({ action: 'REORDER_CATEGORIES', teamId: 't', categoryOrder: [] });
+    await vi.advanceTimersByTimeAsync(200);
+    expect(self).toEqual([{ kind: 'resync' }]);
+    expect(board).toEqual([]);
+  });
+
+  it('opens again at once after signing in, and has everyone read again', async () => {
+    const { live, socket, board } = await connected();
+    live.restart();
+    expect(socket.closed).toBe(true);
+    await settle();
+    const again = FakeSocket.made[1];
+    again?.open();
+    expect(again?.sent).toEqual([{ action: 'SUBSCRIBE_TEAM', teamId: 't' }]);
+    expect(board).toEqual([{ kind: 'resync' }]);
+  });
+
+  it('waits from the first wait again only after a connection has held', async () => {
+    const { socket } = await connected();
+    socket.drop();
+    await vi.advanceTimersByTimeAsync(500);
+    // Opens, and is closed at once: the next wait is the longer one.
+    FakeSocket.made[1]?.open();
+    FakeSocket.made[1]?.drop();
+    await vi.advanceTimersByTimeAsync(999);
+    expect(FakeSocket.made).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSocket.made).toHaveLength(3);
+    // This one holds; a drop after it waits the first wait.
+    FakeSocket.made[2]?.open();
+    await vi.advanceTimersByTimeAsync(10_000);
+    FakeSocket.made[2]?.drop();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(FakeSocket.made).toHaveLength(4);
   });
 
   it('opens again after a drop, waiting longer each time, and has everyone read again', async () => {

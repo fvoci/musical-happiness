@@ -86,7 +86,6 @@ export class ServerBackend implements Backend, Account {
         return team.id;
       },
       members: (boardId) => this.members(boardId),
-      categories: (teamId) => this.categories(teamId),
     });
   }
 
@@ -99,6 +98,8 @@ export class ServerBackend implements Backend, Account {
   async signIn(login: string, password: string): Promise<void> {
     const request: Schemas['LoginRequest'] = { username: login, email: login, password };
     await this.#http.request('/api/v1/login', {}, { method: 'POST', json: request });
+    // The page's connection was opened with the old cookie, or none.
+    this.#live.restart();
   }
 
   async register(registration: Registration): Promise<void> {

@@ -46,15 +46,9 @@ test('what one person does shows on the other’s page, and a dropped connection
   const errors = [...[first, second].map(watchErrors)];
 
   // The second page's connection goes through the test, which can drop it.
-  let open: WebSocketRoute | undefined;
-  let refusing = false;
+  let open: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
   await second.routeWebSocket(/\/ws$/, (socket) => {
-    if (refusing) {
-      void socket.close();
-      return;
-    }
-    socket.connectToServer();
-    open = socket;
+    open = { page: socket, server: socket.connectToServer() };
   });
 
   for (const [page, who] of [
@@ -78,24 +72,30 @@ test('what one person does shows on the other’s page, and a dropped connection
   await second.goBack();
   await expect(column(first, 'Done').getByText('Water the plants')).toBeVisible();
 
-  // The second page's connection drops; while it is away, a card is made.
+  // The second page's connection drops, both ways; while it is away, a card
+  // is made. Its message reaches the first page only.
   await expect.poll(() => open !== undefined).toBe(true);
-  refusing = true;
-  await open?.close();
+  const dropped = open;
+  const readAgain = second.waitForRequest(
+    (request) =>
+      request.method() === 'GET' && request.url().includes(`/boards/${board.boardId}/cards`),
+  );
+  await dropped?.server.close();
+  await dropped?.page.close();
   const made = (await (
     await api.post(`/api/v1/boards/${board.boardId}/cards`, {
       data: { title: 'Missed while away', properties: { status: board.options.Doing } },
     })
   ).json()) as Schemas['Card'];
-  expect(made.title).toBe('Missed while away');
   await expect(column(first, 'Doing').getByText('Missed while away')).toBeVisible();
-  await expect(column(second, 'Doing').getByText('Missed while away')).toHaveCount(0);
 
   // Back: the board is read again, and the card that was missed is there.
-  refusing = false;
-  await expect(column(second, 'Doing').getByText('Missed while away')).toBeVisible({
-    timeout: 20_000,
-  });
+  await readAgain;
+  await expect(column(second, 'Doing').getByText('Missed while away')).toBeVisible();
+  // And the new connection is a real one: a later change arrives by it.
+  expect(open).not.toBe(dropped);
+  await api.patch(`/api/v1/cards/${made.id}`, { data: { title: 'Caught up' } });
+  await expect(column(second, 'Doing').getByText('Caught up')).toBeVisible();
   await expect(second.locator('[data-problem]')).toHaveCount(0);
 
   await api.dispose();

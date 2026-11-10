@@ -29,6 +29,7 @@ import {
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
 import { sidebarOf, type SidebarCategory } from './order.ts';
+import { reread } from './write.ts';
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut';
@@ -90,6 +91,8 @@ export class Workspace {
   );
   #stopWatching: (() => void) | undefined;
   #problemCount = 0;
+  /** Readings again (`#refresh`) begun: the latest is the one that counts. */
+  #refreshing = 0;
 
   constructor(options: WorkspaceOptions) {
     this.backend = options.backend;
@@ -173,8 +176,9 @@ export class Workspace {
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board': {
+        // A template is no board of the sidebar, as the server's list of boards says.
         const others = this.boards.filter((board) => board.id !== change.board.id);
-        this.boards = [...others, change.board];
+        this.boards = change.board.isTemplate ? others : [...others, change.board];
         break;
       }
       case 'boardDeleted':
@@ -194,19 +198,27 @@ export class Workspace {
     }
   }
 
-  /** Reads the boards and the sidebar again after changes may have been missed (`resync`). */
+  /**
+   * Reads the boards and the sidebar again after changes may have been
+   * missed (`resync`): the boards merged with what is shown (`reread`). Of
+   * two readings that overlap, the later one counts.
+   */
   async #refresh(): Promise<void> {
     const team = this.team;
     if (this.status !== 'ready' || !team) return;
+    this.#refreshing += 1;
+    const reading = this.#refreshing;
+    const before = this.boards.map((board) => board.id);
     try {
       const [boards, categories] = await Promise.all([
         this.backend.boards(team.id),
         this.backend.categories(team.id),
       ]);
-      this.boards = boards;
+      if (reading !== this.#refreshing) return;
+      this.boards = reread(this.boards, boards, before);
       this.categories = categories;
     } catch (error) {
-      this.report('load', error);
+      if (reading === this.#refreshing) this.report('load', error);
     }
   }
 

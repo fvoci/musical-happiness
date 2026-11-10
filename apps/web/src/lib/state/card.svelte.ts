@@ -28,7 +28,7 @@ import {
 import type { BoardStore } from './board.svelte.ts';
 import { byCreation } from './order.ts';
 import type { LoadStatus } from './workspace.svelte.ts';
-import { take } from './write.ts';
+import { reread, take } from './write.ts';
 
 export interface BodyConflict {
   /** What the reader wrote. */
@@ -265,6 +265,35 @@ export class CardStore {
     if (block.parentId !== this.cardId) return;
     if (block.type === 'comment') this.#comments = take(this.#comments, block);
     else this.#attachments = take(this.#attachments, block);
+  }
+
+  /**
+   * Reads the comments and attachments again, after changes may have been
+   * missed (the board's `resync`), merged with what is shown. The body is
+   * the board's to read again (`cardChanged`), which minds what the reader
+   * has not saved. A card that is gone is missing.
+   */
+  async refresh(): Promise<void> {
+    if (this.status !== 'ready' || this.#closed) return;
+    const commentsBefore = this.#comments.map((comment) => comment.id);
+    const attachmentsBefore = this.#attachments.map((attachment) => attachment.id);
+    try {
+      const [comments, attachments] = await Promise.all([
+        this.#backend.comments(this.#boardId, this.cardId),
+        this.#backend.attachments(this.#boardId, this.cardId),
+      ]);
+      // Closed meanwhile (asked again: the check above was before the wait).
+      if (this.#isClosed()) return;
+      this.#comments = reread(this.#comments, comments, commentsBefore);
+      this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
+    } catch (error) {
+      if (isBackendError(error) && error.status === 404) this.missing = true;
+      // Otherwise the next change, or the next opening, brings them.
+    }
+  }
+
+  #isClosed(): boolean {
+    return this.#closed;
   }
 
   /** Blocks were deleted; they may be this card or things of it. */
