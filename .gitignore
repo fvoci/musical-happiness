@@ -1,0 +1,26 @@
+# Installed packages and the build cache. Tools installed for one worktree
+# (target/tools) and the output of long runs go under target/ as well.
+node_modules/
+/target/
+
+# Local settings and secrets; example files are committed
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+*.log
+.DS_Store
+
+# Claude Code: the worktrees it makes and the settings of one machine
+.claude/worktrees/
+.claude/settings.local.json
+
+# The original's template archive. fvoci-server reads it when it is compiled
+# (crates/server/src/app/templates.rs), and it is not committed: each worktree
+# places it from the carry folder (docs/handoff.md). Remove this line when the
+# server takes the templates from the web app's converter instead
+# (docs/s6-design.md, 3.10).
+/server/assets/templates.boardarchive
+
+# What apps/web builds and the fonts it fetches are in apps/web/.gitignore.
