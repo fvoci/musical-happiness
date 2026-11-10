@@ -16,7 +16,7 @@
  * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
  * `modifiedBy`, `createAt`, `updateAt`, `deleteAt` and `limited`.
  */
-import { dateOfUtc, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
+import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 
 // ------------------------------------------------------------ identifiers
@@ -157,8 +157,11 @@ export function createBlock(source?: Block): Block {
 
 // ------------------------------------------------------------------ cards
 
-/** A property value of a card: text, or a list of option or user identifiers. */
-export type PropertyValue = string | string[];
+/**
+ * A property value of a card: text, a list of option or user identifiers, or
+ * (for a date property only) a date value.
+ */
+export type PropertyValue = string | string[] | StoredDateValue;
 
 /** Content blocks in display order; an inner list is one row of blocks side by side. */
 export type ContentOrder = (string | string[])[];
@@ -626,74 +629,101 @@ export function createBoard(source?: Board, statusName = 'Status'): Board {
 // ------------------------------------------------------------ date values
 
 /**
- * How a date property is stored today: the text of a JSON object whose `from`
- * and `to` are milliseconds since the epoch. Without `includeTime` each
- * stands for a calendar day and is written as 12:00 UTC of that day; with it,
- * each is the moment itself.
+ * How a date property is written on the wire: an object, not text. Each end
+ * says by its JSON type what it is. A calendar day is the text `YYYY-MM-DD`,
+ * the same day for every reader; a moment is an integer, the milliseconds
+ * since 1970-01-01 00:00 UTC, like `createAt` and `updateAt` of a block.
+ *
+ * `from` is always there; `to`, when there, is of the same kind as `from`,
+ * later than it, and itself part of the range. Nothing else is in the object:
+ * whether a value carries a time is its type, and the time zone belongs to
+ * the reader, not to the value.
  */
-interface StoredDateValue {
-  from?: unknown;
-  to?: unknown;
-  includeTime?: unknown;
+export interface StoredDateValue {
+  from: string | number;
+  to?: string | number;
 }
 
-const NOON = 12 * 60 * 60 * 1000;
+/** The last moment the wire can carry: the end of the year 9999. */
+const LAST_INSTANT = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
 
-const noonUtcOf = (date: CalendarDate): number =>
-  Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) +
-  NOON;
-
-function readPoint(stored: unknown, includeTime: boolean): DatePoint | undefined {
-  if (typeof stored !== 'number' || !Number.isFinite(stored) || stored <= 0) return undefined;
-  // A day is read off the UTC calendar: noon UTC is the same day everywhere on it.
-  return includeTime ? { instant: stored } : { date: dateOfUtc(stored) };
+function readPoint(stored: unknown): DatePoint | undefined {
+  if (typeof stored === 'string') {
+    const date = parseCalendarDate(stored);
+    return date === undefined ? undefined : { date };
+  }
+  if (typeof stored !== 'number' || !Number.isInteger(stored)) return undefined;
+  return stored >= 0 && stored <= LAST_INSTANT ? { instant: stored } : undefined;
 }
 
-const writePoint = (point: DatePoint): number => point.instant ?? noonUtcOf(point.date);
+const writePoint = (point: DatePoint): string | number => point.instant ?? point.date;
+
+const samePoint = (first: DatePoint, second: DatePoint): boolean =>
+  first.date === second.date && first.instant === second.instant;
 
 /**
- * Reads the text stored in a date property. Text that is not such a value
- * (leftovers of another property type, the bare number of very old data)
- * reads as an empty value.
+ * Reads the stored value of a date property. Whatever is not a well-formed
+ * date value (text left behind by another property type, ends of two kinds,
+ * a range that runs backwards, a day that does not exist) reads as an empty
+ * value: the server refuses to store such a thing, so it is not guessed at.
  */
-export function parseDateValue(text: string | undefined): DateValue {
-  if (!text) return {};
-  let stored: StoredDateValue;
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
-    stored = parsed;
-  } catch {
+export function parseDateValue(stored: unknown): DateValue {
+  if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return {};
+  const { from: storedFrom, to: storedTo } = stored as { from?: unknown; to?: unknown };
+  const from = readPoint(storedFrom);
+  if (!from) return {};
+  if (storedTo === undefined) return { from };
+  const to = readPoint(storedTo);
+  if (!to) return {};
+  if (from.date !== undefined && to.date !== undefined) {
+    if (to.date < from.date) return {};
+  } else if (from.instant !== undefined && to.instant !== undefined) {
+    if (to.instant < from.instant) return {};
+  } else {
     return {};
   }
-  const includeTime = stored.includeTime === true;
-  const from = readPoint(stored.from, includeTime);
-  const to = readPoint(stored.to, includeTime);
-  if (!from) return to ? { from: to } : {};
-  return to ? { from, to } : { from };
-}
-
-/** The text to store for a date value; empty when the value is empty. */
-export function formatDateValue(value: DateValue): string {
-  if (!value.from) return '';
-  const stored: Record<string, number | boolean> = { from: writePoint(value.from) };
-  if (value.to) stored.to = writePoint(value.to);
-  if (value.from.instant !== undefined) stored.includeTime = true;
-  return JSON.stringify(stored);
+  return samePoint(from, to) ? { from } : { from, to };
 }
 
 /**
- * The day a date filter compares with. A filter stores it the way a date
- * property stores a day: as the milliseconds of its noon in UTC.
+ * The value to store for a date value; undefined when the value is empty
+ * (the property is then cleared). A range whose two ends are the same is
+ * written as that one end, and one written backwards is turned around.
  */
+export function formatDateValue(value: DateValue): StoredDateValue | undefined {
+  const { from, to } = value;
+  if (!from) return undefined;
+  if (!to || samePoint(from, to)) return { from: writePoint(from) };
+  const first = writePoint(from);
+  const last = writePoint(to);
+  if (typeof first !== typeof last) return { from: first };
+  return first <= last ? { from: first, to: last } : { from: last, to: first };
+}
+
+/**
+ * A stored value as text or a list of texts, which is what every kind of
+ * property but the date kind holds. A date value has no text of its own: it
+ * becomes a key, its ends joined by a slash, that is the same for the same
+ * value. The key is for counting and comparing; what is shown for a date is
+ * made from `parseDateValue`. A malformed date value has no text at all.
+ */
+export function plainPropertyValue(
+  value: PropertyValue | undefined,
+): string | string[] | undefined {
+  if (value === undefined || typeof value === 'string' || Array.isArray(value)) return value;
+  const stored = formatDateValue(parseDateValue(value));
+  if (!stored) return undefined;
+  return stored.to === undefined ? String(stored.from) : `${stored.from}/${stored.to}`;
+}
+
+/** The day a date filter compares with: a filter stores it as `YYYY-MM-DD`. */
 export function parseFilterDate(text: string | undefined): CalendarDate | undefined {
-  const stored = Number.parseInt(text ?? '', 10);
-  return Number.isFinite(stored) ? dateOfUtc(stored) : undefined;
+  return text === undefined ? undefined : parseCalendarDate(text);
 }
 
 /** The text to store in a date filter for a day. */
 export function formatFilterDate(date: CalendarDate): string {
-  return String(noonUtcOf(date));
+  return date;
 }
 
 // ---------------------------------------------------------------- patches

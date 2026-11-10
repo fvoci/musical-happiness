@@ -4,6 +4,7 @@
  */
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { addDays, calendarDate, dateOfUtc } from '$lib/logic/dates.ts';
 import { diagnostics } from '$lib/logic/diagnostics.ts';
 import {
   applyFilterGroup,
@@ -22,8 +23,6 @@ import {
 import { at } from '../support/zones.ts';
 
 import { createTestBoard, createTestCard } from './support/factory.ts';
-
-const dayMillis = 24 * 60 * 60 * 1000;
 
 // The person reading the board. The original tests ran in the time zone of the machine.
 const reader = { timeZone: 'Asia/Seoul' };
@@ -325,17 +324,16 @@ describe('src/cardFilter', () => {
   });
 
   describe('verify isClauseMet method - single date property', () => {
-    // Date Properties are stored as 12PM UTC.
-    const now = new Date(Date.now());
-    const propertyDate = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
+    // A date property holds a calendar day, and so does a date filter.
+    const propertyDate = dateOfUtc(Date.now());
 
     const dateCard = createTestCard(board);
     dateCard.id = '1';
     dateCard.title = 'card1';
-    setCardProperty(dateCard, 'datePropertyID', '{ "from": ' + propertyDate.toString() + ' }');
+    setCardProperty(dateCard, 'datePropertyID', { from: propertyDate });
 
-    const checkDayBefore = propertyDate - dayMillis;
-    const checkDayAfter = propertyDate + dayMillis;
+    const checkDayBefore = addDays(propertyDate, -1);
+    const checkDayAfter = addDays(propertyDate, 1);
 
     const template: PropertyTemplate = {
       id: 'datePropertyID',
@@ -416,22 +414,17 @@ describe('src/cardFilter', () => {
   });
 
   describe('verify isClauseMet method - date range property', () => {
-    // Date Properties are stored as 12PM UTC.
-    const now = new Date(Date.now());
-    const fromDate = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
-    const toDate = fromDate + 2 * dayMillis;
+    // A date property holds calendar days, and so does a date filter.
+    const fromDate = dateOfUtc(Date.now());
+    const toDate = addDays(fromDate, 2);
     const dateCard = createTestCard(board);
     dateCard.id = '1';
     dateCard.title = 'card1';
-    setCardProperty(
-      dateCard,
-      'datePropertyID',
-      '{ "from": ' + fromDate.toString() + ', "to": ' + toDate.toString() + ' }',
-    );
+    setCardProperty(dateCard, 'datePropertyID', { from: fromDate, to: toDate });
 
-    const beforeRange = fromDate - dayMillis;
-    const afterRange = toDate + dayMillis;
-    const inRange = fromDate + dayMillis;
+    const beforeRange = addDays(fromDate, -1);
+    const afterRange = addDays(toDate, 1);
+    const inRange = addDays(fromDate, 1);
 
     const template: PropertyTemplate = {
       id: 'datePropertyID',
@@ -549,9 +542,9 @@ describe('src/cardFilter', () => {
   // hold everywhere.
   describe('verify isClauseMet method - (createdTime) date property', () => {
     // The day the card was created on, for the reader: 7 December 2023.
-    const checkDate = Date.UTC(2023, 11, 7);
-    const checkDayBefore = checkDate - dayMillis;
-    const checkDayAfter = checkDate + dayMillis;
+    const checkDate = calendarDate(2023, 12, 7);
+    const checkDayBefore = addDays(checkDate, -1);
+    const checkDayAfter = addDays(checkDate, 1);
 
     const template: PropertyTemplate = {
       id: 'datePropertyID',

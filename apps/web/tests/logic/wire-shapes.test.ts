@@ -22,77 +22,143 @@ import {
   normalizeBlock,
   parseDateValue,
   parseFilterDate,
+  plainPropertyValue,
   type Board,
 } from '$lib/logic/wire.ts';
 
-describe('the text of a date property', () => {
-  const noon = (date: number): number => Date.UTC(2026, 2, date, 12);
+describe('the stored value of a date property', () => {
+  const fifth = calendarDate(2026, 3, 5);
+  const ninth = calendarDate(2026, 3, 9);
+  // 09:30 on 5 March 2026 in UTC.
+  const moment = Date.UTC(2026, 2, 5, 9, 30);
 
-  it('reads a day from its noon in UTC', () => {
-    expect(parseDateValue(`{"from":${noon(5)}}`)).toEqual({ from: { date: '2026-03-05' } });
-    expect(parseDateValue(`{"from":${noon(5)},"to":${noon(9)}}`)).toEqual({
-      from: { date: '2026-03-05' },
-      to: { date: '2026-03-09' },
+  it('reads a calendar day from text and a moment from an integer', () => {
+    expect(parseDateValue({ from: '2026-03-05' })).toEqual({ from: { date: fifth } });
+    expect(parseDateValue({ from: '2026-03-05', to: '2026-03-09' })).toEqual({
+      from: { date: fifth },
+      to: { date: ninth },
     });
-  });
-
-  it('reads the day even when the stored time is not exactly noon (Q11)', () => {
-    expect(parseDateValue(`{"from":${noon(5) + 17 * 60_000}}`)).toEqual({
-      from: { date: '2026-03-05' },
-    });
-    expect(parseDateValue(`{"from":${Date.UTC(2026, 2, 5, 0, 0)}}`)).toEqual({
-      from: { date: '2026-03-05' },
-    });
-  });
-
-  it('reads a value with a time as the moment it is', () => {
-    const moment = Date.UTC(2026, 2, 5, 18, 30);
-    expect(parseDateValue(`{"from":${moment},"includeTime":true}`)).toEqual({
+    expect(parseDateValue({ from: moment })).toEqual({ from: { instant: moment } });
+    expect(parseDateValue({ from: moment, to: moment + 3_600_000 })).toEqual({
       from: { instant: moment },
+      to: { instant: moment + 3_600_000 },
     });
   });
 
-  it('writes a day as exactly its noon in UTC, whatever the time zone of the device', () => {
-    const value = {
-      from: { date: calendarDate(2026, 3, 5) },
-      to: { date: calendarDate(2026, 3, 9) },
-    };
-    expect(formatDateValue(value)).toBe(`{"from":${noon(5)},"to":${noon(9)}}`);
-    expect(parseDateValue(formatDateValue(value))).toEqual(value);
-    const timed = { from: { instant: 1_780_000_000_000 } };
-    expect(parseDateValue(formatDateValue(timed))).toEqual(timed);
+  it('writes a day as its date and a moment as milliseconds since the epoch in UTC', () => {
+    expect(formatDateValue({ from: { date: fifth } })).toEqual({ from: '2026-03-05' });
+    expect(formatDateValue({ from: { date: fifth }, to: { date: ninth } })).toEqual({
+      from: '2026-03-05',
+      to: '2026-03-09',
+    });
+    expect(formatDateValue({ from: { instant: moment } })).toEqual({ from: 1_772_703_000_000 });
+    expect(JSON.stringify(formatDateValue({ from: { instant: moment } }))).toBe(
+      '{"from":1772703000000}',
+    );
   });
 
-  it('reads anything else as an empty value', () => {
-    for (const text of [
-      undefined,
-      '',
-      'tomorrow',
-      'null',
-      '"text"',
-      '[1,2]',
-      '{}',
-      '{"from":"abc"}',
-      '{"from":0}',
+  it('writes neither a time zone nor a flag for the time: the type of each end says it all', () => {
+    for (const value of [
+      { from: { date: fifth } },
+      { from: { instant: moment }, to: { instant: moment + 1 } },
     ]) {
-      expect(parseDateValue(text)).toEqual({});
+      expect(Object.keys(formatDateValue(value) ?? {}).sort()).toEqual(
+        value.to ? ['from', 'to'] : ['from'],
+      );
     }
-    // The bare number of very old data is not read any more (Q10).
-    expect(parseDateValue('1625553000000')).toEqual({});
   });
 
-  it('keeps the end of a value that has lost its start', () => {
-    expect(parseDateValue(`{"to":${noon(9)}}`)).toEqual({ from: { date: '2026-03-09' } });
+  it('reads back what it wrote', () => {
+    for (const value of [
+      { from: { date: fifth } },
+      { from: { date: fifth }, to: { date: ninth } },
+      { from: { instant: moment } },
+      { from: { instant: moment }, to: { instant: moment + 86_400_000 } },
+      { from: { instant: 0 } },
+      { from: { date: calendarDate(1, 1, 1) }, to: { date: calendarDate(9999, 12, 31) } },
+    ]) {
+      expect(parseDateValue(formatDateValue(value))).toEqual(value);
+    }
+  });
+
+  it('writes a range whose ends are the same as one end, and turns a backward one around', () => {
+    expect(formatDateValue({ from: { date: fifth }, to: { date: fifth } })).toEqual({
+      from: '2026-03-05',
+    });
+    expect(formatDateValue({ from: { instant: moment }, to: { instant: moment } })).toEqual({
+      from: moment,
+    });
+    expect(formatDateValue({ from: { date: ninth }, to: { date: fifth } })).toEqual({
+      from: '2026-03-05',
+      to: '2026-03-09',
+    });
+    // A day and a moment cannot be the two ends of one value: the start is kept.
+    expect(formatDateValue({ from: { date: fifth }, to: { instant: moment } })).toEqual({
+      from: '2026-03-05',
+    });
   });
 
   it('writes nothing for an empty value', () => {
-    expect(formatDateValue({})).toBe('');
+    expect(formatDateValue({})).toBeUndefined();
   });
 
-  it('reads and writes the day of a date filter the same way', () => {
-    expect(parseFilterDate(String(noon(5)))).toBe('2026-03-05');
-    expect(formatFilterDate(calendarDate(2026, 3, 5))).toBe(String(noon(5)));
+  it('reads a range whose ends are the same as one end', () => {
+    expect(parseDateValue({ from: '2026-03-05', to: '2026-03-05' })).toEqual({
+      from: { date: fifth },
+    });
+  });
+
+  it('reads anything that is not a well-formed date value as an empty value', () => {
+    for (const stored of [
+      undefined,
+      null,
+      '',
+      'tomorrow',
+      '2026-03-05',
+      1_772_703_000_000,
+      ['2026-03-05'],
+      {},
+      { to: '2026-03-09' },
+      { from: 'abc' },
+      { from: '2026-3-5' },
+      { from: '2026-02-30' },
+      { from: '0000-01-01' },
+      { from: '2026-03-05T09:30:00Z' },
+      { from: -1 },
+      { from: 1.5 },
+      { from: Number.NaN },
+      { from: Date.UTC(10000, 0, 1) },
+      { from: '2026-03-05', to: 1_772_703_000_000 },
+      { from: 1_772_703_000_000, to: '2026-03-05' },
+      { from: '2026-03-09', to: '2026-03-05' },
+      { from: moment, to: moment - 1 },
+      { from: '2026-03-05', to: 'later' },
+      // The text the value was before it became an object (Q10, Q11): not read any more.
+      '{"from":1772712000000}',
+      '{"from":1772712000000,"includeTime":true}',
+      '1625553000000',
+    ]) {
+      expect(parseDateValue(stored)).toEqual({});
+    }
+  });
+
+  it('gives a date value a key to count and compare by, and none to a malformed one', () => {
+    expect(plainPropertyValue({ from: '2026-03-05' })).toBe('2026-03-05');
+    expect(plainPropertyValue({ from: '2026-03-05', to: '2026-03-09' })).toBe(
+      '2026-03-05/2026-03-09',
+    );
+    expect(plainPropertyValue({ from: moment })).toBe('1772703000000');
+    expect(plainPropertyValue({ from: 'soon' })).toBeUndefined();
+    expect(plainPropertyValue('text')).toBe('text');
+    expect(plainPropertyValue(['a', 'b'])).toEqual(['a', 'b']);
+    expect(plainPropertyValue(undefined)).toBeUndefined();
+  });
+
+  it('reads and writes the day of a date filter as the date itself', () => {
+    expect(formatFilterDate(fifth)).toBe('2026-03-05');
+    expect(parseFilterDate('2026-03-05')).toBe(fifth);
     expect(parseFilterDate('soon')).toBeUndefined();
+    expect(parseFilterDate('1772712000000')).toBeUndefined();
     expect(parseFilterDate(undefined)).toBeUndefined();
   });
 });

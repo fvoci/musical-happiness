@@ -12,6 +12,7 @@ import { diagnostics } from './diagnostics.ts';
 import {
   cardProperty,
   parseDateValue,
+  plainPropertyValue,
   TITLE_COLUMN_ID,
   type BoardView,
   type Card,
@@ -86,7 +87,8 @@ export interface SortContext {
 type SortKey = string | number | DatePoint | undefined;
 
 function sortKey(card: Card, template: PropertyTemplate, context: SortContext): SortKey {
-  const stored = cardProperty(card, template.id);
+  const value = cardProperty(card, template.id);
+  const stored = plainPropertyValue(value);
   const username = (userId: string): string => context.usernameOf?.(userId) ?? userId;
   const text = (value: string | undefined): SortKey => (value ? value : undefined);
 
@@ -105,7 +107,7 @@ function sortKey(card: Card, template: PropertyTemplate, context: SortContext): 
       return Number.isNaN(number) ? undefined : number;
     }
     case 'date':
-      return parseDateValue(typeof stored === 'string' ? stored : undefined).from;
+      return parseDateValue(value).from;
     case 'select':
     case 'multiSelect': {
       const id = Array.isArray(stored) ? stored[0] : stored;

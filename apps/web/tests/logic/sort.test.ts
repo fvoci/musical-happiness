@@ -13,13 +13,14 @@ import { manualOrder, sortCards, titleOrCreatedOrder, type SortContext } from '$
 import {
   createCard,
   createFilterGroup,
-  formatDateValue,
   setCardProperty,
   TITLE_COLUMN_ID,
   type Card,
   type PropertyTemplate,
   type PropertyValue,
 } from '$lib/logic/wire.ts';
+
+import { storedDate } from './support/factory.ts';
 
 function card(
   id: string,
@@ -185,9 +186,9 @@ describe('sorting by a property', () => {
   it('sorts dates by their first day; a value without a time before one with a time that day', () => {
     const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
     const cards = [
-      card('late', 'x', { d: formatDateValue({ from: day(9) }) }),
-      card('range', 'y', { d: formatDateValue({ from: day(5), to: day(20) }) }),
-      card('timed', 'z', { d: formatDateValue({ from: { instant: Date.UTC(2026, 2, 5, 9, 0) } }) }),
+      card('late', 'x', { d: storedDate({ from: day(9) }) }),
+      card('range', 'y', { d: storedDate({ from: day(5), to: day(20) }) }),
+      card('timed', 'z', { d: storedDate({ from: { instant: Date.UTC(2026, 2, 5, 9, 0) } }) }),
       card('none', 'w'),
     ];
     expect(ids(sortCards(cards, sortBy([['d']], { timeZone: 'UTC' })))).toBe(

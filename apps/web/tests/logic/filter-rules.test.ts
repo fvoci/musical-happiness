@@ -11,13 +11,15 @@ import { isClauseMet, type FilterContext } from '$lib/logic/filter.ts';
 import {
   createCard,
   createFilterClause,
-  formatDateValue,
   formatFilterDate,
+  parseFilterDate,
   setCardProperty,
   type FilterCondition,
   type PropertyTemplate,
   type PropertyValue,
 } from '$lib/logic/wire.ts';
+
+import { storedDate } from './support/factory.ts';
 
 const templates: PropertyTemplate[] = [
   { id: 'notes', name: 'Notes', type: 'text', options: [] },
@@ -37,7 +39,7 @@ function met(
   card: {
     title?: string;
     notes?: PropertyValue;
-    due?: string;
+    due?: PropertyValue;
     createAt?: number;
     updateAt?: number;
   },
@@ -101,8 +103,8 @@ describe('text conditions do not look at case', () => {
 describe('a date property is compared as a calendar day', () => {
   const fifth = calendarDate(2026, 3, 5);
   const day = (date: number): string => formatFilterDate(calendarDate(2026, 3, date));
-  const single = formatDateValue({ from: { date: fifth } });
-  const range = formatDateValue({ from: { date: fifth }, to: { date: calendarDate(2026, 3, 7) } });
+  const single = storedDate({ from: { date: fifth } });
+  const range = storedDate({ from: { date: fifth }, to: { date: calendarDate(2026, 3, 7) } });
 
   it('"is" finds the day', () => {
     expect(met('due', 'is', day(5), { due: single })).toBe(true);
@@ -110,12 +112,12 @@ describe('a date property is compared as a calendar day', () => {
     expect(met('due', 'is', day(6), { due: single })).toBe(false);
   });
 
-  it('"is" finds the day however the value was written within that day', () => {
-    // Stored one minute past noon UTC: still the 5th.
-    const offNoon = JSON.stringify({ from: Date.UTC(2026, 2, 5, 12, 1) });
-    expect(met('due', 'is', day(5), { due: offNoon })).toBe(true);
-    const lateEvening = JSON.stringify({ from: Date.UTC(2026, 2, 5, 23, 59) });
-    expect(met('due', 'is', day(5), { due: lateEvening })).toBe(true);
+  it('"is" finds a value with a time on the day it falls on for the reader', () => {
+    // 23:59 UTC on the 5th is still the 5th in UTC and already the 6th in Seoul.
+    const lateEvening = storedDate({ from: { instant: Date.UTC(2026, 2, 5, 23, 59) } });
+    expect(met('due', 'is', day(5), { due: lateEvening }, { timeZone: 'UTC' })).toBe(true);
+    expect(met('due', 'is', day(5), { due: lateEvening }, { timeZone: 'Asia/Seoul' })).toBe(false);
+    expect(met('due', 'is', day(6), { due: lateEvening }, { timeZone: 'Asia/Seoul' })).toBe(true);
   });
 
   it('"is" finds every day of a range, its ends included', () => {
@@ -156,10 +158,14 @@ describe('a date property is compared as a calendar day', () => {
   });
 
   it('does not read what is not a date value', () => {
-    // Text left behind by another property type, and the bare number of very old data (Q10).
+    // Text left behind by another property type, the bare number of very old
+    // data (Q10), and the text form the value had before it became an object.
     expect(met('due', 'isSet', '', { due: 'next week' })).toBe(false);
     expect(met('due', 'isSet', '', { due: '1625553000000' })).toBe(false);
+    expect(met('due', 'isSet', '', { due: '{"from":1772712000000}' })).toBe(false);
     expect(met('due', 'is', day(5), { due: String(Date.UTC(2026, 2, 5, 12)) })).toBe(false);
+    // The day of a filter is a calendar date; milliseconds are not read as one.
+    expect(parseFilterDate(String(Date.UTC(2026, 2, 5, 12)))).toBeUndefined();
   });
 });
 

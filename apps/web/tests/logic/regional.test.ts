@@ -7,10 +7,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { displayDateTime } from '$lib/logic/format.ts';
 import {
   DEFAULT_REGIONAL_SETTINGS,
+  HOUR_CYCLE_SETTINGS,
+  WEEK_START_SETTINGS,
   hourCycleOf,
   isTimeZone,
+  readRegionalSettings,
   resolveRegional,
   weekStartOf,
+  type WeekStartSetting,
 } from '$lib/logic/regional.ts';
 import { browserTimeZone, regional, regionalSettings, setRegionalSettings } from '$lib/regional.ts';
 
@@ -34,12 +38,47 @@ describe('regional settings', () => {
   });
 
   it('keep a fixed choice whatever the browser and the language say', () => {
-    const fixed = { timeZone: 'Pacific/Kiritimati', weekStart: 6, hourCycle: 'h23' } as const;
+    const fixed = {
+      timeZone: 'Pacific/Kiritimati',
+      weekStart: 'saturday',
+      hourCycle: 'h23',
+    } as const;
     expect(resolveRegional(fixed, 'en-US', 'Asia/Seoul')).toEqual({
       timeZone: 'Pacific/Kiritimati',
       weekStart: 6,
       hourCycle: 'h23',
     });
+  });
+
+  it('are written the way the server stores them', () => {
+    expect(WEEK_START_SETTINGS).toEqual(['auto', 'sunday', 'monday', 'saturday']);
+    expect(HOUR_CYCLE_SETTINGS).toEqual(['auto', 'h12', 'h23']);
+    const resolved = (weekStart: WeekStartSetting): number =>
+      resolveRegional({ ...DEFAULT_REGIONAL_SETTINGS, weekStart }, 'de', 'UTC').weekStart;
+    // ISO 8601 numbers the days from Monday (1) to Sunday (7).
+    expect(resolved('sunday')).toBe(7);
+    expect(resolved('monday')).toBe(1);
+    expect(resolved('saturday')).toBe(6);
+    expect(resolved('auto')).toBe(1);
+  });
+
+  it('are read from what the server sent, and anything unknown reads as auto', () => {
+    expect(
+      readRegionalSettings({ timeZone: 'Asia/Seoul', weekStart: 'monday', hourCycle: 'h23' }),
+    ).toEqual({ timeZone: 'Asia/Seoul', weekStart: 'monday', hourCycle: 'h23' });
+    expect(
+      readRegionalSettings({ timeZone: 'auto', weekStart: 'auto', hourCycle: 'auto' }),
+    ).toEqual(DEFAULT_REGIONAL_SETTINGS);
+    for (const stored of [
+      undefined,
+      null,
+      'auto',
+      {},
+      { timeZone: '', weekStart: 1, hourCycle: 'h24' },
+      { timeZone: 9, weekStart: 'friday', hourCycle: true },
+    ]) {
+      expect(readRegionalSettings(stored)).toEqual(DEFAULT_REGIONAL_SETTINGS);
+    }
   });
 
   it('fall back to the browser for a fixed time zone the runtime does not know', () => {
@@ -94,7 +133,7 @@ describe('the place the app reads the settings from', () => {
   });
 
   it('uses the fixed choices once they are set', () => {
-    setRegionalSettings({ timeZone: 'America/New_York', weekStart: 1, hourCycle: 'h23' });
+    setRegionalSettings({ timeZone: 'America/New_York', weekStart: 'monday', hourCycle: 'h23' });
     expect(regional('ko')).toEqual({
       timeZone: 'America/New_York',
       weekStart: 1,

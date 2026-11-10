@@ -3,6 +3,7 @@
  * for the tests of the logic. The same fixtures the tests of the original
  * web app build on, so that the ported cases mean what they meant there.
  */
+import type { DateValue } from '$lib/logic/dates.ts';
 import {
   appendCardContent,
   createBoard,
@@ -14,6 +15,7 @@ import {
   createFilterGroup,
   createImageBlock,
   createTextBlock,
+  formatDateValue,
   setCardProperty,
   type Block,
   type Board,
@@ -23,6 +25,7 @@ import {
   type CommentBlock,
   type DividerBlock,
   type ImageBlock,
+  type StoredDateValue,
   type TextBlock,
 } from '$lib/logic/wire.ts';
 
@@ -112,4 +115,11 @@ export function createTestCheckbox(card: Card): CheckboxBlock {
   const block = addToCard(createCheckboxBlock(), card);
   block.title = 'title';
   return block;
+}
+
+/** What is stored for a date value that is not empty. */
+export function storedDate(value: DateValue): StoredDateValue {
+  const stored = formatDateValue(value);
+  if (!stored) throw new Error('an empty date value is not stored');
+  return stored;
 }

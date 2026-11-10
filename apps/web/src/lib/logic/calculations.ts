@@ -10,6 +10,7 @@ import {
 import {
   cardProperty,
   parseDateValue,
+  plainPropertyValue,
   TITLE_COLUMN_ID,
   type Card,
   type PropertyTemplate,
@@ -63,7 +64,7 @@ function valueOf(card: Card, property: PropertyTemplate): string | string[] | nu
     case 'updatedTime':
       return toTheMinute(card.updateAt);
     default:
-      return cardProperty(card, property.id);
+      return plainPropertyValue(cardProperty(card, property.id));
   }
 }
 
@@ -114,7 +115,7 @@ function daySpan(
   let span: { first: CalendarDate; last: CalendarDate } | undefined;
   for (const card of cards) {
     const stored = cardProperty(card, property.id);
-    const days = daysOf(parseDateValue(typeof stored === 'string' ? stored : undefined), timeZone);
+    const days = daysOf(parseDateValue(stored), timeZone);
     if (!days) continue;
     span = span
       ? {

@@ -21,12 +21,13 @@ import { cardComparator, manualComparator, sortCards, type SortContext } from '$
 import {
   cardProperty,
   createCard,
-  formatDateValue,
   setCardProperty,
   TITLE_COLUMN_ID,
   type Card,
   type PropertyTemplate,
 } from '$lib/logic/wire.ts';
+
+import { storedDate } from './support/factory.ts';
 
 const templates: PropertyTemplate[] = [
   { id: 'n', name: 'Number', type: 'number', options: [] },
@@ -57,10 +58,10 @@ const cardFields = fc.record({
     fc.oneof(
       fc
         .integer({ min: 1, max: 3 })
-        .map((day) => formatDateValue({ from: { date: calendarDate(2026, 3, day) } })),
+        .map((day) => storedDate({ from: { date: calendarDate(2026, 3, day) } })),
       fc
         .integer({ min: 0, max: 3 })
-        .map((hours) => formatDateValue({ from: { instant: Date.UTC(2026, 2, 2, hours * 8) } })),
+        .map((hours) => storedDate({ from: { instant: Date.UTC(2026, 2, 2, hours * 8) } })),
       fc.constant('not a date'),
     ),
   ),
@@ -209,7 +210,10 @@ describe('the order by sort options is an ordering', () => {
         return typeof stored === 'string' && stored.trim() !== '' && !Number.isNaN(Number(stored));
       },
       t: (card) => Boolean(cardProperty(card, 't')),
-      s: (card) => ['o1', 'o2'].includes(String(cardProperty(card, 's'))),
+      s: (card) => {
+        const stored = cardProperty(card, 's');
+        return typeof stored === 'string' && ['o1', 'o2'].includes(stored);
+      },
     };
     fc.assert(
       fc.property(

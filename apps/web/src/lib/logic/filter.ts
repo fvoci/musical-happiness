@@ -7,6 +7,7 @@ import {
   cardProperty,
   isFilterGroup,
   parseDateValue,
+  plainPropertyValue,
   parseFilterDate,
   type Card,
   type FilterClause,
@@ -70,7 +71,7 @@ function valueForClause(
 
   switch (template?.type) {
     case 'date':
-      return { value, dateValue: parseDateValue(typeof value === 'string' ? value : undefined) };
+      return { value, dateValue: parseDateValue(value) };
     case 'createdTime':
       return { value: String(card.createAt), dateValue: { from: { instant: card.createAt } } };
     case 'updatedTime':
@@ -108,8 +109,9 @@ export function isClauseMet(
   const { value, dateValue } = valueForClause(filter, template, card);
   const first = filter.values[0];
 
-  // Text or a list; anything else a stored value might be counts as empty.
-  const stored = typeof value === 'string' || Array.isArray(value) ? value : '';
+  // Text or a list (a date value counts by its key); anything else counts as empty.
+  const plain = plainPropertyValue(value);
+  const stored = typeof plain === 'string' || Array.isArray(plain) ? plain : '';
   const hasAnyValue = (): boolean =>
     filter.values.some((candidate) =>
       Array.isArray(stored) ? stored.includes(candidate) : candidate === stored,

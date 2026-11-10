@@ -26,12 +26,13 @@ import { searchFilterCards } from '$lib/logic/search.ts';
 import {
   createBlock,
   createCard,
-  formatDateValue,
   setCardProperty,
   type Card,
   type PropertyTemplate,
   type PropertyValue,
 } from '$lib/logic/wire.ts';
+
+import { storedDate } from './support/factory.ts';
 
 import { at } from '../support/zones.ts';
 
@@ -79,7 +80,7 @@ describe('search', () => {
     card('select', 'a', { status: 'doing' }),
     card('text', 'b', { notes: 'ask about LOGIN flow' }),
     card('multi', 'c', { tags: ['t1', 't2'] }),
-    card('date', 'd', { due: '{"from":1767225600000}' }),
+    card('date', 'd', { due: { from: '2026-01-01' } }),
   ];
 
   it('returns every card for an empty text, as a new list', () => {
@@ -274,14 +275,14 @@ describe('property behaviour', () => {
   it('shows a date and a range of dates the same in every time zone', () => {
     const { displayValue } = PROPERTY_BEHAVIORS.date;
     const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
-    const single = formatDateValue({ from: day(5) });
-    const range = formatDateValue({ from: day(5), to: day(9) });
+    const single = storedDate({ from: day(5) });
+    const range = storedDate({ from: day(5), to: day(9) });
     for (const timeZone of ['UTC', 'Asia/Seoul', 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
       const zoned = { ...context, timeZone };
       expect(displayValue(single, card('x', 'x'), due, zoned)).toBe('March 05');
       expect(displayValue(range, card('x', 'x'), due, zoned)).toBe('March 05 -> March 09');
     }
-    const lastYear = formatDateValue({ from: { date: calendarDate(2025, 12, 31) } });
+    const lastYear = storedDate({ from: { date: calendarDate(2025, 12, 31) } });
     expect(displayValue(lastYear, card('x', 'x'), due, context)).toBe('December 31, 2025');
     expect(displayValue('not a date', card('x', 'x'), due, context)).toBe('');
     expect(displayValue(undefined, card('x', 'x'), due, context)).toBe('');
@@ -289,7 +290,7 @@ describe('property behaviour', () => {
 
   it('shows a date with a time as the moment it is', () => {
     const { displayValue } = PROPERTY_BEHAVIORS.date;
-    const timed = formatDateValue({ from: { instant: at('Asia/Seoul', 2026, 3, 5, 15, 20) } });
+    const timed = storedDate({ from: { instant: at('Asia/Seoul', 2026, 3, 5, 15, 20) } });
     expect(displayValue(timed, card('x', 'x'), due, context)).toBe('March 05 at 3:20 PM');
   });
 
@@ -304,7 +305,7 @@ describe('property behaviour', () => {
   it('says which days a card occupies in a calendar', () => {
     const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
     const days = PROPERTY_BEHAVIORS.date.days;
-    expect(days?.(formatDateValue({ from: day(5), to: day(9) }), card('x', 'x'), 'UTC')).toEqual({
+    expect(days?.(storedDate({ from: day(5), to: day(9) }), card('x', 'x'), 'UTC')).toEqual({
       first: '2026-03-05',
       last: '2026-03-09',
     });

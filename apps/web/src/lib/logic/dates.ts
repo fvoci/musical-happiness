@@ -28,13 +28,23 @@ const pad = (value: number, width: number): string => String(value).padStart(wid
 
 /** The date with these numbers; `month` is 1 to 12. Numbers out of range roll over, as in `Date`. */
 export function calendarDate(year: number, month: number, day: number): CalendarDate {
-  return dateOfUtc(Date.UTC(year, month - 1, day));
+  return dateOfUtc(utcMidnight(year, month, day));
 }
 
-/** Reads `YYYY-MM-DD`; undefined for anything else, and for days that do not exist. */
+/** Midnight UTC of a day. `Date.UTC` would read the years 0 to 99 as 1900 to 1999. */
+function utcMidnight(year: number, month: number, day: number): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  return date.getTime();
+}
+
+/**
+ * Reads `YYYY-MM-DD`, from the year 0001 to 9999; undefined for anything
+ * else, and for days that do not exist.
+ */
 export function parseCalendarDate(text: string): CalendarDate | undefined {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
-  if (!match) return undefined;
+  if (!match || match[1] === '0000') return undefined;
   const date = calendarDate(Number(match[1]), Number(match[2]), Number(match[3]));
   return date === text ? date : undefined;
 }
@@ -47,11 +57,7 @@ export function dateOfUtc(instant: number): CalendarDate {
 
 /** Midnight UTC at the start of a date: a number to do arithmetic with, not a moment anyone lives. */
 function utcOf(date: CalendarDate): number {
-  return Date.UTC(
-    Number(date.slice(0, 4)),
-    Number(date.slice(5, 7)) - 1,
-    Number(date.slice(8, 10)),
-  );
+  return utcMidnight(Number(date.slice(0, 4)), Number(date.slice(5, 7)), Number(date.slice(8, 10)));
 }
 
 const formatters = new Map<string, Intl.DateTimeFormat>();

@@ -12,6 +12,7 @@ import { diagnostics } from './diagnostics.ts';
 import { displayCalendarDate, displayDateTime, type DisplayContext } from './format.ts';
 import {
   parseDateValue,
+  plainPropertyValue,
   type Card,
   type PropertyTemplate,
   type PropertyType,
@@ -96,7 +97,7 @@ function exportDisplayed(display: Display): PropertyBehavior['exportValue'] {
 }
 
 function behavior(overrides: Partial<PropertyBehavior>): PropertyBehavior {
-  const displayValue: Display = overrides.displayValue ?? ((value) => value);
+  const displayValue: Display = overrides.displayValue ?? plainPropertyValue;
   return {
     canGroup: false,
     canFilter: false,
@@ -111,7 +112,8 @@ function behavior(overrides: Partial<PropertyBehavior>): PropertyBehavior {
 
 const textLike = behavior({ canFilter: true, filterValueType: 'text' });
 
-const displaySelect: Display = (value, card, template, context) => {
+const displaySelect: Display = (stored, card, template, context) => {
+  const value = plainPropertyValue(stored);
   if (!value) return '';
   const option = template.options.find((candidate) => candidate.id === value);
   if (!option) {
@@ -120,7 +122,8 @@ const displaySelect: Display = (value, card, template, context) => {
   return option?.value || (context.unknownOption ?? '(Unknown)');
 };
 
-const displayMultiSelect: Display = (value, card, template) => {
+const displayMultiSelect: Display = (stored, card, template) => {
+  const value = plainPropertyValue(stored);
   if (!value?.length) return '';
   const options = template.options.filter((option) => value.includes(option.id));
   if (options.length === 0) {
@@ -137,7 +140,7 @@ function displayPoint(point: DatePoint, context: DisplayContext): string {
 }
 
 const displayDateValue: Display = (value, _card, _template, context) => {
-  const { from, to } = parseDateValue(typeof value === 'string' ? value : undefined);
+  const { from, to } = parseDateValue(value);
   if (!from) return '';
   return to
     ? `${displayPoint(from, context)} -> ${displayPoint(to, context)}`
@@ -183,8 +186,7 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     canFilter: true,
     filterValueType: 'date',
     displayValue: displayDateValue,
-    days: (value, _card, timeZone) =>
-      daysOf(parseDateValue(typeof value === 'string' ? value : undefined), timeZone),
+    days: (value, _card, timeZone) => daysOf(parseDateValue(value), timeZone),
   }),
   person: behavior({ canGroup: true, canFilter: true, filterValueType: 'person' }),
   multiPerson: behavior({ canFilter: true, filterValueType: 'person' }),

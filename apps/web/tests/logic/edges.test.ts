@@ -11,11 +11,13 @@ import { calendarDate } from '$lib/logic/dates.ts';
 import { UndoManager } from '$lib/logic/undo.ts';
 import {
   createCard,
-  formatDateValue,
   setCardProperty,
   type Card,
   type PropertyTemplate,
+  type PropertyValue,
 } from '$lib/logic/wire.ts';
+
+import { storedDate } from './support/factory.ts';
 
 import { at } from '../support/zones.ts';
 
@@ -212,15 +214,15 @@ describe('date calculations', () => {
     options: [],
   };
   const context = { locale: 'en', now: Date.UTC(2026, 5, 1), timeZone: 'UTC' };
-  const withDue = (value: string): Card => {
+  const withDue = (value: PropertyValue): Card => {
     const card = createCard();
     setCardProperty(card, 'due', value);
     return card;
   };
   const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
   const cards = [
-    withDue(formatDateValue({ from: day(9) })),
-    withDue(formatDateValue({ from: day(5), to: day(12) })),
+    withDue(storedDate({ from: day(9) })),
+    withDue(storedDate({ from: day(5), to: day(12) })),
     withDue('not a date'),
     createCard(),
   ];

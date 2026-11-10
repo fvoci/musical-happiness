@@ -32,13 +32,14 @@ import { sortCards } from '$lib/logic/sort.ts';
 import {
   createCard,
   createFilterClause,
-  formatDateValue,
   formatFilterDate,
   setCardProperty,
   type Card,
   type FilterCondition,
   type PropertyTemplate,
 } from '$lib/logic/wire.ts';
+
+import { storedDate } from './support/factory.ts';
 
 import { at, ZONES } from '../support/zones.ts';
 
@@ -63,7 +64,7 @@ function cardCreatedAt(instant: number, id = 'card'): Card {
 function cardDue(date: CalendarDate, id = 'card'): Card {
   const card = createCard();
   card.id = id;
-  setCardProperty(card, 'due', formatDateValue({ from: { date } }));
+  setCardProperty(card, 'due', storedDate({ from: { date } }));
   return card;
 }
 
@@ -154,7 +155,7 @@ describe('a day where the clocks change', () => {
     expect(to - from).toBe(24 * HOUR);
     const timed = (instant: number): Card => {
       const card = createCard();
-      setCardProperty(card, 'due', formatDateValue({ from: { instant } }));
+      setCardProperty(card, 'due', storedDate({ from: { instant } }));
       return card;
     };
     const reader = { locale: 'en', timeZone: newYork };
@@ -266,7 +267,7 @@ describe('a date without a time is the same date for every reader', () => {
   const now = Date.UTC(2026, 5, 1);
 
   it('covers the same day in every time zone', () => {
-    const stored = formatDateValue({ from: { date: fifth } });
+    const stored = storedDate({ from: { date: fifth } });
     for (const timeZone of ZONES) {
       expect(daysOf({ from: { date: fifth } }, timeZone)).toEqual({ first: fifth, last: fifth });
       expect(PROPERTY_BEHAVIORS.date.days?.(stored, createCard(), timeZone)).toEqual({
@@ -277,7 +278,7 @@ describe('a date without a time is the same date for every reader', () => {
   });
 
   it('is shown as the same day in every time zone', () => {
-    const stored = formatDateValue({ from: { date: fifth } });
+    const stored = storedDate({ from: { date: fifth } });
     for (const timeZone of ZONES) {
       const context = { locale: 'en', timeZone, now };
       expect(displayCalendarDate(fifth, context)).toBe('March 05');
@@ -348,7 +349,7 @@ describe('a date without a time is the same date for every reader', () => {
   });
 
   it('but a date with a time is a moment, and does depend on the reader', () => {
-    const timed = formatDateValue({ from: { instant: Date.UTC(2026, 2, 5, 20, 0) } });
+    const timed = storedDate({ from: { instant: Date.UTC(2026, 2, 5, 20, 0) } });
     const days = PROPERTY_BEHAVIORS.date.days;
     expect(days?.(timed, createCard(), 'UTC')?.first).toBe('2026-03-05');
     expect(days?.(timed, createCard(), 'Asia/Seoul')?.first).toBe('2026-03-06');
