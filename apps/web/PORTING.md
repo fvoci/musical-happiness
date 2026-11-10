@@ -360,7 +360,7 @@ W2(API 클라이언트, WebSocket, 상태, 라우터, 로그인)는 서버의 �
 편집기(Tiptap) 없이 문서를 DOM으로 그린다. 허용 목록의 노드 15종과 마크 5종을 모두 그리고, 검증을 통과하지 못한 문서는 그리지 않으며, 링크의 `rel`·`target`은 그릴 때 붙인다. 글자는 텍스트 노드로만 넣는다.
 
 - 편집기가 그린 것과의 비교(`tests/ui/body-compare.test.ts`): 템플릿 문서 58개와 손으로 만든 문서 16개, 스파이크 예제 1개, 모두 75개에서 정규화한 DOM이 같다. 비교에서 빼는 것 열 가지는 그 파일 머리에 적혀 있고, 한 번도 쓰이지 않는 항목이 생기면 테스트가 실패한다. 브라우저에서는 모든 요소의 위치·크기와 계산된 스타일 36가지를 견준다(`spikes/editor/view.spec.ts`).
-- 번들 크기(2026-11-10 20:28 KST, 제품 설정으로 따로 묶음): `renderBody`(검증기 포함) 원본 7,649 / gzip 2,991 / **brotli 2,690**바이트. Svelte 부품 `BodyView`까지의 증가분은 brotli 4,104바이트. 같은 방법으로 잰 편집기 조각은 407,951 / 129,024 / 109,957이다. 스파이크 문서 6절의 편집기 수치(523,262 / 146,035 / 121,076)는 이 방법으로 재현되지 않았고, 공백을 지우지 않은 묶음을 잰 것으로 추정한다(확인하지 못함).
+- 번들 크기(2026-11-10 22:01 KST, 커밋 `2ebe40a8`에서 제품 설정으로 따로 묶음): `renderBody`(검증기 포함) 원본 8,132 / gzip 3,102 / **brotli 2,793**바이트. Svelte 부품 `BodyView`까지의 증가분은 brotli 4,191바이트. (검증기를 고치기 전인 20:28 KST의 값은 7,649 / 2,991 / 2,690이었다.) 같은 방법으로 잰 편집기 조각은 407,951 / 129,024 / 109,957이다. 스파이크 문서 6절의 편집기 수치(523,262 / 146,035 / 121,076)는 이 방법으로 재현되지 않았고, 공백을 지우지 않은 묶음을 잰 것으로 추정한다(확인하지 못함).
 - 비교하다 찾아 고친 것: 편집기 쪽 CSS의 결함 셋(`editor.css`), 검증기가 `{"type":"constructor"}` 같은 마크를 통과시키던 것, 검증기가 문서 모양이 아닌 값에서 예외를 던지던 것, 굵은 글자 속 줄바꿈·멘션에 마크가 붙어 저장 문서가 검증에 걸리던 것(`toStoredDoc`이 뗀다).
 
 ### 속성 편집기 15종
@@ -396,7 +396,7 @@ W2(API 클라이언트, WebSocket, 상태, 라우터, 로그인)는 서버의 �
 
 ### 다른 기기에서 화면 보기
 
-`pnpm --filter web run look`이 스파이크와 Storybook을 빌드해 한 포트(18410, 모든 인터페이스)에서 서빙한다(`tools/serve.ts`: 정적 파일만, API 없음). `/`가 화면의 목록이다: `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`. 스파이크 화면과 Storybook은 앱의 글꼴을 싣는다. 스파이크의 빌드는 어느 폴더 아래에서도 서빙되게 상대 주소를 쓴다. 다시 빌드만 하면(`spikes:build`, `build-storybook`) 떠 있는 서버가 새 파일을 준다(캐시하지 않게 보낸다).
+`pnpm --filter web run look`이 스파이크와 Storybook을 빌드해 한 포트(18410, 모든 인터페이스)에서 서빙한다(`tools/serve.ts`: 정적 파일만, API 없음). `/`가 화면의 목록이다: `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`. **이 기기(WSL2, 네트워크 모드 mirrored)에서 확인한 것(2026-11-10 22:00 KST)**: Windows 쪽에서는 `http://localhost:18410/`로 열린다(Windows의 `curl.exe`로 200). LAN 주소(`http://192.168.0.15:18410/`)는 WSL 안에서는 답하지만 Windows 쪽에서는 답이 없었다. WSL의 Hyper-V 방화벽이 들어오는 연결을 기본으로 막고(`DefaultInboundAction: Block`), LAN에 열린 규칙은 22번과 6768번 포트뿐이다. **그래서 휴대폰에서는 지금 닿지 않을 것으로 본다.** 열려면 관리자 PowerShell에서 규칙을 더해야 한다(`New-NetFirewallHyperVRule -Name fvoci-look -DisplayName "fvoci look - LAN" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 18410`, 지울 때는 `Remove-NetFirewallHyperVRule -Name fvoci-look`). 방화벽은 건드리지 않았다. 스파이크 화면과 Storybook은 앱의 글꼴을 싣는다. 스파이크의 빌드는 어느 폴더 아래에서도 서빙되게 상대 주소를 쓴다. 다시 빌드만 하면(`spikes:build`, `build-storybook`) 떠 있는 서버가 새 파일을 준다(캐시하지 않게 보낸다).
 
 ### 플랜에 더해진 결정 (2026-11-10 22:00 KST로 적힌 "모바일 안의 결정과 설정")
 
