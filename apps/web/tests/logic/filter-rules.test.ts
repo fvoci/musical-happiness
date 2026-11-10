@@ -27,6 +27,9 @@ const templates: PropertyTemplate[] = [
   { id: 'tags', name: 'Tags', type: 'multiSelect', options: [] },
 ];
 
+/** Most cases do not involve a moment: any reader will do. */
+const utc: FilterContext = { timeZone: 'UTC' };
+
 function met(
   propertyId: string,
   condition: FilterCondition,
@@ -38,7 +41,7 @@ function met(
     createAt?: number;
     updateAt?: number;
   },
-  context: FilterContext = {},
+  context: FilterContext = utc,
 ): boolean {
   const created = createCard();
   created.title = card.title ?? '';
@@ -207,13 +210,14 @@ describe("the day a card was created is the day on the reader's calendar", () =>
     expect(met('created', 'is', seventh, { createAt: start + 86_400_000 }, seoul)).toBe(false);
   });
 
-  it('uses the time zone of the device when none is given', () => {
-    const noonHere = new Date(2023, 11, 7, 12, 0).getTime();
-    expect(met('created', 'is', seventh, { createAt: noonHere })).toBe(true);
-    expect(met('updated', 'is', seventh, { updateAt: noonHere })).toBe(true);
-    const justAfterMidnightHere = new Date(2023, 11, 7, 0, 0, 1).getTime();
-    const justBeforeMidnightHere = new Date(2023, 11, 7, 23, 59, 59).getTime();
-    expect(met('created', 'is', seventh, { createAt: justAfterMidnightHere })).toBe(true);
-    expect(met('created', 'is', seventh, { createAt: justBeforeMidnightHere })).toBe(true);
+  it("gives the same answer wherever the code runs: only the reader's time zone counts", () => {
+    // 23:59:59 on the 7th and 00:00:01 on the 7th, on a clock in Seoul.
+    const lateInSeoul = Date.UTC(2023, 11, 7, 14, 59, 59);
+    const earlyInSeoul = Date.UTC(2023, 11, 6, 15, 0, 1);
+    expect(met('created', 'is', seventh, { createAt: lateInSeoul }, seoul)).toBe(true);
+    expect(met('created', 'is', seventh, { createAt: earlyInSeoul }, seoul)).toBe(true);
+    expect(met('updated', 'is', seventh, { updateAt: earlyInSeoul }, seoul)).toBe(true);
+    // For a reader in UTC the second of those is still the 6th.
+    expect(met('created', 'is', seventh, { createAt: earlyInSeoul }, utc)).toBe(false);
   });
 });

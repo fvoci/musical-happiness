@@ -10,12 +10,12 @@ import {
   calendarDate,
   comparePoints,
   dateOfInstant,
-  dateOfLocal,
   dateOfPoint,
   daysBetween,
   daysOf,
-  localMidnight,
+  endOfDay,
   parseCalendarDate,
+  startOfDay,
 } from '$lib/logic/dates.ts';
 import {
   displayDate,
@@ -66,22 +66,14 @@ describe('calendar dates', () => {
     expect(dateOfInstant(Date.UTC(2023, 11, 8, 10, 30), 'Pacific/Pago_Pago')).toBe('2023-12-07');
   });
 
-  it('use the time zone of the device when none is given', () => {
-    const local = new Date(2026, 2, 5, 23, 59);
-    expect(dateOfInstant(local.getTime())).toBe('2026-03-05');
-    expect(dateOfLocal(local)).toBe('2026-03-05');
-    expect(dateOfLocal(new Date(2026, 2, 5, 0, 0))).toBe('2026-03-05');
-  });
-
-  it('turn into local midnight for a calendar, and back', () => {
-    const midnight = localMidnight(calendarDate(2026, 3, 5));
-    expect([
-      midnight.getFullYear(),
-      midnight.getMonth(),
-      midnight.getDate(),
-      midnight.getHours(),
-    ]).toEqual([2026, 2, 5, 0]);
-    expect(dateOfLocal(midnight)).toBe('2026-03-05');
+  it("begin and end at midnight on the reader's clock", () => {
+    const fifth = calendarDate(2026, 3, 5);
+    expect(startOfDay(fifth, 'UTC')).toBe(Date.UTC(2026, 2, 5));
+    expect(startOfDay(fifth, 'Asia/Seoul')).toBe(Date.UTC(2026, 2, 4, 15));
+    expect(endOfDay(fifth, 'Asia/Seoul')).toBe(Date.UTC(2026, 2, 5, 15));
+    expect(startOfDay(fifth, 'Asia/Kathmandu')).toBe(Date.UTC(2026, 2, 4, 18, 15));
+    expect(dateOfInstant(startOfDay(fifth, 'Asia/Seoul'), 'Asia/Seoul')).toBe(fifth);
+    expect(dateOfInstant(endOfDay(fifth, 'Asia/Seoul') - 1, 'Asia/Seoul')).toBe(fifth);
   });
 });
 
@@ -90,13 +82,19 @@ describe('date values', () => {
   const ninth = { date: calendarDate(2026, 3, 9) };
 
   it('cover one day, or every day of a range', () => {
-    expect(daysOf({ from: fifth })).toEqual({ first: '2026-03-05', last: '2026-03-05' });
-    expect(daysOf({ from: fifth, to: ninth })).toEqual({ first: '2026-03-05', last: '2026-03-09' });
-    expect(daysOf({})).toBeUndefined();
+    expect(daysOf({ from: fifth }, 'UTC')).toEqual({ first: '2026-03-05', last: '2026-03-05' });
+    expect(daysOf({ from: fifth, to: ninth }, 'UTC')).toEqual({
+      first: '2026-03-05',
+      last: '2026-03-09',
+    });
+    expect(daysOf({}, 'UTC')).toBeUndefined();
   });
 
   it('cover the same days when a range was stored backwards', () => {
-    expect(daysOf({ from: ninth, to: fifth })).toEqual({ first: '2026-03-05', last: '2026-03-09' });
+    expect(daysOf({ from: ninth, to: fifth }, 'UTC')).toEqual({
+      first: '2026-03-05',
+      last: '2026-03-09',
+    });
   });
 
   it("fall on the reader's day when they carry a time", () => {
@@ -121,8 +119,8 @@ describe('date values', () => {
 });
 
 describe('durations and sizes', () => {
-  const now = new Date(2026, 5, 15, 12, 0, 0);
-  const ago = (milliseconds: number): Date => new Date(now.getTime() - milliseconds);
+  const now = Date.UTC(2026, 5, 15, 12, 0, 0);
+  const ago = (milliseconds: number): number => now - milliseconds;
   const MINUTE = 60_000;
   const HOUR = 60 * MINUTE;
   const DAY = 24 * HOUR;
@@ -135,7 +133,7 @@ describe('durations and sizes', () => {
     expect(relativeTime(ago(30 * HOUR), 'en', now)).toBe('yesterday');
     expect(relativeTime(ago(40 * DAY), 'en', now)).toBe('last month');
     expect(relativeTime(ago(400 * DAY), 'en', now)).toBe('last year');
-    expect(relativeTime(new Date(now.getTime() + 2 * DAY), 'en', now)).toBe('in 2 days');
+    expect(relativeTime(now + 2 * DAY, 'en', now)).toBe('in 2 days');
     expect(relativeTime(ago(3 * HOUR), 'ko', now)).toBe('3시간 전');
   });
 
@@ -151,10 +149,10 @@ describe('durations and sizes', () => {
   });
 
   it('shows nothing for a date that is not one', () => {
-    const invalid = new Date(Number.NaN);
-    expect(displayDate(invalid, 'en')).toBe('');
-    expect(displayDateTime(invalid, 'en')).toBe('');
-    expect(inputDate(invalid, 'en')).toBe('');
+    const reader = { locale: 'en', timeZone: 'UTC' };
+    expect(displayDate(Number.NaN, reader)).toBe('');
+    expect(displayDateTime(Number.NaN, reader)).toBe('');
+    expect(inputDate(Number.NaN, reader)).toBe('');
   });
 
   it('names a length of time', () => {

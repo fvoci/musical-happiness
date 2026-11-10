@@ -1,74 +1,90 @@
 /**
  * Text for dates, durations, numbers and sizes.
  *
- * Nothing here reads the language of the app: the caller passes a BCP 47
- * locale. `now` is a parameter wherever the result depends on the current
- * time, so that a test does not.
+ * Nothing here reads the language, the time zone or the clock of the device:
+ * the caller passes them, from the reader's settings. A moment is a number
+ * of milliseconds since the epoch.
  */
-import type { CalendarDate } from './dates.ts';
+import { dateOfInstant, type CalendarDate } from './dates.ts';
+
+/** How the hours of a time are written: `h12` is 3:20 PM, `h23` is 15:20. */
+export type HourCycle = 'h12' | 'h23';
 
 /** What a function needs in order to turn a value into text for a person. */
 export interface DisplayContext {
   /** BCP 47 tag, such as `ko` or `en-US`. */
   locale: string;
-  /** The current time; defaults to the clock. */
-  now?: Date;
+  /** The reader's time zone, an IANA name such as `Asia/Seoul`. */
+  timeZone: string;
+  /** The current moment; defaults to the clock. Decides whether a date shows its year. */
+  now?: number;
+  /** How hours are written; defaults to the habit of the locale. */
+  hourCycle?: HourCycle;
   /** Shown for a select value whose option no longer exists. */
   unknownOption?: string;
-  /** The reader's time zone (an IANA name); defaults to that of the device. */
-  timeZone?: string;
 }
 
-const isValid = (date: Date): boolean => !Number.isNaN(date.getTime());
+const isValid = (instant: number): boolean => Number.isFinite(instant);
 
-function yearOption(date: Date, now: Date): 'numeric' | undefined {
-  return date.getFullYear() === now.getFullYear() ? undefined : 'numeric';
+/** The reader's current year: dates in it are shown without the year. */
+function thisYear(context: DisplayContext): number {
+  return Number(dateOfInstant(context.now ?? Date.now(), context.timeZone).slice(0, 4));
 }
 
-/** `July 09`, or `July 09, 2025` for a date in another year. Empty for an invalid date. */
-export function displayDate(date: Date, locale: string, now: Date = new Date()): string {
-  if (!isValid(date)) return '';
-  return new Intl.DateTimeFormat(locale, {
-    year: yearOption(date, now),
+function yearOption(instant: number, context: DisplayContext): 'numeric' | undefined {
+  const year = Number(dateOfInstant(instant, context.timeZone).slice(0, 4));
+  return year === thisYear(context) ? undefined : 'numeric';
+}
+
+/** The day of a moment for the reader: `July 09`, or `July 09, 2025` in another year. */
+export function displayDate(instant: number, context: DisplayContext): string {
+  if (!isValid(instant)) return '';
+  return new Intl.DateTimeFormat(context.locale, {
+    timeZone: context.timeZone,
+    year: yearOption(instant, context),
     month: 'long',
     day: '2-digit',
-  }).format(date);
+  }).format(instant);
 }
 
 /**
- * A calendar date as text: `July 09`, with the year unless it is `thisYear`.
- * A calendar date has no time zone, so this gives the same text everywhere.
+ * A calendar date as text: `July 09`, with the year unless it is the
+ * reader's current year. A calendar date has no time zone, so the day shown
+ * is the same for every reader.
  */
-export function displayCalendarDate(date: CalendarDate, locale: string, thisYear?: number): string {
+export function displayCalendarDate(date: CalendarDate, context: DisplayContext): string {
   const year = Number(date.slice(0, 4));
-  return new Intl.DateTimeFormat(locale, {
+  return new Intl.DateTimeFormat(context.locale, {
     timeZone: 'UTC',
-    year: year === thisYear ? undefined : 'numeric',
+    year: year === thisYear(context) ? undefined : 'numeric',
     month: 'long',
     day: '2-digit',
   }).format(Date.UTC(year, Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))));
 }
 
 /** The short all-digits form a person types: `07/09/2026` in the United States. */
-export function inputDate(date: Date, locale: string): string {
-  if (!isValid(date)) return '';
-  return new Intl.DateTimeFormat(locale, {
+export function inputDate(instant: number, context: DisplayContext): string {
+  if (!isValid(instant)) return '';
+  return new Intl.DateTimeFormat(context.locale, {
+    timeZone: context.timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-  }).format(date);
+  }).format(instant);
 }
 
-/** `July 09 at 3:20 PM`, with the year for a date in another year. */
-export function displayDateTime(date: Date, locale: string, now: Date = new Date()): string {
-  if (!isValid(date)) return '';
-  return new Intl.DateTimeFormat(locale, {
-    year: yearOption(date, now),
+/** A moment on the reader's clock: `July 09 at 3:20 PM`, with the year in another year. */
+export function displayDateTime(instant: number, context: DisplayContext): string {
+  if (!isValid(instant)) return '';
+  return new Intl.DateTimeFormat(context.locale, {
+    timeZone: context.timeZone,
+    year: yearOption(instant, context),
     month: 'long',
     day: '2-digit',
     hour: 'numeric',
     minute: 'numeric',
-  }).format(date);
+    ...(context.hourCycle ? { hourCycle: context.hourCycle } : {}),
+  }).format(instant);
 }
 
 type CoarseUnit = 'second' | 'minute' | 'hour' | 'day' | 'month' | 'year';
@@ -110,9 +126,9 @@ function coarse(milliseconds: number): [number, CoarseUnit] {
   return [years, 'year'];
 }
 
-/** `3 hours ago`, `in 2 days`, `now`. */
-export function relativeTime(date: Date, locale: string, now: Date = new Date()): string {
-  const difference = date.getTime() - now.getTime();
+/** `3 hours ago`, `in 2 days`, `now`: how far a moment is from the current one. */
+export function relativeTime(instant: number, locale: string, now: number = Date.now()): string {
+  const difference = instant - now;
   const [count, unit] = coarse(difference);
   return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(
     difference < 0 ? -count : count,

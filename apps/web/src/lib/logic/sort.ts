@@ -38,9 +38,9 @@ function titleComparator(collator: Intl.Collator): Comparator {
   };
 }
 
-/** By title; cards without a title go last; equal titles oldest first. */
-export function titleOrCreatedOrder(first: Card, second: Card): number {
-  return titleComparator(new Intl.Collator())(first, second);
+/** By title in the alphabetical order of `locale`; cards without a title go last; equal titles oldest first. */
+export function titleOrCreatedOrder(first: Card, second: Card, locale: string): number {
+  return titleComparator(new Intl.Collator(locale))(first, second);
 }
 
 /**
@@ -76,10 +76,10 @@ export interface SortContext {
   lastCommentAt?: (cardId: string) => number | undefined;
   /** The username of a user, for sorting by person. */
   usernameOf?: (userId: string) => string | undefined;
-  /** The language whose alphabetical order text is sorted in; defaults to that of the device. */
-  locale?: string;
-  /** The reader's time zone, for dates that carry a time; defaults to that of the device. */
-  timeZone?: string;
+  /** The language whose alphabetical order text is sorted in. */
+  locale: string;
+  /** The reader's time zone, an IANA name: decides which day a date with a time is on. */
+  timeZone: string;
 }
 
 /** The value a card is sorted by, per kind of property: absent when the card has none. */

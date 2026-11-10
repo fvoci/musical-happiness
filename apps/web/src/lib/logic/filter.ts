@@ -17,8 +17,8 @@ import {
 
 /** What evaluating a filter depends on besides the card. */
 export interface FilterContext {
-  /** The reader's time zone (an IANA name); defaults to that of the device. */
-  timeZone?: string;
+  /** The reader's time zone, an IANA name such as `Asia/Seoul`: decides which day a moment is on. */
+  timeZone: string;
 }
 
 /** Whether two clauses filter the same property in the same way. */
@@ -34,7 +34,7 @@ export function applyFilterGroup(
   group: FilterGroup,
   templates: readonly PropertyTemplate[],
   cards: readonly Card[],
-  context: FilterContext = {},
+  context: FilterContext,
 ): Card[] {
   return cards.filter((card) => isFilterGroupMet(group, templates, card, context));
 }
@@ -44,7 +44,7 @@ export function isFilterGroupMet(
   group: FilterGroup,
   templates: readonly PropertyTemplate[],
   card: Card,
-  context: FilterContext = {},
+  context: FilterContext,
 ): boolean {
   if (group.filters.length < 1) return true;
   const met = (filter: FilterClause | FilterGroup): boolean =>
@@ -102,7 +102,7 @@ export function isClauseMet(
   filter: FilterClause,
   templates: readonly PropertyTemplate[],
   card: Card,
-  context: FilterContext = {},
+  context: FilterContext,
 ): boolean {
   const template = templates.find((candidate) => candidate.id === filter.propertyId);
   const { value, dateValue } = valueForClause(filter, template, card);

@@ -109,7 +109,7 @@ const DAY = 24 * 60 * 60 * 1000;
 function daySpan(
   cards: readonly Card[],
   property: PropertyTemplate,
-  timeZone: string | undefined,
+  timeZone: string,
 ): { first: CalendarDate; last: CalendarDate } | undefined {
   let span: { first: CalendarDate; last: CalendarDate } | undefined;
   for (const card of cards) {
@@ -142,8 +142,6 @@ function momentSpan(
   return { first, last };
 }
 
-const thisYear = (context: DisplayContext): number => (context.now ?? new Date()).getFullYear();
-
 /** The text for the earliest (`end` "first") or latest day or moment of a property. */
 function showEnd(
   cards: readonly Card[],
@@ -153,12 +151,10 @@ function showEnd(
 ): string {
   if (property.type === 'date') {
     const span = daySpan(cards, property, context.timeZone);
-    return span ? displayCalendarDate(span[end], context.locale, thisYear(context)) : '';
+    return span ? displayCalendarDate(span[end], context) : '';
   }
   const moment = momentSpan(cards, property)[end];
-  return Number.isFinite(moment)
-    ? displayDateTime(new Date(moment), context.locale, context.now)
-    : '';
+  return Number.isFinite(moment) ? displayDateTime(moment, context) : '';
 }
 
 /** Whether a checkbox value is ticked. The editor writes `true` for a tick and nothing for none. */

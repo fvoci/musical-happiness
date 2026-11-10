@@ -1,5 +1,6 @@
+<!-- fvoci: formats the month as a calendar date, without the time zone of the device. See ../README.md. -->
 <script lang="ts">
-	import { DateFormatter, getLocalTimeZone, type DateValue } from "@internationalized/date";
+	import { DateFormatter, type DateValue } from "@internationalized/date";
 	import CalendarMonthSelect from "./calendar-month-select.svelte";
 	import CalendarYearSelect from "./calendar-year-select.svelte";
 	import type Calendar from "./calendar.svelte";
@@ -27,16 +28,18 @@
 		monthIndex: number;
 	} = $props();
 
+	// A month of the calendar is a calendar date: it is formatted as one, in UTC,
+	// and the time zone of the device is not asked.
 	function formatYear(date: DateValue) {
-		const dateObj = date.toDate(getLocalTimeZone());
-		if (typeof yearFormat === "function") return yearFormat(dateObj.getFullYear());
-		return new DateFormatter(locale, { year: yearFormat }).format(dateObj);
+		const dateObj = date.toDate("UTC");
+		if (typeof yearFormat === "function") return yearFormat(dateObj.getUTCFullYear());
+		return new DateFormatter(locale, { year: yearFormat, timeZone: "UTC" }).format(dateObj);
 	}
 
 	function formatMonth(date: DateValue) {
-		const dateObj = date.toDate(getLocalTimeZone());
-		if (typeof monthFormat === "function") return monthFormat(dateObj.getMonth() + 1);
-		return new DateFormatter(locale, { month: monthFormat }).format(dateObj);
+		const dateObj = date.toDate("UTC");
+		if (typeof monthFormat === "function") return monthFormat(dateObj.getUTCMonth() + 1);
+		return new DateFormatter(locale, { month: monthFormat, timeZone: "UTC" }).format(dateObj);
 	}
 </script>
 

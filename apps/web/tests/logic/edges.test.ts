@@ -17,7 +17,10 @@ import {
   type PropertyTemplate,
 } from '$lib/logic/wire.ts';
 
+import { at } from '../support/zones.ts';
+
 const nothing = async (): Promise<void> => undefined;
+const en = { locale: 'en', timeZone: 'UTC' };
 
 describe('undo manager', () => {
   it('tells its listener about every change of what can be undone', async () => {
@@ -162,20 +165,18 @@ describe('number calculations at the edges', () => {
   };
 
   it('gives 0 for the minimum and maximum of no values', () => {
-    expect(CALCULATIONS.min([], number, { locale: 'en' })).toBe('0');
-    expect(CALCULATIONS.max([createCard()], number, { locale: 'en' })).toBe('0');
-    expect(CALCULATIONS.range([], number, { locale: 'en' })).toBe('0 - 0');
+    expect(CALCULATIONS.min([], number, en)).toBe('0');
+    expect(CALCULATIONS.max([createCard()], number, en)).toBe('0');
+    expect(CALCULATIONS.range([], number, en)).toBe('0 - 0');
   });
 
   it('shows an infinite value as it is', () => {
-    expect(CALCULATIONS.max([withNumber('Infinity')], number, { locale: 'en' })).toBe('Infinity');
-    expect(CALCULATIONS.min([withNumber('-Infinity')], number, { locale: 'en' })).toBe('-Infinity');
+    expect(CALCULATIONS.max([withNumber('Infinity')], number, en)).toBe('Infinity');
+    expect(CALCULATIONS.min([withNumber('-Infinity')], number, en)).toBe('-Infinity');
   });
 
   it('shows a value that is not a number as NaN', () => {
-    expect(CALCULATIONS.sum([withNumber('abc'), withNumber('1')], number, { locale: 'en' })).toBe(
-      'NaN',
-    );
+    expect(CALCULATIONS.sum([withNumber('abc'), withNumber('1')], number, en)).toBe('NaN');
   });
 });
 
@@ -183,9 +184,9 @@ describe('checkbox calculations', () => {
   const checkbox: PropertyTemplate = { id: 'done', name: 'Done', type: 'checkbox', options: [] };
 
   it('shows nothing for the percentage of no cards (Q15)', () => {
-    expect(CALCULATIONS.percentChecked([], checkbox, { locale: 'en' })).toBe('');
-    expect(CALCULATIONS.percentUnchecked([], checkbox, { locale: 'en' })).toBe('');
-    expect(CALCULATIONS.percentEmpty([], checkbox, { locale: 'en' })).toBe('');
+    expect(CALCULATIONS.percentChecked([], checkbox, en)).toBe('');
+    expect(CALCULATIONS.percentUnchecked([], checkbox, en)).toBe('');
+    expect(CALCULATIONS.percentEmpty([], checkbox, en)).toBe('');
   });
 
   it('counts only a stored `true` as a tick (Q9)', () => {
@@ -195,10 +196,10 @@ describe('checkbox calculations', () => {
       return card;
     };
     const cards = [ticked('true'), ticked('false'), ticked(''), ticked(), ticked('true')];
-    expect(CALCULATIONS.countChecked(cards, checkbox, { locale: 'en' })).toBe('2');
-    expect(CALCULATIONS.countUnchecked(cards, checkbox, { locale: 'en' })).toBe('3');
-    expect(CALCULATIONS.percentChecked(cards, checkbox, { locale: 'en' })).toBe('40%');
-    expect(CALCULATIONS.percentUnchecked(cards, checkbox, { locale: 'en' })).toBe('60%');
+    expect(CALCULATIONS.countChecked(cards, checkbox, en)).toBe('2');
+    expect(CALCULATIONS.countUnchecked(cards, checkbox, en)).toBe('3');
+    expect(CALCULATIONS.percentChecked(cards, checkbox, en)).toBe('40%');
+    expect(CALCULATIONS.percentUnchecked(cards, checkbox, en)).toBe('60%');
   });
 });
 
@@ -210,7 +211,7 @@ describe('date calculations', () => {
     type: 'createdTime',
     options: [],
   };
-  const context = { locale: 'en', now: new Date(2026, 5, 1), timeZone: 'UTC' };
+  const context = { locale: 'en', now: Date.UTC(2026, 5, 1), timeZone: 'UTC' };
   const withDue = (value: string): Card => {
     const card = createCard();
     setCardProperty(card, 'due', value);
@@ -243,19 +244,24 @@ describe('date calculations', () => {
     }
   });
 
-  it('works on the moments cards were created', () => {
-    const at = (instant: number): Card => {
+  it('works on the moments cards were created, on the days of the reader', () => {
+    const born = (instant: number): Card => {
       const card = createCard();
       card.createAt = instant;
       return card;
     };
+    const seoul = { locale: 'en', now: Date.UTC(2026, 5, 1), timeZone: 'Asia/Seoul' };
     const two = [
-      at(new Date(2026, 2, 5, 9, 0).getTime()),
-      at(new Date(2026, 2, 8, 9, 0).getTime()),
+      born(at('Asia/Seoul', 2026, 3, 5, 9, 0)),
+      born(at('Asia/Seoul', 2026, 3, 8, 9, 0)),
     ];
-    expect(CALCULATIONS.earliest(two, created, { locale: 'en', now: new Date(2026, 5, 1) })).toBe(
-      'March 05 at 9:00 AM',
-    );
-    expect(CALCULATIONS.dateRange(two, created, { locale: 'en' })).toBe('3 days');
+    expect(CALCULATIONS.earliest(two, created, seoul)).toBe('March 05 at 9:00 AM');
+    expect(CALCULATIONS.latest(two, created, seoul)).toBe('March 08 at 9:00 AM');
+    // Between two moments the range is the time that passed, not a count of days.
+    expect(CALCULATIONS.dateRange(two, created, seoul)).toBe('3 days');
+    // The same two moments for a reader in Honolulu: the 4th and the 7th, in the afternoon.
+    const honolulu = { ...seoul, timeZone: 'Pacific/Honolulu' };
+    expect(CALCULATIONS.earliest(two, created, honolulu)).toBe('March 04 at 2:00 PM');
+    expect(CALCULATIONS.dateRange(two, created, honolulu)).toBe('3 days');
   });
 });

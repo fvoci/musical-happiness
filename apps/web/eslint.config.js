@@ -68,6 +68,11 @@ export default ts.config(
     rules: { 'fvoci/feature-boundaries': 'error' },
   },
   {
+    // The logic takes the reader's time zone as an argument. See src/lib/logic/dates.ts.
+    files: ['src/lib/logic/**'],
+    rules: { 'fvoci/no-device-time': 'error' },
+  },
+  {
     files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
     languageOptions: {
       parserOptions: { parser: ts.parser, svelteConfig },

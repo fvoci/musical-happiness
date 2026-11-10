@@ -333,6 +333,8 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 | `filter-conditions.ts`     | 값 종류별 필터 조건과 그 이름                                                               | `octoUtils.tsx`(`filterConditionValidOrDefault`, `filterConditionDisplayString`)                                                                                                               |
 | `content-order.ts`         | 콘텐츠 블록의 2차원 재배치                                                                  | `components/cardDetail/cardDetailContentsUtility.ts`                                                                                                                                           |
 | `dates.ts`                 | 달력 날짜(`CalendarDate`), 날짜 값(하루·시각·범위), 보는 사람의 시간대에서 시각이 속하는 날 | `properties/date/property.tsx`(`getDateFrom`, `getDateTo`), `date.tsx`·`fullCalendar.tsx`·`dateFilter.tsx`에 흩어진 `setHours(12)`와 시간대 보정. 원본과 다른 모델이다(아래 "날짜")            |
+| `regional.ts`              | 보는 사람의 지역 설정(시간대, 주의 시작 요일, 12·24시간)과 "자동"을 푸는 함수               | 원본에 없음(원본은 어디서나 기기의 시간대와 `moment`의 로케일을 썼다)                                                                                                                          |
+| `drop-target.ts`           | 드래그에서 놓을 자리(목록과 순번)를 좌표로부터 계산                                         | 원본에 없음(원본은 `react-dnd`의 hover 콜백 안에서 계산)                                                                                                                                       |
 | `format.ts`                | 날짜·기간·크기 문구                                                                         | `utils.ts`(`displayDate`, `inputDate`, `displayDateTime`, `relativeDisplayDateTime`, `roundTo`, `humanFileSize`)                                                                               |
 | `text.ts`                  | 문자열 보조                                                                                 | `utils.ts`(`ensureProtocol`, `sanitizeFilename`, `htmlEncode`, `htmlDecode`, `hashCode`, `countCheckboxesInMarkdown`)                                                                          |
 | `users.ts`                 | 표시 이름                                                                                   | `utils.ts`(`getUserDisplayName`, `getFullName`)                                                                                                                                                |
@@ -399,11 +401,11 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 
 ### 테스트
 
-| 구분                                  | 건수 | 파일                                                                                                                                                                                                   |
-| ------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 원본 `.test.ts`에서 옮김              | 128  | `filter.test.ts` 64, `utils.test.ts` 28, `wire.test.ts` 19, `content-order.test.ts` 12, `undo.test.ts` 3, `block-tree.test.ts` 2                                                                       |
-| 원본 `calculations.test.tsx`에서 옮김 | 100  | `calculations.test.ts` (원본의 반복문이 만드는 케이스 포함, 전부)                                                                                                                                      |
-| 새로 씀                               | 143  | `views.test.ts` 33, `values.test.ts` 26, `sort.test.ts` 21, `edges.test.ts` 19, `filter-rules.test.ts` 18, `wire-shapes.test.ts` 16, `sort-properties.test.ts` 7(속성 기반), `wire-boundary.test.ts` 3 |
+| 구분                                  | 건수 | 파일                                                                                                                                                                                                                                                                            |
+| ------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 원본 `.test.ts`에서 옮김              | 128  | `filter.test.ts` 64, `utils.test.ts` 28, `wire.test.ts` 19, `content-order.test.ts` 12, `undo.test.ts` 3, `block-tree.test.ts` 2                                                                                                                                                |
+| 원본 `calculations.test.tsx`에서 옮김 | 100  | `calculations.test.ts` (원본의 반복문이 만드는 케이스 포함, 전부)                                                                                                                                                                                                               |
+| 새로 씀                               | 226  | `drop-target.test.ts` 55, `views.test.ts` 33, `values.test.ts` 25, `sort.test.ts` 21, `time-zones.test.ts` 20, `edges.test.ts` 19, `filter-rules.test.ts` 18, `wire-shapes.test.ts` 16, `regional.test.ts` 9, `sort-properties.test.ts` 7(속성 기반), `wire-boundary.test.ts` 3 |
 
 원본 139케이스의 행방: 옮김 128, W2로 넘김 6(`octoClient` 4, `mutator` 2), W4로 넘김 3(`htmlFromMarkdown`), 옮기지 않음 2(텔레메트리 1, 네이티브 앱의 `htmlFromMarkdown` 1). 지시받은 132건보다 4건 적다. `htmlFromMarkdown`의 네 케이스는 marked로 만든 HTML 문자열(`onclick=""` 속성 포함)을 그대로 기대값으로 삼는데, 포트의 마크다운 표시는 W4에서 새니타이즈 방식과 함께 정하기로 되어 있어 지금 옮기면 버릴 구현을 고정하게 된다.
 
@@ -411,7 +413,7 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 
 새로 쓴 테스트는 원본에 테스트가 없던 코드(정렬, 검색, 그룹, 속성 표, CSV, 날짜 변환, 서식)를 덮는다.
 
-시간대: `test` 스크립트가 전체 단위 테스트를 `TZ=UTC`, `Asia/Seoul`, `Pacific/Kiritimati`(UTC+14)로 세 번 돌린다. 2026-11-10 18:52 KST에 세 곳 모두 550건 통과했다. Q16을 고치기 전에는 `Pacific/Kiritimati`에서 원본에서 옮긴 3건이 실패했다.
+시간대: `test` 스크립트가 전체 단위 테스트를 프로세스의 `TZ=UTC`, `Asia/Seoul`, `Pacific/Kiritimati`(UTC+14)로 세 번 돌린다. 로직은 기기의 시간대를 묻지 않으므로(아래 "보는 사람의 시간대" 절) 이 실행은 이제 "프로세스의 TZ가 무엇이든 결과가 같다"를 확인하는 용도다. 시간대에 따라 달라져야 하는 동작은 테스트가 시간대를 인자로 넘겨 검사한다. 2026-11-10 19:20 KST에 세 곳 모두 743건 통과했다. Q16을 고치기 전에는 `Pacific/Kiritimati`에서 원본에서 옮긴 3건이 실패했다. 원본에서 옮긴 케이스 가운데 기기의 현지 시각으로 날짜를 만들던 것(`cardFilter`의 날짜 케이스, `utils`의 날짜 표시 6건)은 이름과 단언은 그대로 두고, 보는 사람을 `Asia/Seoul`로 정해 그 시간대의 시각으로 입력을 만든다(`tests/support/zones.ts`의 `at`).
 
 속성 기반 테스트(`sort-properties.test.ts`, fast-check 4.10.2): 생성한 카드와 수동 순서, 정렬 옵션 조합에 대해 비교자가 순서 관계인지(자기 자신과는 0, 뒤집으면 부호가 반대, 추이적, 서로 다른 카드는 0이 아님)와 정렬 결과가 입력 순서에 좌우되지 않는지를 각 300회 검사한다. 같은 검사에 원본의 수동 정렬 비교자를 넣으면 실패하는 것도 테스트로 둔다.
 
@@ -450,7 +452,7 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 | Q13 | 필터 속성을 사람 종류로 바꾸면 조건이 늘 `includes`로 돌아감                      | **고침**            | 사람 종류는 선택지 종류와 같은 조건 넷을 유지한다                                                                                                                                                                             | `views.test.ts` "the condition of a filter after its property changed"                                                                                         |
 | Q14 | 버려도 되는 변경의 체크포인트가, 앞선 변경이 하나뿐이면 0                         | **고침**            | 앞선 변경이 있으면 늘 그 체크포인트를 잇는다. 맨 처음이면 0                                                                                                                                                                   | `edges.test.ts` "undo manager"                                                                                                                                 |
 | Q15 | 카드가 없을 때 체크 비율이 `NaN%`                                                 | **고침**            | 빈 문자열                                                                                                                                                                                                                     | `edges.test.ts` "checkbox calculations"                                                                                                                        |
-| Q16 | 생성·수정 시각 필터의 "하루"가 UTC 날짜                                           | **고침**            | 보는 사람의 시간대의 달력 날짜다. 서울에서 7일 03:00에 만든 카드는 "7일"이다. 시간대는 인자(`FilterContext.timeZone`)로 받고 없으면 기기의 시간대                                                                             | `filter-rules.test.ts` "the day a card was created is the day on the reader's calendar", `filter.test.ts`의 원본 3건(고칠 필요 없이 이제 모든 시간대에서 통과) |
+| Q16 | 생성·수정 시각 필터의 "하루"가 UTC 날짜                                           | **고침**            | 보는 사람의 시간대의 달력 날짜다. 서울에서 7일 03:00에 만든 카드는 "7일"이다. 시간대는 필수 인자(`FilterContext.timeZone`, IANA 이름)다. 기기의 시간대로 떨어지는 기본값은 없다                                               | `filter-rules.test.ts` "the day a card was created is the day on the reader's calendar", `filter.test.ts`의 원본 3건(고칠 필요 없이 이제 모든 시간대에서 통과) |
 
 함께 유지한 수정: 실행 취소 관리자는 `undo`나 `redo`가 예외를 던져도 멈추지 않는다(원본은 그 뒤로 기록과 실행 취소가 영영 무시된다). `edges.test.ts`의 다섯 건이 고정한다: 실패한 취소를 다시 시도할 수 있다, 실패한 다시 실행도 같다, 실패 뒤에도 새 변경이 기록된다, 묶음 취소가 실패한 자리에서 멈춘다, 취소 중에 생긴 변경은 기록하지 않는다.
 
@@ -462,6 +464,29 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 - 비교: `is`는 그 날이 값이 덮는 날들(범위면 양 끝 포함) 안에 있는가, `isBefore`는 값의 첫날이 그 날보다 앞인가, `isAfter`는 값의 마지막 날이 그 날보다 뒤인가.
 - 정렬: 첫날 순. 같은 날이면 시간 없는 값이 시간 있는 값보다 앞, 시간끼리는 이른 순.
 - 표시: 날짜만 있는 값은 시간대와 무관하게 같은 글자(`March 05`)로 나온다.
+- 시각 사이의 범위(`dateRange`를 생성·수정 시각에 쓴 경우)는 지나간 시간이다(72시간이면 "3 days"). 달력 날 수로 세는 것은 날짜 속성뿐이다.
+
+#### 보는 사람의 시간대: 계정 설정 (2026-11-10 19:20 KST)
+
+"보는 사람의 시간대"는 기기에서 직접 읽지 않는다. 계정 설정의 값이고, 로직에는 인자로 들어온다.
+
+- **`lib/logic`의 모든 날짜·시각 함수는 시간대를 필수 인자로 받는다**(IANA 이름, 예: `Asia/Seoul`). `dateOfInstant(instant, timeZone)`, `startOfDay(date, timeZone)`, `endOfDay(date, timeZone)`, `daysOf(value, timeZone)`, `comparePoints(a, b, timeZone)`, 그리고 `FilterContext.timeZone`, `SortContext.timeZone`, `DisplayContext.timeZone`. 기본값이 없으므로 빠뜨리면 타입 오류다. 시각은 `Date` 객체가 아니라 에포크 밀리초(숫자)로 주고받는다.
+- **변환은 `Intl`과 `@internationalized/date`로 한다.** 시각 → 날짜는 `Intl.DateTimeFormat`(`timeZone` 지정)의 `formatToParts`, 날짜 → 그날이 시작하는 시각은 `@internationalized/date`의 `toZoned`.
+- **린트 규칙 `fvoci/no-device-time`**(`tools/lint/layers.ts`, `src/lib/logic/**`에 적용, `check`에 포함)이 다음을 막는다: `getHours`·`getDate`·`getDay`·`getMonth`·`getFullYear`·`getTimezoneOffset`·`setHours`·`toLocaleDateString` 등 기기 시각으로 답하는 `Date` 메서드, `new Date(연, 월, …)`과 `new Date('글자')`, `timeZone` 옵션 없는 `Intl.DateTimeFormat`, `resolvedOptions().timeZone`. `getUTC…`, `Date.UTC`, `Date.now()`, `getTime()`은 된다. 규칙의 테스트는 `tests/tools/layers.test.ts`(4건).
+- **설정**(`src/lib/logic/regional.ts`): `RegionalSettings`는 세 값이다.
+
+  | 값          | 종류                                            | 기본     | "자동"의 뜻                                                                                          |
+  | ----------- | ----------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
+  | `timeZone`  | `'auto'` 또는 IANA 이름                         | `'auto'` | 브라우저의 시간대                                                                                    |
+  | `weekStart` | `'auto'` 또는 1–7(ISO 8601: 1 월요일, 7 일요일) | `'auto'` | 화면 언어·지역의 관습(`Intl.Locale`의 주 정보. 한국어·미국 영어는 일요일, 영국 영어·독일어는 월요일) |
+  | `hourCycle` | `'auto'`, `'h12'`, `'h23'`                      | `'auto'` | 화면 언어의 관습(한국어·미국 영어는 12시간, 독일어·일본어는 24시간)                                  |
+
+  `resolveRegional(settings, locale, browserTimeZone)`이 "자동"을 풀어 `{ timeZone, weekStart, hourCycle }`을 준다. 고정한 시간대를 런타임이 모르면(이름이 바뀐 시간대) 브라우저의 것을, 그것도 못 쓰면 UTC를 쓴다. 화면(설정 UI)은 만들지 않았다. `weekStart`를 쓰는 코드는 아직 없다(달력 보기에서 쓴다). `hourCycle`은 `DisplayContext.hourCycle`로 `displayDateTime`에 들어간다.
+
+- **브라우저의 시간대를 읽는 곳은 `src/lib/regional.ts` 하나다**(`browserTimeZone()`). 같은 파일의 `regional(locale)`이 설정을 풀어서 주고, `setRegionalSettings`로 설정을 바꾼다. 지금은 서버가 없어 기본값(모두 자동)으로 동작한다. **W2에서 서버의 사용자 설정을 받아 `setRegionalSettings`를 부르면 된다.** `src` 전체에서 기기의 시간대를 묻는 표현(`resolvedOptions().timeZone`, `getLocalTimeZone`, `getTimezoneOffset`)이 이 파일에만 있다는 것을 `tests/tools/layers.test.ts`의 한 건이 고정한다. 그러려고 shadcn 달력의 머리글 두 파일도 고쳤다(`src/lib/ui/README.md`의 표).
+- **테스트**(`tests/logic/time-zones.test.ts` 20건, `regional.test.ts` 9건): 서머타임으로 하루가 23시간·25시간인 날(뉴욕 2026-03-08, 2026-11-01)의 시작과 끝, 그날의 마지막 순간과 다음 날의 첫 순간이 필터에서 갈리는 것, 자정이 건너뛰어지는 날(아바나), 30분만 바뀌는 곳(로드하우), 날짜 변경선 양쪽(키리티마티 UTC+14, 파고파고 UTC−11, `Etc/GMT+12`)에서 같은 시각이 세 날짜로 갈리는 것과 같은 날짜가 26시간 차이로 시작하는 것, 달력에서 빠진 날(사모아 2011-12-30), "올해"가 보는 사람의 달력으로 정해지는 것. 날짜만 있는 값은 열 개 시간대에서 덮는 날·표시·필터·정렬이 모두 같다는 것(속성 기반 300회 포함). 임의의 시각과 시간대에 대해 "시각은 자기 날의 시작과 끝 사이에 있다"(속성 기반 500회).
+- 서버 쪽에 전달할 것: 사용자 설정에 위 세 값을 둘 자리가 필요하다(이름과 값의 종류는 위 표). 서버가 날짜로 무언가를 계산하게 되면(알림, "오늘 마감") 같은 시간대 값을 써야 한다.
+- 확인하지 못한 것: 브라우저가 가진 시간대 자료(ICU)의 판이 서로 다를 때의 차이, `Intl.Locale`의 주 정보가 없는 오래된 브라우저(그때는 월요일로 떨어진다).
 
 #### 날짜 속성 값의 와이어 모양(안, 서버 쪽에 전달)
 
@@ -479,7 +504,7 @@ Q를 고치면서 함께 달라진 것(원본과 다름):
 
 - **제목 없는 카드와 값 없는 카드는 정렬 방향과 무관하게 항상 뒤다.** 원본은 제목 정렬을 뒤집으면 제목 없는 카드가 앞으로 왔다.
 - **사람 속성으로 정렬하면 사용자 이름순이다.** 원본은 한 사람 속성을 ID로 정렬했다(여러 사람 속성과 만든 사람은 원본도 이름순).
-- **정렬의 글자 순서는 `SortContext.locale`의 `Intl.Collator`를 따른다.** 없으면 기기의 언어다.
+- **정렬의 글자 순서는 `SortContext.locale`의 `Intl.Collator`를 따른다.** 언어도 시간대처럼 필수 인자다(기기의 언어로 떨어지지 않는다).
 - **체크박스의 "값 있음" 계열 계산**(`countValue`, `countEmpty` 등)은 그대로다. `false`가 저장돼 있으면 값이 있는 것으로 센다. 바꾼 것은 체크 여부를 묻는 네 계산뿐이다.
 - **날짜 속성의 earliest·latest·dateRange**는 달력 날짜로 계산한다. `dateRange`는 양 끝을 포함한 날 수다(5일–12일은 "8 days").
 

@@ -33,6 +33,8 @@ import {
   type PropertyValue,
 } from '$lib/logic/wire.ts';
 
+import { at } from '../support/zones.ts';
+
 function card(id: string, title: string, properties: Record<string, PropertyValue> = {}): Card {
   const created = createCard();
   created.id = id;
@@ -68,7 +70,7 @@ const notes: PropertyTemplate = { id: 'notes', name: 'Notes', type: 'text', opti
 const due: PropertyTemplate = { id: 'due', name: 'Due', type: 'date', options: [] };
 const amount: PropertyTemplate = { id: 'amount', name: 'Amount', type: 'number', options: [] };
 const owner: PropertyTemplate = { id: 'owner', name: 'Owner', type: 'person', options: [] };
-const context = { locale: 'en-US', now: new Date(2026, 0, 15) };
+const context = { locale: 'en-US', timeZone: 'Asia/Seoul', now: Date.UTC(2026, 0, 15) };
 
 describe('search', () => {
   const templates = [status, tags, notes, due];
@@ -287,13 +289,13 @@ describe('property behaviour', () => {
 
   it('shows a date with a time as the moment it is', () => {
     const { displayValue } = PROPERTY_BEHAVIORS.date;
-    const timed = formatDateValue({ from: { instant: new Date(2026, 2, 5, 15, 20).getTime() } });
+    const timed = formatDateValue({ from: { instant: at('Asia/Seoul', 2026, 3, 5, 15, 20) } });
     expect(displayValue(timed, card('x', 'x'), due, context)).toBe('March 05 at 3:20 PM');
   });
 
   it('shows the times of the card itself', () => {
     const created = card('x', 'x');
-    created.createAt = new Date(2026, 2, 5, 15, 20).getTime();
+    created.createAt = at('Asia/Seoul', 2026, 3, 5, 15, 20);
     expect(PROPERTY_BEHAVIORS.createdTime.displayValue(undefined, created, due, context)).toBe(
       'March 05 at 3:20 PM',
     );
@@ -302,11 +304,11 @@ describe('property behaviour', () => {
   it('says which days a card occupies in a calendar', () => {
     const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
     const days = PROPERTY_BEHAVIORS.date.days;
-    expect(days?.(formatDateValue({ from: day(5), to: day(9) }), card('x', 'x'))).toEqual({
+    expect(days?.(formatDateValue({ from: day(5), to: day(9) }), card('x', 'x'), 'UTC')).toEqual({
       first: '2026-03-05',
       last: '2026-03-09',
     });
-    expect(days?.(undefined, card('x', 'x'))).toBeUndefined();
+    expect(days?.(undefined, card('x', 'x'), 'UTC')).toBeUndefined();
 
     // A card made at 18:00 UTC on the 6th is on the 7th for a reader in Seoul.
     const created = card('x', 'x');

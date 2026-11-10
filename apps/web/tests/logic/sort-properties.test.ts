@@ -124,7 +124,15 @@ describe('the manual order is an ordering', () => {
   it('puts every placed card before every card without a position', () => {
     fc.assert(
       fc.property(cards, cardOrder, (list, order) => {
-        const sorted = ids(sortCards(list, { templates, sortOptions: [], cardOrder: order }));
+        const sorted = ids(
+          sortCards(list, {
+            templates,
+            sortOptions: [],
+            cardOrder: order,
+            locale: 'en',
+            timeZone: 'UTC',
+          }),
+        );
         const placed = sorted.map((id) => order.includes(id));
         expect(placed).toEqual([...placed].sort((a, b) => Number(b) - Number(a)));
         // The placed ones are in the stored order.
@@ -142,7 +150,13 @@ describe('the manual order is an ordering', () => {
         cardOrder,
         fc.array(fc.nat(), { minLength: 12, maxLength: 12 }),
         (list, order, keys) => {
-          const context: SortContext = { templates, sortOptions: [], cardOrder: order };
+          const context: SortContext = {
+            templates,
+            sortOptions: [],
+            cardOrder: order,
+            locale: 'en',
+            timeZone: 'UTC',
+          };
           const shuffled = list
             .map((card, index) => ({ card, key: keys[index] ?? 0 }))
             .sort((a, b) => a.key - b.key)
@@ -208,6 +222,7 @@ describe('the order by sort options is an ordering', () => {
             sortOptions: [{ propertyId, reversed }],
             cardOrder: [],
             locale: 'en',
+            timeZone: 'UTC',
           });
           const has = sorted.map((card) => hasValue[propertyId]?.(card) ?? false);
           // Once a card without a value has come, no card with one follows.

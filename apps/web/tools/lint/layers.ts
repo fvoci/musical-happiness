@@ -1,5 +1,6 @@
 /**
- * ESLint rules for the layering of src/lib.
+ * ESLint rules of this project: the layering of src/lib, and keeping the
+ * time zone of the device out of the logic (`no-device-time`, below).
  *
  * - A feature (`src/lib/features/<name>/`) does not import from another
  *   feature. What two features share moves down into `logic`, `state`, `api`
@@ -100,6 +101,131 @@ const featureBoundaries: Rule.RuleModule = {
   },
 };
 
-const plugin: ESLint.Plugin = { rules: { 'feature-boundaries': featureBoundaries } };
+/** Methods of `Date` that answer in, or are set in, the time zone of the device. */
+const DEVICE_TIME_METHODS = new Set([
+  'getDate',
+  'getDay',
+  'getFullYear',
+  'getHours',
+  'getMilliseconds',
+  'getMinutes',
+  'getMonth',
+  'getSeconds',
+  'getTimezoneOffset',
+  'getYear',
+  'setDate',
+  'setFullYear',
+  'setHours',
+  'setMilliseconds',
+  'setMinutes',
+  'setMonth',
+  'setSeconds',
+  'toDateString',
+  'toLocaleDateString',
+  'toLocaleTimeString',
+  'toTimeString',
+]);
+
+/** `Intl.DateTimeFormat`, as an expression. */
+function isDateTimeFormat(node: Rule.Node | { type: string }): boolean {
+  const member = node as {
+    type: string;
+    object?: { type: string; name?: string };
+    property?: { type: string; name?: string };
+  };
+  return (
+    member.type === 'MemberExpression' &&
+    member.object?.type === 'Identifier' &&
+    member.object.name === 'Intl' &&
+    member.property?.type === 'Identifier' &&
+    member.property.name === 'DateTimeFormat'
+  );
+}
+
+/**
+ * The logic must give the same result wherever it runs, so it may not ask
+ * the device what time it is "here". The reader's time zone is an argument.
+ *
+ * Refused:
+ * - the methods of `Date` that work in device time (`getHours`, `setDate`, ...);
+ *   the `getUTC...` ones are fine
+ * - `new Date(year, month, ...)`, which reads its numbers as device time, and
+ *   `new Date('some text')`, which may
+ * - `Intl.DateTimeFormat` without a `timeZone` option, which formats in device time
+ * - reading the device's zone from `resolvedOptions().timeZone`
+ */
+const noDeviceTime: Rule.RuleModule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'the logic does not use the time zone of the device' },
+    schema: [],
+    messages: {
+      method:
+        "`{{name}}` works in the time zone of the device. Take the reader's time zone as an argument (see lib/logic/dates.ts).",
+      construct:
+        'This `new Date(...)` reads its arguments as device time. Use `Date.UTC(...)` or the functions of lib/logic/dates.ts.',
+      format:
+        "`Intl.DateTimeFormat` without a `timeZone` option formats in the time zone of the device. Pass the reader's time zone.",
+      zone: 'The time zone of the device is read in lib/regional.ts only. Take it as an argument.',
+    },
+  },
+  create(context) {
+    function checkFormat(
+      node: Rule.Node,
+      args: readonly { type: string; properties?: unknown[] }[],
+    ): void {
+      const options = args[1];
+      const properties = (options?.type === 'ObjectExpression' ? options.properties : undefined) as
+        { type: string; key?: { type: string; name?: string; value?: unknown } }[] | undefined;
+      const named = properties?.some(
+        (property) =>
+          property.type === 'SpreadElement' ||
+          (property.type === 'Property' &&
+            (property.key?.name === 'timeZone' || property.key?.value === 'timeZone')),
+      );
+      // Options that are not written out here (a variable) are given the benefit of the doubt.
+      if (options === undefined || (options.type === 'ObjectExpression' && !named)) {
+        context.report({ node, messageId: 'format' });
+      }
+    }
+
+    return {
+      CallExpression(node) {
+        const callee = node.callee;
+        if (isDateTimeFormat(callee)) checkFormat(node, node.arguments);
+        if (callee.type !== 'MemberExpression' || callee.property.type !== 'Identifier') return;
+        if (DEVICE_TIME_METHODS.has(callee.property.name)) {
+          context.report({ node, messageId: 'method', data: { name: callee.property.name } });
+        }
+      },
+      NewExpression(node) {
+        if (isDateTimeFormat(node.callee)) checkFormat(node, node.arguments);
+        if (node.callee.type !== 'Identifier' || node.callee.name !== 'Date') return;
+        const [first] = node.arguments;
+        const text = first?.type === 'Literal' && typeof first.value === 'string';
+        const template = first?.type === 'TemplateLiteral';
+        if (node.arguments.length >= 2 || text || template) {
+          context.report({ node, messageId: 'construct' });
+        }
+      },
+      MemberExpression(node) {
+        if (
+          node.property.type === 'Identifier' &&
+          node.property.name === 'timeZone' &&
+          node.object.type === 'CallExpression' &&
+          node.object.callee.type === 'MemberExpression' &&
+          node.object.callee.property.type === 'Identifier' &&
+          node.object.callee.property.name === 'resolvedOptions'
+        ) {
+          context.report({ node, messageId: 'zone' });
+        }
+      },
+    };
+  },
+};
+
+const plugin: ESLint.Plugin = {
+  rules: { 'feature-boundaries': featureBoundaries, 'no-device-time': noDeviceTime },
+};
 
 export default plugin;

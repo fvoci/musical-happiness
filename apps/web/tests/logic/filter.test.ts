@@ -19,9 +19,14 @@ import {
   type PropertyTemplate,
 } from '$lib/logic/wire.ts';
 
+import { at } from '../support/zones.ts';
+
 import { createTestBoard, createTestCard } from './support/factory.ts';
 
 const dayMillis = 24 * 60 * 60 * 1000;
+
+// The person reading the board. The original tests ran in the time zone of the machine.
+const reader = { timeZone: 'Asia/Seoul' };
 
 describe('src/cardFilter', () => {
   const report = vi.spyOn(diagnostics, 'report').mockImplementation(() => undefined);
@@ -37,9 +42,9 @@ describe('src/cardFilter', () => {
   card1.title = 'card1';
   setCardProperty(card1, 'propertyId', 'Status');
 
-  card1.createAt = new Date('December 7, 2023').getTime();
-  card1.updateAt = new Date('December 7, 2023').getTime();
-  card1.deleteAt = new Date('December 7, 2023').getTime();
+  card1.createAt = at(reader.timeZone, 2023, 12, 7);
+  card1.updateAt = at(reader.timeZone, 2023, 12, 7);
+  card1.deleteAt = at(reader.timeZone, 2023, 12, 7);
   const filterClause = createFilterClause({
     propertyId: 'propertyId',
     condition: 'isNotEmpty',
@@ -53,7 +58,7 @@ describe('src/cardFilter', () => {
         condition: 'isNotEmpty',
         values: ['Status'],
       });
-      const result = isClauseMet(filterClauseIsNotEmpty, [], card1);
+      const result = isClauseMet(filterClauseIsNotEmpty, [], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should be false with isEmpty clause', () => {
@@ -62,7 +67,7 @@ describe('src/cardFilter', () => {
         condition: 'isEmpty',
         values: ['Status'],
       });
-      const result = isClauseMet(filterClauseIsEmpty, [], card1);
+      const result = isClauseMet(filterClauseIsEmpty, [], card1, reader);
       expect(result).toBeFalsy();
     });
     test('should be true with includes clause', () => {
@@ -71,7 +76,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['Status'],
       });
-      const result = isClauseMet(filterClauseIncludes, [], card1);
+      const result = isClauseMet(filterClauseIncludes, [], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should be true with includes and no values clauses', () => {
@@ -80,7 +85,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: [],
       });
-      const result = isClauseMet(filterClauseIncludes, [], card1);
+      const result = isClauseMet(filterClauseIncludes, [], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should be false with notIncludes clause', () => {
@@ -89,7 +94,7 @@ describe('src/cardFilter', () => {
         condition: 'notIncludes',
         values: ['Status'],
       });
-      const result = isClauseMet(filterClauseNotIncludes, [], card1);
+      const result = isClauseMet(filterClauseNotIncludes, [], card1, reader);
       expect(result).toBeFalsy();
     });
     test('should be true with notIncludes and no values clauses', () => {
@@ -98,7 +103,7 @@ describe('src/cardFilter', () => {
         condition: 'notIncludes',
         values: [],
       });
-      const result = isClauseMet(filterClauseNotIncludes, [], card1);
+      const result = isClauseMet(filterClauseNotIncludes, [], card1, reader);
       expect(result).toBeTruthy();
     });
   });
@@ -122,7 +127,7 @@ describe('src/cardFilter', () => {
         condition: 'isNotEmpty',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsNotEmpty, [template], personCard);
+      const result = isClauseMet(filterClauseIsNotEmpty, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('should be false with isEmpty clause', () => {
@@ -131,7 +136,7 @@ describe('src/cardFilter', () => {
         condition: 'isEmpty',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsEmpty, [template], personCard);
+      const result = isClauseMet(filterClauseIsEmpty, [template], personCard, reader);
       expect(result).toBeFalsy();
     });
     test('verify empty includes clause', () => {
@@ -140,7 +145,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: [],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause', () => {
@@ -149,7 +154,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid1'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause multiple values', () => {
@@ -158,7 +163,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid2', 'personid1'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify not includes clause', () => {
@@ -167,7 +172,7 @@ describe('src/cardFilter', () => {
         condition: 'notIncludes',
         values: ['personid2'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
   });
@@ -191,7 +196,7 @@ describe('src/cardFilter', () => {
         condition: 'isNotEmpty',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsNotEmpty, [template], personCard);
+      const result = isClauseMet(filterClauseIsNotEmpty, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('should be false with isEmpty clause', () => {
@@ -200,7 +205,7 @@ describe('src/cardFilter', () => {
         condition: 'isEmpty',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsEmpty, [template], personCard);
+      const result = isClauseMet(filterClauseIsEmpty, [template], personCard, reader);
       expect(result).toBeFalsy();
     });
     test('verify empty includes clause', () => {
@@ -209,7 +214,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: [],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause', () => {
@@ -218,7 +223,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid1'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause 2', () => {
@@ -227,7 +232,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid2'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause multiple values', () => {
@@ -236,7 +241,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid3', 'personid1'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause multiple values 2', () => {
@@ -245,7 +250,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid3', 'personid2'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify not includes clause', () => {
@@ -254,7 +259,7 @@ describe('src/cardFilter', () => {
         condition: 'notIncludes',
         values: ['personid3'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify not includes clause, multiple values', () => {
@@ -263,7 +268,7 @@ describe('src/cardFilter', () => {
         condition: 'notIncludes',
         values: ['personid3', 'personid4'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
   });
@@ -287,7 +292,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: [],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause', () => {
@@ -296,7 +301,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid1'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify includes clause multiple values', () => {
@@ -305,7 +310,7 @@ describe('src/cardFilter', () => {
         condition: 'includes',
         values: ['personid3', 'personid1'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
     test('verify not includes clause', () => {
@@ -314,7 +319,7 @@ describe('src/cardFilter', () => {
         condition: 'notIncludes',
         values: ['personid2'],
       });
-      const result = isClauseMet(filterClauseIncludes, [template], personCard);
+      const result = isClauseMet(filterClauseIncludes, [template], personCard, reader);
       expect(result).toBeTruthy();
     });
   });
@@ -322,7 +327,7 @@ describe('src/cardFilter', () => {
   describe('verify isClauseMet method - single date property', () => {
     // Date Properties are stored as 12PM UTC.
     const now = new Date(Date.now());
-    const propertyDate = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    const propertyDate = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
 
     const dateCard = createTestCard(board);
     dateCard.id = '1';
@@ -345,7 +350,7 @@ describe('src/cardFilter', () => {
         condition: 'isSet',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsSet, [template], dateCard);
+      const result = isClauseMet(filterClauseIsSet, [template], dateCard, reader);
       expect(result).toBeTruthy();
     });
     test('should be false with notSet clause', () => {
@@ -354,7 +359,7 @@ describe('src/cardFilter', () => {
         condition: 'isNotSet',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsNotSet, [template], dateCard);
+      const result = isClauseMet(filterClauseIsNotSet, [template], dateCard, reader);
       expect(result).toBeFalsy();
     });
     test('verify isBefore clause', () => {
@@ -363,7 +368,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [checkDayAfter.toString()],
       });
-      const result = isClauseMet(filterClauseIsBefore, [template], dateCard);
+      const result = isClauseMet(filterClauseIsBefore, [template], dateCard, reader);
       expect(result).toBeTruthy();
 
       const filterClauseIsNotBefore = createFilterClause({
@@ -371,7 +376,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [checkDayBefore.toString()],
       });
-      const result2 = isClauseMet(filterClauseIsNotBefore, [template], dateCard);
+      const result2 = isClauseMet(filterClauseIsNotBefore, [template], dateCard, reader);
       expect(result2).toBeFalsy();
     });
     test('verify isAfter clauses', () => {
@@ -380,7 +385,7 @@ describe('src/cardFilter', () => {
         condition: 'isAfter',
         values: [checkDayBefore.toString()],
       });
-      const result = isClauseMet(filterClauseisAfter, [template], dateCard);
+      const result = isClauseMet(filterClauseisAfter, [template], dateCard, reader);
       expect(result).toBeTruthy();
 
       const filterClauseisNotAfter = createFilterClause({
@@ -388,7 +393,7 @@ describe('src/cardFilter', () => {
         condition: 'isAfter',
         values: [checkDayAfter.toString()],
       });
-      const result2 = isClauseMet(filterClauseisNotAfter, [template], dateCard);
+      const result2 = isClauseMet(filterClauseisNotAfter, [template], dateCard, reader);
       expect(result2).toBeFalsy();
     });
     test('verify is clause', () => {
@@ -397,7 +402,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [propertyDate.toString()],
       });
-      const result = isClauseMet(filterClauseIs, [template], dateCard);
+      const result = isClauseMet(filterClauseIs, [template], dateCard, reader);
       expect(result).toBeTruthy();
 
       const filterClauseIsNot = createFilterClause({
@@ -405,7 +410,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [checkDayBefore.toString()],
       });
-      const result2 = isClauseMet(filterClauseIsNot, [template], dateCard);
+      const result2 = isClauseMet(filterClauseIsNot, [template], dateCard, reader);
       expect(result2).toBeFalsy();
     });
   });
@@ -413,7 +418,7 @@ describe('src/cardFilter', () => {
   describe('verify isClauseMet method - date range property', () => {
     // Date Properties are stored as 12PM UTC.
     const now = new Date(Date.now());
-    const fromDate = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    const fromDate = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12);
     const toDate = fromDate + 2 * dayMillis;
     const dateCard = createTestCard(board);
     dateCard.id = '1';
@@ -441,7 +446,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [],
       });
-      const resulta = isClauseMet(filterClauseIsBeforeEmpty, [template], dateCard);
+      const resulta = isClauseMet(filterClauseIsBeforeEmpty, [template], dateCard, reader);
       expect(resulta).toBeTruthy();
 
       const filterClauseIsBefore = createFilterClause({
@@ -449,7 +454,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [beforeRange.toString()],
       });
-      const result = isClauseMet(filterClauseIsBefore, [template], dateCard);
+      const result = isClauseMet(filterClauseIsBefore, [template], dateCard, reader);
       expect(result).toBeFalsy();
 
       const filterClauseIsInRange = createFilterClause({
@@ -457,7 +462,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [inRange.toString()],
       });
-      const result2 = isClauseMet(filterClauseIsInRange, [template], dateCard);
+      const result2 = isClauseMet(filterClauseIsInRange, [template], dateCard, reader);
       expect(result2).toBeTruthy();
 
       const filterClauseIsAfter = createFilterClause({
@@ -465,7 +470,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [afterRange.toString()],
       });
-      const result3 = isClauseMet(filterClauseIsAfter, [template], dateCard);
+      const result3 = isClauseMet(filterClauseIsAfter, [template], dateCard, reader);
       expect(result3).toBeTruthy();
     });
 
@@ -475,7 +480,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [],
       });
-      const resulta = isClauseMet(filterClauseIsAfterEmpty, [template], dateCard);
+      const resulta = isClauseMet(filterClauseIsAfterEmpty, [template], dateCard, reader);
       expect(resulta).toBeTruthy();
 
       const filterClauseIsAfter = createFilterClause({
@@ -483,7 +488,7 @@ describe('src/cardFilter', () => {
         condition: 'isAfter',
         values: [afterRange.toString()],
       });
-      const result = isClauseMet(filterClauseIsAfter, [template], dateCard);
+      const result = isClauseMet(filterClauseIsAfter, [template], dateCard, reader);
       expect(result).toBeFalsy();
 
       const filterClauseIsInRange = createFilterClause({
@@ -491,7 +496,7 @@ describe('src/cardFilter', () => {
         condition: 'isAfter',
         values: [inRange.toString()],
       });
-      const result2 = isClauseMet(filterClauseIsInRange, [template], dateCard);
+      const result2 = isClauseMet(filterClauseIsInRange, [template], dateCard, reader);
       expect(result2).toBeTruthy();
 
       const filterClauseIsBefore = createFilterClause({
@@ -499,7 +504,7 @@ describe('src/cardFilter', () => {
         condition: 'isAfter',
         values: [beforeRange.toString()],
       });
-      const result3 = isClauseMet(filterClauseIsBefore, [template], dateCard);
+      const result3 = isClauseMet(filterClauseIsBefore, [template], dateCard, reader);
       expect(result3).toBeTruthy();
     });
 
@@ -509,7 +514,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [],
       });
-      const resulta = isClauseMet(filterClauseIsEmpty, [template], dateCard);
+      const resulta = isClauseMet(filterClauseIsEmpty, [template], dateCard, reader);
       expect(resulta).toBeTruthy();
 
       const filterClauseIsBefore = createFilterClause({
@@ -517,7 +522,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [beforeRange.toString()],
       });
-      const result = isClauseMet(filterClauseIsBefore, [template], dateCard);
+      const result = isClauseMet(filterClauseIsBefore, [template], dateCard, reader);
       expect(result).toBeFalsy();
 
       const filterClauseIsInRange = createFilterClause({
@@ -525,7 +530,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [inRange.toString()],
       });
-      const result2 = isClauseMet(filterClauseIsInRange, [template], dateCard);
+      const result2 = isClauseMet(filterClauseIsInRange, [template], dateCard, reader);
       expect(result2).toBeTruthy();
 
       const filterClauseIsAfter = createFilterClause({
@@ -533,7 +538,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [afterRange.toString()],
       });
-      const result3 = isClauseMet(filterClauseIsAfter, [template], dateCard);
+      const result3 = isClauseMet(filterClauseIsAfter, [template], dateCard, reader);
       expect(result3).toBeFalsy();
     });
   });
@@ -543,16 +548,8 @@ describe('src/cardFilter', () => {
   // filter now compares calendar days in the reader's time zone, and they
   // hold everywhere.
   describe('verify isClauseMet method - (createdTime) date property', () => {
-    const createDate = new Date(card1.createAt);
-    const checkDate = Date.UTC(
-      createDate.getFullYear(),
-      createDate.getMonth(),
-      createDate.getDate(),
-      createDate.getHours(),
-      createDate.getMinutes(),
-      createDate.getSeconds(),
-      createDate.getMilliseconds(),
-    );
+    // The day the card was created on, for the reader: 7 December 2023.
+    const checkDate = Date.UTC(2023, 11, 7);
     const checkDayBefore = checkDate - dayMillis;
     const checkDayAfter = checkDate + dayMillis;
 
@@ -569,7 +566,7 @@ describe('src/cardFilter', () => {
         condition: 'isSet',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsSet, [template], card1);
+      const result = isClauseMet(filterClauseIsSet, [template], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should be false with notSet clause', () => {
@@ -578,7 +575,7 @@ describe('src/cardFilter', () => {
         condition: 'isNotSet',
         values: [],
       });
-      const result = isClauseMet(filterClauseIsNotSet, [template], card1);
+      const result = isClauseMet(filterClauseIsNotSet, [template], card1, reader);
       expect(result).toBeFalsy();
     });
     test('verify isBefore clause', () => {
@@ -587,7 +584,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [checkDayAfter.toString()],
       });
-      const result = isClauseMet(filterClauseIsBefore, [template], card1);
+      const result = isClauseMet(filterClauseIsBefore, [template], card1, reader);
       expect(result).toBeTruthy();
 
       const filterClauseIsNotBefore = createFilterClause({
@@ -595,7 +592,7 @@ describe('src/cardFilter', () => {
         condition: 'isBefore',
         values: [checkDate.toString()],
       });
-      const result2 = isClauseMet(filterClauseIsNotBefore, [template], card1);
+      const result2 = isClauseMet(filterClauseIsNotBefore, [template], card1, reader);
       expect(result2).toBeFalsy();
     });
     test('verify isAfter clauses', () => {
@@ -604,7 +601,7 @@ describe('src/cardFilter', () => {
         condition: 'isAfter',
         values: [checkDayBefore.toString()],
       });
-      const result = isClauseMet(filterClauseisAfter, [template], card1);
+      const result = isClauseMet(filterClauseisAfter, [template], card1, reader);
       expect(result).toBeTruthy();
 
       const filterClauseisNotAfter = createFilterClause({
@@ -612,7 +609,7 @@ describe('src/cardFilter', () => {
         condition: 'isAfter',
         values: [checkDate.toString()],
       });
-      const result2 = isClauseMet(filterClauseisNotAfter, [template], card1);
+      const result2 = isClauseMet(filterClauseisNotAfter, [template], card1, reader);
       expect(result2).toBeFalsy();
     });
     test('verify is clause', () => {
@@ -622,7 +619,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [checkDate.toString()],
       });
-      const result = isClauseMet(filterClauseIs, [template], card1);
+      const result = isClauseMet(filterClauseIs, [template], card1, reader);
       expect(result).toBeTruthy();
 
       const filterClauseIsNot = createFilterClause({
@@ -630,7 +627,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [checkDayBefore.toString()],
       });
-      const result2 = isClauseMet(filterClauseIsNot, [template], card1);
+      const result2 = isClauseMet(filterClauseIsNot, [template], card1, reader);
       expect(result2).toBeFalsy();
 
       const filterClauseIsNot2 = createFilterClause({
@@ -638,7 +635,7 @@ describe('src/cardFilter', () => {
         condition: 'is',
         values: [checkDayAfter.toString()],
       });
-      const result3 = isClauseMet(filterClauseIsNot2, [template], card1);
+      const result3 = isClauseMet(filterClauseIsNot2, [template], card1, reader);
       expect(result3).toBeFalsy();
     });
   });
@@ -649,7 +646,7 @@ describe('src/cardFilter', () => {
         operation: 'and',
         filters: [],
       });
-      const result = isFilterGroupMet(filterGroup, [], card1);
+      const result = isFilterGroupMet(filterGroup, [], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should return true with or operation and 2 filterCause, one is false ', () => {
@@ -662,7 +659,7 @@ describe('src/cardFilter', () => {
         operation: 'or',
         filters: [filterClauseNotIncludes, filterClause],
       });
-      const result = isFilterGroupMet(filterGroup, [], card1);
+      const result = isFilterGroupMet(filterGroup, [], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should return true with or operation and 2 filterCause, 1 filtergroup in filtergroup, one filterClause is false ', () => {
@@ -680,7 +677,7 @@ describe('src/cardFilter', () => {
         filters: [],
       });
       filterGroup.filters.push(filterGroupInFilterGroup);
-      const result = isFilterGroupMet(filterGroup, [], card1);
+      const result = isFilterGroupMet(filterGroup, [], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should return false with or operation and two filterCause, two are false ', () => {
@@ -698,7 +695,7 @@ describe('src/cardFilter', () => {
         operation: 'or',
         filters: [filterClauseNotIncludes, filterClauseEmpty],
       });
-      const result = isFilterGroupMet(filterGroup, [], card1);
+      const result = isFilterGroupMet(filterGroup, [], card1, reader);
       expect(result).toBeFalsy();
     });
     test('should return false with and operation and 2 filterCause, one is false ', () => {
@@ -711,7 +708,7 @@ describe('src/cardFilter', () => {
         operation: 'and',
         filters: [filterClauseNotIncludes, filterClause],
       });
-      const result = isFilterGroupMet(filterGroup, [], card1);
+      const result = isFilterGroupMet(filterGroup, [], card1, reader);
       expect(result).toBeFalsy();
     });
     test('should return true with and operation and 2 filterCause, two are true ', () => {
@@ -724,7 +721,7 @@ describe('src/cardFilter', () => {
         operation: 'and',
         filters: [filterClauseIncludes, filterClause],
       });
-      const result = isFilterGroupMet(filterGroup, [], card1);
+      const result = isFilterGroupMet(filterGroup, [], card1, reader);
       expect(result).toBeTruthy();
     });
     test('should return true with or operation and 2 filterCause, 1 filtergroup in filtergroup, one filterClause is false ', () => {
@@ -742,7 +739,7 @@ describe('src/cardFilter', () => {
         filters: [],
       });
       filterGroup.filters.push(filterGroupInFilterGroup);
-      const result = isFilterGroupMet(filterGroup, [], card1);
+      const result = isFilterGroupMet(filterGroup, [], card1, reader);
       expect(result).toBeFalsy();
     });
   });
@@ -1003,7 +1000,7 @@ describe('src/cardFilter', () => {
         operation: 'or',
         filters: [filterClauseNotIncludes, filterClause],
       });
-      const result = applyFilterGroup(filterGroup, [], [card1]);
+      const result = applyFilterGroup(filterGroup, [], [card1], reader);
       expect(result).toBeDefined();
       expect(result[0]).toEqual(card1);
     });
@@ -1019,7 +1016,7 @@ describe('src/cardFilter', () => {
         operation: 'and',
         filters: [filterClauseNotContains],
       });
-      const result = applyFilterGroup(filterGroup, [], [card1]);
+      const result = applyFilterGroup(filterGroup, [], [card1], reader);
       expect(result.length).toEqual(1);
     });
   });
@@ -1034,7 +1031,7 @@ describe('src/cardFilter', () => {
         operation: 'and',
         filters: [filterClauseNotContains],
       });
-      const result = applyFilterGroup(filterGroup, [], [card1]);
+      const result = applyFilterGroup(filterGroup, [], [card1], reader);
       expect(result.length).toEqual(0);
     });
   });

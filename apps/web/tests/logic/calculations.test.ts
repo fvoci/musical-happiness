@@ -161,7 +161,7 @@ describe('components/calculations/calculation logic', () => {
     properties.updatedTime,
   ]);
 
-  const intl = { locale: 'en-us' };
+  const intl = { locale: 'en-us', timeZone: 'Asia/Seoul' };
 
   // testing count
   Object.values(properties).forEach((property) => {

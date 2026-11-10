@@ -68,26 +68,29 @@ const sortBy = (
   sortOptions: options.map(([propertyId, reversed = false]) => ({ propertyId, reversed })),
   cardOrder: [],
   locale: 'en',
+  timeZone: 'UTC',
   ...extra,
 });
 
 describe('titleOrCreatedOrder', () => {
   it('orders by title', () => {
-    expect(titleOrCreatedOrder(card('a', 'apple'), card('b', 'banana'))).toBeLessThan(0);
+    expect(titleOrCreatedOrder(card('a', 'apple'), card('b', 'banana'), 'en')).toBeLessThan(0);
   });
 
   it('puts a card without a title after one with a title', () => {
-    expect(titleOrCreatedOrder(card('a', ''), card('b', 'banana'))).toBe(1);
-    expect(titleOrCreatedOrder(card('a', 'apple'), card('b', ''))).toBe(-1);
+    expect(titleOrCreatedOrder(card('a', ''), card('b', 'banana'), 'en')).toBe(1);
+    expect(titleOrCreatedOrder(card('a', 'apple'), card('b', ''), 'en')).toBe(-1);
   });
 
   it('orders two cards without a title by age, and by identifier when made at once', () => {
-    expect(titleOrCreatedOrder(card('a', '', {}, 1000), card('b', '', {}, 2000))).toBeLessThan(0);
-    expect(titleOrCreatedOrder(card('b', '', {}, 1000), card('a', '', {}, 1000))).toBeGreaterThan(
-      0,
-    );
     expect(
-      titleOrCreatedOrder(card('a', 'same', {}, 2000), card('b', 'same', {}, 1000)),
+      titleOrCreatedOrder(card('a', '', {}, 1000), card('b', '', {}, 2000), 'en'),
+    ).toBeLessThan(0);
+    expect(
+      titleOrCreatedOrder(card('b', '', {}, 1000), card('a', '', {}, 1000), 'en'),
+    ).toBeGreaterThan(0);
+    expect(
+      titleOrCreatedOrder(card('a', 'same', {}, 2000), card('b', 'same', {}, 1000), 'en'),
     ).toBeGreaterThan(0);
   });
 });
@@ -95,7 +98,7 @@ describe('titleOrCreatedOrder', () => {
 describe('manual order', () => {
   const order = ['c', 'a', 'b'];
   const manual = (cards: Card[]): string =>
-    ids(sortCards(cards, { templates, sortOptions: [], cardOrder: order }));
+    ids(sortCards(cards, { ...sortBy([]), cardOrder: order }));
 
   it('follows the positions of the view', () => {
     expect(manual([card('a', '1'), card('b', '2'), card('c', '3')])).toBe('c a b');
@@ -292,8 +295,12 @@ describe('the cards of a view', () => {
       card('unmatched', 'hay', { t: 'x', n: '3' }),
       withheld,
     ];
-    expect(ids(cardsOfView(cards, templates, view, 'NEEDLE'))).toBe('first second');
-    expect(ids(cardsOfView(cards, templates, view, ''))).toBe('first second unmatched');
+    expect(
+      ids(cardsOfView(cards, templates, view, 'NEEDLE', { locale: 'en', timeZone: 'UTC' })),
+    ).toBe('first second');
+    expect(ids(cardsOfView(cards, templates, view, '', { locale: 'en', timeZone: 'UTC' }))).toBe(
+      'first second unmatched',
+    );
     expect(hiddenCardCount(cards)).toBe(1);
   });
 });

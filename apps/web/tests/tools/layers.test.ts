@@ -73,3 +73,98 @@ describe('feature boundaries', () => {
     expect(messages('src/app/App.ts', "import { x } from '$lib/features/board/b.ts';")).toEqual([]);
   });
 });
+
+function deviceTime(code: string): string[] {
+  const linter = new Linter({ cwd: ROOT });
+  return linter
+    .verify(
+      code,
+      [
+        {
+          files: ['**/*.ts'],
+          plugins: { fvoci: layers },
+          rules: { 'fvoci/no-device-time': 'error' },
+        },
+      ],
+      { filename: path.join(ROOT, 'src/lib/logic/example.ts') },
+    )
+    .map((message) => message.message);
+}
+
+describe('no device time in the logic', () => {
+  it('refuses the methods of Date that answer in the time zone of the device', () => {
+    for (const method of [
+      'getHours',
+      'getDate',
+      'getDay',
+      'getMonth',
+      'getFullYear',
+      'getTimezoneOffset',
+    ]) {
+      expect(deviceTime(`const x = date.${method}();`)).toEqual([
+        expect.stringContaining(`\`${method}\` works in the time zone of the device`),
+      ]);
+    }
+    expect(deviceTime('date.setHours(0, 0, 0, 0);')).toHaveLength(1);
+    expect(deviceTime('date.setDate(date.getUTCDate() + 1);')).toHaveLength(1);
+    expect(deviceTime("const text = date.toLocaleDateString('en');")).toHaveLength(1);
+    expect(deviceTime("const text = date.toLocaleTimeString('en');")).toHaveLength(1);
+  });
+
+  it('refuses a Date built from parts or from text', () => {
+    expect(deviceTime('const d = new Date(2026, 2, 5);')).toEqual([
+      expect.stringContaining('reads its arguments as device time'),
+    ]);
+    expect(deviceTime('const d = new Date(2026, 2, 5, 12, 0);')).toHaveLength(1);
+    expect(deviceTime("const d = new Date('December 7, 2023');")).toHaveLength(1);
+    expect(deviceTime('const d = new Date(`${year}-03-05T00:00`);')).toHaveLength(1);
+  });
+
+  it('refuses formatting without a time zone, and asking the device for its zone', () => {
+    expect(deviceTime("new Intl.DateTimeFormat('en').format(moment);")).toEqual([
+      expect.stringContaining('formats in the time zone of the device'),
+    ]);
+    expect(
+      deviceTime("new Intl.DateTimeFormat('en', { month: 'long' }).format(moment);"),
+    ).toHaveLength(1);
+    expect(deviceTime('Intl.DateTimeFormat().format(moment);')).toHaveLength(1);
+    expect(deviceTime('const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;')).toEqual(
+      expect.arrayContaining([expect.stringContaining('read in lib/regional.ts only')]),
+    );
+  });
+
+  it('lets through what does not depend on the device', () => {
+    const code = [
+      'const a = new Date(instant).getUTCHours();',
+      'const b = new Date(instant).getTime();',
+      'const c = Date.UTC(2026, 2, 5);',
+      'const d = Date.now();',
+      'const e = new Date();',
+      "const f = new Intl.DateTimeFormat('en', { timeZone, month: 'long' }).format(instant);",
+      "const g = new Intl.DateTimeFormat('en', { ...options, timeZone: 'UTC' }).format(instant);",
+      "const h = new Intl.DateTimeFormat('en', { hour: 'numeric', timeZone: 'UTC' }).resolvedOptions().hourCycle;",
+      'const i = new Date(instant).toISOString();',
+    ].join('\n');
+    expect(deviceTime(code)).toEqual([]);
+  });
+});
+
+describe('the time zone of the device', () => {
+  it('is read in src/lib/regional.ts and nowhere else in the app', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const asksTheDevice = /resolvedOptions\(\)\s*\.timeZone|getLocalTimeZone|getTimezoneOffset/;
+    const found: string[] = [];
+    const walk = (folder: string): void => {
+      for (const entry of readdirSync(path.join(ROOT, folder), { withFileTypes: true })) {
+        const file = `${folder}/${entry.name}`;
+        if (entry.isDirectory()) {
+          if (file !== 'src/lib/i18n/paraglide') walk(file);
+        } else if (/\.(ts|svelte)$/.test(entry.name)) {
+          if (asksTheDevice.test(readFileSync(path.join(ROOT, file), 'utf8'))) found.push(file);
+        }
+      }
+    };
+    walk('src');
+    expect(found).toEqual(['src/lib/regional.ts']);
+  });
+});

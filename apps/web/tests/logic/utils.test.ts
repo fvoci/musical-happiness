@@ -8,6 +8,7 @@
  */
 import { describe, expect, it, test } from 'vitest';
 
+import { dateOfInstant } from '$lib/logic/dates.ts';
 import { displayDate, displayDateTime, inputDate } from '$lib/logic/format.ts';
 import { countCheckboxesInMarkdown, ensureProtocol } from '$lib/logic/text.ts';
 import { boardPath, buildUrl } from '$lib/logic/urls.ts';
@@ -19,6 +20,8 @@ import {
 } from '$lib/logic/users.ts';
 import { compareVersions } from '$lib/logic/versions.ts';
 import { createId } from '$lib/logic/wire.ts';
+
+import { at } from '../support/zones.ts';
 
 describe('utils', () => {
   describe('assureProtocol', () => {
@@ -99,50 +102,49 @@ describe('utils', () => {
     });
   });
 
+  // The original built these dates in the time zone of the machine. Here the
+  // reader is in Seoul, wherever the tests run.
+  const timeZone = 'Asia/Seoul';
+  const currentYear = Number(dateOfInstant(Date.now(), timeZone).slice(0, 4));
+  const previousYear = currentYear - 1;
+
   describe('display date', () => {
-    const locale = 'en-us';
+    const reader = { locale: 'en-us', timeZone };
 
     it('should show month and day for current year', () => {
-      const currentYear = new Date().getFullYear();
-      const date = new Date(currentYear, 6, 9);
-      expect(displayDate(date, locale)).toBe('July 09');
+      const date = at(timeZone, currentYear, 7, 9);
+      expect(displayDate(date, reader)).toBe('July 09');
     });
 
     it('should show month, day and year for previous year', () => {
-      const currentYear = new Date().getFullYear();
-      const previousYear = currentYear - 1;
-      const date = new Date(previousYear, 6, 9);
-      expect(displayDate(date, locale)).toBe(`July 09, ${previousYear}`);
+      const date = at(timeZone, previousYear, 7, 9);
+      expect(displayDate(date, reader)).toBe(`July 09, ${previousYear}`);
     });
   });
 
   describe('input date', () => {
-    const currentYear = new Date().getFullYear();
-    const date = new Date(currentYear, 6, 9);
+    const date = at(timeZone, currentYear, 7, 9);
 
     it('should show mm/dd/yyyy for current year', () => {
-      expect(inputDate(date, 'en-us')).toBe(`07/09/${currentYear}`);
+      expect(inputDate(date, { locale: 'en-us', timeZone })).toBe(`07/09/${currentYear}`);
     });
 
     it('should show dd/mm/yyyy for current year, es local', () => {
-      expect(inputDate(date, 'es-es')).toBe(`09/07/${currentYear}`);
+      expect(inputDate(date, { locale: 'es-es', timeZone })).toBe(`09/07/${currentYear}`);
     });
   });
 
   describe('display date and time', () => {
-    const locale = 'en-us';
+    const reader = { locale: 'en-us', timeZone };
 
     it('should show month, day and time for current year', () => {
-      const currentYear = new Date().getFullYear();
-      const date = new Date(currentYear, 6, 9, 15, 20);
-      expect(displayDateTime(date, locale)).toBe('July 09 at 3:20 PM');
+      const date = at(timeZone, currentYear, 7, 9, 15, 20);
+      expect(displayDateTime(date, reader)).toBe('July 09 at 3:20 PM');
     });
 
     it('should show month, day, year and time for previous year', () => {
-      const currentYear = new Date().getFullYear();
-      const previousYear = currentYear - 1;
-      const date = new Date(previousYear, 6, 9, 5, 35);
-      expect(displayDateTime(date, locale)).toBe(`July 09, ${previousYear} at 5:35 AM`);
+      const date = at(timeZone, previousYear, 7, 9, 5, 35);
+      expect(displayDateTime(date, reader)).toBe(`July 09, ${previousYear} at 5:35 AM`);
     });
   });
 

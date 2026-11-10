@@ -7,8 +7,16 @@
  * or a date that carries a time) falls on different days for different
  * readers, and "its day" always means the day in the reader's time zone.
  *
- * Nothing here knows how a date is stored; wire.ts converts.
+ * The reader's time zone is always an argument: an IANA name such as
+ * `Asia/Seoul`, taken from the reader's settings. Nothing in the logic asks
+ * the device what time zone it is in, and nothing uses the parts of `Date`
+ * that answer in device time (`getHours`, `new Date(year, month, day)` and
+ * the like); a lint rule keeps it that way. So a result never depends on
+ * where the code happens to run.
+ *
+ * Nothing here knows how a date is stored either; wire.ts converts.
  */
+import { CalendarDate as ZonedCalendarDate, toZoned } from '@internationalized/date';
 
 declare const calendarDateBrand: unique symbol;
 
@@ -48,12 +56,8 @@ function utcOf(date: CalendarDate): number {
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-/**
- * The day a moment falls on for a reader: in `timeZone` (an IANA name), or
- * in the time zone of this device when none is given.
- */
-export function dateOfInstant(instant: number, timeZone?: string): CalendarDate {
-  if (timeZone === undefined) return dateOfLocal(new Date(instant));
+/** The day a moment falls on for a reader in `timeZone`. */
+export function dateOfInstant(instant: number, timeZone: string): CalendarDate {
   let formatter = formatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat('en-u-ca-gregory-nu-latn', {
@@ -69,18 +73,23 @@ export function dateOfInstant(instant: number, timeZone?: string): CalendarDate 
   return calendarDate(Number(parts.year), Number(parts.month), Number(parts.day));
 }
 
-/** The day a `Date` shows on this device: what a date picker means by the day that was clicked. */
-export function dateOfLocal(date: Date): CalendarDate {
-  return calendarDate(date.getFullYear(), date.getMonth() + 1, date.getDate());
-}
-
-/** Midnight on this device at the start of a date, for a calendar that works with `Date`. */
-export function localMidnight(date: CalendarDate): Date {
-  return new Date(
+/**
+ * The moment a day begins for a reader in `timeZone`: midnight there, or the
+ * first moment after it on a day whose midnight the clocks skip. Days are not
+ * all 24 hours long: where clocks change, one is 23 hours and one 25.
+ */
+export function startOfDay(date: CalendarDate, timeZone: string): number {
+  const day = new ZonedCalendarDate(
     Number(date.slice(0, 4)),
-    Number(date.slice(5, 7)) - 1,
+    Number(date.slice(5, 7)),
     Number(date.slice(8, 10)),
   );
+  return toZoned(day, timeZone).toDate().getTime();
+}
+
+/** The first moment that is no longer part of a day for a reader in `timeZone`. */
+export function endOfDay(date: CalendarDate, timeZone: string): number {
+  return startOfDay(addDays(date, 1), timeZone);
 }
 
 export function addDays(date: CalendarDate, days: number): CalendarDate {
@@ -104,14 +113,14 @@ export interface DateValue {
 }
 
 /** The day of one end of a value, for the reader. */
-export function dateOfPoint(point: DatePoint, timeZone?: string): CalendarDate {
+export function dateOfPoint(point: DatePoint, timeZone: string): CalendarDate {
   return point.date ?? dateOfInstant(point.instant, timeZone);
 }
 
 /** The first and the last day a value covers; the same day twice when it is not a range. */
 export function daysOf(
   value: DateValue,
-  timeZone?: string,
+  timeZone: string,
 ): { first: CalendarDate; last: CalendarDate } | undefined {
   if (!value.from) return undefined;
   const first = dateOfPoint(value.from, timeZone);
@@ -125,7 +134,7 @@ export function daysOf(
  * same day one without a time comes before one with a time, and two moments
  * keep their order.
  */
-export function comparePoints(first: DatePoint, second: DatePoint, timeZone?: string): number {
+export function comparePoints(first: DatePoint, second: DatePoint, timeZone: string): number {
   const firstDay = dateOfPoint(first, timeZone);
   const secondDay = dateOfPoint(second, timeZone);
   if (firstDay !== secondDay) return firstDay < secondDay ? -1 : 1;
