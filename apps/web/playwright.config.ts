@@ -16,7 +16,9 @@ const PREVIEW_PORT = Number(process.env.FVOCI_E2E_PORT ?? 18310);
 
 export default defineConfig({
   testDir: 'e2e',
-  outputDir: 'test-results',
+  // A folder of its own: a run empties its output folder first, and the
+  // spikes keep theirs beside this one (`test-results/spikes`).
+  outputDir: 'test-results/app',
   forbidOnly: Boolean(process.env.CI),
   reporter: [['list']],
   use: {
