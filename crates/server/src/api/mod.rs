@@ -48,7 +48,10 @@ pub(crate) use body::{
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};
 
-use limits::{BodyLimit, UNAUTHENTICATED_BODY_LIMIT, limit_request_body};
+use limits::{
+    BodyLimit, SessionBodyLimit, UNAUTHENTICATED_BODY_LIMIT, limit_request_body,
+    limit_session_request_body,
+};
 
 use crate::app::{App, ChangeNotification};
 use crate::error::{AppError, Reason};
@@ -66,9 +69,14 @@ pub(crate) type ApiResult = Result<Response, AppError>;
 ///
 /// Every route checks the cross-site request forgery header, and responses are marked as
 /// not cacheable unless a handler set its own policy. Request bodies are limited: to
-/// `max_request_bytes` where a route takes JSON, to less where no session is needed or
-/// none is claimed. The routes that take files are outside these limits.
-pub fn router(max_request_bytes: u64) -> Router<App> {
+/// `max_request_bytes` where a route takes JSON and the request has a session, to less
+/// where no session is needed, none is claimed, or the claimed one does not exist. The
+/// routes that take files are outside these limits.
+pub fn router(app: &App) -> Router<App> {
+    let session_limit = SessionBodyLimit {
+        app: app.clone(),
+        limit: BodyLimit(app.config().max_request_bytes),
+    };
     let json = Router::new()
         .merge(archive::routes())
         .merge(auth::routes())
@@ -89,8 +97,8 @@ pub fn router(max_request_bytes: u64) -> Router<App> {
         .merge(templates::routes())
         .merge(users::routes())
         .layer(middleware::from_fn_with_state(
-            BodyLimit(max_request_bytes),
-            limit_request_body,
+            session_limit,
+            limit_session_request_body,
         ));
     let unauthenticated = auth::unauthenticated_routes().layer(middleware::from_fn_with_state(
         UNAUTHENTICATED_BODY_LIMIT,

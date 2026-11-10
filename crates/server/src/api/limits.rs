@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use axum::body::{Body, BodyDataStream};
+use axum::body::{Body, BodyDataStream, HttpBody as _};
 use axum::extract::{Request, State};
 use axum::http::header::{CONTENT_LENGTH, EXPECT};
 use axum::middleware::Next;
@@ -14,6 +14,8 @@ use bytes::BytesMut;
 use futures_util::StreamExt as _;
 
 use super::request_token;
+use super::session::session_of;
+use crate::app::App;
 use crate::error::AppError;
 
 /// The largest body of a request to a route that needs no session: the login and the
@@ -42,6 +44,50 @@ const DISCARD_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BodyLimit(pub(crate) u64);
 
+/// The limit of the routes that take a session, with what it takes to tell whether a
+/// request has one.
+#[derive(Clone)]
+pub(crate) struct SessionBodyLimit {
+    pub(crate) app: App,
+    pub(crate) limit: BodyLimit,
+}
+
+/// [`limit_request_body`] for the routes that take a session: the room beyond that of
+/// the routes without one is for requests of a session only.
+///
+/// A request whose body is, or may be, larger than the small limit is asked for its
+/// session before the body is read. A token that is no session's is answered as the
+/// route would answer it (401), with nothing of the body kept: a made-up token does not
+/// buy the larger allowance. Smaller requests are not looked up here; the route does
+/// that.
+pub(crate) async fn limit_session_request_body(
+    State(SessionBodyLimit { app, limit }): State<SessionBodyLimit>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let token = request_token(request.headers(), request.uri().query());
+    let small = UNAUTHENTICATED_BODY_LIMIT.0;
+    let largest = declared_length(&request).or_else(|| request.body().size_hint().upper());
+    let wants_the_room = !token.is_empty() && largest.is_none_or(|length| length > small);
+    if wants_the_room && let Err(error) = session_of(&app, token).await {
+        let (parts, body) = request.into_parts();
+        if !parts.headers.contains_key(EXPECT) {
+            discard(body.into_data_stream(), 0).await;
+        }
+        return error.into_response();
+    }
+    limit_request_body(State(limit), request, next).await
+}
+
+/// The length a request declares for its body, if it does.
+fn declared_length(request: &Request) -> Option<u64> {
+    request
+        .headers()
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+}
+
 /// Reads the request body up to the limit and hands the request on with it, or answers
 /// 413 with the limit. The limit is the smaller one of the routes without a session if
 /// the request carries no session token.
@@ -62,11 +108,7 @@ pub(crate) async fn limit_request_body(
     } else {
         limit
     };
-    let declared = request
-        .headers()
-        .get(CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok());
+    let declared = declared_length(&request);
     let (parts, body) = request.into_parts();
     let mut stream = body.into_data_stream();
     if declared.is_some_and(|length| length > limit) {

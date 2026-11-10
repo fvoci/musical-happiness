@@ -189,6 +189,45 @@ async fn a_request_without_a_session_token_gets_the_small_limit_on_every_route()
     th.teardown().await;
 }
 
+/// A token that is no session's does not buy the larger allowance: a body over the small
+/// limit is answered with the 401 the route would give, before any of it is read. With
+/// a session the same body is read.
+#[tokio::test]
+async fn a_made_up_session_token_does_not_get_the_larger_limit() {
+    let th = Setup::native().start().await.init_basic().await;
+    let stranger = th.client_with_token("no-such-session");
+    let large = json_of_length(UNAUTHENTICATED_LIMIT + 1);
+    let largest = json_of_length(DEFAULT_JSON_LIMIT);
+
+    for body in [&large, &largest] {
+        let response = stranger.send_raw_body(Method::POST, "/boards", body).await;
+        response.check_error(StatusCode::UNAUTHORIZED, "invalid session token");
+    }
+    // Over the route's limit too: who has no session is told that first.
+    let response = stranger
+        .send_raw_body(
+            Method::POST,
+            "/boards",
+            &json_of_length(DEFAULT_JSON_LIMIT + 1),
+        )
+        .await;
+    response.check_error(StatusCode::UNAUTHORIZED, "invalid session token");
+
+    // A small body with a made-up token is answered by the route, as ever.
+    stranger
+        .send_raw_body(Method::POST, "/boards", "{}")
+        .await
+        .check_unauthorized();
+
+    // The session of a user gets the room.
+    let response = th
+        .client
+        .send_raw_body(Method::POST, "/boards", &largest)
+        .await;
+    check_read_and_refused(&response);
+    th.teardown().await;
+}
+
 /// The login and the registration, which anyone can send, read 64 KiB and no more,
 /// whatever `max_request_bytes` says.
 #[tokio::test]

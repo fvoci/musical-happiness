@@ -48,17 +48,27 @@ impl FromRequestParts<App> for RequiredSession {
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let token = request_token(&parts.headers, parts.uri.query());
-        if let Some(single_user_token) = app.single_user_token() {
-            if !tokens_match(single_user_token, &token) {
-                return Err(AppError::unauthorized("invalid single user token"));
-            }
-            return Ok(Self(single_user_session(token, &app.config().auth_mode)));
-        }
-
-        let session = app.authenticator().get_session(&token).await?;
-        check_auth_service(&session, app)?;
-        Ok(Self(session))
+        session_of(app, token).await.map(Self)
     }
+}
+
+/// The session a token stands for.
+///
+/// # Errors
+///
+/// Returns a 401 if the token is no session's (in single-user mode: not the configured
+/// token), and the store's error if the session cannot be looked up.
+pub(crate) async fn session_of(app: &App, token: String) -> Result<Session, AppError> {
+    if let Some(single_user_token) = app.single_user_token() {
+        if !tokens_match(single_user_token, &token) {
+            return Err(AppError::unauthorized("invalid single user token"));
+        }
+        return Ok(single_user_session(token, &app.config().auth_mode));
+    }
+
+    let session = app.authenticator().get_session(&token).await?;
+    check_auth_service(&session, app)?;
+    Ok(session)
 }
 
 impl FromRequestParts<App> for OptionalSession {

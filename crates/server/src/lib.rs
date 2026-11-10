@@ -139,7 +139,7 @@ impl Server {
     ///
     /// Every request is logged, and a handler that panics answers with a 500.
     pub fn router(&self) -> Router {
-        let api = api::router(self.app.config().max_request_bytes)
+        let api = api::router(&self.app)
             .route_layer(middleware::from_fn_with_state(
                 self.app.clone(),
                 api::run_to_completion,
