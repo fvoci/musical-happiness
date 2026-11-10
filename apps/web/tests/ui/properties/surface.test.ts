@@ -54,6 +54,20 @@ describe.each(PICKERS)('the picker of a %s property', (type, value) => {
     expect(document.querySelector('[data-slot="popover-content"]')).toBeNull();
   });
 
+  it('keeps the sheet clear of each edge of the screen by the inset of that edge', async () => {
+    // The left and the right inset differ on some devices (a camera on one
+    // side, a strip the system keeps on the other): one value for both would
+    // be wrong for one of them.
+    mount(type, value, { presentation: 'sheet' });
+    await fireEvent.click(valueButton(name));
+    const sheet = screen.getByRole('dialog', { name });
+    expect(sheet).toHaveClass(
+      'pl-[env(safe-area-inset-left)]',
+      'pr-[env(safe-area-inset-right)]',
+      'pb-[env(safe-area-inset-bottom)]',
+    );
+  });
+
   it('closes the sheet with its Done button and with Escape', async () => {
     mount(type, value, { presentation: 'sheet' });
     await fireEvent.click(valueButton(name));

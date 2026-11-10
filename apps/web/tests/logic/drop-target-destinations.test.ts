@@ -23,6 +23,7 @@ import {
   moveItem,
   moveItems,
   sameDestination,
+  windowChanged,
   type Destination,
   type KeyboardScene,
   type KeyboardStep,
@@ -622,5 +623,25 @@ describe('keyboardDestination', () => {
     });
     expect(keyboardDestination(start, 'nextList', row)).toBe(start);
     expect(keyboardDestination(start, 'previousList', row)).toBe(start);
+  });
+});
+
+describe('windowChanged', () => {
+  const size = { width: 626, height: 890 };
+
+  test('the same size is no change', () => {
+    expect(windowChanged(size, { ...size }, 120)).toBe(false);
+  });
+
+  test('any change of the width is one: layouts follow the width', () => {
+    expect(windowChanged(size, { width: 627, height: 890 }, 120)).toBe(true);
+    expect(windowChanged(size, { width: 890, height: 626 }, 120)).toBe(true);
+  });
+
+  test('the height may move by the tolerance, up or down, and no further', () => {
+    expect(windowChanged(size, { width: 626, height: 890 - 120 }, 120)).toBe(false);
+    expect(windowChanged(size, { width: 626, height: 890 + 120 }, 120)).toBe(false);
+    expect(windowChanged(size, { width: 626, height: 890 - 121 }, 120)).toBe(true);
+    expect(windowChanged(size, { width: 626, height: 890 + 121 }, 120)).toBe(true);
   });
 });

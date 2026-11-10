@@ -23,6 +23,12 @@ export default defineConfig({
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'] } },
     { name: 'mobile', use: { ...devices['Pixel 7'] } },
+    // Between a phone and a desktop: an unfolded device held upright, touched.
+    // The size is a rough figure, not one measured on a device.
+    {
+      name: 'middle',
+      use: { viewport: { width: 626, height: 890 }, hasTouch: true, deviceScaleFactor: 3 },
+    },
   ],
   ...(external
     ? {}

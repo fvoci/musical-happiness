@@ -60,7 +60,9 @@ async function fontsFor(page: Page, language: string, text: string): Promise<Fon
 const measured: Record<string, FontRequests> = {};
 
 test.describe('font files of a first screen', () => {
-  test.skip(({ isMobile }) => isMobile, 'the same files on every device; measured once');
+  test.beforeEach(({ page: _page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop', 'the same files on every device; measured once');
+  });
 
   test('English needs the common file of the Latin family', async ({ page }) => {
     measured.en = await fontsFor(page, 'en', SAMPLES.en);

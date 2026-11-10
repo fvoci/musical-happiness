@@ -545,3 +545,19 @@ export function edgeScrollFactor(
   if (fromEnd < zone) return clamp((zone - fromEnd) / zone, 0, 1);
   return 0;
 }
+
+/** The size of the window, as far as a drag cares. */
+export interface WindowSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Whether the window changed so much under a drag that the drag cannot go
+ * on: every place it measured is somewhere else now. The width decides, since
+ * layouts follow the width; the height may move by `tolerance` (a bar of the
+ * browser sliding away) before it counts.
+ */
+export function windowChanged(before: WindowSize, after: WindowSize, tolerance: number): boolean {
+  return before.width !== after.width || Math.abs(before.height - after.height) > tolerance;
+}

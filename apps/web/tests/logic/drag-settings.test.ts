@@ -18,6 +18,7 @@ describe('drag settings', () => {
       scrollEdge: 56,
       scrollMaxSpeed: 900,
       longestFrame: 50,
+      resizeTolerance: 120,
     });
   });
 

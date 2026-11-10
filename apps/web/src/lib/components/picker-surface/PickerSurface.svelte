@@ -76,7 +76,7 @@
       bind:ref={sheet}
       side="bottom"
       showCloseButton={false}
-      class="max-h-[85dvh] gap-0 rounded-t-xl pb-[env(safe-area-inset-bottom)] outline-none"
+      class="max-h-[85dvh] gap-0 rounded-t-xl pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] outline-none"
       onOpenAutoFocus={focusSheet}
     >
       <Sheet.Header class="pb-2">

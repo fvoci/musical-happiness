@@ -56,6 +56,8 @@ import {
   type Placement,
   type Point,
   type Rect,
+  windowChanged,
+  type WindowSize,
 } from '$lib/logic/drop-target.ts';
 
 import { AutoScroller, type AutoScrollOptions, type ScrollBox } from './auto-scroll.ts';
@@ -212,6 +214,8 @@ function viewport(): Rect {
   return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
 }
 
+const windowSize = (): WindowSize => ({ width: window.innerWidth, height: window.innerHeight });
+
 export class Sortable {
   #active = $state.raw<SortableActive | undefined>(undefined);
   #overlay = $state.raw<Point | undefined>(undefined);
@@ -221,6 +225,8 @@ export class Sortable {
   readonly #scroller: AutoScroller;
   #root: HTMLElement | undefined;
   #pointer: PointerDragHandle | undefined;
+  /** The size of the window when nothing was being dragged: the size a drag began in. */
+  #window: WindowSize = { width: 0, height: 0 };
 
   /** Where the pointer is, and where on the item it took hold. */
   #point: Point = { x: 0, y: 0 };
@@ -273,13 +279,34 @@ export class Sortable {
     const pointer = pointerDrag(root, this.#press, this.#options.pointer);
     this.#pointer = pointer;
     root.addEventListener('keydown', this.#onKeyDown);
+    this.#window = windowSize();
+    window.addEventListener('resize', this.#onResize);
     return () => {
       this.cancel();
       pointer.destroy();
       root.removeEventListener('keydown', this.#onKeyDown);
+      window.removeEventListener('resize', this.#onResize);
       this.#pointer = undefined;
       this.#root = undefined;
     };
+  };
+
+  /**
+   * A drag does not survive the window changing size under it (a device
+   * unfolded or turned, a window put beside another): the lists are laid out
+   * anew and nothing it measured holds. It is cancelled, with the usual
+   * announcement. While nothing is dragged the size is only remembered.
+   */
+  readonly #onResize = (): void => {
+    const size = windowSize();
+    if (!this.#active) {
+      this.#window = size;
+      return;
+    }
+    if (windowChanged(this.#window, size, DRAG_SETTINGS.resizeTolerance)) {
+      this.cancel();
+      this.#window = size;
+    }
   };
 
   /** Ends whatever is going on and puts everything back. */

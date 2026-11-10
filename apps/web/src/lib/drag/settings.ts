@@ -28,4 +28,11 @@ export const DRAG_SETTINGS = {
    * a jump.
    */
   longestFrame: 50,
+  /**
+   * How much the height of the window may change during a drag without
+   * ending it, in pixels: the browser of a phone slides its address bar in
+   * and out. Any change of the width ends the drag (a device unfolded or
+   * turned, a window put next to another).
+   */
+  resizeTolerance: 120,
 } as const;
