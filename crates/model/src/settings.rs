@@ -21,11 +21,11 @@ pub struct ParseSettingError;
 /// Defines a setting whose values are a closed set of words.
 macro_rules! word_setting {
     (
-        $(#[$meta:meta])*
+        $(#[doc = $doc:literal])*
         $name:ident { $($(#[$variant_meta:meta])* $variant:ident => $word:literal),+ $(,)? }
     ) => {
-        $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, utoipa::ToSchema)]
+        $(#[doc = $doc])*
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
         pub enum $name {
             $(
                 $(#[$variant_meta])*
@@ -43,6 +43,26 @@ macro_rules! word_setting {
                 match self {
                     $(Self::$variant => $word,)+
                 }
+            }
+        }
+
+        // Written out and not derived: the derive reads the name of a variant where it
+        // cannot read the `rename` this macro writes, and would list `Auto` where the
+        // value is `auto`.
+        impl utoipa::PartialSchema for $name {
+            fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+                let description = [$($doc),*].map(str::trim).join("\n");
+                utoipa::openapi::ObjectBuilder::new()
+                    .schema_type(utoipa::openapi::schema::Type::String)
+                    .enum_values(Some(Self::WORDS.iter().copied()))
+                    .description(Some(description))
+                    .into()
+            }
+        }
+
+        impl utoipa::ToSchema for $name {
+            fn name() -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed(stringify!($name))
             }
         }
 

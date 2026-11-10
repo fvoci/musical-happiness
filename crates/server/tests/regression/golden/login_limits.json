@@ -219,5 +219,29 @@
       "updateAt": "<ts>",
       "username": "limits-alice"
     }
+  },
+  {
+    "name": "limits-alice: with a space after it",
+    "request": "POST /api/v1/login as anonymous",
+    "status": 429,
+    "content_type": "application/json",
+    "body": {
+      "error": "rate_limited",
+      "message": "too many attempts; try again later",
+      "request_id": "<request-id>",
+      "retry_after": "<seconds>"
+    }
+  },
+  {
+    "name": "limits-nobody: with a space after it",
+    "request": "POST /api/v1/login as anonymous",
+    "status": 429,
+    "content_type": "application/json",
+    "body": {
+      "error": "rate_limited",
+      "message": "too many attempts; try again later",
+      "request_id": "<request-id>",
+      "retry_after": "<seconds>"
+    }
   }
 ]

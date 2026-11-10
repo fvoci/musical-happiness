@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::auth::{Authenticator, now_millis};
+use crate::error::ErrorKind;
 use crate::permissions::{TeamPermission, has_permission_to_team};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
@@ -131,9 +132,10 @@ type ListenerId = u64;
 
 #[derive(Debug)]
 struct Listener {
-    /// Empty until the connection has authenticated.
+    /// The user of the session the handshake came with; empty for a connection without
+    /// one, which stays so: no message signs a connection in.
     user_id: String,
-    /// The session the connection authenticated with; empty until then.
+    /// The session the handshake came with; empty for a connection without one.
     session_id: String,
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
@@ -259,8 +261,11 @@ impl Hub {
         // connections would then have passed this one by. Looked up once more, now that
         // it is closable, the session is either still there or the connection ends.
         if let Some(token) = token
-            && self.inner.auth.get_session(&token).await.is_err()
+            && let Err(error) = self.inner.auth.find_session(&token).await
         {
+            if error.kind() != ErrorKind::Unauthorized {
+                tracing::warn!(%error, "a websocket connection ends: its session could not be read");
+            }
             self.listeners().remove(id);
             return;
         }
@@ -306,7 +311,8 @@ impl Hub {
         };
         tokio::select! {
             () = reading => {}
-            // The hub gave the connection up because it does not keep up.
+            // The hub gave the connection up: it does not keep up, or its session or its
+            // read token ended.
             () = closed.cancelled() => {}
         }
 
@@ -327,8 +333,9 @@ impl Hub {
         self.close_where(|_| true);
     }
 
-    /// Closes every connection that authenticated as the user. For when the user's
-    /// sessions are ended: a connection checks its token once, when it authenticates.
+    /// Closes every connection of the user. For when the user's sessions are ended: a
+    /// connection asks for its session once, when it is made, and whoever ends a session
+    /// closes its connections.
     pub fn close_user(&self, user_id: &str) {
         self.close_where(|listener| listener.user_id == user_id);
     }

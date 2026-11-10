@@ -33,14 +33,16 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// Start the tour
 ///
 /// Copies the built-in welcome board for the user, as a private board of their own,
-/// and notes with the account that the tour has begun.
+/// and notes in the client's state (`getClientState`) that the tour has begun:
+/// `onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is
+/// `onboarding`. Every request makes another copy.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/onboard",
     operation_id = "onboard",
     tag = tag::TEAMS,
     params(TeamId),
-    responses((status = 200, description = "The board that was made.", body = OnboardingStart)),
+    responses((status = 200, description = "Where the tour's board is.", body = OnboardingStart)),
 )]
 async fn handle_onboard(
     State(app): State<App>,

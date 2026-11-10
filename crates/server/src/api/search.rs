@@ -23,9 +23,10 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// Search the boards, asked through a team
 ///
 /// The boards the user may find, as `getBoards` lists them, whose title matches the
-/// term, or with `field=property_name` those with a card property whose name does.
-/// The team of the path is not part of the search: the boards of every team are
-/// searched. Oldest first.
+/// term as `searchBoards` matches it, or with `field=property_name` those whose own
+/// `properties` have a member of exactly that name. The team of the path is not part of
+/// the search: the boards of every team are searched. A `field` that is neither is 400.
+/// Oldest first.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/boards/search",
@@ -61,7 +62,9 @@ async fn handle_search_boards(
 /// Search the boards
 ///
 /// The boards the user may find, as `getBoards` lists them, whose title matches the
-/// term. Oldest first.
+/// term: a title matches if every word of the term, as spaces divide it, is somewhere
+/// in it, whatever the case of the letters. Templates are never found. In a word `%`
+/// stands for any text and `_` for any one character. Oldest first.
 #[utoipa::path(
     get,
     path = "/boards/search",

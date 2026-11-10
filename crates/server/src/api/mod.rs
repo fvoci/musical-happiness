@@ -191,8 +191,8 @@ pub fn admin_router() -> Router<App> {
 ///   token in its `Authorization` header needs none: no browser adds that header by
 ///   itself.
 ///
-/// `GET` and `HEAD` requests change nothing and are not checked: an image or a link can
-/// point at the API. A request without any session is checked like one with the cookie:
+/// `GET`, `HEAD` and `OPTIONS` requests change nothing and are not checked: an image or
+/// a link can point at the API. A request without any session is checked like one with the cookie:
 /// a forged login would sign the browser in to somebody else's account.
 pub(crate) async fn guard_against_forgery(
     State(app): State<App>,

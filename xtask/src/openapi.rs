@@ -106,10 +106,10 @@ fn first_difference(committed: &str, printed: &str) -> Option<String> {
         match (committed_lines.next(), printed_lines.next()) {
             (Some(file), Some(server)) if file == server => {}
             (Some(file), Some(server)) => {
+                // As they are, with what stands before and after the text: lines that
+                // differ in nothing but that would otherwise be shown as the same.
                 return Some(format!(
-                    "line {number} is `{}` in the file and `{}` from the server",
-                    file.trim(),
-                    server.trim()
+                    "line {number} is {file:?} in the file and {server:?} from the server"
                 ));
             }
             (Some(_), None) => {
@@ -145,7 +145,17 @@ mod tests {
             first_difference("{\n  \"a\": 1\n}\n", "{\n  \"a\": 2\n}\n").expect("the texts differ");
         assert_eq!(
             difference,
-            "line 2 is `\"a\": 1` in the file and `\"a\": 2` from the server"
+            r#"line 2 is "  \"a\": 1" in the file and "  \"a\": 2" from the server"#
+        );
+    }
+
+    #[test]
+    fn lines_that_differ_in_their_indentation_are_shown_to_differ() {
+        let difference = first_difference("{\n  \"a\": 1\n}\n", "{\n    \"a\": 1\n}\n")
+            .expect("the texts differ");
+        assert_eq!(
+            difference,
+            r#"line 2 is "  \"a\": 1" in the file and "    \"a\": 1" from the server"#
         );
     }
 

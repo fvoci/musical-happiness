@@ -103,7 +103,10 @@ fn decode_order(body: &[u8]) -> Result<Vec<String>, AppError> {
 /// Make a category
 ///
 /// Makes a category of the user's sidebar in the team. The server makes its
-/// identifier.
+/// identifier, and a request that names one is 400. A `userId` that is not the user of
+/// the session is 403. The category is stored with its `sortOrder` raised by 10, and
+/// every other category of the user in the team moves by 10 as well, so that it keeps
+/// its place among them.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/categories",
@@ -146,7 +149,8 @@ async fn handle_create_category(
 /// Change a category
 ///
 /// Changes the name of one of the user's categories and whether it is collapsed.
-/// Nothing else changes, and a system category keeps its name.
+/// Nothing else changes, and a system category keeps its name. A `userId` that is not
+/// the user of the session is 400.
 #[utoipa::path(
     put,
     path = "/teams/{teamId}/categories/{categoryId}",
@@ -336,7 +340,8 @@ async fn handle_reorder_category_boards(
 /// Hide a board in the sidebar
 ///
 /// Hides a board of one of the user's categories from the user's sidebar. The board
-/// stays where it is filed, and nothing changes for anybody else.
+/// stays where it is filed, and nothing changes for anybody else. For a board that is
+/// not filed under the category nothing changes, and the answer is 204 all the same.
 #[utoipa::path(
     put,
     path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide",
@@ -355,7 +360,8 @@ async fn handle_hide_board(
 
 /// Show a hidden board again
 ///
-/// Ends the hiding of a board of one of the user's categories.
+/// Ends the hiding of a board of one of the user's categories. For a board that is not
+/// filed under the category nothing changes, and the answer is 204 all the same.
 #[utoipa::path(
     put,
     path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide",

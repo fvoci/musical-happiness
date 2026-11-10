@@ -48,7 +48,7 @@ fn int_query_param(query: Option<&str>, name: &str, default: i64) -> Result<i64,
     })
 }
 
-/// Returns the card with the given identifier for a handler of `/cards/{card_id}`, if
+/// Returns the card with the given identifier for a handler of `/cards/{cardId}`, if
 /// the user has the permission on the card's board.
 ///
 /// The path names a card and no board. So for a user who may not read the card's board
@@ -119,8 +119,8 @@ async fn handle_create_card(
 
 /// The cards of a board
 ///
-/// One page of the board's cards, for everyone who may view the board. Oldest first;
-/// the pages cut that order.
+/// One page of the board's cards, for the board's members. Oldest first; the pages cut
+/// that order. A `page` or `perPage` that is no whole number is 400.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/cards",
@@ -163,8 +163,8 @@ async fn handle_get_cards(
 
 /// Change a card
 ///
-/// For editors of the card's board. To a user who may not see that board there is no
-/// such card.
+/// For editors of the card's board. To a user who is no member of that board there is
+/// no such card.
 #[utoipa::path(
     patch,
     path = "/cards/{cardId}",
@@ -203,8 +203,8 @@ async fn handle_patch_card(
 
 /// A card
 ///
-/// For everyone who may view the card's board. To a user who may not there is no such
-/// card.
+/// For the members of the card's board. To a user who is no member of it there is no
+/// such card.
 #[utoipa::path(
     get,
     path = "/cards/{cardId}",

@@ -47,24 +47,30 @@ impl App {
         user_agent: &str,
         address: Option<IpAddr>,
     ) -> Result<String, AppError> {
+        // The attempt is counted at the names it gives, and before any of them is
+        // looked up: who has to wait must not depend on whether there is an account.
+        let mut names: Vec<&str> = [username, email]
+            .into_iter()
+            .filter(|name| !name.is_empty())
+            .collect();
+        if names.is_empty() {
+            names.push("");
+        }
+        let attempt = self
+            .login_limiter()
+            .admit_login(&names, address, Instant::now())
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+
+        // The name the account was found by, for the limiter: the one a success is for.
+        let mut found_by = username;
         let mut user: Option<User> = None;
         if !username.is_empty() {
             user = self.find_user_for_login(Lookup::Username(username)).await?;
         }
         if user.is_none() && !email.is_empty() {
             user = self.find_user_for_login(Lookup::Email(email)).await?;
+            found_by = email;
         }
-        // An account is counted under one name however it is asked for: its identifier.
-        // What is no account is counted under the name that was tried, the same way.
-        let account = match &user {
-            Some(user) => user.id.as_str(),
-            None if !username.is_empty() => username,
-            None => email,
-        };
-        let attempt = self
-            .login_limiter()
-            .admit_login(account, address, Instant::now())
-            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
 
         // Nothing this long was ever set as a password; it is not worth a hash.
         if password.len() > MAXIMUM_PASSWORD_BYTES {
@@ -121,7 +127,7 @@ impl App {
             return Err(incorrect_login());
         }
 
-        attempt.succeeded();
+        attempt.succeeded(found_by);
         if verdict == Verdict::MatchWithOutdatedHash {
             self.store_current_hash(&user, password).await;
         }
@@ -298,24 +304,36 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a bad-request error if the old password is wrong, a not-found error if
-    /// there is no such user, a conflict if the password was set anew while this change
-    /// was under way, or the store's error.
+    /// Returns a 429 with the time to wait if the old password was got wrong too often,
+    /// as for a login to the account by its name: a session is not the password, and
+    /// whoever holds one must not get to guess at it without end. Returns a bad-request
+    /// error if the old password is wrong, a not-found error if there is no such user, a
+    /// conflict if the password was set anew while this change was under way, or the
+    /// store's error.
     pub async fn change_password(
         &self,
         session: &Session,
         old_password: &str,
         new_password: &str,
+        address: Option<IpAddr>,
     ) -> Result<String, AppError> {
         let user = self.store().get_user_by_id(&session.user_id).await?;
+        // Counted with the logins to the account by its name, and one at a time from an
+        // address, like them.
+        let attempt = self
+            .login_limiter()
+            .admit_login(&[&user.username], address, Instant::now())
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
         let right = old_password.len() <= MAXIMUM_PASSWORD_BYTES
             && self.verify(&user.password_hash, old_password).await? != Verdict::Mismatch;
         if !right {
             tracing::debug!(user_id = %user.id, "invalid password for user");
+            attempt.failed(Instant::now());
             return Err(AppError::bad_request("the old password is wrong")
                 .with_reason(Reason::InvalidCredentials)
                 .with_field("oldPassword"));
         }
+        attempt.succeeded(&user.username);
         let token = new_secret();
         let changed = self
             .store()

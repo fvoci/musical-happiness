@@ -19,11 +19,11 @@ use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::subscriptions;
 
-/// The name of every board column, in the order rows are written.
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
 const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
 
+/// The name of every board column, in the order rows are written.
 const BOARD_COLUMNS: &str = "id, team_id, created_by, modified_by, type, minimum_role, title, \
                              description, icon, show_description, is_template, is_builtin, \
                              template_version, properties, card_properties, create_at, \

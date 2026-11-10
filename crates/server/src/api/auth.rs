@@ -62,8 +62,9 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
 /// nowhere else.
 ///
 /// Wrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong
-/// about them. Attempts are counted by account and by where they come from; too many
-/// are 429.
+/// about them, a missing password too. Attempts are counted at the name and at the
+/// email address the request gives, each for itself, and by where they come from; too
+/// many are 429. What is counted does not depend on whether there is such an account.
 #[utoipa::path(
     post,
     path = "/login",
@@ -79,7 +80,7 @@ pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
         ),
         (
             status = 429,
-            description = "Too many attempts. `reason` and `retry_after` say more.",
+            description = "Too many attempts. `retry_after`, and the `Retry-After` header, say how long to wait; there is no `reason`.",
             body = ErrorBody,
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
         ),
@@ -148,9 +149,14 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
 ///
 /// Makes an account. The first user of a server needs no signup token and becomes its
 /// administrator; everyone after needs the team's token, and is refused with 403 and
-/// the reason `signup_token_required` or `signup_token_invalid` without it. A name or
-/// an email address that is taken is 409 with the reason `username_taken` or
-/// `email_taken`. Registering does not sign in.
+/// the reason `signup_token_required` without it. A token that is not the team's is 403
+/// with the reason `signup_token_invalid`, for the first user too. A name or an email
+/// address that is taken is 409 with the reason `username_taken` or `email_taken`.
+/// Registering does not sign in.
+///
+/// The name and the email address must not be blank, the email address must look like
+/// one, and the password must have at least 8 characters and at most 1024 bytes;
+/// otherwise the request is 400, and `field` names the member.
 #[utoipa::path(
     post,
     path = "/register",
@@ -162,7 +168,7 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
         (status = 201, description = "The user that was made.", body = User),
         (
             status = 429,
-            description = "Too many registrations from where this one comes from.",
+            description = "Too many registrations from where this one comes from, or the server has too much password work to do at the moment.",
             body = ErrorBody,
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
         ),
@@ -240,6 +246,12 @@ async fn handle_regenerate_signup_token(
 ///
 /// Changes the password of the user of the session, who proves to know the old one.
 /// The user's other sessions end, and this one goes on under a new cookie.
+///
+/// A wrong old password is 400 (not 401: the session is good) with the reason
+/// `invalid_credentials` and the field `oldPassword`. Wrong ones are counted with the
+/// failed logins to the account by its name, and too many are 429, also for a login.
+/// The new password must have at least 8 characters and at most 1024 bytes. A password
+/// that was changed by somebody else while this request was under way is 409.
 #[utoipa::path(
     post,
     path = "/users/me/password",
@@ -254,7 +266,7 @@ async fn handle_regenerate_signup_token(
         ),
         (
             status = 429,
-            description = "The server has too much password work to do at the moment.",
+            description = "The old password was wrong too often, or the server has too much password work to do at the moment.",
             body = ErrorBody,
             headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
         ),
@@ -263,13 +275,20 @@ async fn handle_regenerate_signup_token(
 async fn handle_change_password(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
+    client: Option<Extension<ClientAddress>>,
     body: Bytes,
 ) -> ApiResult {
     let request: ChangePasswordRequest = decode_object(&body)?;
     request.validate()?;
+    let address = address_of(client);
 
     let token = app
-        .change_password(&session, &request.old_password, &request.new_password)
+        .change_password(
+            &session,
+            &request.old_password,
+            &request.new_password,
+            address,
+        )
         .await?;
     // The session goes on under a new token, which replaces the old one in the cookie.
     Ok(with_session_cookie(&app, &token, no_content()))

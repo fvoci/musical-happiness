@@ -491,15 +491,12 @@ async fn websocket_identity(
     match auth.session_cookie().credential(headers) {
         // Sent on purpose: it is a session's, or the handshake is refused.
         Some(Credential::Bearer(token)) => {
-            let session = auth.get_session(&token).await?.session;
+            let session = auth.find_session(&token).await?;
             Ok(Some(ws::Identity { session, token }))
         }
         Some(Credential::Cookie(token)) if from_a_browser => {
-            match auth.get_session(&token).await {
-                Ok(authenticated) => Ok(Some(ws::Identity {
-                    session: authenticated.session,
-                    token,
-                })),
+            match auth.find_session(&token).await {
+                Ok(session) => Ok(Some(ws::Identity { session, token })),
                 // A cookie that outlived its session: the page may still follow a shared
                 // board.
                 Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(None),

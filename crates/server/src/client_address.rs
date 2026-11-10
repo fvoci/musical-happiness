@@ -9,7 +9,7 @@
 //! The request log and the limits on login attempts use the same answer, so that what
 //! is limited is what the log shows.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::http::HeaderMap;
 
@@ -41,14 +41,24 @@ impl AddressRange {
             IpAddr::V4(_) => 32,
             IpAddr::V6(_) => 128,
         };
-        let prefix_bits = match bits {
+        let prefix_bits: u32 = match bits {
             Some(bits) => bits.trim().parse().ok().filter(|bits| *bits <= width)?,
             None => width,
         };
-        Some(Self {
-            address,
-            prefix_bits,
-        })
+        // The addresses of requests are compared in their canonical form, in which an
+        // IPv4 address written as IPv6 (`::ffff:10.0.0.1`) is the IPv4 address. A range
+        // written that way is the IPv4 range it means; one that covers more than the
+        // mapped addresses means nothing that could be compared.
+        match (address, address.to_canonical()) {
+            (IpAddr::V6(_), mapped @ IpAddr::V4(_)) => Some(Self {
+                address: mapped,
+                prefix_bits: prefix_bits.checked_sub(96)?,
+            }),
+            _ => Some(Self {
+                address,
+                prefix_bits,
+            }),
+        }
     }
 
     fn contains(&self, address: IpAddr) -> bool {
@@ -108,21 +118,25 @@ impl TrustedProxies {
     /// That is `peer` unless `peer` is a trusted proxy. Then it is the last address of
     /// `X-Forwarded-For` that is no trusted proxy; if every address there is one, the
     /// first of them; and `peer` if the header is missing. An entry that is no address
-    /// ends the reading: what stands to its left was written by whoever sent it.
+    /// ends the reading: what stands to its left was written by whoever sent it. An
+    /// entry may carry a port (`203.0.113.7:51234`, `[2001:db8::1]:443`), as some
+    /// proxies write it. The `Forwarded` header of RFC 7239 is not read.
     pub fn client_of(&self, peer: IpAddr, headers: &HeaderMap) -> IpAddr {
         let peer = peer.to_canonical();
         if !self.trusts(peer) {
             return peer;
         }
-        let forwarded = headers
+        // By bytes: a header line with a byte that is no text still has entries to the
+        // right of that byte, and those were written by the proxies.
+        let forwarded: Vec<&[u8]> = headers
             .get_all(X_FORWARDED_FOR)
             .iter()
-            .filter_map(|value| value.to_str().ok())
-            .flat_map(|value| value.split(','));
+            .flat_map(|value| value.as_bytes().split(|byte| *byte == b','))
+            .collect();
         let mut client = peer;
         // From the right: each trusted proxy vouches for the address before it.
-        for entry in forwarded.collect::<Vec<_>>().into_iter().rev() {
-            let Ok(address) = entry.trim().parse::<IpAddr>() else {
+        for entry in forwarded.into_iter().rev() {
+            let Some(address) = forwarded_address(entry) else {
                 break;
             };
             client = address.to_canonical();
@@ -132,6 +146,15 @@ impl TrustedProxies {
         }
         client
     }
+}
+
+/// The address of one entry of `X-Forwarded-For`: an address, or an address and a port.
+fn forwarded_address(entry: &[u8]) -> Option<IpAddr> {
+    let entry = std::str::from_utf8(entry).ok()?.trim();
+    entry
+        .parse::<IpAddr>()
+        .or_else(|_| entry.parse::<SocketAddr>().map(|socket| socket.ip()))
+        .ok()
 }
 
 #[cfg(test)]
@@ -241,6 +264,51 @@ mod tests {
     }
 
     #[test]
+    fn a_range_of_mapped_addresses_is_the_ipv4_range_it_means() {
+        let mapped = proxies(&["::ffff:10.0.0.0/104", "::ffff:192.0.2.1"]);
+        for peer in ["10.1.2.3", "::ffff:10.1.2.3", "192.0.2.1"] {
+            assert_eq!(
+                client(&mapped, peer, &["203.0.113.7"]),
+                "203.0.113.7",
+                "{peer}"
+            );
+        }
+        assert_eq!(client(&mapped, "11.0.0.1", &["203.0.113.7"]), "11.0.0.1");
+        assert_eq!(client(&mapped, "192.0.2.2", &["203.0.113.7"]), "192.0.2.2");
+    }
+
+    #[test]
+    fn an_entry_may_carry_a_port() {
+        let trusted = proxies(&["127.0.0.1"]);
+        assert_eq!(
+            client(&trusted, "127.0.0.1", &["203.0.113.7:51234"]),
+            "203.0.113.7"
+        );
+        assert_eq!(
+            client(&trusted, "127.0.0.1", &["[2001:db8::1]:443"]),
+            "2001:db8::1"
+        );
+    }
+
+    #[test]
+    fn a_byte_that_is_no_text_ends_the_reading_where_it_stands() {
+        // What the client wrote is unreadable; what the proxy added to the right of it
+        // on the same line is still the client's address.
+        let trusted = proxies(&["127.0.0.1"]);
+        let mut headers = HeaderMap::new();
+        headers.append(
+            X_FORWARDED_FOR,
+            HeaderValue::from_bytes(b"\xff, 203.0.113.7").expect("a header value"),
+        );
+        assert_eq!(
+            trusted
+                .client_of("127.0.0.1".parse().expect("an address"), &headers)
+                .to_string(),
+            "203.0.113.7"
+        );
+    }
+
+    #[test]
     fn what_is_no_range_is_refused() {
         for range in [
             "",
@@ -249,6 +317,8 @@ mod tests {
             "::1/129",
             "10.0.0.0/x",
             "10.0.0.0/-1",
+            // Wider than the mapped addresses: it has no IPv4 range to mean.
+            "::ffff:10.0.0.0/64",
         ] {
             assert!(
                 TrustedProxies::parse(&[range.to_owned()]).is_err(),

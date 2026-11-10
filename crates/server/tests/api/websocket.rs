@@ -173,15 +173,29 @@ async fn a_message_does_not_sign_a_connection_in() {
     socket
         .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
         .await;
-    th.app
-        .ws()
-        .broadcast_category_change(&category(ROOT_TEAM_ID, &user1.id, "Projects"));
-
-    assert_eq!(
-        socket.next(QUIET).await,
-        Event::Nothing,
-        "the connection is nobody's: it hears nothing, and it is not closed either"
-    );
+    // The server reads the two messages in its own time, and a change that is sent
+    // before it has read them would be missed by any connection. So the change is sent
+    // again and again, and a connection of the user, which subscribes after the other
+    // one sent its messages, shows that the changes do arrive where they belong.
+    let mut signed_in = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut signed_in, ROOT_TEAM_ID, &user1.id).await;
+    let change = category(ROOT_TEAM_ID, &user1.id, "Projects");
+    for round in 0..5 {
+        th.app.ws().broadcast_category_change(&change);
+        let heard = signed_in.next_json(Duration::from_secs(5)).await;
+        assert_eq!(
+            heard.expect("the user's connection hears the change")["action"],
+            json!("UPDATE_CATEGORY"),
+            "round {round}"
+        );
+        assert_eq!(
+            socket.next(Duration::from_millis(50)).await,
+            Event::Nothing,
+            "round {round}: the connection is nobody's: it hears nothing, and it is not \
+             closed either"
+        );
+    }
+    assert_eq!(socket.next(QUIET).await, Event::Nothing);
     th.teardown().await;
 }
 

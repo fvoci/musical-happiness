@@ -496,14 +496,14 @@
       "CardOpen": {
         "description": "Where a card opens.",
         "enum": [
-          "Center",
-          "Side",
-          "Full"
+          "center",
+          "side",
+          "full"
         ],
         "type": "string"
       },
       "CardPatch": {
-        "description": "A partial update of a `Card`. Absent members leave the card unchanged.",
+        "description": "What a card is changed to. A member that is left out stays as it is.",
         "properties": {
           "contentOrder": {
             "description": "The new content order.",
@@ -531,7 +531,7 @@
           },
           "updatedProperties": {
             "additionalProperties": true,
-            "description": "Property values to set, keyed by property identifier.",
+            "description": "The property values the card is to have, by property identifier. With any\nmember, this replaces every value of the card: a property that is not named\nloses its value. Left out or empty, the values stay, so the last value of a card\ncannot be taken away this way.",
             "type": "object"
           }
         },
@@ -720,7 +720,7 @@
             "type": "object"
           },
           "maxFileSize": {
-            "description": "The largest upload the server accepts, in bytes.",
+            "description": "The largest upload the server accepts, in bytes. Zero, the default, is no limit.",
             "format": "int64",
             "type": "integer"
           },
@@ -763,9 +763,9 @@
       "Density": {
         "description": "How much room the interface gives each thing.",
         "enum": [
-          "Auto",
-          "Compact",
-          "Comfortable"
+          "auto",
+          "compact",
+          "comfortable"
         ],
         "type": "string"
       },
@@ -830,7 +830,7 @@
         "description": "A form with one file.",
         "properties": {
           "file": {
-            "description": "The file, in a part that has a file name.",
+            "description": "The file. An upload needs the part to have a file name; an archive to import\ndoes not.",
             "format": "binary",
             "type": "string"
           }
@@ -878,9 +878,9 @@
       "HourCycle": {
         "description": "How the hours of a day are written. The names are those of the browsers' `Intl`.",
         "enum": [
-          "Auto",
-          "H12",
-          "H23"
+          "auto",
+          "h12",
+          "h23"
         ],
         "type": "string"
       },
@@ -906,7 +906,7 @@
         "type": "object"
       },
       "MemberRoles": {
-        "description": "The roles a member of a board is to have. A role that is left out is taken away.",
+        "description": "The roles a member of a board is to have. A role that is left out is taken away, and\na member with no role may do nothing on the board, not even view it.",
         "properties": {
           "schemeAdmin": {
             "description": "The user administers the board.",
@@ -969,7 +969,7 @@
             ]
           },
           "id": {
-            "description": "A name for the block within the request. The server gives every block a new\nidentifier, and where one block of the request names another (as its `parentId`,\nor in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts\nthe new identifier there.",
+            "description": "A name for the block within the request. The server gives every block a new\nidentifier, and where one block of the request names another (as its `parentId`,\nor in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts\nthe new identifier there. Blocks that come under one name get one identifier,\nwhich cannot be stored twice; a block that no other names needs no `id`.",
             "type": [
               "string",
               "null"
@@ -1204,7 +1204,7 @@
             "type": "string"
           },
           "sortOrder": {
-            "description": "The position of the category among the user's categories.",
+            "description": "The position of the category among the user's categories. It is stored 10\nhigher: see `createCategory`.",
             "format": "int64",
             "type": [
               "integer",
@@ -1219,7 +1219,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/CategoryType",
-                "description": "Left out, `custom`."
+                "description": "Left out, `custom`. A category that is made as `system` can be neither renamed\nnor deleted afterwards."
               },
               {
                 "type": "null"
@@ -1239,7 +1239,7 @@
         "type": "object"
       },
       "NewMember": {
-        "description": "A user to make a member of a board, and the roles to give them.",
+        "description": "A user to make a member of a board, and the roles to give them. A member with no\nrole may do nothing on the board, not even view it.",
         "properties": {
           "schemeAdmin": {
             "description": "The user administers the board. Only who manages the board's roles may ask for\nthis.",
@@ -1661,9 +1661,9 @@
       "Theme": {
         "description": "The colors of the interface.",
         "enum": [
-          "Auto",
-          "Light",
-          "Dark"
+          "auto",
+          "light",
+          "dark"
         ],
         "type": "string"
       },
@@ -1790,10 +1790,10 @@
       "WeekStart": {
         "description": "The day a week starts on.",
         "enum": [
-          "Auto",
-          "Sunday",
-          "Monday",
-          "Saturday"
+          "auto",
+          "sunday",
+          "monday",
+          "saturday"
         ],
         "type": "string"
       }
@@ -1813,7 +1813,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. A few operations that read a shared board need no session when the request has the board's `readToken`.\n\n## Requests that change something\n\nEvery request whose method is not `GET` or `HEAD` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with an `ErrorBody`: `error` names the kind of the refusal and goes with the status, `reason` tells apart causes a client must tell apart, and `field` names the member of the request that was refused. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403.\n\nThe identifiers of users, teams, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## Request bodies\n\nA request schema lists the members a request is for. An optional member may be left out or be `null`. A body with members the schema does not list is not refused for them.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. A few operations that read a shared board need no session when the request has the board's `readToken`.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with an `ErrorBody`, unless the operation says otherwise (`getFile` does): `error` names the kind of the refusal and goes with the status, `reason` tells apart causes a client must tell apart, `field` names the member of the request that was refused, and `limit` is the number of bytes a body that was too large (413) may have. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401.\n\nThe identifiers of users, teams, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## Request bodies\n\nA request schema lists the members a request is for. An optional member may be left out or be `null`. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` refuses every member it does not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -1825,7 +1825,7 @@
   "paths": {
     "/api/v1/boards": {
       "post": {
-        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory.",
+        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory, unless it is a template.",
         "operationId": "createBoard",
         "requestBody": {
           "content": {
@@ -1856,7 +1856,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Make a board",
@@ -1867,7 +1867,7 @@
     },
     "/api/v1/boards-and-blocks": {
       "delete": {
-        "description": "Deletes several boards of one team and blocks of those boards, all or none. They go\nto the trash as `deleteBoard` and `deleteBlock` put them there. For the admins of\nevery board named.",
+        "description": "Deletes several boards of one team, all or none. The request names at least one\nboard, and every block it names must be on one of its boards; the blocks are checked\nand nothing more, since a board takes all of its blocks along. The boards go to the\ntrash as `deleteBoard` puts them there, and `undeleteBoard` brings each back with\nits blocks. For the admins of every board named.",
         "operationId": "deleteBoardsAndBlocks",
         "requestBody": {
           "content": {
@@ -1891,7 +1891,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Delete boards and blocks together",
@@ -1900,7 +1900,7 @@
         ]
       },
       "patch": {
-        "description": "Applies a patch to each of several boards of one team and to blocks of those\nboards, all or none. Each board needs what `patchBoard` needs, each block what\n`patchBlock` needs.",
+        "description": "Applies a patch to each of several boards of one team and to blocks of those\nboards, all or none. The request names at least one board, and every block it names\nis on one of its boards: blocks alone are not changed this way. Each board needs\nwhat `patchBoard` needs, each block what `patchBlock` needs.",
         "operationId": "patchBoardsAndBlocks",
         "requestBody": {
           "content": {
@@ -1931,7 +1931,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change boards and blocks together",
@@ -1940,7 +1940,7 @@
         ]
       },
       "post": {
-        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The user becomes the admin of each board.",
+        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one team. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory.",
         "operationId": "createBoardsAndBlocks",
         "requestBody": {
           "content": {
@@ -1971,7 +1971,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Make boards with their blocks",
@@ -1982,7 +1982,7 @@
     },
     "/api/v1/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm. Oldest first.",
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters. Templates are never found. In a word `%`\nstands for any text and `_` for any one character. Oldest first.",
         "operationId": "searchBoards",
         "parameters": [
           {
@@ -2017,7 +2017,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Search the boards",
@@ -2028,7 +2028,7 @@
     },
     "/api/v1/boards/{boardId}": {
       "delete": {
-        "description": "The board goes to the trash with its blocks and its members, and `undeleteBoard`\nbrings it back until the trash is emptied of it. For the board's admins.",
+        "description": "The board goes to the trash with its blocks and its members, and `undeleteBoard`\nbrings it back until the trash is emptied of it. Its sharing ends, with its read\ntoken, and so do its places in the users' sidebars and the subscriptions to its\nblocks; those do not come back with the board. For the board's admins.",
         "operationId": "deleteBoard",
         "parameters": [
           {
@@ -2053,7 +2053,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Delete a board",
@@ -2103,7 +2103,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -2163,7 +2163,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change a board",
@@ -2174,7 +2174,7 @@
     },
     "/api/v1/boards/{boardId}/archive/export": {
       "get": {
-        "description": "An archive of the board with its blocks and files, offered as a download. For the\nboard's members.",
+        "description": "An archive of the board with its blocks, its files and its members, offered as a\ndownload. For the board's members.",
         "operationId": "exportBoardArchive",
         "parameters": [
           {
@@ -2208,7 +2208,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Export a board",
@@ -2219,7 +2219,7 @@
     },
     "/api/v1/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed; who reads that way is not told who made a\nblock or changed it last (`createdBy` and `modifiedBy` are empty).\n\n`all` asks for every block and `blockId` for one. Otherwise `parentId` and `type`\nnarrow the list, and without either the list is every block of the board. Oldest\nfirst.",
+        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed; who reads that way is not told who made a\nblock or changed it last (`createdBy` and `modifiedBy` are empty).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {
@@ -2232,7 +2232,7 @@
             }
           },
           {
-            "description": "Any value asks for every block of the board, and the other parameters are not looked at.",
+            "description": "Any value that is not empty asks for every block of the board, and the other parameters are not looked at.",
             "in": "query",
             "name": "all",
             "required": false,
@@ -2241,7 +2241,7 @@
             }
           },
           {
-            "description": "Asks for the one block with this identifier.",
+            "description": "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.",
             "in": "query",
             "name": "blockId",
             "required": false,
@@ -2250,7 +2250,7 @@
             }
           },
           {
-            "description": "Narrows the list to the blocks with this parent.",
+            "description": "Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board.",
             "in": "query",
             "name": "parentId",
             "required": false,
@@ -2259,7 +2259,7 @@
             }
           },
           {
-            "description": "Narrows the list to the blocks of this type.",
+            "description": "Narrows the list to the blocks of this type. The word `unknown` narrows nothing.",
             "in": "query",
             "name": "type",
             "required": false,
@@ -2299,7 +2299,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -2317,7 +2317,7 @@
         ]
       },
       "patch": {
-        "description": "Applies a patch to each of several blocks of the board, all or none. For editors.",
+        "description": "Applies a patch to each of several blocks of the board, all or none. A body that\nnames no block changes nothing and is answered 204 too. For editors.",
         "operationId": "patchBlocks",
         "parameters": [
           {
@@ -2361,7 +2361,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change several blocks",
@@ -2370,7 +2370,7 @@
         ]
       },
       "post": {
-        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none. Comments need\nthe role of a commenter, everything else that of an editor.",
+        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none, and they are\nlisted afterwards in the order the request had them in. Comments need the role of a\ncommenter, everything else that of an editor.",
         "operationId": "createBlocks",
         "parameters": [
           {
@@ -2436,7 +2436,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Insert blocks",
@@ -2490,7 +2490,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Delete a block",
@@ -2552,7 +2552,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change a block",
@@ -2616,7 +2616,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Copy a block",
@@ -2627,7 +2627,7 @@
     },
     "/api/v1/boards/{boardId}/blocks/{blockId}/undelete": {
       "post": {
-        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. For editors.",
+        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404. For editors.",
         "operationId": "undeleteBlock",
         "parameters": [
           {
@@ -2668,7 +2668,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Bring a deleted block back",
@@ -2679,7 +2679,7 @@
     },
     "/api/v1/boards/{boardId}/cards": {
       "get": {
-        "description": "One page of the board's cards, for everyone who may view the board. Oldest first;\nthe pages cut that order.",
+        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. A `page` or `perPage` that is no whole number is 400.",
         "operationId": "getCards",
         "parameters": [
           {
@@ -2734,7 +2734,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The cards of a board",
@@ -2794,7 +2794,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Make a card",
@@ -2805,7 +2805,7 @@
     },
     "/api/v1/boards/{boardId}/duplicate": {
       "post": {
-        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy. Whoever may see the board may copy it; an open\ntemplate is for everyone in its team, and a built-in template for everyone.",
+        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template`, and a board made from a template keeps the title. The\nboard's members may copy it; an open template is for everyone in its team, and a\nbuilt-in template for everyone.",
         "operationId": "duplicateBoard",
         "parameters": [
           {
@@ -2855,7 +2855,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Copy a board",
@@ -2866,7 +2866,7 @@
     },
     "/api/v1/boards/{boardId}/files": {
       "post": {
-        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name. The file is limited to the\n`maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is\n413. For editors.",
+        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name. The file is limited to the\n`maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is\n413. The `fileId` of the answer ends in the extension of the file name, in lower\ncase, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with\nanything but letters and digits in it, is left off. For editors.",
         "operationId": "uploadFile",
         "parameters": [
           {
@@ -2908,7 +2908,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Upload a file",
@@ -2919,7 +2919,7 @@
     },
     "/api/v1/boards/{boardId}/files/{fileId}": {
       "get": {
-        "description": "The content of a file of the board, for the board's members; with the board's read\ntoken no session is needed. A file is asked for through its own board only: through\nanother board it is not there.\n\nThe answer honours `Range` (one range), `If-Modified-Since` and the other\nconditional headers. Images, audio and video a browser shows are sent to be shown;\neverything else is offered as a download, and what a browser would run is sent as\nplain text. The answer may be cached by the browser of who asked but must be\nrevalidated (`Cache-Control: private, no-cache`).",
+        "description": "The content of a file of the board, for the board's members; with the board's read\ntoken no session is needed. A file is asked for through its own board only: through\nanother board it is not there.\n\nEvery file is sent as `application/octet-stream` and offered as a download\n(`Content-Disposition: attachment`) under its `fileId`, not under the name it was\nuploaded with, which `getFileInfo` has. The answer honours `Range` with one range,\nunless the request has `If-Range`. It may be cached by the browser of who asked but\nmust be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no\ndownload: the `Last-Modified` of an answer is the time of that answer, so a request\nwith the `If-Modified-Since` of an earlier answer gets the whole file again.\n\n412 and 416 come without an `ErrorBody`.",
         "operationId": "getFile",
         "parameters": [
           {
@@ -2932,7 +2932,7 @@
             }
           },
           {
-            "description": "The identifier of the file, as the upload answered it.",
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
             "in": "path",
             "name": "fileId",
             "required": true,
@@ -2976,7 +2976,20 @@
             "description": "The range of the file that was asked for."
           },
           "304": {
-            "description": "The file has not changed since the time the request names."
+            "description": "Only for a request with `If-None-Match: *`, or with an `If-Modified-Since` that is not before the time of the answer. No body."
+          },
+          "412": {
+            "description": "The request has an `If-Unmodified-Since` before the time of the answer. No body."
+          },
+          "416": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The range is not in the file, or is no range."
           },
           "default": {
             "content": {
@@ -2986,7 +2999,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -3019,7 +3032,7 @@
             }
           },
           {
-            "description": "The identifier of the file, as the upload answered it.",
+            "description": "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.",
             "in": "path",
             "name": "fileId",
             "required": true,
@@ -3056,7 +3069,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -3108,7 +3121,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Join an open board",
@@ -3119,7 +3132,7 @@
     },
     "/api/v1/boards/{boardId}/leave": {
       "post": {
-        "description": "Ends the user's own membership of a board. The last admin of a board cannot leave\nit.",
+        "description": "Ends the user's own membership of a board. The last admin of a board cannot leave\nit: that is 409 with the reason `last_admin`.",
         "operationId": "leaveBoard",
         "parameters": [
           {
@@ -3144,7 +3157,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Leave a board",
@@ -3190,7 +3203,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The members of a board",
@@ -3199,7 +3212,7 @@
         ]
       },
       "post": {
-        "description": "The board's admins add members with the roles the request names. On an open board\neditors add members too, with the board's minimum role, whatever the request names.\nA user who is a member already stays as they are.",
+        "description": "The board's admins add members with the roles the request names; with no role at\nall the member may do nothing on the board, not even view it. On an open board\neditors add members too, with the board's minimum role, whatever else the request\nnames; a request of theirs that asks for `schemeAdmin` is 403. A user who is a\nmember already stays as they are.",
         "operationId": "addMember",
         "parameters": [
           {
@@ -3241,7 +3254,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Make a user a member of a board",
@@ -3252,7 +3265,7 @@
     },
     "/api/v1/boards/{boardId}/members/{userId}": {
       "delete": {
-        "description": "For the board's admins. The last admin of a board cannot be removed.",
+        "description": "For the board's admins. The last admin of a board cannot be removed: that is 409\nwith the reason `last_admin`. Removing a user who is no member is no error, and is\nanswered 204 like a removal.",
         "operationId": "removeMember",
         "parameters": [
           {
@@ -3286,7 +3299,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Remove a member from a board",
@@ -3295,7 +3308,7 @@
         ]
       },
       "put": {
-        "description": "Replaces the roles of a member of the board. For the board's admins. The last admin\nof a board cannot be made less.",
+        "description": "Replaces the roles of a member of the board; with no role at all the member may do\nnothing on the board, not even view it. For the board's admins. The last admin of a\nboard cannot be made less: that is 409 with the reason `last_admin`. A user who is\nno member of the board is 404.",
         "operationId": "updateMember",
         "parameters": [
           {
@@ -3346,7 +3359,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change the roles of a member",
@@ -3389,7 +3402,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Whether a board is shared",
@@ -3398,7 +3411,7 @@
         ]
       },
       "post": {
-        "description": "Shares the board, shares it under a new read token, or stops sharing it. The server\nmakes the token; a request that names one is refused. Where the server is\nconfigured without public sharing, the request is refused with 403 and the reason\n`sharing_disabled`. For the board's admins.",
+        "description": "Shares the board, shares it under a new read token, or stops sharing it. The server\nmakes the token; a request that names one is 400. Where the server is configured\nwithout public sharing, every request is refused with 403 and the reason\n`sharing_disabled`, also one that stops sharing. For the board's admins.",
         "operationId": "setSharing",
         "parameters": [
           {
@@ -3440,7 +3453,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Share a board, or stop sharing it",
@@ -3451,7 +3464,7 @@
     },
     "/api/v1/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. For who was an\nadmin of the board when it was deleted; to anybody who was no member there is no\nsuch board.",
+        "description": "Restores a board from the trash with its blocks and its members. Its sharing, its\nplaces in the sidebars and the subscriptions to its blocks ended with the deletion\nand stay ended. For who was an admin of the board when it was deleted; to anybody\nwho was no member there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {
@@ -3483,7 +3496,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Bring a deleted board back",
@@ -3494,7 +3507,7 @@
     },
     "/api/v1/cards/{cardId}": {
       "get": {
-        "description": "For everyone who may view the card's board. To a user who may not there is no such\ncard.",
+        "description": "For the members of the card's board. To a user who is no member of it there is no\nsuch card.",
         "operationId": "getCard",
         "parameters": [
           {
@@ -3526,7 +3539,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "A card",
@@ -3535,7 +3548,7 @@
         ]
       },
       "patch": {
-        "description": "For editors of the card's board. To a user who may not see that board there is no\nsuch card.",
+        "description": "For editors of the card's board. To a user who is no member of that board there is\nno such card.",
         "operationId": "patchCard",
         "parameters": [
           {
@@ -3586,7 +3599,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change a card",
@@ -3618,7 +3631,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -3675,7 +3688,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Move a content block within its card",
@@ -3686,7 +3699,7 @@
     },
     "/api/v1/login": {
       "post": {
-        "description": "Starts a session for the user with the given name, or, if no user has that name,\nwith the given email address. The session comes in the `Set-Cookie` header and\nnowhere else.\n\nWrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong\nabout them. Attempts are counted by account and by where they come from; too many\nare 429.",
+        "description": "Starts a session for the user with the given name, or, if no user has that name,\nwith the given email address. The session comes in the `Set-Cookie` header and\nnowhere else.\n\nWrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong\nabout them, a missing password too. Attempts are counted at the name and at the\nemail address the request gives, each for itself, and by where they come from; too\nmany are 429. What is counted does not depend on whether there is such an account.",
         "operationId": "login",
         "requestBody": {
           "content": {
@@ -3718,7 +3731,7 @@
                 }
               }
             },
-            "description": "Too many attempts. `reason` and `retry_after` say more.",
+            "description": "Too many attempts. `retry_after`, and the `Retry-After` header, say how long to wait; there is no `reason`.",
             "headers": {
               "Retry-After": {
                 "description": "How many seconds to wait before trying again.",
@@ -3738,7 +3751,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -3774,7 +3787,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Sign out",
@@ -3785,7 +3798,7 @@
     },
     "/api/v1/register": {
       "post": {
-        "description": "Makes an account. The first user of a server needs no signup token and becomes its\nadministrator; everyone after needs the team's token, and is refused with 403 and\nthe reason `signup_token_required` or `signup_token_invalid` without it. A name or\nan email address that is taken is 409 with the reason `username_taken` or\n`email_taken`. Registering does not sign in.",
+        "description": "Makes an account. The first user of a server needs no signup token and becomes its\nadministrator; everyone after needs the team's token, and is refused with 403 and\nthe reason `signup_token_required` without it. A token that is not the team's is 403\nwith the reason `signup_token_invalid`, for the first user too. A name or an email\naddress that is taken is 409 with the reason `username_taken` or `email_taken`.\nRegistering does not sign in.\n\nThe name and the email address must not be blank, the email address must look like\none, and the password must have at least 8 characters and at most 1024 bytes;\notherwise the request is 400, and `field` names the member.",
         "operationId": "register",
         "requestBody": {
           "content": {
@@ -3816,7 +3829,7 @@
                 }
               }
             },
-            "description": "Too many registrations from where this one comes from.",
+            "description": "Too many registrations from where this one comes from, or the server has too much password work to do at the moment.",
             "headers": {
               "Retry-After": {
                 "description": "How many seconds to wait before trying again.",
@@ -3836,7 +3849,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -3850,7 +3863,7 @@
     },
     "/api/v1/subscriptions": {
       "post": {
-        "description": "Subscribes the user of the session to a block of a board they are a member of.\nSubscribing again is no error.",
+        "description": "Subscribes the user of the session to a block of a board they are a member of. A\n`subscriberId` that is not the user of the session is 403, and a `subscriberType`\nother than `user` is 400. The `blockType` is stored as it is sent, and not compared\nwith the block. Subscribing again is no error: the subscription stays as it was\nmade, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.",
         "operationId": "createSubscription",
         "requestBody": {
           "content": {
@@ -3881,7 +3894,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Subscribe to a block",
@@ -3892,7 +3905,7 @@
     },
     "/api/v1/subscriptions/{blockId}/{subscriberId}": {
       "delete": {
-        "description": "Ends the subscription of the user of the session to a block. Nothing about the\nblock is checked: a subscription to a block the user may no longer see can still be\nended. The subscriptions of another user are not there.",
+        "description": "Ends the subscription of the user of the session to a block. Nothing about the\nblock is checked: a subscription to a block the user may no longer see can still be\nended. A subscription that is not there is 404, and so are those of another user.",
         "operationId": "deleteSubscription",
         "parameters": [
           {
@@ -3926,7 +3939,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "End a subscription",
@@ -3972,7 +3985,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The subscriptions of the user",
@@ -4007,7 +4020,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The teams",
@@ -4050,7 +4063,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "A team",
@@ -4061,7 +4074,7 @@
     },
     "/api/v1/teams/{teamId}/archive/export": {
       "get": {
-        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download.",
+        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download. A team that is not there is not refused: its archive has no boards.",
         "operationId": "exportTeamArchive",
         "parameters": [
           {
@@ -4095,7 +4108,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Export the boards of a team",
@@ -4106,7 +4119,7 @@
     },
     "/api/v1/teams/{teamId}/archive/import": {
       "post": {
-        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nrequest is a `multipart/form-data` form whose part `file` carries the archive.",
+        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are users of this server. The request is a `multipart/form-data` form\nwhose part `file` carries the archive; the part needs no file name. A request\nwithout that part, or with what is no archive, is 400.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -4141,7 +4154,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Import an archive",
@@ -4187,7 +4200,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The boards of a team",
@@ -4198,7 +4211,7 @@
     },
     "/api/v1/teams/{teamId}/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm, or with `field=property_name` those with a card property whose name does.\nThe team of the path is not part of the search: the boards of every team are\nsearched. Oldest first.",
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name. The team of the path is not part of\nthe search: the boards of every team are searched. A `field` that is neither is 400.\nOldest first.",
         "operationId": "searchTeamBoards",
         "parameters": [
           {
@@ -4220,7 +4233,7 @@
             }
           },
           {
-            "description": "What the term is matched against: `title` (also when left out) or `property_name`, the names of card properties.",
+            "description": "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.",
             "in": "query",
             "name": "field",
             "required": false,
@@ -4251,7 +4264,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Search the boards, asked through a team",
@@ -4297,7 +4310,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The user's sidebar",
@@ -4306,7 +4319,7 @@
         ]
       },
       "post": {
-        "description": "Makes a category of the user's sidebar in the team. The server makes its\nidentifier.",
+        "description": "Makes a category of the user's sidebar in the team. The server makes its\nidentifier, and a request that names one is 400. A `userId` that is not the user of\nthe session is 403. The category is stored with its `sortOrder` raised by 10, and\nevery other category of the user in the team moves by 10 as well, so that it keeps\nits place among them.",
         "operationId": "createCategory",
         "parameters": [
           {
@@ -4348,7 +4361,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Make a category",
@@ -4393,7 +4406,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Delete a category",
@@ -4402,7 +4415,7 @@
         ]
       },
       "put": {
-        "description": "Changes the name of one of the user's categories and whether it is collapsed.\nNothing else changes, and a system category keeps its name.",
+        "description": "Changes the name of one of the user's categories and whether it is collapsed.\nNothing else changes, and a system category keeps its name. A `userId` that is not\nthe user of the session is 400.",
         "operationId": "updateCategory",
         "parameters": [
           {
@@ -4453,7 +4466,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change a category",
@@ -4521,7 +4534,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Put the boards of a category in an order",
@@ -4575,7 +4588,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "File a board under a category",
@@ -4586,7 +4599,7 @@
     },
     "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide": {
       "put": {
-        "description": "Hides a board of one of the user's categories from the user's sidebar. The board\nstays where it is filed, and nothing changes for anybody else.",
+        "description": "Hides a board of one of the user's categories from the user's sidebar. The board\nstays where it is filed, and nothing changes for anybody else. For a board that is\nnot filed under the category nothing changes, and the answer is 204 all the same.",
         "operationId": "hideBoard",
         "parameters": [
           {
@@ -4629,7 +4642,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Hide a board in the sidebar",
@@ -4640,7 +4653,7 @@
     },
     "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide": {
       "put": {
-        "description": "Ends the hiding of a board of one of the user's categories.",
+        "description": "Ends the hiding of a board of one of the user's categories. For a board that is not\nfiled under the category nothing changes, and the answer is 204 all the same.",
         "operationId": "unhideBoard",
         "parameters": [
           {
@@ -4683,7 +4696,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Show a hidden board again",
@@ -4742,7 +4755,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Put the categories in an order",
@@ -4753,7 +4766,7 @@
     },
     "/api/v1/teams/{teamId}/onboard": {
       "post": {
-        "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes with the account that the tour has begun.",
+        "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes in the client's state (`getClientState`) that the tour has begun:\n`onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is\n`onboarding`. Every request makes another copy.",
         "operationId": "onboard",
         "parameters": [
           {
@@ -4775,7 +4788,7 @@
                 }
               }
             },
-            "description": "The board that was made."
+            "description": "Where the tour's board is."
           },
           "default": {
             "content": {
@@ -4785,7 +4798,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Start the tour",
@@ -4828,7 +4841,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Make a new signup token",
@@ -4874,7 +4887,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The templates of a team",
@@ -4885,7 +4898,7 @@
     },
     "/api/v1/teams/{teamId}/users": {
       "get": {
-        "description": "Up to ten users: with `search` those whose name has that text in it, without it\nany. Oldest account first.",
+        "description": "Up to ten users: with `search` those whose name has that text in it, without it\nthe ten oldest accounts. Oldest account first.",
         "operationId": "getTeamUsers",
         "parameters": [
           {
@@ -4898,7 +4911,7 @@
             }
           },
           {
-            "description": "Narrows the list to users whose name has this text in it.",
+            "description": "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.",
             "in": "query",
             "name": "search",
             "required": false,
@@ -4929,7 +4942,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The users of a team",
@@ -4938,7 +4951,7 @@
         ]
       },
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one. Every\nidentifier must be a user's and none may be there twice; otherwise the request is\nrefused. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
         "operationId": "getTeamUsersById",
         "parameters": [
           {
@@ -4986,7 +4999,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Users of a team by their identifiers",
@@ -4997,7 +5010,7 @@
     },
     "/api/v1/users": {
       "post": {
-        "description": "The users with the identifiers of the body, which must name at least one. Every\nidentifier must be a user's and none may be there twice; otherwise the request is\nrefused. Oldest account first, not in the order of the request.",
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
         "operationId": "getUsers",
         "requestBody": {
           "content": {
@@ -5034,7 +5047,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Users by their identifiers",
@@ -5065,7 +5078,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The user of the session",
@@ -5103,7 +5116,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The client's state",
@@ -5149,7 +5162,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change the client's state",
@@ -5184,7 +5197,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The boards the user is a member of",
@@ -5195,7 +5208,7 @@
     },
     "/api/v1/users/me/password": {
       "post": {
-        "description": "Changes the password of the user of the session, who proves to know the old one.\nThe user's other sessions end, and this one goes on under a new cookie.",
+        "description": "Changes the password of the user of the session, who proves to know the old one.\nThe user's other sessions end, and this one goes on under a new cookie.\n\nA wrong old password is 400 (not 401: the session is good) with the reason\n`invalid_credentials` and the field `oldPassword`. Wrong ones are counted with the\nfailed logins to the account by its name, and too many are 429, also for a login.\nThe new password must have at least 8 characters and at most 1024 bytes. A password\nthat was changed by somebody else while this request was under way is 409.",
         "operationId": "changePassword",
         "requestBody": {
           "content": {
@@ -5227,7 +5240,7 @@
                 }
               }
             },
-            "description": "The server has too much password work to do at the moment.",
+            "description": "The old password was wrong too often, or the server has too much password work to do at the moment.",
             "headers": {
               "Retry-After": {
                 "description": "How many seconds to wait before trying again.",
@@ -5247,7 +5260,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change the password",
@@ -5279,7 +5292,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "The user's settings",
@@ -5319,7 +5332,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Change the user's settings",
@@ -5361,7 +5374,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "A user",
@@ -5372,7 +5385,7 @@
     },
     "/api/v1/users/{userId}/admin": {
       "put": {
-        "description": "Makes a user an administrator of the instance, or ends that. For administrators.\nThe last administrator cannot stop being one: handing the role over is two\nrequests, first making the other one an administrator.",
+        "description": "Makes a user an administrator of the instance, or ends that. For administrators;\nanybody else is refused with 403 and the reason `admin_required`. The last\nadministrator cannot stop being one, which is 409 with the reason `last_admin`:\nhanding the role over is two requests, first making the other one an administrator.\nA body without `isAdmin` is 400.",
         "operationId": "setUserAdmin",
         "parameters": [
           {
@@ -5414,7 +5427,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "summary": "Make a user an administrator, or end that",
@@ -5446,7 +5459,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [
@@ -5481,7 +5494,7 @@
                 }
               }
             },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
           }
         },
         "security": [

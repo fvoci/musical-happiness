@@ -726,4 +726,43 @@ pub(crate) async fn login_limits(s: &mut Session) {
     s.get("a session from before goes on", &format!("{API}/users/me"))
         .user(&alice)
         .await;
+
+    // The names are counted as the request gives them, before any is looked up: a
+    // spelling that finds no account waits with the name it is a spelling of, whether
+    // that name is an account or not.
+    for account in [alice.as_str(), "limits-nobody"] {
+        s.post(&format!("{account}: with a space after it"), &login)
+            .json(attempt(&format!("{account} "), "not-the-password"))
+            .await;
+    }
+}
+
+/// A session is not the password: the old password is guessed at through a change no
+/// more often than through a login, and the two are one count.
+pub(crate) async fn password_limits(s: &mut Session) {
+    let [carol] = s.users("password-limits", ["carol"]).await;
+    let login = format!("{API}/login");
+    let change = format!("{API}/users/me/password");
+    let guess = json!({"oldPassword": "not-the-password", "newPassword": "another-password"});
+    for number in 1..=6 {
+        s.post(&format!("wrong old password {number}"), &change)
+            .json(guess.clone())
+            .user(&carol)
+            .await;
+    }
+    s.post("one guess too many", &change)
+        .json(guess)
+        .user(&carol)
+        .keep_headers(&["Retry-After"])
+        .await;
+    s.post("the right old password waits too", &change)
+        .json(json!({"oldPassword": "test-password", "newPassword": "another-password"}))
+        .user(&carol)
+        .await;
+    s.post("a login to the account waits with it", &login)
+        .json(json!({"username": carol, "password": "test-password"}))
+        .await;
+    s.get("the session goes on", &format!("{API}/users/me"))
+        .user(&carol)
+        .await;
 }

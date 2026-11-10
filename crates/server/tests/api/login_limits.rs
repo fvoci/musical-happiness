@@ -93,6 +93,101 @@ async fn an_address_that_keeps_failing_at_an_account_is_made_to_wait() {
     th.teardown().await;
 }
 
+/// Who has to wait is decided by what the attempts said, never by what was found: an
+/// attempt is counted at the names it gives before any of them is looked up. Otherwise
+/// a second spelling of a name, which finds no account, would wait with the name when
+/// there is no such account and not when there is one, and the wait would tell them
+/// apart.
+#[tokio::test]
+async fn who_has_to_wait_does_not_tell_which_names_are_accounts() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.login_pair_free_failures = 2;
+            config.login_pair_base_delay_seconds = 30;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let wrong = "a wrong password";
+
+    // A spelling that finds no account either way: the name with a space after it.
+    for name in [USER1_USERNAME, "nobody-by-this-name"] {
+        for _ in 0..3 {
+            login(&th, &format!("{name} "), wrong)
+                .await
+                .check_error(StatusCode::UNAUTHORIZED, "incorrect login");
+        }
+        let wait = retry_after(&login(&th, name, wrong).await);
+        assert!((29..=30).contains(&wait), "{name}: about 30 s, was {wait}");
+    }
+
+    // An email address, tried beside names that are nobody's.
+    for email in ["user2@sample.com", "nobody@sample.com"] {
+        for attempt in 0..3 {
+            let body = json!({
+                "username": format!("no-such-user-{attempt}"),
+                "email": email,
+                "password": wrong,
+            });
+            th.anonymous()
+                .post("/login", &body)
+                .await
+                .check_error(StatusCode::UNAUTHORIZED, "incorrect login");
+        }
+        let by_email = json!({"email": email.to_uppercase(), "password": wrong});
+        let wait = retry_after(&th.anonymous().post("/login", &by_email).await);
+        assert!((29..=30).contains(&wait), "{email}: about 30 s, was {wait}");
+    }
+    // The name and the email address of an account are counted each for itself: what
+    // was failed at the address of user2 does not hold up user2 by name.
+    login(&th, "user2", PASSWORD).await.check_no_content();
+
+    th.teardown().await;
+}
+
+/// A session is not the password: whoever holds one gets no more guesses at the old
+/// password through changing it than through signing in, and the guesses are the
+/// same count.
+#[tokio::test]
+async fn the_old_password_is_not_guessed_at_through_a_session() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.login_pair_free_failures = 2;
+            config.login_pair_base_delay_seconds = 30;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let change = |old: &'static str| {
+        let client = &th.client;
+        async move {
+            client
+                .post(
+                    "/users/me/password",
+                    &json!({"oldPassword": old, "newPassword": "another password"}),
+                )
+                .await
+        }
+    };
+
+    for _ in 0..3 {
+        let response = change("a wrong guess").await;
+        response.check_error(StatusCode::BAD_REQUEST, "the old password is wrong");
+        assert_eq!(response.error_reason(), "invalid_credentials");
+    }
+    let wait = retry_after(&change("a wrong guess").await);
+    assert!((29..=30).contains(&wait), "about 30 s, was {wait}");
+    retry_after(&change(PASSWORD).await);
+    // The same count as signing in to the account by its name.
+    retry_after(&login(&th, USER1_USERNAME, PASSWORD).await);
+    // Nothing was changed, and the session goes on.
+    th.client.get("/users/me").await.check_ok();
+
+    th.teardown().await;
+}
+
 /// Only who fails waits: the same account from another address is not held up, and a
 /// success ends the count of the address that succeeded, not of the one that guesses.
 /// Addresses are told apart behind a trusted proxy by what the proxy says; the header

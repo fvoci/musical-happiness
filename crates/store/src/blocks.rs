@@ -408,6 +408,17 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
+    insert_block_at(scope, block, user_id, None).await
+}
+
+/// Stores a block as created or changed at `at`, or now, once its board is held, if
+/// that is `None`.
+async fn insert_block_at(
+    scope: &mut Scope<'_>,
+    block: &mut Block,
+    user_id: &str,
+    at: Option<i64>,
+) -> Result<(), StoreError> {
     let invalid = |block: &Block, source| StoreError::InvalidBlock {
         id: block.id.clone(),
         source,
@@ -435,7 +446,7 @@ pub(crate) async fn insert_block(
         return Err(invalid(block, BlockError::ParentNotOnBoard));
     }
 
-    let now = now_millis();
+    let now = at.unwrap_or_else(now_millis);
     block.update_at = now;
     block.delete_at = 0;
     user_id.clone_into(&mut block.modified_by);
@@ -512,8 +523,14 @@ pub(crate) async fn insert_blocks(
             })?;
     }
     boards::lock_boards(scope, blocks.iter().map(|block| block.board_id.as_str())).await?;
+    // One time for all of them. They are stored parents first, which is not the order
+    // they were given in, and a list of blocks is by creation time and then by
+    // identifier: with a time for each, where a millisecond happened to end would
+    // decide the order they are listed in. With one time it is that of their
+    // identifiers, which whoever made them made in the order that is meant.
+    let now = now_millis();
     for index in parents_first(blocks) {
-        insert_block(scope, &mut blocks[index], user_id).await?;
+        insert_block_at(scope, &mut blocks[index], user_id, Some(now)).await?;
     }
     Ok(())
 }

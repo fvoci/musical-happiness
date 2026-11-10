@@ -97,7 +97,8 @@
     "content_type": "application/json",
     "body": {
       "error": "bad_request",
-      "message": "invalid BoardID elsewhere (not exists in the created boards)",
+      "field": "boardId",
+      "message": "invalid boardId elsewhere (no board of the request has that id)",
       "request_id": "<request-id>"
     }
   },

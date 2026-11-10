@@ -49,9 +49,9 @@ fn user_not_found(error: AppError) -> AppError {
 
 /// Users by their identifiers
 ///
-/// The users with the identifiers of the body, which must name at least one. Every
-/// identifier must be a user's and none may be there twice; otherwise the request is
-/// refused. Oldest account first, not in the order of the request.
+/// The users with the identifiers of the body, which must name at least one: an empty
+/// list is 400. Every identifier must be a user's and none may be there twice;
+/// otherwise the request is 404. Oldest account first, not in the order of the request.
 #[utoipa::path(
     post,
     path = "/users",
@@ -150,7 +150,7 @@ async fn handle_get_user(
     Ok(json_response(&user))
 }
 
-/// The body of `PUT /users/{user_id}/admin`.
+/// The body of `PUT /users/{userId}/admin`.
 #[derive(Deserialize)]
 struct AdminFlag {
     #[serde(rename = "isAdmin")]
@@ -159,9 +159,11 @@ struct AdminFlag {
 
 /// Make a user an administrator, or end that
 ///
-/// Makes a user an administrator of the instance, or ends that. For administrators.
-/// The last administrator cannot stop being one: handing the role over is two
-/// requests, first making the other one an administrator.
+/// Makes a user an administrator of the instance, or ends that. For administrators;
+/// anybody else is refused with 403 and the reason `admin_required`. The last
+/// administrator cannot stop being one, which is 409 with the reason `last_admin`:
+/// handing the role over is two requests, first making the other one an administrator.
+/// A body without `isAdmin` is 400.
 #[utoipa::path(
     put,
     path = "/users/{userId}/admin",

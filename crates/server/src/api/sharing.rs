@@ -64,7 +64,7 @@ async fn handle_get_sharing(
     Ok(json_response(&sharing))
 }
 
-/// Reads the body of `POST /boards/{board_id}/sharing`: `enabled`, a boolean, and
+/// Reads the body of `POST /boards/{boardId}/sharing`: `enabled`, a boolean, and
 /// optionally `regenerate`, a boolean. A `token` is refused: the server makes it.
 fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     let members = decode_object_members(body)?;
@@ -95,9 +95,9 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
 /// Share a board, or stop sharing it
 ///
 /// Shares the board, shares it under a new read token, or stops sharing it. The server
-/// makes the token; a request that names one is refused. Where the server is
-/// configured without public sharing, the request is refused with 403 and the reason
-/// `sharing_disabled`. For the board's admins.
+/// makes the token; a request that names one is 400. Where the server is configured
+/// without public sharing, every request is refused with 403 and the reason
+/// `sharing_disabled`, also one that stops sharing. For the board's admins.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/sharing",

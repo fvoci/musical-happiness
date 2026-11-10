@@ -87,9 +87,11 @@ async fn handle_get_members_for_board(
 
 /// Make a user a member of a board
 ///
-/// The board's admins add members with the roles the request names. On an open board
-/// editors add members too, with the board's minimum role, whatever the request names.
-/// A user who is a member already stays as they are.
+/// The board's admins add members with the roles the request names; with no role at
+/// all the member may do nothing on the board, not even view it. On an open board
+/// editors add members too, with the board's minimum role, whatever else the request
+/// names; a request of theirs that asks for `schemeAdmin` is 403. A user who is a
+/// member already stays as they are.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/members",
@@ -222,7 +224,7 @@ async fn handle_join_board(
 /// Leave a board
 ///
 /// Ends the user's own membership of a board. The last admin of a board cannot leave
-/// it.
+/// it: that is 409 with the reason `last_admin`.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/leave",
@@ -254,8 +256,10 @@ async fn handle_leave_board(
 
 /// Change the roles of a member
 ///
-/// Replaces the roles of a member of the board. For the board's admins. The last admin
-/// of a board cannot be made less.
+/// Replaces the roles of a member of the board; with no role at all the member may do
+/// nothing on the board, not even view it. For the board's admins. The last admin of a
+/// board cannot be made less: that is 409 with the reason `last_admin`. A user who is
+/// no member of the board is 404.
 #[utoipa::path(
     put,
     path = "/boards/{boardId}/members/{userId}",
@@ -292,7 +296,9 @@ async fn handle_update_member(
 
 /// Remove a member from a board
 ///
-/// For the board's admins. The last admin of a board cannot be removed.
+/// For the board's admins. The last admin of a board cannot be removed: that is 409
+/// with the reason `last_admin`. Removing a user who is no member is no error, and is
+/// answered 204 like a removal.
 #[utoipa::path(
     delete,
     path = "/boards/{boardId}/members/{userId}",

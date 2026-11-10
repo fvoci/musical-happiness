@@ -213,13 +213,24 @@ mod tests {
             address,
             ClientAddress(Some("2001:db8::7".parse().expect("an address")))
         );
-        for junk in ["", "unknown", "203.0.113.7:1234", "evil\tclient=10.0.0.1"] {
+        for junk in ["", "unknown", "203.0.113.7:port", "evil\tclient=10.0.0.1"] {
             assert_eq!(
                 client_of(&trusting, &forwarded(junk), Some(socket_peer())).1,
                 "192.0.2.1",
                 "{junk:?} is not an address and is not copied into the log"
             );
         }
+        // An address with a port is the address: what is logged is what was read, not
+        // the text that was sent.
+        assert_eq!(
+            client_of(
+                &trusting,
+                &forwarded("203.0.113.7:1234"),
+                Some(socket_peer())
+            )
+            .1,
+            "203.0.113.7"
+        );
     }
 
     /// A log output that tests can read back.

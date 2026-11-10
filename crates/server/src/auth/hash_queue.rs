@@ -74,7 +74,12 @@ impl HashQueue {
             result
         })
         .await
-        .map_err(|_| QueueError::Failed)
+        .map_err(|error| {
+            // The task panicked or was cancelled; the caller answers a 500 and this is
+            // the only place that knows why.
+            tracing::error!(%error, "password work did not finish");
+            QueueError::Failed
+        })
     }
 }
 

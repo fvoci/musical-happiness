@@ -92,8 +92,8 @@ impl App {
             .delete_category(category_id, user_id, team_id)
             .await?;
 
-        // The category is gone from the store. What is answered and sent to the user's
-        // connections is the category as it was, marked as deleted now.
+        // The category is gone from the store. What is sent to the user's connections is
+        // the category as it was, marked as deleted now.
         let deleted = Category {
             delete_at: now_millis(),
             ..existing

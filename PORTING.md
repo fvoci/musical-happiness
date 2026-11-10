@@ -679,6 +679,61 @@ S6에서 새로 본 것:
 
 **실수 하나.** 스키마를 시험하던 임시 테스트 파일을 지우면서 `crates/model/tests` 디렉터리를 통째로 지웠다(2026-11-11 01:46 KST). 커밋된 파일 다섯 개였고 그 사이 고친 것이 없어 `git checkout HEAD -- crates/model/tests`로 되돌렸다(02:00 KST쯤). 그 사이의 `cargo check`와 단위 테스트는 이 다섯 파일 없이 돌았고, 이 절의 최종 `cargo xtask check`와 `cargo xtask test`는 되돌린 뒤에 돌렸다.
 
+### P. 마지막 리뷰와 반영 (2026-11-11 02:55 KST)
+
+`248abd88`까지를 네 갈래로 검토했다. 모두 `general-purpose` 하위 에이전트이고 모델을 Fable 5.2로 지정했으며, 네 보고 모두 자기 모델을 Fable 5.2(`claude-fable-5-2`)라고 적었다. 넷 다 읽기만 했고 `cargo`는 돌리지 않았다. 아래의 "확인"은 이 세션이 코드를 직접 읽거나 테스트로 본 것이고, 그렇지 않은 것은 "보고대로"라고 적는다.
+
+| 갈래 | 무엇을 | 지적 |
+|---|---|---|
+| A1 | rust-review(스킬을 불러 따름): 인증 전달, 세션, 로그인 제한 | Must 1, Should 5, Consider 11 |
+| A2 | 같은 범위의 보안 관점 | Must 1(A1과 같은 것), Should 5, Consider 9 |
+| A3 | rust-review(스킬을 불러 따름): 6단계와 7a–7d(`4a4feb69..248abd88`) | Must 1, Should 8, Consider 8 |
+| A4 | 계약 파일과 코드의 대조(조작 73개 전부) | 틀림 13, 빠짐 25, 표현 5, `contract-pending.md` 3 |
+
+**반영한 것.**
+
+- **계정이 있는지를 제한이 알려 주던 것(A1·A2의 Must).** 로그인 제한의 계정 키가 조회 결과에 달려 있었다(있는 계정은 ID, 없는 계정은 적은 이름). `alice `(끝에 빈칸)로 실패를 쌓은 뒤 `alice`가 기다려야 하는지를 보면 계정이 있는지 알 수 있었다. 이제 키는 요청이 적은 이름(사용자 이름과 이메일, 각각)에서만 나오고, 조회보다 먼저 묻는다. 성공은 계정을 찾은 그 이름의 기록만 지운다(자기 계정으로 로그인하며 남의 이메일을 함께 적어 그 기록을 지울 수 없다). 값: 한 계정을 이름으로도 이메일로도 찌르면 실패 한도가 따로 센다. 테스트 `who_has_to_wait_does_not_tell_which_names_are_accounts`(API), 리미터 단위 테스트 둘, 회귀 단계 둘.
+- **비밀번호 바꾸기가 제한 밖이던 것(A1·A2의 Should).** 세션을 가진 쪽이 옛 비밀번호를 한도 없이 찍을 수 있었다. `changePassword`가 그 계정 이름의 로그인 실패와 같은 기록을 쓴다. 틀리면 실패로 세고, 넘으면 429와 `Retry-After`다. 테스트 `the_old_password_is_not_guessed_at_through_a_session`, 회귀 시나리오 `password_limits`(10단계).
+- **WebSocket 핸드셰이크가 세션 사용을 기록하던 것(A1의 Should).** 핸드셰이크의 답은 쿠키를 갱신하지 못하는데 사용 시각은 기록돼서, 다음 요청이 갱신을 건너뛰고 쿠키가 세션보다 먼저 끝날 수 있었다. 기록 없이 찾는 `Authenticator::find_session`을 두고 핸드셰이크와 연결 재확인이 그것을 쓴다. 테스트는 `the_cookie_is_renewed_when_the_use_of_the_session_is_recorded`에 더했고, 예전 코드로 돌리면 실패하는 것을 확인했다.
+- **`X-Forwarded-For`(A1의 Should·Consider).** 글자로 읽히지 않는 바이트가 있으면 헤더 줄 전체를 버리던 것을, 쉼표로 나눈 항목 단위로 읽어 그 항목에서 멈추게 했다. `주소:포트`, `[v6]:포트` 항목을 받는다. `::ffff:10.0.0.0/104` 같은 IPv4 대응 범위를 그 IPv4 범위로 읽는다(전에는 어느 주소와도 맞지 않았다). `Forwarded` 헤더는 읽지 않는다고 주석에 적었다.
+- **기다림 설정의 상한(A1의 Should).** 아주 큰 값이 리미터의 잠금 안에서 `Instant` 덧셈을 넘쳐 패닉이 났다. 세 설정(`login_pair_base_delay_seconds`, `login_pair_max_delay_seconds`, `login_account_lock_seconds`)을 10년 이하로 검사하고, 리미터도 같은 값으로 자른다.
+- **리미터가 가득 찼을 때(A1의 Consider).** 아무 십분의 일이 아니라 가장 오래 건드리지 않은 십분의 일을 버린다(설계 5.2의 말대로).
+- **프록시 뒤인데 `trusted_proxies`가 빈 경우(A2의 Should).** `serverRoot`가 https이고 `usessl`이 꺼져 있고 `trusted_proxies`가 비면 시작할 때 경고한다. 모든 클라이언트가 프록시의 주소 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸리기 때문이다.
+- **없는 계정의 해시(A1의 Consider).** 대신 쓸 해시를 만들지 못했을 때 빈 문자열과 견주어 금방 끝나던 것을, 같은 일을 다른 길로 하게 했다. 비밀번호 작업이 끝나지 못한 까닭과 WebSocket이 세션을 읽지 못한 까닭을 로그에 남긴다.
+- **통과만 하던 테스트(A1의 Should).** `a_message_does_not_sign_a_connection_in`이 서버가 메시지를 읽기 전에 알림을 한 번 보내고 끝나서, `AUTH`가 로그인을 시켜도 통과했다. 같은 사용자의 연결이 알림을 받는 것을 옆에서 확인하며 다섯 번 되풀이한다.
+- **한 요청으로 만든 블록의 순서(A3의 Should).** 새 ID를 `HashSet`의 순서로 나눠 줘서, 같은 밀리초에 저장된 블록의 목록 순서가 실행마다 달랐다. 고치며 더 찾은 것: 블록마다 시각을 따로 찍고 부모부터 저장해서, 밀리초가 어디서 넘어가느냐에 따라서도 순서가 달라졌다. 이제 ID는 요청의 순서로 만들고 한 요청의 블록은 시각 하나를 쓴다. 목록(`createAt`, ID 순)이 요청의 순서가 된다. 테스트 `post_blocks_without_identifiers_and_in_the_order_of_the_request`, 모델 테스트 둘, 회귀 단계 넷.
+- **`id` 없는 블록(A4).** 계약은 `NewBlock.id`를 선택이라 했는데, `id` 없는 블록 둘이 ID 하나를 나눠 받고 부모 없는 블록이 그 ID를 부모로 받아 400이 났다. 빈 ID를 참조로 치지 않게 고쳤다.
+- **`createBoardsAndBlocks`의 거절(A3의 Should).** 옛 철자(`UpdateAt`, `BoardID`)와 `field` 없음을 `createBlocks`와 같게 맞췄다.
+- **계약의 틀린 말(A3의 Must, A4의 틀림 13).** 설정의 낱말 다섯 집합이 `Auto`, `Light`처럼 대문자로 적혀 있었다(서버는 소문자만 보내고 받는다. 매크로가 쓰는 `rename`을 파생이 읽지 못했다. 스키마를 직접 쓴다). `updatedProperties`는 값을 더하지 않고 전체를 바꾼다. `getFile`은 모든 파일을 `application/octet-stream`과 내려받기로 보내고 412·416은 `ErrorBody`가 아니다. `field=property_name`은 보드 자신의 `properties`의 멤버 이름을 본다. `duplicateBoard`는 멤버가 한다. 편집자가 `schemeAdmin`을 청하면 403이다. 템플릿은 기본 카테고리에 넣지 않는다. 429에는 `reason`이 없다. 모르는 멤버를 거절하는 조작이 넷 있다. `fileId`는 UUID가 아니다. `OPTIONS`도 헤더 검사를 받지 않는다.
+- **계약에 빠져 있던 것(A4의 빠짐 25, 표현 5).** 조작의 설명에 넣었다: 거절의 상태와 `reason`(`last_admin`, `admin_required`, 틀린 옛 비밀번호의 400), 입력의 조건, 지운 보드와 함께 끝나는 것(공유, 사이드바의 자리, 구독), 복사본의 제목과 종류, 가져오기가 전부 아니면 전무가 아닌 것, 검색이 맞추는 방식, 온보딩이 남기는 클라이언트 상태. 서버의 결함에 가까운 것은 조작의 설명이 아니라 `docs/contract-pending.md` 8절에 모았다.
+- **`Origin: null`(A1의 Consider).** 서버가 페이지에 `Referrer-Policy: no-referrer`를 붙이므로, `cors`가 아닌 방식의 바꾸는 요청에는 브라우저가 `Origin: null`을 적고 서버가 거절한다. Fetch 표준(2026-10-19판, 2026-11-11 02:41 KST에 받아 `target/s6/research/raw/fetch-standard.html`에 둠)의 "append a request `Origin` header"에서 확인했고 계약의 머리말에 적었다. 브라우저로 직접 해 보지는 않았다.
+- **계약을 만드는 단계(A3의 Should).** 경로 아래에 직접 적힌 스키마에도 기본값 지우기와 열린 객체 처리를 한다. `additionalProperties` 안의 객체도 연다. 경로에 없는 경로 매개변수를 적은 조작과, 문서에 없는 보안 방식을 적은 조작을 거절한다. 테스트: 세션이 필요 없는 조작 다섯과 읽기 토큰 조작 넷이 정확히 그것뿐인지, 필수 멤버의 표가 서버가 실제로 쓰는 멤버와 같은지(기본값을 직렬화해 견준다), 닫힌 낱말 집합이 서버가 쓰는 낱말인지, 계약에 맞지 않는 조작이 까닭과 함께 거절되는지.
+- **그 밖(A3).** `.gitattributes`에 `contracts/openapi.json text eol=lf`. `cargo xtask openapi`의 차이 메시지가 줄을 다듬지 않고 보인다. 관리자 소켓의 경로가 `PREFIX`를 쓴다. 엉뚱한 상수에 붙은 문서 주석, 쓰지 않는 `Serialize`·`Deserialize` 파생, 낡은 주석 여럿.
+
+**남긴 것과 까닭.**
+
+| 지적 | 남긴 까닭 |
+|---|---|
+| 계정 전체 잠금을 잠금 도구로 쓸 수 있다(주소 17개쯤이면 한 계정을 계속 잠근다, A2) | 설계 5.2가 승인한 수(계정 100회, 15분)의 성질이다. 기기 쿠키 같은 대안은 설계 결정이다 |
+| IPv6 `/64` 여럿으로 해시 대기열을 채울 수 있다(A2, 산수는 보고대로) | 더 넓은 범위의 층이나 전체 예산이 필요하다. 설계 결정이다. CDN·WAF의 제한이 그 앞의 겹이다(`docs/fvoci-cdn.md`) |
+| 새 인스턴스에서 처음 가입한 사람이 관리자다(A2) | 설계 3.6의 결정이다 |
+| 쿠키 갱신이 더 새 쿠키를 덮을 수 있다(A1) | 비밀번호를 바꾼 답과 갱신이 겹치는 좁은 틈이고, 덮이면 다시 로그인하면 된다. 갱신에 세션의 토큰을 견주는 일은 다음 묶음으로 둔다 |
+| 평문 HTTP에서 같은 이름의 쿠키가 여럿이면 첫 것을 쓴다(A1) | HTTPS에서는 `__Host-` 접두사가 막는다. 평문 HTTP는 개발과 내부망용이다 |
+| `Result<_, String>` 둘(`token.rs`, `client_address.rs`), `lib.rs`의 `unwrap_or_default()`(A1) | 시작할 때 한 번 읽는 설정의 오류이고 메시지가 곧 사용자에게 가는 글이다. 앱 코드라 그대로 둔다 |
+| 사용자 조회의 두 번째 시도가 내는 시간 차(A2), 관리자 소켓의 bind와 chmod 사이(A2, 보고도 미확인), 사용자 이름에 `@`를 허용(A2), `email_taken`이 가입 토큰을 가진 사람에게 이메일의 존재를 알림(A2) | 확인하지 못했거나 제품 결정이다. 열린 문제로 넘긴다 |
+| CSP·`frame-ancestors`·HSTS가 없다, 모든 인터페이스에 bind(A2) | 정적 파일을 서버가 주지 않게 되는 웹 트랙과 배포 문서(`docs/fvoci-cdn.md`)의 몫이다 |
+| 세션이 끝난 뒤 WebSocket이 한 시간까지 남는다, 로그인이 바뀌는 쿠키의 옛 세션을 끝내지 않는다(A2) | 앞의 것은 J절에 적은 것과 같다. 뒤의 것은 다음 묶음으로 둔다 |
+| `allowed_origins`에 https가 있고 `serverRoot`가 http면 쿠키가 `Secure`가 아니다(A2) | `serverRoot`가 서버에 닿는 주소라는 전제다. 설정 검사에 넣을 후보다 |
+| `AsWritten` 스키마도 기본값을 지운다(A3) | 지금 기본값을 일부러 적은 스키마가 없고, 계약의 테스트가 어디에도 기본값이 없음을 고정한다 |
+| 쿼리 매개변수의 이름, 상태, 본문을 주석과 코드에 두 번 적는다(A3) | 응답은 회귀 스냅샷이, 매개변수는 API 테스트가 고정한다. 한 정의로 모으는 일은 요청 스키마를 손으로 쓴 것(O절)과 함께 다음에 본다 |
+| `sorted()`가 지금은 아무것도 바꾸지 않는다(A3) | `serde_json`의 `preserve_order`를 의존성이 켜는 날을 위한 것이라고 주석에 적고 뒀다 |
+| 테스트 보강 몇(A1: 다중 부분 요청의 헤더 검사, 세션 경쟁 테스트의 단언, 가입이 시도로 세지 않는다는 단언) | 동작은 다른 테스트가 고정한다. 다음에 본다 |
+| 카드가 아닌 모양의 카드 블록이 `getCards`를 500으로 만든다, 파일 없는 이미지 블록이 내보내기를 500으로 만든다, SQLite의 `property_name` 검색(A4) | 이 묶음 전부터 있던 동작이다. `docs/contract-pending.md` 8절에 적었고 다음 묶음에서 고칠 후보다 |
+
+**응답의 변화.** 회귀 스냅샷 573 → 589단계(시나리오 20 → 21), 권한 표 636칸 그대로. 바뀐 기록은 한 단계다: `createBoardsAndBlocks`가 다른 보드의 블록을 거절하는 메시지가 `invalid BoardID … (not exists in the created boards)`에서 `invalid boardId … (no board of the request has that id)`로 바뀌고 `field: boardId`가 붙었다. 새 단계 16: `blocks` 4(ID 없는 블록, 자식을 부모보다 먼저 적은 요청, 그 목록), `login_limits` 2(끝에 빈칸을 붙인 이름), `password_limits` 10(새 시나리오). 계약 파일은 설명이 바뀌었고 조작과 스키마의 수(경로 56, 조작 73, 스키마 51)는 그대로다. `getFile`에 412와 416이 더해졌고 설정의 낱말 집합이 소문자가 됐다.
+
+**검증(2026-11-11 02:52 KST).** `cargo xtask check` 일곱 단계 PASS. `cargo xtask test`: SQLite 991건, PostgreSQL 883건, S3 1건, 실패 0(SQLite 62.9초, PostgreSQL 102.9초). API 테스트 487건, 회귀 32건, 서버 단위 125건, xtask 21건.
+
 ## 플러그인 저장소의 수정 사항 점검
 
 원본에서 갈라진 플러그인 저장소가 분리 뒤에 넣은 보안·검증 수정 15건(서버 쪽)을 원본 standalone 경로에 대해 하나씩 확인했다. 원본에 같은 결함이 있는지는 오라클에서 재현해 판단했고, 처리 결과는 `crates/server/PORTING.md`의 보안 수정 표, 의도적 차이, 보안 결정 대기 표에 PR 번호와 함께 적었다.

@@ -77,7 +77,7 @@ async fn handle_get_team(
 /// The users of a team
 ///
 /// Up to ten users: with `search` those whose name has that text in it, without it
-/// any. Oldest account first.
+/// the ten oldest accounts. Oldest account first.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/users",
@@ -101,9 +101,9 @@ async fn handle_get_team_users(
 
 /// Users of a team by their identifiers
 ///
-/// The users with the identifiers of the body, which must name at least one. Every
-/// identifier must be a user's and none may be there twice; otherwise the request is
-/// refused. Oldest account first, not in the order of the request.
+/// The users with the identifiers of the body, which must name at least one: an empty
+/// list is 400. Every identifier must be a user's and none may be there twice;
+/// otherwise the request is 404. Oldest account first, not in the order of the request.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/users",

@@ -8,7 +8,6 @@
 use fvoci_model::{
     CLIENT_STATE_MAX_ENTRIES, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
@@ -65,9 +64,7 @@ const SEARCH_LIMIT: i64 = 10;
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
 
 /// One stored preference of a user.
-///
-/// The JSON form has the member names of the original's preference record.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Preference {
     /// The identifier of the user the preference belongs to.
     pub user_id: String,

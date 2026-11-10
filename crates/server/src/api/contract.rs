@@ -91,22 +91,33 @@ board's `readToken`.
 
 ## Requests that change something
 
-Every request whose method is not `GET` or `HEAD` needs the header \
+Every request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header \
 `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 \
 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the \
 server's own (or one the server was configured to accept); otherwise it is refused with 403 \
 and the reason `foreign_origin`.
 
+A page should make these requests with `fetch` in its default mode, `cors`. The server sends \
+its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes \
+`Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form \
+the browser posts itself), which is refused as a foreign origin.
+
 ## Answers
 
 An operation answers 200 with a body, 201 with what it made, or 204 with no body. Every \
-other status comes with an `ErrorBody`: `error` names the kind of the refusal and goes with \
-the status, `reason` tells apart causes a client must tell apart, and `field` names the \
-member of the request that was refused. A session that is missing or over is 401. What the \
-user may not see is 404, as if it were not there; what they may see but not do is 403.
+other status comes with an `ErrorBody`, unless the operation says otherwise (`getFile` \
+does): `error` names the kind of the refusal and goes with the status, `reason` tells apart \
+causes a client must tell apart, `field` names the member of the request that was refused, \
+and `limit` is the number of bytes a body that was too large (413) may have. A session that \
+is missing or over is 401. What the user may not see is 404, as if it were not there; what \
+they may see but not do is 403. A path that is no operation is 404 too, and a method an \
+operation's path does not have is 405.
+
+A request without a session whose JSON body has more than 64 KiB is 413 before it is 401.
 
 The identifiers of users, teams, boards, blocks and categories are UUIDs, written \
-lower-case with hyphens; a client takes every identifier as an opaque string. Times are \
+lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is \
+no UUID: it is an unguessable name that ends in the file's extension. Times are \
 milliseconds since the Unix epoch.
 
 ## Lists
@@ -118,13 +129,19 @@ what was created in the same millisecond.
 ## Request bodies
 
 A request schema lists the members a request is for. An optional member may be left out or \
-be `null`. A body with members the schema does not list is not refused for them.";
+be `null`. A member the schema marks as required is one the request cannot do without; \
+where the server takes a missing one as empty instead of refusing the request, the result \
+is that of the empty value (a login without a password is a failed login). A body with \
+members the schema does not list is mostly not refused for them. The exceptions: \
+`patchUserSettings` refuses every member it does not know, `createBoard` and \
+`createCategory` refuse an `id`, and `setSharing` refuses a `token`.";
 
 /// What an operation's `default` response says.
 const REFUSAL: &str = "The request was refused, or failed. The status says the kind: 400 for a \
 request that is malformed or asks for what cannot be, 401 without a session, 403 for what the \
-user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body \
-that is too large, 429 for too many requests, 500 for a failure of the server.";
+user may not do, 404 for what is not there for them, 405 for a method the path does not have, \
+409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 \
+for a failure of the server.";
 
 /// Which members of a schema are always there.
 #[derive(Debug, Clone, Copy)]
@@ -263,6 +280,7 @@ pub fn document() -> Result<String, ContractError> {
         .map_err(|error| ContractError(format!("the document is no JSON: {error}")))?;
     write_head(&mut document);
     finish_schemas(&mut document)?;
+    finish_inline_schemas(object_at(&mut document, "/paths")?);
     plain_descriptions(&mut document);
     rename_paths(&mut document)?;
     finish_operations(&mut document)?;
@@ -344,6 +362,29 @@ fn finish_schemas(document: &mut Value) -> Result<(), ContractError> {
     Ok(())
 }
 
+/// Does for the schemas that are written where they are used, in the parameters, the
+/// request bodies and the answers of the operations, what [`finish_schemas`] does for
+/// the named ones: none carries a default of the decoding, and an object without
+/// members may have any.
+fn finish_inline_schemas(members: &mut Map<String, Value>) {
+    for (name, member) in members {
+        if name == "schema" {
+            strip_defaults(member);
+            open_free_objects(member);
+        } else {
+            match member {
+                Value::Object(inner) => finish_inline_schemas(inner),
+                Value::Array(items) => {
+                    for item in items.iter_mut().filter_map(Value::as_object_mut) {
+                        finish_inline_schemas(item);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Removes the `default` of a schema and of every schema inside it. The defaults are
 /// those of the decoding: what a member is taken as when a request leaves it out. In an
 /// answer nothing is left out, and for requests the descriptions say it.
@@ -395,8 +436,11 @@ fn open_free_objects(schema: &mut Value) {
     if let Some(properties) = members.get_mut("properties").and_then(Value::as_object_mut) {
         properties.values_mut().for_each(open_free_objects);
     }
-    if let Some(items) = members.get_mut("items") {
-        open_free_objects(items);
+    // `additionalProperties: true` is no schema and is passed over as no object.
+    for name in ["items", "additionalProperties"] {
+        if let Some(inner) = members.get_mut(name) {
+            open_free_objects(inner);
+        }
     }
     for name in ["allOf", "oneOf", "anyOf"] {
         if let Some(parts) = members.get_mut(name).and_then(Value::as_array_mut) {
@@ -502,8 +546,15 @@ fn path_parameters(path: &str) -> impl Iterator<Item = &str> {
 
 /// Gives every operation the answer of a refusal, and checks what the attributes of the
 /// handlers cannot be made to check: that each operation has a name no other has, a
-/// summary and a group, and that every parameter of its path is described.
+/// summary and a group, that every parameter of its path is described and every path
+/// parameter it describes is in its path, and that what it says a request needs is one
+/// of the security schemes of the document.
 fn finish_operations(document: &mut Value) -> Result<(), ContractError> {
+    let schemes: BTreeSet<String> = document
+        .pointer("/components/securitySchemes")
+        .and_then(Value::as_object)
+        .map(|schemes| schemes.keys().cloned().collect())
+        .unwrap_or_default();
     let refusal = json!({
         "description": REFUSAL,
         "content": {
@@ -546,6 +597,32 @@ fn finish_operations(document: &mut Value) -> Result<(), ContractError> {
                     )));
                 }
             }
+            let stray = operation
+                .get("parameters")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|described| described["in"] == "path")
+                .filter_map(|described| described["name"].as_str())
+                .find(|name| !path_parameters(path).any(|parameter| parameter == *name));
+            if let Some(stray) = stray {
+                return Err(ContractError(format!(
+                    "{what} describes a path parameter {stray} that its path does not have"
+                )));
+            }
+            let unknown_scheme = operation
+                .get("security")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_object)
+                .flat_map(serde_json::Map::keys)
+                .find(|scheme| !schemes.contains(*scheme));
+            if let Some(scheme) = unknown_scheme {
+                return Err(ContractError(format!(
+                    "{what} asks for {scheme}, which is no security scheme of the document"
+                )));
+            }
             let responses = operation
                 .entry("responses")
                 .or_insert_with(|| json!({}))
@@ -562,6 +639,11 @@ fn finish_operations(document: &mut Value) -> Result<(), ContractError> {
 
 /// The value with the members of every object in the order of their names, whatever
 /// order they were put in.
+///
+/// As this workspace builds `serde_json`, an object keeps its members in that order by
+/// itself, and this changes nothing. It is here for the day a dependency turns on the
+/// feature that keeps them in the order they were put in: the file would then change
+/// from top to bottom without the API having changed at all.
 fn sorted(value: Value) -> Value {
     match value {
         Value::Object(members) => {
@@ -584,8 +666,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        Members, document, open_free_objects, path_parameters, require_members, sorted,
-        strip_defaults,
+        Members, document, finish_inline_schemas, finish_operations, open_free_objects,
+        path_parameters, rename_paths, require_members, sorted, strip_defaults,
     };
 
     #[test]
@@ -618,26 +700,43 @@ mod tests {
         assert!(operations > 70, "the document has {operations} operations");
     }
 
+    /// The operations that need no session at all.
+    const NO_SESSION: [&str; 5] = ["getClientConfig", "hello", "login", "ping", "register"];
+    /// The operations that are read with a session or with the read token of a board.
+    const READ_TOKEN: [&str; 4] = ["getBlocks", "getBoard", "getFile", "getFileInfo"];
+
     #[test]
     fn what_needs_no_session_says_so() {
         let text = document().expect("the document");
         let document: Value = serde_json::from_str(&text).expect("JSON");
-        let security =
-            |path: &str, method: &str| document["paths"][path][method]["security"].clone();
+        let mut no_session = Vec::new();
+        let mut read_token = Vec::new();
+        for item in document["paths"].as_object().expect("paths").values() {
+            for operation in item.as_object().expect("a path item").values() {
+                let name = operation["operationId"].as_str().expect("a name");
+                let security = &operation["security"];
+                if *security == json!([{}]) {
+                    no_session.push(name);
+                } else if *security == json!([{}, { "sessionCookie": [] }, { "bearerToken": [] }]) {
+                    read_token.push(name);
+                } else {
+                    assert_eq!(
+                        *security,
+                        Value::Null,
+                        "{name}: what says nothing needs what the document says for all"
+                    );
+                }
+            }
+        }
+        no_session.sort_unstable();
+        read_token.sort_unstable();
         assert_eq!(
-            security("/api/v1/login", "post"),
-            json!([{}]),
-            "signing in needs no session"
+            no_session, NO_SESSION,
+            "these need no session, and no others"
         );
         assert_eq!(
-            security("/api/v1/boards/{boardId}", "get"),
-            json!([{}, { "sessionCookie": [] }, { "bearerToken": [] }]),
-            "a board is read with a session or with its read token"
-        );
-        assert_eq!(
-            security("/api/v1/boards/{boardId}", "delete"),
-            Value::Null,
-            "what says nothing needs what the document says for all"
+            read_token, READ_TOKEN,
+            "these are read with a session or a read token, and no others"
         );
         assert_eq!(
             document["security"],
@@ -672,9 +771,269 @@ mod tests {
             json!(["boardMetadata"]),
             "the members of a category with its boards, beside those of the category"
         );
-        assert!(
-            !text.contains("\"default\": \"\""),
+        assert!(board["required"].is_array() && board["properties"].is_object());
+        assert_eq!(
+            defaults_in(schemas, "components.schemas"),
+            Vec::<String>::new(),
             "no schema carries the defaults of the decoding"
+        );
+        assert_eq!(
+            defaults_in(&document["paths"], "paths"),
+            Vec::<String>::new(),
+            "nor does a schema that is written where it is used"
+        );
+    }
+
+    /// Where below `value` something has a `default` that is no member of a schema's
+    /// `properties`, and no `default` answer of an operation.
+    fn defaults_in(value: &Value, place: &str) -> Vec<String> {
+        match value {
+            Value::Object(members) => members
+                .iter()
+                .flat_map(|(name, member)| {
+                    let inner = format!("{place}.{name}");
+                    let is_schema_default = name == "default"
+                        && !place.ends_with(".properties")
+                        && !place.ends_with(".responses");
+                    if is_schema_default {
+                        vec![inner]
+                    } else {
+                        defaults_in(member, &inner)
+                    }
+                })
+                .collect(),
+            Value::Array(items) => items
+                .iter()
+                .flat_map(|item| defaults_in(item, place))
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The members a value is written with.
+    fn sent<T: serde::Serialize>(value: &T) -> Vec<String> {
+        serde_json::to_value(value)
+            .expect("JSON")
+            .as_object()
+            .expect("an object")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// The members a schema says are always there, with those of the schemas it has
+    /// inline.
+    fn required_of(schemas: &Value, schema: &Value) -> Vec<String> {
+        let mut required: Vec<String> = schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|name| name.as_str().map(str::to_owned))
+            .collect();
+        for part in schema["allOf"].as_array().into_iter().flatten() {
+            let part = match part["$ref"].as_str() {
+                Some(reference) => &schemas[reference.rsplit('/').next().expect("a name")],
+                None => part,
+            };
+            required.extend(required_of(schemas, part));
+        }
+        required.sort_unstable();
+        required
+    }
+
+    /// The table of schemas says by hand which members are always there. What the
+    /// server writes says it too: a value with nothing in it is written with exactly
+    /// the members that are never left out. A member that is given a
+    /// `skip_serializing_if` and forgotten in the table fails here.
+    #[test]
+    fn what_is_always_there_is_what_the_server_writes() {
+        use fvoci_model::{
+            Block, Board, BoardMember, BoardsAndBlocks, Card, Category, CategoryBoardMetadata,
+            CategoryBoards, ClientConfig, FileInfo, Sharing, Team, User,
+        };
+
+        let text = document().expect("the document");
+        let document: Value = serde_json::from_str(&text).expect("JSON");
+        let schemas = &document["components"]["schemas"];
+        let written = [
+            ("Block", sent(&Block::default())),
+            ("Board", sent(&Board::default())),
+            ("BoardMember", sent(&BoardMember::default())),
+            ("BoardsAndBlocks", sent(&BoardsAndBlocks::default())),
+            ("Card", sent(&Card::default())),
+            ("Category", sent(&Category::default())),
+            (
+                "CategoryBoardMetadata",
+                sent(&CategoryBoardMetadata::default()),
+            ),
+            ("CategoryBoards", sent(&CategoryBoards::default())),
+            ("ClientConfig", sent(&ClientConfig::default())),
+            ("FileInfo", sent(&FileInfo::default())),
+            ("Sharing", sent(&Sharing::default())),
+            ("Team", sent(&Team::default())),
+            ("User", sent(&User::default())),
+        ];
+        for (name, mut members) in written {
+            members.sort_unstable();
+            assert_eq!(
+                required_of(schemas, &schemas[name]),
+                members,
+                "the members of {name} that are always there"
+            );
+        }
+    }
+
+    /// The words of a closed set are those the server writes, letter for letter.
+    #[test]
+    fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
+        use fvoci_model::{CardOpen, Density, HourCycle, Theme, UserSettings, WeekStart};
+
+        let text = document().expect("the document");
+        let document: Value = serde_json::from_str(&text).expect("JSON");
+        let schemas = &document["components"]["schemas"];
+        for (name, words) in [
+            ("CardOpen", CardOpen::WORDS),
+            ("Density", Density::WORDS),
+            ("HourCycle", HourCycle::WORDS),
+            ("Theme", Theme::WORDS),
+            ("WeekStart", WeekStart::WORDS),
+        ] {
+            assert_eq!(schemas[name]["enum"], json!(words), "{name}");
+            assert!(schemas[name]["description"].is_string(), "{name}");
+        }
+        // And what an answer carries is among them.
+        let settings = serde_json::to_value(UserSettings::default()).expect("JSON");
+        for (member, set) in [
+            ("cardOpen", "CardOpen"),
+            ("density", "Density"),
+            ("hourCycle", "HourCycle"),
+            ("theme", "Theme"),
+            ("weekStart", "WeekStart"),
+        ] {
+            let words = schemas[set]["enum"].as_array().expect("words");
+            assert!(
+                words.contains(&settings[member]),
+                "{member} is {}, which is none of {words:?}",
+                settings[member]
+            );
+        }
+        for (set, value) in [
+            ("BoardType", json!(fvoci_model::BoardType::Open)),
+            ("BoardType", json!(fvoci_model::BoardType::Private)),
+            ("MinimumRole", json!(fvoci_model::MinimumRole::default())),
+            ("CategoryType", json!(fvoci_model::CategoryType::default())),
+        ] {
+            let words = schemas[set]["enum"].as_array().expect("words");
+            assert!(words.contains(&value), "{value} is none of {words:?}");
+        }
+    }
+
+    /// A document with one operation, for what [`finish_operations`] refuses.
+    fn with_operation(path: &str, operation: &Value) -> Value {
+        json!({
+            "paths": { path: { "get": operation } },
+            "components": { "securitySchemes": { "sessionCookie": {} } },
+        })
+    }
+
+    #[test]
+    fn an_operation_that_is_not_fit_for_the_contract_is_refused_with_the_reason() {
+        let good = json!({
+            "operationId": "getThing",
+            "summary": "A thing",
+            "tags": ["things"],
+            "parameters": [{ "in": "path", "name": "thingId" }],
+            "responses": { "200": {} },
+        });
+        let path = "/things/{thingId}";
+        finish_operations(&mut with_operation(path, &good)).expect("this one is fit");
+
+        let without = |member: &str| {
+            let mut operation = good.clone();
+            operation.as_object_mut().expect("an object").remove(member);
+            operation
+        };
+        let with = |member: &str, value: Value| {
+            let mut operation = good.clone();
+            operation[member] = value;
+            operation
+        };
+        for (operation, reason) in [
+            (without("operationId"), "has no operationId"),
+            (without("summary"), "has no summary"),
+            (without("tags"), "has no tags"),
+            (
+                without("parameters"),
+                "does not describe its path parameter thingId",
+            ),
+            (
+                with(
+                    "parameters",
+                    json!([{ "in": "path", "name": "thingId" }, { "in": "path", "name": "other" }]),
+                ),
+                "describes a path parameter other that its path does not have",
+            ),
+            (
+                with("responses", json!({ "404": {} })),
+                "has no answer of success",
+            ),
+            (
+                with("security", json!([{ "sessionCooky": [] }])),
+                "asks for sessionCooky, which is no security scheme",
+            ),
+        ] {
+            let error = finish_operations(&mut with_operation(path, &operation))
+                .expect_err(reason)
+                .to_string();
+            assert!(error.contains(reason), "{error}");
+        }
+
+        let mut twice = json!({
+            "paths": { "/things": { "get": without("parameters"), "post": without("parameters") } },
+        });
+        let error = finish_operations(&mut twice)
+            .expect_err("one name for two")
+            .to_string();
+        assert!(
+            error.contains("two operations have the operationId getThing"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_path_that_is_not_there_cannot_be_renamed() {
+        let error = rename_paths(&mut json!({ "paths": {} }))
+            .expect_err("nothing to rename")
+            .to_string();
+        assert!(error.contains("there is no path"), "{error}");
+    }
+
+    #[test]
+    fn a_schema_that_is_written_where_it_is_used_is_finished_too() {
+        let mut paths = json!({
+            "/things": { "post": {
+                "parameters": [{ "name": "limit", "schema": { "type": "integer", "default": 100 } }],
+                "requestBody": { "content": { "application/json": {
+                    "schema": { "type": "object", "default": {} },
+                } } },
+                "responses": { "200": { "content": { "application/json": {
+                    "schema": { "type": "array", "items": { "type": "object" } },
+                } } } },
+            } },
+        });
+        finish_inline_schemas(paths.as_object_mut().expect("an object"));
+        let operation = &paths["/things"]["post"];
+        assert_eq!(
+            operation["parameters"][0]["schema"],
+            json!({ "type": "integer" })
+        );
+        assert_eq!(
+            operation["requestBody"]["content"]["application/json"]["schema"],
+            json!({ "type": "object", "additionalProperties": true })
+        );
+        assert_eq!(
+            operation["responses"]["200"]["content"]["application/json"]["schema"]["items"],
+            json!({ "type": "object", "additionalProperties": true })
         );
     }
 
@@ -691,7 +1050,10 @@ mod tests {
             "duplicateBoard",
             "in the order of the original's, oldest first",
         ),
-        ("getBlocks", "Oldest first"),
+        (
+            "getBlocks",
+            "Oldest first; the blocks that one request made come in the order that request had them in",
+        ),
         ("getBoards", "Oldest first"),
         ("getCards", "Oldest first; the pages cut that order"),
         ("getCategories", "by `sortOrder`, lowest first"),

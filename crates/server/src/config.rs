@@ -340,7 +340,7 @@ enum EnvKind {
 }
 
 /// The configuration keys that an environment variable can override. The variable is the
-/// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_EXPIRE_TIME`.
+/// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
 const ENV_KEYS: [(&str, EnvKind); 40] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
@@ -522,6 +522,62 @@ impl Configuration {
             .map_err(anyhow::Error::msg)?;
         crate::client_address::TrustedProxies::parse(&self.trusted_proxies)
             .map_err(anyhow::Error::msg)?;
+        self.check_login_limits()?;
+        // Zero would end every session as it starts.
+        if self.session_idle_days == 0 || self.session_max_days == 0 {
+            bail!("session_idle_days and session_max_days must be at least 1");
+        }
+        // Zero would empty the trash as it fills: deleting could not be undone.
+        if self.trash_retention_days == 0 {
+            bail!("trash_retention_days must be at least 1");
+        }
+        if !self.prometheus_address.is_empty() {
+            bail!("prometheusaddress is set, but this server has no metrics endpoint");
+        }
+        match self.files_driver.as_str() {
+            "local" => {}
+            "amazons3" => {
+                if self.files_s3_config.sign_v2 {
+                    bail!(
+                        "filess3config.SignV2 is not supported; requests are signed with version 4"
+                    );
+                }
+            }
+            other => bail!("filesdriver {other:?} is not supported; use \"local\" or \"amazons3\""),
+        }
+
+        let ignored = [
+            ("logging_cfg_file", &self.logging_cfg_file),
+            ("logging_cfg_json", &self.logging_cfg_json),
+            ("audit_cfg_file", &self.audit_cfg_file),
+            ("audit_cfg_json", &self.audit_cfg_json),
+        ];
+        let mut warnings: Vec<String> = ignored
+            .into_iter()
+            .filter(|(_, value)| !value.is_empty())
+            .map(|(key, _)| format!("{key} is set but not supported and has no effect"))
+            .collect();
+        // Reached over HTTPS without ending TLS itself: something in front of the server
+        // does, and every request arrives from its address. Unless the server is told
+        // which address that is, all clients are one client to the login limits: one
+        // that guesses holds everybody up.
+        if self.server_root.starts_with("https://")
+            && !self.use_ssl
+            && self.trusted_proxies.is_empty()
+        {
+            warnings.push(
+                "serverRoot is https but the server does not end TLS itself (usessl is off) and \
+                 trusted_proxies is empty: behind a reverse proxy every client is seen at the \
+                 proxy's address, and the login limits then count all clients as one; set \
+                 trusted_proxies to the proxy's addresses"
+                    .to_owned(),
+            );
+        }
+        Ok(warnings)
+    }
+
+    /// Checks the settings of the login limits and of the queue of password work.
+    fn check_login_limits(&self) -> anyhow::Result<()> {
         // A wait of nothing is no wait, an account that locks at no failure is always
         // locked, and nobody's password is checked by a queue without a place.
         for (name, value) in [
@@ -554,45 +610,33 @@ impl Configuration {
                 bail!("{name} must be at least 1");
             }
         }
+        // A wait is a time on the clock: one that is longer than this means "for ever",
+        // and that is not what a number of seconds should be made to say.
+        let longest = crate::auth::limiter::LONGEST_WAIT.as_secs();
+        for (name, seconds) in [
+            (
+                "login_pair_base_delay_seconds",
+                self.login_pair_base_delay_seconds,
+            ),
+            (
+                "login_pair_max_delay_seconds",
+                self.login_pair_max_delay_seconds,
+            ),
+            (
+                "login_account_lock_seconds",
+                self.login_account_lock_seconds,
+            ),
+        ] {
+            if seconds > longest {
+                bail!("{name} must not be more than {longest} (ten years)");
+            }
+        }
         if self.login_pair_max_delay_seconds < self.login_pair_base_delay_seconds {
             bail!(
                 "login_pair_max_delay_seconds must not be less than login_pair_base_delay_seconds"
             );
         }
-        // Zero would end every session as it starts.
-        if self.session_idle_days == 0 || self.session_max_days == 0 {
-            bail!("session_idle_days and session_max_days must be at least 1");
-        }
-        // Zero would empty the trash as it fills: deleting could not be undone.
-        if self.trash_retention_days == 0 {
-            bail!("trash_retention_days must be at least 1");
-        }
-        if !self.prometheus_address.is_empty() {
-            bail!("prometheusaddress is set, but this server has no metrics endpoint");
-        }
-        match self.files_driver.as_str() {
-            "local" => {}
-            "amazons3" => {
-                if self.files_s3_config.sign_v2 {
-                    bail!(
-                        "filess3config.SignV2 is not supported; requests are signed with version 4"
-                    );
-                }
-            }
-            other => bail!("filesdriver {other:?} is not supported; use \"local\" or \"amazons3\""),
-        }
-
-        let ignored = [
-            ("logging_cfg_file", &self.logging_cfg_file),
-            ("logging_cfg_json", &self.logging_cfg_json),
-            ("audit_cfg_file", &self.audit_cfg_file),
-            ("audit_cfg_json", &self.audit_cfg_json),
-        ];
-        Ok(ignored
-            .into_iter()
-            .filter(|(_, value)| !value.is_empty())
-            .map(|(key, _)| format!("{key} is set but not supported and has no effect"))
-            .collect())
+        Ok(())
     }
 }
 
@@ -795,6 +839,51 @@ mod tests {
             .check()
             .expect("unsupported logging settings only warn");
         assert_eq!(warnings.len(), 2, "{warnings:?}");
+    }
+
+    #[test]
+    fn a_wait_is_at_least_a_second_and_at_most_ten_years() {
+        let error = |text: &str| {
+            Configuration::parse(text, no_env)
+                .expect("valid JSON")
+                .check()
+                .expect_err("the wait is refused")
+                .to_string()
+        };
+        for key in [
+            "login_pair_base_delay_seconds",
+            "login_pair_max_delay_seconds",
+            "login_account_lock_seconds",
+        ] {
+            assert!(error(&format!(r#"{{"{key}": 0}}"#)).contains(key));
+            // More than the clock can be moved ahead by: the limiter would have
+            // panicked on the first failure it counted.
+            let message = error(&format!(
+                r#"{{"login_pair_max_delay_seconds": {max}, "{key}": {max}}}"#,
+                max = u64::MAX
+            ));
+            assert!(message.contains("ten years"), "{key}: {message}");
+        }
+    }
+
+    #[test]
+    fn https_behind_a_proxy_nobody_named_is_warned_about() {
+        let warnings = |text: &str| {
+            Configuration::parse(text, no_env)
+                .expect("valid JSON")
+                .check()
+                .expect("accepted")
+        };
+        let behind = warnings(r#"{"serverRoot": "https://boards.example.com"}"#);
+        assert_eq!(behind.len(), 1, "{behind:?}");
+        assert!(behind[0].contains("trusted_proxies"), "{behind:?}");
+        for quiet in [
+            r#"{"serverRoot": "https://boards.example.com", "trusted_proxies": ["10.0.0.0/8"]}"#,
+            r#"{"serverRoot": "https://boards.example.com", "usessl": true}"#,
+            r#"{"serverRoot": "http://localhost:8000"}"#,
+        ] {
+            assert!(warnings(quiet).is_empty(), "{quiet}");
+        }
     }
 
     #[test]

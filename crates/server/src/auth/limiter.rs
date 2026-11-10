@@ -12,8 +12,12 @@
 //!   one attempt at a time: this is what stops one password tried on many accounts,
 //!   and one address from filling the queue of password hashes.
 //!
-//! An account is whatever name the attempt gives; whether such an account exists makes
-//! no difference to what is counted or answered.
+//! An account is whatever name the attempt gives: the user name, the email address, or
+//! both, each counted for itself. Whether such an account exists makes no difference to
+//! what is counted or answered, and nothing here is asked after the account was looked
+//! up: a limit that knew the account from the name would tell, by who has to wait,
+//! which names are accounts. The price is that an account that is tried by its name and
+//! by its email address has the failures of each for itself.
 //!
 //! The records are forgotten when the process ends, and the oldest go when there are
 //! too many.
@@ -35,6 +39,10 @@ const ADDRESS_WINDOW: Duration = Duration::from_secs(60);
 
 /// How long an address that has an attempt in progress is told to wait before the next.
 const BUSY_RETRY: Duration = Duration::from_secs(1);
+
+/// The longest wait and the longest lock: what is configured as more is taken as this.
+/// A time this far ahead can always be added to the clock.
+pub const LONGEST_WAIT: Duration = Duration::from_hours(10 * 365 * 24);
 
 /// The numbers of the limits; see the configuration keys of the same names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,9 +67,10 @@ impl Limits {
         Self {
             pair_free_failures: config.login_pair_free_failures,
             pair_base_delay: Duration::from_secs(config.login_pair_base_delay_seconds),
-            pair_max_delay: Duration::from_secs(config.login_pair_max_delay_seconds),
+            pair_max_delay: Duration::from_secs(config.login_pair_max_delay_seconds)
+                .min(LONGEST_WAIT),
             account_max_failures: config.login_account_max_failures,
-            account_lock: Duration::from_secs(config.login_account_lock_seconds),
+            account_lock: Duration::from_secs(config.login_account_lock_seconds).min(LONGEST_WAIT),
             address_attempts_per_minute: (config.login_address_attempts_per_minute > 0)
                 .then_some(config.login_address_attempts_per_minute),
         }
@@ -144,13 +153,17 @@ pub struct LoginLimiter {
 #[derive(Debug)]
 pub struct Attempt {
     limiter: LoginLimiter,
-    account: Option<AccountKey>,
+    /// The names the attempt gave for the account; none for a registration.
+    accounts: Vec<AccountKey>,
     address: Option<AddressKey>,
 }
 
 impl LoginLimiter {
-    /// A limiter with these limits and no records.
-    pub fn new(limits: Limits) -> Self {
+    /// A limiter with these limits and no records. A wait or a lock longer than
+    /// [`LONGEST_WAIT`] is taken as that.
+    pub fn new(mut limits: Limits) -> Self {
+        limits.pair_max_delay = limits.pair_max_delay.min(LONGEST_WAIT);
+        limits.account_lock = limits.account_lock.min(LONGEST_WAIT);
         Self {
             limits,
             records: Arc::default(),
@@ -163,40 +176,46 @@ impl LoginLimiter {
             .expect("the login records are never held across a panic")
     }
 
-    /// Asks whether an attempt to sign in to `account` from `address` may go ahead at
-    /// `now`, and counts it against the address if it may.
+    /// Asks whether an attempt to sign in from `address` may go ahead at `now`, and
+    /// counts it against the address if it may. `names` are the names the attempt gives
+    /// for the account, as it gives them: its user name, its email address, or both.
+    /// This is asked before the account is looked up, so that the answer cannot depend
+    /// on whether there is one.
     ///
     /// # Errors
     ///
     /// Returns how long to wait if the address has made too many attempts or has one in
-    /// progress, if the pair of account and address is made to wait, or if the account
-    /// is locked.
+    /// progress, if the address is made to wait at one of the names, or if one of the
+    /// names is locked. Of several waits it is the longest.
     pub fn admit_login(
         &self,
-        account: &str,
+        names: &[&str],
         address: Option<IpAddr>,
         now: Instant,
     ) -> Result<Attempt, RetryAfter> {
-        let account = account_key(account);
+        let mut accounts: Vec<AccountKey> = names.iter().map(|name| account_key(name)).collect();
+        accounts.sort_unstable();
+        accounts.dedup();
         let address = address.map(AddressKey::from);
         let mut records = self.records();
 
-        if let Some(record) = records.accounts.get(&account)
-            && let Some(until) = record.locked_until
-            && until > now
-        {
+        let waits = accounts.iter().flat_map(|account| {
+            let locked = records
+                .accounts
+                .get(account)
+                .and_then(|record| record.locked_until);
+            let blocked = address
+                .and_then(|address| records.pairs.get(&(*account, address)))
+                .map(|record| record.blocked_until);
+            [locked, blocked]
+        });
+        if let Some(until) = waits.flatten().filter(|until| *until > now).max() {
             return Err(RetryAfter(until - now));
-        }
-        if let Some(address) = address
-            && let Some(record) = records.pairs.get(&(account, address))
-            && record.blocked_until > now
-        {
-            return Err(RetryAfter(record.blocked_until - now));
         }
         self.count_against_address(&mut records, address, now)?;
         Ok(Attempt {
             limiter: self.clone(),
-            account: Some(account),
+            accounts,
             address,
         })
     }
@@ -217,7 +236,7 @@ impl LoginLimiter {
         self.count_against_address(&mut self.records(), address, now)?;
         Ok(Attempt {
             limiter: self.clone(),
-            account: None,
+            accounts: Vec::new(),
             address,
         })
     }
@@ -234,13 +253,21 @@ impl LoginLimiter {
             return Ok(());
         };
         if !records.addresses.contains_key(&address) {
-            make_room(&mut records.addresses, |record| {
-                !record.busy
-                    && record
-                        .attempts
-                        .back()
-                        .is_none_or(|last| now.duration_since(*last) >= ADDRESS_WINDOW)
-            });
+            make_room(
+                &mut records.addresses,
+                |record| {
+                    !record.busy
+                        && record
+                            .attempts
+                            .back()
+                            .is_none_or(|last| now.duration_since(*last) >= ADDRESS_WINDOW)
+                },
+                // An address with an attempt in progress is as young as can be.
+                |record| match record.attempts.back() {
+                    Some(last) if !record.busy => *last,
+                    _ => now,
+                },
+            );
         }
         let record = records.addresses.entry(address).or_default();
         while record
@@ -268,73 +295,101 @@ impl LoginLimiter {
 }
 
 impl Attempt {
-    /// The attempt failed: the password was wrong, or there is no such account.
+    /// The attempt failed: the password was wrong, or there is no such account. It
+    /// counts at every name the attempt gave.
     pub fn failed(self, now: Instant) {
         let limits = self.limiter.limits;
         let mut records = self.limiter.records();
-        let Some(account) = self.account else {
-            return;
-        };
-
-        if let Some(address) = self.address {
-            if !records.pairs.contains_key(&(account, address)) {
-                make_room(&mut records.pairs, |record| {
-                    record.blocked_until <= now
-                        && now.duration_since(record.last_failure) >= limits.pair_max_delay
-                });
+        for account in &self.accounts {
+            if let Some(address) = self.address {
+                count_pair_failure(&mut records.pairs, (*account, address), limits, now);
             }
-            let pair = records
-                .pairs
-                .entry((account, address))
-                .or_insert(PairRecord {
-                    failures: 0,
-                    blocked_until: now,
-                    last_failure: now,
-                });
-            pair.failures = pair.failures.saturating_add(1);
-            pair.last_failure = now;
-            if pair.failures > limits.pair_free_failures {
-                let doublings = pair.failures - limits.pair_free_failures - 1;
-                let delay = limits
-                    .pair_base_delay
-                    .checked_mul(2_u32.saturating_pow(doublings))
-                    .unwrap_or(limits.pair_max_delay)
-                    .min(limits.pair_max_delay);
-                pair.blocked_until = now + delay;
-            }
-        }
-
-        if !records.accounts.contains_key(&account) {
-            make_room(&mut records.accounts, |record| {
-                record.locked_until.is_none_or(|until| until <= now)
-                    && now.duration_since(record.last_failure) >= limits.account_lock
-            });
-        }
-        let record = records.accounts.entry(account).or_insert(AccountRecord {
-            failures: 0,
-            locked_until: None,
-            last_failure: now,
-        });
-        record.failures = record.failures.saturating_add(1);
-        record.last_failure = now;
-        if record.failures >= limits.account_max_failures {
-            record.locked_until = Some(now + limits.account_lock);
-            // The count starts over when the lock ends.
-            record.failures = 0;
+            count_account_failure(&mut records.accounts, *account, limits, now);
         }
     }
 
-    /// The attempt succeeded: the failures in a row of the account end here, and so do
-    /// those of this address at this account. What other addresses have to wait for at
-    /// this account stays: the owner signing in is no reason to let a guesser go on.
-    pub fn succeeded(self) {
+    /// The attempt succeeded with `name` as the name of the account: the failures in a
+    /// row at that name end here, and so do those of this address at it. What other
+    /// addresses have to wait for at that name stays: the owner signing in is no reason
+    /// to let a guesser go on. So does what was counted at another name the attempt
+    /// gave: a right password for one account says nothing about that one.
+    pub fn succeeded(self, name: &str) {
+        let account = account_key(name);
         let mut records = self.limiter.records();
-        if let Some(account) = self.account {
-            records.accounts.remove(&account);
-            if let Some(address) = self.address {
-                records.pairs.remove(&(account, address));
-            }
+        records.accounts.remove(&account);
+        if let Some(address) = self.address {
+            records.pairs.remove(&(account, address));
         }
+    }
+}
+
+/// Counts one more failure of an address at a name, and makes the address wait once the
+/// free ones are used up.
+fn count_pair_failure(
+    pairs: &mut HashMap<(AccountKey, AddressKey), PairRecord>,
+    pair: (AccountKey, AddressKey),
+    limits: Limits,
+    now: Instant,
+) {
+    if !pairs.contains_key(&pair) {
+        make_room(
+            pairs,
+            |record| {
+                record.blocked_until <= now
+                    && now.duration_since(record.last_failure) >= limits.pair_max_delay
+            },
+            |record| record.last_failure,
+        );
+    }
+    let record = pairs.entry(pair).or_insert(PairRecord {
+        failures: 0,
+        blocked_until: now,
+        last_failure: now,
+    });
+    record.failures = record.failures.saturating_add(1);
+    record.last_failure = now;
+    if record.failures > limits.pair_free_failures {
+        let doublings = record.failures - limits.pair_free_failures - 1;
+        let delay = limits
+            .pair_base_delay
+            .checked_mul(2_u32.saturating_pow(doublings))
+            .unwrap_or(limits.pair_max_delay)
+            .min(limits.pair_max_delay);
+        // No more than `LONGEST_WAIT` ahead: see `LoginLimiter::new`.
+        record.blocked_until = now + delay;
+    }
+}
+
+/// Counts one more failure at a name from anywhere, and locks the name at the number
+/// that is too many.
+fn count_account_failure(
+    accounts: &mut HashMap<AccountKey, AccountRecord>,
+    account: AccountKey,
+    limits: Limits,
+    now: Instant,
+) {
+    if !accounts.contains_key(&account) {
+        make_room(
+            accounts,
+            |record| {
+                record.locked_until.is_none_or(|until| until <= now)
+                    && now.duration_since(record.last_failure) >= limits.account_lock
+            },
+            |record| record.last_failure,
+        );
+    }
+    let record = accounts.entry(account).or_insert(AccountRecord {
+        failures: 0,
+        locked_until: None,
+        last_failure: now,
+    });
+    record.failures = record.failures.saturating_add(1);
+    record.last_failure = now;
+    if record.failures >= limits.account_max_failures {
+        // No more than `LONGEST_WAIT` ahead: see `LoginLimiter::new`.
+        record.locked_until = Some(now + limits.account_lock);
+        // The count starts over when the lock ends.
+        record.failures = 0;
     }
 }
 
@@ -350,21 +405,39 @@ impl Drop for Attempt {
 }
 
 /// Makes room for one more record where there are [`MAX_RECORDS`]: the records that say
-/// nothing any more go, and if all still say something, an arbitrary tenth of them.
+/// nothing any more go, and if all still say something, the tenth of them that was
+/// touched longest ago, by `last_touched`.
 fn make_room<K: std::hash::Hash + Eq + Copy, V>(
     records: &mut HashMap<K, V>,
     says_nothing: impl Fn(&V) -> bool,
+    last_touched: impl Fn(&V) -> Instant,
 ) {
     if records.len() < MAX_RECORDS {
         return;
     }
     records.retain(|_, record| !says_nothing(record));
     if records.len() >= MAX_RECORDS {
-        let doomed: Vec<K> = records.keys().take(MAX_RECORDS / 10).copied().collect();
-        for key in doomed {
+        for key in oldest(records, MAX_RECORDS / 10, last_touched) {
             records.remove(&key);
         }
     }
+}
+
+/// The keys of the `count` records that were touched longest ago.
+fn oldest<K: Copy, V>(
+    records: &HashMap<K, V>,
+    count: usize,
+    last_touched: impl Fn(&V) -> Instant,
+) -> Vec<K> {
+    let mut by_age: Vec<(Instant, K)> = records
+        .iter()
+        .map(|(key, record)| (last_touched(record), *key))
+        .collect();
+    if count < by_age.len() {
+        by_age.select_nth_unstable_by_key(count, |(touched, _)| *touched);
+        by_age.truncate(count);
+    }
+    by_age.into_iter().map(|(_, key)| key).collect()
 }
 
 #[cfg(test)]
@@ -392,7 +465,7 @@ mod tests {
     #[track_caller]
     fn fail(limiter: &LoginLimiter, account: &str, from: &str, now: Instant) {
         limiter
-            .admit_login(account, Some(address(from)), now)
+            .admit_login(&[account], Some(address(from)), now)
             .expect("the attempt is admitted")
             .failed(now);
     }
@@ -400,7 +473,7 @@ mod tests {
     #[track_caller]
     fn wait_of(limiter: &LoginLimiter, account: &str, from: &str, now: Instant) -> Option<u64> {
         limiter
-            .admit_login(account, Some(address(from)), now)
+            .admit_login(&[account], Some(address(from)), now)
             .err()
             .map(|RetryAfter(wait)| wait.as_secs())
     }
@@ -472,9 +545,9 @@ mod tests {
             fail(&limiter, "alice", "198.51.100.1", now);
         }
         limiter
-            .admit_login("alice", Some(address("198.51.100.1")), now)
+            .admit_login(&["alice"], Some(address("198.51.100.1")), now)
             .expect("alice is admitted from her address")
-            .succeeded();
+            .succeeded("alice");
 
         assert_eq!(
             wait_of(&limiter, "alice", "203.0.113.7", now),
@@ -542,10 +615,10 @@ mod tests {
         let from = Some(address("203.0.113.7"));
 
         let first = limiter
-            .admit_login("a", from, start)
+            .admit_login(&["a"], from, start)
             .expect("the first attempt");
         assert_eq!(
-            limiter.admit_login("b", from, start).err(),
+            limiter.admit_login(&["b"], from, start).err(),
             Some(RetryAfter(BUSY_RETRY)),
             "one at a time"
         );
@@ -558,20 +631,20 @@ mod tests {
         drop(first);
         // The refused attempt was not counted; successes are.
         limiter
-            .admit_login("b", from, start + secs(10))
+            .admit_login(&["b"], from, start + secs(10))
             .expect("the second attempt")
-            .succeeded();
+            .succeeded("b");
         drop(
             limiter
                 .admit_registration(from, start + secs(20))
                 .expect("a registration counts as the third"),
         );
         assert_eq!(
-            limiter.admit_login("c", from, start + secs(30)).err(),
+            limiter.admit_login(&["c"], from, start + secs(30)).err(),
             Some(RetryAfter(secs(30))),
             "three a minute: room when the first is a minute old"
         );
-        assert!(limiter.admit_login("c", from, start + secs(60)).is_ok());
+        assert!(limiter.admit_login(&["c"], from, start + secs(60)).is_ok());
     }
 
     #[test]
@@ -615,30 +688,132 @@ mod tests {
         let now = Instant::now();
         for _ in 0..3 {
             limiter
-                .admit_login("alice", None, now)
+                .admit_login(&["alice"], None, now)
                 .expect("no address, no limit by address")
                 .failed(now);
         }
-        assert!(limiter.admit_login("alice", None, now).is_err(), "locked");
+        assert!(
+            limiter.admit_login(&["alice"], None, now).is_err(),
+            "locked"
+        );
     }
 
     #[test]
-    fn room_is_made_by_dropping_what_says_nothing_first() {
-        let mut records: HashMap<u32, bool> = (0..u32::try_from(MAX_RECORDS).expect("fits"))
-            .map(|key| (key, key % 2 == 0))
+    fn room_is_made_by_dropping_what_says_nothing_first_and_then_the_oldest() {
+        let start = Instant::now();
+        let count = u32::try_from(MAX_RECORDS).expect("fits");
+        // The value: whether the record says nothing, and when it was touched.
+        let touched = |key: u32| start + Duration::from_millis(u64::from(key));
+        let mut records: HashMap<u32, (bool, Instant)> = (0..count)
+            .map(|key| (key, (key % 2 == 0, touched(key))))
             .collect();
-        make_room(&mut records, |says_nothing| *says_nothing);
+        make_room(&mut records, |record| record.0, |record| record.1);
         assert_eq!(records.len(), MAX_RECORDS / 2, "half said nothing");
-        assert!(records.values().all(|says_nothing| !says_nothing));
+        assert!(records.values().all(|record| !record.0));
 
-        let mut full: HashMap<u32, bool> = (0..u32::try_from(MAX_RECORDS).expect("fits"))
-            .map(|key| (key, false))
+        // The records were touched in the order of their keys, the highest key last.
+        let mut full: HashMap<u32, (bool, Instant)> = (0..count)
+            .map(|key| (key, (false, touched(count - key))))
             .collect();
-        make_room(&mut full, |says_nothing| *says_nothing);
+        make_room(&mut full, |record| record.0, |record| record.1);
+        let tenth = u32::try_from(MAX_RECORDS / 10).expect("fits");
         assert_eq!(
             full.len(),
             MAX_RECORDS - MAX_RECORDS / 10,
             "all say something: a tenth goes"
+        );
+        assert!(
+            (count - tenth..count).all(|key| !full.contains_key(&key)),
+            "the tenth that was touched longest ago is the one that went"
+        );
+        assert!(full.contains_key(&0), "the youngest stays");
+    }
+
+    #[test]
+    fn what_is_counted_does_not_depend_on_whether_there_is_an_account() {
+        // The names are counted as the attempt gave them, each for itself: a second
+        // spelling of a name is the same name, and an email address is another.
+        let limiter = LoginLimiter::new(LIMITS);
+        let now = Instant::now();
+        let from = Some(address("203.0.113.7"));
+        for _ in 0..6 {
+            limiter
+                .admit_login(&["Alice ", "alice@example.com"], from, now)
+                .expect("the attempt is admitted")
+                .failed(now);
+        }
+        assert_eq!(
+            wait_of(&limiter, "alice", "203.0.113.7", now),
+            Some(30),
+            "the name, however it is spelled"
+        );
+        assert_eq!(
+            wait_of(&limiter, "ALICE@example.com", "203.0.113.7", now),
+            Some(30),
+            "the email address the same attempts gave"
+        );
+        assert_eq!(
+            wait_of(&limiter, "bob", "203.0.113.7", now),
+            None,
+            "another name"
+        );
+        assert!(
+            limiter
+                .admit_login(&["bob", "alice@example.com"], from, now)
+                .is_err(),
+            "one name that waits is enough"
+        );
+    }
+
+    #[test]
+    fn a_success_ends_the_failures_at_the_name_that_signed_in_only() {
+        let limiter = LoginLimiter::new(LIMITS);
+        let now = Instant::now();
+        let from = Some(address("203.0.113.7"));
+        for _ in 0..6 {
+            fail(&limiter, "victim@example.com", "203.0.113.7", now);
+        }
+        for _ in 0..3 {
+            fail(&limiter, "mallory", "203.0.113.7", now);
+        }
+        // Mallory signs in to her own account and names the victim's address beside it.
+        let later = now + secs(31);
+        limiter
+            .admit_login(&["mallory", "victim@example.com"], from, later)
+            .expect("the wait is over")
+            .succeeded("mallory");
+        for _ in 0..5 {
+            fail(&limiter, "mallory", "203.0.113.7", later);
+        }
+        assert_eq!(
+            wait_of(&limiter, "mallory", "203.0.113.7", later),
+            None,
+            "her own failures in a row ended with the success"
+        );
+        fail(&limiter, "victim@example.com", "203.0.113.7", later);
+        assert_eq!(
+            wait_of(&limiter, "victim@example.com", "203.0.113.7", later),
+            Some(60),
+            "those at the other name went on: the seventh doubles the wait"
+        );
+    }
+
+    #[test]
+    fn a_wait_that_cannot_be_added_to_the_clock_is_the_longest_wait() {
+        let limiter = LoginLimiter::new(Limits {
+            pair_free_failures: 0,
+            pair_base_delay: Duration::MAX,
+            pair_max_delay: Duration::MAX,
+            account_max_failures: 1,
+            account_lock: Duration::MAX,
+            ..LIMITS
+        });
+        let now = Instant::now();
+        fail(&limiter, "alice", "203.0.113.7", now);
+        assert_eq!(
+            wait_of(&limiter, "alice", "203.0.113.7", now),
+            Some(LONGEST_WAIT.as_secs()),
+            "no panic, and the longest wait there is"
         );
     }
 }

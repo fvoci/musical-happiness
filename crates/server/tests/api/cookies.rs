@@ -378,6 +378,19 @@ async fn the_cookie_is_renewed_when_the_use_of_the_session_is_recorded() {
     large.check_created();
     assert_eq!(large.set_cookies().len(), 1, "renewed with a large request");
 
+    // The answer of a websocket handshake renews no cookie, so the handshake must not
+    // count as the use either: the renewal would be lost, and the cookie would end
+    // before the session does. It is left to the next request.
+    move_last_use_back(11).await;
+    let socket = browser.connect_websocket().await;
+    let after_the_handshake = browser.get("/users/me").await;
+    assert_eq!(
+        after_the_handshake.set_cookies().len(),
+        1,
+        "the request after a handshake renews the cookie"
+    );
+    drop(socket);
+
     th.teardown().await;
 }
 

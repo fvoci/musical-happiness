@@ -94,8 +94,11 @@ impl SubscriptionRequest {
 
 /// Subscribe to a block
 ///
-/// Subscribes the user of the session to a block of a board they are a member of.
-/// Subscribing again is no error.
+/// Subscribes the user of the session to a block of a board they are a member of. A
+/// `subscriberId` that is not the user of the session is 403, and a `subscriberType`
+/// other than `user` is 400. The `blockType` is stored as it is sent, and not compared
+/// with the block. Subscribing again is no error: the subscription stays as it was
+/// made, with its `blockType` and `createAt`, and only its `notifiedAt` is set anew.
 #[utoipa::path(
     post,
     path = "/subscriptions",
@@ -141,7 +144,7 @@ async fn handle_create_subscription(
 ///
 /// Ends the subscription of the user of the session to a block. Nothing about the
 /// block is checked: a subscription to a block the user may no longer see can still be
-/// ended. The subscriptions of another user are not there.
+/// ended. A subscription that is not there is 404, and so are those of another user.
 #[utoipa::path(
     delete,
     path = "/subscriptions/{blockOrSubscriberId}/{subscriberId}",

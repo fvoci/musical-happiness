@@ -82,29 +82,8 @@ impl Authenticator {
     /// Returns an unauthorized error if the token is empty, unknown or of a session that
     /// has ended, and a server error if the session cannot be looked up.
     pub async fn get_session(&self, token: &str) -> Result<Authenticated, AppError> {
-        if token.is_empty() {
-            return Err(AppError::unauthorized("no session token"));
-        }
         let now = now_millis();
-        let mut session = match self
-            .store
-            .get_session(
-                &secret::token_digest(token),
-                now,
-                now.saturating_sub(self.session_idle_millis),
-            )
-            .await
-        {
-            Ok(session) => session,
-            // An unknown or expired token is an everyday refusal; a store that fails is
-            // the server's fault and is reported as such.
-            Err(error) if error.is_not_found() => {
-                return Err(AppError::unauthorized("invalid session token"));
-            }
-            Err(error) => {
-                return Err(AppError::from(error).context("looking up the session"));
-            }
-        };
+        let mut session = self.session_at(token, now).await?;
 
         let mut use_recorded = false;
         if now.saturating_sub(session.last_used_at) >= SESSION_USE_RECORDING_INTERVAL_MILLIS {
@@ -121,6 +100,43 @@ impl Authenticator {
             session,
             use_recorded,
         })
+    }
+
+    /// Returns the session a token belongs to, without recording a use.
+    ///
+    /// This is for the websocket: the answer of a handshake cannot renew the cookie, so
+    /// a use recorded there would be one whose renewal no request gets to send. A
+    /// session lives by the requests of its user.
+    ///
+    /// # Errors
+    ///
+    /// Returns the errors of [`Authenticator::get_session`].
+    pub async fn find_session(&self, token: &str) -> Result<Session, AppError> {
+        self.session_at(token, now_millis()).await
+    }
+
+    /// The session of a token, if it has not ended by `now`.
+    async fn session_at(&self, token: &str, now: i64) -> Result<Session, AppError> {
+        if token.is_empty() {
+            return Err(AppError::unauthorized("no session token"));
+        }
+        match self
+            .store
+            .get_session(
+                &secret::token_digest(token),
+                now,
+                now.saturating_sub(self.session_idle_millis),
+            )
+            .await
+        {
+            Ok(session) => Ok(session),
+            // An unknown or expired token is an everyday refusal; a store that fails is
+            // the server's fault and is reported as such.
+            Err(error) if error.is_not_found() => {
+                Err(AppError::unauthorized("invalid session token"))
+            }
+            Err(error) => Err(AppError::from(error).context("looking up the session")),
+        }
     }
 
     /// Returns whether `read_token` grants read access to a shared board.

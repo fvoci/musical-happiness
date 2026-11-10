@@ -1367,6 +1367,59 @@ async fn post_blocks_answer_and_stored_block() {
     th.teardown().await;
 }
 
+/// Blocks may come without an identifier, as the contract says, and the blocks of one
+/// request are listed in the order they were sent in, whichever of them the others
+/// refer to: they are stored within a millisecond of each other, and what orders them
+/// then is the identifier the server gave each.
+#[tokio::test]
+async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = create_board_in_store(&th, BoardType::Private).await;
+
+    let nameless: Vec<Value> = (0..3)
+        .map(|index| {
+            json!({
+                "boardId": board.id, "type": "card", "title": format!("nameless {index}"),
+                "createAt": 1, "updateAt": 1,
+            })
+        })
+        .collect();
+    let answered: Vec<Block> = th
+        .client
+        .post(&blocks_path(&board.id), &nameless)
+        .await
+        .created_json();
+    assert_eq!(answered.len(), 3);
+    for block in &answered {
+        assert!(fvoci_model::is_id(&block.id), "{}", block.id);
+        assert_eq!(block.parent_id, "", "a block on the board has no parent");
+    }
+    assert_ne!(
+        answered[0].id, answered[1].id,
+        "each has its own identifier"
+    );
+
+    // Cards and their texts, the texts first: the cards are what is referred to.
+    let mut request: Vec<Block> = Vec::new();
+    for index in 0..20 {
+        let card = new_block(&board.id, BlockType::Card, &format!("card {index}"));
+        request.push(child_of(&card, BlockType::Text, &format!("text {index}")));
+        request.push(card);
+    }
+    let made = insert(&th.client, &board.id, &request).await;
+    let listed = blocks_of(&th.client, &board.id).await;
+    // In the order they come in, not sorted.
+    let in_order = |blocks: &[Block]| -> Vec<String> {
+        blocks.iter().map(|block| block.title.clone()).collect()
+    };
+    let sent = in_order(&request);
+    assert_eq!(in_order(&made), sent, "answered as sent");
+    let expected: Vec<String> = in_order(&answered).into_iter().chain(sent).collect();
+    assert_eq!(in_order(&listed), expected, "listed as sent");
+
+    th.teardown().await;
+}
+
 /// The refusals of an insert that come before any permission is looked at.
 #[tokio::test]
 async fn post_blocks_validation() {

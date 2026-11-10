@@ -280,6 +280,49 @@ pub(crate) async fn blocks(s: &mut Session) {
     )
     .user(&alice)
     .await;
+
+    // Blocks without identifiers, and a request that has the children before their
+    // parents: each block gets an identifier of its own, and the list has the blocks
+    // of a request in the order the request had them in.
+    let second = new_board(s, &alice, "Order of a request", "P", json!({})).await;
+    let second_path = format!("{API}/boards/{second}/blocks");
+    s.post("insert without identifiers", &second_path)
+        .json(json!([
+            {"boardId": second, "type": "card", "title": "Nameless one", "createAt": 1, "updateAt": 1},
+            {"boardId": second, "type": "card", "title": "Nameless two", "createAt": 1, "updateAt": 1},
+        ]))
+        .user(&alice)
+        .await;
+    new_blocks(
+        s,
+        &alice,
+        &second,
+        json!([
+            block("t1", &second, "text", "Text of A", "a", json!({})),
+            block(
+                "a",
+                &second,
+                "card",
+                "Card A",
+                "",
+                json!({"contentOrder": ["t1"]})
+            ),
+            block("t2", &second, "text", "Text of B", "b", json!({})),
+            block(
+                "b",
+                &second,
+                "card",
+                "Card B",
+                "",
+                json!({"contentOrder": ["t2"]})
+            ),
+        ]),
+        "insert children before their parents",
+    )
+    .await;
+    s.get("list: in the order of the requests", &second_path)
+        .user(&alice)
+        .await;
 }
 
 pub(crate) async fn cards(s: &mut Session) {

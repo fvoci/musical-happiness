@@ -36,7 +36,7 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | `websocket_ping_seconds` | 기본값 30. 서버가 이 간격으로 ping 프레임을 보낸다. 0이면 끈다. |
 | `maxfilesize` | 서버 자체의 업로드 한도(바이트). 0이면 제한이 없다. CDN의 한도와 별개로 적용된다. |
 
-- 서버가 로그인 시도를 제한한다: (계정, 주소) 쌍의 연속 실패, 계정 전체의 연속 실패, 주소당 분당 시도 수, 그리고 비밀번호 해시의 대기열. 넘으면 429와 `Retry-After`로 답한다(설정 `login_pair_*`, `login_account_*`, `login_address_attempts_per_minute`, `password_hash_*`). 주소별 제한은 서버가 보는 클라이언트 주소에 달렸으므로, CDN 뒤에서는 `trusted_proxies`를 맞게 적어야 한다. 비워 두면 모든 요청이 CDN의 주소에서 온 것으로 보여 주소당 제한이 모든 사용자에게 한꺼번에 걸린다. CDN이나 WAF의 rate limiting(3.5, 4.4)은 그 앞의 한 겹으로 둔다.
+- 서버가 로그인 시도를 제한한다: (계정, 주소) 쌍의 연속 실패, 계정 전체의 연속 실패, 주소당 분당 시도 수, 그리고 비밀번호 해시의 대기열. 넘으면 429와 `Retry-After`로 답한다(설정 `login_pair_*`, `login_account_*`, `login_address_attempts_per_minute`, `password_hash_*`). 주소별 제한은 서버가 보는 클라이언트 주소에 달렸으므로, CDN 뒤에서는 `trusted_proxies`를 맞게 적어야 한다. 비워 두면 모든 요청이 CDN의 주소에서 온 것으로 보여 주소당 제한이 모든 사용자에게 한꺼번에 걸리고, (계정, 주소) 쌍의 기다림도 주소가 하나라 한 사람이 틀린 계정을 모두가 기다린다. `serverRoot`가 https이고 `usessl`이 꺼져 있는데 `trusted_proxies`가 비어 있으면 서버가 시작할 때 경고를 낸다. `X-Forwarded-For`의 항목은 `주소:포트` 꼴도 읽고, `Forwarded` 헤더(RFC 7239)는 읽지 않는다. CDN이나 WAF의 rate limiting(3.5, 4.4)은 그 앞의 한 겹으로 둔다.
 - 클라이언트가 `X-Forwarded-For`를 직접 보내면 CloudFront는 뷰어 주소를 그 값의 끝에 덧붙이고([출처](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html), 2026-11-10 확인), Cloudflare도 기존 값에 덧붙인다([출처](https://developers.cloudflare.com/fundamentals/reference/http-headers/), 2026-11-10 확인). 따라서 목록의 왼쪽 끝은 클라이언트가 보낸 값일 수 있고, 서버는 그것을 믿지 않는다: 오른쪽에서부터 `trusted_proxies`에 있는 주소를 지나 처음 만나는 주소를 쓴다. CDN의 주소 범위가 바뀌면 `trusted_proxies`도 바꿔야 한다(범위가 빠지면 그 CDN 노드가 클라이언트로 보인다).
 - 오리진에는 CDN만 접근할 수 있게 막는다. 오리진이 직접 열려 있으면 CDN의 WAF 규칙을 우회할 수 있다.
 

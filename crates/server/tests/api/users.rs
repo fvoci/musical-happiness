@@ -566,19 +566,22 @@ async fn app_change_password_cases() {
             ..session.clone()
         };
         assert!(
-            th.app.change_password(&of_nobody, "", "").await.is_err(),
+            th.app
+                .change_password(&of_nobody, "", "", None)
+                .await
+                .is_err(),
             "a session without a user changes no password: {of_nobody:?}"
         );
     }
     assert!(
         th.app
-            .change_password(&session, "wrongPassword", "newPassword")
+            .change_password(&session, "wrongPassword", "newPassword", None)
             .await
             .is_err(),
         "fail, invalid password"
     );
     th.app
-        .change_password(&session, PASSWORD, "newPassword")
+        .change_password(&session, PASSWORD, "newPassword", None)
         .await
         .expect("success, with the right old password");
 

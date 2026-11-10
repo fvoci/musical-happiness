@@ -50,7 +50,10 @@ fn objects_mut<'v>(
 ///
 /// Makes boards and their blocks together, all or none, under identifiers the server
 /// makes; the identifiers of the request only say which block belongs to which board
-/// and to which other block. The user becomes the admin of each board.
+/// and to which other block. The request needs at least one board and one block; every
+/// board needs an `id`, and all boards are of one team. The user becomes the admin of
+/// each board, and each board that is no template is filed under the user's default
+/// category.
 #[utoipa::path(
     post,
     path = "/boards-and-blocks",
@@ -114,8 +117,8 @@ async fn handle_create_boards_and_blocks(
         .blocks
         .iter()
         .find_map(|block| new_block_problem(block, &board_ids));
-    if let Some(problem) = problem {
-        return Err(AppError::bad_request(problem));
+    if let Some((field, problem)) = problem {
+        return Err(AppError::bad_request(problem).with_field(field));
     }
 
     let request = generate_boards_and_blocks_ids(request).map_err(AppError::bad_request)?;
@@ -126,18 +129,28 @@ async fn handle_create_boards_and_blocks(
 }
 
 /// Returns what is wrong with a block that is to be created with the boards that have
-/// the given identifiers, if anything, in the original's order of checking.
-fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<String> {
+/// the given identifiers, if anything, in the original's order of checking: the member
+/// of the block that is wrong, and the message.
+fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'static str, String)> {
     if block.block_type.is_empty() {
-        Some(format!("missing type for block id {}", block.id))
+        Some(("type", format!("missing type for block id {}", block.id)))
     } else if block.create_at < 1 {
-        Some(format!("invalid createAt for block id {}", block.id))
+        Some((
+            "createAt",
+            format!("invalid createAt for block id {}", block.id),
+        ))
     } else if block.update_at < 1 {
-        Some(format!("invalid UpdateAt for block id {}", block.id))
+        Some((
+            "updateAt",
+            format!("invalid updateAt for block id {}", block.id),
+        ))
     } else if !board_ids.contains(block.board_id.as_str()) {
-        Some(format!(
-            "invalid BoardID {} (not exists in the created boards)",
-            block.board_id
+        Some((
+            "boardId",
+            format!(
+                "invalid boardId {} (no board of the request has that id)",
+                block.board_id
+            ),
         ))
     } else {
         None
@@ -147,8 +160,9 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<String>
 /// Change boards and blocks together
 ///
 /// Applies a patch to each of several boards of one team and to blocks of those
-/// boards, all or none. Each board needs what `patchBoard` needs, each block what
-/// `patchBlock` needs.
+/// boards, all or none. The request names at least one board, and every block it names
+/// is on one of its boards: blocks alone are not changed this way. Each board needs
+/// what `patchBoard` needs, each block what `patchBlock` needs.
 #[utoipa::path(
     patch,
     path = "/boards-and-blocks",
@@ -261,9 +275,11 @@ async fn require_blocks_of_boards(
 
 /// Delete boards and blocks together
 ///
-/// Deletes several boards of one team and blocks of those boards, all or none. They go
-/// to the trash as `deleteBoard` and `deleteBlock` put them there. For the admins of
-/// every board named.
+/// Deletes several boards of one team, all or none. The request names at least one
+/// board, and every block it names must be on one of its boards; the blocks are checked
+/// and nothing more, since a board takes all of its blocks along. The boards go to the
+/// trash as `deleteBoard` puts them there, and `undeleteBoard` brings each back with
+/// its blocks. For the admins of every board named.
 #[utoipa::path(
     delete,
     path = "/boards-and-blocks",

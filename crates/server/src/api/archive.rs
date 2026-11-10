@@ -37,8 +37,8 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 
 /// Export a board
 ///
-/// An archive of the board with its blocks and files, offered as a download. For the
-/// board's members.
+/// An archive of the board with its blocks, its files and its members, offered as a
+/// download. For the board's members.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/archive/export",
@@ -73,7 +73,7 @@ async fn handle_export_board(
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download.
+/// as a download. A team that is not there is not refused: its archive has no boards.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/archive/export",
@@ -104,7 +104,13 @@ async fn handle_export_team(
 /// Import an archive
 ///
 /// Makes the boards of an archive in the team, with the user as their admin. The
-/// request is a `multipart/form-data` form whose part `file` carries the archive.
+/// members the archive names for a board become members of it with the roles they had,
+/// where they are users of this server. The request is a `multipart/form-data` form
+/// whose part `file` carries the archive; the part needs no file name. A request
+/// without that part, or with what is no archive, is 400.
+///
+/// The boards are made one after the other, not all or none: when one of them fails,
+/// those before it stay.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/archive/import",

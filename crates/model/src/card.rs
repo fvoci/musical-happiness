@@ -214,7 +214,7 @@ impl From<Card> for Block {
     }
 }
 
-/// A partial update of a [`Card`]. Absent members leave the card unchanged.
+/// What a card is changed to. A member that is left out stays as it is.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CardPatch {
@@ -227,7 +227,10 @@ pub struct CardPatch {
     /// The new icon; at most one grapheme.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// Property values to set, keyed by property identifier.
+    /// The property values the card is to have, by property identifier. With any
+    /// member, this replaces every value of the card: a property that is not named
+    /// loses its value. Left out or empty, the values stay, so the last value of a card
+    /// cannot be taken away this way.
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub updated_properties: JsonMap,

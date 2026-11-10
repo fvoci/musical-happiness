@@ -105,10 +105,23 @@ pub fn verify_password(hash: &str, password: &str) -> Verdict {
 /// names are accounts.
 pub fn verify_against_no_account(password: &str) {
     /// A hash of something nobody knows, made once, with the current parameters.
-    static NOBODYS_HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-        hash_password(&crate::auth::secret::new_secret()).unwrap_or_default()
+    static NOBODYS_HASH: std::sync::LazyLock<Option<String>> = std::sync::LazyLock::new(|| {
+        hash_password(&crate::auth::secret::new_secret())
+            .inspect_err(|error| {
+                tracing::error!(%error, "unable to make the hash that stands for no account");
+            })
+            .ok()
     });
-    let _mismatch = verify_password(&NOBODYS_HASH, password);
+    match NOBODYS_HASH.as_deref() {
+        Some(hash) => {
+            let _mismatch = verify_password(hash, password);
+        }
+        // Without that hash the same work is done another way: the answer must not come
+        // faster for a name that is no account.
+        None => {
+            let _unused = hash_password(password);
+        }
+    }
 }
 
 /// Whether a hash was made with the current algorithm, version and parameters.

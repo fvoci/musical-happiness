@@ -280,3 +280,52 @@ fn stamp_modification_metadata_base_case() {
     assert_eq!(blocks[0].modified_by, "user_id_1");
     assert_eq!(blocks[0].update_at, 1_700_000_000_000);
 }
+
+/// The new identifiers come in the order of the blocks, whichever of them something
+/// refers to: a list of blocks is by creation time and then by identifier, so blocks
+/// that are stored in the same millisecond come back in the order they were sent in.
+#[test]
+fn generate_block_ids_gives_identifiers_in_the_order_of_the_blocks() {
+    for _ in 0..20 {
+        let mut blocks: Vec<Block> = (0..40)
+            .map(|index| Block {
+                id: format!("block-{index}"),
+                // Every third block is the parent of the one before it, and so is
+                // referred to; the others are not.
+                parent_id: if index % 3 == 1 {
+                    format!("block-{}", index + 1)
+                } else {
+                    String::new()
+                },
+                ..Block::default()
+            })
+            .collect();
+        generate_block_ids(&mut blocks);
+        let ids: Vec<&str> = blocks.iter().map(|block| block.id.as_str()).collect();
+        assert!(
+            ids.windows(2).all(|pair| pair[0] < pair[1]),
+            "the identifiers are not in the order of the blocks: {ids:?}"
+        );
+        assert_eq!(blocks[1].parent_id, blocks[2].id, "references follow");
+    }
+}
+
+/// A block may come without an identifier: it gets one of its own, and a block without
+/// a parent does not become the child of it.
+#[test]
+fn generate_block_ids_takes_no_identifier_as_no_reference() {
+    let mut blocks = vec![
+        block("", "board", ""),
+        block("", "board", ""),
+        block("named", "board", ""),
+    ];
+    generate_block_ids(&mut blocks);
+    assert!(blocks.iter().all(|block| block.parent_id.is_empty()));
+    assert!(blocks.iter().all(|block| block.board_id == "board"));
+    assert_ne!(blocks[0].id, blocks[1].id);
+    assert!(
+        blocks
+            .iter()
+            .all(|block| !block.id.is_empty() && block.id != "named")
+    );
+}

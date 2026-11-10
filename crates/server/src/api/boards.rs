@@ -147,7 +147,7 @@ async fn handle_get_boards(
 /// Make a board
 ///
 /// The user becomes the board's admin, and the board is filed under the user's default
-/// category.
+/// category, unless it is a template.
 #[utoipa::path(
     post,
     path = "/boards",
@@ -298,7 +298,9 @@ async fn handle_patch_board(
 /// Delete a board
 ///
 /// The board goes to the trash with its blocks and its members, and `undeleteBoard`
-/// brings it back until the trash is emptied of it. For the board's admins.
+/// brings it back until the trash is emptied of it. Its sharing ends, with its read
+/// token, and so do its places in the users' sidebars and the subscriptions to its
+/// blocks; those do not come back with the board. For the board's admins.
 #[utoipa::path(
     delete,
     path = "/boards/{boardId}",
@@ -330,8 +332,11 @@ async fn handle_delete_board(
 /// Copy a board
 ///
 /// Copies a board with its blocks, except comments, as a board or as a template. The
-/// user becomes the admin of the copy. Whoever may see the board may copy it; an open
-/// template is for everyone in its team, and a built-in template for everyone.
+/// user becomes the admin of the copy, which is always private. A copy of the same kind
+/// has the title of the original with ` copy` after it; a template made from a board is
+/// titled `New board template`, and a board made from a template keeps the title. The
+/// board's members may copy it; an open template is for everyone in its team, and a
+/// built-in template for everyone.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/duplicate",
@@ -385,9 +390,10 @@ async fn handle_duplicate_board(
 
 /// Bring a deleted board back
 ///
-/// Restores a board from the trash with its blocks and its members. For who was an
-/// admin of the board when it was deleted; to anybody who was no member there is no
-/// such board.
+/// Restores a board from the trash with its blocks and its members. Its sharing, its
+/// places in the sidebars and the subscriptions to its blocks ended with the deletion
+/// and stay ended. For who was an admin of the board when it was deleted; to anybody
+/// who was no member there is no such board.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/undelete",

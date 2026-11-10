@@ -116,11 +116,15 @@ async fn check_read_access(
 /// token no session is needed. A file is asked for through its own board only: through
 /// another board it is not there.
 ///
-/// The answer honours `Range` (one range), `If-Modified-Since` and the other
-/// conditional headers. Images, audio and video a browser shows are sent to be shown;
-/// everything else is offered as a download, and what a browser would run is sent as
-/// plain text. The answer may be cached by the browser of who asked but must be
-/// revalidated (`Cache-Control: private, no-cache`).
+/// Every file is sent as `application/octet-stream` and offered as a download
+/// (`Content-Disposition: attachment`) under its `fileId`, not under the name it was
+/// uploaded with, which `getFileInfo` has. The answer honours `Range` with one range,
+/// unless the request has `If-Range`. It may be cached by the browser of who asked but
+/// must be revalidated (`Cache-Control: private, no-cache`), and revalidating saves no
+/// download: the `Last-Modified` of an answer is the time of that answer, so a request
+/// with the `If-Modified-Since` of an earlier answer gets the whole file again.
+///
+/// 412 and 416 come without an `ErrorBody`.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/files/{fileId}",
@@ -131,7 +135,9 @@ async fn check_read_access(
     responses(
         (status = 200, description = "The file.", body = inline(Binary), content_type = "application/octet-stream"),
         (status = 206, description = "The range of the file that was asked for.", body = inline(Binary), content_type = "application/octet-stream"),
-        (status = 304, description = "The file has not changed since the time the request names."),
+        (status = 304, description = "Only for a request with `If-None-Match: *`, or with an `If-Modified-Since` that is not before the time of the answer. No body."),
+        (status = 412, description = "The request has an `If-Unmodified-Since` before the time of the answer. No body."),
+        (status = 416, description = "The range is not in the file, or is no range.", body = String, content_type = "text/plain"),
     ),
 )]
 async fn handle_serve_file(
@@ -188,7 +194,9 @@ async fn handle_get_file_info(
 /// Stores a file with the board. The request is a `multipart/form-data` form whose
 /// part `file` carries the file and a file name. The file is limited to the
 /// `maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is
-/// 413. For editors.
+/// 413. The `fileId` of the answer ends in the extension of the file name, in lower
+/// case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
+/// anything but letters and digits in it, is left off. For editors.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/files",

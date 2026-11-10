@@ -115,9 +115,11 @@ async fn require_source_board_access(
 /// board's read token no session is needed; who reads that way is not told who made a
 /// block or changed it last (`createdBy` and `modifiedBy` are empty).
 ///
-/// `all` asks for every block and `blockId` for one. Otherwise `parentId` and `type`
-/// narrow the list, and without either the list is every block of the board. Oldest
-/// first.
+/// `all` asks for every block and `blockId` for one, which is 404 if the board has no
+/// such block. Otherwise `parentId` and `type` narrow the list, and without either the
+/// list is every block of the board. A parameter with an empty value counts as left
+/// out. Oldest first; the blocks that one request made come in the order that request
+/// had them in.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/blocks",
@@ -151,7 +153,8 @@ async fn handle_get_blocks(
         vec![block_on_board(&app, &block_id, &board_id).await?]
     } else {
         let parent_id = optional_query_param(query, "parentId");
-        // The type is matched as it is written; an unknown one finds nothing.
+        // The type is matched as it is written: one that no block has finds nothing. The
+        // word `unknown` is the exception, and narrows nothing.
         let block_type = optional_query_param(query, "type").map(BlockType::from);
         app.blocks(&board_id, parent_id.as_deref(), block_type.as_ref())
             .await?
@@ -172,8 +175,9 @@ async fn handle_get_blocks(
 /// Insert blocks
 ///
 /// Inserts blocks under identifiers the server makes; the identifiers of the request
-/// only link its blocks to each other. All blocks are inserted or none. Comments need
-/// the role of a commenter, everything else that of an editor.
+/// only link its blocks to each other. All blocks are inserted or none, and they are
+/// listed afterwards in the order the request had them in. Comments need the role of a
+/// commenter, everything else that of an editor.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks",
@@ -333,7 +337,7 @@ async fn handle_delete_block(
 /// Bring a deleted block back
 ///
 /// Restores a block of the board from the trash, with the blocks that went there with
-/// it. For editors.
+/// it. A block whose parent is gone has nowhere to come back to: 404. For editors.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks/{blockId}/undelete",
@@ -410,7 +414,8 @@ async fn handle_patch_block(
 
 /// Change several blocks
 ///
-/// Applies a patch to each of several blocks of the board, all or none. For editors.
+/// Applies a patch to each of several blocks of the board, all or none. A body that
+/// names no block changes nothing and is answered 204 too. For editors.
 #[utoipa::path(
     patch,
     path = "/boards/{boardId}/blocks",

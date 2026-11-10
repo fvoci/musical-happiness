@@ -60,7 +60,8 @@ pub(crate) struct NewBlock {
     /// A name for the block within the request. The server gives every block a new
     /// identifier, and where one block of the request names another (as its `parentId`,
     /// or in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts
-    /// the new identifier there.
+    /// the new identifier there. Blocks that come under one name get one identifier,
+    /// which cannot be stored twice; a block that no other names needs no `id`.
     id: Option<String>,
     /// The board the block belongs to: the board of the path, or, where boards and
     /// blocks are made together, the `id` of one of the request's boards.
@@ -127,9 +128,11 @@ pub(crate) struct NewCategory {
     team_id: String,
     /// Whether the category is collapsed in the sidebar.
     collapsed: Option<bool>,
-    /// The position of the category among the user's categories.
+    /// The position of the category among the user's categories. It is stored 10
+    /// higher: see `createCategory`.
     sort_order: Option<i64>,
-    /// Left out, `custom`.
+    /// Left out, `custom`. A category that is made as `system` can be neither renamed
+    /// nor deleted afterwards.
     #[schema(rename = "type")]
     category_type: Option<CategoryType>,
 }
@@ -151,7 +154,8 @@ pub(crate) struct CategoryUpdate {
     collapsed: Option<bool>,
 }
 
-/// A user to make a member of a board, and the roles to give them.
+/// A user to make a member of a board, and the roles to give them. A member with no
+/// role may do nothing on the board, not even view it.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 pub(crate) struct NewMember {
@@ -168,7 +172,8 @@ pub(crate) struct NewMember {
     scheme_viewer: Option<bool>,
 }
 
-/// The roles a member of a board is to have. A role that is left out is taken away.
+/// The roles a member of a board is to have. A role that is left out is taken away, and
+/// a member with no role may do nothing on the board, not even view it.
 #[derive(Debug, ToSchema)]
 #[schema(rename_all = "camelCase")]
 #[expect(
@@ -250,7 +255,8 @@ pub(crate) struct Binary(Vec<u8>);
 /// A form with one file.
 #[derive(Debug, ToSchema)]
 pub(crate) struct FileForm {
-    /// The file, in a part that has a file name.
+    /// The file. An upload needs the part to have a file name; an archive to import
+    /// does not.
     #[schema(value_type = String, format = Binary)]
     file: Vec<u8>,
 }

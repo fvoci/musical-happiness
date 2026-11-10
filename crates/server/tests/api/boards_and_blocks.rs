@@ -217,8 +217,9 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
 
     expect_bad_request(
         &response,
-        "invalid BoardID nonexistent-board-id (not exists in the created boards)",
+        "invalid boardId nonexistent-board-id (no board of the request has that id)",
     );
+    assert_eq!(response.value()["field"], json!("boardId"));
     th.teardown().await;
 }
 
@@ -396,18 +397,22 @@ async fn create_boards_and_blocks_refusals() {
     }
 
     // Blocks are checked one by one: type, creation time, modification time, board.
-    for (block, message) in [
+    // Each refusal names the member in the one spelling the API has.
+    for (block, field, message) in [
         (
             json!({"id": "b1", "boardId": "bd", "createAt": 1, "updateAt": 1}),
+            "type",
             "missing type for block id b1",
         ),
         (
             json!({"id": "b1", "boardId": "bd", "type": "card", "updateAt": 1}),
+            "createAt",
             "invalid createAt for block id b1",
         ),
         (
             json!({"id": "b1", "boardId": "bd", "type": "card", "createAt": 1}),
-            "invalid UpdateAt for block id b1",
+            "updateAt",
+            "invalid updateAt for block id b1",
         ),
     ] {
         let response = th
@@ -415,6 +420,7 @@ async fn create_boards_and_blocks_refusals() {
             .post(PATH, &json!({"boards": [board], "blocks": [block]}))
             .await;
         expect_bad_request(&response, message);
+        assert_eq!(response.value()["field"], json!(field), "{message}");
     }
 
     // No team at all, a team that does not exist, and text that is no identifier: the

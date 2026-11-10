@@ -14,7 +14,9 @@ use crate::id::new_id;
 /// identifiers outside `blocks` are left as they are, so the tree keeps its shape and
 /// stays attached to whatever it pointed at.
 ///
-/// Fields of an unexpected JSON type are left untouched.
+/// Fields of an unexpected JSON type are left untouched. A block that comes without an
+/// identifier gets one like any other, and an empty `parent_id` or `board_id` stays
+/// empty.
 pub fn generate_block_ids(blocks: &mut [Block]) {
     let mut referenced: HashSet<&str> = HashSet::new();
     for block in blocks.iter() {
@@ -34,14 +36,30 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
         }
     }
 
-    // Blocks that share an identifier share the new one too.
-    let renamed: HashMap<String, String> = blocks
+    // No identifier is no reference. A block without a parent would otherwise refer to
+    // every block of the request that came without an identifier: those would share
+    // one new identifier, and the blocks without a parent would get it as theirs.
+    referenced.remove("");
+
+    // The new identifiers are made in the order of the blocks: identifiers sort in the
+    // order they were made, and a list of blocks is by creation time and then by
+    // identifier, so blocks that are stored in one millisecond come back in the order
+    // they were sent in. Blocks that share an identifier share the new one too, which
+    // is only kept for the blocks something refers to: no other block needs to learn
+    // the new value of the rest.
+    let mut renamed: HashMap<String, String> = HashMap::new();
+    let new_ids: Vec<String> = blocks
         .iter()
-        .filter(|block| referenced.contains(block.id.as_str()))
-        .map(|block| block.id.as_str())
-        .collect::<HashSet<&str>>()
-        .into_iter()
-        .map(|id| (id.to_owned(), new_id()))
+        .map(|block| {
+            if referenced.contains(block.id.as_str()) {
+                renamed
+                    .entry(block.id.clone())
+                    .or_insert_with(new_id)
+                    .clone()
+            } else {
+                new_id()
+            }
+        })
         .collect();
 
     let renamed_or_same = |id: &mut String| {
@@ -50,12 +68,8 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
         }
     };
 
-    for block in blocks {
-        block.id = match renamed.get(&block.id) {
-            Some(new) => new.clone(),
-            // Not referenced by anything, so no other block needs to learn the new value.
-            None => new_id(),
-        };
+    for (block, new) in blocks.iter_mut().zip(new_ids) {
+        block.id = new;
         renamed_or_same(&mut block.board_id);
         renamed_or_same(&mut block.parent_id);
 
