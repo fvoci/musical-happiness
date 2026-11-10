@@ -25,6 +25,9 @@ const pages = Object.fromEntries(
 );
 
 export default defineConfig({
+  // Relative addresses in the build, so that it can be served from any folder
+  // (tools/serve.ts puts it under a name).
+  base: './',
   plugins: [tailwindcss(), svelte()],
   resolve: {
     alias: { $lib: path.resolve(root, 'src/lib') },
