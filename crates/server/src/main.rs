@@ -1,0 +1,167 @@
+//! The `fvoci-server` executable.
+
+use std::path::PathBuf;
+
+use anyhow::{Context as _, bail};
+use clap::Parser;
+use fvoci_server::config::{Configuration, ENV_PREFIX};
+use fvoci_server::{BASE_PATH_ENV, Server, listen_address};
+use tracing_subscriber::EnvFilter;
+
+/// The environment variable that holds the token of single-user mode.
+const SINGLE_USER_TOKEN_ENV: &str = "FVOCI_SINGLE_USER_TOKEN";
+
+/// Settings that are distinctive enough to recognize under a wrong prefix.
+const DISTINCTIVE_SETTINGS: [&str; 8] = [
+    "SINGLE_USER_TOKEN",
+    "HTTP_SERVER_BASEPATH",
+    "SERVERROOT",
+    "DBCONFIG",
+    "DBTYPE",
+    "WEBPATH",
+    "FILESPATH",
+    "FILESDRIVER",
+];
+
+/// The fvoci board server.
+#[derive(Debug, Parser)]
+#[command(version, about)]
+struct Cli {
+    /// Location of the JSON config file.
+    #[arg(long, default_value = "./config.json")]
+    config: PathBuf,
+    /// The port number; overrides the config file.
+    #[arg(long)]
+    port: Option<u16>,
+    /// Database type (sqlite3 or postgres); overrides the config file.
+    #[arg(long)]
+    dbtype: Option<String>,
+    /// Database config; overrides the config file.
+    #[arg(long)]
+    dbconfig: Option<String>,
+    /// Single-user mode: no accounts, `FVOCI_SINGLE_USER_TOKEN` is the credential.
+    #[arg(long)]
+    single_user: bool,
+}
+
+fn init_logging() {
+    let filter =
+        EnvFilter::try_from_env("FVOCI_LOG_LEVEL").unwrap_or_else(|_| EnvFilter::new("info"));
+    let builder = tracing_subscriber::fmt().with_env_filter(filter);
+    if std::env::var("FVOCI_LOG_FORMAT").is_ok_and(|format| format == "json") {
+        builder.json().init();
+    } else {
+        builder.init();
+    }
+}
+
+/// Warns about environment variables that carry one of this server's settings under
+/// another prefix. They have no effect, which is hard to notice otherwise.
+fn warn_about_foreign_prefixes() {
+    for (name, _) in std::env::vars_os() {
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with(ENV_PREFIX) {
+            continue;
+        }
+        for setting in DISTINCTIVE_SETTINGS {
+            let has_other_prefix = name
+                .strip_suffix(setting)
+                .is_some_and(|prefix| prefix.len() > 1 && prefix.ends_with('_'));
+            if has_other_prefix {
+                tracing::warn!(
+                    "the environment variable {name} is ignored; this server reads {ENV_PREFIX}{setting}"
+                );
+            }
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    init_logging();
+    warn_about_foreign_prefixes();
+
+    let mut config = Configuration::read(&cli.config).context("unable to read the config file")?;
+    if let Some(db_type) = cli.dbtype.filter(|db_type| !db_type.is_empty()) {
+        tracing::info!(db_type, "DBType from commandline");
+        config.db_type = db_type;
+    }
+    if let Some(db_config) = cli.dbconfig.filter(|db_config| !db_config.is_empty()) {
+        // Not echoed: the connection string may hold a password.
+        tracing::info!("DBConfigString overridden from commandline");
+        config.db_config = db_config;
+    }
+    if let Some(port) = cli.port.filter(|port| *port > 0) {
+        tracing::info!(port, "Port from commandline");
+        config.port = port;
+    }
+
+    let single_user_token = if cli.single_user {
+        let token = std::env::var(SINGLE_USER_TOKEN_ENV).unwrap_or_default();
+        if token.is_empty() {
+            bail!(
+                "the {SINGLE_USER_TOKEN_ENV} environment variable must be set for single user mode"
+            );
+        }
+        tracing::info!("single user mode");
+        Some(token)
+    } else {
+        None
+    };
+    let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
+
+    let address = listen_address(&config);
+    let port = config.port;
+    let local_only = config.local_only;
+    let server = Server::new(config, single_user_token, &base_path).await?;
+
+    let listener = if local_only {
+        tokio::net::TcpListener::bind(("localhost", port)).await
+    } else {
+        // All interfaces, IPv6 and IPv4 where the system maps one onto the other.
+        match tokio::net::TcpListener::bind(("::", port)).await {
+            Ok(listener) => Ok(listener),
+            Err(_) => tokio::net::TcpListener::bind(("0.0.0.0", port)).await,
+        }
+    }
+    .with_context(|| format!("listening on {address}"))?;
+
+    server.serve(listener, shutdown_signal()).await
+}
+
+/// Completes when the process is asked to stop: on an interrupt, as the original, and on
+/// a termination request, which is what service managers and containers send. The
+/// original dies of the latter without closing anything.
+async fn shutdown_signal() {
+    let interrupt = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate) => tokio::select! {
+                () = interrupt => {}
+                _ = terminate.recv() => {}
+            },
+            Err(error) => {
+                tracing::warn!(%error, "unable to listen for the termination signal");
+                interrupt.await;
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    interrupt.await;
+    tracing::info!("shutting down");
+
+    // The shutdown waits for requests and notifications under way. A second interrupt
+    // ends the process at once.
+    tokio::spawn(async {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            tracing::warn!("interrupted again; exiting without waiting");
+            std::process::exit(130);
+        }
+    });
+}

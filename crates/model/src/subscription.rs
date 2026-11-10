@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::block::BlockType;
-use crate::serde_util::is_zero;
+use crate::serde_util::{is_zero, null_as_default};
 
 /// The kind of entity that subscribes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -40,24 +40,30 @@ pub struct SubscriptionError(&'static str);
 pub struct Subscription {
     /// The type of the block subscribed to.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub block_type: BlockType,
     /// The identifier of the block subscribed to.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub block_id: String,
     /// The kind of entity that subscribes.
     pub subscriber_type: SubscriberType,
     /// The identifier of the subscriber.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub subscriber_id: String,
     /// The time of the last notification sent for this subscription, in milliseconds
     /// since the Unix epoch.
     #[serde(default, skip_serializing_if = "is_zero")]
+    #[serde(deserialize_with = "null_as_default")]
     pub notified_at: i64,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
 }
 

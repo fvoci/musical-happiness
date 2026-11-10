@@ -1,5 +1,6 @@
 //! The record kept about an uploaded file.
 
+use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 
 /// What the server records about an uploaded file.
@@ -12,28 +13,38 @@ use serde::{Deserialize, Serialize};
 pub struct FileInfo {
     /// The record's identifier: the stored file name without its leading kind character
     /// and without its extension.
+    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// Who uploaded the file; the original sets the fixed text `boards`. Not stored.
     #[serde(rename = "user_id")]
+    #[serde(deserialize_with = "null_as_default")]
     pub creator_id: String,
     /// Creation time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch. Not stored.
+    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
     /// Where the file lives in the file storage. Never sent to clients.
     #[serde(skip)]
     pub path: String,
     /// The name the file was uploaded under.
+    #[serde(deserialize_with = "null_as_default")]
     pub name: String,
     /// The lower-cased extension of the name, with its leading dot.
+    #[serde(deserialize_with = "null_as_default")]
     pub extension: String,
     /// The size of the file in bytes.
+    #[serde(deserialize_with = "null_as_default")]
     pub size: i64,
     /// The media type derived from the extension. Not stored.
+    #[serde(deserialize_with = "null_as_default")]
     pub mime_type: String,
     /// Whether the file has been archived.
+    #[serde(deserialize_with = "null_as_default")]
     pub archived: bool,
 }
 

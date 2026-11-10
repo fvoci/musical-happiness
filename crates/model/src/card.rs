@@ -35,30 +35,40 @@ pub enum CardError {
 #[serde(default, rename_all = "camelCase")]
 pub struct Card {
     /// The card's identifier.
+    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The identifier of the board the card belongs to.
+    #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
     /// The identifier of the user who created the card.
+    #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
     /// The identifier of the user who last modified the card.
+    #[serde(deserialize_with = "null_as_default")]
     pub modified_by: String,
     /// The display title.
+    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// The identifiers of the card's content blocks, in display order.
     #[serde(deserialize_with = "null_as_default")]
     pub content_order: Vec<String>,
     /// The card's icon; at most one grapheme.
+    #[serde(deserialize_with = "null_as_default")]
     pub icon: String,
     /// Whether the card is a template.
+    #[serde(deserialize_with = "null_as_default")]
     pub is_template: bool,
     /// Property values keyed by property identifier.
     #[serde(deserialize_with = "null_as_default")]
     pub properties: JsonMap,
     /// Creation time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
 }
 

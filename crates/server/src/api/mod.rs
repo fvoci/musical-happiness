@@ -1,0 +1,216 @@
+//! The HTTP API under `/api/v2`, plus `/hello` and `/ping`.
+//!
+//! One module per area, mirroring the original's `server/api` package. Each module has a
+//! `routes()` function, and [`router`] puts them together.
+
+mod access;
+mod admin;
+mod archive;
+mod auth;
+mod blocks;
+mod boards;
+mod boards_and_blocks;
+mod body;
+mod cards;
+mod categories;
+mod channels;
+mod compliance;
+mod config;
+mod content_blocks;
+mod files;
+mod members;
+mod onboarding;
+mod search;
+mod session;
+mod sharing;
+mod statistics;
+mod subscriptions;
+mod system;
+mod teams;
+mod templates;
+mod users;
+
+use axum::Json;
+use axum::Router;
+use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::http::header::CACHE_CONTROL;
+use axum::http::{HeaderMap, HeaderValue};
+use axum::middleware::{self, Next};
+use axum::response::{IntoResponse, Response};
+use serde::Serialize;
+use serde_json::json;
+
+pub(crate) use access::{require_board_permission, require_team_access, user_is_guest};
+pub(crate) use body::{
+    decode_json_or_bad_request, decode_json_or_internal, decode_object_members,
+    decode_object_or_bad_request, decode_object_or_internal, json_object,
+};
+pub(crate) use session::{OptionalSession, RequiredSession};
+
+use crate::app::{App, ChangeNotification};
+use crate::error::AppError;
+use fvoci_store::DuplicateAs;
+
+/// The header every API request must carry, and its value. A browser does not let another
+/// site's page set it, which is the API's protection against cross-site request forgery.
+const HEADER_REQUESTED_WITH: &str = "X-Requested-With";
+const HEADER_REQUESTED_WITH_XML: &str = "XMLHttpRequest";
+
+/// The result of an API handler.
+pub(crate) type ApiResult = Result<Response, AppError>;
+
+/// The routes under `/api/v2`.
+///
+/// Every route checks the cross-site request forgery header, and responses are marked as
+/// not cacheable unless a handler set its own policy.
+pub fn router() -> Router<App> {
+    Router::new()
+        .merge(archive::routes())
+        .merge(auth::routes())
+        .merge(blocks::routes())
+        .merge(boards::routes())
+        .merge(boards_and_blocks::routes())
+        .merge(cards::routes())
+        .merge(categories::routes())
+        .merge(channels::routes())
+        .merge(compliance::routes())
+        .merge(config::routes())
+        .merge(content_blocks::routes())
+        .merge(files::routes())
+        .merge(members::routes())
+        .merge(onboarding::routes())
+        .merge(search::routes())
+        .merge(sharing::routes())
+        .merge(statistics::routes())
+        .merge(subscriptions::routes())
+        .merge(teams::routes())
+        .merge(templates::routes())
+        .merge(users::routes())
+        // The original reads request bodies of any size, and legitimate ones exceed the
+        // framework's default limit of 2 MB: the fields of one block may have 800 000
+        // characters, and archives and uploads are larger still. Uploads are bounded by
+        // the `maxfilesize` setting where they are read.
+        .layer(DefaultBodyLimit::disable())
+        .route_layer(middleware::from_fn(require_csrf_header))
+        .route_layer(middleware::from_fn(mark_not_cacheable))
+}
+
+/// The routes outside `/api/v2`: `/hello` and `/ping`.
+pub fn system_router() -> Router<App> {
+    system::routes()
+}
+
+/// The administration routes, with their full paths (`/api/v2/admin/...`).
+///
+/// They are to be served on the local Unix socket only, and refuse every request that
+/// arrives another way. Whatever else is asked on that socket gets a 404.
+pub fn admin_router() -> Router<App> {
+    admin::routes()
+}
+
+async fn require_csrf_header(request: Request, next: Next) -> Response {
+    let header = request
+        .headers()
+        .get(HEADER_REQUESTED_WITH)
+        .and_then(|value| value.to_str().ok());
+    if header == Some(HEADER_REQUESTED_WITH_XML) {
+        next.run(request).await
+    } else {
+        tracing::error!("checkCSRFToken FAILED");
+        AppError::bad_request("checkCSRFToken FAILED").into_response()
+    }
+}
+
+/// Runs the rest of the request as a task of its own, so that it finishes even if the
+/// client disconnects.
+///
+/// The framework drops a handler when its connection closes. A handler that has stored a
+/// board but not yet filed it under a category, or stored blocks but not yet told the
+/// listeners, would stop half-way; the original's handlers always run to their end.
+pub(crate) async fn run_to_completion(
+    State(app): State<App>,
+    request: Request,
+    next: Next,
+) -> Response {
+    match app.spawn_tracked(next.run(request)).await {
+        Ok(response) => response,
+        // Let the panic layer see a panic of the handler as if it had happened here.
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(_) => AppError::internal("the request was cancelled").into_response(),
+    }
+}
+
+/// API responses depend on who asks and change at any time, so no cache may keep them.
+async fn mark_not_cacheable(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .entry(CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("no-store"));
+    response
+}
+
+/// A JSON response with status 200.
+pub(crate) fn json_response(value: &impl Serialize) -> Response {
+    Json(value).into_response()
+}
+
+/// The empty JSON object that most operations without a result answer with.
+pub(crate) fn empty_response() -> Response {
+    Json(json!({})).into_response()
+}
+
+/// Returns the percent-decoded value of a query parameter, or the empty string.
+pub(crate) fn query_param(query: Option<&str>, name: &str) -> String {
+    query
+        .and_then(|query| crate::auth::token::query_value(query, name))
+        .unwrap_or_default()
+}
+
+/// Reads the `disable_notify` query flag.
+pub(crate) fn change_notification(query: Option<&str>) -> ChangeNotification {
+    if query_param(query, "disable_notify") == TRUE {
+        ChangeNotification::Suppress
+    } else {
+        ChangeNotification::Send
+    }
+}
+
+/// Reads the `asTemplate` query flag of the duplication routes; it counts only as
+/// exactly `true`.
+pub(crate) fn duplicate_as(query: Option<&str>) -> DuplicateAs {
+    if query_param(query, "asTemplate") == TRUE {
+        DuplicateAs::Template
+    } else {
+        DuplicateAs::Copy
+    }
+}
+
+/// The value of a query flag that is set.
+pub(crate) const TRUE: &str = "true";
+
+/// Returns whether the request carries a read token that is valid for the board.
+pub(crate) async fn has_valid_read_token(app: &App, query: Option<&str>, board_id: &str) -> bool {
+    let read_token = query_param(query, "read_token");
+    if read_token.is_empty() {
+        return false;
+    }
+    match app
+        .authenticator()
+        .is_valid_read_token(board_id, &read_token)
+        .await
+    {
+        Ok(valid) => valid,
+        Err(error) => {
+            tracing::error!(%error, "IsValidReadTokenForBoard ERROR");
+            false
+        }
+    }
+}
+
+/// Returns the session token a request carries, if any.
+pub(crate) fn request_token(headers: &HeaderMap, query: Option<&str>) -> String {
+    crate::auth::token::parse_auth_token(headers, query)
+        .map(|(token, _)| token)
+        .unwrap_or_default()
+}

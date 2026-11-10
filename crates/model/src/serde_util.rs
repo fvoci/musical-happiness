@@ -4,8 +4,9 @@ use serde::{Deserialize, Deserializer};
 
 /// Deserializes a JSON `null` as the type's default value.
 ///
-/// The original server decodes `null` into an empty map or list, and its own client sends
-/// `null` for collections that were never set, so collection fields accept it.
+/// The original's decoder leaves a member at its zero value when the JSON says `null`,
+/// and its own client sends `null` for collections that were never set. Every member of
+/// a type that is decoded from a request accepts it.
 pub(crate) fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,

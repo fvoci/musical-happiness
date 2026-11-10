@@ -171,30 +171,41 @@ pub enum BlockError {
 #[serde(default, rename_all = "camelCase")]
 pub struct Block {
     /// The block's identifier.
+    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The identifier of the parent block; empty for root blocks.
+    #[serde(deserialize_with = "null_as_default")]
     pub parent_id: String,
     /// The identifier of the user who created the block.
+    #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
     /// The identifier of the user who last modified the block.
+    #[serde(deserialize_with = "null_as_default")]
     pub modified_by: String,
     /// The schema version of the block.
+    #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
     /// The block type.
     #[serde(rename = "type")]
+    #[serde(deserialize_with = "null_as_default")]
     pub block_type: BlockType,
     /// The display title.
+    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// Type-specific data, free-form.
     #[serde(deserialize_with = "null_as_default")]
     pub fields: JsonMap,
     /// Creation time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
     /// The identifier of the board the block belongs to.
+    #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
 }
 

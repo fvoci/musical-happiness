@@ -1,0 +1,121 @@
+//! The local-disk file backend.
+
+use std::io::SeekFrom;
+use std::ops::Range;
+use std::path::{Component, Path, PathBuf};
+
+use futures_util::{StreamExt as _, TryStreamExt as _};
+use tokio::fs;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
+use tokio_util::io::ReaderStream;
+
+use super::{FileStream, StorageError};
+
+/// Files kept in a directory on the local disk, the `filespath` setting.
+///
+/// A stored path such as `boards/20240131/7abc.png` is that relative path under the
+/// directory, exactly as the original server lays files out.
+#[derive(Debug, Clone)]
+pub struct LocalFiles {
+    root: PathBuf,
+}
+
+impl LocalFiles {
+    /// Creates a backend rooted at `directory`. The directory is created on first write.
+    pub fn new(directory: impl AsRef<Path>) -> Self {
+        Self {
+            root: directory.as_ref().to_path_buf(),
+        }
+    }
+
+    /// Resolves a stored path to a path under the root.
+    ///
+    /// Only plain relative paths are accepted. The original joins whatever it is given
+    /// onto the root; here an absolute path or a `..` component is refused, so no stored
+    /// path can ever name a file outside the root.
+    fn resolve(&self, path: &str) -> Result<PathBuf, StorageError> {
+        let relative = Path::new(path);
+        let plain = !path.is_empty()
+            && relative
+                .components()
+                .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
+        if plain {
+            Ok(self.root.join(relative))
+        } else {
+            Err(StorageError::InvalidPath(path.to_owned()))
+        }
+    }
+
+    pub(super) async fn write(
+        &self,
+        path: &str,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+    ) -> Result<u64, StorageError> {
+        let target = self.resolve(path)?;
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        let mut file = fs::File::create(&target).await?;
+        let written = tokio::io::copy(reader, &mut file).await?;
+        file.flush().await?;
+        Ok(written)
+    }
+
+    pub(super) async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        match fs::metadata(self.resolve(path)?).await {
+            Ok(metadata) if metadata.is_file() => Ok(Some(metadata.len())),
+            Ok(_) => Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(super) async fn read(
+        &self,
+        path: &str,
+        range: Option<Range<u64>>,
+    ) -> Result<FileStream, StorageError> {
+        let mut file = fs::File::open(self.resolve(path)?)
+            .await
+            .map_err(|error| not_found_or_io(error, path))?;
+        match range {
+            None => Ok(ReaderStream::new(file).map_err(StorageError::from).boxed()),
+            Some(range) => {
+                file.seek(SeekFrom::Start(range.start)).await?;
+                let length = range.end.saturating_sub(range.start);
+                Ok(ReaderStream::new(file.take(length))
+                    .map_err(StorageError::from)
+                    .boxed())
+            }
+        }
+    }
+
+    pub(super) async fn copy(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        let (source, target) = (self.resolve(from)?, self.resolve(to)?);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::copy(source, target)
+            .await
+            .map_err(|error| not_found_or_io(error, from))?;
+        Ok(())
+    }
+
+    pub(super) async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        let (source, target) = (self.resolve(from)?, self.resolve(to)?);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).await?;
+        }
+        fs::rename(source, target)
+            .await
+            .map_err(|error| not_found_or_io(error, from))
+    }
+}
+
+fn not_found_or_io(error: std::io::Error, path: &str) -> StorageError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        StorageError::NotFound(path.to_owned())
+    } else {
+        StorageError::Io(error)
+    }
+}

@@ -3,9 +3,8 @@
 use std::path::PathBuf;
 
 use fvoci_model::{Block, Board, BoardType, IdKind, new_id};
+use fvoci_store::testing::TestDatabase;
 use fvoci_store::{DbType, Store};
-use sqlx::Connection as _;
-use sqlx::postgres::PgConnection;
 
 /// The table prefix the original test suite runs with.
 pub(crate) const TABLE_PREFIX: &str = "test_";
@@ -13,12 +12,7 @@ pub(crate) const TABLE_PREFIX: &str = "test_";
 /// A store on a database that belongs to one test.
 pub(crate) struct TestStore {
     pub(crate) store: Store,
-    cleanup: Cleanup,
-}
-
-enum Cleanup {
-    SqliteFile(PathBuf),
-    PostgresSchema { url: String, schema: String },
+    database: TestDatabase,
 }
 
 impl std::ops::Deref for TestStore {
@@ -29,52 +23,14 @@ impl std::ops::Deref for TestStore {
     }
 }
 
-/// Which database the tests run against, from `FVOCI_STORE_TEST_DB_TYPE`.
+/// Which database the tests run against.
 pub(crate) fn db_type() -> DbType {
-    match std::env::var("FVOCI_STORE_TEST_DB_TYPE") {
+    match std::env::var(fvoci_store::testing::DB_TYPE_ENV) {
         Ok(name) if !name.trim().is_empty() => name
             .trim()
             .parse()
-            .expect("FVOCI_STORE_TEST_DB_TYPE must be sqlite3 or postgres"),
+            .expect("the test database type must be sqlite3 or postgres"),
         _ => DbType::Sqlite,
-    }
-}
-
-fn postgres_url() -> String {
-    std::env::var("FVOCI_STORE_TEST_CONN_STRING")
-        .expect("FVOCI_STORE_TEST_CONN_STRING must hold a PostgreSQL URL for postgres test runs")
-}
-
-/// Appends a query parameter to a URL that may already have some.
-fn with_param(url: &str, param: &str) -> String {
-    let separator = if url.contains('?') { '&' } else { '?' };
-    format!("{url}{separator}{param}")
-}
-
-/// Returns the `dbconfig` and cleanup for a fresh, empty database.
-async fn fresh_database() -> (String, Cleanup) {
-    let name = new_id(IdKind::None);
-    match db_type() {
-        DbType::Sqlite => {
-            let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
-            std::fs::create_dir_all(&dir).expect("the test database directory can be created");
-            let path = dir.join(format!("{name}.db"));
-            let dbconfig = format!("{}?_busy_timeout=5000", path.display());
-            (dbconfig, Cleanup::SqliteFile(path))
-        }
-        DbType::Postgres => {
-            let url = postgres_url();
-            let schema = format!("t_{name}");
-            let mut admin = PgConnection::connect(&url)
-                .await
-                .expect("the test PostgreSQL server accepts connections");
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-                .execute(&mut admin)
-                .await
-                .expect("a test schema can be created");
-            let dbconfig = with_param(&url, &format!("search_path={schema}"));
-            (dbconfig, Cleanup::PostgresSchema { url, schema })
-        }
     }
 }
 
@@ -85,42 +41,28 @@ pub(crate) async fn setup() -> TestStore {
 
 /// Connects a store to a fresh database with the given table prefix.
 pub(crate) async fn setup_with_prefix(table_prefix: &str) -> TestStore {
-    let (dbconfig, cleanup) = fresh_database().await;
-    let store = Store::connect(db_type(), &dbconfig, table_prefix)
+    let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
+    let database = TestDatabase::create(&directory).await;
+    let store = Store::connect(database.db_type(), database.dbconfig(), table_prefix)
         .await
         .expect("a store connects to a fresh database");
-    TestStore { store, cleanup }
+    TestStore { store, database }
 }
 
 impl TestStore {
-    /// The `dbconfig` that reaches this test's database again.
+    /// What reaches this test's database again: the path of the SQLite file, or the
+    /// PostgreSQL URL with the test's schema.
     pub(crate) fn dbconfig(&self) -> String {
-        match &self.cleanup {
-            Cleanup::SqliteFile(path) => path.display().to_string(),
-            Cleanup::PostgresSchema { url, schema } => {
-                with_param(url, &format!("search_path={schema}"))
-            }
+        match self.database.sqlite_path() {
+            Some(path) => path.display().to_string(),
+            None => self.database.dbconfig().to_owned(),
         }
     }
 
     /// Closes the store and removes its database.
     pub(crate) async fn teardown(self) {
         self.store.close().await;
-        match self.cleanup {
-            Cleanup::SqliteFile(path) => {
-                // Journal files may or may not exist; a leftover file is harmless.
-                let _ = std::fs::remove_file(&path);
-            }
-            Cleanup::PostgresSchema { url, schema } => {
-                let mut admin = PgConnection::connect(&url)
-                    .await
-                    .expect("the test PostgreSQL server accepts connections");
-                sqlx::raw_sql(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-                    .execute(&mut admin)
-                    .await
-                    .expect("the test schema can be dropped");
-            }
-        }
+        self.database.remove().await;
     }
 }
 

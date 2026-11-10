@@ -40,29 +40,40 @@ pub struct CategoryError(&'static str);
 #[serde(default, rename_all = "camelCase")]
 pub struct Category {
     /// The category's identifier.
+    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The display name.
+    #[serde(deserialize_with = "null_as_default")]
     pub name: String,
     /// The identifier of the user the category belongs to.
     #[serde(rename = "userID")]
+    #[serde(deserialize_with = "null_as_default")]
     pub user_id: String,
     /// The identifier of the team the category belongs to.
     #[serde(rename = "teamID")]
+    #[serde(deserialize_with = "null_as_default")]
     pub team_id: String,
     /// Creation time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
+    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
     /// Whether the category is collapsed in the sidebar.
+    #[serde(deserialize_with = "null_as_default")]
     pub collapsed: bool,
     /// The position of the category among the user's categories.
+    #[serde(deserialize_with = "null_as_default")]
     pub sort_order: i64,
     /// The sorting method applied to the boards in the category.
+    #[serde(deserialize_with = "null_as_default")]
     pub sorting: String,
     /// Whether this is a system or a custom category.
     #[serde(rename = "type")]
+    #[serde(deserialize_with = "null_as_default")]
     pub category_type: CategoryType,
 }
 
@@ -113,8 +124,10 @@ impl Category {
 pub struct CategoryBoardMetadata {
     /// The identifier of the board.
     #[serde(rename = "boardID")]
+    #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
     /// Whether the user has hidden the board from the sidebar.
+    #[serde(deserialize_with = "null_as_default")]
     pub hidden: bool,
 }
 

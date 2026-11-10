@@ -636,3 +636,69 @@ fn subscription_validate() {
         assert_eq!(error.to_string(), message);
     }
 }
+
+/// The original's decoder leaves a member at its zero value when the JSON says `null`,
+/// and clients rely on it (a block with `"title": null` is accepted). Verified on the
+/// original: `POST /boards/{id}/blocks` with `{"title": null, "parentId": null, ...}`
+/// answers 200.
+#[test]
+fn null_members_decode_as_empty_values() {
+    let block: Block = serde_json::from_value(json!({
+        "id": null, "parentId": null, "createdBy": null, "modifiedBy": null, "schema": null,
+        "type": "card", "title": null, "fields": null, "createAt": null, "updateAt": null,
+        "deleteAt": null, "boardId": null,
+    }))
+    .expect("a block with null members decodes");
+    assert_eq!(
+        block,
+        Block {
+            block_type: BlockType::Card,
+            ..Block::default()
+        },
+        "every null member is the empty value"
+    );
+
+    let board: Board = serde_json::from_value(json!({
+        "id": null, "teamId": null, "channelId": null, "createdBy": null, "modifiedBy": null,
+        "type": "P", "minimumRole": null, "title": null, "description": null, "icon": null,
+        "showDescription": null, "isTemplate": null, "templateVersion": null, "properties": null,
+        "cardProperties": null, "createAt": null, "updateAt": null, "deleteAt": null,
+    }))
+    .expect("a board with null members decodes");
+    assert_eq!(
+        board,
+        Board {
+            board_type: BoardType::Private,
+            ..Board::default()
+        },
+        "every null member is the empty value"
+    );
+
+    let member: BoardMember = serde_json::from_value(json!({
+        "boardId": null, "userId": null, "roles": null, "minimumRole": null,
+        "schemeAdmin": null, "schemeEditor": null, "schemeCommenter": null, "schemeViewer": null,
+    }))
+    .expect("a member with null members decodes");
+    assert_eq!(
+        member,
+        BoardMember::default(),
+        "every null member is the empty value"
+    );
+
+    let login: LoginRequest = serde_json::from_value(json!({
+        "type": null, "username": null, "email": null, "password": null, "mfa_token": null,
+    }))
+    .expect("a login request with null members decodes");
+    assert_eq!(login.username, "", "null is the empty string");
+
+    let category: Category = serde_json::from_value(json!({
+        "id": null, "name": null, "userID": null, "teamID": null, "createAt": null,
+        "updateAt": null, "deleteAt": null, "collapsed": null, "sortOrder": null, "sorting": null,
+    }))
+    .expect("a category with null members decodes");
+    assert_eq!(
+        category,
+        Category::default(),
+        "every null member is the empty value"
+    );
+}

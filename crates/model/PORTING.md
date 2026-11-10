@@ -85,6 +85,15 @@
 - **비밀번호 최소 길이 8은 바이트 수다**(`server/model/auth.go:128`).
 - **오류 메시지 문구는 원본 그대로다**(`"Board IDs do not match"`, `"invalid card, ID is missing"`, `"category team id ID cannot be empty"` 등). 응답의 `error` 멤버로 나가므로 Rust 관례(소문자, 마침표 없음)에 맞추지 않았다.
 
+## S3–S5에서 바뀐 것
+
+- **요청 JSON의 `null` 멤버는 빈 값으로 읽는다.** 원본의 디코더는 `null`을 만나면 그 멤버를 영값으로 둔다(오라클 확인: `POST /boards/{id}/blocks`에 `"title": null`을 보내면 200). 요청에서 디코드되는 타입(`Block`, `Board`, `BoardMember`, `Category`, `Sharing`, `Subscription`, `Card`, 인증 요청 등)의 스칼라·컬렉션 멤버에 `null_as_default`를 붙였다. 테스트 `wire_format::null_members_decode_as_empty_values`.
+- 모델의 닫힌 enum(`BoardType`, `BoardRole` 등)은 원본이 저장을 허용하던 잘못된 값을 담지 못한다. 그 결과 생기는 차이는 서버 문서의 의도적 차이 33·55에 적었다.
+
+## 보안 수정과 결정 대기
+
+이 크레이트에는 I/O가 없어 보안 수정이 없다. 모델의 검증과 관련된 결정 대기 항목은 `crates/server/PORTING.md`의 S14(카드 속성 데이터의 쓰기 검증)다.
+
 ## 검증
 
 2026-11-10, rustc 1.99.1:
@@ -94,3 +103,5 @@
 - `cargo test -p fvoci-model`: 68개 통과 (단위 4, `block_ids` 12, `boards_and_blocks` 12, `card` 11, `validation` 9, `wire_format` 20)
 - `RUSTDOCFLAGS="-D warnings" cargo doc -p fvoci-model --no-deps`: 통과
 - 원본 Go 테스트는 이 단계에서 따로 돌리지 않았다. JSON 형식이 오라클과 일치하는지는 서버 트랙 S5의 차등 비교에서 확인한다.
+
+S5(2026-11-10): `cargo test -p fvoci-model` 69개 통과(`wire_format` 21). 와이어 형식은 원본 서버와의 차등 비교 382단계와 DB 왕복으로 확인했다(`crates/server/PORTING.md` "검증").

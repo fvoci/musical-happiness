@@ -16,7 +16,12 @@ sqlx.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+[features]
+# Test support for this crate's tests and for the tests of crates that use a store.
+test-util = []
+
 [dev-dependencies]
+fvoci-store = { path = ".", features = ["test-util"] }
 sqlx.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 

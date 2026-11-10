@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -26,14 +27,19 @@ impl AuthParamError {
 pub struct LoginRequest {
     /// The type of login; must be `normal`.
     #[serde(rename = "type")]
+    #[serde(deserialize_with = "null_as_default")]
     pub login_type: String,
     /// The user name to log in with.
+    #[serde(deserialize_with = "null_as_default")]
     pub username: String,
     /// The email address to log in with, used when no user has the given name.
+    #[serde(deserialize_with = "null_as_default")]
     pub email: String,
     /// The password.
+    #[serde(deserialize_with = "null_as_default")]
     pub password: String,
     /// A multi-factor token; ignored.
+    #[serde(deserialize_with = "null_as_default")]
     pub mfa_token: String,
 }
 
@@ -68,12 +74,16 @@ impl fmt::Debug for LoginResponse {
 #[serde(default)]
 pub struct RegisterRequest {
     /// The login name.
+    #[serde(deserialize_with = "null_as_default")]
     pub username: String,
     /// The email address.
+    #[serde(deserialize_with = "null_as_default")]
     pub email: String,
     /// The password.
+    #[serde(deserialize_with = "null_as_default")]
     pub password: String,
     /// The team's signup token; may be empty while no user exists yet.
+    #[serde(deserialize_with = "null_as_default")]
     pub token: String,
 }
 
@@ -117,8 +127,10 @@ impl fmt::Debug for RegisterRequest {
 #[serde(default, rename_all = "camelCase")]
 pub struct ChangePasswordRequest {
     /// The current password.
+    #[serde(deserialize_with = "null_as_default")]
     pub old_password: String,
     /// The password to change to.
+    #[serde(deserialize_with = "null_as_default")]
     pub new_password: String,
 }
 

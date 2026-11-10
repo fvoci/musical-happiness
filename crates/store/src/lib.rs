@@ -22,6 +22,8 @@ mod sharing;
 mod subscriptions;
 mod system_settings;
 mod teams;
+#[cfg(feature = "test-util")]
+pub mod testing;
 mod users;
 
 use std::sync::Arc;

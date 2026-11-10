@@ -82,43 +82,55 @@ pub enum BoardError {
 pub struct Board {
     /// The board's identifier.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The identifier of the team the board belongs to.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub team_id: String,
     /// The identifier of the channel the board was created from; unused, kept for the
     /// wire format.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub channel_id: String,
     /// The identifier of the user who created the board.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
     /// The identifier of the user who last modified the board.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub modified_by: String,
     /// Whether the board is open or private.
     #[serde(rename = "type")]
     pub board_type: BoardType,
     /// The role every member has at least, whatever their own role.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub minimum_role: BoardRole,
     /// The board's title.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// The board's description.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub description: String,
     /// The board's icon, usually one emoji.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub icon: String,
     /// Whether the description is shown in the interface.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub show_description: bool,
     /// Whether the board is a template.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub is_template: bool,
     /// The version of the built-in template this board came from.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub template_version: i64,
     /// Free-form properties of the board itself.
     #[serde(default, deserialize_with = "null_as_default")]
@@ -128,12 +140,15 @@ pub struct Board {
     pub card_properties: Vec<JsonMap>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
 }
 
@@ -278,22 +293,31 @@ fn property_id(property: &JsonMap) -> Option<String> {
 )]
 pub struct BoardMember {
     /// The identifier of the board.
+    #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
     /// The identifier of the user.
+    #[serde(deserialize_with = "null_as_default")]
     pub user_id: String,
     /// The user's independent roles on the board; unused, kept for the wire format.
+    #[serde(deserialize_with = "null_as_default")]
     pub roles: String,
     /// The board's minimum role at the time the membership was read.
+    #[serde(deserialize_with = "null_as_default")]
     pub minimum_role: String,
     /// The user administers the board.
+    #[serde(deserialize_with = "null_as_default")]
     pub scheme_admin: bool,
     /// The user may edit the board.
+    #[serde(deserialize_with = "null_as_default")]
     pub scheme_editor: bool,
     /// The user may comment on the board's cards.
+    #[serde(deserialize_with = "null_as_default")]
     pub scheme_commenter: bool,
     /// The user may view the board.
+    #[serde(deserialize_with = "null_as_default")]
     pub scheme_viewer: bool,
     /// The membership was derived from a group rather than granted directly.
+    #[serde(deserialize_with = "null_as_default")]
     pub synthetic: bool,
 }
 

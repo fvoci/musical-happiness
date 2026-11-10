@@ -184,6 +184,15 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 - 이미 삭제된 구독을 지워도 성공한다. 다시 구독하면 저장된 `create_at`과 타입은 그대로인데 반환 값은 새 값이다(`subscriptions.go:82-104`).
 - `save_file_info`는 항상 `archived = false`를 쓰고, 테이블에 키가 없어 중복 행이 생길 수 있다(`file.go:36`).
 
+## S3–S5에서 바뀐 것
+
+- **`testing` 모듈(`test-util` 기능).** 테스트용 빈 데이터베이스를 만드는 코드(SQLite 파일 또는 PostgreSQL 스키마)를 서버 크레이트의 테스트도 쓰도록 `fvoci_store::testing::TestDatabase`로 옮겼다. 기능을 켜지 않으면 컴파일되지 않는다.
+
+## 결정 대기
+
+- 사용자 설정(preferences)의 카테고리 값: 루트 `PORTING.md`의 결정 항목 1. 포트는 `fvoci`를 쓰므로 원본이 쓴 설정과 서로 보이지 않는다(S5의 DB 왕복에서 이 한 항목만 "옮겨지지 않음"으로 등록).
+- 번들 SQLite의 보안 권고(RUSTSEC-2026-0459): sqlx 0.9.0이 수정된 `libsqlite3-sys`를 아직 받지 않아 `deny.toml`에 사유와 함께 예외로 등록했다. 공격자가 DB 파일과 `-wal` 파일을 직접 심을 수 있어야 성립한다.
+
 ## 검증
 
 2026-11-10, rustc 1.99.1, SQLite(번들), PostgreSQL 18.6(컨테이너 `hafgufa-pg`):
@@ -197,3 +206,8 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 - 원본이 쓴 SQLite DB 읽기: 오라클이 만든 DB 사본에서 사용자·세션·팀·설정·파일 정보·블록 372개를 스토어로 읽음
 - 스키마 대조: 위 "스키마 대조" 절
 - 미검증: 원본 Go 테스트 스위트는 실행하지 않았다. 원본이 쓴 PostgreSQL DB를 포트로 읽는 것과 포트가 만든 DB를 원본으로 여는 것은 서버 트랙 S5의 DB 왕복에서 확인한다
+
+S5(2026-11-10):
+
+- `cargo test -p fvoci-store`: SQLite와 PostgreSQL 모두 단위 5 + 통합 116 통과.
+- DB 왕복(`scripts/differential/roundtrip.sh`): 원본이 쓴 DB를 포트가 읽고 쓰기, 포트가 쓴 DB를 원본이 읽고 쓰기를 SQLite와 PostgreSQL에서 각각 수행. 방향마다 API 관찰 22건(사용자, 팀, 보드, 블록, 카드, 멤버, 카테고리, 공유, 구독, 파일 내용과 정보, 템플릿, 검색, 기존 세션 토큰과 비밀번호 로그인)을 비교해 차이 0건. 등록된 차이는 사용자 설정 1건뿐이다. 위 "미검증"의 두 항목은 이것으로 확인됐다.

@@ -12,17 +12,22 @@ use crate::serde_util::null_as_default;
 #[serde(default, rename_all = "camelCase")]
 pub struct Team {
     /// The team's identifier.
+    #[serde(deserialize_with = "null_as_default")]
     pub id: String,
     /// The team's title.
+    #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// The token new users must present to register.
+    #[serde(deserialize_with = "null_as_default")]
     pub signup_token: String,
     /// Free-form team settings.
     #[serde(deserialize_with = "null_as_default")]
     pub settings: JsonMap,
     /// The identifier of the user who last modified the team.
+    #[serde(deserialize_with = "null_as_default")]
     pub modified_by: String,
     /// Last modification time in milliseconds since the Unix epoch.
+    #[serde(deserialize_with = "null_as_default")]
     pub update_at: i64,
 }
 
