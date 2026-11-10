@@ -137,6 +137,16 @@ export class BoardStore {
   readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
   readonly canComment = $derived(this.canEdit || this.role === 'commenter');
 
+  /**
+   * Whether the reader may delete a comment written by `createdBy`: an
+   * editor their own, an admin anyone's. A commenter cannot delete even
+   * their own (`deleteBlock` in `contracts/openapi.json`).
+   */
+  canDeleteComment(createdBy: string): boolean {
+    if (this.role === 'admin') return true;
+    return this.canEdit && createdBy === this.workspace.me?.id;
+  }
+
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
@@ -446,7 +456,7 @@ export class BoardStore {
         return card;
       },
       async (card) => {
-        await this.#backend.deleteBlock(this.boardId, card.id);
+        await this.#deleteForUndo(card.id);
         this.cards = this.cards.filter((existing) => existing.id !== card.id);
       },
       'createCard',
@@ -473,6 +483,18 @@ export class BoardStore {
     }
   }
 
+  /**
+   * Deletes a block to take back its making: one that somebody else has
+   * deleted meanwhile (404) is as good as deleted, so the undo goes on.
+   */
+  async #deleteForUndo(blockId: string): Promise<void> {
+    try {
+      await this.#backend.deleteBlock(this.boardId, blockId);
+    } catch (error) {
+      if (!isBackendError(error) || error.status !== 404) throw error;
+    }
+  }
+
   /** Deletes cards. Undo brings them back with their comments and attachments. */
   async deleteCards(cardIds: readonly string[]): Promise<void> {
     const groupId = newUndoGroup();
@@ -485,7 +507,13 @@ export class BoardStore {
         },
         async () => {
           await this.#backend.restoreBlock(this.boardId, cardId);
-          this.cards = take(this.cards, await this.#backend.card(this.boardId, cardId));
+          // Back: the undo is done even if reading the card fails (it cannot be
+          // restored twice). The server's message, or the next reading, shows it.
+          try {
+            this.cards = take(this.cards, await this.#backend.card(this.boardId, cardId));
+          } catch (error) {
+            this.workspace.report('load', error);
+          }
         },
         'deleteCard',
         groupId,
@@ -613,7 +641,7 @@ export class BoardStore {
         return view;
       },
       async (view) => {
-        await this.#backend.deleteBlock(this.boardId, view.id);
+        await this.#deleteForUndo(view.id);
         this.views = this.views.filter((existing) => existing.id !== view.id);
       },
       'createView',

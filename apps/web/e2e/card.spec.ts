@@ -897,8 +897,9 @@ test('a comment somebody else writes appears by itself', async ({ page }) => {
   );
   await expect(list).toHaveCount(count + 1);
   await expect(list.last()).toContainText('Seen from elsewhere');
-  // Not the reader's: it cannot be deleted here.
-  await expect(list.last().getByRole('button')).toHaveCount(0);
+  // Not the reader's, but the reader is the board's admin, who deletes
+  // anyone's comment (`deleteBlock` in the contract).
+  await expect(list.last().getByRole('button', { name: /^Delete the comment/ })).toHaveCount(1);
 });
 
 test('attachments: several files at once, a link to each, deleting and bringing back', async ({

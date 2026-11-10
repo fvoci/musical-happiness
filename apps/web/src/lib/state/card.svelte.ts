@@ -131,6 +131,7 @@ export class CardStore {
   #takeDetail(detail: CardDetail): void {
     const { body, ...summary } = detail;
     this.#readAt = detail.updateAt;
+    this.missing = false;
     this.board.receiveCard(summary);
     if (!sameDoc(body, this.body) || this.bodyRevision === 0) {
       this.body = body;
@@ -247,12 +248,15 @@ export class CardStore {
    * writing shows up while the card is open.
    */
   cardChanged(card: CardSummary): void {
-    if (card.id !== this.cardId || card.updateAt <= this.#readAt) return;
+    // A card that was deleted and is back (restored) is read again whatever its time.
+    const back = this.missing;
+    if (card.id !== this.cardId || (!back && card.updateAt <= this.#readAt)) return;
     if (this.dirty || this.saving || this.#closed) return;
     void this.#backend
       .card(this.#boardId, this.cardId)
       .then((detail) => {
-        if (this.dirty || this.saving || this.#closed || detail.updateAt <= this.#readAt) return;
+        if (this.dirty || this.saving || this.#closed) return;
+        if (!back && detail.updateAt <= this.#readAt) return;
         this.#takeDetail(detail);
       })
       .catch(() => {
