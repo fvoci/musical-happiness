@@ -108,7 +108,7 @@
       bind:ref={popover}
       align="start"
       aria-label={title}
-      class="max-h-(--bits-popover-content-available-height) w-auto max-w-[calc(100vw-1rem)] min-w-64 gap-0 overflow-y-auto p-1"
+      class="max-h-(--bits-popover-content-available-height) w-auto max-w-[calc(100vw-1rem-env(safe-area-inset-left)-env(safe-area-inset-right))] min-w-64 gap-0 overflow-y-auto p-1"
       onOpenAutoFocus={focusMarked}
     >
       <div data-presentation="popover" class={cn('group/surface', className)}>

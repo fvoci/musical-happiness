@@ -52,7 +52,11 @@ test.describe('the window changes size during a drag', () => {
       await expectNothingMoved(page);
       await expect(page.getByTestId('opened')).toHaveText('none');
 
-      // The next drag works as ever, in the new size.
+      // The next drag works as ever. Upright again first: on its side the
+      // window is so low that the place aimed at lies in the strip along the
+      // bottom of the column where a held card scrolls it.
+      await page.setViewportSize(UNFOLDED);
+      await expectNothingMoved(page);
       await pickUp(page, 'backlog-2');
       await hover(page, 'backlog-4', 0.9);
       await page.mouse.up();

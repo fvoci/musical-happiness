@@ -27,7 +27,7 @@ pnpm --filter web run e2e       # Playwright. 먼저 build 가 있어야 한다
 - 스파이크용: `spikes`(개발 서버), `spikes:build`, `spikes:e2e`. 번역: `i18n:convert`(원본에서 다시 변환), `i18n:keys`(키 집합 검사).
 - 보조 스크립트: `i18n`(메시지 컴파일), `fonts`(글꼴 도구), `licenses`, `names`, `lint`, `format`, `preview`(빌드 결과를 서버 규칙대로 서빙), `storybook`, `build-storybook`.
 - `e2e`는 `FVOCI_E2E_URL`이 있으면 그 서버를, 없으면 `tools/preview.ts`를 띄워 대상으로 삼는다. `preview.ts`에는 API가 없으므로 정적 뼈대 테스트만 그쪽으로 돌 수 있다. 제품 시나리오는 W2부터 Rust 서버를 대상으로 한다.
-- 마지막 실행(2026-11-10 19:16–19:19 KST, 커밋 `ef13e6b3`): `check` 통과(svelte-check 2,816 파일 오류 0, 이름 검사 365 파일, 18 로케일 키 검사), `test` 세 시간대 각 743건 통과, `build` 통과, `e2e` 6건 통과, `spikes:e2e` 50건 통과·18건 건너뜀(건너뛴 것은 터치 프로젝트의 마우스 테스트 9, 데스크톱 프로젝트의 터치 테스트 7, 환경 변수가 있어야 도는 프레임 측정 2).
+- 마지막 실행(2026-11-10 21:41–21:51 KST, 워킹 트리는 이 문서를 담은 커밋과 같다): `check` 통과(svelte-check 3,035 파일 오류 0, 이름 검사 589 파일, 18 로케일 키 검사), `test` 세 시간대 각 1,601건 통과, `build` 통과, `e2e` 16건 통과·14건 건너뜀(글꼴 측정 7건은 데스크톱 프로젝트에서만 돈다), `spikes:e2e` 222건 통과·104건 건너뜀(건너뛴 것은 다른 쪽 프로젝트 몫의 테스트와, 환경 변수가 있어야 도는 프레임 측정·스크린샷). 그 직전의 `spikes:e2e` 실행에서는 새로 넣은 `drag-window.spec.ts`의 한 건이 실패했다(눕힌 화면에서 놓을 자리가 열 아래쪽의 자동 스크롤 띠에 걸려 한 칸 밀림. 다른 작업으로 기기의 부하 평균이 12일 때였다). 테스트의 그 부분을 띠에 걸리지 않게 고친 뒤 그 파일을 여섯 번, 전체를 한 번 돌려 모두 통과했다.
 - pnpm은 이 기기에 없어서 `target/tools/node`에 설치해 썼다: `npm install --prefix target/tools/node pnpm@12.18.0`, 그 뒤 `export PATH=$PWD/target/tools/node/node_modules/.bin:$PATH`.
 
 ## 고정한 판 (2026-11-10 16:50 KST 확인)
@@ -340,7 +340,7 @@ W2(API 클라이언트, WebSocket, 상태, 라우터, 로그인)는 서버의 �
 | 글꼴: 한국어 세 파일, 한국어·일본어는 CJK 먼저     | `tools/fonts/`, `src/styles/app.css`, `e2e/fonts.spec.ts`                                            | 위 "글꼴"                                               |
 | 번역 결정, 한국어 검수 표                          | `messages-override/`, `docs/ko-review.md`                                                            | 아래 "번역"                                             |
 | 템플릿 산출물                                      | `tools/templates/output/`                                                                            | 아래 "내장 템플릿의 변환 산출물"                        |
-| 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 50장), `docs/mobile-proposal.md`(질문 28개)                    | 그 문서                                                 |
+| 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 64장), `docs/mobile-proposal.md`(질문 36개)                    | 그 문서                                                 |
 | 본문 읽기 전용 표시기                              | `src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`                                          | `docs/spike-editor.md` 9절                              |
 | 속성 편집기 15종                                   | `src/lib/features/properties/`, `src/lib/components/`, `stories/properties/`, `tests/ui/properties/` | 아래, `docs/properties-test-mapping.md`                 |
 | 드래그: 결정 1–11, 열 끌기·여러 장·놓을 곳         | `src/lib/drag/`, `src/lib/logic/drop-target.ts`, `spikes/drag/`                                      | `docs/spike-drag.md` "결정의 기록"                      |
@@ -348,7 +348,12 @@ W2(API 클라이언트, WebSocket, 상태, 라우터, 로그인)는 서버의 �
 
 ### 모바일 화면 안
 
-플랜의 W6이 요구한 "구현 전의 합의"를 위한 자료다. 완성된 구현이 아니다. `spikes/mobile/`의 화면 여섯(사이드바, 칸반, 테이블, 카드 상세, 메뉴 넷, 뷰 머리글)마다 안 A와 B를 좁은 화면(360×740)과 넓은 화면(1280×800)으로 그렸고, 그림과 권고, 정해야 할 **질문 28개**가 `docs/mobile-proposal.md`에 있다. 그림은 글꼴 결정을 반영한 뒤 다시 찍었다(`FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop`). 합의가 나기 전까지 W3의 보드 페이지 배치는 정해지지 않은 것이다.
+플랜의 W6이 요구한 "구현 전의 합의"를 위한 자료다. 완성된 구현이 아니다. `spikes/mobile/`의 화면 여섯(사이드바, 칸반, 테이블, 카드 상세, 메뉴 넷, 뷰 머리글)마다 안 A와 B를 그렸고, 그림 64장과 권고, 정해야 할 **질문 36개**가 `docs/mobile-proposal.md`에 있다. 합의가 나기 전까지 W3의 보드 페이지 배치는 정해지지 않은 것이다.
+
+- 첫 판(2026-11-10 20:31 KST): 좁은 화면 360×740과 넓은 화면 1280×800, 질문 28개.
+- 두 번째 판(2026-11-10 21:38 KST, 플랜의 "화면 크기의 세 단계"): **중간 단계**를 넣었다. 466×678, 626×890, 890×626, 820×1180에서 배치가 달라지는 것만 그림으로 남겼고(새 14장), 화면별로 어느 너비에서 배치가 바뀌는지의 표, 경계 값의 안(페이지 600·840px, 보드의 칸 544·992px, 카드 576px. 창이 아니라 **상자의 너비**를 컨테이너 쿼리로 본다), 한가운데 세로선에 걸리는 안의 점검, 좌우 안전 영역, 쓰는 도중에 창 크기가 바뀔 때의 동작과 질문 8개가 더해졌다. 이 크기들은 어림값이고 실제 기기에서 확인하지 않았다.
+- 한가운데 세로선 점검의 결과로 카드 상세의 넓은 화면 권고(가운데 대화상자)를 거두고 질문으로 돌렸다(Q8). 가운데 대화상자는 속성 값과 댓글 입력 칸이 모두 접히는 자리(가정)에 온다.
+- 그림을 다시 찍는 명령: `FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop`. 같은 입력이면 같은 바이트가 나온다(다른 워크트리에서 찍은 64장과 여기서 찍은 64장이 같았다).
 
 ### 본문 읽기 전용 표시기
 
@@ -391,7 +396,11 @@ W2(API 클라이언트, WebSocket, 상태, 라우터, 로그인)는 서버의 �
 
 ### 다른 기기에서 화면 보기
 
-`pnpm --filter web run look`이 스파이크와 Storybook을 빌드해 한 포트(18410, 모든 인터페이스)에서 서빙한다(`tools/serve.ts`: 정적 파일만, API 없음). `/`가 화면의 목록이다. 스파이크 화면과 Storybook은 앱의 글꼴을 싣는다.
+`pnpm --filter web run look`이 스파이크와 Storybook을 빌드해 한 포트(18410, 모든 인터페이스)에서 서빙한다(`tools/serve.ts`: 정적 파일만, API 없음). `/`가 화면의 목록이다: `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`. 스파이크 화면과 Storybook은 앱의 글꼴을 싣는다. 스파이크의 빌드는 어느 폴더 아래에서도 서빙되게 상대 주소를 쓴다. 다시 빌드만 하면(`spikes:build`, `build-storybook`) 떠 있는 서버가 새 파일을 준다(캐시하지 않게 보낸다).
+
+### 플랜에 더해진 결정 (2026-11-10 22:00 KST로 적힌 "모바일 안의 결정과 설정")
+
+이 문서의 일이 끝날 무렵 플랜에 모바일 안의 결정이 적혔다: 질문 36개는 권고대로 만들고 써 보며 고친다, Q8은 A(가운데 대화상자), Q35는 받아들이고 실제 기기에서 본 뒤 다시 정한다, 답마다 바꾸려면 어디를 고치는지를 함께 적는다, 그리고 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동). **이번 작업에는 반영하지 않았다.** W3에서 보드 페이지를 만들 때의 입력이다. `docs/mobile-proposal.md`는 결정 전의 안과 질문 그대로다.
 
 ## 내장 템플릿의 변환 산출물 (2026-11-10 20:09 KST)
 
