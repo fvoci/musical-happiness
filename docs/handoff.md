@@ -1,6 +1,6 @@
 # 서버 인수인계
 
-고친 때: 2026-11-11 03:21 KST. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+고친 때: 2026-11-11 03:44 KST. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
 
 ## 지금 상태
 
@@ -48,6 +48,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
+- `cargo xtask test`는 컨테이너를 띄운 채로 끝난다. 작업 묶음이 끝나면 띄운 세션이 멈춘다(2절의 규칙).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다.
 
 **걸리는 시간.** 이 기기에서 빌드 캐시가 있을 때, 2026-11-11 02–03시 KST에 잰 값이다.
@@ -107,21 +108,28 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 ## 2. 이 기기의 상태
 
-`cargo xtask test`가 쓰는 컨테이너 둘이다. 값은 모두 테스트 전용이다. 워크트리 여럿이 함께 쓴다.
+**지금 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 다음 `cargo xtask test`가 둘을 새로 만든다. PostgreSQL은 `postgres:18`로 만들어진다.
+
+**컨테이너를 쓰는 규칙(사용자 결정).**
+
+- 컨테이너는 필요할 때 만들고 그 일이 끝나면 닫는다.
+- 테스트를 돌린 세션은 작업 묶음이 끝날 때 자기가 띄운 컨테이너와 프로세스를 멈춘다. `cargo xtask test`는 아직 스스로 멈추지 않으므로 손으로 멈춘다(6절의 할 일 5번).
+- `supabase-*`는 다른 작업의 것이다. 건드리지 않는다. 포트 8000의 서비스(`supabase-envoy`)도 그 작업의 것이다.
+
+`cargo xtask test`가 만드는 컨테이너는 둘이다. 값은 모두 테스트 전용이다. 떠 있는 동안에는 워크트리 여럿이 함께 쓴다.
 
 | 컨테이너 | 주소 | 접속 |
 |---|---|---|
 | `hafgufa-pg` (PostgreSQL) | `127.0.0.1:15433` | 사용자 `fvoci`, 비밀번호 `fvoci-test`, DB `fvoci` |
 | `hafgufa-s3` (S3 호환) | `127.0.0.1:18333` | 인증 없음, 버킷 `fvoci-test` |
 
-- 두 컨테이너에는 재시작 정책이 없어 재부팅하면 멈춘다. `cargo xtask test`가 멈춘 것은 시작하고 없는 것은 만든다.
+- `cargo xtask test`가 멈춘 컨테이너는 시작하고 없는 것은 만든다. 재시작 정책은 없다.
 - 같은 이름의 컨테이너가 다른 포트에 게시돼 있으면 xtask가 거절한다.
-- 패닉으로 끝난 테스트가 PostgreSQL에 `t_*` 스키마를 남긴다. 해는 없다. 치우려면 컨테이너를 새로 만든다.
-- 이 기기에는 다른 작업의 컨테이너(`focalboard-port-*`, `supabase-*`)와 포트 8000의 서비스(`supabase-envoy`)가 있다. 건드리지 않는다.
+- 패닉으로 끝난 테스트는 PostgreSQL에 `t_*` 스키마를 남긴다. 해는 없다. 컨테이너를 지우면 함께 없어진다.
 - `/tmp`는 RAM이다. 빌드 산출물과 큰 파일은 워크트리의 `target/` 아래에 둔다.
 - 태그 `parity-s5`는 이 저장소의 원격에도 있다.
 
-컨테이너를 만드는 명령, 스키마를 치우는 법, 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `~/atlas/musical-happiness-carry/server/README.md` 4–5절에 있다.
+컨테이너를 만드는 명령과 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `~/atlas/musical-happiness-carry/server/README.md` 4–5절에 있다. 그 문서는 컨테이너를 지우기 전(03:12–03:19 KST)에 쓰였다. 컨테이너가 떠 있다는 말과 스키마의 수는 지금과 다르다.
 
 ## 3. 걸렸던 함정
 
@@ -200,6 +208,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 2. **템플릿 받기**(설계 3.10, 5.7). 웹앱의 변환기가 낸 산출물을 받아 넣고, 저장소 밖의 템플릿 아카이브에 대한 의존을 끊는다. 이것이 끝나야 새 클론에서 서버가 그대로 컴파일된다.
 3. **청크 업로드, 스트리밍, 파일 한도**(설계 4.3, 5.6).
 4. **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
+5. **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
 
 **웹앱 쪽에 전할 것.**
 
