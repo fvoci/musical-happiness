@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardPatch, BoardSearchField, BoardType, Category,
+    Block, BlockType, Board, BoardMember, BoardPatch, BoardSearchField, BoardType, Body, Category,
     FileInfo, JsonMap, MinimumRole, SubscriberType, Subscription, new_id,
 };
 use fvoci_store::{
@@ -4167,7 +4167,10 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         block_type: BlockType::Text,
         title: "a text".to_owned(),
         fields: object(json!({ "contentOrder": ["a", "b"], "isTemplate": true })),
-        body: None,
+        body: Body::parse(json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "a body"}]},
+        ]}))
+        .expect("a body that may be stored"),
         create_at: 0,
         update_at: 0,
         delete_at: 0,
