@@ -1,5 +1,6 @@
 import type { Preview } from '@storybook/svelte';
 
+import { loadFontFaces } from '$lib/fonts.js';
 import { setLocale } from '$lib/i18n/paraglide/runtime.js';
 import { applyTheme } from '$lib/theme.svelte.js';
 
@@ -44,6 +45,8 @@ const preview: Preview = {
     const locale = globals.locale === 'ko' ? 'ko' : 'en';
     await setLocale(locale, { reload: false });
     document.documentElement.lang = locale;
+    // The app's own fonts, as in the product: the family of the language first.
+    loadFontFaces(locale);
     document.documentElement.style.fontSize = `${Number(globals.textSize) || 100}%`;
     applyTheme(globals.theme === 'dark' ? 'dark' : 'light');
   },
