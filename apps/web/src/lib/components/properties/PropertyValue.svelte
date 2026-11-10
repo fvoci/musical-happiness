@@ -42,6 +42,7 @@
     onRecolorOption,
     onDeleteOption,
     copyText,
+    innerTabindex,
   }: PropertyValueProps = $props();
 
   const type = $derived(template.type);
@@ -95,6 +96,7 @@
     startOpen={open}
     onChange={change}
     {copyText}
+    {innerTabindex}
   />
 {:else if type === 'select' || type === 'multiSelect'}
   <SelectProperty

@@ -75,7 +75,8 @@
           {/key}
         {:else}
           <span data-testid="board-title-text" class="min-w-0 truncate px-1.5">
-            {board.title || m['ViewTitle.untitled-board']()}
+            <!-- The name of a board without one is the same wherever a name is shown; the field's placeholder is the other message. -->
+            {board.title || m['Sidebar.untitled-board']()}
           </span>
         {/if}
       </h1>

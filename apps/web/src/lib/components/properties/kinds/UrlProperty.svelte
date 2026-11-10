@@ -31,6 +31,8 @@
     onChange: (value: string) => void;
     /** Puts a text on the clipboard; defaults to the browser's clipboard. */
     copyText?: (text: string) => void | Promise<void>;
+    /** Where many values share one Tab stop: the stop of the link and the buttons (types.ts). */
+    innerTabindex?: 0 | -1;
   }
 
   let {
@@ -41,7 +43,13 @@
     startOpen = false,
     onChange,
     copyText = (text) => navigator.clipboard.writeText(text),
+    innerTabindex,
   }: Props = $props();
+
+  /** What the link and the buttons carry where their Tab stop is given. */
+  const inner = $derived(
+    innerTabindex === undefined ? {} : { 'data-inner': '', tabindex: innerTabindex },
+  );
 
   // svelte-ignore state_referenced_locally (only where editing starts)
   let editing = $state(startOpen);
@@ -97,6 +105,7 @@
   <span data-slot="property-url" class="group/url flex min-w-0 items-center gap-0.5">
     {#if isAllowedHref(href)}
       <a
+        {...inner}
         {href}
         target="_blank"
         rel="noopener noreferrer"
@@ -114,6 +123,7 @@
     >
       {#if editable}
         <Button
+          {...inner}
           bind:ref={editButton}
           variant="ghost"
           size="icon-sm"
@@ -129,6 +139,7 @@
         </Button>
       {/if}
       <Button
+        {...inner}
         variant="ghost"
         size="icon-sm"
         class="roomy:size-touch"

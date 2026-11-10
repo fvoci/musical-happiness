@@ -70,4 +70,12 @@ export interface PropertyValueProps extends OptionCallbacks, ReaderContext {
   onChange?: (value: PropertyValue | undefined) => void;
   /** Puts a text on the clipboard; defaults to the browser's clipboard. */
   copyText?: (text: string) => void | Promise<void>;
+  /**
+   * For a place that has one Tab stop for many values (a table): the
+   * controls a value shows while it is only read, the link of an address
+   * and its buttons, take this instead of a stop of their own and carry
+   * `data-inner`, so that the place can open them to Tab for the value the
+   * reader is on.
+   */
+  innerTabindex?: 0 | -1;
 }

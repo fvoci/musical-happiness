@@ -274,6 +274,7 @@
             regional={reader.regional}
             nameFormat={reader.nameFormat}
             users={reader.users}
+            innerTabindex={-1}
           />
         </div>
       {/if}

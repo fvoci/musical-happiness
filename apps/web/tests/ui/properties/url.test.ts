@@ -75,6 +75,22 @@ describe('a URL property with a value', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
   });
 
+  it('takes the Tab stop it is given, where many values share one', () => {
+    mount('url', 'https://example.org/page', { innerTabindex: -1 });
+    for (const control of [screen.getByRole('link'), editButton(), copyButton()]) {
+      expect(control).toHaveAttribute('tabindex', '-1');
+      expect(control).toHaveAttribute('data-inner');
+    }
+  });
+
+  it('has stops of its own everywhere else', () => {
+    mount('url', 'https://example.org/page');
+    for (const control of [screen.getByRole('link'), editButton(), copyButton()]) {
+      expect(control).not.toHaveAttribute('tabindex', '-1');
+      expect(control).not.toHaveAttribute('data-inner');
+    }
+  });
+
   it('adds https:// to an address without a scheme', () => {
     mount('url', ' example.org/page ');
     expect(screen.getByRole('link')).toHaveAttribute('href', 'https://example.org/page');
