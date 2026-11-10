@@ -1,0 +1,10 @@
+{
+  "app_name": "fvoci",
+  "app_loading": "Loading…",
+  "ui_close": "Close",
+  "ui_toggle_sidebar": "Toggle sidebar",
+  "ui_sidebar_title": "Sidebar",
+  "ui_sidebar_description": "Navigation between boards.",
+  "ui_command_title": "Search",
+  "ui_command_description": "Type to filter the list."
+}
