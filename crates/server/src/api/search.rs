@@ -65,8 +65,7 @@ async fn search_boards(
     if term.is_empty() {
         return Ok(Vec::new());
     }
-    // A guest finds only the boards they are a member of. There are no accounts in
-    // single-user mode, so nobody to look up.
+    // A guest finds only the boards they are a member of.
     let is_guest = user_is_guest(app, user_id).await?;
     let public_boards = if is_guest {
         PublicBoards::Exclude

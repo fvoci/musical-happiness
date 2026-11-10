@@ -495,25 +495,6 @@ async fn download_with_a_valid_read_token() {
     ts.teardown().await;
 }
 
-/// In single-user mode, file routes still end at the no-session refusal without a valid
-/// token, and succeed with the right token (the security fix on `OptionalSession`).
-#[tokio::test]
-async fn single_user_mode_needs_the_token_for_files() {
-    let ts = Setup::single_user().start().await;
-    // The single-user client is already authorised; make a board and a file.
-    let board = ts.create_board("0", BoardType::Open).await;
-    let file_id = uploaded_id(&upload(&ts.client, "0", &board.id, "f.bin", b"secret-bytes").await);
-    let path = format!("/files/teams/0/{}/{file_id}", board.id);
-
-    ts.client.get(&path).await.check_ok();
-    ts.anonymous().get(&path).await.check_unauthorized();
-    ts.client_with_token("wrong-token")
-        .get(&path)
-        .await
-        .check_unauthorized();
-    ts.teardown().await;
-}
-
 // -- copying files on duplication ------------------------------------------------------
 
 /// `TestCopyAndUpdateCardFiles`: duplicating a board copies its image file to a new name

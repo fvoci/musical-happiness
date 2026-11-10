@@ -80,7 +80,6 @@ async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<
         )
         .await?;
     }
-    // Single-user mode has no user records, and no guests.
     if board.is_template && user_is_guest(app, user_id).await? {
         return Err(AppError::forbidden(
             "guest are not allowed to get board templates",

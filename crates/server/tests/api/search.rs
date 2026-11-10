@@ -3,7 +3,7 @@
 //! that are put into the store directly; the rest checks the routes' answers against the
 //! original server.
 
-use fvoci_model::{Board, BoardType, IdKind, JsonMap, SINGLE_USER_ID, new_id};
+use fvoci_model::{Board, BoardType, IdKind, JsonMap, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
@@ -392,26 +392,6 @@ async fn search_all_boards() {
 
     let response = th.anonymous().get("/boards/search?q=b").await;
     check_error(&response, StatusCode::UNAUTHORIZED, "no session token");
-
-    th.teardown().await;
-}
-
-/// In single-user mode there are no accounts to look up, and the search works.
-#[tokio::test]
-async fn search_in_single_user_mode() {
-    let th = Setup::single_user().start().await;
-    let board = create_board(
-        &th,
-        titled("the only board", BoardType::Private, TEST_TEAM_ID),
-        SINGLE_USER_ID,
-        Membership::Admin,
-    )
-    .await;
-
-    let response = search_team(&th.client, TEST_TEAM_ID, "only").await;
-    assert_eq!(found_ids(&response), sorted_ids(&[&board]), "in the team");
-    let response = th.client.get("/boards/search?q=only").await;
-    assert_eq!(found_ids(&response), sorted_ids(&[&board]), "across teams");
 
     th.teardown().await;
 }

@@ -489,27 +489,6 @@ async fn post_sharing_decodes_missing_members_as_defaults_and_refuses_the_rest()
     th.teardown().await;
 }
 
-/// In single-user mode there is no user to name as the modifier.
-#[tokio::test]
-async fn post_sharing_in_single_user_mode_records_no_modifier() {
-    let th = Setup::single_user()
-        .configure(|config| config.enable_public_shared_boards = true)
-        .start()
-        .await;
-    let board = board_with_admin(&th, fvoci_model::SINGLE_USER_ID, BoardType::Open).await;
-
-    post_sharing(&th.client, &board.id, &sharing_request(&board.id, "token"))
-        .await
-        .check_ok();
-
-    let response = th.client.get(&sharing_path(&board.id)).await;
-    let sharing: Sharing = response.ok_json();
-    assert_eq!(sharing.modified_by, "", "no modifier");
-    assert_eq!(response.value()["modifiedBy"], json!(""), "on the wire too");
-
-    th.teardown().await;
-}
-
 /// Reading the sharing record does not depend on public sharing being turned on: the
 /// original's handler does not look at the configuration (`server/api/sharing.go:24-87`).
 /// The original server at hand runs with sharing turned on, so this is taken from its

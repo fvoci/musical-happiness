@@ -130,10 +130,7 @@ pub(crate) fn require_team_access(
 }
 
 /// Returns whether a user is a guest. There are no guests on a standalone server, but
-/// outside single-user mode the user must exist: a missing user is a 404.
+/// the user must exist: a missing user is a 404.
 pub(crate) async fn user_is_guest(app: &App, user_id: &str) -> Result<bool, AppError> {
-    if app.single_user_token().is_some() {
-        return Ok(false);
-    }
     app.user_is_guest(user_id).await
 }

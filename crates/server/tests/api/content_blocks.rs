@@ -94,7 +94,7 @@ fn ids(blocks: &[&Block]) -> Value {
 }
 
 /// The blocks of the original's `TestMoveContentBlock`: two cards with three content
-/// blocks each, in single-user mode.
+/// blocks each, of one user.
 struct TwoCards {
     th: TestServer,
     card1: Block,
@@ -103,7 +103,7 @@ struct TwoCards {
 }
 
 async fn two_cards() -> TwoCards {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
 
     let card1 = card_block(&board.id, json!({}));
@@ -276,7 +276,7 @@ fn check_refused(outcome: Result<(), AppError>, message: &str) {
 /// `TestMoveContentBlock/"not matching parents"` (app)
 #[tokio::test]
 async fn app_move_content_block_not_matching_parents() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let outcome = th
         .app
@@ -295,7 +295,7 @@ async fn app_move_content_block_not_matching_parents() {
 /// `TestMoveContentBlock/"parent not found"` (app)
 #[tokio::test]
 async fn app_move_content_block_parent_not_found() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let error = th
         .app
@@ -316,7 +316,7 @@ async fn app_move_content_block_parent_not_found() {
 /// `TestMoveContentBlock/"valid parent without content order"` (app)
 #[tokio::test]
 async fn app_move_content_block_valid_parent_without_content_order() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let (outcome, order) =
         app_move(&th, json!({}), ("test-1", MovePosition::After, "test-2")).await;
@@ -333,7 +333,7 @@ async fn app_move_content_block_valid_parent_without_content_order() {
 /// (app)
 #[tokio::test]
 async fn app_move_content_block_valid_parent_with_content_order_but_without_test_1_in_it() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let (outcome, order) = app_move(
         &th,
@@ -354,7 +354,7 @@ async fn app_move_content_block_valid_parent_with_content_order_but_without_test
 /// (app)
 #[tokio::test]
 async fn app_move_content_block_valid_parent_with_content_order_but_without_test_2_in_it() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let (outcome, order) = app_move(
         &th,
@@ -374,7 +374,7 @@ async fn app_move_content_block_valid_parent_with_content_order_but_without_test
 /// `TestMoveContentBlock/"valid request with not real change"` (app)
 #[tokio::test]
 async fn app_move_content_block_valid_request_with_not_real_change() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let (outcome, order) = app_move(
         &th,
@@ -391,7 +391,7 @@ async fn app_move_content_block_valid_request_with_not_real_change() {
 /// `TestMoveContentBlock/"valid request changing order with before"` (app)
 #[tokio::test]
 async fn app_move_content_block_valid_request_changing_order_with_before() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let (outcome, order) = app_move(
         &th,
@@ -408,7 +408,7 @@ async fn app_move_content_block_valid_request_changing_order_with_before() {
 /// `TestMoveContentBlock/"valid request changing order with after"` (app)
 #[tokio::test]
 async fn app_move_content_block_valid_request_changing_order_with_after() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let (outcome, order) = app_move(
         &th,

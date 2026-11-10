@@ -4,7 +4,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::routing::post;
-use fvoci_model::{SINGLE_USER_ID, Sharing};
+use fvoci_model::Sharing;
 use serde_json::Value;
 
 use super::{ApiResult, RequiredSession, empty_response, json_response};
@@ -85,11 +85,7 @@ async fn handle_post_sharing(
     // The board is the one of the path and the modifier the one of the session, whatever
     // the body says. The token is the body's: the client chooses it.
     sharing.id = board_id;
-    sharing.modified_by = if session.user_id == SINGLE_USER_ID {
-        String::new()
-    } else {
-        session.user_id
-    };
+    sharing.modified_by = session.user_id;
 
     app.upsert_sharing(&sharing).await?;
     tracing::debug!(board_id = %sharing.id, "POST sharing");

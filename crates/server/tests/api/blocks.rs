@@ -32,7 +32,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{Client, SINGLE_USER_TOKEN, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{Client, Setup, TEST_TEAM_ID, TestServer};
 
 /// How long to wait for a websocket message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -360,7 +360,7 @@ impl Socket {
 /// `TestGetBlocks`
 #[tokio::test]
 async fn get_blocks() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
 
     let new_blocks = [
@@ -382,7 +382,7 @@ async fn get_blocks() {
 /// `TestPostBlock/"Create a single block"`
 #[tokio::test]
 async fn post_block_create_a_single_block() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
 
     let block = new_block(&board.id, BlockType::Card, "New title");
@@ -399,7 +399,7 @@ async fn post_block_create_a_single_block() {
 /// `TestPostBlock/"Create a couple of blocks in the same call"`
 #[tokio::test]
 async fn post_block_create_a_couple_of_blocks_in_the_same_call() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let first = insert_one(
         &th.client,
@@ -432,7 +432,7 @@ async fn post_block_create_a_couple_of_blocks_in_the_same_call() {
 /// `TestPostBlock/"Update a block should not be possible through the insert endpoint"`
 #[tokio::test]
 async fn post_block_update_a_block_should_not_be_possible_through_the_insert_endpoint() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let first = insert_one(
         &th.client,
@@ -478,7 +478,7 @@ async fn patch_block_fixture(th: &TestServer) -> Block {
 /// `TestPatchBlock/"Patch a block basic field"`
 #[tokio::test]
 async fn patch_block_patch_a_block_basic_field() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let block = patch_block_fixture(&th).await;
 
     patch(&th.client, &block, &title_patch("Updated title")).await;
@@ -500,7 +500,7 @@ fn custom_fields_patch() -> BlockPatch {
 /// `TestPatchBlock/"Patch a block custom fields"`
 #[tokio::test]
 async fn patch_block_patch_a_block_custom_fields() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let block = patch_block_fixture(&th).await;
     patch(&th.client, &block, &title_patch("Updated title")).await;
 
@@ -519,7 +519,7 @@ async fn patch_block_patch_a_block_custom_fields() {
 /// `TestPatchBlock/"Patch a block to remove custom fields"`
 #[tokio::test]
 async fn patch_block_patch_a_block_to_remove_custom_fields() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let block = patch_block_fixture(&th).await;
     patch(&th.client, &block, &custom_fields_patch()).await;
 
@@ -542,7 +542,7 @@ async fn patch_block_patch_a_block_to_remove_custom_fields() {
 /// `TestDeleteBlock/"Create a block"`
 #[tokio::test]
 async fn delete_block_create_a_block() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
 
     let block = new_block(&board.id, BlockType::Card, "New title");
@@ -564,7 +564,7 @@ async fn delete_block_create_a_block() {
 /// `TestDeleteBlock/"Delete a block"`
 #[tokio::test]
 async fn delete_block_delete_a_block() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let block = insert_one(
         &th.client,
@@ -683,7 +683,7 @@ async fn undelete_block_try_to_undelete_a_block_without_permissions() {
 /// `TestInsertBlock/"success scenario"` (app)
 #[tokio::test]
 async fn app_insert_block_success_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let mut block = new_block(&board.id, BlockType::Card, "A card");
 
@@ -705,7 +705,7 @@ async fn app_insert_block_success_scenario() {
 /// that does not exist.
 #[tokio::test]
 async fn app_insert_block_error_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
 
     let mut too_long = new_block(
@@ -738,7 +738,7 @@ async fn app_insert_block_error_scenario() {
 /// `TestPatchBlocks/"patchBlocks success scenario"` (app)
 #[tokio::test]
 async fn app_patch_blocks_success_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "old")).await;
 
@@ -764,7 +764,7 @@ async fn app_patch_blocks_success_scenario() {
 /// and then nothing is patched.
 #[tokio::test]
 async fn app_patch_blocks_error_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "old")).await;
     let missing = new_block(&board.id, BlockType::Card, "never stored");
@@ -790,7 +790,7 @@ async fn app_patch_blocks_error_scenario() {
 /// `TestDeleteBlock/"success scenario"` (app)
 #[tokio::test]
 async fn app_delete_block_success_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "")).await;
 
@@ -821,7 +821,7 @@ async fn app_delete_block_success_scenario() {
 /// through a mock; the failure the real store has is a block that does not exist.
 #[tokio::test]
 async fn app_delete_block_error_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let error = th
         .app
@@ -837,7 +837,7 @@ async fn app_delete_block_error_scenario() {
 /// `TestUndeleteBlock/"success scenario"` (app)
 #[tokio::test]
 async fn app_undelete_block_success_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "back")).await;
     th.app
@@ -864,7 +864,7 @@ async fn app_undelete_block_success_scenario() {
 /// existed ("undeleting non-existing block not considered an error").
 #[tokio::test]
 async fn app_undelete_block_that_never_existed() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
 
     let undeleted = th
         .app
@@ -879,7 +879,7 @@ async fn app_undelete_block_that_never_existed() {
 /// `TestInsertBlocks/"success scenario"` (app)
 #[tokio::test]
 async fn app_insert_blocks_success_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let mut blocks = vec![new_block(&board.id, BlockType::Card, "A card")];
 
@@ -908,7 +908,7 @@ async fn app_insert_blocks_success_scenario() {
 /// boards are refused before anything is stored.
 #[tokio::test]
 async fn app_insert_blocks_error_scenario() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let other = create_board_in_store(&th, BoardType::Open).await;
 
@@ -947,38 +947,6 @@ async fn app_insert_blocks_error_scenario() {
 }
 
 // -- GET /boards/{board_id}/blocks ------------------------------------------------------
-
-/// In single-user mode the original hands the blocks to anyone who can reach the port,
-/// with no token or a wrong one. The port asks for the token.
-#[tokio::test]
-async fn get_blocks_single_user_needs_the_token() {
-    let th = Setup::single_user().start().await;
-    let board = create_board_in_store(&th, BoardType::Private).await;
-    insert_one(&th.client, &new_block(&board.id, BlockType::Card, "secret")).await;
-    let path = blocks_path(&board.id);
-
-    for (who, client) in [
-        ("no token", th.anonymous()),
-        ("a wrong token", th.client_with_token("WRONG")),
-    ] {
-        let response = client.get(&path).await;
-        response.check_unauthorized();
-        assert_eq!(response.error_message(), "access denied to board", "{who}");
-    }
-
-    let blocks: Vec<Block> = th
-        .client_with_token(SINGLE_USER_TOKEN)
-        .get(&path)
-        .await
-        .ok_json();
-    assert_eq!(
-        titles(&blocks),
-        ["secret"],
-        "the right token reads the board"
-    );
-
-    th.teardown().await;
-}
 
 /// Who may read the blocks of a board, and what the others are told.
 #[tokio::test]
@@ -1142,7 +1110,7 @@ async fn get_blocks_with_a_read_token() {
 /// `type`.
 #[tokio::test]
 async fn get_blocks_filters() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let path = blocks_path(&board.id);
 
@@ -1223,7 +1191,7 @@ async fn get_blocks_filters() {
 /// `GET /boards/{board_id}/blocks?block_id=`: one block, if it is on the board.
 #[tokio::test]
 async fn get_blocks_by_block_id() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let other_board = create_board_in_store(&th, BoardType::Open).await;
     let path = blocks_path(&board.id);
@@ -2123,7 +2091,7 @@ async fn duplicate_block_refusals() {
 /// default.
 #[tokio::test]
 async fn post_blocks_larger_than_two_megabytes() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let big = |title: &str| Block {
         fields: fields(json!({"big": "a".repeat(750_000)})),

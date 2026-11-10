@@ -10,7 +10,6 @@ use crate::JsonMap;
 use crate::card_property::{CardPropertyError, validate_block_properties};
 use crate::id::IdKind;
 use crate::serde_util::null_as_default;
-use crate::user::SINGLE_USER_ID;
 
 /// Maximum number of characters in a block title.
 ///
@@ -304,16 +303,9 @@ pub struct BlockPatchBatch {
 }
 
 /// Marks every block as modified by `user_id` at `now` (milliseconds since the epoch).
-///
-/// The single-user pseudo user is recorded as an empty modifier.
 pub fn stamp_modification_metadata(user_id: &str, blocks: &mut [Block], now: i64) {
-    let modified_by = if user_id == SINGLE_USER_ID {
-        ""
-    } else {
-        user_id
-    };
     for block in blocks {
-        modified_by.clone_into(&mut block.modified_by);
+        user_id.clone_into(&mut block.modified_by);
         block.update_at = now;
     }
 }

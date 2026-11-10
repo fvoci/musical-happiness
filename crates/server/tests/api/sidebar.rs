@@ -10,8 +10,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Board, BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, IdKind,
-    SINGLE_USER_ID, new_id,
+    Board, BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, IdKind, new_id,
 };
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -189,7 +188,8 @@ fn check_error(response: &ApiResponse, status: StatusCode, message: &str) {
 /// without those routes.
 #[tokio::test]
 async fn sidebar() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
+    let user_id = th.client.me().await.id;
 
     // A new board ends up in the default "Boards" category.
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
@@ -200,11 +200,8 @@ async fn sidebar() {
 
     // A second board is moved into a new category.
     let board2 = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let created = create_category(
-        &th.client,
-        &category(TEST_TEAM_ID, SINGLE_USER_ID, "Category 2"),
-    )
-    .await;
+    let created =
+        create_category(&th.client, &category(TEST_TEAM_ID, &user_id, "Category 2")).await;
     file_board(&th.client, TEST_TEAM_ID, &created.id, &board2.id).await;
 
     // New categories end up on top.
@@ -240,9 +237,10 @@ async fn sidebar() {
 /// is filed when the default category is created, the second is filed by hand.
 #[tokio::test]
 async fn sidebar_with_boards_from_the_store() {
-    let th = Setup::single_user().start().await;
+    let th = Setup::one_user().start().await;
+    let user_id = th.client.me().await.id;
 
-    let board = board_with_admin(&th, TEST_TEAM_ID, SINGLE_USER_ID).await;
+    let board = board_with_admin(&th, TEST_TEAM_ID, &user_id).await;
     let listed = category_boards(&th.client, TEST_TEAM_ID).await;
     assert_eq!(names(&listed), ["Boards"], "only the default category");
     assert_eq!(board_ids(&listed[0]), [board.id.as_str()], "the board");
@@ -252,12 +250,9 @@ async fn sidebar_with_boards_from_the_store() {
         "the default category is a system category"
     );
 
-    let board2 = board_with_admin(&th, TEST_TEAM_ID, SINGLE_USER_ID).await;
-    let created = create_category(
-        &th.client,
-        &category(TEST_TEAM_ID, SINGLE_USER_ID, "Category 2"),
-    )
-    .await;
+    let board2 = board_with_admin(&th, TEST_TEAM_ID, &user_id).await;
+    let created =
+        create_category(&th.client, &category(TEST_TEAM_ID, &user_id, "Category 2")).await;
     file_board(&th.client, TEST_TEAM_ID, &created.id, &board2.id).await;
 
     let listed = category_boards(&th.client, TEST_TEAM_ID).await;
@@ -301,8 +296,9 @@ async fn sidebar_with_boards_from_the_store() {
 /// the default category when that is created, which is all this test needs of it.
 #[tokio::test]
 async fn hide_unhide_board() {
-    let th = Setup::single_user().start().await;
-    board_with_admin(&th, TEST_TEAM_ID, SINGLE_USER_ID).await;
+    let th = Setup::one_user().start().await;
+    let user_id = th.client.me().await.id;
+    board_with_admin(&th, TEST_TEAM_ID, &user_id).await;
 
     // The board is not hidden to begin with.
     let listed = category_boards(&th.client, TEST_TEAM_ID).await;

@@ -11,15 +11,13 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{
-    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, SINGLE_USER_ID,
-};
+use fvoci_model::{Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig};
 use fvoci_store::Store;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::auth::{Authenticator, now_millis, tokens_match};
+use crate::auth::{Authenticator, now_millis};
 use crate::permissions::{TeamPermission, has_permission_to_team};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
@@ -174,24 +172,17 @@ struct HubInner {
     listeners: Mutex<Listeners>,
     store: Store,
     auth: Authenticator,
-    single_user_token: Option<String>,
     ping_interval: Option<Duration>,
 }
 
 impl Hub {
     /// Creates a hub. `ping_interval` is how often each connection is pinged, if at all.
-    pub fn new(
-        store: Store,
-        auth: Authenticator,
-        single_user_token: Option<String>,
-        ping_interval: Option<Duration>,
-    ) -> Self {
+    pub fn new(store: Store, auth: Authenticator, ping_interval: Option<Duration>) -> Self {
         Self {
             inner: Arc::new(HubInner {
                 listeners: Mutex::new(Listeners::default()),
                 store,
                 auth,
-                single_user_token,
                 ping_interval,
             }),
         }
@@ -344,12 +335,7 @@ impl Hub {
 
         match command.action.as_str() {
             "SUBSCRIBE_TEAM" => {
-                let allowed = if self.inner.single_user_token.is_some() {
-                    user_id == SINGLE_USER_ID
-                } else {
-                    has_permission_to_team(&user_id, &command.team_id, TeamPermission::ViewTeam)
-                };
-                if allowed {
+                if has_permission_to_team(&user_id, &command.team_id, TeamPermission::ViewTeam) {
                     subscribe_to_team(&mut self.listeners(), id, &command.team_id);
                 } else {
                     tracing::error!(team_id = %command.team_id, user_id, "websocket: no team access");
@@ -379,18 +365,13 @@ impl Hub {
             return true;
         }
 
-        let user_id = match &self.inner.single_user_token {
-            Some(single_user_token) => {
-                user_id_for_single_user_token(single_user_token, token).map(str::to_owned)
-            }
-            None => self
-                .inner
-                .auth
-                .get_session(token)
-                .await
-                .ok()
-                .map(|session| session.user_id),
-        };
+        let user_id = self
+            .inner
+            .auth
+            .get_session(token)
+            .await
+            .ok()
+            .map(|session| session.user_id);
         let Some(user_id) = user_id.filter(|user_id| !user_id.is_empty()) else {
             return false;
         };
@@ -401,7 +382,7 @@ impl Hub {
         // made this a connection of that user; the closing of the user's connections
         // would then have passed this one by. Looked up once more, now that it is
         // closable, the session is either still there or the connection ends.
-        self.inner.single_user_token.is_some() || self.inner.auth.get_session(token).await.is_ok()
+        self.inner.auth.get_session(token).await.is_ok()
     }
 
     /// A block subscription needs a team, blocks that all belong to one board, and that
@@ -692,11 +673,6 @@ impl Hub {
     }
 }
 
-/// In single-user mode, the token of the mode stands for the one user.
-fn user_id_for_single_user_token(single_user_token: &str, token: &str) -> Option<&'static str> {
-    tokens_match(single_user_token, token).then_some(SINGLE_USER_ID)
-}
-
 /// Waits for the next tick of the interval, or forever if there is none.
 async fn next_tick(interval: Option<&mut tokio::time::Interval>) {
     match interval {
@@ -969,30 +945,5 @@ mod tests {
                 "{block_id}"
             );
         }
-    }
-
-    /// `TestGetUserIDForTokenInSingleUserMode`
-    #[test]
-    fn get_user_id_for_token_in_single_user_mode() {
-        let single_user_token = "single-user-token";
-
-        // "Should return nothing if the token is empty"
-        assert_eq!(
-            user_id_for_single_user_token(single_user_token, ""),
-            None,
-            "empty"
-        );
-        // "Should return nothing if the token is invalid"
-        assert_eq!(
-            user_id_for_single_user_token(single_user_token, "invalid-token"),
-            None,
-            "invalid"
-        );
-        // "Should return the single user ID if the token is correct"
-        assert_eq!(
-            user_id_for_single_user_token(single_user_token, single_user_token),
-            Some(SINGLE_USER_ID),
-            "correct"
-        );
     }
 }

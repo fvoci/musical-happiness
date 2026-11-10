@@ -2,18 +2,14 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context as _, bail};
+use anyhow::Context as _;
 use clap::Parser;
 use fvoci_server::config::{Configuration, ENV_PREFIX};
 use fvoci_server::{BASE_PATH_ENV, Server, listen_address};
 use tracing_subscriber::EnvFilter;
 
-/// The environment variable that holds the token of single-user mode.
-const SINGLE_USER_TOKEN_ENV: &str = "FVOCI_SINGLE_USER_TOKEN";
-
 /// Settings that are distinctive enough to recognize under a wrong prefix.
-const DISTINCTIVE_SETTINGS: [&str; 8] = [
-    "SINGLE_USER_TOKEN",
+const DISTINCTIVE_SETTINGS: [&str; 7] = [
     "HTTP_SERVER_BASEPATH",
     "SERVERROOT",
     "DBCONFIG",
@@ -39,9 +35,6 @@ struct Cli {
     /// Database config; overrides the config file.
     #[arg(long)]
     dbconfig: Option<String>,
-    /// Single-user mode: no accounts, `FVOCI_SINGLE_USER_TOKEN` is the credential.
-    #[arg(long)]
-    single_user: bool,
 }
 
 fn init_logging() {
@@ -97,24 +90,12 @@ async fn main() -> anyhow::Result<()> {
         config.port = port;
     }
 
-    let single_user_token = if cli.single_user {
-        let token = std::env::var(SINGLE_USER_TOKEN_ENV).unwrap_or_default();
-        if token.is_empty() {
-            bail!(
-                "the {SINGLE_USER_TOKEN_ENV} environment variable must be set for single user mode"
-            );
-        }
-        tracing::info!("single user mode");
-        Some(token)
-    } else {
-        None
-    };
     let base_path = std::env::var(BASE_PATH_ENV).unwrap_or_default();
 
     let address = listen_address(&config);
     let port = config.port;
     let local_only = config.local_only;
-    let server = Server::new(config, single_user_token, &base_path).await?;
+    let server = Server::new(config, &base_path).await?;
 
     let listener = if local_only {
         tokio::net::TcpListener::bind(("localhost", port)).await

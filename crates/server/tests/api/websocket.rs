@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{SINGLE_USER_TOKEN, Setup, TestServer};
+use crate::common::{Setup, TestServer};
 
 /// How long to wait for a message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -171,26 +171,6 @@ async fn authentication_with_an_unknown_token_closes_the_connection() {
         Event::Closed,
         "the server hangs up"
     );
-    th.teardown().await;
-}
-
-/// In single-user mode the single-user token authenticates, and nothing else does.
-#[tokio::test]
-async fn single_user_authentication() {
-    let th = Setup::single_user().start().await;
-
-    let mut socket = Socket::connect(&th).await;
-    socket.authenticate(SINGLE_USER_TOKEN).await;
-    subscribe_to_team(&th, &mut socket, "0", "single-user").await;
-
-    let mut wrong = Socket::connect(&th).await;
-    wrong.authenticate("WRONG").await;
-    assert_eq!(
-        wrong.next(PATIENCE).await,
-        Event::Closed,
-        "a wrong token hangs up"
-    );
-
     th.teardown().await;
 }
 

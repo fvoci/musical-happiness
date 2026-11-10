@@ -10,8 +10,7 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, IdKind, SINGLE_USER_ID, SubscriberType,
-    Subscription, new_id,
+    Block, BlockType, Board, BoardMember, BoardType, IdKind, SubscriberType, Subscription, new_id,
 };
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -499,37 +498,6 @@ async fn delete_subscription_to_a_deleted_block() {
     response.check_ok();
     assert_eq!(response.text(), "{}", "the empty object");
     assert_eq!(subscriptions_of(&th.client, &me).await, [], "it is gone");
-    th.teardown().await;
-}
-
-/// Single-user mode: the one user subscribes under its fixed identifier.
-#[tokio::test]
-async fn subscriptions_in_single_user_mode() {
-    let th = Setup::single_user().start().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let card = insert_card(&th.client, &board.id).await;
-
-    let subscription = subscribe(&th.client, &card.id, SINGLE_USER_ID).await;
-    assert_eq!(subscription.subscriber_id, SINGLE_USER_ID, "the one user");
-    let response = th.client.post(PATH, &request(&card.id, "someone")).await;
-    check_error(&response, StatusCode::FORBIDDEN, NOT_FOR_OTHERS);
-    assert_eq!(
-        subscriptions_of(&th.client, SINGLE_USER_ID).await,
-        [subscription]
-    );
-    let response = get_subscriptions(&th.client, "someone").await;
-    check_error(&response, StatusCode::NOT_FOUND, "subscriber not found");
-    let response = get_subscriptions(&th.client_with_token("wrong"), SINGLE_USER_ID).await;
-    check_error(
-        &response,
-        StatusCode::UNAUTHORIZED,
-        "invalid single user token",
-    );
-
-    unsubscribe(&th.client, &card.id, SINGLE_USER_ID)
-        .await
-        .check_ok();
-    assert_eq!(subscriptions_of(&th.client, SINGLE_USER_ID).await, []);
     th.teardown().await;
 }
 

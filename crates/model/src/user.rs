@@ -8,9 +8,6 @@ use serde::{Deserialize, Serialize};
 use crate::JsonMap;
 use crate::serde_util::{is_zero, null_as_default};
 
-/// The identifier of the pseudo user that owns everything in single-user mode.
-pub const SINGLE_USER_ID: &str = "single-user";
-
 /// The identifier of the one team a standalone server has.
 pub const GLOBAL_TEAM_ID: &str = "0";
 

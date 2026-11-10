@@ -282,17 +282,3 @@ fn stamp_modification_metadata_base_case() {
     assert_eq!(blocks[0].modified_by, "user_id_1");
     assert_eq!(blocks[0].update_at, 1_700_000_000_000);
 }
-
-/// Not in the original suite: the single-user pseudo user is recorded as no modifier.
-#[test]
-fn stamp_modification_metadata_blanks_the_single_user() {
-    let mut blocks = vec![Block {
-        modified_by: "someone".to_owned(),
-        ..Block::default()
-    }];
-
-    stamp_modification_metadata(fvoci_model::SINGLE_USER_ID, &mut blocks, 5);
-
-    assert_eq!(blocks[0].modified_by, "");
-    assert_eq!(blocks[0].update_at, 5);
-}

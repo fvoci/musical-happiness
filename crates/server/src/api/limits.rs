@@ -69,7 +69,7 @@ pub(crate) async fn limit_session_request_body(
     let small = UNAUTHENTICATED_BODY_LIMIT.0;
     let largest = declared_length(&request).or_else(|| request.body().size_hint().upper());
     let wants_the_room = !token.is_empty() && largest.is_none_or(|length| length > small);
-    if wants_the_room && let Err(error) = session_of(&app, token).await {
+    if wants_the_room && let Err(error) = session_of(&app, &token).await {
         let (parts, body) = request.into_parts();
         if !parts.headers.contains_key(EXPECT) {
             discard(body.into_data_stream(), 0).await;

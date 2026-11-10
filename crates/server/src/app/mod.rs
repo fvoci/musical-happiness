@@ -66,7 +66,6 @@ struct Inner {
     files: FileBackend,
     web: WebRoot,
     webhook: Webhook,
-    single_user_token: Option<String>,
     /// Work that continues after a response was sent: websocket broadcasts and webhooks.
     background: TaskTracker,
     /// Held while a user's default category is looked for and created, so that two
@@ -95,35 +94,22 @@ pub struct ServerMetadata {
     pub os_type: String,
     /// The CPU architecture the server runs on.
     pub os_arch: String,
-    /// `personal_desktop` in single-user mode, `personal_server` otherwise.
+    /// The kind of deployment: always `personal_server`.
     pub sku: String,
 }
 
 impl App {
     /// Assembles the application state.
     ///
-    /// `single_user_token` puts the server into single-user mode: there are no accounts,
-    /// and the token is the one credential.
-    ///
     /// # Errors
     ///
     /// Returns an error if webhooks are configured and their HTTP client cannot be set
     /// up.
-    pub fn new(
-        config: Configuration,
-        store: Store,
-        files: FileBackend,
-        single_user_token: Option<String>,
-    ) -> anyhow::Result<Self> {
+    pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
         let auth = Authenticator::new(store.clone(), &config);
         let ping_interval = (config.websocket_ping_seconds > 0)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
-        let ws = Hub::new(
-            store.clone(),
-            auth.clone(),
-            single_user_token.clone(),
-            ping_interval,
-        );
+        let ws = Hub::new(store.clone(), auth.clone(), ping_interval);
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;
@@ -136,7 +122,6 @@ impl App {
                 files,
                 web,
                 webhook,
-                single_user_token,
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
             }),
@@ -176,11 +161,6 @@ impl App {
     /// The webhook client.
     pub fn webhook(&self) -> &Webhook {
         &self.inner.webhook
-    }
-
-    /// The single-user token, if the server runs in single-user mode.
-    pub fn single_user_token(&self) -> Option<&str> {
-        self.inner.single_user_token.as_deref()
     }
 
     /// Waits for the turn to create a user's default category.
@@ -306,12 +286,7 @@ impl App {
             db_version,
             os_type: go_os_name().to_owned(),
             os_arch: go_arch_name().to_owned(),
-            sku: if self.single_user_token().is_some() {
-                "personal_desktop"
-            } else {
-                "personal_server"
-            }
-            .to_owned(),
+            sku: "personal_server".to_owned(),
         }
     }
 }

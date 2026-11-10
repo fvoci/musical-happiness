@@ -32,17 +32,7 @@ pub(super) fn unauthenticated_routes() -> Router<App> {
         .route("/register", post(handle_register))
 }
 
-/// Accounts do not exist in single-user mode.
-fn reject_in_single_user_mode(app: &App) -> Result<(), AppError> {
-    if app.single_user_token().is_some() {
-        return Err(AppError::forbidden("not permitted in single-user mode")
-            .with_reason(Reason::SingleUserMode));
-    }
-    Ok(())
-}
-
 async fn handle_login(State(app): State<App>, body: Bytes) -> ApiResult {
-    reject_in_single_user_mode(&app)?;
     let login: LoginRequest = decode_object(&body)?;
     if login.login_type != "normal" {
         return Err(AppError::bad_request("invalid login type").with_field("type"));
@@ -57,13 +47,11 @@ async fn handle_logout(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    reject_in_single_user_mode(&app)?;
     app.logout(&session.id).await?;
     Ok(empty_response())
 }
 
 async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
-    reject_in_single_user_mode(&app)?;
     let mut register: RegisterRequest = decode_object(&body)?;
     register.email = register.email.trim().to_owned();
     register.username = register.username.trim().to_owned();
@@ -104,7 +92,6 @@ async fn handle_change_password(
     Path(user_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    reject_in_single_user_mode(&app)?;
     // The original lets any signed-in user change any user's password, provided they
     // know that user's current password. A password change is for one's own account.
     if session.user_id != user_id {

@@ -71,24 +71,16 @@ pub struct Server {
 impl Server {
     /// Connects to the database and the file storage and prepares the application.
     ///
-    /// `single_user_token` puts the server into single-user mode. `base_path` is a path
-    /// prefix, such as `/boards`, under which everything is served; empty for none.
+    /// `base_path` is a path prefix, such as `/boards`, under which everything is served;
+    /// empty for none.
     ///
     /// # Errors
     ///
     /// Returns an error if the configuration asks for something unsupported, or the
     /// database or the file storage cannot be set up.
-    pub async fn new(
-        config: Configuration,
-        single_user_token: Option<String>,
-        base_path: &str,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(config: Configuration, base_path: &str) -> anyhow::Result<Self> {
         for warning in config.check()? {
             tracing::warn!("{warning}");
-        }
-        // An empty token would match every request that carries none.
-        if single_user_token.as_deref() == Some("") {
-            bail!("the single-user token must not be empty");
         }
         let base_path = base_path.trim_end_matches('/');
         // What the router would read as a pattern or could never match is refused here,
@@ -108,7 +100,7 @@ impl Server {
         let files =
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
-        let app = App::new(config, store, files, single_user_token)?;
+        let app = App::new(config, store, files)?;
         app.root_team().await.context("unable to get root team")?;
         if !skip_template_init {
             app.init_templates()

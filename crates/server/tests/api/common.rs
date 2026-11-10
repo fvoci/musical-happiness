@@ -27,8 +27,6 @@ pub(crate) const USER2_USERNAME: &str = "user2";
 pub(crate) const PASSWORD: &str = "Pa$$word";
 /// The team the original's tests use. A standalone server accepts any team identifier.
 pub(crate) const TEST_TEAM_ID: &str = "team-id";
-/// The single-user token of `SetupTestHelperWithToken`.
-pub(crate) const SINGLE_USER_TOKEN: &str = "TESTTOKEN";
 
 /// A running server with a database and directories of its own.
 pub(crate) struct TestServer {
@@ -48,7 +46,8 @@ pub(crate) struct TestServer {
 /// How a test server differs from the default one.
 #[derive(Debug, Default)]
 pub(crate) struct Setup {
-    single_user_token: Option<String>,
+    /// Whether `user1` is registered and signed in on both clients at the start.
+    one_user: bool,
     public_shared_boards: bool,
     base_path: String,
     configure: Vec<fn(&mut Configuration)>,
@@ -65,18 +64,11 @@ impl Setup {
         Self::default()
     }
 
-    /// `SetupTestHelperWithToken`: single-user mode; both clients carry the token.
-    pub(crate) fn single_user() -> Self {
+    /// One user, `user1`, registered and signed in on both clients: for tests that are
+    /// about what a user does and not about who may do it.
+    pub(crate) fn one_user() -> Self {
         Self {
-            single_user_token: Some(SINGLE_USER_TOKEN.to_owned()),
-            ..Self::default()
-        }
-    }
-
-    /// Single-user mode with a token of the caller's choosing.
-    pub(crate) fn single_user_with_token(token: &str) -> Self {
-        Self {
-            single_user_token: Some(token.to_owned()),
+            one_user: true,
             ..Self::default()
         }
     }
@@ -166,8 +158,7 @@ impl Setup {
             change(&mut config);
         }
 
-        let mut server =
-            Server::new(config, self.single_user_token.clone(), &self.base_path).await?;
+        let mut server = Server::new(config, &self.base_path).await?;
         if let Some(tls_files) = self.tls_files {
             server = server.with_tls_files(tls_files);
         }
@@ -182,17 +173,23 @@ impl Setup {
         }));
 
         let base_url = format!("http://{address}{}", self.base_path);
-        let token = self.single_user_token.unwrap_or_default();
-        Ok(TestServer {
+        let mut server = TestServer {
             app,
-            client: Client::new(&base_url, &token),
-            client2: Client::new(&base_url, &token),
+            client: Client::new(&base_url, ""),
+            client2: Client::new(&base_url, ""),
             base_url,
             shutdown,
             serving,
             database,
             directory,
-        })
+        };
+        if self.one_user {
+            server.client = server
+                .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD, "")
+                .await;
+            server.client2 = server.client.clone();
+        }
+        Ok(server)
     }
 }
 

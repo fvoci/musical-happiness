@@ -69,23 +69,6 @@ async fn ping_returns_metadata_on_success() {
     th.teardown().await;
 }
 
-/// `TestPing/"Sets SKU to 'personal_desktop' when in single-user mode"`. The case
-/// `"Sets SKU to 'suite' when in plugin mode"` has no counterpart: there is no such mode.
-#[tokio::test]
-async fn ping_sets_sku_to_personal_desktop_when_in_single_user_mode() {
-    let th = Setup::single_user().start().await;
-
-    // No token: `/ping` needs none.
-    let response = Client::send(th.anonymous().raw_request(Method::GET, "/ping")).await;
-
-    assert_eq!(
-        response.ok_json::<serde_json::Value>()["sku"],
-        json!("personal_desktop"),
-        "sku"
-    );
-    th.teardown().await;
-}
-
 /// `TestGetClientConfig/"Test Get Client Config"`. Telemetry is not ported; its two
 /// members are still sent, switched off, for the original's web app.
 #[tokio::test]
@@ -206,11 +189,10 @@ async fn base_path_prefixes_every_route() {
     th.teardown().await;
 }
 
-/// A base path that is no absolute path, and an empty single-user token, are refused at
-/// startup with an error. The first would otherwise end in a panic of the router, the
-/// second would let every request without a token in.
+/// A base path that is no absolute path is refused at startup with an error. It would
+/// otherwise end in a panic of the router.
 #[tokio::test]
-async fn startup_refuses_a_malformed_base_path_and_an_empty_single_user_token() {
+async fn startup_refuses_a_malformed_base_path() {
     for base_path in [
         "boards",
         "/boards/{team}",
@@ -235,13 +217,6 @@ async fn startup_refuses_a_malformed_base_path_and_an_empty_single_user_token() 
             "{base_path:?}: {error}"
         );
     }
-
-    let error = Setup::single_user_with_token("")
-        .try_start()
-        .await
-        .err()
-        .expect("an empty single-user token must be refused");
-    assert!(error.to_string().contains("single-user token"), "{error}");
 
     // A trailing slash is fine, as before.
     let th = Setup::native().base_path("/boards/").start().await;

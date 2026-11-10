@@ -10,7 +10,7 @@ use std::io::{Cursor, Read as _};
 use bytes::Bytes;
 use fvoci_model::{
     ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardType, BoardsAndBlocks,
-    BoardsAndBlocksError, JsonMap, SINGLE_USER_ID, renew_boards_and_blocks_ids,
+    BoardsAndBlocksError, JsonMap, renew_boards_and_blocks_ids,
 };
 use fvoci_store::DuplicateAs;
 use serde_json::Value;
@@ -316,11 +316,7 @@ fn parse_archive_lines(
     team_id: &str,
     modified_by: &str,
 ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
-    let modifier_user = if modified_by == SINGLE_USER_ID {
-        ""
-    } else {
-        modified_by
-    };
+    let modifier_user = modified_by;
     let now = now_millis();
     let mut boards_and_blocks = BoardsAndBlocks::default();
     let mut board_members: Vec<BoardMember> = Vec::new();

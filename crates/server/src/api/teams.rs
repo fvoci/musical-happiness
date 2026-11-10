@@ -4,9 +4,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::get;
-use fvoci_model::SINGLE_USER_ID;
 
-use super::users::single_user;
 use super::{ApiResult, RequiredSession, decode_json, json_response, query_param};
 use super::{require_team_access, user_is_guest};
 use crate::app::App;
@@ -64,13 +62,8 @@ async fn handle_get_team_users_by_id(
 ) -> ApiResult {
     let user_ids: Vec<String> = decode_json(&body)?;
     require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED)?;
-    let Some(first) = user_ids.first() else {
+    if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
-    };
-    let users = if first == SINGLE_USER_ID {
-        vec![single_user(&app).await]
-    } else {
-        app.users_list(&user_ids).await?
-    };
-    Ok(json_response(&users))
+    }
+    Ok(json_response(&app.users_list(&user_ids).await?))
 }

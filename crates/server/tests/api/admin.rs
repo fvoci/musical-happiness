@@ -677,11 +677,4 @@ async fn routes_of_the_host_application_do_not_exist() {
         }
     }
     th.teardown().await;
-
-    let single_user = Setup::single_user().start().await;
-    for path in paths {
-        let response = single_user.client.get(path).await;
-        response.check_error(StatusCode::NOT_FOUND, "route not found");
-    }
-    single_user.teardown().await;
 }

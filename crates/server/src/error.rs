@@ -83,8 +83,6 @@ pub enum Reason {
     LastAdmin,
     /// Public sharing is turned off in the server's configuration.
     SharingDisabled,
-    /// The route does not exist for the one user of single-user mode.
-    SingleUserMode,
 }
 
 impl Reason {
@@ -99,7 +97,6 @@ impl Reason {
             Self::EmailTaken => "email_taken",
             Self::LastAdmin => "last_admin",
             Self::SharingDisabled => "sharing_disabled",
-            Self::SingleUserMode => "single_user_mode",
         }
     }
 }

@@ -58,9 +58,7 @@ pub use id::{IdKind, new_id};
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::Team;
-pub use user::{
-    GLOBAL_TEAM_ID, SINGLE_USER_ID, SYSTEM_USER_ID, Session, User, UserPreferencesPatch,
-};
+pub use user::{GLOBAL_TEAM_ID, SYSTEM_USER_ID, Session, User, UserPreferencesPatch};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.
 pub type JsonMap = serde_json::Map<String, serde_json::Value>;

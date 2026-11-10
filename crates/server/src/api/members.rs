@@ -121,8 +121,7 @@ async fn handle_add_member(
     if request.user_id.is_empty() {
         return Err(AppError::bad_request("empty userID").with_field("userId"));
     }
-    // The original stores a membership of nobody; the user must exist. Single-user mode
-    // has no accounts to look up.
+    // The original stores a membership of nobody; the user must exist.
     match user_is_guest(&app, &request.user_id).await {
         Ok(_) => {}
         Err(error) if error.is_not_found() => {

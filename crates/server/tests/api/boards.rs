@@ -35,7 +35,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{ApiResponse, Client, SINGLE_USER_TOKEN, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
 
 // -- helpers --------------------------------------------------------------------------
 
@@ -969,34 +969,6 @@ async fn get_board_a_user_with_permissions_to_the_team_can_retrieve_a_public_boa
     let read: Board = get_board(&th.client, &board.id).await.ok_json();
 
     assert_eq!(read, board, "a user of the team reads an open board");
-    th.teardown().await;
-}
-
-/// In single-user mode the original hands every request to this route the single-user
-/// session, whatever token it carries, so anyone who reaches the port reads any board.
-/// The port gives a session only for the right token; without it the request ends at the
-/// original's refusal for "no session, no valid read token".
-#[tokio::test]
-async fn get_board_in_single_user_mode_needs_the_token() {
-    let th = Setup::single_user().start().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-
-    // The right token reads the board.
-    let read: Board = get_board(&th.client, &board.id).await.ok_json();
-    assert_eq!(read, board, "the single user reads their board");
-
-    // No token and a wrong token are refused.
-    for client in [th.anonymous(), th.client_with_token("WRONG")] {
-        let response = get_board(&client, &board.id).await;
-        response.check_unauthorized();
-        assert_eq!(
-            response.error_message(),
-            "access denied to board",
-            "the refusal of a request without session and read token"
-        );
-    }
-    assert_ne!(SINGLE_USER_TOKEN, "WRONG", "the wrong token is wrong");
-
     th.teardown().await;
 }
 
@@ -2456,31 +2428,6 @@ async fn update_member_checks() {
         .await
         .check_status(StatusCode::CONFLICT);
 
-    th.teardown().await;
-}
-
-/// In single-user mode there is no user record to look up, and the single user's
-/// membership can be updated.
-#[tokio::test]
-async fn update_member_in_single_user_mode() {
-    let th = Setup::single_user().start().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-
-    let response = update_member(
-        &th.client,
-        &BoardMember {
-            scheme_admin: true,
-            scheme_viewer: true,
-            ..member(&board.id, "single-user")
-        },
-    )
-    .await;
-
-    let updated: BoardMember = response.ok_json();
-    assert!(
-        updated.scheme_admin && updated.scheme_viewer && !updated.scheme_editor,
-        "the new roles: {updated:?}"
-    );
     th.teardown().await;
 }
 
