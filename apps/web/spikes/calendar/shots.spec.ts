@@ -12,12 +12,12 @@
  *
  * The same input gives the same picture: the data is written out, its "now"
  * with it, the browser's clock is fixed, and a picture is taken only after
- * the fonts have arrived and nothing moves.
+ * the fonts have arrived, on a page where nothing animates (`still`).
  */
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { expect, test, type BrowserContextOptions } from '@playwright/test';
+import { expect, test, type BrowserContextOptions, type Page } from '@playwright/test';
 
 import { SCREENS, SIZES, addressOf, type ScreenId, type Variant } from './params.ts';
 import { NOW, PAGE, settled } from './support.ts';
@@ -111,6 +111,28 @@ const SHOTS: Shot[] = [
   })),
 ];
 
+/**
+ * Nothing on the page animates or fades. What opens with the page (a popover,
+ * a sheet) otherwise grows into place, and the browser may keep drawing it
+ * from the bitmap it made while it was still a little smaller: its rounded
+ * corner then differs by a few pixels from one run to the next.
+ */
+async function still(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const style = document.createElement('style');
+    style.textContent =
+      '*, *::before, *::after { animation: none !important; transition: none !important; }';
+    // As soon as there is a head, which is before the page's own script runs.
+    document.addEventListener(
+      'readystatechange',
+      () => {
+        document.head.append(style);
+      },
+      { once: true },
+    );
+  });
+}
+
 // A trace would only slow this down, and a second attempt would hide a picture that differs.
 test.use({ trace: 'off' });
 
@@ -136,9 +158,12 @@ test.describe('screenshots of the calendar proposals', () => {
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       await page.clock.setFixedTime(NOW);
+      await still(page);
 
       await page.goto(PAGE + addressOf(shot.screen, shot.variant, shot.extra));
       await expect(page.getByTestId('calendar-toolbar')).toBeVisible();
+      // The rule that stops animations was there before anything opened.
+      expect(await page.evaluate(() => document.getAnimations().length)).toBe(0);
       await settled(page);
       // Whatever opened with the page took the focus, and a page nobody has
       // touched yet draws the ring of the keyboard around it. A person who
@@ -146,6 +171,7 @@ test.describe('screenshots of the calendar proposals', () => {
       await page.evaluate(() => {
         if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
       });
+      await settled(page);
 
       await page.screenshot({
         path: path.join(OUT, `${shot.name}.png`),
