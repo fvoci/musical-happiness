@@ -723,9 +723,9 @@ mod tests {
         let config = Configuration::parse(r#"{"port": 0}"#, no_env).expect("read");
         let error = config.check().expect_err("port 0 is refused");
         assert!(error.to_string().contains("port"), "{error}");
-        let error = Configuration::parse(r#"{"filesS3Config": "x"}"#, no_env)
-            .err()
-            .expect("a string is no S3 settings");
+        let Err(error) = Configuration::parse(r#"{"filesS3Config": "x"}"#, no_env) else {
+            panic!("a string is no S3 settings");
+        };
         assert!(error.to_string().contains("filess3config"), "{error}");
         Configuration::parse(r#"{"filesS3Config": null}"#, no_env).expect("null is no settings");
     }
