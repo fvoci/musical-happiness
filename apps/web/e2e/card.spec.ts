@@ -505,7 +505,7 @@ test('a name typed into the menu is kept when a kind is chosen right after it', 
   await menu.getByRole('textbox', { name: 'Property name' }).fill('Source');
   await menu.locator('[data-action="type"]').click();
   await page.getByTestId('property-types').locator('[data-type="text"]').click();
-  await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('confirm-dialog')).toBeHidden();
   await expect(property(page, 'Source')).toHaveAttribute('data-property-type', 'text');
   await expect(property(page, 'Reference')).toHaveCount(0);
 });
@@ -1141,22 +1141,21 @@ test('somebody else deletes the card while it is open: the same notice', async (
 
 // ------------------------------------------------------------------- menu
 
-test('the menu deletes the card after a question, and the card closes', async ({ page }) => {
+test('the menu deletes the card without asking, the card closes, and undo brings it back', async ({
+  page,
+}) => {
   const place = await openTaskCard(page);
   const onBoard = page.locator(`[data-card="${place.cardId}"]`);
   await expect(onBoard).toHaveCount(1);
 
   await cardMenu(page, 'delete');
-  const confirm = page.getByTestId('confirm-dialog');
-  await expect(confirm).toContainText('Identify dependencies');
-  await confirm.getByRole('button', { name: 'Cancel' }).click();
-  await expect(dialog(page)).toBeVisible();
-
-  await cardMenu(page, 'delete');
-  await confirm.getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByTestId('confirm-dialog')).toBeHidden();
   await expect(dialog(page)).toBeHidden();
   await expect(onBoard).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`/board/${place.boardId}/${place.viewId}$`));
+
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(onBoard).toHaveCount(1);
 });
 
 test('the menu copies the link to the card', async ({ page, context }) => {

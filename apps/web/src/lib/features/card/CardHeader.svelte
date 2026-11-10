@@ -1,7 +1,8 @@
 <!--
   The top row of an open card: how to leave it, where it belongs (the board
   and the view it was opened from), how the saving of its body stands, and
-  its menu.
+  its menu. Deleting from the menu is not asked: undo, and the trash, take
+  it back.
 
   Leaving is a back arrow at the left when the card fills the screen, as a
   page would have it, and a close button at the right when it is a panel or a
@@ -18,7 +19,6 @@
   import Undo2Icon from '@lucide/svelte/icons/undo-2';
   import XIcon from '@lucide/svelte/icons/x';
 
-  import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
@@ -44,7 +44,6 @@
   let { board, view, card, frame, saveState, onClose, onDuplicate, onDelete }: Props = $props();
 
   let menuOpen = $state(false);
-  let confirmingDelete = $state(false);
   /** Said once in place of the saving state: the link was copied. */
   let copied = $state(false);
 
@@ -119,9 +118,7 @@
         icon: Trash2Icon,
         destructive: true,
         separated: true,
-        run: () => {
-          confirmingDelete = true;
-        },
+        run: onDelete,
       });
     }
     return list;
@@ -176,12 +173,3 @@
     </IconButton>
   {/if}
 </header>
-
-<ConfirmDialog
-  bind:open={confirmingDelete}
-  title={m['CardDialog.delete-confirmation-dialog-heading']()}
-  description={m.card_delete_description({ title: cardTitle })}
-  confirmLabel={m['CardDialog.delete-confirmation-dialog-button-text']()}
-  destructive
-  onConfirm={onDelete}
-/>

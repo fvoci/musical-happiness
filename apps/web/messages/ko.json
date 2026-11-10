@@ -86,7 +86,6 @@
   "card_not_saved": "저장되지 않음",
   "card_loading": "카드를 불러오는 중…",
   "card_missing_hint": "삭제되었을 수 있습니다. 닫으면 보드로 돌아갑니다.",
-  "card_delete_description": "“{title}” 카드가 댓글, 첨부 파일과 함께 삭제됩니다.",
   "card_icon_change": "아이콘 변경",
   "card_property_menu": "“{name}” 속성",
   "card_property_name": "속성 이름",
