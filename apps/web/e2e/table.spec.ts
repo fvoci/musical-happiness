@@ -548,7 +548,7 @@ test.describe('rows', () => {
   }, testInfo) => {
     await openView(page, 'Project Tasks', 'Task Overview');
     const id = await rowId(page, 'Conduct market analysis');
-    const open = rowOf(page, id).locator('a[data-card]');
+    const open = rowOf(page, id).locator('a[data-open-card]');
 
     if (testInfo.project.name === 'desktop') {
       // Hidden until the pointer is over the row.
@@ -1400,9 +1400,9 @@ test.describe('with the keyboard alone', () => {
     await titleCell(page, id).focus();
     if (testInfo.project.name === 'desktop') {
       await page.keyboard.press('Tab');
-      await expect(rowOf(page, id).locator('a[data-card]')).toBeFocused();
+      await expect(rowOf(page, id).locator('a[data-open-card]')).toBeFocused();
       // Focus shows what hover shows.
-      await expect(rowOf(page, id).locator('a[data-card]').locator('xpath=..')).toHaveCSS(
+      await expect(rowOf(page, id).locator('a[data-open-card]').locator('xpath=..')).toHaveCSS(
         'opacity',
         '1',
       );

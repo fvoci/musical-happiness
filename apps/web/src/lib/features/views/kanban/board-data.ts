@@ -7,7 +7,6 @@ import { DEFAULT_OPTION_COLOR } from '$lib/components/option-chip/colors.ts';
 import type { PropertyUser } from '$lib/components/properties/index.ts';
 import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
 import type { Regional } from '$lib/logic/regional.ts';
-import { manualComparator } from '$lib/logic/sort.ts';
 import {
   createId,
   type Board,
@@ -18,8 +17,6 @@ import {
   type PropertyValue,
 } from '$lib/logic/wire.ts';
 import { newUndoGroup, type BoardStore, type CardSummary } from '$lib/state/index.ts';
-
-import { indexAmongAll } from './kanban.ts';
 
 /** What the face of every card of a view is drawn with. */
 export interface FaceContext {
@@ -56,33 +53,6 @@ export function badgesOf(card: Card): Pick<CardSummary, 'hasBody' | 'tasksTotal'
 export function columnValue(card: Card, groupById: string): string {
   const value = card.fields.properties[groupById];
   return typeof value === 'string' ? value : '';
-}
-
-/**
- * A place among the cards a column shows (`shown`), as the place the board
- * store counts: among every card of that column in the manual order of the
- * view, the dropped ones left out. A filter or a search hides cards from
- * the page that the store still counts. Without a `column` the drop does
- * not change the column, and the store counts every card of the board.
- */
-export function storeIndex(
-  board: BoardStore,
-  view: BoardView,
-  column: { groupById: string; optionId: string } | undefined,
-  shown: readonly string[],
-  cardIds: readonly string[],
-  index: number,
-): number {
-  const all = [...board.realCards]
-    .sort(manualComparator(view.fields.cardOrder))
-    .filter((card) => !cardIds.includes(card.id))
-    .filter((card) => !column || columnValue(card, column.groupById) === column.optionId)
-    .map((card) => card.id);
-  return indexAmongAll(
-    shown.filter((id) => !cardIds.includes(id)),
-    all,
-    index,
-  );
 }
 
 /**

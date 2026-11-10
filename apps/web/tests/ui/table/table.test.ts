@@ -270,7 +270,7 @@ describe('pressing a cell', () => {
 
   it('"Open" opens the card and does not start editing the title', async () => {
     const { board, onOpenCard } = await mount();
-    const open = rowOf('Alpha').querySelector<HTMLElement>('a[data-card]');
+    const open = rowOf('Alpha').querySelector<HTMLElement>('a[data-open-card]');
     if (!open) throw new Error('no link to the card');
     expect(open).toHaveAttribute('href', `/card/${cardOf(board, 'Alpha').id}`);
     await fireEvent.click(open);
@@ -472,44 +472,26 @@ describe('the keyboard', () => {
     });
   });
 
-  it('undoes the last change with Ctrl+Z, and does it once', async () => {
+  it('leaves Ctrl+Z to the shell: the key passes through the table untouched', async () => {
     const { board } = await mount();
     await fireEvent.click(cellOf('Alpha', 'ready'));
     await waitFor(() => {
       expect(cardOf(board, 'Alpha').fields.properties.ready).toBe('true');
     });
     await settle();
-    const outer = vi.fn();
+    const seen: boolean[] = [];
+    const outer = (event: KeyboardEvent): void => {
+      seen.push(event.defaultPrevented);
+    };
     window.addEventListener('keydown', outer);
     const cell = cellOf('Alpha', 'ready');
     cell.focus();
     await fireEvent.keyDown(cell, { key: 'z', ctrlKey: true });
     window.removeEventListener('keydown', outer);
-    await waitFor(() => {
-      expect(cardOf(board, 'Alpha').fields.properties.ready).toBeUndefined();
-    });
-    // The event stopped at the table: a shortcut of the shell above it does not undo a second time.
-    expect(outer).not.toHaveBeenCalled();
-  });
-
-  it('leaves Ctrl+Z to a shortcut that already took it', async () => {
-    const { board } = await mount();
-    await fireEvent.click(cellOf('Alpha', 'ready'));
-    await waitFor(() => {
-      expect(cardOf(board, 'Alpha').fields.properties.ready).toBe('true');
-    });
     await settle();
-    const cell = cellOf('Alpha', 'ready');
-    cell.focus();
-    const taken = new KeyboardEvent('keydown', {
-      key: 'z',
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true,
-    });
-    taken.preventDefault();
-    cell.dispatchEvent(taken);
-    await settle();
+    // The shell above the table has the shortcut (features/shell/undo-keys.ts):
+    // it sees the key once, not taken, and the table undid nothing itself.
+    expect(seen).toEqual([false]);
     expect(cardOf(board, 'Alpha').fields.properties.ready).toBe('true');
   });
 });

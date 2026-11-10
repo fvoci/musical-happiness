@@ -39,7 +39,6 @@ import {
   type TableColumn,
 } from './columns.ts';
 import { COLUMN_DRAG_MESSAGES, rowDragMessages } from './drag-messages.ts';
-import { manualColumn, storeIndex } from './drop-index.ts';
 import { GridFocus } from './grid-focus.ts';
 import { isEditableKind, type RowHost, type TableReader } from './host.ts';
 import { headerMenu, rowMenu } from './menus.ts';
@@ -297,21 +296,13 @@ export class TableController {
     if (!list) return;
     // Who made a card cannot be changed by dropping it among another person's.
     if (this.#groupFixed && from.listId !== to.listId) return;
-    const view = this.#view;
-    const optionId = list.group && !this.#groupFixed ? list.group.option.id : undefined;
-    const shown = list.cards.map((card) => card.id).filter((id) => !itemIds.includes(id));
-    const column = manualColumn(
-      this.#board.realCards,
-      view.fields.cardOrder,
-      view.fields.groupById,
-      optionId,
-      itemIds,
-    );
     void this.#board.dropCards({
-      viewId: view.id,
+      viewId: this.#view.id,
       cardIds: itemIds,
-      optionId,
-      index: storeIndex(column, shown, to.index),
+      optionId: list.group && !this.#groupFixed ? list.group.option.id : undefined,
+      // A place among the rows the list shows: the store counts the hidden ones in.
+      index: to.index,
+      shown: list.cards.map((card) => card.id),
     });
   }
 

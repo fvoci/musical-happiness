@@ -6,7 +6,6 @@ import {
   columnIdOf,
   drawnColumns,
   hiddenIdOf,
-  indexAmongAll,
   listsAfterDrop,
   nearestRest,
   optionIdOf,
@@ -66,35 +65,6 @@ describe('where a sorted view shows a dropped card', () => {
 
   it('is the end for a card the view does not know', () => {
     expect(sortedIndex(order, ['a', 'b'], 'new', ['new'])).toBe(2);
-  });
-});
-
-describe('a place among the shown cards, as a place among all of the column', () => {
-  it('is the same place when nothing is hidden', () => {
-    const all = ['a', 'b', 'c'];
-    for (let index = 0; index <= 3; index += 1) expect(indexAmongAll(all, all, index)).toBe(index);
-  });
-
-  it('is before the card shown at the place', () => {
-    // `x` and `y` are hidden by a filter.
-    const all = ['x', 'a', 'y', 'b'];
-    expect(indexAmongAll(['a', 'b'], all, 0)).toBe(1);
-    expect(indexAmongAll(['a', 'b'], all, 1)).toBe(3);
-  });
-
-  it('is right after the last shown card when dropped at the end', () => {
-    expect(indexAmongAll(['a', 'b'], ['a', 'b', 'x'], 2)).toBe(2);
-    expect(indexAmongAll(['a'], ['x', 'a', 'y'], 99)).toBe(2);
-    expect(indexAmongAll(['a'], ['x', 'a', 'y'], Number.POSITIVE_INFINITY)).toBe(2);
-  });
-
-  it('is the end of the column when it shows no card', () => {
-    expect(indexAmongAll([], ['x', 'y'], 0)).toBe(2);
-    expect(indexAmongAll([], [], 0)).toBe(0);
-  });
-
-  it('is the end when the shown card is not of the column', () => {
-    expect(indexAmongAll(['stale'], ['x'], 0)).toBe(1);
   });
 });
 

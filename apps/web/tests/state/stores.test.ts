@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { BackendError } from '$lib/state/index.ts';
-import { droppedCardOrder } from '$lib/state/card-order.ts';
+import { droppedCardOrder, placeAmongAll } from '$lib/state/card-order.ts';
 import { sidebarOf } from '$lib/state/order.ts';
 
 import { loadTemplates, openFirstBoard, settle, setup, STATUS } from './support.ts';
@@ -284,6 +284,84 @@ describe('dropping cards', () => {
     expect(droppedCardOrder(shown, ['a', 'b'], ['e'], 99)).toEqual(['a', 'b', 'e', 'c', 'd']);
     expect(droppedCardOrder(shown, [], ['b', 'd'], 0)).toEqual(['a', 'c', 'e', 'b', 'd']);
     expect(droppedCardOrder(shown, ['a', 'c'], ['b'], 1)).toEqual(shown);
+  });
+
+  describe('a place among the shown cards, as a place among all of the column', () => {
+    it('is the same place when every card of the column is shown', () => {
+      const column = ['a', 'b', 'c'];
+      for (let index = 0; index <= 3; index += 1) {
+        expect(placeAmongAll(column, column, index)).toBe(index);
+      }
+    });
+
+    it('is right after the shown card above, past the cards a filter hides before it', () => {
+      // `b` is hidden: the cards shown are a and c.
+      expect(placeAmongAll(['a', 'b', 'c'], ['a', 'c'], 1)).toBe(1);
+      // After c, which is the third of the column.
+      expect(placeAmongAll(['a', 'b', 'c'], ['a', 'c'], 2)).toBe(3);
+      // `a` is hidden: after b, the second.
+      expect(placeAmongAll(['a', 'b', 'c'], ['b', 'c'], 1)).toBe(2);
+    });
+
+    it('is right before the first shown card when the drop is at the top', () => {
+      // `a` is hidden and stays first.
+      expect(placeAmongAll(['a', 'b', 'c'], ['b', 'c'], 0)).toBe(1);
+    });
+
+    it('skips a shown card the column does not have', () => {
+      // `x` is shown in the group (its value is one no option has) but is not counted there.
+      expect(placeAmongAll(['a', 'b'], ['a', 'x', 'b'], 2)).toBe(1);
+      expect(placeAmongAll(['a', 'b'], ['x', 'a', 'b'], 1)).toBe(0);
+      expect(placeAmongAll(['x'], ['stale'], 0)).toBe(1);
+    });
+
+    it('is the end of the column when none of it is shown: a folded or filtered-out group', () => {
+      expect(placeAmongAll(['a', 'b'], [], 0)).toBe(2);
+      expect(placeAmongAll([], [], 0)).toBe(0);
+    });
+
+    it('takes a place beyond the shown cards for the end', () => {
+      expect(placeAmongAll(['a', 'b'], ['a', 'b'], 99)).toBe(2);
+      expect(placeAmongAll(['x', 'a', 'y'], ['a'], Number.POSITIVE_INFINITY)).toBe(2);
+    });
+  });
+
+  it('counts the cards the page hides when it is told which ones the page shows', async () => {
+    const { board } = await openFirstBoard();
+    const view = board.orderedViews[0];
+    const ids = Object.fromEntries(board.realCards.map((card) => [card.title, card.id]));
+    if (!view) throw new Error('no view');
+    // The page shows Beta only (a search hides Alpha, which stands before it):
+    // Gamma dropped under Beta lands right after Beta, not after the first card.
+    await board.dropCards({
+      viewId: view.id,
+      cardIds: [ids.Gamma ?? ''],
+      optionId: 'todo',
+      index: 1,
+      shown: [ids.Beta ?? ''],
+    });
+    const current = board.view(view.id);
+    if (!current) throw new Error('no view');
+    const groups = board.groupsOf(current, board.cardsOf(current), () => 'none');
+    expect(groups.visible[0]?.cards.map((card) => card.title)).toEqual(['Alpha', 'Beta', 'Gamma']);
+  });
+
+  it('puts a card dropped above the only shown one right before it', async () => {
+    const { board } = await openFirstBoard();
+    const view = board.orderedViews[0];
+    const ids = Object.fromEntries(board.realCards.map((card) => [card.title, card.id]));
+    if (!view) throw new Error('no view');
+    await board.dropCards({
+      viewId: view.id,
+      cardIds: [ids.Gamma ?? ''],
+      optionId: 'todo',
+      index: 0,
+      shown: [ids.Beta ?? ''],
+    });
+    const current = board.view(view.id);
+    if (!current) throw new Error('no view');
+    const groups = board.groupsOf(current, board.cardsOf(current), () => 'none');
+    expect(groups.visible[0]?.cards.map((card) => card.title)).toEqual(['Alpha', 'Gamma', 'Beta']);
   });
 
   it('moves a card to another column at a place, and one undo takes both changes back', async () => {

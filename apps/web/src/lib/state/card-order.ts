@@ -34,3 +34,36 @@ export function droppedCardOrder(
   if (at < 0) at = rest.length;
   return [...rest.slice(0, at), ...moved, ...rest.slice(at)];
 }
+
+/**
+ * A place among the cards a view shows in a column, as the place among all
+ * the cards of that column.
+ *
+ * A filter or a search hides cards from the page that the order still
+ * counts, so the two places differ. The dropped cards go right after the
+ * nearest shown card above the place that the column has, else right before
+ * the nearest one below, else to the end of the column: next to what the
+ * reader saw next to them.
+ *
+ * - `column`: every card of the column in the manual order.
+ * - `shown`: the cards of it the page shows, in shown order.
+ * - `index`: the place among `shown`.
+ *
+ * Both lists come **without** the moved cards.
+ */
+export function placeAmongAll(
+  column: readonly string[],
+  shown: readonly string[],
+  index: number,
+): number {
+  const place = new Map(column.map((id, at) => [id, at]));
+  for (let above = Math.min(index, shown.length) - 1; above >= 0; above -= 1) {
+    const at = place.get(shown[above] ?? '');
+    if (at !== undefined) return at + 1;
+  }
+  for (let below = Math.max(index, 0); below < shown.length; below += 1) {
+    const at = place.get(shown[below] ?? '');
+    if (at !== undefined) return at;
+  }
+  return column.length;
+}

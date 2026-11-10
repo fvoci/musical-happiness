@@ -65,26 +65,6 @@ export function listsAfterDrop(
   }));
 }
 
-/**
- * A place among the cards a column shows, as a place among all the cards of
- * that column. A filter or a search hides some; the board store counts them
- * all. The dropped cards go before the card that is shown at the place, or
- * right after the last shown one. Both lists come without the dropped cards.
- */
-export function indexAmongAll(
-  shown: readonly string[],
-  all: readonly string[],
-  index: number,
-): number {
-  const before = shown[Math.max(0, index)];
-  if (before !== undefined) {
-    const at = all.indexOf(before);
-    return at === -1 ? all.length : at;
-  }
-  const last = shown.at(-1);
-  return last === undefined ? all.length : all.indexOf(last) + 1;
-}
-
 /** What a press on a card asks for: the card opened, taken into the selection, or the range up to it. */
 export type Activation = 'open' | 'toggle' | 'range';
 

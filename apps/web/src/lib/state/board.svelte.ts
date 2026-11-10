@@ -39,7 +39,7 @@ import {
   type Comment,
   type ViewDraft,
 } from './backend.ts';
-import { droppedCardOrder } from './card-order.ts';
+import { droppedCardOrder, placeAmongAll } from './card-order.ts';
 import { CardStore } from './card.svelte.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
@@ -85,6 +85,13 @@ export interface CardDrop {
    * ones. Undefined: the view is sorted and places itself.
    */
   index?: number;
+  /**
+   * The cards of that column the page shows, in shown order, when a filter,
+   * a search or a folded group may hide some of them: `index` is then a
+   * place among these, and the store finds the place among all of the
+   * column (`placeAmongAll`). Left out: `index` counts every card.
+   */
+  shown?: readonly string[];
 }
 
 export class BoardStore {
@@ -448,7 +455,13 @@ export class BoardStore {
         column,
         // The dropped cards keep the order they had.
         shown.filter((card) => moved.includes(card.id)).map((card) => card.id),
-        drop.index,
+        drop.shown
+          ? placeAmongAll(
+              column,
+              drop.shown.filter((id) => !moved.includes(id)),
+              drop.index,
+            )
+          : drop.index,
       );
       await this.changeView(
         view.id,

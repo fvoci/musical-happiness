@@ -12,7 +12,6 @@ import {
   columnValue,
   deleteOption,
   propertiesForColumn,
-  storeIndex,
 } from '$lib/features/views/kanban/board-data.ts';
 import { createCard } from '$lib/logic/wire.ts';
 
@@ -92,39 +91,6 @@ describe('a card made in a column', () => {
       [STATUS]: 'done',
     });
     expect(propertiesForColumn(board.board, filtered, STATUS, '')).toEqual({});
-  });
-});
-
-describe('the place of a drop, as the store counts it', () => {
-  it('is the place among the shown cards when the column shows all of its cards', async () => {
-    const { board } = await openFirstBoard();
-    const view = board.orderedViews[0];
-    const ids = Object.fromEntries(board.realCards.map((card) => [card.title, card.id]));
-    if (!view) throw new Error('no view');
-    const todo = { groupById: STATUS, optionId: 'todo' };
-    const shown = [ids.Alpha ?? '', ids.Beta ?? ''];
-    expect(storeIndex(board, view, todo, shown, [ids.Gamma ?? ''], 1)).toBe(1);
-    // The dropped card is not counted, in either list.
-    expect(storeIndex(board, view, todo, shown, [ids.Alpha ?? ''], 1)).toBe(1);
-  });
-
-  it('counts the cards a search hides from the page', async () => {
-    const { board } = await openFirstBoard();
-    const view = board.orderedViews[0];
-    const ids = Object.fromEntries(board.realCards.map((card) => [card.title, card.id]));
-    if (!view) throw new Error('no view');
-    const todo = { groupById: STATUS, optionId: 'todo' };
-    // The page shows Beta only: Alpha stands before it in the column.
-    expect(storeIndex(board, view, todo, [ids.Beta ?? ''], [ids.Gamma ?? ''], 0)).toBe(1);
-    expect(storeIndex(board, view, todo, [ids.Beta ?? ''], [ids.Gamma ?? ''], 1)).toBe(2);
-  });
-
-  it('counts every card of the board when the drop does not change the column', async () => {
-    const { board } = await openFirstBoard();
-    const view = board.orderedViews[0];
-    const ids = Object.fromEntries(board.realCards.map((card) => [card.title, card.id]));
-    if (!view) throw new Error('no view');
-    expect(storeIndex(board, view, undefined, [ids.Gamma ?? ''], [ids.Alpha ?? ''], 1)).toBe(2);
   });
 });
 

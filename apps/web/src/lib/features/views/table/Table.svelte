@@ -97,15 +97,6 @@
       }
       return;
     }
-    const typing = target.closest('input, textarea, [contenteditable]') !== null;
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'z') {
-      if (typing) return;
-      // Until the shell has its own shortcut. It must not undo twice: the event stops here.
-      event.preventDefault();
-      event.stopPropagation();
-      void (event.shiftKey ? board.workspace.redoLast() : board.workspace.undoLast());
-      return;
-    }
     const cell = grid.cellOf(target);
     if (!cell) return;
     if (target !== cell) {

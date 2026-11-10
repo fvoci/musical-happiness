@@ -1,6 +1,7 @@
 <!--
   One row of the table: a card. Its title, pinned at the left edge, and the
-  value of each property the view shows.
+  value of each property the view shows. The row carries `data-card`, as a
+  card does on every view: the page and its tests find a card by it.
 
   Every value is drawn for reading (`PropertyValue` in its `display` mode).
   Only the cell the table says is being edited (`editingColumn`) gets the
@@ -98,6 +99,7 @@
   role="row"
   data-nav-row
   data-row={card.id}
+  data-card={card.id}
   data-drag-item={draggable ? card.id : undefined}
   data-dragging={dragging ? '' : undefined}
   data-drop-before={dropBefore ? '' : undefined}
@@ -173,7 +175,7 @@
     >
       <a
         href={host.cardHref(card.id)}
-        data-card={card.id}
+        data-open-card
         data-inner
         tabindex="-1"
         class="hidden h-7 shrink-0 items-center gap-1 rounded-md border bg-background px-2 text-xs font-medium text-foreground hover:bg-muted can-hover:flex"

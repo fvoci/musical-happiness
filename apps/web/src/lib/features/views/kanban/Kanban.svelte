@@ -32,7 +32,7 @@
 
   import type { ViewProps } from '../props.ts';
 
-  import { addGroup, faceContextOf, propertiesForColumn, storeIndex } from './board-data.ts';
+  import { addGroup, faceContextOf, propertiesForColumn } from './board-data.ts';
   import ColumnTabs from './ColumnTabs.svelte';
   import DragLayer from './DragLayer.svelte';
   import { CARD_MESSAGES, COLUMN_MESSAGES } from './drag-messages.ts';
@@ -145,8 +145,9 @@
     const drop: CardDrop = { viewId: view.id, cardIds };
     if (changeColumn) drop.optionId = optionId;
     if (index !== undefined) {
-      const column = changeColumn ? { groupById: groupBy.id, optionId } : undefined;
-      drop.index = storeIndex(board, view, column, target, cardIds, index);
+      // A place among the cards the column shows: the store counts the hidden ones in.
+      drop.index = index;
+      drop.shown = target;
     }
     if (cardIds.some((id) => selectedIds.includes(id))) selection.clear();
     const place = index ?? sortedIndex(cardOrder, target, cardIds[0] ?? '', cardIds);
