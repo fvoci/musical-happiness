@@ -19,7 +19,7 @@ use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid
 use super::decode_object_with;
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
-use super::{objects_mut, take_block_bodies, take_patch_bodies};
+use super::{objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
@@ -58,22 +58,24 @@ async fn handle_create_boards_and_blocks(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let (request, (invalid, refused)): (BoardsAndBlocks, _) = decode_object_with(&body, |body| {
-        let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
-            .flatten()
-            .find_map(take_invalid_board_members);
-        (
-            invalid,
-            take_block_bodies(objects_mut(body, "blocks").flatten()),
-        )
-    })?;
+    let (mut request, (invalid, bodies)): (BoardsAndBlocks, _) =
+        decode_object_with(&body, |body| {
+            let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
+                .flatten()
+                .find_map(take_invalid_board_members);
+            (invalid, take_block_bodies(objects_mut(body, "blocks")))
+        })?;
     // Not as in the original, which validates neither the type nor the minimum role of
     // these boards and stores whatever it is given. The model has no way to hold such a
     // board, so it is refused as `POST /boards` refuses it.
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
     }
-    refused?;
+    // The boards are new and have no files, so a body with an image is refused.
+    for (block, body) in request.blocks.iter_mut().zip(bodies?) {
+        app.check_body_files(&block.board_id, body.as_ref()).await?;
+        block.body = body;
+    }
 
     if request.boards.is_empty() {
         return Err(AppError::bad_request("at least one board is required"));
@@ -173,18 +175,18 @@ async fn handle_patch_boards_and_blocks(
     let user_id = &session.user_id;
     // The patches' types and minimum roles are validated board by board below, as in the
     // original, not while decoding.
-    let (patches, (invalid_members, refused)): (PatchBoardsAndBlocks, _) =
+    let (mut patches, (invalid_members, changes)): (PatchBoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
             let invalid: Vec<Option<InvalidBoardMember>> = objects_mut(body, "boardPatches")
                 .map(|patch| patch.and_then(take_invalid_patch_members))
                 .collect();
             (
                 invalid,
-                take_patch_bodies(objects_mut(body, "blockPatches").flatten()),
+                take_patch_bodies(objects_mut(body, "blockPatches")),
             )
         })?;
     patches.validate().map_err(AppError::bad_request)?;
-    refused?;
+    put_patch_bodies(&mut patches.block_patches, changes?)?;
 
     let mut team_id = String::new();
     let mut board_ids = HashSet::new();
@@ -228,6 +230,12 @@ async fn handle_patch_boards_and_blocks(
     }
 
     require_blocks_of_boards(&app, user_id, &patches.block_ids, &board_ids).await?;
+    for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
+        if let Some(body) = patch.body.new_body() {
+            let block = app.block(block_id).await?;
+            app.check_body_files(&block.board_id, Some(body)).await?;
+        }
+    }
 
     let result = app.patch_boards_and_blocks(&patches, user_id).await?;
     Ok(json_response(&result))

@@ -138,6 +138,49 @@ impl Body {
         });
         count
     }
+
+    /// The stored names of the files that the images of the body show, in the order
+    /// they come, each once.
+    #[must_use]
+    pub fn file_ids(&self) -> Vec<&str> {
+        let mut ids: Vec<&str> = Vec::new();
+        visit(&self.document, &mut |node| {
+            if let Some(id) = image_file(node)
+                && !ids.contains(&id)
+            {
+                ids.push(id);
+            }
+        });
+        ids
+    }
+
+    /// Points the images of the body at other files: `rename` gives the new name of a
+    /// file, or `None` to leave it. A copy of a body whose files were copied is made so.
+    pub fn rename_files(&mut self, rename: &impl Fn(&str) -> Option<String>) {
+        rename_in(&mut self.document, rename);
+    }
+}
+
+/// The stored name of the file of an image node.
+fn image_file(node: &Value) -> Option<&str> {
+    if node.get("type").and_then(Value::as_str) != Some("image") {
+        return None;
+    }
+    node.get("attrs")?.get("fileId")?.as_str()
+}
+
+/// Renames the file of every image below and at `node`.
+fn rename_in(node: &mut Value, rename: &impl Fn(&str) -> Option<String>) {
+    if let Some(new_name) = image_file(node).and_then(rename)
+        && let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut)
+    {
+        attrs.insert("fileId".to_owned(), Value::String(new_name));
+    }
+    if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+        for child in children {
+            rename_in(child, rename);
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for Body {
@@ -194,6 +237,15 @@ impl BodyChange {
     /// Returns a [`BodyError`] if the value is a document that may not be stored.
     pub fn parse(value: Value) -> Result<Self, BodyError> {
         Ok(Body::parse(value)?.map_or(Self::Clear, Self::Set))
+    }
+
+    /// The body the change sets, if it sets one.
+    #[must_use]
+    pub fn new_body(&self) -> Option<&Body> {
+        match self {
+            Self::Set(body) => Some(body),
+            Self::Keep | Self::Clear => None,
+        }
     }
 
     /// Whether the patch leaves the body as it is.
@@ -283,7 +335,7 @@ fn check_size(value: &Value) -> Result<(), BodyError> {
 }
 
 /// Calls `f` for every node of the document, the document first.
-fn visit(node: &Value, f: &mut impl FnMut(&Value)) {
+fn visit<'v>(node: &'v Value, f: &mut impl FnMut(&'v Value)) {
     f(node);
     if let Some(children) = node.get("content").and_then(Value::as_array) {
         for child in children {

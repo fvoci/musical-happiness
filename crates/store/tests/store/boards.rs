@@ -4164,7 +4164,8 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         created_by: String::new(),
         modified_by: String::new(),
         schema: 7,
-        block_type: BlockType::Text,
+        // A card, the one block that has a body, so that every member is set.
+        block_type: BlockType::Card,
         title: "a text".to_owned(),
         fields: object(json!({ "contentOrder": ["a", "b"], "isTemplate": true })),
         body: Body::parse(json!({"type": "doc", "content": [

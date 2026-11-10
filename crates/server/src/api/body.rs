@@ -3,7 +3,7 @@
 //! A body that is not the JSON a route expects is a bad request (400), whatever is wrong
 //! with it: not JSON at all, the wrong type, `null`, a member of the wrong type.
 
-use fvoci_model::{BodyChange, JsonMap};
+use fvoci_model::{BlockPatch, Body, BodyChange, BodyError, JsonMap};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
@@ -75,48 +75,67 @@ pub(crate) fn objects_mut<'v>(
         .map(Value::as_object_mut)
 }
 
-/// The refusal of a body sent through the routes of blocks. A body is written through
-/// the card routes (`createCard`, `patchCard`), which check it and ask for the time it
-/// was read at, until the routes of blocks do the same.
-fn block_body_refused() -> AppError {
-    AppError::bad_request("a body is written through the routes of cards (createCard, patchCard)")
-        .with_field("body")
+/// The refusal of a body that may not be stored, naming `body`.
+fn body_refused(error: BodyError) -> AppError {
+    AppError::bad_request(error).with_field("body")
 }
 
-/// Takes the member `body` out of blocks of a request before they are decoded, so that
-/// whatever it holds is refused as a body (`field: body`).
+/// Takes the member `body` out of each block of a request before the blocks are decoded
+/// and reads it, so that a body that may not be stored is refused as one (`field:
+/// body`). Returns the bodies in the order of the blocks; an element that is no object
+/// has none.
 ///
 /// # Errors
 ///
-/// Returns a bad request that names `body` if a block has one that is not `null`.
+/// Returns a bad request that names `body` for the first body that may not be stored.
 pub(crate) fn take_block_bodies<'a>(
-    blocks: impl IntoIterator<Item = &'a mut JsonMap>,
-) -> Result<(), AppError> {
-    let mut sent = false;
-    for block in blocks {
-        sent |= block.remove("body").is_some_and(|body| !body.is_null());
-    }
-    if sent {
-        return Err(block_body_refused());
-    }
-    Ok(())
+    blocks: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+) -> Result<Vec<Option<Body>>, AppError> {
+    blocks
+        .into_iter()
+        .map(|block| match block.and_then(|block| block.remove("body")) {
+            None => Ok(None),
+            Some(value) => Body::parse(value).map_err(body_refused),
+        })
+        .collect()
 }
 
-/// Takes the member `body` out of block patches of a request before they are decoded:
-/// a patch of a block may not change its body yet, not even to `null`.
+/// Takes the member `body` out of each block patch of a request before the patches are
+/// decoded and reads what it asks for, in the order of the patches.
 ///
 /// # Errors
 ///
-/// Returns a bad request that names `body` if a patch has the member.
+/// Returns a bad request that names `body` for the first body that may not be stored.
 pub(crate) fn take_patch_bodies<'a>(
-    patches: impl IntoIterator<Item = &'a mut JsonMap>,
+    patches: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+) -> Result<Vec<BodyChange>, AppError> {
+    patches
+        .into_iter()
+        .map(|patch| match patch.and_then(|patch| patch.remove("body")) {
+            None => Ok(BodyChange::Keep),
+            Some(value) => BodyChange::parse(value).map_err(body_refused),
+        })
+        .collect()
+}
+
+/// Gives each patch the change of body that was taken out of it, and checks that a
+/// patch that changes the body says when its block was read.
+///
+/// # Errors
+///
+/// Returns a bad request that names `readAt` for a change of body without it.
+pub(crate) fn put_patch_bodies<'a>(
+    patches: impl IntoIterator<Item = &'a mut BlockPatch>,
+    changes: Vec<BodyChange>,
 ) -> Result<(), AppError> {
-    let mut sent = false;
-    for patch in patches {
-        sent |= patch.remove("body").is_some();
-    }
-    if sent {
-        return Err(block_body_refused());
+    for (patch, change) in patches.into_iter().zip(changes) {
+        if !change.is_keep() && patch.read_at.is_none() {
+            return Err(AppError::bad_request(
+                "a change of the body needs readAt, the updateAt of the block as it was read",
+            )
+            .with_field("readAt"));
+        }
+        patch.body = change;
     }
     Ok(())
 }

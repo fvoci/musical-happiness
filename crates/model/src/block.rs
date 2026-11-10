@@ -161,6 +161,9 @@ pub enum BlockError {
     /// The `properties` among the fields are not well-formed card property values.
     #[error(transparent)]
     InvalidCardProperties(#[from] CardPropertyError),
+    /// A block that is not a card has a body.
+    #[error("only a card has a body")]
+    BodyNotAllowed,
 }
 
 /// The basic data unit of a board.
@@ -194,9 +197,9 @@ pub struct Block {
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
-    /// The body of a card or a comment; `null` for a block without one. Read here; the
-    /// routes of blocks refuse one that is sent (400 naming `body`): it is written
-    /// through `createCard` and `patchCard`.
+    /// The body of a card; `null` for a block without one. Only a card has one: a body
+    /// on another block is refused (400 naming `body`). Every image of it shows a file
+    /// of the block's board.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
@@ -235,6 +238,9 @@ impl Block {
             _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
         validate_block_properties(&self.fields)?;
+        if self.body.is_some() && self.block_type != BlockType::Card {
+            return Err(BlockError::BodyNotAllowed);
+        }
         Ok(())
     }
 }
@@ -263,8 +269,8 @@ pub struct BlockPatch {
     /// Keys of fields to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
-    /// Not taken yet: the routes of blocks refuse the member, even `null` (400 naming
-    /// `body`). A card's body is changed through `patchCard`.
+    /// The new body of a card; `null` takes the body away. Sent only with `readAt`
+    /// (400 naming `readAt` without it).
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,

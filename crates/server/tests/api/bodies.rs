@@ -280,7 +280,7 @@ async fn a_read_at_from_before_a_change_is_refused() {
     second.check_status(StatusCode::CONFLICT);
     assert_eq!(card(&th.client, &created.id).await, first, "unchanged");
 
-    // The routes of blocks check `readAt` too, and take no body yet.
+    // The routes of blocks check `readAt` too.
     let block_path = format!("/boards/{}/blocks/{}", board.id, created.id);
     let stale = th
         .client
@@ -290,23 +290,14 @@ async fn a_read_at_from_before_a_change_is_refused() {
         )
         .await;
     stale.check_status(StatusCode::CONFLICT);
-    let response = th
+    let stale = th
         .client
         .patch(
             &block_path,
-            &json!({"body": document(), "readAt": first.update_at}),
+            &json!({"body": null, "readAt": created.update_at}),
         )
         .await;
-    check_refused_member(&response, "body");
-    let response = th
-        .client
-        .post(
-            &format!("/boards/{}/blocks", board.id),
-            &json!([{"type": "card", "boardId": board.id, "createAt": 1, "updateAt": 1,
-                     "body": document()}]),
-        )
-        .await;
-    check_refused_member(&response, "body");
+    stale.check_status(StatusCode::CONFLICT);
     assert_eq!(card(&th.client, &created.id).await, first, "unchanged");
 
     th.teardown().await;
@@ -363,88 +354,202 @@ async fn a_body_comes_back_from_the_trash_and_is_copied() {
     th.teardown().await;
 }
 
-/// The routes of blocks take no body, whatever it is, until they check one the way
-/// the routes of cards do: each refusal names `body` and stores nothing.
+/// A card made through `createBlocks` with a body; `body` is that of the block.
+fn card_block(board_id: &str, body: &Value) -> Value {
+    json!({"id": "b1", "boardId": board_id, "type": "card", "createAt": 1, "updateAt": 1,
+           "body": body})
+}
+
+/// A document with an image of the file of that stored name.
+fn with_image(file_id: &str) -> Value {
+    json!({"type": "doc", "content": [
+        paragraph("Picture"),
+        {"type": "image", "attrs": {"fileId": file_id}},
+    ]})
+}
+
+/// The routes of blocks take the body of a card as the routes of cards do: checked,
+/// refused as `body`, changed only with `readAt`, and refused on other blocks.
 #[tokio::test]
-async fn the_routes_of_blocks_refuse_a_body() {
+async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let created: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
+    let blocks = format!("/boards/{}/blocks", board.id);
+
+    // Made with a body, which is checked and counted.
+    let made: Vec<Value> = th
+        .client
+        .post(&blocks, &[card_block(&board.id, &document())])
         .await
         .created_json();
-    let blocks = format!("/boards/{}/blocks", board.id);
-    let block = |body: &Value| {
-        json!({"id": "b1", "boardId": board.id, "type": "card", "createAt": 1, "updateAt": 1,
-               "body": body})
-    };
-    let empty = json!({"type": "doc", "content": [{"type": "paragraph"}]});
-    let teams_boards = format!("/teams/{TEST_TEAM_ID}/boards");
-    let boards_before = th.client.get(&teams_boards).await.value();
+    let card_id = made[0]["id"].as_str().expect("an id").to_owned();
+    assert_eq!(made[0]["body"], document(), "{made:?}");
+    assert_eq!(listed(&th.client, &board.id, &card_id).await, (true, 2, 1));
+    // What may not be stored, and a body on a block that is no card.
+    for (block, field) in [
+        (card_block(&board.id, &json!("text")), "body"),
+        (
+            card_block(
+                &board.id,
+                &json!({"type": "doc", "content": [{"type": "table"}]}),
+            ),
+            "body",
+        ),
+        (
+            json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "text",
+                   "createAt": 1, "updateAt": 1, "body": document()}),
+            "body",
+        ),
+    ] {
+        let response = th.client.post(&blocks, &[block]).await;
+        check_refused_member(&response, field);
+    }
 
-    // A document, an empty one and something that is none: all refused as a body.
-    for body in [document(), empty, json!("text")] {
-        let response = th.client.post(&blocks, &[block(&body)]).await;
+    // Changed with the `updateAt` it was read at, through each route of patches.
+    let path = format!("{blocks}/{card_id}");
+    let read = card(&th.client, &card_id).await;
+    let response = th.client.patch(&path, &json!({"body": null})).await;
+    check_refused_member(&response, "readAt");
+    let response = th
+        .client
+        .patch(
+            &path,
+            &json!({"body": {"type": "doc"}, "readAt": read.update_at}),
+        )
+        .await;
+    check_refused_member(&response, "body");
+    th.client
+        .patch(&path, &json!({"body": null, "readAt": read.update_at}))
+        .await
+        .check_no_content();
+    assert_eq!(listed(&th.client, &board.id, &card_id).await, (false, 0, 0));
+    let stale = th
+        .client
+        .patch(
+            &path,
+            &json!({"body": document(), "readAt": read.update_at}),
+        )
+        .await;
+    stale.check_status(StatusCode::CONFLICT);
+
+    let read = card(&th.client, &card_id).await;
+    let batch = json!({"blockIds": [card_id],
+                       "blockPatches": [{"body": document(), "readAt": read.update_at}]});
+    th.client.patch(&blocks, &batch).await.check_no_content();
+    assert_eq!(card(&th.client, &card_id).await.body, Some(document_body()));
+    let batch = json!({"blockIds": [card_id], "blockPatches": [{"body": null}]});
+    check_refused_member(&th.client.patch(&blocks, &batch).await, "readAt");
+
+    let read = card(&th.client, &card_id).await;
+    let request = json!({
+        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "blockIds": [card_id], "blockPatches": [{"body": null, "readAt": read.update_at}],
+    });
+    th.client
+        .patch("/boards-and-blocks", &request)
+        .await
+        .check_ok();
+    assert_eq!(card(&th.client, &card_id).await.body, None);
+
+    // A new board and its cards, with a body.
+    let made: Value = th
+        .client
+        .post(
+            "/boards-and-blocks",
+            &json!({
+                "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
+                "blocks": [card_block("bd", &document())],
+            }),
+        )
+        .await
+        .created_json();
+    assert_eq!(made["blocks"][0]["body"], document(), "{made}");
+
+    th.teardown().await;
+}
+
+fn document_body() -> fvoci_model::Body {
+    fvoci_model::Body::parse(document())
+        .expect("allowed")
+        .expect("not empty")
+}
+
+/// An image of a body shows a file of the card's board; a copy of the card shows a copy
+/// of the file.
+#[tokio::test]
+async fn the_images_of_a_body_are_files_of_its_board() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
+    );
+    let elsewhere = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &other.id, "other.png", b"png").await,
+    );
+
+    // A file of another board, or none, is refused on every route that takes a body.
+    for missing in [elsewhere.as_str(), "7nofile.png"] {
+        let response = new_card(
+            &th.client,
+            &board.id,
+            &json!({"title": "Card", "body": with_image(missing)}),
+        )
+        .await;
         check_refused_member(&response, "body");
         let response = th
             .client
             .post(
-                "/boards-and-blocks",
-                &json!({
-                    "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
-                    "blocks": [{"id": "b1", "boardId": "bd", "type": "card",
-                                "createAt": 1, "updateAt": 1, "body": body}],
-                }),
+                &format!("/boards/{}/blocks", board.id),
+                &[card_block(&board.id, &with_image(missing))],
             )
             .await;
         check_refused_member(&response, "body");
     }
-    // A patch may not even take the body away.
-    for body in [document(), Value::Null, json!("text")] {
-        let patch = json!({"title": "Patched", "body": body});
-        let response = th
-            .client
-            .patch(&format!("{blocks}/{}", created.id), &patch)
-            .await;
-        check_refused_member(&response, "body");
-        let response = th
-            .client
-            .patch(
-                &blocks,
-                &json!({"blockIds": [created.id], "blockPatches": [patch]}),
-            )
-            .await;
-        check_refused_member(&response, "body");
-        let response = th
-            .client
-            .patch(
-                "/boards-and-blocks",
-                &json!({
-                    "boardIds": [board.id], "boardPatches": [{"title": "n"}],
-                    "blockIds": [created.id], "blockPatches": [patch],
-                }),
-            )
-            .await;
-        check_refused_member(&response, "body");
-    }
-    // Nothing of the refused requests was stored: no block, no board, no new title.
-    let stored = th.client.get(&blocks).await.value();
-    let stored = stored.as_array().expect("a list of blocks");
-    assert_eq!(stored.len(), 1, "only the card: {stored:?}");
-    assert_eq!(
-        th.client.get(&teams_boards).await.value(),
-        boards_before,
-        "no board was made or renamed"
-    );
-    // A block without a body, or with `null`, is made as before.
-    th.client
-        .post(&blocks, &[block(&Value::Null)])
+    let created: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": with_image(&file_id)}),
+    )
+    .await
+    .created_json();
+    let response = th
+        .client
+        .patch(
+            &format!("/cards/{}", created.id),
+            &json!({"body": with_image(&elsewhere), "readAt": created.update_at}),
+        )
+        .await;
+    check_refused_member(&response, "body");
+
+    // The copy of the card shows a copy of the file, a file of the same board.
+    let copies: Vec<Value> = th
+        .client
+        .post_empty(&format!(
+            "/boards/{}/blocks/{}/duplicate",
+            board.id, created.id
+        ))
         .await
-        .check_status(StatusCode::CREATED);
+        .created_json();
+    let copy = copies
+        .iter()
+        .find(|block| block["type"] == json!("card"))
+        .expect("the copy of the card");
+    let copied_file = copy["body"]["content"][1]["attrs"]["fileId"]
+        .as_str()
+        .expect("the image of the copy names a file")
+        .to_owned();
+    assert_ne!(copied_file, file_id, "the copy shows a file of its own");
+    let stored = card(&th.client, copy["id"].as_str().expect("an id")).await;
     assert_eq!(
-        card(&th.client, &created.id).await,
-        created,
-        "no refused patch changed the card"
+        stored.body.as_ref().map(fvoci_model::Body::file_ids),
+        Some(vec![copied_file.as_str()]),
+        "the stored copy is what was answered"
     );
+    th.client
+        .get(&format!("/boards/{}/files/{copied_file}", board.id))
+        .await
+        .check_ok();
 
     th.teardown().await;
 }

@@ -104,6 +104,7 @@ async fn handle_create_card(
     .await?;
     let (mut card, document): (Card, _) = decode_with_document(&body)?;
     card.body = document.into_body();
+    app.check_body_files(&board_id, card.body.as_ref()).await?;
     if !card.board_id.is_empty() && card.board_id != board_id {
         return Err(CardError::BoardIdMismatch.into());
     }
@@ -194,6 +195,8 @@ async fn handle_patch_card(
     )
     .await?;
     let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
+    app.check_body_files(&card.board_id, document.new_body())
+        .await?;
     patch.body = document;
 
     let patched = app

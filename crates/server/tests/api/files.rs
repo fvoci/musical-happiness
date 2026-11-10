@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::common::{Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
 
 /// Uploads `data` under `filename` to a board as the given client.
-async fn upload(
+pub(crate) async fn upload(
     client: &Client,
     board_id: &str,
     filename: &str,
@@ -32,7 +32,7 @@ async fn upload(
 }
 
 /// The `fileId` of a successful upload.
-fn uploaded_id(response: &crate::common::ApiResponse) -> String {
+pub(crate) fn uploaded_id(response: &crate::common::ApiResponse) -> String {
     response.value()["fileId"]
         .as_str()
         .expect("the upload answers a fileId")

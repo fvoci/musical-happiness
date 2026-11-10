@@ -331,7 +331,10 @@ impl From<StoreError> for AppError {
             // A parent that is no block of the board, whether it is none at all or
             // another board's: the answer does not tell the two apart.
             StoreError::InvalidBlock {
-                source: source @ (BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock),
+                source:
+                    source @ (BlockError::ParentNotOnBoard
+                    | BlockError::ParentBelowBlock
+                    | BlockError::BodyNotAllowed),
                 ..
             } => Self::from(source),
             // What a request names by something that is no identifier does not exist.
@@ -370,6 +373,7 @@ impl From<BlockError> for AppError {
             BlockError::TitleSizeLimitExceeded
             | BlockError::FieldsSizeLimitExceeded
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
+            BlockError::BodyNotAllowed => Self::bad_request(error).with_field("body"),
             BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock => {
                 Self::bad_request(error).with_field("parentId")
             }

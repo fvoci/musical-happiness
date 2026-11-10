@@ -10,7 +10,8 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, FileInfo, JsonMap, new_id,
+    Block, BlockPatch, BlockPatchBatch, BlockType, Board, Body, BodyChange, FileInfo, JsonMap,
+    new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -90,6 +91,32 @@ impl App {
         }
     }
 
+    /// Checks that every image of a body shows a file of the board (`docs/s6-design.md`
+    /// 5.7).
+    ///
+    /// # Errors
+    ///
+    /// Returns a bad request that names `body` for an image of a file the board does not
+    /// have, and the store's error if a lookup fails.
+    pub async fn check_body_files(
+        &self,
+        board_id: &str,
+        body: Option<&Body>,
+    ) -> Result<(), AppError> {
+        let Some(body) = body else {
+            return Ok(());
+        };
+        for file_id in body.file_ids() {
+            if self.file_info(board_id, file_id).await?.is_none() {
+                return Err(AppError::bad_request(
+                    "an image of the body shows no file of the board",
+                )
+                .with_field("body"));
+            }
+        }
+        Ok(())
+    }
+
     /// Opens a board's file for reading, or returns `None` if the board has no file of
     /// that stored name or the file is gone from the storage.
     ///
@@ -141,6 +168,17 @@ impl App {
         let mut block_ids = Vec::new();
         let mut block_patches = Vec::new();
         for block in blocks.iter_mut() {
+            if let Some(body) = block.body.as_mut()
+                && !body.file_ids().is_empty()
+            {
+                rename_body_files(body, &new_file_names);
+                block_ids.push(block.id.clone());
+                block_patches.push(BlockPatch {
+                    body: BodyChange::Set(body.clone()),
+                    ..BlockPatch::default()
+                });
+                continue;
+            }
             if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
                 continue;
             }
@@ -196,6 +234,9 @@ impl App {
             }
         };
         for block in blocks.iter_mut() {
+            if let Some(body) = block.body.as_mut() {
+                rename_body_files(body, &new_file_names);
+            }
             if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
                 continue;
             }
@@ -230,13 +271,14 @@ impl App {
 
         let mut new_file_names = HashMap::new();
         let mut destination: Option<Board> = None;
-        for block in blocks {
-            if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
+        for (block, file_id) in blocks
+            .iter()
+            .flat_map(|block| files_of(block).into_iter().map(move |id| (block, id)))
+        {
+            // A file that two blocks show, or one body twice, is copied once.
+            if new_file_names.contains_key(&file_id) {
                 continue;
             }
-            let Some(file_id) = file_reference(&block.fields) else {
-                continue;
-            };
 
             // Most copies stay on the source board; a destination is looked up once.
             let destination_board = if block.board_id == source_board.id {
@@ -293,6 +335,25 @@ impl App {
         }
         Ok(new_file_names)
     }
+}
+
+/// The stored names of the files a block shows: the file of an image or attachment
+/// block, and the images of a card's body.
+fn files_of(block: &Block) -> Vec<String> {
+    if block.block_type == BlockType::Image || block.block_type == BlockType::Attachment {
+        return file_reference(&block.fields).into_iter().collect();
+    }
+    block
+        .body
+        .as_ref()
+        .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+/// Points the images of a copied body at the copies of their files. An image whose file
+/// was not copied keeps the name it had: a body has no image without a file.
+fn rename_body_files(body: &mut Body, new_file_names: &HashMap<String, String>) {
+    body.rename_files(&|old| new_file_names.get(old).cloned());
 }
 
 /// The file a block points at: its `fileId`, or failing that its `attachmentId`.

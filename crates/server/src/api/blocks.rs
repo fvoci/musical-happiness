@@ -23,7 +23,9 @@ use super::{
     json_response, no_content, query_param,
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
-use super::{decode_object_with, objects_mut, take_block_bodies, take_patch_bodies};
+use super::{
+    decode_object_with, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
@@ -213,11 +215,15 @@ async fn handle_post_blocks(
         CHANGES_DENIED,
     )
     .await?;
-    // A list first, so that a body that is none is refused as before.
+    // A list first, so that a request that is none is refused as before, and the bodies
+    // apart, so that one that may not be stored is refused as a body.
     let mut blocks: Vec<Value> = decode_json(&body)?;
-    take_block_bodies(blocks.iter_mut().filter_map(Value::as_object_mut))?;
+    let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut))?;
     let mut blocks: Vec<Block> =
         serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
+    for (block, body) in blocks.iter_mut().zip(bodies) {
+        block.body = body;
+    }
 
     let mut has_comments = false;
     let mut has_contents = false;
@@ -280,8 +286,19 @@ async fn handle_post_blocks(
     // Set when a template is made from a board or a board from a template: the files
     // the blocks refer to are then copied over from that board.
     let source_board_id = query_param(query, "sourceBoardId");
-    if !source_board_id.is_empty() {
+    // The images of a body show files of the board, or of the board they are copied
+    // from.
+    let files_board_id = if source_board_id.is_empty() {
+        &board_id
+    } else {
         require_source_board_access(&app, user_id, &source_board_id).await?;
+        &source_board_id
+    };
+    for block in &blocks {
+        app.check_body_files(files_board_id, block.body.as_ref())
+            .await?;
+    }
+    if !source_board_id.is_empty() {
         // The blocks are not stored yet: each is pointed at its copy here, and stored
         // with that below.
         app.copy_card_files_into(&source_board_id, &mut blocks)
@@ -410,9 +427,11 @@ async fn handle_patch_block(
     )
     .await?;
     block_on_board(&app, &block_id, &board_id).await?;
-    let (patch, refused): (BlockPatch, _) =
-        decode_object_with(&body, |patch| take_patch_bodies([patch]))?;
-    refused?;
+    let (mut patch, changes): (BlockPatch, _) =
+        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)]))?;
+    put_patch_bodies([&mut patch], changes?)?;
+    app.check_body_files(&board_id, patch.body.new_body())
+        .await?;
 
     app.patch_block(&block_id, &patch, user_id, notification)
         .await?;
@@ -451,10 +470,14 @@ async fn handle_patch_blocks(
     )
     .await?;
     let board = app.board(&board_id).await?;
-    let (batch, refused): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
-        take_patch_bodies(objects_mut(batch, "blockPatches").flatten())
+    let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
+        take_patch_bodies(objects_mut(batch, "blockPatches"))
     })?;
-    refused?;
+    put_patch_bodies(&mut batch.block_patches, changes?)?;
+    for patch in &batch.block_patches {
+        app.check_body_files(&board_id, patch.body.new_body())
+            .await?;
+    }
     if batch.block_ids.len() != batch.block_patches.len() {
         return Err(
             AppError::bad_request("blockIds and blockPatches differ in length")
