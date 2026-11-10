@@ -21,7 +21,27 @@
     "spikes:build": "pnpm run i18n && vite build --config vite.spikes.config.ts",
     "spikes:e2e": "pnpm run i18n && playwright test --config playwright.spikes.config.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@tiptap/core": "3.33.0",
+    "@tiptap/extension-blockquote": "3.33.0",
+    "@tiptap/extension-bold": "3.33.0",
+    "@tiptap/extension-code": "3.33.0",
+    "@tiptap/extension-code-block": "3.33.0",
+    "@tiptap/extension-document": "3.33.0",
+    "@tiptap/extension-hard-break": "3.33.0",
+    "@tiptap/extension-heading": "3.33.0",
+    "@tiptap/extension-horizontal-rule": "3.33.0",
+    "@tiptap/extension-italic": "3.33.0",
+    "@tiptap/extension-link": "3.33.0",
+    "@tiptap/extension-list": "3.33.0",
+    "@tiptap/extension-paragraph": "3.33.0",
+    "@tiptap/extension-strike": "3.33.0",
+    "@tiptap/extension-text": "3.33.0",
+    "@tiptap/extensions": "3.33.0",
+    "@tiptap/pm": "3.33.0",
+    "@tiptap/suggestion": "3.33.0",
+    "marked": "18.1.3"
+  },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@inlang/paraglide-js": "3.2.1",

@@ -65,6 +65,7 @@ export default defineConfig(({ command }) => ({
           environment: 'node',
           include: [
             'tests/logic/**/*.test.ts',
+            'tests/editor/**/*.test.ts',
             'tests/tokens/**/*.test.ts',
             'tests/tools/**/*.test.ts',
           ],

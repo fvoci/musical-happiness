@@ -1,0 +1,136 @@
+/*
+ * How a document body looks, in the editor and wherever a body is shown.
+ * Everything hangs on the `doc-body` class and uses the design tokens.
+ */
+.doc-body {
+  font-size: var(--text-base);
+  line-height: var(--line-body);
+  outline: none;
+  overflow-wrap: anywhere;
+}
+
+.doc-body > * + * {
+  margin-top: 0.75em;
+}
+
+.doc-body h1,
+.doc-body h2,
+.doc-body h3 {
+  font-weight: 600;
+  line-height: 1.35;
+}
+.doc-body h1 {
+  font-size: var(--text-2xl);
+}
+.doc-body h2 {
+  font-size: var(--text-xl);
+}
+.doc-body h3 {
+  font-size: var(--text-lg);
+}
+
+.doc-body ul:not([data-type='taskList']) {
+  list-style: disc;
+  padding-inline-start: 1.5em;
+}
+.doc-body ol {
+  list-style: decimal;
+  padding-inline-start: 1.5em;
+}
+.doc-body li > * + * {
+  margin-top: 0.25em;
+}
+
+.doc-body ul[data-type='taskList'] {
+  list-style: none;
+  padding: 0;
+}
+.doc-body ul[data-type='taskList'] > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.doc-body ul[data-type='taskList'] > li > label {
+  /* Line the box up with the first line of text. */
+  margin-top: calc((var(--line-body) * 1em - 1em) / 2);
+  flex: none;
+}
+.doc-body ul[data-type='taskList'] > li > label input {
+  width: 1em;
+  height: 1em;
+  accent-color: var(--primary);
+}
+.doc-body ul[data-type='taskList'] > li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-body blockquote {
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 1em;
+  color: var(--muted-foreground);
+}
+
+.doc-body code {
+  font-family: var(--font-mono-stack);
+  font-size: 0.9em;
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+.doc-body pre {
+  font-family: var(--font-mono-stack);
+  background: var(--muted);
+  border-radius: var(--radius-md);
+  padding: 0.75em 1em;
+  overflow-x: auto;
+}
+.doc-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.doc-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin-block: 1.25em;
+}
+
+.doc-body a {
+  color: var(--ring);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.doc-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+/* An image whose file could not be resolved still takes up room and says so. */
+.doc-body img:not([src]) {
+  display: block;
+  min-height: 4em;
+  background: var(--muted);
+  outline: 1px dashed var(--input-border);
+}
+.doc-body img.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+}
+
+.doc-body .mention {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.3em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.doc-body p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

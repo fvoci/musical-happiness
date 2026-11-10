@@ -27,7 +27,7 @@ import path from 'node:path';
 
 import { fetchPinned } from './fetch.ts';
 import sources from './sources.json' with { type: 'json' };
-import { readZipMember } from './zip.ts';
+import { readZipMember } from '../zip.ts';
 
 const OUTPUT = path.resolve(import.meta.dirname, 'charsets');
 
