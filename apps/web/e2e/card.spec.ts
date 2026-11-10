@@ -299,7 +299,8 @@ test('the title is edited in place, shows on the board, and can be undone', asyn
   const place = await openTaskCard(page);
   const title = page.getByTestId('card-title');
   await expect(title).toHaveValue('Identify dependencies');
-  const onBoard = page.locator(`[data-card="${place.cardId}"]`);
+  // The title as the board draws it: a card there also shows properties and badges.
+  const onBoard = page.locator(`[data-card="${place.cardId}"] [data-slot="card-title-text"]`);
 
   await title.fill('Identify every dependency');
   // Stored when the typing pauses, without leaving the field.
