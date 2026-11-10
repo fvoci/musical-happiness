@@ -1,10 +1,64 @@
-<!-- A stand-in until the header of a view is built: the views as links, a search field, "New". -->
+<!--
+  The header of a view: which view is shown, and what is done to it (which
+  properties its cards show, grouping, filter, sort, search, a new card).
+
+  It looks at the width of the pane it is in, not of the window
+  (`pane.header`). With room for all of it, it is one row: the views as
+  tabs, every tool with its word, the search field, "New". In a narrower
+  pane it folds into one row of a different make: one button that names the
+  view and opens the list of views, search and filter as icons, the rest
+  behind "…", and "New" as a round button at the bottom of the board.
+
+  The two are one component, and every tool is one element in both. A tool
+  that has no button of its own in the folded row (properties, grouping,
+  sort) keeps its element there, unseen, on top of "…": what it opened stays
+  open while the pane changes its width, and stays next to the button it was
+  opened from. Whether a tool opens as a popover or as a sheet is not decided
+  here (lib/layout/presentation.ts).
+
+  A reader who may not edit the board can switch views and search. The
+  other tools change the view for everyone and are not shown.
+-->
 <script lang="ts">
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
+  import EyeIcon from '@lucide/svelte/icons/eye';
+  import LayersIcon from '@lucide/svelte/icons/layers';
+  import ListFilterIcon from '@lucide/svelte/icons/list-filter';
+  import PlusIcon from '@lucide/svelte/icons/plus';
+  import SearchIcon from '@lucide/svelte/icons/search';
+  import { tick } from 'svelte';
+
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import { isComposing } from '$lib/components/keys.ts';
+  import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
+  import type { MenuAction } from '$lib/components/menu/actions.ts';
+  import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
+  import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import type { BoardView } from '$lib/logic/wire.ts';
+  import { pane } from '$lib/layout/room.svelte.ts';
+  import type { BoardView, PropertyTemplate } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
+
+  import { conditionCount } from './filter-edit.ts';
+  import FilterEditor from './FilterEditor.svelte';
+  import PropertiesPanel from './PropertiesPanel.svelte';
+  import SortEditor from './SortEditor.svelte';
+  import { NEW_VIEW_TITLES, viewTitle, type Icon } from './texts.ts';
+  import {
+    groupableProperties,
+    groupingFields,
+    groupingOf,
+    groupProperty,
+    newViewFields,
+    sortOffered,
+    type AddableViewType,
+  } from './view-fields.ts';
+  import ViewMenu from './ViewMenu.svelte';
+  import ViewSwitcher from './ViewSwitcher.svelte';
+  import ViewTabs from './ViewTabs.svelte';
 
   interface Props {
     board: BoardStore;
@@ -18,35 +72,374 @@
   }
 
   let { board, view, search = $bindable(), viewHref, onOpenView, onAddCard }: Props = $props();
+
+  const pickers = new PickerPresentation();
+
+  /** The pane has room for the whole header in one row. */
+  const row = $derived(pane.header);
+  const templates = $derived(board.board?.cardProperties ?? []);
+  const canEdit = $derived(board.canEdit);
+  const grouping = $derived(groupingOf(view.fields.viewType));
+  const sorting = $derived(sortOffered(view.fields.viewType));
+  const groupedBy = $derived(groupProperty(view, templates));
+  const groupName = $derived(groupedBy?.name ?? m.viewheader_group_none());
+  const filterCount = $derived(conditionCount(view.fields.filter));
+  const sortCount = $derived(view.fields.sortOptions.length);
+
+  let header = $state<HTMLElement | null>(null);
+
+  // What is open. Kept here, above the surfaces, so that it outlives a
+  // surface that is rebuilt when a sheet becomes a popover.
+  let propertiesOpen = $state(false);
+  let groupOpen = $state(false);
+  let filterOpen = $state(false);
+  let sortOpen = $state(false);
+
+  /**
+   * After a tool without a button of its own closes in the folded row, the
+   * focus goes to "…", where the tool was opened from: its own element is
+   * not there to take the focus back.
+   */
+  function closedAside(open: boolean): void {
+    if (open || row) return;
+    void tick().then(() => header?.querySelector<HTMLElement>('[data-tool="more"]')?.focus());
+  }
+
+  // ------------------------------------------------------------ search
+
+  /** The view whose search field was opened in the folded row. Another view starts closed. */
+  let searchOpenIn = $state<string | undefined>(undefined);
+  /** The folded row shows the search field in place of everything else. */
+  const searchBar = $derived(!row && (searchOpenIn === view.id || search !== ''));
+  let searchField = $state<HTMLInputElement | null>(null);
+
+  async function openSearch(): Promise<void> {
+    searchOpenIn = view.id;
+    await tick();
+    searchField?.focus();
+  }
+
+  async function closeSearch(): Promise<void> {
+    search = '';
+    searchOpenIn = undefined;
+    await tick();
+    header?.querySelector<HTMLElement>('[data-tool="search"]')?.focus();
+  }
+
+  function searchKeys(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' || isComposing(event)) return;
+    if (row) search = '';
+    else void closeSearch();
+  }
+
+  // ------------------------------------------------------------- views
+
+  async function addView(viewType: AddableViewType): Promise<void> {
+    const made = await board.createView({
+      title: NEW_VIEW_TITLES[viewType](),
+      fields: newViewFields(viewType, templates),
+    });
+    if (made) onOpenView(made.id);
+  }
+
+  const onAddView = $derived(
+    canEdit ? (viewType: AddableViewType) => void addView(viewType) : undefined,
+  );
+
+  // ---------------------------------------------------------- grouping
+
+  function groupBy(template: PropertyTemplate | undefined): void {
+    if ((template?.id ?? '') === (view.fields.groupById ?? '')) return;
+    // One change, so that one undo brings back the grouping and its columns.
+    void board.setViewFields(view.id, groupingFields(template), 'groupBy');
+  }
+
+  const groupActions = $derived<MenuAction[]>([
+    ...(grouping.optional
+      ? [
+          {
+            id: 'none',
+            label: m['GroupBy.ungroup'](),
+            checked: groupedBy === undefined,
+            run: () => {
+              groupBy(undefined);
+            },
+          },
+        ]
+      : []),
+    ...groupableProperties(templates).map((template, at) => ({
+      id: template.id,
+      label: template.name,
+      checked: template.id === groupedBy?.id,
+      separated: grouping.optional && at === 0,
+      run: () => {
+        groupBy(template);
+      },
+    })),
+  ]);
+
+  // ------------------------------------------------------------- "…"
+
+  /** The lines of "…" for the tools that have no button of their own in the folded row. */
+  const asideActions = $derived.by<MenuAction[]>(() => {
+    if (row) return [];
+    const lines: MenuAction[] = [];
+    if (sorting) {
+      lines.push({
+        id: 'sort',
+        label: m['ViewHeader.sort'](),
+        icon: ArrowUpDownIcon,
+        ...(sortCount > 0 ? { hint: String(sortCount) } : {}),
+        run: () => {
+          sortOpen = true;
+        },
+      });
+    }
+    if (grouping.offered) {
+      lines.push({
+        id: 'group',
+        label: m.viewheader_group_by(),
+        icon: LayersIcon,
+        hint: groupName,
+        run: () => {
+          groupOpen = true;
+        },
+      });
+    }
+    lines.push({
+      id: 'properties',
+      label: m['ViewHeader.properties'](),
+      icon: EyeIcon,
+      run: () => {
+        propertiesOpen = true;
+      },
+    });
+    return lines;
+  });
+
+  /** A tool that is not drawn in the folded row: an unseen element where "…" is, for its popover to open at. */
+  const ASIDE = 'invisible absolute top-1/2 right-1.5 size-8 -translate-y-1/2 roomy:size-touch';
 </script>
 
-<div
-  class="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-2"
-  data-testid="view-header"
->
-  <nav class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-    {#each board.orderedViews as each (each.id)}
-      <a
-        class="rounded-md px-2 py-1 whitespace-nowrap hover:bg-muted aria-[current=page]:bg-muted aria-[current=page]:font-medium"
-        href={viewHref(each.id)}
-        aria-current={each.id === view.id ? 'page' : undefined}
-        onclick={(event) => {
-          event.preventDefault();
-          onOpenView(each.id);
-        }}
+<!--
+  The button of a tool. In the whole row: its icon, its word, and a count.
+  In the folded row: the icon and the count, or (`aside`) nothing to see.
+-->
+{#snippet tool(
+  props: Record<string, unknown>,
+  id: string,
+  ToolIcon: Icon,
+  label: string,
+  count: number,
+  aside: boolean,
+)}
+  <Button
+    {...props}
+    variant="ghost"
+    data-tool={id}
+    aria-label={count > 0 ? `${label} (${count})` : label}
+    class={[
+      'shrink-0 roomy:h-touch',
+      row ? 'max-w-56' : aside ? ASIDE : 'gap-1 px-2 roomy:min-w-touch',
+    ]}
+  >
+    <!--
+      The whole row has the word and no icon: four icons are the width of a
+      view's tab, and a pane of 992 pixels has no tab to spare. To have both,
+      draw the icon here too, with `data-icon="inline-start"`.
+    -->
+    {#if row}
+      <span class="truncate">{label}</span>
+    {:else}
+      <ToolIcon />
+    {/if}
+    {#if count > 0}
+      <span
+        class="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-primary px-1 text-xs leading-none font-semibold text-primary-foreground"
+        data-count
       >
-        {each.title || m['Sidebar.untitled-view']()}
-      </a>
-    {/each}
-  </nav>
-  <Input
-    class="w-40"
-    type="search"
-    aria-label={m['ViewHeader.search-text']()}
-    placeholder={m['ViewHeader.search-text']()}
-    bind:value={search}
-  />
-  {#if board.canEdit}
-    <Button onclick={onAddCard}>{m['ViewHeader.new']()}</Button>
+        {count}
+      </span>
+    {/if}
+  </Button>
+{/snippet}
+
+<div
+  bind:this={header}
+  data-testid="view-header"
+  data-layout={row ? 'row' : 'folded'}
+  class={['relative flex h-12 shrink-0 items-center gap-1 border-b', row ? 'px-4' : 'px-1.5']}
+>
+  <div class="contents" inert={searchBar}>
+    {#if row}
+      <ViewTabs
+        views={board.orderedViews}
+        currentId={view.id}
+        {viewHref}
+        {onOpenView}
+        {onAddView}
+      />
+    {:else}
+      <ViewSwitcher
+        views={board.orderedViews}
+        current={view}
+        boardTitle={board.board?.title}
+        {onOpenView}
+        {onAddView}
+      />
+    {/if}
+    <div class="min-w-1 flex-1"></div>
+    {#if !row}
+      <IconButton
+        label={m['ViewHeader.search-text']()}
+        data-tool="search"
+        onclick={() => void openSearch()}
+      >
+        <SearchIcon />
+      </IconButton>
+    {/if}
+
+    {#if canEdit}
+      <PickerSurface
+        bind:open={
+          () => propertiesOpen,
+          (open: boolean) => {
+            propertiesOpen = open;
+            closedAside(open);
+          }
+        }
+        presentation={pickers.current}
+        title={m['ViewHeader.properties']()}
+      >
+        {#snippet trigger({ props }: { props: Record<string, unknown> })}
+          {@render tool(props, 'properties', EyeIcon, m['ViewHeader.properties'](), 0, true)}
+        {/snippet}
+        <PropertiesPanel {board} {view} />
+      </PickerSurface>
+
+      {#if grouping.offered}
+        <ActionMenu
+          bind:open={
+            () => groupOpen,
+            (open: boolean) => {
+              groupOpen = open;
+              closedAside(open);
+            }
+          }
+          title={m.viewheader_group_by()}
+          subtitle={viewTitle(view)}
+          actions={groupActions}
+          align="start"
+        >
+          {#snippet trigger(props: Record<string, unknown>)}
+            {@const word = m['ViewHeader.group-by']({ property: groupName })}
+            {@render tool(props, 'group', LayersIcon, word, 0, true)}
+          {/snippet}
+        </ActionMenu>
+      {/if}
+
+      <PickerSurface
+        bind:open={filterOpen}
+        presentation={pickers.current}
+        title={m['ViewHeader.filter']()}
+      >
+        {#snippet trigger({ props }: { props: Record<string, unknown> })}
+          {@const word = m['ViewHeader.filter']()}
+          {@render tool(props, 'filter', ListFilterIcon, word, filterCount, false)}
+        {/snippet}
+        <FilterEditor {board} {view} />
+      </PickerSurface>
+
+      {#if sorting}
+        <PickerSurface
+          bind:open={
+            () => sortOpen,
+            (open: boolean) => {
+              sortOpen = open;
+              closedAside(open);
+            }
+          }
+          presentation={pickers.current}
+          title={m['ViewHeader.sort']()}
+        >
+          {#snippet trigger({ props }: { props: Record<string, unknown> })}
+            {@const word = m['ViewHeader.sort']()}
+            {@render tool(props, 'sort', ArrowUpDownIcon, word, sortCount, true)}
+          {/snippet}
+          <SortEditor {board} {view} />
+        </PickerSurface>
+      {/if}
+    {/if}
+  </div>
+
+  <!--
+    The search field is one element in both rows, so that it keeps what was
+    typed, the caret and the focus when the pane changes its width. In the
+    folded row it is either away or laid over the whole row.
+  -->
+  <div
+    role="search"
+    data-testid="view-search"
+    class={row
+      ? 'w-40 shrink-0'
+      : searchBar
+        ? 'absolute inset-0 z-10 flex items-center gap-1 bg-background px-1.5'
+        : 'hidden'}
+  >
+    {#if !row}
+      <IconButton
+        label={m.viewheader_search_close()}
+        data-tool="search-close"
+        onclick={() => void closeSearch()}
+      >
+        <ArrowLeftIcon />
+      </IconButton>
+    {/if}
+    <div class="relative min-w-0 flex-1">
+      <SearchIcon
+        class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <Input
+        bind:ref={searchField}
+        bind:value={search}
+        type="search"
+        aria-label={m['ViewHeader.search-text']()}
+        placeholder={m['ViewHeader.search-text']()}
+        autocomplete="off"
+        enterkeyhint="search"
+        class="pl-8 roomy:h-touch roomy:text-base"
+        onkeydown={searchKeys}
+      />
+    </div>
+  </div>
+
+  {#if canEdit}
+    <div class="contents" inert={searchBar}>
+      <ViewMenu {board} {view} tools={asideActions} {onOpenView} />
+      {#if row}
+        <Button class="ml-1 shrink-0 roomy:h-touch" data-testid="new-card" onclick={onAddCard}>
+          <PlusIcon data-icon="inline-start" />
+          {m['ViewHeader.new']()}
+        </Button>
+      {/if}
+    </div>
   {/if}
 </div>
+
+{#if canEdit && !row}
+  <!--
+    "New" in the folded layout: a round button at the bottom of the board,
+    where a thumb is. Placed against the box of the board page; it stays
+    clear of the home indicator and rides on top of the on-screen keyboard.
+  -->
+  <Button
+    aria-label={m['ViewHeader.new']()}
+    title={m['ViewHeader.new']()}
+    data-testid="new-card"
+    class="absolute right-4 bottom-[calc(1rem+var(--safe-bottom)+var(--keyboard))] z-20 size-14 rounded-full shadow-lg"
+    onclick={onAddCard}
+  >
+    <PlusIcon class="size-6" />
+  </Button>
+{/if}

@@ -45,9 +45,11 @@
 
   /** What the reader typed into the search of the view. It is theirs alone and not stored. */
   let search = $state('');
-  // Another view starts without a search.
+  // Another view starts without a search. By its identifier: the view is a
+  // new object after every change to it, and a change is not another view.
+  const viewId = $derived(view?.id);
   $effect(() => {
-    if (view?.id) search = '';
+    if (viewId) search = '';
   });
 
   const cards = $derived(board && view ? board.cardsOf(view, search) : []);
