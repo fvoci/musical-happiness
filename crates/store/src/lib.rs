@@ -20,7 +20,6 @@ mod schema;
 mod sessions;
 mod sharing;
 mod subscriptions;
-mod system_settings;
 mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
@@ -33,7 +32,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
 pub use blocks::{BlockFilter, DuplicateAs, HistoryOrder, HistoryQuery, Paging, SubtreeQuery};
-pub use boards::{BoardMemberHistoryEntry, PublicBoards};
+pub use boards::PublicBoards;
 pub use category_boards::BoardVisibility;
 pub use connect::DbType;
 pub use db::Dialect;

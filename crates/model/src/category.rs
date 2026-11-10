@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::id::{IdKind, new_id};
+use crate::id::new_id;
 use crate::serde_util::null_as_default;
 
 /// The spacing between the sort orders of consecutive boards in a category.
@@ -83,7 +83,7 @@ impl Category {
     /// time, and zero for a negative sort order.
     pub fn hydrate(&mut self, now: i64) {
         if self.id.is_empty() {
-            self.id = new_id(IdKind::None);
+            self.id = new_id();
         }
         if self.create_at == 0 {
             self.create_at = now;

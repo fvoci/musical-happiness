@@ -3,10 +3,14 @@
 //!
 //! Where the original looks boards up through the search route or stores blocks through
 //! the application layer of the blocks area, these tests use the store.
+//!
+//! The identifiers in a request that creates boards and blocks (`"board-id-1"`, `"bd"`,
+//! `"b1"`) only tie the request's blocks to its boards: nothing is stored under them, so
+//! they need not be identifiers.
 
 use fvoci_model::{
     Block, BlockPatch, BlockType, Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
-    DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
+    DeleteBoardsAndBlocks, PatchBoardsAndBlocks, new_id,
 };
 use fvoci_store::BlockFilter;
 use reqwest::{Method, StatusCode};
@@ -16,7 +20,9 @@ use crate::boards::{
     TeamSocket, board_with_admin, board_without_members, insert_block, member, members_of,
     new_board,
 };
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{
+    ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID,
+};
 
 const PATH: &str = "/boards-and-blocks";
 
@@ -41,12 +47,13 @@ fn request_block(id: &str, board_id: &str, title: &str) -> Block {
     }
 }
 
-/// `th.Server.App().InsertBlock(&model.Block{ID, BoardID, Title}, userID)`
-async fn stored_block(th: &TestServer, id: &str, board_id: &str, user_id: &str) -> Block {
+/// `th.Server.App().InsertBlock(&model.Block{ID, BoardID, Title}, userID)`, under a new
+/// identifier.
+async fn stored_block(th: &TestServer, board_id: &str, user_id: &str) -> Block {
     insert_block(
         th,
         Block {
-            id: id.to_owned(),
+            id: new_id(),
             board_id: board_id.to_owned(),
             title: "initial title".to_owned(),
             ..Block::default()
@@ -84,9 +91,9 @@ fn expect_bad_request(response: &ApiResponse, message: &str) {
     response.check_error(StatusCode::BAD_REQUEST, message);
 }
 
-/// Two open boards of user1 in one team, each with one block, as most subtests of
-/// `TestPatchBoardsAndBlocks` set up. The second board has user1 as admin only if
-/// `second_board_is_users` says so.
+/// Two open boards of user1, each with one block, as most subtests of
+/// `TestPatchBoardsAndBlocks` set up. The first is in the test team, the second in
+/// `second_team`, and has user1 as admin only if `second` says so.
 struct TwoBoards {
     board1: Board,
     board2: Board,
@@ -113,8 +120,8 @@ async fn two_boards(th: &TestServer, second: SecondBoard, second_team: &str) -> 
         SecondBoard::WithAdmin => board_with_admin(th, board2, &user_id).await,
         SecondBoard::WithoutMembers => board_without_members(th, board2, &user_id).await,
     };
-    let block1 = stored_block(th, "block-id-1", &board1.id, &user_id).await;
-    let block2 = stored_block(th, "block-id-2", &board2.id, &user_id).await;
+    let block1 = stored_block(th, &board1.id, &user_id).await;
+    let block2 = stored_block(th, &board2.id, &user_id).await;
     TwoBoards {
         board1,
         board2,
@@ -242,8 +249,8 @@ async fn create_boards_and_blocks_boards_from_different_teams() {
     let th = Setup::native().start().await.init_basic().await;
     let request = BoardsAndBlocks {
         boards: vec![
-            request_board("board-id-1", "team-id-1", BoardType::Private, ""),
-            request_board("board-id-2", "team-id-2", BoardType::Private, ""),
+            request_board("board-id-1", TEST_TEAM_ID, BoardType::Private, ""),
+            request_board("board-id-2", ROOT_TEAM_ID, BoardType::Private, ""),
         ],
         blocks: vec![request_block("block-id", "board-id-1", "")],
     };
@@ -410,20 +417,28 @@ async fn create_boards_and_blocks_refusals() {
         expect_bad_request(&response, message);
     }
 
-    // No team at all: the team permission check fails.
-    let response = th
-        .client
-        .post(
-            PATH,
-            &json!({"boards": [{"id": "bd", "type": "P"}], "blocks": [card_json("bd")]}),
-        )
-        .await;
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to board template",
-        "the original's message"
-    );
+    // No team at all, a team that does not exist, and text that is no identifier: the
+    // boards' team must exist. (The original's team permission check fails on no team,
+    // and it creates boards in a team of any other name.)
+    for board in [
+        json!({"id": "bd", "type": "P"}),
+        json!({"id": "bd", "teamId": UNKNOWN_ID, "type": "P"}),
+        json!({"id": "bd", "teamId": "nope", "type": "P"}),
+    ] {
+        let response = th
+            .client
+            .post(
+                PATH,
+                &json!({"boards": [board], "blocks": [card_json("bd")]}),
+            )
+            .await;
+        expect_bad_request(&response, "no such team");
+        assert_eq!(
+            response.value()["field"],
+            json!("boards"),
+            "the member at fault: {board}"
+        );
+    }
 
     // A block that fails the store's validation: a bad request that names the block by
     // its new identifier. Nothing is stored.
@@ -705,12 +720,12 @@ async fn patch_boards_and_blocks_without_permissions_for_one_board_nothing_is_up
 #[tokio::test]
 async fn patch_boards_and_blocks_boards_belonging_to_different_teams_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
-    let boards = two_boards(&th, SecondBoard::WithAdmin, "different-team-id").await;
+    let boards = two_boards(&th, SecondBoard::WithAdmin, ROOT_TEAM_ID).await;
     let (board_patches, block_patches) = title_patches(2, "new title 3");
     let request = PatchBoardsAndBlocks {
         board_ids: strings(&[&boards.board1.id, &boards.board2.id]),
         board_patches,
-        block_ids: strings(&[&boards.block1.id, "board-id-2"]),
+        block_ids: strings(&[&boards.block1.id, &boards.block2.id]),
         block_patches,
     };
 
@@ -729,7 +744,7 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     let request = json!({
         "boardIDs": [boards.board1.id, boards.board2.id],
         "boardPatches": [{"title": "new title 4"}, {"type": "invalid"}],
-        "blockIDs": [boards.block1.id, "board-id-2"],
+        "blockIDs": [boards.block1.id, boards.block2.id],
         "blockPatches": [{"title": "new title 4"}, {"title": "new title 4"}],
     });
 
@@ -881,7 +896,7 @@ async fn patch_boards_and_blocks_checks() {
 
     // A board that does not exist, and a private board of somebody else, answer alike.
     let private = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    for board_id in ["nonexistent", private.id.as_str()] {
+    for board_id in [UNKNOWN_ID, "nonexistent", private.id.as_str()] {
         let response = patch(
             &th.client2,
             &json!({"boardIDs": [board_id], "boardPatches": [{"title": "n"}]}),
@@ -891,18 +906,20 @@ async fn patch_boards_and_blocks_checks() {
     }
 
     // A block that does not exist.
-    let response = patch(
-        &th.client,
-        &json!({
-            "boardIDs": [first_id], "boardPatches": [{"title": "n"}],
-            "blockIDs": ["nonexistent"], "blockPatches": [{"title": "n"}],
-        }),
-    )
-    .await;
-    expect_bad_request(
-        &response,
-        "the request names a block that is not on its boards",
-    );
+    for block_id in [UNKNOWN_ID, "nonexistent"] {
+        let response = patch(
+            &th.client,
+            &json!({
+                "boardIDs": [first_id], "boardPatches": [{"title": "n"}],
+                "blockIDs": [block_id], "blockPatches": [{"title": "n"}],
+            }),
+        )
+        .await;
+        expect_bad_request(
+            &response,
+            "the request names a block that is not on its boards",
+        );
+    }
 
     // An editor patches board properties and blocks, but not the board type.
     th.client
@@ -981,91 +998,6 @@ async fn patch_boards_and_blocks_checks() {
     th.teardown().await;
 }
 
-/// Not in the original, where an editor who may not link a board to a channel through
-/// `PATCH /boards/{board_id}` could do it through this route (reproduced on the
-/// original). The channel now needs the permission to manage the board's roles on both
-/// routes.
-#[tokio::test]
-async fn patch_boards_and_blocks_channel_needs_the_permission_to_manage_roles() {
-    let th = Setup::native().start().await.init_basic().await;
-    let user1 = th.client.me().await;
-    let user2 = th.client2.me().await;
-    let board = board_with_admin(
-        &th,
-        new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        &user1.id,
-    )
-    .await;
-    th.client
-        .add_member(&BoardMember {
-            scheme_editor: true,
-            ..member(&board.id, &user2.id)
-        })
-        .await
-        .check_ok();
-    let request = json!({
-        "boardIDs": [board.id],
-        "boardPatches": [{"channelId": "channel"}],
-        "blockIDs": [],
-        "blockPatches": [],
-    });
-
-    // The attack: an editor links a channel.
-    let response = patch(&th.client2, &request).await;
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to modifying board access",
-        "the refusal of the single-board route"
-    );
-    let stored = th.app.board(&board.id).await.expect("the board exists");
-    assert_eq!(stored.channel_id, "", "the board has no channel");
-
-    th.teardown().await;
-}
-
-/// The counterpart of
-/// [`patch_boards_and_blocks_channel_needs_the_permission_to_manage_roles`]: an editor
-/// still patches what editors may patch, and an admin links a channel.
-#[tokio::test]
-async fn patch_boards_and_blocks_by_an_editor_and_channel_by_an_admin_still_work() {
-    let th = Setup::native().start().await.init_basic().await;
-    let user1 = th.client.me().await;
-    let user2 = th.client2.me().await;
-    let board = board_with_admin(
-        &th,
-        new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        &user1.id,
-    )
-    .await;
-    th.client
-        .add_member(&BoardMember {
-            scheme_editor: true,
-            ..member(&board.id, &user2.id)
-        })
-        .await
-        .check_ok();
-    let request = json!({
-        "boardIDs": [board.id],
-        "boardPatches": [{"channelId": "channel"}],
-        "blockIDs": [],
-        "blockPatches": [],
-    });
-
-    patch(
-        &th.client2,
-        &json!({"boardIDs": [board.id], "boardPatches": [{"title": "by the editor"}]}),
-    )
-    .await
-    .check_ok();
-
-    // An admin links the channel.
-    let patched: BoardsAndBlocks = patch(&th.client, &request).await.ok_json();
-    assert_eq!(patched.boards[0].channel_id, "channel", "linked");
-
-    th.teardown().await;
-}
-
 // -- TestDeleteBoardsAndBlocks --------------------------------------------------------
 
 async fn delete(client: &Client, request: &impl serde::Serialize) -> ApiResponse {
@@ -1091,10 +1023,10 @@ async fn delete_boards_and_blocks_no_boards() {
     // a board and a block are required for the permission checks
     let board =
         board_with_admin(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
-    let block = stored_block(&th, "block-id-1", &board.id, &user1.id).await;
+    let block = stored_block(&th, &board.id, &user1.id).await;
     let request = DeleteBoardsAndBlocks {
         boards: vec![],
-        blocks: vec![block.id.clone()],
+        blocks: vec![block.id],
     };
 
     let response = delete(&th.client, &request).await;
@@ -1118,22 +1050,19 @@ async fn delete_boards_and_blocks_boards_from_different_teams() {
     let user1 = th.client.me().await;
     let board =
         board_with_admin(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
-    stored_block(&th, "block-id-1", &board.id, &user1.id).await;
-    let other_teams_board = board_with_admin(
-        &th,
-        new_board("another-team-id", BoardType::Open, ""),
-        &user1.id,
-    )
-    .await;
+    let block = stored_block(&th, &board.id, &user1.id).await;
+    let other_teams_board =
+        board_with_admin(&th, new_board(ROOT_TEAM_ID, BoardType::Open, ""), &user1.id).await;
     let request = DeleteBoardsAndBlocks {
-        boards: vec![board.id.clone(), other_teams_board.id.clone()],
-        blocks: strings(&["block-id-1"]),
+        boards: strings(&[&board.id, &other_teams_board.id]),
+        blocks: vec![block.id],
     };
 
     let response = delete(&th.client, &request).await;
 
     expect_bad_request(&response, "all boards should belong to the same team");
     th.app.board(&board.id).await.expect("the board is there");
+    assert_eq!(blocks_of(&th, &board.id).await.len(), 1, "with its block");
     th.teardown().await;
 }
 
@@ -1145,13 +1074,16 @@ async fn delete_boards_and_blocks_without_permissions_to_one_board_nothing_is_de
     let user1 = th.client.me().await;
     // the user is an admin of the first board
     let board1 =
-        board_with_admin(&th, new_board("team_id_1", BoardType::Open, ""), &user1.id).await;
+        board_with_admin(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
     // but not of the second
     let board2 =
-        board_without_members(&th, new_board("team_id_1", BoardType::Open, ""), &user1.id).await;
+        board_without_members(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &user1.id).await;
+    // (The original names a block that does not exist; here the block is one of the
+    // first board, so that the missing permission is all that is wrong.)
+    let block = stored_block(&th, &board1.id, &user1.id).await;
     let request = DeleteBoardsAndBlocks {
-        boards: vec![board1.id.clone(), board2.id.clone()],
-        blocks: strings(&["block-id-1"]),
+        boards: strings(&[&board1.id, &board2.id]),
+        blocks: vec![block.id],
     };
 
     let response = delete(&th.client, &request).await;
@@ -1164,6 +1096,7 @@ async fn delete_boards_and_blocks_without_permissions_to_one_board_nothing_is_de
     );
     th.app.board(&board1.id).await.expect("board 1 is there");
     th.app.board(&board2.id).await.expect("board 2 is there");
+    assert_eq!(blocks_of(&th, &board1.id).await.len(), 1, "and the block");
     th.teardown().await;
 }
 
@@ -1173,19 +1106,23 @@ async fn delete_boards_and_blocks_without_permissions_to_one_board_nothing_is_de
 async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
+    // The application layer stores the boards and blocks under the identifiers it is
+    // given.
+    let board_ids = [new_id(), new_id()];
+    let block_ids = [new_id(), new_id()];
     let request = BoardsAndBlocks {
         boards: vec![
-            request_board("board-id-1", TEST_TEAM_ID, BoardType::Open, "public board"),
+            request_board(&board_ids[0], TEST_TEAM_ID, BoardType::Open, "public board"),
             request_board(
-                "board-id-2",
+                &board_ids[1],
                 TEST_TEAM_ID,
                 BoardType::Private,
                 "private board",
             ),
         ],
         blocks: vec![
-            request_block("block-id-1", "board-id-1", "block 1"),
-            request_block("block-id-2", "board-id-2", "block 2"),
+            request_block(&block_ids[0], &board_ids[0], "block 1"),
+            request_block(&block_ids[1], &board_ids[1], "block 2"),
         ],
     };
     let created = th
@@ -1197,10 +1134,10 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     assert_eq!(created.blocks.len(), 2, "two blocks");
 
     // ensure that the entities have been successfully created
-    for board_id in ["board-id-1", "board-id-2"] {
+    for board_id in &board_ids {
         th.app.board(board_id).await.expect("the board exists");
     }
-    for block_id in ["block-id-1", "block-id-2"] {
+    for block_id in &block_ids {
         th.app
             .store()
             .get_block(block_id)
@@ -1213,8 +1150,8 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     let response = delete(
         &th.client,
         &DeleteBoardsAndBlocks {
-            boards: strings(&["board-id-1", "board-id-2"]),
-            blocks: strings(&["block-id-1", "block-id-2"]),
+            boards: board_ids.to_vec(),
+            blocks: block_ids.to_vec(),
         },
     )
     .await;
@@ -1222,11 +1159,11 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     assert_eq!(response.text(), "{}", "an empty object");
 
     // ensure that the entities have been successfully deleted
-    for board_id in ["board-id-1", "board-id-2"] {
+    for board_id in &board_ids {
         let error = th.app.board(board_id).await.expect_err("the board is gone");
         assert!(error.is_not_found(), "{error:?}");
     }
-    for block_id in ["block-id-1", "block-id-2"] {
+    for block_id in &block_ids {
         let error = th
             .app
             .store()
@@ -1238,14 +1175,14 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
 
     // The members are told about every deleted block and board. Memberships outlive
     // their boards, so the messages still find them.
-    for block_id in ["block-id-1", "block-id-2"] {
+    for block_id in &block_ids {
         let message = socket.expect("UPDATE_BLOCK", "/block/id", block_id).await;
         assert!(
             message["block"]["deleteAt"].as_i64() > Some(0),
             "a deletion: {message}"
         );
     }
-    for board_id in ["board-id-1", "board-id-2"] {
+    for board_id in &board_ids {
         let message = socket.expect("UPDATE_BOARD", "/board/id", board_id).await;
         assert!(
             message["board"]["deleteAt"].as_i64() > Some(0),
@@ -1271,26 +1208,24 @@ async fn delete_boards_and_blocks_checks() {
         assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
-    let response = delete(&th.client, &json!({"boards": ["nonexistent"]})).await;
-    response.check_error(StatusCode::NOT_FOUND, "board not found");
+    for nothing in [UNKNOWN_ID, "nonexistent"] {
+        let response = delete(&th.client, &json!({"boards": [nothing]})).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
 
-    expect_bad_request(
-        &delete(
-            &th.client,
-            &json!({"boards": [], "blocks": ["nonexistent"]}),
-        )
-        .await,
-        "at least one board is required",
-    );
-    // A block that does not exist answers as one of a board that is not listed.
-    expect_bad_request(
-        &delete(
-            &th.client,
-            &json!({"boards": [first_id], "blocks": ["nonexistent"]}),
-        )
-        .await,
-        "the request names a block that is not on its boards",
-    );
+        expect_bad_request(
+            &delete(&th.client, &json!({"boards": [], "blocks": [nothing]})).await,
+            "at least one board is required",
+        );
+        // A block that does not exist answers as one of a board that is not listed.
+        expect_bad_request(
+            &delete(
+                &th.client,
+                &json!({"boards": [first_id], "blocks": [nothing]}),
+            )
+            .await,
+            "the request names a block that is not on its boards",
+        );
+    }
 
     // A block of a board that is not listed.
     expect_bad_request(

@@ -5,13 +5,13 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, Board, BoardType, Category, IdKind, Sharing, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardType, Category, Sharing, new_id};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{Setup, TestServer};
+use crate::common::{ROOT_TEAM_ID, Setup, TestServer};
 
 /// How long to wait for a message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -78,7 +78,7 @@ impl Socket {
 
 fn category(team_id: &str, user_id: &str, name: &str) -> Category {
     Category {
-        id: new_id(IdKind::None),
+        id: new_id(),
         name: name.to_owned(),
         user_id: user_id.to_owned(),
         team_id: team_id.to_owned(),
@@ -115,23 +115,23 @@ async fn team_subscription_needs_authentication() {
     // Not authenticated: the subscription is ignored, and so is an unknown action.
     let mut anonymous = Socket::connect(&th).await;
     anonymous
-        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": "0"}))
+        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
         .await;
     anonymous.send(json!({"action": "NO_SUCH_ACTION"})).await;
     anonymous.send(json!("not a command")).await;
 
     let mut socket = Socket::connect(&th).await;
     socket.authenticate(&th.client.token).await;
-    subscribe_to_team(&th, &mut socket, "0", &user1.id).await;
+    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
 
-    let change = category("0", &user1.id, "Projects");
+    let change = category(ROOT_TEAM_ID, &user1.id, "Projects");
     th.app.ws().broadcast_category_change(&change);
     let message = socket
         .next_json(PATIENCE)
         .await
         .expect("the change arrives");
     assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
-    assert_eq!(message["teamId"], json!("0"), "{message}");
+    assert_eq!(message["teamId"], json!(ROOT_TEAM_ID), "{message}");
     assert_eq!(message["category"]["name"], json!("Projects"), "{message}");
     assert_eq!(message["category"]["userID"], json!(user1.id), "{message}");
     assert!(message.get("blockCategories").is_none(), "{message}");
@@ -145,7 +145,7 @@ async fn team_subscription_needs_authentication() {
     // After unsubscribing, nothing arrives any more. The second subscription to another
     // team shows that the server has processed the commands before it.
     socket
-        .send(json!({"action": "UNSUBSCRIBE_TEAM", "teamId": "0"}))
+        .send(json!({"action": "UNSUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
         .await;
     subscribe_to_team(&th, &mut socket, "other-team", &user1.id).await;
     th.app.ws().broadcast_category_change(&change);
@@ -182,8 +182,8 @@ async fn board_changes_go_to_subscribed_members() {
     let user2 = th.client2.me().await;
 
     let mut board = Board {
-        id: new_id(IdKind::Board),
-        team_id: "0".to_owned(),
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
         board_type: BoardType::Private,
         title: "Roadmap".to_owned(),
         ..Board::default()
@@ -196,23 +196,26 @@ async fn board_changes_go_to_subscribed_members() {
 
     let mut member = Socket::connect(&th).await;
     member.authenticate(&th.client.token).await;
-    subscribe_to_team(&th, &mut member, "0", &user1.id).await;
+    subscribe_to_team(&th, &mut member, ROOT_TEAM_ID, &user1.id).await;
     let mut outsider = Socket::connect(&th).await;
     outsider.authenticate(&th.client2.token).await;
-    subscribe_to_team(&th, &mut outsider, "0", &user2.id).await;
+    subscribe_to_team(&th, &mut outsider, ROOT_TEAM_ID, &user2.id).await;
 
-    th.app.ws().broadcast_board_change("0", &board).await;
+    th.app
+        .ws()
+        .broadcast_board_change(ROOT_TEAM_ID, &board)
+        .await;
     let message = member
         .next_json(PATIENCE)
         .await
         .expect("the member is told");
     assert_eq!(message["action"], json!("UPDATE_BOARD"), "{message}");
-    assert_eq!(message["teamId"], json!("0"), "{message}");
+    assert_eq!(message["teamId"], json!(ROOT_TEAM_ID), "{message}");
     assert_eq!(message["board"]["id"], json!(board.id), "{message}");
     assert_eq!(message["board"]["title"], json!("Roadmap"), "{message}");
 
     let mut block = Block {
-        id: new_id(IdKind::Block),
+        id: new_id(),
         board_id: board.id.clone(),
         block_type: BlockType::Card,
         title: "A card".to_owned(),
@@ -223,7 +226,10 @@ async fn board_changes_go_to_subscribed_members() {
         .insert_block(&mut block, &user1.id)
         .await
         .expect("the block is stored");
-    th.app.ws().broadcast_block_change("0", &block).await;
+    th.app
+        .ws()
+        .broadcast_block_change(ROOT_TEAM_ID, &block)
+        .await;
     let message = member
         .next_json(PATIENCE)
         .await
@@ -234,7 +240,7 @@ async fn board_changes_go_to_subscribed_members() {
 
     th.app
         .ws()
-        .broadcast_block_delete("0", &block.id, &board.id)
+        .broadcast_block_delete(ROOT_TEAM_ID, &block.id, &board.id)
         .await;
     let message = member
         .next_json(PATIENCE)
@@ -251,7 +257,7 @@ async fn board_changes_go_to_subscribed_members() {
     // Removing a member tells the members and the removed user.
     th.app
         .ws()
-        .broadcast_member_delete("0", &board.id, &user2.id)
+        .broadcast_member_delete(ROOT_TEAM_ID, &board.id, &user2.id)
         .await;
     let message = member
         .next_json(PATIENCE)
@@ -282,8 +288,8 @@ async fn block_subscription_needs_the_read_token() {
     let user1 = th.client.me().await;
 
     let mut board = Board {
-        id: new_id(IdKind::Board),
-        team_id: "0".to_owned(),
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
         board_type: BoardType::Private,
         ..Board::default()
     };
@@ -293,7 +299,7 @@ async fn block_subscription_needs_the_read_token() {
         .await
         .expect("the board is stored");
     let mut block = Block {
-        id: new_id(IdKind::Block),
+        id: new_id(),
         board_id: board.id.clone(),
         block_type: BlockType::Card,
         ..Block::default()
@@ -319,7 +325,7 @@ async fn block_subscription_needs_the_read_token() {
     let subscribe = |read_token: &str| {
         json!({
             "action": "SUBSCRIBE_BLOCKS",
-            "teamId": "0",
+            "teamId": ROOT_TEAM_ID,
             "readToken": read_token,
             "blockIds": [block.id],
         })
@@ -333,7 +339,10 @@ async fn block_subscription_needs_the_read_token() {
     // No acknowledgement: broadcast until the reader's subscription shows.
     let mut received = None;
     for _ in 0..50 {
-        th.app.ws().broadcast_block_change("0", &block).await;
+        th.app
+            .ws()
+            .broadcast_block_change(ROOT_TEAM_ID, &block)
+            .await;
         if let Some(message) = reader.next_json(Duration::from_millis(100)).await {
             received = Some(message);
             break;
@@ -405,9 +414,9 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
 
     let malformed = [
         json!({"action": "SUBSCRIBE_TEAM", "teamId": 5}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": "0", "blockIds": "not-a-list"}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": "0", "blockIds": [1, 2, 3]}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": "0", "readToken": {"a": 1}, "blockIds": []}),
+        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "blockIds": "not-a-list"}),
+        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "blockIds": [1, 2, 3]}),
+        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "readToken": {"a": 1}, "blockIds": []}),
         json!({"action": "AUTH", "token": ["a", "b"]}),
         json!({"action": 7}),
         json!([1, 2, 3]),
@@ -419,8 +428,8 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
 
     // The same connection still authenticates, subscribes and is told about changes.
     socket.authenticate(&th.client.token).await;
-    subscribe_to_team(&th, &mut socket, "0", &user1.id).await;
-    let change = category("0", &user1.id, "After the noise");
+    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+    let change = category(ROOT_TEAM_ID, &user1.id, "After the noise");
     th.app.ws().broadcast_category_change(&change);
     let message = socket
         .next_json(PATIENCE)
@@ -445,10 +454,10 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
     let user2 = th.client2.me().await;
     let mut socket1 = Socket::connect(&th).await;
     socket1.authenticate(&th.client.token).await;
-    subscribe_to_team(&th, &mut socket1, "0", &user1.id).await;
+    subscribe_to_team(&th, &mut socket1, ROOT_TEAM_ID, &user1.id).await;
     let mut socket2 = Socket::connect(&th).await;
     socket2.authenticate(&th.client2.token).await;
-    subscribe_to_team(&th, &mut socket2, "0", &user2.id).await;
+    subscribe_to_team(&th, &mut socket2, ROOT_TEAM_ID, &user2.id).await;
 
     th.app
         .reset_user_password(&user1.username, "another-Pa$$word")
@@ -462,7 +471,7 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
     );
     th.app
         .ws()
-        .broadcast_category_change(&category("0", &user2.id, "still listening"));
+        .broadcast_category_change(&category(ROOT_TEAM_ID, &user2.id, "still listening"));
     let message = socket2
         .next_json(PATIENCE)
         .await

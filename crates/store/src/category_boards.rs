@@ -6,13 +6,11 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{
-    CATEGORY_BOARDS_SORT_ORDER_GAP, CategoryBoardMetadata, CategoryBoards, IdKind, new_id,
-};
+use fvoci_model::{CATEGORY_BOARDS_SORT_ORDER_GAP, CategoryBoardMetadata, CategoryBoards, new_id};
 
 use crate::Store;
 use crate::categories::get_user_categories;
-use crate::db::{Scope, now_millis};
+use crate::db::{Id, Scope, now_millis};
 use crate::error::StoreError;
 
 /// Whether a board shows in its user's sidebar.
@@ -67,9 +65,9 @@ impl Store {
     /// Gives the boards of a category the sort orders 10, 11, 12 and so on, in the order
     /// of their identifiers in `new_order`, and returns `new_order`.
     ///
-    /// Boards of the category that `new_order` does not name lose their sort order, which
-    /// lists them before every other board on SQLite and after every other on PostgreSQL.
-    /// Identifiers that are not boards of the category are ignored. An empty order
+    /// Boards of the category that `new_order` does not name keep their sort order, which
+    /// may then be that of a board the order names. Identifiers that are not boards of
+    /// the category are ignored. An empty order
     /// changes nothing.
     ///
     /// # Errors
@@ -84,22 +82,17 @@ impl Store {
             if new_order.is_empty() {
                 return Ok(());
             }
-            let mut sql = scope.sql(&format!(
-                "UPDATE {} SET sort_order = CASE board_id",
-                scope.table("category_boards")
-            ));
+            let mut sql = scope.sql("UPDATE category_boards SET sort_order = CASE board_id");
             // Preserved quirk: consecutive boards are one apart, starting at the gap. The
             // original adds the gap to the position where it means to multiply by it
             // (server/services/store/sqlstore/category_boards.go:144).
             for (sort_order, board_id) in (CATEGORY_BOARDS_SORT_ORDER_GAP..).zip(&new_order) {
-                sql.push_bind(" WHEN ", board_id)
+                sql.push_bind(" WHEN ", Id(board_id))
                     .push_bind(" THEN ", sort_order);
             }
-            // Preserved quirk: there is no `ELSE sort_order`, so a board of the category
-            // that the order leaves out gets `NULL`. The original builds the `ELSE` and
-            // drops it (server/services/store/sqlstore/category_boards.go:146).
-            sql.push(" END")
-                .push_bind(" WHERE category_id = ", category_id);
+            // A board of the category that the order leaves out keeps its place.
+            sql.push(" ELSE sort_order END")
+                .push_bind(" WHERE category_id = ", Id(category_id));
             scope.execute(sql).await?;
             Ok(())
         })
@@ -122,14 +115,11 @@ impl Store {
         visibility: BoardVisibility,
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "UPDATE {} SET hidden = ",
-                scope.table("category_boards")
-            ));
+            let mut sql = scope.sql("UPDATE category_boards SET hidden = ");
             sql.bind(visibility == BoardVisibility::Hidden)
-                .push_bind(" WHERE user_id = ", user_id)
-                .push_bind(" AND category_id = ", category_id)
-                .push_bind(" AND board_id = ", board_id);
+                .push_bind(" WHERE user_id = ", Id(user_id))
+                .push_bind(" AND category_id = ", Id(category_id))
+                .push_bind(" AND board_id = ", Id(board_id));
             scope.execute(sql).await?;
             Ok(())
         })
@@ -160,21 +150,18 @@ async fn category_board_metadata(
     scope: &mut Scope<'_>,
     category_id: &str,
 ) -> Result<Vec<CategoryBoardMetadata>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT board_id, COALESCE(hidden, false) FROM {} WHERE category_id = ",
-        scope.table("category_boards")
-    ));
+    let mut sql = scope.sql("SELECT board_id, hidden FROM category_boards WHERE category_id = ");
     // Preserved quirk: the rows are not narrowed to the user the category belongs to, so
     // a board that another user put into this category is listed with it
     // (server/services/store/sqlstore/category_boards.go:42).
-    sql.bind(category_id).push(" ORDER BY sort_order");
+    sql.bind(Id(category_id)).push(" ORDER BY sort_order");
     scope
         .fetch_all(sql)
         .await?
         .iter()
         .map(|row| {
             Ok(CategoryBoardMetadata {
-                board_id: row.text(0)?,
+                board_id: row.id(0)?,
                 hidden: row.bool(1)?,
             })
         })
@@ -202,17 +189,14 @@ pub(crate) async fn add_update_category_board(
     }
 
     let now = now_millis();
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO {} (id, user_id, category_id, board_id, create_at, update_at, sort_order, \
-         hidden) VALUES ",
-        scope.table("category_boards")
-    ));
+    let mut sql = scope.sql("INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, update_at, sort_order, \
+         hidden) VALUES ");
     for (index, board_id) in board_ids.into_iter().enumerate() {
         sql.push(if index == 0 { "(" } else { ", (" })
-            .bind(new_id(IdKind::None))
-            .push_bind(", ", user_id)
-            .push_bind(", ", category_id)
-            .push_bind(", ", board_id)
+            .bind(Id(&new_id()))
+            .push_bind(", ", Id(user_id))
+            .push_bind(", ", Id(category_id))
+            .push_bind(", ", Id(board_id))
             .push_bind(", ", now)
             .push_bind(", ", now)
             .push(", 0, false)");

@@ -12,6 +12,7 @@ use std::fmt::Write as _;
 use reqwest::Method;
 use serde_json::{Value, json};
 
+use crate::common::ROOT_TEAM_ID;
 use crate::fixtures::{PNG, block, id_of, merged, role_flags};
 use crate::golden;
 use crate::harness::{
@@ -146,7 +147,7 @@ impl<'a> Fixture<'a> {
                 Method::POST,
                 &format!("{API}/boards"),
                 Payload::Json(json!({
-                    "teamId": "0", "type": board_type, "title": "Matrix",
+                    "teamId": ROOT_TEAM_ID, "type": board_type, "title": "Matrix",
                     "properties": {}, "cardProperties": [],
                 })),
                 &owner,
@@ -238,7 +239,7 @@ impl<'a> Fixture<'a> {
     async fn upload_file(&self) -> String {
         self.owner(
             Method::POST,
-            &format!("{API}/teams/0/{}/files", self.board),
+            &format!("{API}/teams/{ROOT_TEAM_ID}/{}/files", self.board),
             multipart("file", "pixel.png", &PNG, "image/png"),
         )
         .await
@@ -473,18 +474,21 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         }
         "files: upload" => Request {
             method: Method::POST,
-            path: format!("{API}/teams/0/{board}/files"),
+            path: format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files"),
             payload: multipart("file", "pixel.png", &PNG, "image/png"),
         },
         "files: download" => {
             let file = fx.upload_file().await;
-            Request::new(Method::GET, format!("{API}/files/teams/0/{board}/{file}"))
+            Request::new(
+                Method::GET,
+                format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}/{file}"),
+            )
         }
         "files: info" => {
             let file = fx.upload_file().await;
             Request::new(
                 Method::GET,
-                format!("{API}/files/teams/0/{board}/{file}/info"),
+                format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}/{file}/info"),
             )
         }
         "archive: export board" => {
@@ -500,20 +504,27 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
                 .await;
             Request {
                 method: Method::POST,
-                path: format!("{API}/teams/0/archive/import"),
+                path: format!("{API}/teams/{ROOT_TEAM_ID}/archive/import"),
                 payload: multipart("file", "a.boardarchive", exported.bytes(), OCTET_STREAM),
             }
         }
-        "archive: export team" => {
-            Request::new(Method::GET, format!("{API}/teams/0/archive/export"))
+        "archive: export team" => Request::new(
+            Method::GET,
+            format!("{API}/teams/{ROOT_TEAM_ID}/archive/export"),
+        ),
+        "categories: list" => Request::new(
+            Method::GET,
+            format!("{API}/teams/{ROOT_TEAM_ID}/categories"),
+        ),
+        "team: boards" => Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/boards")),
+        "team: templates" => {
+            Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/templates"))
         }
-        "categories: list" => Request::new(Method::GET, format!("{API}/teams/0/categories")),
-        "team: boards" => Request::new(Method::GET, format!("{API}/teams/0/boards")),
-        "team: templates" => Request::new(Method::GET, format!("{API}/teams/0/templates")),
-        "team: search" => {
-            Request::new(Method::GET, format!("{API}/teams/0/boards/search?q=Matrix"))
-        }
-        "team: users" => Request::new(Method::GET, format!("{API}/teams/0/users")),
+        "team: search" => Request::new(
+            Method::GET,
+            format!("{API}/teams/{ROOT_TEAM_ID}/boards/search?q=Matrix"),
+        ),
+        "team: users" => Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/users")),
         other => panic!("no request is defined for the route {other:?}"),
     }
 }

@@ -6,19 +6,19 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
       "id": "<id:2>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Cards",
       "type": "P",
@@ -39,7 +39,7 @@
       "schemeEditor": false,
       "schemeViewer": true,
       "synthetic": false,
-      "userId": "<id:3>"
+      "userId": "<id:4>"
     }
   },
   {
@@ -57,7 +57,7 @@
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🃏",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -79,7 +79,7 @@
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "",
-      "id": "<id:5>",
+      "id": "<id:6>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {},
@@ -136,7 +136,7 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "icon": "🃏",
-        "id": "<id:4>",
+        "id": "<id:5>",
         "isTemplate": false,
         "modifiedBy": "<id:1>",
         "properties": {
@@ -152,7 +152,7 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "icon": "",
-        "id": "<id:5>",
+        "id": "<id:6>",
         "isTemplate": false,
         "modifiedBy": "<id:1>",
         "properties": {},
@@ -177,7 +177,7 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "icon": "🃏",
-        "id": "<id:4>",
+        "id": "<id:5>",
         "isTemplate": false,
         "modifiedBy": "<id:1>",
         "properties": {
@@ -193,7 +193,7 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "icon": "",
-        "id": "<id:5>",
+        "id": "<id:6>",
         "isTemplate": false,
         "modifiedBy": "<id:1>",
         "properties": {},
@@ -230,7 +230,7 @@
   },
   {
     "name": "get",
-    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "request": "GET /api/v2/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -243,7 +243,7 @@
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🃏",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -255,7 +255,7 @@
   },
   {
     "name": "get: viewer",
-    "request": "GET /api/v2/cards/<id:4> as cards-bob",
+    "request": "GET /api/v2/cards/<id:5> as cards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -268,7 +268,7 @@
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🃏",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -291,7 +291,7 @@
   },
   {
     "name": "patch",
-    "request": "PATCH /api/v2/cards/<id:4> as cards-alice",
+    "request": "PATCH /api/v2/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -304,7 +304,7 @@
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🂡",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -316,7 +316,7 @@
   },
   {
     "name": "patch: viewer",
-    "request": "PATCH /api/v2/cards/<id:4> as cards-bob",
+    "request": "PATCH /api/v2/cards/<id:5> as cards-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -338,7 +338,7 @@
   },
   {
     "name": "patch: malformed body",
-    "request": "PATCH /api/v2/cards/<id:4> as cards-alice",
+    "request": "PATCH /api/v2/cards/<id:5> as cards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -349,7 +349,7 @@
   },
   {
     "name": "get after patch",
-    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "request": "GET /api/v2/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -362,7 +362,7 @@
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🂡",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -384,9 +384,9 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:6>",
+        "id": "<id:7>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:4>",
+        "parentId": "<id:5>",
         "schema": 1,
         "title": "one",
         "type": "text",
@@ -398,9 +398,9 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:7>",
+        "id": "<id:8>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:4>",
+        "parentId": "<id:5>",
         "schema": 1,
         "title": "three",
         "type": "text",
@@ -412,9 +412,9 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:8>",
+        "id": "<id:9>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:4>",
+        "parentId": "<id:5>",
         "schema": 1,
         "title": "two",
         "type": "text",
@@ -424,21 +424,21 @@
   },
   {
     "name": "set content order",
-    "request": "PATCH /api/v2/cards/<id:4> as cards-alice",
+    "request": "PATCH /api/v2/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
       "contentOrder": [
-        "<id:6>",
-        "<id:8>",
-        "<id:7>"
+        "<id:7>",
+        "<id:9>",
+        "<id:8>"
       ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🂡",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -450,28 +450,28 @@
   },
   {
     "name": "move after",
-    "request": "POST /api/v2/content-blocks/<id:6>/moveto/after/<id:7> as cards-alice",
+    "request": "POST /api/v2/content-blocks/<id:7>/moveto/after/<id:8> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "card after move",
-    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "request": "GET /api/v2/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
       "contentOrder": [
+        "<id:9>",
         "<id:8>",
-        "<id:7>",
-        "<id:6>"
+        "<id:7>"
       ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🂡",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -483,28 +483,28 @@
   },
   {
     "name": "move before",
-    "request": "POST /api/v2/content-blocks/<id:7>/moveto/before/<id:8> as cards-alice",
+    "request": "POST /api/v2/content-blocks/<id:8>/moveto/before/<id:9> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "card after second move",
-    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "request": "GET /api/v2/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
       "contentOrder": [
-        "<id:7>",
         "<id:8>",
-        "<id:6>"
+        "<id:9>",
+        "<id:7>"
       ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "icon": "🂡",
-      "id": "<id:4>",
+      "id": "<id:5>",
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
@@ -516,7 +516,7 @@
   },
   {
     "name": "move: bad direction",
-    "request": "POST /api/v2/content-blocks/<id:6>/moveto/sideways/<id:8> as cards-alice",
+    "request": "POST /api/v2/content-blocks/<id:7>/moveto/sideways/<id:9> as cards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -527,7 +527,7 @@
   },
   {
     "name": "move: unknown block",
-    "request": "POST /api/v2/content-blocks/unknown-block/moveto/after/<id:8> as cards-alice",
+    "request": "POST /api/v2/content-blocks/unknown-block/moveto/after/<id:9> as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -538,7 +538,7 @@
   },
   {
     "name": "move: unknown target",
-    "request": "POST /api/v2/content-blocks/<id:6>/moveto/after/unknown-block as cards-alice",
+    "request": "POST /api/v2/content-blocks/<id:7>/moveto/after/unknown-block as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -549,7 +549,7 @@
   },
   {
     "name": "move: viewer",
-    "request": "POST /api/v2/content-blocks/<id:6>/moveto/after/<id:8> as cards-bob",
+    "request": "POST /api/v2/content-blocks/<id:7>/moveto/after/<id:9> as cards-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {

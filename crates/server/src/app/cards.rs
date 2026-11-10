@@ -3,7 +3,7 @@
 //! A card has no storage of its own. It is created, read and patched as its block, so
 //! every change is announced the way block changes are.
 
-use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, IdKind, new_id};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, new_id};
 use fvoci_store::{BlockFilter, Paging};
 use serde_json::Value;
 
@@ -69,7 +69,7 @@ impl App {
     ) -> Result<Card, AppError> {
         let now = now_millis();
         let card = Card {
-            id: new_id(IdKind::Card),
+            id: new_id(),
             board_id: board_id.to_owned(),
             created_by: user_id.to_owned(),
             modified_by: user_id.to_owned(),

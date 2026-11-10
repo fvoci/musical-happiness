@@ -89,7 +89,7 @@ async fn handle_import(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     // Any signed-in, non-guest user of the team may import.
-    require_team_access(&app, user_id, &team_id, "access denied to create board")?;
+    require_team_access(&app, user_id, &team_id, "access denied to create board").await?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }

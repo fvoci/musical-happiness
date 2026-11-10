@@ -15,10 +15,10 @@ use serde_json::Value;
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
 use super::{ApiResult, RequiredSession, empty_response, json_response};
-use super::{decode_object, require_board_permission, require_team_access, user_is_guest};
+use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
+use crate::permissions::{BoardPermission, TeamPermission};
 
 pub(super) fn routes() -> Router<App> {
     Router::new().route(
@@ -84,7 +84,10 @@ async fn handle_create_boards_and_blocks(
         }
     }
 
-    require_team_access(&app, user_id, team_id, "access denied to board template")?;
+    require_team_in_body(&app, team_id, "boards").await?;
+    if !app.has_permission_to_team(user_id, team_id, TeamPermission::ViewTeam) {
+        return Err(AppError::forbidden("access denied to board template"));
+    }
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }
@@ -168,19 +171,6 @@ async fn handle_patch_boards_and_blocks(
                 board_id,
                 BoardPermission::ManageBoardType,
                 "access denied to modifying board type",
-            )
-            .await?;
-        }
-        // Not in the original, which asks for this permission on `PATCH
-        // /boards/{board_id}` only (`server/api/boards.go:392-397`), so that an editor
-        // could link a board to a channel through this route.
-        if patch.channel_id.is_some() {
-            require_board_permission(
-                &app,
-                user_id,
-                board_id,
-                BoardPermission::ManageBoardRoles,
-                "access denied to modifying board access",
             )
             .await?;
         }

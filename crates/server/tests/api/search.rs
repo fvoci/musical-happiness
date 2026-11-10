@@ -3,11 +3,13 @@
 //! that are put into the store directly; the rest checks the routes' answers against the
 //! original server.
 
-use fvoci_model::{Board, BoardType, IdKind, JsonMap, new_id};
+use fvoci_model::{Board, BoardType, JsonMap, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{
+    ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID,
+};
 
 /// Whether the creator of a board becomes a member of it; the last argument of the
 /// original's `App.CreateBoard`.
@@ -25,7 +27,7 @@ async fn create_board(
     membership: Membership,
 ) -> Board {
     let mut board = Board {
-        id: new_id(IdKind::Board),
+        id: new_id(),
         ..board
     };
     let store = th.app.store();
@@ -156,7 +158,7 @@ async fn search_boards_all_the_matching_private_boards_that_the_user_is_a_member
     let board5 = board(
         "private board where user1 is admin, but in other team",
         BoardType::Private,
-        "other-team-id",
+        ROOT_TEAM_ID,
         Membership::Admin,
     )
     .await;
@@ -211,14 +213,14 @@ async fn two_boards() -> (TestServer, Board, Board) {
     let user = th.client.me().await;
     let open = create_board(
         &th,
-        titled("b one", BoardType::Open, "0"),
+        titled("b one", BoardType::Open, ROOT_TEAM_ID),
         &user.id,
         Membership::Admin,
     )
     .await;
     let private = create_board(
         &th,
-        titled("b two", BoardType::Private, "0"),
+        titled("b two", BoardType::Private, ROOT_TEAM_ID),
         &user.id,
         Membership::Admin,
     )
@@ -232,16 +234,16 @@ async fn search_without_a_term_finds_nothing() {
     let (th, _open, _private) = two_boards().await;
 
     for path in [
-        "/teams/0/boards/search",
-        "/teams/0/boards/search?q=",
-        "/teams/0/boards/search?field=title",
+        &format!("/teams/{ROOT_TEAM_ID}/boards/search"),
+        &format!("/teams/{ROOT_TEAM_ID}/boards/search?q="),
+        &format!("/teams/{ROOT_TEAM_ID}/boards/search?field=title"),
         "/boards/search",
         "/boards/search?q=",
     ] {
         check_nothing_found(&th.client.get(path).await);
     }
     // And a term that matches no board answers the same.
-    check_nothing_found(&search_team(&th.client, "0", "zzzzqq").await);
+    check_nothing_found(&search_team(&th.client, ROOT_TEAM_ID, "zzzzqq").await);
     check_nothing_found(&th.client.get("/boards/search?q=zzzzqq").await);
 
     th.teardown().await;
@@ -252,7 +254,7 @@ async fn search_without_a_term_finds_nothing() {
 async fn search_boards_of_a_team() {
     let (th, open, private) = two_boards().await;
 
-    let response = search_team(&th.client, "0", "b").await;
+    let response = search_team(&th.client, ROOT_TEAM_ID, "b").await;
     assert_eq!(
         found_ids(&response),
         sorted_ids(&[&open, &private]),
@@ -266,29 +268,34 @@ async fn search_boards_of_a_team() {
         .expect("the open board is found");
     assert_eq!(*found_open, open, "the board as stored");
 
-    let response = search_team(&th.client2, "0", "b").await;
+    let response = search_team(&th.client2, ROOT_TEAM_ID, "b").await;
     assert_eq!(
         found_ids(&response),
         sorted_ids(&[&open]),
         "another user finds the open board only"
     );
-    check_nothing_found(&search_team(&th.client2, "0", "two").await);
+    check_nothing_found(&search_team(&th.client2, ROOT_TEAM_ID, "two").await);
 
     // The term is decoded from the query: `+` and `%20` are spaces, and every word of
     // the term must be in the title.
     for term in ["b+one", "b%20one", "ONE+b"] {
-        let response = search_team(&th.client, "0", term).await;
+        let response = search_team(&th.client, ROOT_TEAM_ID, term).await;
         assert_eq!(found_ids(&response), sorted_ids(&[&open]), "term {term}");
     }
-    check_nothing_found(&search_team(&th.client, "0", "one+two").await);
+    check_nothing_found(&search_team(&th.client, ROOT_TEAM_ID, "one+two").await);
 
     // Preserved quirk: the team of the path is not part of the search.
-    let response = search_team(&th.client, "another-team", "b").await;
+    let response = search_team(&th.client, TEST_TEAM_ID, "b").await;
     assert_eq!(
         found_ids(&response),
         sorted_ids(&[&open, &private]),
-        "the boards of team 0 are found under another team"
+        "the boards of the root team are found under another team"
     );
+    // The team has to be one, though.
+    for no_team in [UNKNOWN_ID, "another-team"] {
+        let response = search_team(&th.client, no_team, "b").await;
+        response.check_error(StatusCode::NOT_FOUND, "team not found");
+    }
 
     th.teardown().await;
 }
@@ -304,7 +311,7 @@ async fn search_boards_by_field() {
         &th,
         Board {
             properties,
-            ..titled("with a property", BoardType::Open, "0")
+            ..titled("with a property", BoardType::Open, ROOT_TEAM_ID)
         },
         &user.id,
         Membership::Admin,
@@ -312,7 +319,7 @@ async fn search_boards_by_field() {
     .await;
     let search = async |query: &str| {
         th.client
-            .get(&format!("/teams/0/boards/search?{query}"))
+            .get(&format!("/teams/{ROOT_TEAM_ID}/boards/search?{query}"))
             .await
     };
 
@@ -356,7 +363,7 @@ async fn search_all_boards() {
     let user = th.client.me().await;
     let elsewhere = create_board(
         &th,
-        titled("b three", BoardType::Private, "other-team"),
+        titled("b three", BoardType::Private, TEST_TEAM_ID),
         &user.id,
         Membership::Admin,
     )
@@ -365,7 +372,7 @@ async fn search_all_boards() {
         &th,
         Board {
             is_template: true,
-            ..titled("b template", BoardType::Open, "0")
+            ..titled("b template", BoardType::Open, ROOT_TEAM_ID)
         },
         &user.id,
         Membership::Admin,
@@ -403,9 +410,9 @@ async fn search_all_boards() {
 async fn search_routes_of_the_host_application_do_not_exist() {
     let th = Setup::native().start().await.init_basic().await;
     let paths = [
-        "/teams/0/channels",
-        "/teams/0/channels?search=x",
-        "/teams/0/boards/search/linkable?q=b",
+        &format!("/teams/{ROOT_TEAM_ID}/channels"),
+        &format!("/teams/{ROOT_TEAM_ID}/channels?search=x"),
+        &format!("/teams/{ROOT_TEAM_ID}/boards/search/linkable?q=b"),
     ];
 
     for path in paths {
@@ -426,7 +433,7 @@ async fn search_boards_for_user_in_team() {
     let other = th.client2.me().await;
     create_board(
         &th,
-        titled("b three", BoardType::Open, "other-team"),
+        titled("b three", BoardType::Open, TEST_TEAM_ID),
         &user.id,
         Membership::Admin,
     )
@@ -445,23 +452,23 @@ async fn search_boards_for_user_in_team() {
     };
 
     assert_eq!(
-        search("0", "b", &user.id).await,
+        search(ROOT_TEAM_ID, "b", &user.id).await,
         sorted_ids(&[&open, &private]),
         "the member finds the boards of the team"
     );
     assert_eq!(
-        search("0", "b", &other.id).await,
+        search(ROOT_TEAM_ID, "b", &other.id).await,
         sorted_ids(&[&open]),
         "another user finds the open one"
     );
     assert_eq!(
-        search("0", "two", &user.id).await,
+        search(ROOT_TEAM_ID, "two", &user.id).await,
         sorted_ids(&[&private]),
         "by title"
     );
     assert!(
-        search("no-such-team", "b", &user.id).await.is_empty(),
-        "nothing in a team without boards"
+        search(UNKNOWN_ID, "b", &user.id).await.is_empty(),
+        "nothing in a team that is none"
     );
 
     th.teardown().await;

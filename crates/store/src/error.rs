@@ -11,10 +11,9 @@ pub enum StoreError {
     #[error("{{{0}}} not found")]
     NotFound(String),
 
-    /// A lookup of a single session, team or sharing record matched no row.
+    /// A lookup of a single session or sharing record matched no row.
     ///
-    /// The message is the original's database layer's. It stays in the log: the HTTP
-    /// layer answers "not found" without it.
+    /// The message stays in the log: the HTTP layer answers "not found" without it.
     #[error("sql: no rows in result set")]
     NoRows,
 
@@ -68,6 +67,16 @@ pub enum StoreError {
     /// A subscription failed validation before it was written.
     #[error(transparent)]
     InvalidSubscription(#[from] SubscriptionError),
+
+    /// A statement that writes was given text that is not an identifier where it needs
+    /// one. The HTTP layer answers it as a bad request.
+    #[error("{0:?} is not an identifier")]
+    InvalidId(String),
+
+    /// A record with the same unique value exists already: a user name or an email
+    /// address, compared without regard to case.
+    #[error("{0} is taken")]
+    Conflict(&'static str),
 
     /// The database configuration cannot be used.
     #[error("invalid database configuration: {0}")]

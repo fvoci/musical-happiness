@@ -2,6 +2,7 @@
 
 use serde_json::{Value, json};
 
+use crate::common::ROOT_TEAM_ID;
 use crate::harness::{API, Session, string_member};
 
 /// A one-pixel PNG.
@@ -85,7 +86,7 @@ pub(crate) async fn new_board(
 ) -> String {
     let body = merged(
         &json!({
-            "teamId": "0",
+            "teamId": ROOT_TEAM_ID,
             "type": board_type,
             "title": title,
             "properties": {},

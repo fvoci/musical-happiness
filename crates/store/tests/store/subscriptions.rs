@@ -4,20 +4,23 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, IdKind, SubscriberType, Subscription, SubscriptionError, User, new_id,
+    Block, BlockType, SubscriberType, Subscription, SubscriptionError, User, new_id,
 };
 use fvoci_store::{Store, StoreError};
 
 use crate::common;
 
-/// `createTestUsers` of the original suite's `util.go`.
+/// `createTestUsers` of the original suite's `util.go`. The original names every batch
+/// of users alike; a name and an address are one user's here, so each carries the
+/// user's identifier.
 async fn create_test_users(store: &Store, num: usize) -> Vec<User> {
     let mut users = Vec::with_capacity(num);
     for index in 0..num {
+        let id = new_id();
         let mut user = User {
-            id: new_id(IdKind::User),
-            username: format!("mooncake.{index}"),
-            email: format!("mooncake.{index}@example.com"),
+            username: format!("mooncake.{index}.{id}"),
+            email: format!("mooncake.{index}.{id}@example.com"),
+            id,
             ..User::default()
         };
         store
@@ -29,13 +32,17 @@ async fn create_test_users(store: &Store, num: usize) -> Vec<User> {
     users
 }
 
-/// `createTestBlocks` of the original suite's `util.go`.
+/// `createTestBlocks` of the original suite's `util.go`: each block is on a board of
+/// its own. The original only makes up the boards' identifiers; here the boards exist,
+/// in a team of this batch.
 async fn create_test_blocks(store: &Store, user_id: &str, num: usize) -> Vec<Block> {
+    let team_id = common::team(store).await;
+    let boards = common::create_test_boards(store, &team_id, user_id, num).await;
     let mut blocks = Vec::with_capacity(num);
-    for _ in 0..num {
+    for board in boards {
         let mut block = Block {
-            id: new_id(IdKind::Block),
-            board_id: new_id(IdKind::Board),
+            id: new_id(),
+            board_id: board.id,
             block_type: BlockType::Card,
             created_by: user_id.to_owned(),
             ..Block::default()
@@ -179,6 +186,27 @@ async fn create_subscription() {
 
         let valid: Result<(), SubscriptionError> = sub_new.validate();
         assert_eq!(valid, Ok(()), "created subscription should be valid");
+
+        // Not in the original: a subscription that is valid as far as the model can
+        // tell, to a block or of a subscriber named by text that is not an identifier.
+        for (block_id, subscriber_id, invalid) in [
+            ("bogus-block", user.id.as_str(), "bogus-block"),
+            (block.id.as_str(), "bogus-user", "bogus-user"),
+        ] {
+            let sub = Subscription {
+                block_id: block_id.to_owned(),
+                subscriber_id: subscriber_id.to_owned(),
+                ..sub_new.clone()
+            };
+            let error = store
+                .create_subscription(sub)
+                .await
+                .expect_err("a subscription that names nothing should error");
+            assert!(
+                matches!(&error, StoreError::InvalidId(refused) if refused == invalid),
+                "got {error:?}"
+            );
+        }
     }
 
     test.teardown().await;
@@ -226,12 +254,23 @@ async fn delete_subscription() {
     // "delete non-existent subscription"
     {
         let error = store
-            .delete_subscription("bogus", "bogus")
+            .delete_subscription(&new_id(), &new_id())
             .await
             .expect_err("delete non-existent subscription should error");
         assert!(
             error.is_not_found(),
             "Should be ErrNotFound compatible error: got {error:?}"
+        );
+
+        // The original's "bogus" is not an identifier, which a statement that writes
+        // refuses as such.
+        let error = store
+            .delete_subscription("bogus", "bogus")
+            .await
+            .expect_err("delete non-existent subscription should error");
+        assert!(
+            matches!(&error, StoreError::InvalidId(refused) if refused == "bogus"),
+            "got {error:?}"
         );
     }
 
@@ -319,9 +358,11 @@ async fn get_subscription() {
     }
 
     // "get non-existent subscription"
-    {
+    // Text that is not an identifier, as in the original, and identifiers of nothing.
+    let nothing = new_id();
+    for (block_id, subscriber_id) in [("bogus", "bogus"), (nothing.as_str(), nothing.as_str())] {
         let error = store
-            .get_subscription("bogus", "bogus")
+            .get_subscription(block_id, subscriber_id)
             .await
             .expect_err("get non-existent subscription should error");
         assert!(
@@ -369,9 +410,11 @@ async fn get_subscriptions() {
     }
 
     // "get subscriptions for invalid user"
-    {
+    // Text that is not an identifier, as in the original, and the identifier of nobody.
+    let nobody = new_id();
+    for user_id in ["bogus", nobody.as_str()] {
         let subs = store
-            .get_subscriptions("bogus")
+            .get_subscriptions(user_id)
             .await
             .expect("get subscriptions should not error");
         assert!(subs.is_empty(), "got {subs:?}");
@@ -427,12 +470,20 @@ async fn get_subscribers_for_block() {
     }
 
     // "get subscribers for invalid block"
-    {
+    // Text that is not an identifier, as in the original, and the identifier of nothing.
+    let nothing = new_id();
+    for block_id in ["bogus", nothing.as_str()] {
         let subs = store
-            .get_subscribers_for_block("bogus")
+            .get_subscribers_for_block(block_id)
             .await
             .expect("get subscribers for block should not error");
         assert!(subs.is_empty(), "got {subs:?}");
+
+        let count = store
+            .get_subscribers_count_for_block(block_id)
+            .await
+            .expect("get subscribers count for block should not error");
+        assert_eq!(count, 0);
     }
 
     test.teardown().await;
@@ -564,7 +615,7 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
     let mut more = Vec::new();
     for _ in 0..2 {
         let mut block = Block {
-            id: new_id(IdKind::Block),
+            id: new_id(),
             board_id: board_id.clone(),
             block_type: BlockType::Card,
             created_by: leaver.id.clone(),

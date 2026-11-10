@@ -3,28 +3,27 @@
 //! Every write of a board also appends a row to the board history. Deleting a board
 //! removes it and its blocks from the main tables and appends history rows with
 //! `delete_at` set; undeleting restores the newest history rows. Memberships are kept in
-//! a table of their own, with a history of who joined and left.
+//! a table of their own.
 
 use std::fmt::Write as _;
 
 use fvoci_model::{
-    Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
-    GLOBAL_TEAM_ID, JsonMap, SYSTEM_USER_ID,
+    Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType, JsonMap,
 };
 use md5::{Digest as _, Md5};
 use serde_json::Value;
 
 use crate::Store;
 use crate::blocks::{self, HistoryOrder, HistoryQuery};
-use crate::db::{Dialect, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::subscriptions;
 
 /// The name of every board column, in the order rows are written.
-const BOARD_COLUMNS: &str = "id, team_id, channel_id, created_by, modified_by, type, \
-                             minimum_role, title, description, icon, show_description, \
-                             is_template, template_version, properties, card_properties, \
-                             create_at, update_at, delete_at";
+const BOARD_COLUMNS: &str = "id, team_id, created_by, modified_by, type, minimum_role, title, \
+                             description, icon, show_description, is_template, is_builtin, \
+                             template_version, properties, card_properties, create_at, \
+                             update_at, delete_at";
 
 /// Whether a board query also returns the open boards the user is not a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,19 +34,6 @@ pub enum PublicBoards {
     Exclude,
 }
 
-/// One entry of the membership history of a board: a user joined or left.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BoardMemberHistoryEntry {
-    /// The identifier of the board.
-    pub board_id: String,
-    /// The identifier of the user.
-    pub user_id: String,
-    /// What happened: `created` or `deleted`.
-    pub action: String,
-    /// When it happened, in milliseconds since the Unix epoch.
-    pub insert_at: i64,
-}
-
 impl Store {
     /// Inserts `board`, or updates the board that already has its identifier, and records
     /// the new state in the history.
@@ -55,8 +41,12 @@ impl Store {
     /// `board` is updated to what was stored: `user_id` as modifier and the current time
     /// as modification time and, for a new board, `user_id` as creator and the current
     /// time as creation time. An update leaves the stored team, creator and creation time
-    /// alone, and does not copy them into `board`. A template of the global team also
-    /// gets a `trackingTemplateId` property derived from its title.
+    /// alone, and does not copy them into `board`.
+    ///
+    /// A template stored on behalf of no user (the empty `user_id`) is a built-in
+    /// template: `is_builtin` is set, whatever `board` says, and it gets a
+    /// `trackingTemplateId` property derived from its title. No other board is built-in,
+    /// and an update never changes whether a board is.
     ///
     /// # Errors
     ///
@@ -168,15 +158,6 @@ impl Store {
             .await
     }
 
-    /// Returns the number of boards that are neither templates nor marked as deleted.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_board_count(&self) -> Result<i64, StoreError> {
-        self.with_conn(get_board_count).await
-    }
-
     /// Returns the recorded states of a board.
     ///
     /// # Errors
@@ -192,10 +173,10 @@ impl Store {
     }
 
     /// Makes a user a member of a board with the scheme flags of `member`, or replaces
-    /// the scheme flags of an existing membership. A new membership is recorded in the
-    /// membership history.
+    /// the scheme flags of an existing membership.
     ///
-    /// The `roles`, `minimum_role` and `synthetic` members of `member` are not stored.
+    /// The `minimum_role` and `synthetic` members of `member` are not stored; `roles` has
+    /// no column and reads as empty.
     ///
     /// # Errors
     ///
@@ -205,8 +186,7 @@ impl Store {
             .await
     }
 
-    /// Removes a user from a board, records that in the membership history, and ends the
-    /// user's subscriptions to the blocks of the board, deleted blocks included. Removing
+    /// Removes a user from a board and ends the user's subscriptions to the blocks of the board, deleted blocks included. Removing
     /// a user who is not a member succeeds and changes nothing.
     ///
     /// # Errors
@@ -229,24 +209,6 @@ impl Store {
     ) -> Result<BoardMember, StoreError> {
         self.with_conn(async |scope| get_member_for_board(scope, board_id, user_id).await)
             .await
-    }
-
-    /// Returns when a user joined and left a board, newest first, at most `limit`
-    /// entries.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_board_member_history(
-        &self,
-        board_id: &str,
-        user_id: &str,
-        limit: Option<u32>,
-    ) -> Result<Vec<BoardMemberHistoryEntry>, StoreError> {
-        self.with_conn(async |scope| {
-            get_board_member_history(scope, board_id, user_id, limit).await
-        })
-        .await
     }
 
     /// Returns the members of a board, in no particular order.
@@ -322,7 +284,7 @@ impl Store {
     }
 
     /// Returns the templates of a team that are open or that the user is a member of, in
-    /// no particular order.
+    /// no particular order. The built-in templates are not among them.
     ///
     /// # Errors
     ///
@@ -336,15 +298,24 @@ impl Store {
             .await
     }
 
-    /// Removes those of `boards` that the system user created, together with their
-    /// blocks, without recording anything in the history.
+    /// Returns the templates the server ships with, in no particular order. They belong
+    /// to no team in particular: every team is offered them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_builtin_templates(&self) -> Result<Vec<Board>, StoreError> {
+        self.with_conn(get_builtin_templates).await
+    }
+
+    /// Removes the built-in templates together with their blocks, without recording
+    /// anything in the history.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
-    pub async fn remove_default_templates(&self, boards: &[Board]) -> Result<(), StoreError> {
-        self.transaction(async |scope| remove_default_templates(scope, boards).await)
-            .await
+    pub async fn remove_builtin_templates(&self) -> Result<(), StoreError> {
+        self.transaction(remove_builtin_templates).await
     }
 }
 
@@ -352,21 +323,17 @@ impl Store {
 /// empty or a table alias followed by a dot.
 fn board_select_list(alias: &str) -> String {
     format!(
-        "{alias}id, {alias}team_id, {alias}channel_id, {alias}created_by, {alias}modified_by, \
-         {alias}type, {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
-         {alias}show_description, {alias}is_template, CAST({alias}template_version AS BIGINT), \
-         {alias}properties, {alias}card_properties, {alias}create_at, {alias}update_at, \
-         {alias}delete_at"
+        "{alias}id, {alias}team_id, {alias}created_by, {alias}modified_by, {alias}type, \
+         {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
+         {alias}show_description, {alias}is_template, {alias}is_builtin, \
+         {alias}template_version, {alias}properties, {alias}card_properties, \
+         {alias}create_at, {alias}update_at, {alias}delete_at"
     )
 }
 
 /// Starts `SELECT <board columns> FROM <table>`.
 fn select_boards(scope: &Scope<'_>, table: &str) -> Sql {
-    scope.sql(&format!(
-        "SELECT {} FROM {}",
-        board_select_list(""),
-        scope.table(table)
-    ))
+    scope.sql(&format!("SELECT {} FROM {table}", board_select_list("")))
 }
 
 async fn fetch_boards(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<Board>, StoreError> {
@@ -380,18 +347,18 @@ async fn fetch_boards(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<Board>, Sto
 
 fn board_from_row(row: &Row) -> Result<Board, StoreError> {
     Ok(Board {
-        id: row.text(0)?,
-        team_id: row.text(1)?,
-        channel_id: row.text(2)?,
-        created_by: row.text(3)?,
-        modified_by: row.text(4)?,
-        board_type: board_type_from_text(&row.text(5)?)?,
-        minimum_role: board_role_from_text(&row.text(6)?)?,
-        title: row.text(7)?,
-        description: row.text(8)?,
-        icon: row.text(9)?,
-        show_description: row.bool(10)?,
-        is_template: row.bool(11)?,
+        id: row.id(0)?,
+        team_id: row.id(1)?,
+        created_by: row.id(2)?,
+        modified_by: row.id(3)?,
+        board_type: board_type_from_text(&row.text(4)?)?,
+        minimum_role: board_role_from_text(&row.text(5)?)?,
+        title: row.text(6)?,
+        description: row.text(7)?,
+        icon: row.text(8)?,
+        show_description: row.bool(9)?,
+        is_template: row.bool(10)?,
+        is_builtin: row.bool(11)?,
         template_version: row.int(12)?,
         properties: row.json_map(13, "properties")?,
         card_properties: card_properties_from_json(row.json(14, "card_properties")?)?,
@@ -444,7 +411,7 @@ fn card_properties_from_json(value: Value) -> Result<Vec<JsonMap>, StoreError> {
 
 async fn find_board(scope: &mut Scope<'_>, board_id: &str) -> Result<Option<Board>, StoreError> {
     let mut sql = select_boards(scope, "boards");
-    sql.push_bind(" WHERE id = ", board_id);
+    sql.push_bind(" WHERE id = ", Id(board_id));
     Ok(fetch_boards(scope, sql).await?.into_iter().next())
 }
 
@@ -461,19 +428,17 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
 /// asked for, the open ones. More `AND` conditions on `b` may follow.
 fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: PublicBoards) -> Sql {
     let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM {} AS b LEFT JOIN {} AS bm ON b.id = bm.board_id \
+        "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
          WHERE b.is_template = ",
-        board_select_list("b."),
-        scope.table("boards"),
-        scope.table("board_members")
+        board_select_list("b.")
     ));
     sql.bind(false);
     match public_boards {
         PublicBoards::Include => sql
             .push_bind(" AND (b.type = ", BoardType::Open.as_str())
-            .push_bind(" OR bm.user_id = ", user_id)
+            .push_bind(" OR bm.user_id = ", Id(user_id))
             .push(")"),
-        PublicBoards::Exclude => sql.push_bind(" AND bm.user_id = ", user_id),
+        PublicBoards::Exclude => sql.push_bind(" AND bm.user_id = ", Id(user_id)),
     };
     sql
 }
@@ -485,7 +450,7 @@ pub(crate) async fn get_boards_for_user_and_team(
     public_boards: PublicBoards,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards_of_user(scope, user_id, public_boards);
-    sql.push_bind(" AND b.team_id = ", team_id);
+    sql.push_bind(" AND b.team_id = ", Id(team_id));
     fetch_boards(scope, sql).await
 }
 
@@ -495,9 +460,9 @@ pub(crate) async fn get_boards_in_team_by_ids(
     team_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards(scope, "boards");
-    sql.push_bind(" WHERE team_id = ", team_id)
+    sql.push_bind(" WHERE team_id = ", Id(team_id))
         .push(" AND id IN (")
-        .bind_list(board_ids)
+        .bind_list(board_ids.iter().map(|id| Id(id)))
         .push(")");
     let boards = fetch_boards(scope, sql).await?;
     if boards.len() == board_ids.len() {
@@ -523,14 +488,21 @@ pub(crate) async fn insert_board(
     // Every way a board is stored comes through here: created, patched, duplicated,
     // imported.
     board.validate_card_properties().map_err(BoardError::from)?;
+    let existing = find_board(scope, &board.id).await?;
+    // A template stored on behalf of no user is the system's own: a built-in template.
+    // Nothing a caller puts into `board` changes that, and it never changes afterwards.
+    board.is_builtin = match &existing {
+        Some(existing) => existing.is_builtin,
+        None => user_id.is_empty() && board.is_template,
+    };
     // The built-in templates are told apart by a hash of their title.
-    if board.is_template && board.team_id == GLOBAL_TEAM_ID {
+    if board.is_template && board.is_builtin {
         board.properties.insert(
             "trackingTemplateId".to_owned(),
             Value::String(md5_hex(&board.title)),
         );
     }
-    let exists = find_board(scope, &board.id).await?.is_some();
+    let exists = existing.is_some();
 
     let now = now_millis();
     user_id.clone_into(&mut board.modified_by);
@@ -540,10 +512,9 @@ pub(crate) async fn insert_board(
         // Preserved quirk: an update does not touch the stored team, creator and creation
         // time, yet `board` keeps whatever the caller put there, and that is what the
         // history row below records (`server/services/store/sqlstore/board.go:339-399`).
-        let mut sql = scope.sql(&format!("UPDATE {} SET ", scope.table("boards")));
-        sql.push_bind("modified_by = ", &board.modified_by)
+        let mut sql = scope.sql("UPDATE boards SET ");
+        sql.push_bind("modified_by = ", OptId(&board.modified_by))
             .push_bind(", type = ", board.board_type.as_str())
-            .push_bind(", channel_id = ", &board.channel_id)
             .push_bind(", minimum_role = ", board.minimum_role.as_str())
             .push_bind(", title = ", &board.title)
             .push_bind(", description = ", &board.description)
@@ -558,7 +529,7 @@ pub(crate) async fn insert_board(
             )
             .push_bind(", update_at = ", board.update_at)
             .push_bind(", delete_at = ", board.delete_at)
-            .push_bind(" WHERE id = ", &board.id);
+            .push_bind(" WHERE id = ", Id(&board.id));
         scope.execute(sql).await?;
     } else {
         user_id.clone_into(&mut board.created_by);
@@ -599,15 +570,13 @@ async fn insert_board_row(
         BoardTable::History => ("boards_history", Some(scope.history_stamp())),
     };
     let mut sql = scope.sql(&format!(
-        "INSERT INTO {} ({BOARD_COLUMNS}{}) VALUES (",
-        scope.table(name),
+        "INSERT INTO {name} ({BOARD_COLUMNS}{}) VALUES (",
         if stamp.is_some() { ", insert_at" } else { "" }
     ));
-    sql.bind(&board.id)
-        .push_bind(", ", &board.team_id)
-        .push_bind(", ", &board.channel_id)
-        .push_bind(", ", &board.created_by)
-        .push_bind(", ", &board.modified_by)
+    sql.bind(Id(&board.id))
+        .push_bind(", ", Id(&board.team_id))
+        .push_bind(", ", OptId(&board.created_by))
+        .push_bind(", ", OptId(&board.modified_by))
         .push_bind(", ", board.board_type.as_str())
         .push_bind(", ", board.minimum_role.as_str())
         .push_bind(", ", &board.title)
@@ -615,6 +584,7 @@ async fn insert_board_row(
         .push_bind(", ", &board.icon)
         .push_bind(", ", board.show_description)
         .push_bind(", ", board.is_template)
+        .push_bind(", ", board.is_builtin)
         .push_bind(", ", board.template_version)
         .push_bind(", ", Param::jsonb(&board.properties)?)
         .push_bind(", ", Param::jsonb(&board.card_properties)?)
@@ -677,12 +647,8 @@ pub(crate) async fn delete_board(
     board.delete_at = now;
     insert_board_row(scope, BoardTable::History, &board).await?;
 
-    let mut sql = scope.sql(&format!(
-        "DELETE FROM {} WHERE id = ",
-        scope.table("boards")
-    ));
-    sql.bind(board_id)
-        .push_bind(" AND COALESCE(team_id, '0') = ", &board.team_id);
+    let mut sql = scope.sql("DELETE FROM boards WHERE id = ");
+    sql.bind(Id(board_id));
     scope.execute(sql).await?;
 
     blocks::delete_block_children(scope, board_id, None, user_id).await
@@ -703,9 +669,6 @@ pub(crate) async fn undelete_board(
         return Ok(());
     }
 
-    // Preserved quirk: the board comes back without its channel
-    // (`server/services/store/sqlstore/board.go:838-842`).
-    board.channel_id.clear();
     modified_by.clone_into(&mut board.modified_by);
     board.update_at = now_millis();
     board.delete_at = 0;
@@ -715,25 +678,13 @@ pub(crate) async fn undelete_board(
     blocks::undelete_block_children(scope, &board.id, None, modified_by).await
 }
 
-pub(crate) async fn get_board_count(scope: &mut Scope<'_>) -> Result<i64, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT COUNT(*) FROM {} WHERE delete_at = ",
-        scope.table("boards")
-    ));
-    sql.bind(0_i64).push_bind(" AND is_template = ", false);
-    match scope.fetch_optional(sql).await? {
-        Some(row) => row.int(0),
-        None => Ok(0),
-    }
-}
-
 pub(crate) async fn get_board_history(
     scope: &mut Scope<'_>,
     board_id: &str,
     query: &HistoryQuery,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards(scope, "boards_history");
-    sql.push_bind(" WHERE id = ", board_id);
+    sql.push_bind(" WHERE id = ", Id(board_id));
     if let Some(before) = query.before_update_at {
         sql.push_bind(" AND update_at < ", before);
     }
@@ -752,13 +703,11 @@ pub(crate) async fn get_board_history(
 
 /// Starts the query for memberships, each with the minimum role of its board.
 fn select_members(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!(
-        "SELECT b.minimum_role, bm.board_id, bm.user_id, bm.roles, bm.scheme_admin, \
-         bm.scheme_editor, bm.scheme_commenter, bm.scheme_viewer \
-         FROM {} AS bm LEFT JOIN {} AS b ON b.id = bm.board_id",
-        scope.table("board_members"),
-        scope.table("boards")
-    ))
+    scope.sql(
+        "SELECT b.minimum_role, bm.board_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
+         bm.scheme_commenter, bm.scheme_viewer \
+         FROM board_members AS bm LEFT JOIN boards AS b ON b.id = bm.board_id",
+    )
 }
 
 async fn fetch_members(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<BoardMember>, StoreError> {
@@ -770,13 +719,13 @@ async fn fetch_members(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<BoardMembe
             Ok(BoardMember {
                 // Empty when the board does not exist, or no longer exists.
                 minimum_role: row.text(0)?,
-                board_id: row.text(1)?,
-                user_id: row.text(2)?,
-                roles: row.text(3)?,
-                scheme_admin: row.bool(4)?,
-                scheme_editor: row.bool(5)?,
-                scheme_commenter: row.bool(6)?,
-                scheme_viewer: row.bool(7)?,
+                board_id: row.id(1)?,
+                user_id: row.id(2)?,
+                roles: String::new(),
+                scheme_admin: row.bool(3)?,
+                scheme_editor: row.bool(4)?,
+                scheme_commenter: row.bool(5)?,
+                scheme_viewer: row.bool(6)?,
                 synthetic: false,
             })
         })
@@ -789,8 +738,8 @@ async fn find_member(
     user_id: &str,
 ) -> Result<Option<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.board_id = ", board_id)
-        .push_bind(" AND bm.user_id = ", user_id);
+    sql.push_bind(" WHERE bm.board_id = ", Id(board_id))
+        .push_bind(" AND bm.user_id = ", Id(user_id));
     Ok(fetch_members(scope, sql).await?.into_iter().next())
 }
 
@@ -811,7 +760,7 @@ pub(crate) async fn get_members_for_user(
     user_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.user_id = ", user_id);
+    sql.push_bind(" WHERE bm.user_id = ", Id(user_id));
     fetch_members(scope, sql).await
 }
 
@@ -820,7 +769,7 @@ pub(crate) async fn get_members_for_board(
     board_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.board_id = ", board_id);
+    sql.push_bind(" WHERE bm.board_id = ", Id(board_id));
     fetch_members(scope, sql).await
 }
 
@@ -828,21 +777,12 @@ pub(crate) async fn save_member(
     scope: &mut Scope<'_>,
     member: &BoardMember,
 ) -> Result<(), StoreError> {
-    let is_new = find_member(scope, &member.board_id, &member.user_id)
-        .await?
-        .is_none();
-
-    // Preserved quirk: the member's `roles` are never stored. A new membership gets
-    // empty roles and an existing one keeps what it has
-    // (`server/services/store/sqlstore/board.go:503-532`).
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO {} (board_id, user_id, roles, scheme_admin, scheme_editor, \
+    let mut sql = scope.sql(
+        "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
          scheme_commenter, scheme_viewer) VALUES (",
-        scope.table("board_members")
-    ));
-    sql.bind(&member.board_id)
-        .push_bind(", ", &member.user_id)
-        .push_bind(", ", "")
+    );
+    sql.bind(Id(&member.board_id))
+        .push_bind(", ", Id(&member.user_id))
         .push_bind(", ", member.scheme_admin)
         .push_bind(", ", member.scheme_editor)
         .push_bind(", ", member.scheme_commenter)
@@ -854,10 +794,6 @@ pub(crate) async fn save_member(
              scheme_viewer = EXCLUDED.scheme_viewer",
         );
     scope.execute(sql).await?;
-
-    if is_new {
-        record_membership(scope, &member.board_id, &member.user_id, "created").await?;
-    }
     Ok(())
 }
 
@@ -866,79 +802,14 @@ pub(crate) async fn delete_member(
     board_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
-        "DELETE FROM {} WHERE board_id = ",
-        scope.table("board_members")
-    ));
-    sql.bind(board_id).push_bind(" AND user_id = ", user_id);
+    let mut sql = scope.sql("DELETE FROM board_members WHERE board_id = ");
+    sql.bind(Id(board_id))
+        .push_bind(" AND user_id = ", Id(user_id));
     if scope.execute(sql).await? > 0 {
-        record_membership(scope, board_id, user_id, "deleted").await?;
         // Whoever may no longer see the board is no longer told what changes on it.
         subscriptions::end_subscriptions_to_board(scope, board_id, user_id).await?;
     }
     Ok(())
-}
-
-/// Appends an entry to the membership history.
-async fn record_membership(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    user_id: &str,
-    action: &str,
-) -> Result<(), StoreError> {
-    let stamp = scope.history_stamp();
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO {} (board_id, user_id, action, insert_at) VALUES (",
-        scope.table("board_members_history")
-    ));
-    sql.bind(board_id)
-        .push_bind(", ", user_id)
-        .push_bind(", ", action)
-        .push(", ")
-        .bind_history_stamp(stamp)
-        .push(")");
-    scope.execute(sql).await?;
-    Ok(())
-}
-
-pub(crate) async fn get_board_member_history(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    user_id: &str,
-    limit: Option<u32>,
-) -> Result<Vec<BoardMemberHistoryEntry>, StoreError> {
-    // `insert_at` is text on SQLite and a timestamp on PostgreSQL; both are read as
-    // milliseconds since the epoch.
-    let insert_at_millis = match scope.dialect() {
-        Dialect::Sqlite => {
-            "CAST(STRFTIME('%s', insert_at) AS INTEGER) * 1000 \
-             + CAST(SUBSTR(STRFTIME('%f', insert_at), 4) AS INTEGER)"
-        }
-        Dialect::Postgres => "CAST(FLOOR(EXTRACT(EPOCH FROM insert_at) * 1000) AS BIGINT)",
-    };
-    let mut sql = scope.sql(&format!(
-        "SELECT board_id, user_id, action, {insert_at_millis} FROM {} WHERE board_id = ",
-        scope.table("board_members_history")
-    ));
-    sql.bind(board_id)
-        .push_bind(" AND user_id = ", user_id)
-        .push(" ORDER BY insert_at DESC");
-    if let Some(limit) = limit {
-        sql.push_bind(" LIMIT ", i64::from(limit));
-    }
-    scope
-        .fetch_all(sql)
-        .await?
-        .iter()
-        .map(|row| {
-            Ok(BoardMemberHistoryEntry {
-                board_id: row.text(0)?,
-                user_id: row.text(1)?,
-                action: row.text(2)?,
-                insert_at: row.int(3)?,
-            })
-        })
-        .collect()
 }
 
 /// Appends one condition per space-separated word of `term`: the board's title must
@@ -993,17 +864,15 @@ pub(crate) async fn search_boards_for_user_in_team(
     user_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT DISTINCT {} FROM {} AS b LEFT JOIN {} AS bm ON b.id = bm.board_id \
+        "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
          WHERE b.is_template = ",
-        board_select_list("b."),
-        scope.table("boards"),
-        scope.table("board_members")
+        board_select_list("b.")
     ));
     sql.bind(false)
-        .push_bind(" AND b.team_id = ", team_id)
+        .push_bind(" AND b.team_id = ", Id(team_id))
         .push_bind(" AND (b.type = ", BoardType::Open.as_str())
         .push_bind(" OR (b.type = ", BoardType::Private.as_str())
-        .push_bind(" AND bm.user_id = ", user_id)
+        .push_bind(" AND bm.user_id = ", Id(user_id))
         .push("))");
     if !term.is_empty() {
         push_title_words(&mut sql, term);
@@ -1017,15 +886,15 @@ pub(crate) async fn get_template_boards(
     user_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
-        "SELECT {} FROM {} AS b LEFT JOIN {} AS bm ON b.id = bm.board_id AND bm.user_id = ",
-        board_select_list("b."),
-        scope.table("boards"),
-        scope.table("board_members")
+        "SELECT {} FROM boards AS b LEFT JOIN board_members AS bm \
+         ON b.id = bm.board_id AND bm.user_id = ",
+        board_select_list("b.")
     ));
     // Open templates are included even without a membership.
-    sql.bind(user_id)
+    sql.bind(Id(user_id))
         .push_bind(" WHERE b.is_template = ", true)
-        .push_bind(" AND b.team_id = ", team_id)
+        .push_bind(" AND b.is_builtin = ", false)
+        .push_bind(" AND b.team_id = ", Id(team_id))
         .push_bind(
             " AND ((bm.board_id IS NULL AND b.type = ",
             BoardType::Open.as_str(),
@@ -1034,37 +903,21 @@ pub(crate) async fn get_template_boards(
     fetch_boards(scope, sql).await
 }
 
-pub(crate) async fn remove_default_templates(
-    scope: &mut Scope<'_>,
-    boards: &[Board],
-) -> Result<(), StoreError> {
-    let mut count = 0_u32;
-    for board in boards {
-        if board.created_by != SYSTEM_USER_ID {
-            continue;
-        }
-        // Default templates are removed without a trace in the history tables.
-        let mut sql = scope.sql(&format!(
-            "DELETE FROM {} WHERE id = ",
-            scope.table("boards")
-        ));
-        sql.bind(&board.id).push_bind(" AND is_template = ", true);
-        scope.execute(sql).await?;
+pub(crate) async fn get_builtin_templates(scope: &mut Scope<'_>) -> Result<Vec<Board>, StoreError> {
+    let mut sql = select_boards(scope, "boards");
+    sql.push_bind(" WHERE is_builtin = ", true);
+    fetch_boards(scope, sql).await
+}
 
-        // Preserved quirk: the blocks go even when the board stayed because it is not a
-        // template (`server/services/store/sqlstore/templates.go:24-41`).
-        let mut sql = scope.sql(&format!(
-            "DELETE FROM {} WHERE parent_id = ",
-            scope.table("blocks")
-        ));
-        sql.bind(&board.id)
-            .push_bind(" OR root_id = ", &board.id)
-            .push_bind(" OR board_id = ", &board.id);
-        scope.execute(sql).await?;
-
-        tracing::trace!(board_id = %board.id, "removed default template");
-        count += 1;
-    }
-    tracing::debug!(count, "removed default templates");
+pub(crate) async fn remove_builtin_templates(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    // The built-in templates are removed without a trace in the history tables.
+    let mut sql = scope
+        .sql("DELETE FROM blocks WHERE board_id IN (SELECT id FROM boards WHERE is_builtin = ");
+    sql.bind(true).push(")");
+    scope.execute(sql).await?;
+    let mut sql = scope.sql("DELETE FROM boards WHERE is_builtin = ");
+    sql.bind(true);
+    let count = scope.execute(sql).await?;
+    tracing::debug!(count, "removed the built-in templates");
     Ok(())
 }

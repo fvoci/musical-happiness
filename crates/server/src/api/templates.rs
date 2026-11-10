@@ -5,7 +5,7 @@
 use axum::Router;
 use axum::extract::{Path, State};
 use axum::routing::get;
-use fvoci_model::{Board, BoardType, GLOBAL_TEAM_ID};
+use fvoci_model::{Board, BoardType};
 
 use super::{ApiResult, RequiredSession, json_response};
 use super::{require_team_access, user_is_guest};
@@ -17,16 +17,16 @@ pub(super) fn routes() -> Router<App> {
     Router::new().route("/teams/{team_id}/templates", get(handle_get_templates))
 }
 
-/// `GET /teams/{team_id}/templates`: the team's template boards the user may see.
+/// `GET /teams/{team_id}/templates`: the team's template boards the user may see, and
+/// the built-in templates, which every team is offered.
 async fn handle_get_templates(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    if team_id != GLOBAL_TEAM_ID {
-        require_team_access(&app, user_id, &team_id, "access denied to team")?;
-    }
+    app.team(&team_id).await?;
+    require_team_access(&app, user_id, &team_id, "access denied to team").await?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to templates"));
     }

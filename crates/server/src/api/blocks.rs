@@ -5,10 +5,9 @@ use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{delete, get, post};
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, GLOBAL_TEAM_ID,
-    generate_block_ids, stamp_modification_metadata,
+    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, generate_block_ids,
+    stamp_modification_metadata,
 };
-use fvoci_store::DuplicateAs;
 
 use super::{
     ApiResult, OptionalSession, RequiredSession, decode_json, decode_object, empty_response,
@@ -65,7 +64,7 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 /// board, and for an open template everyone in its team.
 async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<(), AppError> {
     if board.is_template && board.board_type == BoardType::Open {
-        if board.team_id != GLOBAL_TEAM_ID
+        if !board.is_builtin
             && !app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
         {
             return Err(AppError::forbidden("access denied to board template"));
@@ -145,6 +144,15 @@ async fn handle_get_blocks(
             .await?
     };
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
+    let mut blocks = blocks;
+    if user_id.is_empty() {
+        // Whoever reads through a read token alone is nobody the server knows. An
+        // identifier tells when it was made: a user's would tell when they signed up.
+        for block in &mut blocks {
+            block.created_by.clear();
+            block.modified_by.clear();
+        }
+    }
     Ok(json_response(&blocks))
 }
 
@@ -238,7 +246,7 @@ async fn handle_post_blocks(
     let source_board_id = query_param(query, "sourceBoardID");
     if !source_board_id.is_empty() {
         require_source_board_access(&app, user_id, &source_board_id).await?;
-        app.copy_and_update_card_files(&source_board_id, user_id, &blocks, DuplicateAs::Copy)
+        app.copy_and_update_card_files(&source_board_id, user_id, &blocks)
             .await?;
     }
 

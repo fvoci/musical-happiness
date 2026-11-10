@@ -135,7 +135,8 @@ async fn handle_add_member(
         &request.user_id,
         &board.team_id,
         "access denied to team",
-    )?;
+    )
+    .await?;
 
     // Not in the original, which lets an editor of an open board add members with any
     // role (`server/api/members.go:164-168`). Anyone can join an open board as an editor
@@ -182,7 +183,7 @@ async fn handle_join_board(
     if board.is_template {
         return Err(AppError::forbidden("a template cannot be joined"));
     }
-    require_team_access(&app, user_id, &board.team_id, "access denied to team")?;
+    require_team_access(&app, user_id, &board.team_id, "access denied to team").await?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("guests not allowed to join boards"));
     }

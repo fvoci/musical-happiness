@@ -360,7 +360,7 @@ impl App {
             .store()
             .duplicate_block(board_id, block_id, user_id, duplicate_as)
             .await?;
-        self.copy_and_update_card_files(board_id, user_id, &blocks, duplicate_as)
+        self.copy_and_update_card_files(board_id, user_id, &blocks)
             .await?;
 
         let app = self.clone();

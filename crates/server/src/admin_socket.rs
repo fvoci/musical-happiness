@@ -105,13 +105,13 @@ fn remove_stale_socket(path: &Path) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use fvoci_model::{IdKind, new_id};
+    use fvoci_model::new_id;
 
     use super::*;
 
     /// A path short enough for a socket address, which the build directory is not.
     fn socket_path() -> PathBuf {
-        std::env::temp_dir().join(format!("fvoci-{}.socket", new_id(IdKind::None)))
+        std::env::temp_dir().join(format!("fvoci-{}.socket", new_id()))
     }
 
     fn mode(path: &Path) -> u32 {

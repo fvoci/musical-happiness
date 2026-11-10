@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use fvoci_model::{Block, Board, BoardType, IdKind, new_id};
+use fvoci_model::{Block, Board, BoardType, Team, User, new_id};
 use fvoci_store::testing::TestDatabase;
 use fvoci_store::{DbType, Store};
 use sqlx::postgres::PgConnection;
@@ -112,6 +112,33 @@ impl TestStore {
     }
 }
 
+/// Stores a user with the given name and returns their identifier. The email address
+/// is derived from the name; both must be unique within a test's database.
+pub(crate) async fn user(store: &Store, username: &str) -> String {
+    let mut user = User {
+        id: new_id(),
+        username: username.to_owned(),
+        email: format!("{username}@example.com"),
+        ..User::default()
+    };
+    store
+        .create_user(&mut user)
+        .await
+        .expect("the user is stored");
+    user.id
+}
+
+/// Stores a team and returns its identifier.
+pub(crate) async fn team(store: &Store) -> String {
+    let team = Team {
+        id: new_id(),
+        signup_token: "signup-token".to_owned(),
+        ..Team::default()
+    };
+    store.create_team(&team).await.expect("the team is stored");
+    team.id
+}
+
 /// `storetests.InsertBlocks`: inserts each block on its own.
 pub(crate) async fn insert_blocks(store: &Store, blocks: &mut [Block], user_id: &str) {
     for block in blocks {
@@ -154,7 +181,7 @@ pub(crate) async fn create_test_boards(
     let mut boards = Vec::with_capacity(count);
     for index in 0..count {
         let mut board = Board {
-            id: new_id(IdKind::Board),
+            id: new_id(),
             team_id: team_id.to_owned(),
             board_type: BoardType::Open,
             created_by: user_id.to_owned(),

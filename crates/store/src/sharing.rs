@@ -3,7 +3,7 @@
 use fvoci_model::Sharing;
 
 use crate::Store;
-use crate::db::{Scope, now_millis};
+use crate::db::{Id, OptId, Scope, now_millis};
 use crate::error::StoreError;
 
 impl Store {
@@ -35,14 +35,12 @@ pub(crate) async fn upsert_sharing(
     scope: &mut Scope<'_>,
     sharing: &Sharing,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO {} (id, enabled, token, modified_by, update_at) VALUES (",
-        scope.table("sharing")
-    ));
-    sql.bind(&sharing.id)
+    let mut sql =
+        scope.sql("INSERT INTO sharing (id, enabled, token, modified_by, update_at) VALUES (");
+    sql.bind(Id(&sharing.id))
         .push_bind(", ", sharing.enabled)
         .push_bind(", ", &sharing.token)
-        .push_bind(", ", &sharing.modified_by)
+        .push_bind(", ", OptId(&sharing.modified_by))
         .push_bind(", ", now_millis())
         .push(
             ") ON CONFLICT (id) DO UPDATE SET enabled = EXCLUDED.enabled, \
@@ -57,20 +55,15 @@ pub(crate) async fn get_sharing(
     scope: &mut Scope<'_>,
     board_id: &str,
 ) -> Result<Sharing, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT id, enabled, token, modified_by, update_at FROM {} WHERE id = ",
-        scope.table("sharing")
-    ));
-    sql.bind(board_id);
-    // Preserved quirk: a board without sharing state is reported with the database
-    // layer's "no rows" text, which clients of the sharing API see
-    // (`server/services/store/sqlstore/sharing.go:57-66`).
+    let mut sql =
+        scope.sql("SELECT id, enabled, token, modified_by, update_at FROM sharing WHERE id = ");
+    sql.bind(Id(board_id));
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     Ok(Sharing {
-        id: row.text(0)?,
+        id: row.id(0)?,
         enabled: row.bool(1)?,
         token: row.text(2)?,
-        modified_by: row.text(3)?,
+        modified_by: row.id(3)?,
         update_at: row.int(4)?,
     })
 }

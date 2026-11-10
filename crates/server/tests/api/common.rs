@@ -9,12 +9,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, Board, BoardMember, BoardType, IdKind, LoginRequest, LoginResponse, RegisterRequest,
-    Team, User, new_id,
+    Block, Board, BoardMember, BoardType, LoginRequest, LoginResponse, RegisterRequest, Team, User,
+    new_id,
 };
 use fvoci_server::app::App;
+use fvoci_server::auth::secret::new_secret;
 use fvoci_server::config::Configuration;
 use fvoci_server::{Server, TlsFiles};
+use fvoci_store::Store;
 use fvoci_store::testing::TestDatabase;
 use reqwest::{Method, StatusCode};
 use serde::Serialize;
@@ -25,8 +27,14 @@ use tokio::sync::oneshot;
 pub(crate) const USER1_USERNAME: &str = "user1";
 pub(crate) const USER2_USERNAME: &str = "user2";
 pub(crate) const PASSWORD: &str = "Pa$$word";
-/// The team the original's tests use. A standalone server accepts any team identifier.
-pub(crate) const TEST_TEAM_ID: &str = "team-id";
+/// The root team of every test server: the oldest team, the one the server would have
+/// made at its first start. The harness makes it before the server starts, so that
+/// tests can name it.
+pub(crate) const ROOT_TEAM_ID: &str = "00000000-0000-7000-8000-000000000000";
+/// A second team, the one most tests make their boards in.
+pub(crate) const TEST_TEAM_ID: &str = "00000000-0000-7000-8000-000000000001";
+/// The identifier of nothing: well-formed, and never given to anything.
+pub(crate) const UNKNOWN_ID: &str = "00000000-0000-7000-8000-00000000dead";
 
 /// A running server with a database and directories of its own.
 pub(crate) struct TestServer {
@@ -37,6 +45,8 @@ pub(crate) struct TestServer {
     pub(crate) client: Client,
     /// The second client; `user2` after [`TestServer::init_basic`].
     pub(crate) client2: Client,
+    /// The identifier of the stranger, once there is one.
+    stranger: tokio::sync::OnceCell<String>,
     shutdown: oneshot::Sender<()>,
     serving: tokio::task::JoinHandle<anyhow::Result<()>>,
     database: TestDatabase,
@@ -122,7 +132,7 @@ impl Setup {
     pub(crate) async fn try_start(self) -> anyhow::Result<TestServer> {
         let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("api-tests")
-            .join(new_id(IdKind::None));
+            .join(new_id());
         let web_path = directory.join("web");
         std::fs::create_dir_all(web_path.join("static")).expect("the web directory is created");
         std::fs::write(
@@ -158,6 +168,7 @@ impl Setup {
             change(&mut config);
         }
 
+        seed_teams(&config).await;
         let mut server = Server::new(config, &self.base_path).await?;
         if let Some(tls_files) = self.tls_files {
             server = server.with_tls_files(tls_files);
@@ -178,6 +189,7 @@ impl Setup {
             client: Client::new(&base_url, ""),
             client2: Client::new(&base_url, ""),
             base_url,
+            stranger: tokio::sync::OnceCell::new(),
             shutdown,
             serving,
             database,
@@ -193,6 +205,29 @@ impl Setup {
     }
 }
 
+/// Stores the two teams of a test server, the root team first.
+async fn seed_teams(config: &Configuration) {
+    let db_type = config
+        .db_type
+        .parse()
+        .expect("the test database type is one the store knows");
+    let store = Store::connect(db_type, &config.db_config)
+        .await
+        .expect("the test database takes the schema");
+    for team_id in [ROOT_TEAM_ID, TEST_TEAM_ID] {
+        let team = Team {
+            id: team_id.to_owned(),
+            signup_token: new_secret(),
+            ..Team::default()
+        };
+        store
+            .create_team(&team)
+            .await
+            .expect("a team of the test server is stored");
+    }
+    store.close().await;
+}
+
 impl TestServer {
     /// `InitBasic`: registers and signs in `user1` on the first client and `user2`, with
     /// the team's signup token, on the second.
@@ -200,7 +235,11 @@ impl TestServer {
         self.client = self
             .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD, "")
             .await;
-        let team: Team = self.client.get("/teams/0").await.ok_json();
+        let team: Team = self
+            .client
+            .get(&format!("/teams/{ROOT_TEAM_ID}"))
+            .await
+            .ok_json();
         assert!(!team.signup_token.is_empty(), "the team has a signup token");
         self.client2 = self
             .register_and_login(
@@ -211,6 +250,29 @@ impl TestServer {
             )
             .await;
         self
+    }
+
+    /// The identifier of a user who exists and never signs in: somebody to make boards
+    /// and blocks on behalf of where the test's own users must not be involved. The
+    /// user is stored on first use, past the registration route.
+    pub(crate) async fn stranger(&self) -> String {
+        self.stranger
+            .get_or_init(|| async {
+                let mut user = User {
+                    id: new_id(),
+                    username: "stranger".to_owned(),
+                    email: "stranger@sample.com".to_owned(),
+                    ..User::default()
+                };
+                self.app
+                    .store()
+                    .create_user(&mut user)
+                    .await
+                    .expect("the stranger is stored");
+                user.id
+            })
+            .await
+            .clone()
     }
 
     /// A client without a session.

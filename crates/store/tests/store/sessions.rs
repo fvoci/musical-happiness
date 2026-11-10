@@ -1,26 +1,30 @@
 //! Port of `server/services/store/storetests/session.go`, followed by tests of the session
 //! operations that the original suite does not cover.
+//!
+//! The original's `testGetActiveUserCount` and `testUpdateSession` have no port: this
+//! store counts no active users and never rewrites a session.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use fvoci_model::Session;
-use fvoci_store::DbType;
+use fvoci_model::{Session, User, new_id};
+use fvoci_store::{DbType, StoreError};
 use serde_json::json;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions as _, Connection as _};
 
 use crate::common;
-use crate::users::clock_count;
 
 /// `testCreateAndGetAndDeleteSession`.
 #[tokio::test]
 async fn create_and_get_and_delete_session() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "session.owner").await;
 
     let session = Session {
-        id: "session-id".to_owned(),
+        id: new_id(),
         token: "token".to_owned(),
+        user_id,
         ..Session::default()
     };
 
@@ -46,62 +50,8 @@ async fn create_and_get_and_delete_session() {
     test.teardown().await;
 }
 
-/// `testGetActiveUserCount`.
-#[tokio::test]
-async fn get_active_user_count() {
-    let test = common::setup().await;
-    let store = &test.store;
-
-    // "no active user"
-    let count = store.get_active_user_count(60).await.unwrap();
-    assert_eq!(count, 0);
-
-    // "active user"
-    // gen random count active user session
-    let count = clock_count();
-    for index in 0..count {
-        let session = Session {
-            id: format!("id-{index}"),
-            user_id: format!("user-id-{index}"),
-            token: format!("token-{index}"),
-            ..Session::default()
-        };
-        store.create_session(&session).await.unwrap();
-    }
-
-    let got = store.get_active_user_count(60).await.unwrap();
-    assert_eq!(usize::try_from(got).ok(), Some(count));
-
-    test.teardown().await;
-}
-
-/// `testUpdateSession`.
-#[tokio::test]
-async fn update_session() {
-    let test = common::setup().await;
-    let store = &test.store;
-
-    let mut session = Session {
-        id: "session-id".to_owned(),
-        token: "token".to_owned(),
-        props: serde_json::from_value(json!({ "field1": "A" })).unwrap(),
-        ..Session::default()
-    };
-
-    store.create_session(&session).await.unwrap();
-
-    // update session
-    session.props.insert("field1".to_owned(), json!("B"));
-    store.update_session(&session).await.unwrap();
-
-    let got = store.get_session(&session.token, 60).await.unwrap();
-    assert_eq!(got, session);
-
-    test.teardown().await;
-}
-
 // The tests below are not in the original suite. They pin behavior of the original's
-// standalone store that its suite leaves untested.
+// standalone store that its suite leaves untested, and what this store does differently.
 
 /// A session is read without its times, and one that is exactly at the expiry limit is
 /// already expired.
@@ -109,11 +59,12 @@ async fn update_session() {
 async fn get_session_leaves_the_times_unset_and_honors_the_expiry() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "session.owner").await;
 
     let session = Session {
-        id: "session-id".to_owned(),
+        id: new_id(),
         token: "token".to_owned(),
-        user_id: "user-id".to_owned(),
+        user_id,
         auth_service: "native".to_owned(),
         props: serde_json::from_value(json!({ "nested": { "n": 1 } })).unwrap(),
         create_at: 11,
@@ -136,55 +87,93 @@ async fn get_session_leaves_the_times_unset_and_honors_the_expiry() {
     assert!(expired.is_not_found(), "got {expired:?}");
     assert_eq!(expired.to_string(), "sql: no rows in result set");
 
-    // Deleting a session that does not exist, and refreshing or updating one whose token
-    // is unknown, succeed without doing anything.
-    store.delete_session("no-such-session").await.unwrap();
+    // Deleting a session that does not exist, and refreshing one whose token is unknown,
+    // succeed without doing anything.
+    store.delete_session(&new_id()).await.unwrap();
     let stranger = Session {
         token: "no-such-token".to_owned(),
         ..Session::default()
     };
     store.refresh_session(&stranger).await.unwrap();
-    store.update_session(&stranger).await.unwrap();
+    let got = store.get_session("token", 60).await.unwrap();
+    assert_eq!(got.id, session.id, "the stored session is still there");
+
+    // Text that is not an identifier names no session, and a statement that writes
+    // says so instead of doing nothing.
+    let error = store.delete_session("no-such-session").await.unwrap_err();
+    assert!(
+        matches!(&error, StoreError::InvalidId(refused) if refused == "no-such-session"),
+        "got {error:?}"
+    );
+    // A token is one session's, and so is an identifier.
+    let same_token = Session {
+        id: new_id(),
+        ..session.clone()
+    };
+    let error = store.create_session(&same_token).await.unwrap_err();
+    assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
+    let same_id = Session {
+        token: "another-token".to_owned(),
+        ..session.clone()
+    };
+    let error = store.create_session(&same_id).await.unwrap_err();
+    assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
+    let error = store.get_session("another-token", 60).await.unwrap_err();
+    assert!(error.is_not_found(), "got {error:?}");
+    // A session is some user's: one without a user is not stored.
+    let nobodys = Session {
+        id: new_id(),
+        token: "nobodys-token".to_owned(),
+        ..Session::default()
+    };
+    let error = store.create_session(&nobodys).await.unwrap_err();
+    assert!(
+        matches!(&error, StoreError::InvalidId(refused) if refused.is_empty()),
+        "got {error:?}"
+    );
 
     test.teardown().await;
 }
 
-/// Expiry, the active-user count and the cleanup all go by the time of the last refresh,
-/// with limits given in seconds.
+/// Expiry and the cleanup go by the time of the last refresh, with limits given in
+/// seconds.
 #[tokio::test]
 async fn refresh_and_clean_up_sessions_go_by_the_update_time() {
     let test = common::setup().await;
     let store = &test.store;
 
-    let session = |name: &str| Session {
-        id: format!("id-{name}"),
-        token: format!("token-{name}"),
-        user_id: format!("user-{name}"),
-        ..Session::default()
-    };
-    let stale = session("stale");
-    let fresh = session("fresh");
-    store.create_session(&stale).await.unwrap();
-    store.create_session(&fresh).await.unwrap();
-    assert_eq!(store.get_active_user_count(1).await.unwrap(), 2);
+    let mut sessions = Vec::new();
+    for name in ["stale", "fresh"] {
+        let session = Session {
+            id: new_id(),
+            token: format!("token-{name}"),
+            user_id: common::user(store, name).await,
+            ..Session::default()
+        };
+        store.create_session(&session).await.unwrap();
+        sessions.push(session);
+    }
+    let [stale, fresh] = sessions
+        .try_into()
+        .expect("two sessions were created, a stale and a fresh one");
+    assert!(store.get_session(&stale.token, 1).await.is_ok());
+    assert!(store.get_session(&fresh.token, 1).await.is_ok());
 
     tokio::time::sleep(Duration::from_millis(1100)).await;
-    assert_eq!(store.get_active_user_count(1).await.unwrap(), 0);
+    assert!(store.get_session(&stale.token, 1).await.is_err());
     assert!(store.get_session(&fresh.token, 1).await.is_err());
 
     store.refresh_session(&fresh).await.unwrap();
     assert!(store.get_session(&fresh.token, 1).await.is_ok());
     assert!(store.get_session(&stale.token, 1).await.is_err());
-    assert_eq!(store.get_active_user_count(1).await.unwrap(), 1);
 
-    // Two sessions of one user count once.
+    // A second session of the user of the fresh one.
     let second = Session {
-        id: "id-second".to_owned(),
+        id: new_id(),
         token: "token-second".to_owned(),
         ..fresh.clone()
     };
     store.create_session(&second).await.unwrap();
-    assert_eq!(store.get_active_user_count(1).await.unwrap(), 1);
 
     assert!(store.get_session(&stale.token, 60).await.is_ok());
     store.clean_up_sessions(1).await.unwrap();
@@ -198,8 +187,9 @@ async fn refresh_and_clean_up_sessions_go_by_the_update_time() {
     test.teardown().await;
 }
 
-/// On SQLite the original binds JSON as bytes, which the database keeps as a BLOB even in
-/// a text column. A database written by the original must still read back.
+/// The original binds JSON as bytes on SQLite, which the database keeps as a BLOB even
+/// in a text column. This server writes JSON as text and refuses a database of the
+/// original, yet its reader still accepts either storage class; this pins that.
 #[tokio::test]
 async fn json_stored_as_a_blob_by_the_original_on_sqlite_reads_back() {
     if common::db_type() != DbType::Sqlite {
@@ -207,6 +197,9 @@ async fn json_stored_as_a_blob_by_the_original_on_sqlite_reads_back() {
     }
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "blob.owner").await;
+    let session_id = new_id();
+    let team_id = new_id();
 
     let mut conn = SqliteConnectOptions::new()
         .filename(test.dbconfig())
@@ -221,16 +214,20 @@ async fn json_stored_as_a_blob_by_the_original_on_sqlite_reads_back() {
     sqlx::query(
         "INSERT INTO sessions \
          (id, token, user_id, auth_service, props, create_at, update_at) \
-         VALUES ('s', 'blob-token', 'u', 'native', CAST('{\"k\":\"v\"}' AS BLOB), $1, $1)",
+         VALUES ($1, 'blob-token', $2, 'native', CAST('{\"k\":\"v\"}' AS BLOB), $3, $3)",
     )
+    .bind(&session_id)
+    .bind(&user_id)
     .bind(now)
     .execute(&mut conn)
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO teams (id, signup_token, settings, modified_by, update_at) \
-         VALUES ('0', 'token', CAST('{\"on\":true}' AS BLOB), 'u', $1)",
+        "INSERT INTO teams (id, signup_token, settings, modified_by, create_at, update_at) \
+         VALUES ($1, 'token', CAST('{\"on\":true}' AS BLOB), $2, $3, $3)",
     )
+    .bind(&team_id)
+    .bind(&user_id)
     .bind(now)
     .execute(&mut conn)
     .await
@@ -238,49 +235,58 @@ async fn json_stored_as_a_blob_by_the_original_on_sqlite_reads_back() {
     conn.close().await.unwrap();
 
     let session = store.get_session("blob-token", 60).await.unwrap();
+    assert_eq!(session.id, session_id);
     assert_eq!(session.props.get("k"), Some(&json!("v")));
-    let team = store.get_team("0").await.unwrap();
+    let team = store.get_team(&team_id).await.unwrap();
     assert_eq!(team.settings.get("on"), Some(&json!(true)));
+    assert_eq!(team.modified_by, user_id);
 
     test.teardown().await;
 }
 
-/// Not in the original: a password set by name ends the sessions of the users with that
+/// Not in the original: a password set by name ends the sessions of the user with that
 /// name, and only theirs, together with the password change.
 #[tokio::test]
 async fn reset_user_password_deletes_the_sessions_of_those_users_only() {
     let test = common::setup().await;
     let store = &test.store;
     let hour = 60 * 60;
-    for (id, username) in [("user-a", "anna"), ("user-b", "bert")] {
-        let mut user = fvoci_model::User {
-            id: id.to_owned(),
+    let mut user_ids = Vec::new();
+    for username in ["anna", "bert"] {
+        let mut user = User {
+            id: new_id(),
             username: username.to_owned(),
             email: format!("{username}@example.com"),
             password: "old-hash".to_owned(),
-            ..fvoci_model::User::default()
+            ..User::default()
         };
         store.create_user(&mut user).await.unwrap();
+        user_ids.push(user.id);
     }
-    for (id, token, user_id) in [
-        ("s1", "anna-phone", "user-a"),
-        ("s2", "anna-laptop", "user-a"),
-        ("s3", "bert-phone", "user-b"),
+    let (anna, bert) = (&user_ids[0], &user_ids[1]);
+    for (token, user_id) in [
+        ("anna-phone", anna),
+        ("anna-laptop", anna),
+        ("bert-phone", bert),
     ] {
         let session = Session {
-            id: id.to_owned(),
+            id: new_id(),
             token: token.to_owned(),
-            user_id: user_id.to_owned(),
+            user_id: user_id.clone(),
             ..Session::default()
         };
         store.create_session(&session).await.unwrap();
     }
 
-    let user_ids = store.reset_user_password("anna", "new-hash").await.unwrap();
+    let reset = store.reset_user_password("anna", "new-hash").await.unwrap();
 
-    assert_eq!(user_ids, ["user-a"], "the users whose password was set");
     assert_eq!(
-        store.get_user_by_id("user-a").await.unwrap().password,
+        reset,
+        std::slice::from_ref(anna),
+        "the users whose password was set"
+    );
+    assert_eq!(
+        store.get_user_by_id(anna).await.unwrap().password,
         "new-hash"
     );
     for token in ["anna-phone", "anna-laptop"] {
@@ -289,8 +295,13 @@ async fn reset_user_password_deletes_the_sessions_of_those_users_only() {
     }
     assert_eq!(
         store.get_session("bert-phone", hour).await.unwrap().user_id,
-        "user-b",
+        *bert,
         "the session of a user with another name"
+    );
+    assert_eq!(
+        store.get_user_by_id(bert).await.unwrap().password,
+        "old-hash",
+        "the password of a user with another name"
     );
 
     // An unknown name changes nothing.
@@ -298,7 +309,7 @@ async fn reset_user_password_deletes_the_sessions_of_those_users_only() {
     assert_eq!(error.to_string(), "user not found (nobody)");
     assert_eq!(
         store.get_session("bert-phone", hour).await.unwrap().user_id,
-        "user-b"
+        *bert
     );
 
     test.teardown().await;

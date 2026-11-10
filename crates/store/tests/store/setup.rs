@@ -1,6 +1,7 @@
 //! Connecting, schema migration and the databases that are refused: what
 //! `Store::connect` promises.
 
+use fvoci_model::{Block, new_id};
 use fvoci_store::{DbType, Store, StoreError};
 
 use crate::common;
@@ -137,22 +138,32 @@ async fn in_memory_sqlite_databases_are_private_to_their_store() {
         .await
         .expect("another in-memory database");
 
-    let mut block = fvoci_model::Block {
-        id: "only-in-first".to_owned(),
-        board_id: "board".to_owned(),
-        ..fvoci_model::Block::default()
+    // A block of a board of a team, by a user, all in the first store only.
+    let user_id = common::user(&first, "only-in-first").await;
+    let team_id = common::team(&first).await;
+    let boards = common::create_test_boards(&first, &team_id, &user_id, 1).await;
+    let mut block = Block {
+        id: new_id(),
+        board_id: boards[0].id.clone(),
+        created_by: user_id.clone(),
+        ..Block::default()
     };
     first
-        .insert_block(&mut block, "user")
+        .insert_block(&mut block, &user_id)
         .await
         .expect("inserted");
 
     assert!(
-        first.get_block("only-in-first").await.is_ok(),
+        first.get_block(&block.id).await.is_ok(),
         "the first store has the block"
     );
     let missing = second
-        .get_block("only-in-first")
+        .get_block(&block.id)
+        .await
+        .expect_err("not in the second store");
+    assert!(missing.is_not_found(), "got {missing:?}");
+    let missing = second
+        .get_user_by_id(&user_id)
         .await
         .expect_err("not in the second store");
     assert!(missing.is_not_found(), "got {missing:?}");

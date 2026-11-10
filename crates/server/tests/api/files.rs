@@ -5,13 +5,13 @@
 //! `server/app/files_test.go`. The headers and range handling are checked against the
 //! oracle.
 
-use fvoci_model::{Block, BlockType, Board, BoardType, IdKind, JsonMap, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardType, JsonMap, new_id};
 use reqwest::Method;
 use reqwest::StatusCode;
 use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
 
-use crate::common::{Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
 
 /// Uploads `data` under `filename` to a board as the given client.
 async fn upload(
@@ -54,7 +54,7 @@ async fn board_with_image(ts: &TestServer) -> (Board, String) {
         )
         .await,
     );
-    let card_id = new_id(IdKind::Card);
+    let card_id = new_id();
     let mut image_fields = JsonMap::new();
     image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));
     let blocks = vec![
@@ -68,7 +68,7 @@ async fn board_with_image(ts: &TestServer) -> (Board, String) {
             ..Block::default()
         },
         Block {
-            id: new_id(IdKind::Block),
+            id: new_id(),
             parent_id: card_id,
             board_id: board.id.clone(),
             block_type: BlockType::Image,
@@ -148,16 +148,16 @@ async fn upload_file_reaching_the_max_file_size() {
 #[tokio::test]
 async fn team_upload_file_no_permission() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board_id = new_id(IdKind::Board);
-    let response = upload(&ts.client, "0", &board_id, "x.bin", &[0_u8; 64]).await;
+    let board_id = new_id();
+    let response = upload(&ts.client, ROOT_TEAM_ID, &board_id, "x.bin", &[0_u8; 64]).await;
     response.check_error(StatusCode::NOT_FOUND, "board not found");
 
     let private = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let response = upload(&ts.client2, "0", &private.id, "x.bin", &[0_u8; 64]).await;
+    let response = upload(&ts.client2, ROOT_TEAM_ID, &private.id, "x.bin", &[0_u8; 64]).await;
     response.check_error(StatusCode::NOT_FOUND, "board not found");
 
     let open = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let response = upload(&ts.client2, "0", &open.id, "x.bin", &[0_u8; 64]).await;
+    let response = upload(&ts.client2, ROOT_TEAM_ID, &open.id, "x.bin", &[0_u8; 64]).await;
     response.check_forbidden();
     ts.teardown().await;
 }
@@ -166,8 +166,8 @@ async fn team_upload_file_no_permission() {
 #[tokio::test]
 async fn team_upload_file_a_board_admin_can_upload() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board("0", BoardType::Open).await;
-    let response = upload(&ts.client, "0", &board.id, "x.bin", &[1_u8; 64]).await;
+    let board = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
+    let response = upload(&ts.client, ROOT_TEAM_ID, &board.id, "x.bin", &[1_u8; 64]).await;
     response.check_ok();
     assert!(!uploaded_id(&response).is_empty(), "the file has an id");
     ts.teardown().await;
@@ -177,8 +177,8 @@ async fn team_upload_file_a_board_admin_can_upload() {
 #[tokio::test]
 async fn team_upload_file_a_non_member_is_forbidden() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board("0", BoardType::Open).await;
-    let response = upload(&ts.client2, "0", &board.id, "x.bin", &[1_u8; 64]).await;
+    let board = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
+    let response = upload(&ts.client2, ROOT_TEAM_ID, &board.id, "x.bin", &[1_u8; 64]).await;
     response.check_forbidden();
     ts.teardown().await;
 }
@@ -199,7 +199,8 @@ async fn upload_maps_jpeg_to_jpg() {
     ts.teardown().await;
 }
 
-/// The upload answers a 27-character generated name plus the extension.
+/// The upload answers a generated name: a secret, not an identifier, plus the
+/// extension.
 #[tokio::test]
 async fn upload_answers_a_generated_name() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -207,7 +208,12 @@ async fn upload_answers_a_generated_name() {
     let file_id =
         uploaded_id(&upload(&ts.client, TEST_TEAM_ID, &board.id, "picture.png", b"x").await);
     let (stem, extension) = file_id.split_once('.').expect("name has an extension");
-    assert_eq!(stem.len(), 27, "a 27-character generated id: {file_id}");
+    assert_eq!(
+        stem.len(),
+        fvoci_server::auth::secret::SECRET_LENGTH,
+        "a secret: {file_id}"
+    );
+    assert!(!fvoci_model::is_id(stem), "and no identifier: {file_id}");
     assert_eq!(extension, "png", "the extension is kept");
     ts.teardown().await;
 }
@@ -249,11 +255,10 @@ async fn file_info_of_an_unknown_file_is_not_found() {
     ts.teardown().await;
 }
 
-/// The info JSON carries the members the original's JSON has, including `channel_id`,
-/// `mini_preview` and `remote_id`, which this server's own model lacks (checked against
-/// the oracle).
+/// The info JSON says what a client may know about a file, and neither where it is
+/// stored nor which board it is filed under.
 #[tokio::test]
-async fn file_info_has_the_originals_members() {
+async fn file_info_has_the_members_of_the_record() {
     let ts = Setup::native().start().await.init_basic().await;
     let (board, file_id) = board_with_image(&ts).await;
     let response = ts
@@ -264,27 +269,36 @@ async fn file_info_has_the_originals_members() {
         ))
         .await;
     let info = response.ok_json::<Value>();
-    for member in [
-        "id",
-        "user_id",
-        "channel_id",
-        "create_at",
-        "update_at",
-        "delete_at",
-        "name",
-        "extension",
-        "size",
-        "mime_type",
-        "mini_preview",
-        "remote_id",
-        "archived",
-    ] {
-        assert!(info.get(member).is_some(), "the info has {member}: {info}");
-    }
-    assert_eq!(info["name"], json!("pic.png"), "the stored name");
+    let mut members: Vec<&str> = info
+        .as_object()
+        .expect("the info is an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    members.sort_unstable();
+    assert_eq!(
+        members,
+        [
+            "archived",
+            "create_at",
+            "delete_at",
+            "extension",
+            "id",
+            "name",
+            "size"
+        ],
+        "{info}"
+    );
+    assert!(
+        fvoci_model::is_id(info["id"].as_str().unwrap_or_default()),
+        "the record has an identifier: {info}"
+    );
+    assert_eq!(
+        info["name"],
+        json!("pic.png"),
+        "the name it was uploaded with"
+    );
     assert_eq!(info["extension"], json!(".png"), "the extension");
-    assert_eq!(info["mini_preview"], Value::Null, "mini_preview is null");
-    assert_eq!(info["remote_id"], Value::Null, "remote_id is null");
     ts.teardown().await;
 }
 
@@ -621,7 +635,7 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
         ..Board::default()
     };
     let intruder_board: Board = ts.client2.create_board(&board).await.ok_json();
-    let card_id = new_id(IdKind::Card);
+    let card_id = new_id();
     let named = |key: &str| {
         let mut fields = JsonMap::new();
         fields.insert(key.to_owned(), Value::String(file_id.clone()));
@@ -644,14 +658,9 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
             BlockType::Card,
             JsonMap::new(),
         ),
+        block(new_id(), &card_id, BlockType::Image, named("fileId")),
         block(
-            new_id(IdKind::Block),
-            &card_id,
-            BlockType::Image,
-            named("fileId"),
-        ),
-        block(
-            new_id(IdKind::Block),
+            new_id(),
             &card_id,
             BlockType::Attachment,
             named("attachmentId"),
@@ -896,36 +905,23 @@ async fn a_template_file_is_given_out_through_its_template() {
     ts.teardown().await;
 }
 
-/// A file whose stored path names no board, as the original's `boards/<date>/<name>`
-/// does, belongs to no board and is given out through none. Before, such a file was
-/// served through any board the requester could read. This server stores no file that
-/// way; the test plants one.
+/// A file in the storage that no record ties to a board is given out through no board,
+/// whatever its place in the storage says. Before, such a file was served through any
+/// board the requester could read. This server stores no file without a record; the
+/// test plants one, in the directory of a board.
 #[tokio::test]
-async fn a_file_whose_path_names_no_board_is_given_out_through_no_board() {
+async fn a_file_without_a_record_is_given_out_through_no_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
     let other = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
 
-    let name = format!("{}.txt", new_id(IdKind::None));
-    let path = format!("boards/20230101/{name}");
+    let name = format!("{}.txt", fvoci_server::auth::secret::new_secret());
+    let path = format!("boards/20230101/{}/{name}", board.id);
     ts.app
         .files()
         .write(&path, &mut &b"an old file"[..])
         .await
         .expect("the file is stored");
-    let info = fvoci_model::FileInfo {
-        id: name[1..name.len() - 4].to_owned(),
-        name: "old.txt".to_owned(),
-        extension: ".txt".to_owned(),
-        size: 11,
-        path,
-        ..fvoci_model::FileInfo::default()
-    };
-    ts.app
-        .store()
-        .save_file_info(&info)
-        .await
-        .expect("the record is stored");
 
     for board_id in [&board.id, &other.id] {
         let route = format!("/files/teams/{TEST_TEAM_ID}/{board_id}/{name}");
@@ -944,7 +940,7 @@ async fn a_file_whose_path_names_no_board_is_given_out_through_no_board() {
 async fn duplicating_a_board_with_an_empty_file_reference_works() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let card_id = new_id(IdKind::Card);
+    let card_id = new_id();
     let mut empty = JsonMap::new();
     empty.insert("fileId".to_owned(), Value::String(String::new()));
     let block = |id: String, parent: &str, block_type: BlockType, fields: JsonMap| Block {
@@ -959,13 +955,8 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
     };
     let blocks = vec![
         block(card_id.clone(), &board.id, BlockType::Card, JsonMap::new()),
-        block(new_id(IdKind::Block), &card_id, BlockType::Image, empty),
-        block(
-            new_id(IdKind::Block),
-            &card_id,
-            BlockType::Attachment,
-            JsonMap::new(),
-        ),
+        block(new_id(), &card_id, BlockType::Image, empty),
+        block(new_id(), &card_id, BlockType::Attachment, JsonMap::new()),
     ];
     ts.client.insert_blocks(&board.id, &blocks).await.check_ok();
 
@@ -988,12 +979,12 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
     ts.teardown().await;
 }
 
-/// A file name that begins with a character of several bytes: the original drops the
-/// first byte of a name to find its record, which then finds nothing, and falls back to
-/// the path built from the team, the board and the name. Template boards keep the
-/// client's file name, so such names occur.
+/// A file name that begins with a character of several bytes, uploaded to a template
+/// board. The original keeps the client's name for a template's files and drops the
+/// first byte of a name to find its record. Here every upload is stored under a
+/// generated name, and the record keeps the name it came with.
 #[tokio::test]
-async fn a_template_file_whose_name_begins_with_a_wide_character_is_served() {
+async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = Board {
         team_id: TEST_TEAM_ID.to_owned(),
@@ -1004,22 +995,33 @@ async fn a_template_file_whose_name_begins_with_a_wide_character_is_served() {
     let board: Board = ts.client.create_board(&board).await.ok_json();
     let name = "사진.png";
     let file_id = uploaded_id(&upload(&ts.client, TEST_TEAM_ID, &board.id, name, b"wide").await);
-    assert_eq!(file_id, name, "a template upload keeps its name");
+    assert_ne!(
+        file_id, name,
+        "no upload keeps its name, on a template either"
+    );
+    assert!(file_id.is_ascii(), "the stored name is plain: {file_id}");
+    assert_eq!(
+        file_id.rsplit_once('.').map(|(_, extension)| extension),
+        Some("png"),
+        "with the extension: {file_id}"
+    );
+    let name = file_id.as_str();
 
-    let encoded = "%EC%82%AC%EC%A7%84.png";
-    let path = format!("/files/teams/{TEST_TEAM_ID}/{}/{encoded}", board.id);
+    let path = format!("/files/teams/{TEST_TEAM_ID}/{}/{file_id}", board.id);
     let download = ts.client.get(&path).await;
     download.check_ok();
     assert_eq!(download.body, b"wide", "the file is served");
-    // There is no record under such a name, so there is no info to give. This goes
-    // with the dropped first byte and ends when records are found by their own key.
-    let info = ts.client.get(&format!("{path}/info")).await;
-    info.check_error(StatusCode::NOT_FOUND, "file not found");
+    let info = ts.client.get(&format!("{path}/info")).await.value();
+    assert_eq!(
+        info["name"],
+        json!("사진.png"),
+        "the record has the name it was uploaded with: {info}"
+    );
 
     // An image block that names it: the board exports and duplicates.
     let mut fields = JsonMap::new();
     fields.insert("fileId".to_owned(), Value::String(name.to_owned()));
-    let card_id = new_id(IdKind::Card);
+    let card_id = new_id();
     let block = |id: String, parent: &str, block_type: BlockType, fields: JsonMap| Block {
         id,
         parent_id: parent.to_owned(),
@@ -1032,7 +1034,7 @@ async fn a_template_file_whose_name_begins_with_a_wide_character_is_served() {
     };
     let blocks = vec![
         block(card_id.clone(), &board.id, BlockType::Card, JsonMap::new()),
-        block(new_id(IdKind::Block), &card_id, BlockType::Image, fields),
+        block(new_id(), &card_id, BlockType::Image, fields),
     ];
     ts.client.insert_blocks(&board.id, &blocks).await.check_ok();
     ts.client

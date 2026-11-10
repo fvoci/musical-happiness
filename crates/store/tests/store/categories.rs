@@ -1,13 +1,17 @@
 //! Port of `server/services/store/storetests/category.go`.
 //!
 //! One test per test function of the original; its subtests are the commented sections.
+//! The original names its categories, users, teams and boards with fixed strings. Here
+//! every identifier is generated, and the user and team of a category and the boards
+//! put into one are stored first.
+//!
 //! The tests after [`reorder_category_boards`] are not in the original: they pin behavior
 //! the original's tests leave open.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fvoci_model::{Category, CategoryBoardMetadata, CategoryType};
-use fvoci_store::StoreError;
+use fvoci_model::{Category, CategoryBoardMetadata, CategoryType, new_id};
+use fvoci_store::{Store, StoreError};
 
 use crate::common::{self, TestStore};
 
@@ -19,7 +23,25 @@ pub(crate) fn now_millis() -> i64 {
     i64::try_from(since_epoch.as_millis()).expect("the time fits 64 bits")
 }
 
-/// Owned identifiers from literals.
+/// New identifiers, as many as the pattern they are bound to names.
+pub(crate) fn new_ids<const N: usize>() -> [String; N] {
+    std::array::from_fn(|_| new_id())
+}
+
+/// Stores `N` open boards of the team on behalf of the user and returns their
+/// identifiers.
+pub(crate) async fn create_boards<const N: usize>(
+    store: &Store,
+    team_id: &str,
+    user_id: &str,
+) -> [String; N] {
+    let boards = common::create_test_boards(store, team_id, user_id, N).await;
+    let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
+    ids.try_into()
+        .expect("as many boards are stored as were asked for")
+}
+
+/// Owned identifiers from borrowed ones.
 pub(crate) fn ids(ids: &[&str]) -> Vec<String> {
     ids.iter().map(|&id| id.to_owned()).collect()
 }
@@ -40,6 +62,14 @@ fn category_ids(categories: &[Category]) -> Vec<&str> {
         .collect()
 }
 
+/// The sort orders of the categories, in the given order.
+fn sort_orders(categories: &[Category]) -> Vec<i64> {
+    categories
+        .iter()
+        .map(|category| category.sort_order)
+        .collect()
+}
+
 /// Runs statements on the test's database, bypassing the store, to stage rows the store
 /// itself never writes.
 async fn execute_raw(test: &TestStore, sql: &str) {
@@ -51,15 +81,17 @@ async fn execute_raw(test: &TestStore, sql: &str) {
 async fn get_create_category() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
 
     // "save uncollapsed category"
     {
         let now = now_millis();
         let category = Category {
-            id: "category_id_1".to_owned(),
+            id: new_id(),
             name: "Category".to_owned(),
-            user_id: "user_id_1".to_owned(),
-            team_id: "team_id_1".to_owned(),
+            user_id: user_id.clone(),
+            team_id: team_id.clone(),
             create_at: now,
             update_at: now,
             delete_at: 0,
@@ -73,23 +105,23 @@ async fn get_create_category() {
             .expect("the category is created");
 
         let created_category = store
-            .get_category("category_id_1")
+            .get_category(&category.id)
             .await
             .expect("the category is found");
-        assert_eq!(created_category.name, "Category");
-        assert_eq!(created_category.user_id, "user_id_1");
-        assert_eq!(created_category.team_id, "team_id_1");
-        assert!(!created_category.collapsed);
+        assert_eq!(created_category.name, "Category", "the name");
+        assert_eq!(created_category.user_id, user_id, "the user");
+        assert_eq!(created_category.team_id, team_id, "the team");
+        assert!(!created_category.collapsed, "got {created_category:?}");
     }
 
     // "save collapsed category"
     {
         let now = now_millis();
         let category = Category {
-            id: "category_id_2".to_owned(),
+            id: new_id(),
             name: "Category".to_owned(),
-            user_id: "user_id_1".to_owned(),
-            team_id: "team_id_1".to_owned(),
+            user_id: user_id.clone(),
+            team_id: team_id.clone(),
             create_at: now,
             update_at: now,
             delete_at: 0,
@@ -103,26 +135,44 @@ async fn get_create_category() {
             .expect("the category is created");
 
         let created_category = store
-            .get_category("category_id_2")
+            .get_category(&category.id)
             .await
             .expect("the category is found");
-        assert_eq!(created_category.name, "Category");
-        assert_eq!(created_category.user_id, "user_id_1");
-        assert_eq!(created_category.team_id, "team_id_1");
-        assert!(created_category.collapsed);
+        assert_eq!(created_category.name, "Category", "the name");
+        assert_eq!(created_category.user_id, user_id, "the user");
+        assert_eq!(created_category.team_id, team_id, "the team");
+        assert!(created_category.collapsed, "got {created_category:?}");
     }
 
     // "get nonexistent category"
     {
         // The original also asserts that the returned category is nil; a `Result` cannot
         // hold both a category and an error.
+        let nonexistent = new_id();
         let error = store
-            .get_category("nonexistent")
+            .get_category(&nonexistent)
             .await
             .expect_err("there is no such category");
         assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
         assert!(error.is_not_found(), "got {error:?}");
-        assert_eq!(error.to_string(), "{category ID=nonexistent} not found");
+        assert_eq!(
+            error.to_string(),
+            format!("{{category ID={nonexistent}}} not found"),
+            "the error names the category"
+        );
+
+        // Added: the original asks for "nonexistent". Text that is not an identifier
+        // names no category either.
+        let error = store
+            .get_category("nonexistent")
+            .await
+            .expect_err("text that is not an identifier names no category");
+        assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
+        assert_eq!(
+            error.to_string(),
+            "{category ID=nonexistent} not found",
+            "the error names what was asked for"
+        );
     }
 
     test.teardown().await;
@@ -133,13 +183,15 @@ async fn get_create_category() {
 async fn update_category() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
 
     let now = now_millis();
     let category = Category {
-        id: "category_id_1".to_owned(),
+        id: new_id(),
         name: "Category 1".to_owned(),
-        user_id: "user_id_1".to_owned(),
-        team_id: "team_id_1".to_owned(),
+        user_id: user_id.clone(),
+        team_id: team_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -154,10 +206,10 @@ async fn update_category() {
 
     let update_now = now_millis();
     let mut updated_category = Category {
-        id: "category_id_1".to_owned(),
+        id: category.id.clone(),
         name: "Category 1 New".to_owned(),
-        user_id: "user_id_1".to_owned(),
-        team_id: "team_id_1".to_owned(),
+        user_id,
+        team_id,
         create_at: now,
         update_at: update_now,
         delete_at: 0,
@@ -171,12 +223,12 @@ async fn update_category() {
         .expect("the category is updated");
 
     let fetched_category = store
-        .get_category("category_id_1")
+        .get_category(&category.id)
         .await
         .expect("the category is found");
-    assert_eq!(fetched_category.id, "category_id_1");
-    assert_eq!(fetched_category.name, "Category 1 New");
-    assert!(fetched_category.collapsed);
+    assert_eq!(fetched_category.id, category.id, "the same category");
+    assert_eq!(fetched_category.name, "Category 1 New", "the new name");
+    assert!(fetched_category.collapsed, "got {fetched_category:?}");
 
     // now lets try to un-collapse the same category
     updated_category.collapsed = false;
@@ -186,12 +238,12 @@ async fn update_category() {
         .expect("the category is updated");
 
     let fetched_category = store
-        .get_category("category_id_1")
+        .get_category(&category.id)
         .await
         .expect("the category is found");
-    assert_eq!(fetched_category.id, "category_id_1");
-    assert_eq!(fetched_category.name, "Category 1 New");
-    assert!(!fetched_category.collapsed);
+    assert_eq!(fetched_category.id, category.id, "the same category");
+    assert_eq!(fetched_category.name, "Category 1 New", "the name stays");
+    assert!(!fetched_category.collapsed, "got {fetched_category:?}");
 
     test.teardown().await;
 }
@@ -201,13 +253,15 @@ async fn update_category() {
 async fn delete_category() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
 
     let now = now_millis();
     let category = Category {
-        id: "category_id_1".to_owned(),
+        id: new_id(),
         name: "Category 1".to_owned(),
-        user_id: "user_id_1".to_owned(),
-        team_id: "team_id_1".to_owned(),
+        user_id: user_id.clone(),
+        team_id: team_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -221,17 +275,17 @@ async fn delete_category() {
         .expect("the category is created");
 
     store
-        .delete_category("category_id_1", "user_id_1", "team_id_1")
+        .delete_category(&category.id, &user_id, &team_id)
         .await
         .expect("the category is deleted");
 
     let deleted_category = store
-        .get_category("category_id_1")
+        .get_category(&category.id)
         .await
         .expect("a deleted category is still found");
-    assert_eq!(deleted_category.id, "category_id_1");
-    assert_eq!(deleted_category.name, "Category 1");
-    assert!(!deleted_category.collapsed);
+    assert_eq!(deleted_category.id, category.id, "the same category");
+    assert_eq!(deleted_category.name, "Category 1", "the name stays");
+    assert!(!deleted_category.collapsed, "got {deleted_category:?}");
     assert!(deleted_category.delete_at > 0, "got {deleted_category:?}");
 
     test.teardown().await;
@@ -242,13 +296,15 @@ async fn delete_category() {
 async fn get_user_categories() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
 
     let now = now_millis();
     let category1 = Category {
-        id: "category_id_1".to_owned(),
+        id: new_id(),
         name: "Category 1".to_owned(),
-        user_id: "user_id_1".to_owned(),
-        team_id: "team_id_1".to_owned(),
+        user_id: user_id.clone(),
+        team_id: team_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -261,10 +317,10 @@ async fn get_user_categories() {
         .expect("category 1 is created");
 
     let category2 = Category {
-        id: "category_id_2".to_owned(),
+        id: new_id(),
         name: "Category 2".to_owned(),
-        user_id: "user_id_1".to_owned(),
-        team_id: "team_id_1".to_owned(),
+        user_id: user_id.clone(),
+        team_id: team_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -278,10 +334,10 @@ async fn get_user_categories() {
 
     // The original gives the third category the second one's name, "Category 2".
     let category3 = Category {
-        id: "category_id_3".to_owned(),
+        id: new_id(),
         name: "Category 2".to_owned(),
-        user_id: "user_id_1".to_owned(),
-        team_id: "team_id_1".to_owned(),
+        user_id: user_id.clone(),
+        team_id: team_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -294,10 +350,10 @@ async fn get_user_categories() {
         .expect("category 3 is created");
 
     let user_categories = store
-        .get_user_category_boards("user_id_1", "team_id_1")
+        .get_user_category_boards(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(user_categories.len(), 3);
+    assert_eq!(user_categories.len(), 3, "got {user_categories:?}");
 
     test.teardown().await;
 }
@@ -307,100 +363,83 @@ async fn get_user_categories() {
 async fn reorder_categories() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
 
     // setup
-    store
-        .create_category(&Category {
-            id: "category_id_1".to_owned(),
-            name: "Category 1".to_owned(),
-            category_type: CategoryType::Custom,
-            user_id: "user_id".to_owned(),
-            team_id: "team_id".to_owned(),
-            ..Category::default()
-        })
-        .await
-        .expect("category 1 is created");
-
-    store
-        .create_category(&Category {
-            id: "category_id_2".to_owned(),
-            name: "Category 2".to_owned(),
-            category_type: CategoryType::Custom,
-            user_id: "user_id".to_owned(),
-            team_id: "team_id".to_owned(),
-            ..Category::default()
-        })
-        .await
-        .expect("category 2 is created");
-
-    store
-        .create_category(&Category {
-            id: "category_id_3".to_owned(),
-            name: "Category 3".to_owned(),
-            category_type: CategoryType::Custom,
-            user_id: "user_id".to_owned(),
-            team_id: "team_id".to_owned(),
-            ..Category::default()
-        })
-        .await
-        .expect("category 3 is created");
+    let [category1, category2, category3] = new_ids();
+    for (id, name) in [
+        (&category1, "Category 1"),
+        (&category2, "Category 2"),
+        (&category3, "Category 3"),
+    ] {
+        store
+            .create_category(&Category {
+                id: id.clone(),
+                name: name.to_owned(),
+                category_type: CategoryType::Custom,
+                user_id: user_id.clone(),
+                team_id: team_id.clone(),
+                ..Category::default()
+            })
+            .await
+            .expect("the category is created");
+    }
 
     // verify the current order
     let categories = store
-        .get_user_categories("user_id", "team_id")
+        .get_user_categories(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(categories.len(), 3);
 
     // the categories should show up in reverse insertion order (latest one first)
-    assert_eq!(categories[0].id, "category_id_3");
-    assert_eq!(categories[1].id, "category_id_2");
-    assert_eq!(categories[2].id, "category_id_1");
+    assert_eq!(
+        category_ids(&categories),
+        [&category3, &category2, &category1],
+        "the latest category comes first"
+    );
 
     // re-ordering categories normally
     store
         .reorder_categories(
-            "user_id",
-            "team_id",
-            ids(&["category_id_2", "category_id_3", "category_id_1"]),
+            &user_id,
+            &team_id,
+            ids(&[&category2, &category3, &category1]),
         )
         .await
         .expect("the categories are reordered");
 
     // verify the board order
     let categories = store
-        .get_user_categories("user_id", "team_id")
+        .get_user_categories(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(categories.len(), 3);
-    assert_eq!(categories[0].id, "category_id_2");
-    assert_eq!(categories[1].id, "category_id_3");
-    assert_eq!(categories[2].id, "category_id_1");
+    assert_eq!(
+        category_ids(&categories),
+        [&category2, &category3, &category1],
+        "the order asked for"
+    );
 
     // lets try specifying a non existing category ID.
     // It shouldn't cause any problem
     store
         .reorder_categories(
-            "user_id",
-            "team_id",
-            ids(&[
-                "category_id_1",
-                "category_id_2",
-                "category_id_3",
-                "non-existing-category-id",
-            ]),
+            &user_id,
+            &team_id,
+            ids(&[&category1, &category2, &category3, &new_id()]),
         )
         .await
         .expect("an unknown identifier is ignored");
 
     let categories = store
-        .get_user_categories("user_id", "team_id")
+        .get_user_categories(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(categories.len(), 3);
-    assert_eq!(categories[0].id, "category_id_1");
-    assert_eq!(categories[1].id, "category_id_2");
-    assert_eq!(categories[2].id, "category_id_3");
+    assert_eq!(
+        category_ids(&categories),
+        [&category1, &category2, &category3],
+        "the order asked for, without the unknown category"
+    );
 
     test.teardown().await;
 }
@@ -410,67 +449,73 @@ async fn reorder_categories() {
 async fn reorder_category_boards() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
 
     // setup
+    //
+    // The original adds boards that were never created. A board in a category exists
+    // here.
+    let category_id = new_id();
     store
         .create_category(&Category {
-            id: "category_id_1".to_owned(),
+            id: category_id.clone(),
             name: "Category 1".to_owned(),
             category_type: CategoryType::Custom,
-            user_id: "user_id".to_owned(),
-            team_id: "team_id".to_owned(),
+            user_id: user_id.clone(),
+            team_id: team_id.clone(),
             ..Category::default()
         })
         .await
         .expect("the category is created");
 
+    let [board1, board2, board3, board4] = create_boards(store, &team_id, &user_id).await;
+
     store
         .add_update_category_board(
-            "user_id",
-            "category_id_1",
-            &ids(&["board_id_1", "board_id_2", "board_id_3", "board_id_4"]),
+            &user_id,
+            &category_id,
+            &ids(&[&board1, &board2, &board3, &board4]),
         )
         .await
         .expect("the boards are added");
 
     // verify current order
     let category_boards = store
-        .get_user_category_boards("user_id", "team_id")
+        .get_user_category_boards(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(category_boards.len(), 1);
+    assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     let metadata = &category_boards[0].board_metadata;
-    assert_eq!(metadata.len(), 4);
-    assert!(metadata.contains(&visible("board_id_1")), "{metadata:?}");
-    assert!(metadata.contains(&visible("board_id_2")), "{metadata:?}");
-    assert!(metadata.contains(&visible("board_id_3")), "{metadata:?}");
-    assert!(metadata.contains(&visible("board_id_4")), "{metadata:?}");
+    assert_eq!(metadata.len(), 4, "got {metadata:?}");
+    for board_id in [&board1, &board2, &board3, &board4] {
+        assert!(
+            metadata.contains(&visible(board_id)),
+            "board {board_id} is not in {metadata:?}"
+        );
+    }
 
     // reordering
+    let order = ids(&[&board3, &board1, &board2, &board4]);
     let new_order = store
-        .reorder_category_boards(
-            "category_id_1",
-            ids(&["board_id_3", "board_id_1", "board_id_2", "board_id_4"]),
-        )
+        .reorder_category_boards(&category_id, order.clone())
         .await
         .expect("the boards are reordered");
-    assert_eq!(new_order[0], "board_id_3");
-    assert_eq!(new_order[1], "board_id_1");
-    assert_eq!(new_order[2], "board_id_2");
-    assert_eq!(new_order[3], "board_id_4");
+    assert_eq!(new_order, order, "the order is returned as it was given");
 
     // verify new order
     let category_boards = store
-        .get_user_category_boards("user_id", "team_id")
+        .get_user_category_boards(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(category_boards.len(), 1);
+    assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
     let metadata = &category_boards[0].board_metadata;
-    assert_eq!(metadata.len(), 4);
-    assert_eq!(metadata[0].board_id, "board_id_3");
-    assert_eq!(metadata[1].board_id, "board_id_1");
-    assert_eq!(metadata[2].board_id, "board_id_2");
-    assert_eq!(metadata[3].board_id, "board_id_4");
+    let listed: Vec<&String> = metadata.iter().map(|board| &board.board_id).collect();
+    assert_eq!(
+        listed,
+        [&board3, &board1, &board2, &board4],
+        "the boards are listed in the new order"
+    );
 
     test.teardown().await;
 }
@@ -481,11 +526,16 @@ async fn reorder_category_boards() {
 async fn sort_orders_of_created_and_reordered_categories() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let other_user_id = common::user(store, "other").await;
+    let team_id = common::team(store).await;
+    let [a, b, c, other] = new_ids();
+
     let category = |id: &str, user_id: &str, sort_order: i64| Category {
         id: id.to_owned(),
         name: format!("Category {id}"),
         user_id: user_id.to_owned(),
-        team_id: "team_id".to_owned(),
+        team_id: team_id.clone(),
         sort_order,
         ..Category::default()
     };
@@ -499,118 +549,143 @@ async fn sort_orders_of_created_and_reordered_categories() {
 
     // A new category is bumped together with the ones that were there before it.
     store
-        .create_category(&category("other", "other_user", 0))
+        .create_category(&category(&other, &other_user_id, 0))
         .await
         .expect("another user's category is created");
     store
-        .create_category(&category("a", "user_id", 0))
+        .create_category(&category(&a, &user_id, 0))
         .await
         .expect("a is created");
-    assert_eq!(sort_order("a").await, 10);
+    assert_eq!(sort_order(&a).await, 10, "a moves down with itself");
     store
-        .create_category(&category("b", "user_id", 70))
+        .create_category(&category(&b, &user_id, 70))
         .await
         .expect("b is created");
-    assert_eq!(sort_order("a").await, 20);
-    assert_eq!(sort_order("b").await, 80);
+    assert_eq!(sort_order(&a).await, 20, "a moves down for b");
+    assert_eq!(sort_order(&b).await, 80, "b moves down with itself");
     assert_eq!(
-        sort_order("other").await,
+        sort_order(&other).await,
         10,
         "another user's categories stay where they are"
     );
 
     // A deleted category keeps its place when others are created, yet is reordered.
     store
-        .delete_category("a", "user_id", "team_id")
+        .delete_category(&a, &user_id, &team_id)
         .await
         .expect("a is deleted");
     store
-        .create_category(&category("c", "user_id", 0))
+        .create_category(&category(&c, &user_id, 0))
         .await
         .expect("c is created");
-    assert_eq!(sort_order("a").await, 20);
-    assert_eq!(sort_order("b").await, 90);
-    assert_eq!(sort_order("c").await, 10);
+    assert_eq!(sort_order(&a).await, 20, "a is deleted and stays");
+    assert_eq!(sort_order(&b).await, 90, "b moves down for c");
+    assert_eq!(sort_order(&c).await, 10, "c moves down with itself");
 
+    let order = ids(&[&b, &a, &c, &other]);
     let echoed = store
-        .reorder_categories("user_id", "team_id", ids(&["b", "a", "c", "other"]))
+        .reorder_categories(&user_id, &team_id, order.clone())
         .await
         .expect("the categories are reordered");
-    assert_eq!(echoed, ["b", "a", "c", "other"]);
-    assert_eq!(sort_order("b").await, 0);
-    assert_eq!(sort_order("a").await, 10);
-    assert_eq!(sort_order("c").await, 20);
+    assert_eq!(echoed, order, "the order comes back as it was given");
+    assert_eq!(sort_order(&b).await, 0, "b is first");
+    assert_eq!(sort_order(&a).await, 10, "a is second, deleted or not");
+    assert_eq!(sort_order(&c).await, 20, "c is third");
     assert_eq!(
-        sort_order("other").await,
+        sort_order(&other).await,
         10,
         "another user's category is out of reach"
     );
 
     // An empty order changes nothing.
     let echoed = store
-        .reorder_categories("user_id", "team_id", Vec::new())
+        .reorder_categories(&user_id, &team_id, Vec::new())
         .await
         .expect("an empty order is accepted");
     assert!(echoed.is_empty(), "got {echoed:?}");
-    assert_eq!(sort_order("c").await, 20);
+    assert_eq!(sort_order(&c).await, 20, "c stays third");
 
     test.teardown().await;
 }
 
 /// Not in the original, whose reorder statements splice the identifiers into the SQL
-/// text (`server/services/store/sqlstore/category.go:221`). Here they are data.
+/// text (`server/services/store/sqlstore/category.go:221`). Here they are data, and
+/// text that is not an identifier is refused before the statement runs.
 #[tokio::test]
 async fn reorder_categories_treats_identifiers_as_data() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
 
-    for id in ["plain", "quo'te"] {
+    let [first, second] = new_ids();
+    for id in [&first, &second] {
         store
             .create_category(&Category {
-                id: id.to_owned(),
-                name: id.to_owned(),
-                user_id: "user_id".to_owned(),
-                team_id: "team_id".to_owned(),
+                id: id.clone(),
+                name: id.clone(),
+                user_id: user_id.clone(),
+                team_id: team_id.clone(),
                 ..Category::default()
             })
             .await
             .expect("the category is created");
     }
 
-    // Spliced into `CASE id WHEN '<id>' THEN <n> ...`, the first identifier would move
-    // every category of the user to position 5.
-    store
-        .reorder_categories(
-            "user_id",
-            "team_id",
-            ids(&["x' THEN 5 ELSE 5 END --", "quo'te", "plain"]),
-        )
+    // Spliced into `CASE id WHEN '<id>' THEN <n> ...`, the first entry would move every
+    // category of the user to position 5.
+    let spliced = "x' THEN 5 ELSE 5 END --";
+    let error = store
+        .reorder_categories(&user_id, &team_id, ids(&[spliced, &first, &second]))
         .await
-        .expect("identifiers with SQL syntax in them are accepted");
+        .expect_err("text that is not an identifier is refused");
+    assert!(
+        matches!(&error, StoreError::InvalidId(refused) if refused == spliced),
+        "got {error:?}"
+    );
 
+    // Nothing moved, the categories the order names after the refused entry included.
     let categories = store
-        .get_user_categories("user_id", "team_id")
+        .get_user_categories(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(category_ids(&categories), ["quo'te", "plain"]);
     assert_eq!(
-        categories
-            .iter()
-            .map(|category| category.sort_order)
-            .collect::<Vec<i64>>(),
-        [10, 20]
+        category_ids(&categories),
+        [&second, &first],
+        "the later category still comes first"
+    );
+    assert_eq!(sort_orders(&categories), [10, 20], "as they were created");
+
+    // An identifier with nothing behind it is ignored, wherever the order names it.
+    store
+        .reorder_categories(&user_id, &team_id, ids(&[&new_id(), &first, &second]))
+        .await
+        .expect("an identifier that names no category is accepted");
+    let categories = store
+        .get_user_categories(&user_id, &team_id)
+        .await
+        .expect("the categories are listed");
+    assert_eq!(
+        category_ids(&categories),
+        [&first, &second],
+        "the order asked for"
+    );
+    assert_eq!(
+        sort_orders(&categories),
+        [10, 20],
+        "the unknown identifier takes the first place with it"
     );
 
     test.teardown().await;
 }
 
-/// A system category of `user_id` in `team_id`, for the two tests below.
-fn boards_category() -> Category {
+/// A system category of the user in the team, for the two tests below.
+fn boards_category(user_id: &str, team_id: &str) -> Category {
     Category {
-        id: "category_id".to_owned(),
+        id: new_id(),
         name: "Boards".to_owned(),
-        user_id: "user_id".to_owned(),
-        team_id: "team_id".to_owned(),
+        user_id: user_id.to_owned(),
+        team_id: team_id.to_owned(),
         create_at: 1000,
         update_at: 1000,
         category_type: CategoryType::System,
@@ -624,8 +699,12 @@ fn boards_category() -> Category {
 async fn update_category_leaves_other_members_and_rows_alone() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let someone_else = common::user(store, "someone-else").await;
+    let team_id = common::team(store).await;
+    let another_team = common::team(store).await;
 
-    let category = boards_category();
+    let category = boards_category(&user_id, &team_id);
     store
         .create_category(&category)
         .await
@@ -634,8 +713,8 @@ async fn update_category_leaves_other_members_and_rows_alone() {
     store
         .update_category(&Category {
             name: "Renamed".to_owned(),
-            user_id: "someone_else".to_owned(),
-            team_id: "another_team".to_owned(),
+            user_id: someone_else,
+            team_id: another_team,
             create_at: 5,
             update_at: 2000,
             delete_at: 3000,
@@ -647,7 +726,7 @@ async fn update_category_leaves_other_members_and_rows_alone() {
         .await
         .expect("the category is updated");
     let stored = store
-        .get_category("category_id")
+        .get_category(&category.id)
         .await
         .expect("the category is found");
     assert_eq!(
@@ -658,19 +737,21 @@ async fn update_category_leaves_other_members_and_rows_alone() {
             collapsed: true,
             sort_order: 10,
             ..category.clone()
-        }
+        },
+        "only the name, the modification time and the collapsed state change"
     );
 
     // Updating a category that does not exist succeeds and writes nothing.
+    let nonexistent = new_id();
     store
         .update_category(&Category {
-            id: "nonexistent".to_owned(),
+            id: nonexistent.clone(),
             ..category
         })
         .await
         .expect("updating nothing succeeds");
     let error = store
-        .get_category("nonexistent")
+        .get_category(&nonexistent)
         .await
         .expect_err("an update does not create a category");
     assert!(error.is_not_found(), "got {error:?}");
@@ -684,39 +765,47 @@ async fn update_category_leaves_other_members_and_rows_alone() {
 async fn delete_category_matches_owner_and_team_and_happens_once() {
     let test = common::setup().await;
     let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let someone_else = common::user(store, "someone-else").await;
+    let team_id = common::team(store).await;
+    let another_team = common::team(store).await;
 
-    let category = boards_category();
+    let category = boards_category(&user_id, &team_id);
     store
         .create_category(&category)
         .await
         .expect("the category is created");
 
     store
-        .delete_category("category_id", "someone_else", "team_id")
+        .delete_category(&category.id, &someone_else, &team_id)
         .await
         .expect("deleting nothing succeeds");
     store
-        .delete_category("category_id", "user_id", "another_team")
+        .delete_category(&category.id, &user_id, &another_team)
         .await
         .expect("deleting nothing succeeds");
     let stored = store
-        .get_category("category_id")
+        .get_category(&category.id)
         .await
         .expect("the category is found");
-    assert_eq!(stored.delete_at, 0);
+    assert_eq!(stored.delete_at, 0, "got {stored:?}");
 
     store
-        .delete_category("category_id", "user_id", "team_id")
+        .delete_category(&category.id, &user_id, &team_id)
         .await
         .expect("the category is deleted");
     let deleted = store
-        .get_category("category_id")
+        .get_category(&category.id)
         .await
         .expect("a deleted category is still found");
     assert!(deleted.delete_at > 0, "got {deleted:?}");
-    assert_eq!(deleted.category_type, CategoryType::System);
+    assert_eq!(
+        deleted.category_type,
+        CategoryType::System,
+        "the type stays"
+    );
     let listed = store
-        .get_user_categories("user_id", "team_id")
+        .get_user_categories(&user_id, &team_id)
         .await
         .expect("the categories are listed");
     assert!(listed.is_empty(), "a deleted category is not listed");
@@ -724,86 +813,95 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
     store
         .update_category(&Category {
             name: "Renamed again".to_owned(),
-            ..category
+            ..category.clone()
         })
         .await
         .expect("updating a deleted category succeeds");
     store
-        .delete_category("category_id", "user_id", "team_id")
+        .delete_category(&category.id, &user_id, &team_id)
         .await
         .expect("deleting a deleted category succeeds");
     let unchanged = store
-        .get_category("category_id")
+        .get_category(&category.id)
         .await
         .expect("a deleted category is still found");
-    assert_eq!(unchanged, deleted);
+    assert_eq!(unchanged, deleted, "neither changed the deleted category");
 
     test.teardown().await;
 }
 
-/// Not in the original. Rows the store does not write itself: columns left `NULL` by an
-/// older schema, and a type this server does not know.
+/// Not in the original. Rows the store does not write itself: columns left to their
+/// defaults, a blank type, and a type this server does not know. (The original's schema
+/// also admits a row without a type; here the column is `NOT NULL`.)
 #[tokio::test]
 async fn categories_written_by_others() {
     let test = common::setup().await;
     let store = &test.store;
-    let categories = "categories";
-    let category_boards = "category_boards";
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
+    let [board_id] = create_boards(store, &team_id, &user_id).await;
+    let [blank_type, system_type, odd_type] = new_ids();
 
     execute_raw(
         &test,
         &format!(
-            "INSERT INTO {categories} (id, name, user_id, team_id, create_at, update_at, \
-             delete_at, type) VALUES \
-             ('null_type', 'A', 'user_id', 'team_id', 1, 1, 0, NULL), \
-             ('empty_type', 'B', 'user_id', 'team_id', 1, 1, 0, ''), \
-             ('system_type', 'C', 'user_id', 'team_id', 1, 1, 0, 'system')"
+            "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, type) \
+             VALUES \
+             ('{blank_type}', 'A', '{user_id}', '{team_id}', 1, 1, ''), \
+             ('{system_type}', 'B', '{user_id}', '{team_id}', 1, 1, 'system')"
         ),
     )
     .await;
     execute_raw(
         &test,
         &format!(
-            "INSERT INTO {category_boards} (id, user_id, category_id, board_id) \
-             VALUES ('row_id', 'user_id', 'null_type', 'board_id')"
+            "INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, \
+             update_at) VALUES ('{}', '{user_id}', '{blank_type}', '{board_id}', 1, 1)",
+            new_id()
         ),
     )
     .await;
 
-    // A missing type reads as a custom category, a missing sort order as zero, and a
-    // missing hidden flag as visible.
+    // A blank type reads as a custom category. A row that leaves them out is not
+    // deleted, not collapsed and has the sort order zero, and its board is visible.
     let listed = store
-        .get_user_category_boards("user_id", "team_id")
+        .get_user_category_boards(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert_eq!(listed.len(), 3);
+    assert_eq!(listed.len(), 2, "got {listed:?}");
     for entry in &listed {
         let category = &entry.category;
-        let expected_type = match category.id.as_str() {
-            "system_type" => CategoryType::System,
-            _ => CategoryType::Custom,
+        let expected_type = if category.id == system_type {
+            CategoryType::System
+        } else {
+            CategoryType::Custom
         };
         assert_eq!(category.category_type, expected_type, "{category:?}");
         assert_eq!(category.sort_order, 0, "{category:?}");
+        assert_eq!(category.delete_at, 0, "{category:?}");
         assert!(!category.collapsed, "{category:?}");
     }
     let with_board = listed
         .iter()
-        .find(|entry| entry.category.id == "null_type")
+        .find(|entry| entry.category.id == blank_type)
         .expect("the category is listed");
-    assert_eq!(with_board.board_metadata, [visible("board_id")]);
+    assert_eq!(
+        with_board.board_metadata,
+        [visible(&board_id)],
+        "the board of the category"
+    );
 
     // An unknown type is an error for every read that meets the row.
     execute_raw(
         &test,
         &format!(
-            "INSERT INTO {categories} (id, name, user_id, team_id, create_at, update_at, \
-             delete_at, type) VALUES ('odd_type', 'D', 'user_id', 'team_id', 1, 1, 0, 'odd')"
+            "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, type) \
+             VALUES ('{odd_type}', 'D', '{user_id}', '{team_id}', 1, 1, 'odd')"
         ),
     )
     .await;
     let error = store
-        .get_category("odd_type")
+        .get_category(&odd_type)
         .await
         .expect_err("the type is not one this server knows");
     assert!(
@@ -811,7 +909,7 @@ async fn categories_written_by_others() {
         "got {error:?}"
     );
     let error = store
-        .get_user_categories("user_id", "team_id")
+        .get_user_categories(&user_id, &team_id)
         .await
         .expect_err("the listing meets the row");
     assert!(
@@ -819,7 +917,7 @@ async fn categories_written_by_others() {
         "got {error:?}"
     );
     assert!(
-        store.get_category("system_type").await.is_ok(),
+        store.get_category(&system_type).await.is_ok(),
         "other rows are still readable"
     );
 

@@ -35,10 +35,9 @@ async fn handle_get_team(
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED)?;
-    // Preserved quirk: whatever team is asked for, the answer is the root team, signup
-    // token included.
-    Ok(json_response(&app.root_team().await?))
+    let team = app.team(&team_id).await?;
+    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED).await?;
+    Ok(json_response(&team))
 }
 
 async fn handle_get_team_users(
@@ -48,7 +47,7 @@ async fn handle_get_team_users(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let search_query = query_param(query.as_deref(), "search");
-    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED)?;
+    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED).await?;
     // There are no guests to treat differently, but the user must exist.
     user_is_guest(&app, &session.user_id).await?;
     Ok(json_response(&app.search_team_users(&search_query).await?))
@@ -61,7 +60,7 @@ async fn handle_get_team_users_by_id(
     body: Bytes,
 ) -> ApiResult {
     let user_ids: Vec<String> = decode_json(&body)?;
-    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED)?;
+    require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED).await?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
     }

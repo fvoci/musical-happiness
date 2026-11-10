@@ -6,19 +6,19 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
       "id": "<id:2>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Filed board",
       "type": "P",
@@ -32,19 +32,19 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:3>",
+      "id": "<id:4>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Other board",
       "type": "P",
@@ -53,7 +53,7 @@
   },
   {
     "name": "list: default only",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -64,18 +64,18 @@
             "hidden": false
           },
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           }
         ],
         "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:4>",
+        "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -84,7 +84,268 @@
   },
   {
     "name": "list: other user",
-    "request": "GET /api/v2/teams/0/categories as cat-bob",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardMetadata": [],
+        "collapsed": false,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:6>",
+        "name": "Boards",
+        "sortOrder": 0,
+        "sorting": "",
+        "teamID": "<id:3>",
+        "type": "system",
+        "updateAt": "<ts>",
+        "userID": "<id:7>"
+      }
+    ]
+  },
+  {
+    "name": "create",
+    "request": "POST /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "collapsed": false,
+      "createAt": "<ts>",
+      "deleteAt": 0,
+      "id": "<id:8>",
+      "name": "Projects",
+      "sortOrder": 10,
+      "sorting": "",
+      "teamID": "<id:3>",
+      "type": "custom",
+      "updateAt": "<ts>",
+      "userID": "<id:1>"
+    }
+  },
+  {
+    "name": "create second",
+    "request": "POST /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "collapsed": true,
+      "createAt": "<ts>",
+      "deleteAt": 0,
+      "id": "<id:9>",
+      "name": "Archive",
+      "sortOrder": 10,
+      "sorting": "",
+      "teamID": "<id:3>",
+      "type": "custom",
+      "updateAt": "<ts>",
+      "userID": "<id:1>"
+    }
+  },
+  {
+    "name": "create: no name",
+    "request": "POST /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "category name cannot be empty",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "create: for another user",
+    "request": "POST /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "field": "userID",
+      "message": "a user makes categories for themselves only",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "create: for another team",
+    "request": "POST /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "teamID mismatch",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "create: bad type",
+    "request": "POST /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "category type is invalid. Allowed types: system and custom",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "create: malformed body",
+    "request": "POST /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "list",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardMetadata": [],
+        "collapsed": false,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:8>",
+        "name": "Projects",
+        "sortOrder": 0,
+        "sorting": "",
+        "teamID": "<id:3>",
+        "type": "custom",
+        "updateAt": "<ts>",
+        "userID": "<id:1>"
+      },
+      {
+        "boardMetadata": [],
+        "collapsed": true,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:9>",
+        "name": "Archive",
+        "sortOrder": 0,
+        "sorting": "",
+        "teamID": "<id:3>",
+        "type": "custom",
+        "updateAt": "<ts>",
+        "userID": "<id:1>"
+      },
+      {
+        "boardMetadata": [
+          {
+            "boardID": "<id:2>",
+            "hidden": false
+          },
+          {
+            "boardID": "<id:4>",
+            "hidden": false
+          }
+        ],
+        "collapsed": false,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:5>",
+        "name": "Boards",
+        "sortOrder": 0,
+        "sorting": "",
+        "teamID": "<id:3>",
+        "type": "system",
+        "updateAt": "<ts>",
+        "userID": "<id:1>"
+      }
+    ]
+  },
+  {
+    "name": "update",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8> as cat-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "collapsed": true,
+      "createAt": "<ts>",
+      "deleteAt": 0,
+      "id": "<id:8>",
+      "name": "Projects 2",
+      "sortOrder": 20,
+      "sorting": "",
+      "teamID": "<id:3>",
+      "type": "custom",
+      "updateAt": "<ts>",
+      "userID": "<id:1>"
+    }
+  },
+  {
+    "name": "update: id mismatch",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8> as cat-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "id",
+      "message": "the category of the body is not the one of the path",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "update: other user",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8> as cat-bob",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "update: unknown category",
+    "request": "PUT /api/v2/teams/<id:3>/categories/unknown-category as cat-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "update: system category",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:5> as cat-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "collapsed": false,
+      "createAt": "<ts>",
+      "deleteAt": 0,
+      "id": "<id:5>",
+      "name": "Boards",
+      "sortOrder": 30,
+      "sorting": "",
+      "teamID": "<id:3>",
+      "type": "system",
+      "updateAt": "<ts>",
+      "userID": "<id:1>"
+    }
+  },
+  {
+    "name": "file a board",
+    "request": "POST /api/v2/teams/<id:3>/categories/<id:8>/boards/<id:2> as cat-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "file the second board",
+    "request": "POST /api/v2/teams/<id:3>/categories/<id:8>/boards/<id:4> as cat-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "list after filing",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -97,124 +358,8 @@
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "system",
-        "updateAt": "<ts>",
-        "userID": "<id:6>"
-      }
-    ]
-  },
-  {
-    "name": "create",
-    "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {
-      "collapsed": false,
-      "createAt": "<ts>",
-      "deleteAt": 0,
-      "id": "<id:7>",
-      "name": "Projects",
-      "sortOrder": 10,
-      "sorting": "",
-      "teamID": "0",
-      "type": "custom",
-      "updateAt": "<ts>",
-      "userID": "<id:1>"
-    }
-  },
-  {
-    "name": "create second",
-    "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {
-      "collapsed": true,
-      "createAt": "<ts>",
-      "deleteAt": 0,
-      "id": "<id:8>",
-      "name": "Archive",
-      "sortOrder": 10,
-      "sorting": "",
-      "teamID": "0",
-      "type": "custom",
-      "updateAt": "<ts>",
-      "userID": "<id:1>"
-    }
-  },
-  {
-    "name": "create: no name",
-    "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 400,
-    "content_type": "application/json",
-    "body": {
-      "error": "bad_request",
-      "message": "category name cannot be empty",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "create: for another user",
-    "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 403,
-    "content_type": "application/json",
-    "body": {
-      "error": "forbidden",
-      "field": "userID",
-      "message": "a user makes categories for themselves only",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "create: for another team",
-    "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 400,
-    "content_type": "application/json",
-    "body": {
-      "error": "bad_request",
-      "message": "teamID mismatch",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "create: bad type",
-    "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 400,
-    "content_type": "application/json",
-    "body": {
-      "error": "bad_request",
-      "message": "category type is invalid. Allowed types: system and custom",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "create: malformed body",
-    "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 400,
-    "content_type": "application/json",
-    "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "list",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": [
-      {
-        "boardMetadata": [],
-        "collapsed": false,
-        "createAt": "<ts>",
-        "deleteAt": 0,
-        "id": "<id:7>",
-        "name": "Projects",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "0",
-        "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
       },
@@ -223,11 +368,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:8>",
+        "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -239,163 +384,18 @@
             "hidden": false
           },
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           }
         ],
-        "collapsed": false,
-        "createAt": "<ts>",
-        "deleteAt": 0,
-        "id": "<id:4>",
-        "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "0",
-        "type": "system",
-        "updateAt": "<ts>",
-        "userID": "<id:1>"
-      }
-    ]
-  },
-  {
-    "name": "update",
-    "request": "PUT /api/v2/teams/0/categories/<id:7> as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {
-      "collapsed": true,
-      "createAt": "<ts>",
-      "deleteAt": 0,
-      "id": "<id:7>",
-      "name": "Projects 2",
-      "sortOrder": 20,
-      "sorting": "",
-      "teamID": "0",
-      "type": "custom",
-      "updateAt": "<ts>",
-      "userID": "<id:1>"
-    }
-  },
-  {
-    "name": "update: id mismatch",
-    "request": "PUT /api/v2/teams/0/categories/<id:7> as cat-alice",
-    "status": 400,
-    "content_type": "application/json",
-    "body": {
-      "error": "bad_request",
-      "field": "id",
-      "message": "the category of the body is not the one of the path",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "update: other user",
-    "request": "PUT /api/v2/teams/0/categories/<id:7> as cat-bob",
-    "status": 404,
-    "content_type": "application/json",
-    "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "update: unknown category",
-    "request": "PUT /api/v2/teams/0/categories/unknown-category as cat-alice",
-    "status": 404,
-    "content_type": "application/json",
-    "body": {
-      "error": "not_found",
-      "message": "category not found",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "update: system category",
-    "request": "PUT /api/v2/teams/0/categories/<id:4> as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {
-      "collapsed": false,
-      "createAt": "<ts>",
-      "deleteAt": 0,
-      "id": "<id:4>",
-      "name": "Boards",
-      "sortOrder": 30,
-      "sorting": "",
-      "teamID": "0",
-      "type": "system",
-      "updateAt": "<ts>",
-      "userID": "<id:1>"
-    }
-  },
-  {
-    "name": "file a board",
-    "request": "POST /api/v2/teams/0/categories/<id:7>/boards/<id:2> as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
-  },
-  {
-    "name": "file the second board",
-    "request": "POST /api/v2/teams/0/categories/<id:7>/boards/<id:3> as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
-  },
-  {
-    "name": "list after filing",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": [
-      {
-        "boardMetadata": [],
-        "collapsed": false,
-        "createAt": "<ts>",
-        "deleteAt": 0,
-        "id": "<id:4>",
-        "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "0",
-        "type": "system",
-        "updateAt": "<ts>",
-        "userID": "<id:1>"
-      },
-      {
-        "boardMetadata": [],
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
         "id": "<id:8>",
-        "name": "Archive",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "0",
-        "type": "custom",
-        "updateAt": "<ts>",
-        "userID": "<id:1>"
-      },
-      {
-        "boardMetadata": [
-          {
-            "boardID": "<id:2>",
-            "hidden": false
-          },
-          {
-            "boardID": "<id:3>",
-            "hidden": false
-          }
-        ],
-        "collapsed": true,
-        "createAt": "<ts>",
-        "deleteAt": 0,
-        "id": "<id:7>",
         "name": "Projects 2",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -404,14 +404,14 @@
   },
   {
     "name": "hide",
-    "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/<id:2>/hide as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "hide: other user",
-    "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/<id:2>/hide as cat-bob",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -422,7 +422,7 @@
   },
   {
     "name": "list after hiding",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -431,11 +431,11 @@
         "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:4>",
+        "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -445,11 +445,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:8>",
+        "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -457,7 +457,7 @@
       {
         "boardMetadata": [
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           },
           {
@@ -468,11 +468,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:7>",
+        "id": "<id:8>",
         "name": "Projects 2",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -481,24 +481,24 @@
   },
   {
     "name": "unhide",
-    "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/<id:2>/unhide as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8>/boards/<id:2>/unhide as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "reorder boards",
-    "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/reorder as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
-      "<id:3>",
+      "<id:4>",
       "<id:2>"
     ]
   },
   {
     "name": "reorder boards: missing one",
-    "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/reorder as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -509,7 +509,7 @@
   },
   {
     "name": "reorder boards: unknown board",
-    "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/reorder as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -520,7 +520,7 @@
   },
   {
     "name": "reorder boards: other user",
-    "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/reorder as cat-bob",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8>/boards/reorder as cat-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -531,18 +531,18 @@
   },
   {
     "name": "reorder categories",
-    "request": "PUT /api/v2/teams/0/categories/reorder as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/reorder as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
+      "<id:9>",
       "<id:8>",
-      "<id:7>",
-      "<id:4>"
+      "<id:5>"
     ]
   },
   {
     "name": "reorder categories: missing one",
-    "request": "PUT /api/v2/teams/0/categories/reorder as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/reorder as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -553,7 +553,7 @@
   },
   {
     "name": "reorder categories: unknown id",
-    "request": "PUT /api/v2/teams/0/categories/reorder as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/reorder as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -564,7 +564,7 @@
   },
   {
     "name": "list after reorder",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -573,11 +573,11 @@
         "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:4>",
+        "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -587,11 +587,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:8>",
+        "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -599,7 +599,7 @@
       {
         "boardMetadata": [
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           },
           {
@@ -610,11 +610,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:7>",
+        "id": "<id:8>",
         "name": "Projects 2",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -623,7 +623,7 @@
   },
   {
     "name": "delete: other user",
-    "request": "DELETE /api/v2/teams/0/categories/<id:7> as cat-bob",
+    "request": "DELETE /api/v2/teams/<id:3>/categories/<id:8> as cat-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -634,7 +634,7 @@
   },
   {
     "name": "delete: system category",
-    "request": "DELETE /api/v2/teams/0/categories/<id:4> as cat-alice",
+    "request": "DELETE /api/v2/teams/<id:3>/categories/<id:5> as cat-alice",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -645,7 +645,7 @@
   },
   {
     "name": "delete: unknown category",
-    "request": "DELETE /api/v2/teams/0/categories/unknown-category as cat-alice",
+    "request": "DELETE /api/v2/teams/<id:3>/categories/unknown-category as cat-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -656,18 +656,18 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v2/teams/0/categories/<id:7> as cat-alice",
+    "request": "DELETE /api/v2/teams/<id:3>/categories/<id:8> as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "collapsed": true,
       "createAt": "<ts>",
       "deleteAt": "<ts>",
-      "id": "<id:7>",
+      "id": "<id:8>",
       "name": "Projects 2",
       "sortOrder": 10,
       "sorting": "",
-      "teamID": "0",
+      "teamID": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
       "userID": "<id:1>"
@@ -675,7 +675,7 @@
   },
   {
     "name": "delete: again",
-    "request": "DELETE /api/v2/teams/0/categories/<id:7> as cat-alice",
+    "request": "DELETE /api/v2/teams/<id:3>/categories/<id:8> as cat-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -686,7 +686,7 @@
   },
   {
     "name": "update: deleted category",
-    "request": "PUT /api/v2/teams/0/categories/<id:7> as cat-alice",
+    "request": "PUT /api/v2/teams/<id:3>/categories/<id:8> as cat-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -697,7 +697,7 @@
   },
   {
     "name": "list at the end",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -706,11 +706,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:8>",
+        "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -718,7 +718,7 @@
       {
         "boardMetadata": [
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           },
           {
@@ -729,11 +729,11 @@
         "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:4>",
+        "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -742,7 +742,7 @@
   },
   {
     "name": "file a board: other user's category",
-    "request": "POST /api/v2/teams/0/categories/<id:8>/boards/<id:3> as cat-bob",
+    "request": "POST /api/v2/teams/<id:3>/categories/<id:9>/boards/<id:4> as cat-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -753,7 +753,7 @@
   },
   {
     "name": "list after the attempt on another user's category",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -762,11 +762,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:8>",
+        "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -774,7 +774,7 @@
       {
         "boardMetadata": [
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           },
           {
@@ -785,11 +785,11 @@
         "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:4>",
+        "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -798,7 +798,7 @@
   },
   {
     "name": "file a board: unknown category",
-    "request": "POST /api/v2/teams/0/categories/unknown-category/boards/<id:3> as cat-alice",
+    "request": "POST /api/v2/teams/<id:3>/categories/unknown-category/boards/<id:4> as cat-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -809,7 +809,7 @@
   },
   {
     "name": "list after filing into an unknown category",
-    "request": "GET /api/v2/teams/0/categories as cat-alice",
+    "request": "GET /api/v2/teams/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -818,11 +818,11 @@
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:8>",
+        "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
         "userID": "<id:1>"
@@ -830,7 +830,7 @@
       {
         "boardMetadata": [
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           },
           {
@@ -841,11 +841,11 @@
         "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:4>",
+        "id": "<id:5>",
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
         "userID": "<id:1>"

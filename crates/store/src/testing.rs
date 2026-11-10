@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use fvoci_model::{IdKind, new_id};
+use fvoci_model::new_id;
 use sqlx::Connection as _;
 use sqlx::postgres::PgConnection;
 
@@ -42,7 +42,8 @@ impl TestDatabase {
     /// database cannot be created. This is test support; a broken setup should fail the
     /// test loudly.
     pub async fn create(directory: &Path) -> Self {
-        let name = new_id(IdKind::None);
+        // An identifier has hyphens; a file name takes them, a schema name does not.
+        let name = new_id().replace('-', "_");
         let db_type = match std::env::var(DB_TYPE_ENV) {
             Ok(kind) if !kind.trim().is_empty() => kind
                 .trim()

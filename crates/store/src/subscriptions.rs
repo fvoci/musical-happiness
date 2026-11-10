@@ -5,7 +5,7 @@
 use fvoci_model::{BlockType, Subscriber, SubscriberType, Subscription};
 
 use crate::Store;
-use crate::db::{Row, Scope, Sql, now_millis};
+use crate::db::{Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 
 /// The columns of a subscription, in the order [`subscription_from_row`] reads them.
@@ -47,13 +47,10 @@ impl Store {
             // Preserved quirk: a subscription that is already deleted matches too, so
             // deleting it again succeeds and moves its deletion time
             // (`server/services/store/sqlstore/subscriptions.go:100-104`).
-            let mut sql = scope.sql(&format!(
-                "UPDATE {} SET delete_at = ",
-                scope.table("subscriptions")
-            ));
+            let mut sql = scope.sql("UPDATE subscriptions SET delete_at = ");
             sql.bind(now_millis())
-                .push_bind(" WHERE block_id = ", block_id)
-                .push_bind(" AND subscriber_id = ", subscriber_id);
+                .push_bind(" WHERE block_id = ", Id(block_id))
+                .push_bind(" AND subscriber_id = ", Id(subscriber_id));
             if scope.execute(sql).await? == 0 {
                 return Err(subscription_not_found(block_id, subscriber_id));
             }
@@ -74,8 +71,8 @@ impl Store {
     ) -> Result<Subscription, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
-            sql.push_bind(" AND block_id = ", block_id)
-                .push_bind(" AND subscriber_id = ", subscriber_id);
+            sql.push_bind(" AND block_id = ", Id(block_id))
+                .push_bind(" AND subscriber_id = ", Id(subscriber_id));
             fetch_subscriptions(scope, sql)
                 .await?
                 .into_iter()
@@ -97,7 +94,7 @@ impl Store {
     ) -> Result<Vec<Subscription>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
-            sql.push_bind(" AND subscriber_id = ", subscriber_id);
+            sql.push_bind(" AND subscriber_id = ", Id(subscriber_id));
             fetch_subscriptions(scope, sql).await
         })
         .await
@@ -113,12 +110,11 @@ impl Store {
         block_id: &str,
     ) -> Result<Vec<Subscriber>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT subscriber_type, subscriber_id, notified_at FROM {} \
+            let mut sql = scope.sql(
+                "SELECT subscriber_type, subscriber_id, notified_at FROM subscriptions \
                  WHERE delete_at = 0 AND block_id = ",
-                scope.table("subscriptions")
-            ));
-            sql.bind(block_id).push(" ORDER BY notified_at");
+            );
+            sql.bind(Id(block_id)).push(" ORDER BY notified_at");
             scope
                 .fetch_all(sql)
                 .await?
@@ -126,7 +122,7 @@ impl Store {
                 .map(|row| {
                     Ok(Subscriber {
                         subscriber_type: subscriber_type_from_text(&row.text(0)?)?,
-                        subscriber_id: row.text(1)?,
+                        subscriber_id: row.id(1)?,
                         notified_at: row.int(2)?,
                     })
                 })
@@ -142,11 +138,10 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_subscribers_count_for_block(&self, block_id: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT COUNT(subscriber_id) FROM {} WHERE delete_at = 0 AND block_id = ",
-                scope.table("subscriptions")
-            ));
-            sql.bind(block_id);
+            let mut sql = scope.sql(
+                "SELECT COUNT(subscriber_id) FROM subscriptions WHERE delete_at = 0 AND block_id = ",
+            );
+            sql.bind(Id(block_id));
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.int(0),
                 None => Ok(0),
@@ -160,8 +155,7 @@ impl Store {
 /// `AND`.
 fn select_subscriptions(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!(
-        "SELECT {SUBSCRIPTION_COLUMNS} FROM {} WHERE delete_at = 0",
-        scope.table("subscriptions")
+        "SELECT {SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE delete_at = 0"
     ))
 }
 
@@ -180,9 +174,9 @@ async fn fetch_subscriptions(
 fn subscription_from_row(row: &Row) -> Result<Subscription, StoreError> {
     Ok(Subscription {
         block_type: BlockType::from(row.text(0)?),
-        block_id: row.text(1)?,
+        block_id: row.id(1)?,
         subscriber_type: subscriber_type_from_text(&row.text(2)?)?,
-        subscriber_id: row.text(3)?,
+        subscriber_id: row.id(3)?,
         notified_at: row.int(4)?,
         create_at: row.int(5)?,
         delete_at: row.int(6)?,
@@ -212,17 +206,17 @@ pub(crate) async fn end_subscriptions_to_board(
     board_id: &str,
     subscriber_id: &str,
 ) -> Result<(), StoreError> {
-    let subscriptions = scope.table("subscriptions");
-    let mut sql = scope.sql(&format!("UPDATE {subscriptions} SET delete_at = "));
-    sql.bind(now_millis())
-        .push_bind(" WHERE delete_at = 0 AND subscriber_id = ", subscriber_id);
+    let mut sql = scope.sql("UPDATE subscriptions SET delete_at = ");
+    sql.bind(now_millis()).push_bind(
+        " WHERE delete_at = 0 AND subscriber_id = ",
+        Id(subscriber_id),
+    );
     for (opening, blocks) in [(" AND (", "blocks"), (" OR ", "blocks_history")] {
         sql.push(&format!(
-            "{opening}EXISTS (SELECT 1 FROM {blocks} WHERE {blocks}.id = {subscriptions}.block_id \
-             AND {blocks}.board_id = ",
-            blocks = scope.table(blocks)
+            "{opening}EXISTS (SELECT 1 FROM {blocks} WHERE {blocks}.id = subscriptions.block_id \
+             AND {blocks}.board_id = "
         ))
-        .bind(board_id)
+        .bind(Id(board_id))
         .push(")");
     }
     sql.push(")");
@@ -251,13 +245,12 @@ pub(crate) async fn create_subscription(
     // given types and the current time
     // (`server/services/store/sqlstore/subscriptions.go:82`).
     let mut sql = scope.sql(&format!(
-        "INSERT INTO {} ({SUBSCRIPTION_COLUMNS}) VALUES (",
-        scope.table("subscriptions")
+        "INSERT INTO subscriptions ({SUBSCRIPTION_COLUMNS}) VALUES ("
     ));
     sql.bind(subscription.block_type.as_str())
-        .push_bind(", ", &subscription.block_id)
+        .push_bind(", ", Id(&subscription.block_id))
         .push_bind(", ", subscription.subscriber_type.as_str())
-        .push_bind(", ", &subscription.subscriber_id)
+        .push_bind(", ", Id(&subscription.subscriber_id))
         .push_bind(", ", subscription.notified_at)
         .push_bind(", ", subscription.create_at)
         .push_bind(", ", subscription.delete_at)

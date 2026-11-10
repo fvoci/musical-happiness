@@ -10,18 +10,18 @@
 //! `TestUpsertSharing/"should fail to upsert a sharing"` make a mocked store fail and
 //! check that the error is passed on. A real store has no failure to provoke.
 
-use fvoci_model::{Board, BoardMember, BoardType, IdKind, Sharing, new_id};
+use fvoci_model::{Board, BoardMember, BoardType, Sharing, new_id};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, Setup, TestServer};
+use crate::common::{ApiResponse, Client, ROOT_TEAM_ID, Setup, TestServer};
 
 /// Puts a board into the store without going through the board routes, with `user_id` as
 /// its administrator.
 async fn board_with_admin(th: &TestServer, user_id: &str, board_type: BoardType) -> Board {
     let mut board = Board {
-        id: new_id(IdKind::Board),
-        team_id: "0".to_owned(),
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
         board_type,
         ..Board::default()
     };
@@ -121,7 +121,7 @@ async fn sharing_post_sharing_config_false() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let board = board_with_admin(&th, &user.id, BoardType::Open).await;
-    let token = new_id(IdKind::Token);
+    let token = new_id();
 
     // It fails with the default configuration.
     let response = post_sharing(&th.client, &board.id, &sharing_request(&board.id, &token)).await;
@@ -145,7 +145,7 @@ async fn sharing_post_sharing_config_false() {
 async fn sharing_post_sharing_config_true() {
     let (th, board) = shared_setup().await;
     let user = th.client.me().await;
-    let token = new_id(IdKind::Token);
+    let token = new_id();
 
     // It succeeds with public sharing turned on.
     let response = post_sharing(&th.client, &board.id, &sharing_request(&board.id, &token)).await;
@@ -186,10 +186,12 @@ async fn sharing_post_sharing_config_true() {
 async fn get_sharing_should_get_a_sharing_successfully() {
     let th = Setup::native().start().await;
     let want = Sharing {
-        id: new_id(IdKind::Block),
+        id: board_with_admin(&th, &th.stranger().await, BoardType::Open)
+            .await
+            .id,
         enabled: true,
         token: "token".to_owned(),
-        modified_by: "otherid".to_owned(),
+        modified_by: th.stranger().await,
         update_at: 0,
     };
     th.app
@@ -233,10 +235,12 @@ async fn get_sharing_should_return_a_not_found_error() {
 async fn upsert_sharing_should_success_to_upsert_sharing() {
     let th = Setup::native().start().await;
     let mut sharing = Sharing {
-        id: new_id(IdKind::Block),
+        id: board_with_admin(&th, &th.stranger().await, BoardType::Open)
+            .await
+            .id,
         enabled: true,
         token: "token".to_owned(),
-        modified_by: "otherid".to_owned(),
+        modified_by: th.stranger().await,
         update_at: 0,
     };
 

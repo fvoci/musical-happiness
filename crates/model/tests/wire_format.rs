@@ -154,7 +154,6 @@ fn board_json_members() {
     let board = Board {
         id: "b1".to_owned(),
         team_id: "0".to_owned(),
-        channel_id: String::new(),
         created_by: "u1".to_owned(),
         modified_by: "u1".to_owned(),
         board_type: BoardType::Private,
@@ -164,6 +163,7 @@ fn board_json_members() {
         icon: "🚀".to_owned(),
         show_description: true,
         is_template: false,
+        is_builtin: false,
         template_version: 6,
         properties: serde_json::from_value(json!({ "k": "v" })).expect("object"),
         card_properties: serde_json::from_value(json!([{ "id": "p1", "name": "Status" }]))
@@ -173,9 +173,9 @@ fn board_json_members() {
         delete_at: 0,
     };
     let want = json!({
-        "id": "b1", "teamId": "0", "channelId": "", "createdBy": "u1", "modifiedBy": "u1",
+        "id": "b1", "teamId": "0", "createdBy": "u1", "modifiedBy": "u1",
         "type": "P", "minimumRole": "editor", "title": "Roadmap", "description": "d",
-        "icon": "🚀", "showDescription": true, "isTemplate": false, "templateVersion": 6,
+        "icon": "🚀", "showDescription": true, "isTemplate": false, "isBuiltin": false, "templateVersion": 6,
         "properties": { "k": "v" }, "cardProperties": [{ "id": "p1", "name": "Status" }],
         "createAt": 1, "updateAt": 2, "deleteAt": 0
     });
@@ -221,7 +221,7 @@ fn board_patch_apply_merges_card_properties_in_order() {
     };
     let patch: BoardPatch = serde_json::from_value(json!({
         "type": "P", "minimumRole": "viewer", "title": "t", "description": "d", "icon": "i",
-        "showDescription": true, "channelId": "ch",
+        "showDescription": true,
         "updatedProperties": { "new": 3 }, "deletedProperties": ["drop"],
         "updatedCardProperties": [{ "id": "b", "name": "B2" }, { "id": "d", "name": "D" }, { "name": "skipped" }],
         "deletedCardProperties": ["a"]
@@ -236,10 +236,7 @@ fn board_patch_apply_merges_card_properties_in_order() {
         (board.title.as_str(), board.description.as_str()),
         ("t", "d")
     );
-    assert_eq!(
-        (board.icon.as_str(), board.channel_id.as_str()),
-        ("i", "ch")
-    );
+    assert_eq!(board.icon, "i");
     assert!(board.show_description, "showDescription is set");
     assert_eq!(
         Value::Object(board.properties),
@@ -399,7 +396,11 @@ fn category_hydrate_and_validate() {
 
     category.hydrate(77);
 
-    assert!(category.id.starts_with('7'), "category id {}", category.id);
+    assert!(
+        fvoci_model::is_id(&category.id),
+        "category id {}",
+        category.id
+    );
     assert_eq!((category.create_at, category.update_at), (77, 77));
     assert_eq!(category.sort_order, 0);
     assert_eq!(category.validate(), Ok(()));
@@ -440,9 +441,6 @@ fn user_json_hides_credentials_and_empty_members() {
         first_name: "Alice".to_owned(),
         last_name: "A".to_owned(),
         password: "hash".to_owned(),
-        mfa_secret: "secret".to_owned(),
-        auth_service: "native".to_owned(),
-        auth_data: "data".to_owned(),
         create_at: 0,
         update_at: 5,
         delete_at: 0,
@@ -461,10 +459,7 @@ fn user_json_hides_credentials_and_empty_members() {
     );
 
     let debug = format!("{user:?}");
-    assert!(
-        !debug.contains("hash") && !debug.contains("secret"),
-        "Debug leaks: {debug}"
-    );
+    assert!(!debug.contains("hash"), "Debug leaks: {debug}");
 
     let decoded: User = serde_json::from_value(json!({
         "id": "u1", "email": "x@example.com", "password": "p", "permissions": null

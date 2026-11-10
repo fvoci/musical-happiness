@@ -4,9 +4,11 @@
 //! body after normalization. Normalization replaces what legitimately differs between two
 //! runs, so that a recording can be compared with the one pinned in `golden/`:
 //!
-//! * identifiers (26 base-32 characters, with or without a kind prefix) become `<id:N>`,
-//!   numbered in order of first appearance, also inside a longer string such as an error
-//!   message;
+//! * identifiers (UUIDs in canonical text) become `<id:N>`, numbered in order of first
+//!   appearance, also inside a longer string such as an error message or a path;
+//! * secrets (43 characters of URL-safe base64: stored file names, tokens) become
+//!   `<secret:N>`, numbered the same way, so that a file name is recognized where it
+//!   comes up again;
 //! * millisecond timestamps become `<ts>`;
 //! * values of members named like secrets (`token`, `signupToken`) become `<secret>`, and
 //!   the identifier of the request in an error body becomes `<request-id>`;
@@ -21,7 +23,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::common::{Setup, TestServer};
+use crate::common::{ROOT_TEAM_ID, Setup, TestServer};
 use crate::golden;
 
 /// The prefix of every API route.
@@ -39,14 +41,8 @@ const REQUEST_ID_KEY: &str = "request_id";
 /// Anything after 2017 in milliseconds; smaller numbers are counts, sort orders and so on.
 const TIMESTAMP_FLOOR: i64 = 1_500_000_000_000;
 
-/// The alphabet of the identifiers the server generates (z-base-32).
-const ID_ALPHABET: &str = "ybndrfg8ejkmcpqxot1uwisza345h769";
-
-/// The kind prefixes an identifier may carry.
-const ID_PREFIXES: &str = "7tbcvsukai";
-
-/// The length of an identifier without its kind prefix.
-const ID_LENGTH: usize = 26;
+/// The length of a secret: 256 bits in unpadded URL-safe base64.
+const SECRET_LENGTH: usize = fvoci_server::auth::secret::SECRET_LENGTH;
 
 /// One recorded request, or an observation derived from one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -339,7 +335,7 @@ impl Http {
     pub(crate) async fn signup_token(&self, token: &str) -> String {
         self.api(
             Method::GET,
-            &format!("{API}/teams/0"),
+            &format!("{API}/teams/{ROOT_TEAM_ID}"),
             Payload::None,
             &Caller::Token(token.to_owned()),
         )
@@ -638,18 +634,26 @@ pub(crate) async fn start_server() -> TestServer {
     Setup::local_mode().with_templates().start().await
 }
 
-/// Hands out the numbered stand-ins for identifiers.
+/// Hands out the numbered placeholders of one scenario.
 #[derive(Debug, Default)]
 struct Placeholders {
     ids: HashMap<String, usize>,
+    secrets: HashMap<String, usize>,
 }
 
 impl Placeholders {
     fn text(&mut self, text: &str) -> String {
-        replace_identifiers(text, |identifier| {
-            let next = self.ids.len() + 1;
-            let number = *self.ids.entry(identifier.to_owned()).or_insert(next);
-            format!("<id:{number}>")
+        replace_run_specifics(text, |found| match found {
+            Found::Id(identifier) => {
+                let next = self.ids.len() + 1;
+                let number = *self.ids.entry(identifier.to_owned()).or_insert(next);
+                format!("<id:{number}>")
+            }
+            Found::Secret(secret) => {
+                let next = self.secrets.len() + 1;
+                let number = *self.secrets.entry(secret.to_owned()).or_insert(next);
+                format!("<secret:{number}>")
+            }
         })
     }
 
@@ -744,7 +748,10 @@ fn blind_key(value: &Value) -> String {
                 } else if key == REQUEST_ID_KEY {
                     json!("<request-id>")
                 } else {
-                    json!(replace_identifiers(text, |_| "<id>".to_owned()))
+                    json!(replace_run_specifics(text, |found| match found {
+                        Found::Id(_) => "<id>".to_owned(),
+                        Found::Secret(_) => "<secret>".to_owned(),
+                    }))
                 }
             }
             Value::Number(number) if is_timestamp(number) => json!("<ts>"),
@@ -755,28 +762,30 @@ fn blind_key(value: &Value) -> String {
     blind(value, "").to_string()
 }
 
-/// Replaces every identifier in `text`. An identifier is a whole run of lowercase
-/// letters and digits that consists of 26 characters of the identifier alphabet,
-/// optionally after one kind prefix.
-fn replace_identifiers(text: &str, mut replacement: impl FnMut(&str) -> String) -> String {
+/// What differs from run to run inside a text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Found<'a> {
+    /// An identifier: a UUID in canonical text.
+    Id(&'a str),
+    /// A secret: [`SECRET_LENGTH`] characters of URL-safe base64.
+    Secret(&'a str),
+}
+
+/// Replaces every identifier and every secret in `text`.
+///
+/// Both are looked for as whole runs of the characters either can have (letters, digits,
+/// `-` and `_`): a run that is an identifier, or one of the length of a secret that has
+/// both upper-case and lower-case letters. A word of that length in plain text has no
+/// reason to mix the two; 256 random bits in base64 all but always do.
+fn replace_run_specifics(text: &str, mut replacement: impl FnMut(Found<'_>) -> String) -> String {
     fn is_run_character(character: char) -> bool {
-        character.is_ascii_lowercase() || character.is_ascii_digit()
+        character.is_ascii_alphanumeric() || character == '-' || character == '_'
     }
 
-    fn is_identifier(run: &str) -> bool {
-        let body = match run.len() {
-            ID_LENGTH => run,
-            length if length == ID_LENGTH + 1 => {
-                let (prefix, body) = run.split_at(1);
-                if !ID_PREFIXES.contains(prefix) {
-                    return false;
-                }
-                body
-            }
-            _ => return false,
-        };
-        body.chars()
-            .all(|character| ID_ALPHABET.contains(character))
+    fn is_secret(run: &str) -> bool {
+        run.len() == SECRET_LENGTH
+            && run.chars().any(|character| character.is_ascii_uppercase())
+            && run.chars().any(|character| character.is_ascii_lowercase())
     }
 
     let mut result = String::with_capacity(text.len());
@@ -792,8 +801,10 @@ fn replace_identifiers(text: &str, mut replacement: impl FnMut(&str) -> String) 
             continue;
         }
         let run = &rest[..run_length];
-        if is_identifier(run) {
-            result.push_str(&replacement(run));
+        if fvoci_model::is_id(run) {
+            result.push_str(&replacement(Found::Id(run)));
+        } else if is_secret(run) {
+            result.push_str(&replacement(Found::Secret(run)));
         } else {
             result.push_str(run);
         }
@@ -823,12 +834,14 @@ fn canonical_header_name(name: &str) -> String {
 mod tests {
     use super::*;
 
+    const FIRST: &str = "01890a5d-ac96-774b-bcce-b302099a8057";
+    const SECOND: &str = "01890a5d-ac96-774b-bcce-b302099a8058";
+    const SECRET: &str = "qM4nYvE7m0kXc1D_8sWb-3uZtLrA9hGfJ2oPiK5xN6Q";
+
     #[test]
     fn identifiers_are_numbered_in_order_of_first_appearance() {
         let mut placeholders = Placeholders::default();
-        let first = "bbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        let second = "yyyyyyyyyyyyyyyyyyyyyyyyyy";
-        let text = format!("{first} not found, see {second} and {first}");
+        let text = format!("{FIRST} not found, see {SECOND} and {FIRST}");
         assert_eq!(
             placeholders.text(&text),
             "<id:1> not found, see <id:2> and <id:1>",
@@ -837,24 +850,38 @@ mod tests {
     }
 
     #[test]
-    fn only_whole_runs_of_the_identifier_alphabet_are_identifiers() {
+    fn secrets_are_numbered_apart_from_identifiers() {
+        assert_eq!(SECRET.len(), SECRET_LENGTH, "the sample is a secret");
+        let mut placeholders = Placeholders::default();
+        let text = format!("/files/teams/{FIRST}/{SECOND}/{SECRET}.png and {SECRET}.png");
+        assert_eq!(
+            placeholders.text(&text),
+            "/files/teams/<id:1>/<id:2>/<secret:1>.png and <secret:1>.png",
+            "input {text:?}"
+        );
+    }
+
+    #[test]
+    fn only_whole_runs_are_identifiers_or_secrets() {
         let unchanged = |text: &str| {
             assert_eq!(
                 Placeholders::default().text(text),
                 text,
-                "{text:?} holds no identifier"
+                "{text:?} holds nothing that differs between runs"
             );
         };
-        // 26 characters, but `l` and `0` are not in the alphabet.
-        unchanged("llllllllllllllllllllllllll");
-        unchanged("00000000000000000000000000");
-        // Too long, and a prefix that names no kind.
-        unchanged("yyyyyyyyyyyyyyyyyyyyyyyyyyyy");
-        unchanged("zyyyyyyyyyyyyyyyyyyyyyyyyyy");
+        // Other spellings of a UUID, the nil UUID, and an identifier inside a longer run.
+        unchanged("01890A5D-AC96-774B-BCCE-B302099A8057");
+        unchanged("01890a5dac96774bbcceb302099a8057");
+        unchanged("00000000-0000-0000-0000-000000000000");
+        unchanged("x01890a5d-ac96-774b-bcce-b302099a8057");
+        unchanged("01890a5d-ac96-774b-bcce-b302099a8057-more");
+        // As long as a secret, but a word: one letter case only.
+        unchanged("a_setting_with_a_very_long_snake_case_name_x");
         unchanged("unknown-board");
         assert_eq!(
-            Placeholders::default().text("yyyyyyyyyyyyyyyyyyyyyyyyyy.png"),
-            "<id:1>.png",
+            Placeholders::default().text(&format!("block ID={FIRST}.")),
+            "block ID=<id:1>.",
             "an identifier ends at a character outside the run"
         );
     }
@@ -863,8 +890,8 @@ mod tests {
     fn lists_of_objects_are_sorted_blind_to_identifiers() {
         let mut placeholders = Placeholders::default();
         let value = json!([
-            {"id": "byyyyyyyyyyyyyyyyyyyyyyyyyy", "title": "b", "updateAt": 1_700_000_000_001_i64},
-            {"id": "bnnnnnnnnnnnnnnnnnnnnnnnnnn", "title": "a", "token": "x"},
+            {"id": SECOND, "title": "b", "updateAt": 1_700_000_000_001_i64},
+            {"id": FIRST, "title": "a", "token": "x"},
         ]);
         assert_eq!(
             placeholders.value(&value, ""),

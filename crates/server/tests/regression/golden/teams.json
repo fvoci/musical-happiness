@@ -6,7 +6,15 @@
     "content_type": "application/json",
     "body": [
       {
-        "id": "0",
+        "id": "<id:1>",
+        "modifiedBy": "",
+        "settings": {},
+        "signupToken": "<secret>",
+        "title": "",
+        "updateAt": "<ts>"
+      },
+      {
+        "id": "<id:2>",
         "modifiedBy": "",
         "settings": {},
         "signupToken": "<secret>",
@@ -17,11 +25,11 @@
   },
   {
     "name": "team 0",
-    "request": "GET /api/v2/teams/0 as teams-alice",
+    "request": "GET /api/v2/teams/<id:1> as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "id": "0",
+      "id": "<id:1>",
       "modifiedBy": "",
       "settings": {},
       "signupToken": "<secret>",
@@ -32,20 +40,17 @@
   {
     "name": "some other team id",
     "request": "GET /api/v2/teams/anything as teams-alice",
-    "status": 200,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "id": "0",
-      "modifiedBy": "",
-      "settings": {},
-      "signupToken": "<secret>",
-      "title": "",
-      "updateAt": "<ts>"
+      "error": "not_found",
+      "message": "team not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "team without session",
-    "request": "GET /api/v2/teams/0 as anonymous",
+    "request": "GET /api/v2/teams/<id:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -62,7 +67,7 @@
   },
   {
     "name": "team users search",
-    "request": "GET /api/v2/teams/0/users?search=teams-ali as teams-alice",
+    "request": "GET /api/v2/teams/<id:1>/users?search=teams-ali as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -70,7 +75,7 @@
         "create_at": "<ts>",
         "delete_at": 0,
         "firstname": "",
-        "id": "<id:1>",
+        "id": "<id:3>",
         "is_bot": false,
         "is_guest": false,
         "lastname": "",
@@ -83,14 +88,14 @@
   },
   {
     "name": "team users search without match",
-    "request": "GET /api/v2/teams/0/users?search=zzzz-no-such as teams-alice",
+    "request": "GET /api/v2/teams/<id:1>/users?search=zzzz-no-such as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "team users by id",
-    "request": "POST /api/v2/teams/0/users as teams-alice",
+    "request": "POST /api/v2/teams/<id:1>/users as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -98,7 +103,7 @@
         "create_at": "<ts>",
         "delete_at": 0,
         "firstname": "",
-        "id": "<id:1>",
+        "id": "<id:3>",
         "is_bot": false,
         "is_guest": false,
         "lastname": "",
@@ -111,7 +116,7 @@
   },
   {
     "name": "team users by id: empty",
-    "request": "POST /api/v2/teams/0/users as teams-alice",
+    "request": "POST /api/v2/teams/<id:1>/users as teams-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {

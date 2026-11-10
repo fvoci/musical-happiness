@@ -8,7 +8,7 @@
 use fvoci_model::Session;
 
 use crate::Store;
-use crate::db::{Param, Scope, now_millis};
+use crate::db::{Id, Param, Scope, now_millis};
 use crate::error::StoreError;
 
 /// Returns the time `seconds` before now, in milliseconds since the Unix epoch.
@@ -19,27 +19,6 @@ fn millis_before_now(seconds: i64) -> i64 {
 }
 
 impl Store {
-    /// Returns the number of distinct users with a session refreshed less than
-    /// `updated_seconds_ago` seconds ago.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_active_user_count(&self, updated_seconds_ago: i64) -> Result<i64, StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT COUNT(DISTINCT user_id) FROM {} WHERE update_at > ",
-                scope.table("sessions")
-            ));
-            sql.bind(millis_before_now(updated_seconds_ago));
-            match scope.fetch_optional(sql).await? {
-                Some(row) => row.int(0),
-                None => Ok(0),
-            }
-        })
-        .await
-    }
-
     /// Returns the session with the given token, if it was refreshed less than
     /// `expire_time_seconds` seconds ago.
     ///
@@ -63,18 +42,16 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a session with the same identifier exists.
+    /// Returns [`StoreError::Database`] if a session with the same identifier or the
+    /// same token exists.
     pub async fn create_session(&self, session: &Session) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
             let now = now_millis();
-            let mut sql = scope.sql(&format!(
-                "INSERT INTO {} (id, token, user_id, auth_service, props, create_at, update_at) \
-                 VALUES (",
-                scope.table("sessions")
-            ));
-            sql.bind(&session.id)
+            let mut sql = scope.sql("INSERT INTO sessions (id, token, user_id, auth_service, props, create_at, update_at) \
+                 VALUES (");
+            sql.bind(Id(&session.id))
                 .push_bind(", ", &session.token)
-                .push_bind(", ", &session.user_id)
+                .push_bind(", ", Id(&session.user_id))
                 .push_bind(", ", &session.auth_service)
                 .push_bind(", ", Param::json(&session.props)?)
                 .push_bind(", ", now)
@@ -94,26 +71,8 @@ impl Store {
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn refresh_session(&self, session: &Session) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!("UPDATE {} SET ", scope.table("sessions")));
+            let mut sql = scope.sql("UPDATE sessions SET ");
             sql.push_bind("update_at = ", now_millis())
-                .push_bind(" WHERE token = ", &session.token);
-            scope.execute(sql).await?;
-            Ok(())
-        })
-        .await
-    }
-
-    /// Stores the properties of `session` in the session that has its token and marks it
-    /// as refreshed now. Succeeds without effect if there is no such session.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn update_session(&self, session: &Session) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!("UPDATE {} SET ", scope.table("sessions")));
-            sql.push_bind("update_at = ", now_millis())
-                .push_bind(", props = ", Param::json(&session.props)?)
                 .push_bind(" WHERE token = ", &session.token);
             scope.execute(sql).await?;
             Ok(())
@@ -128,11 +87,8 @@ impl Store {
     /// Returns [`StoreError::Database`] if the statement fails.
     pub async fn delete_session(&self, session_id: &str) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "DELETE FROM {} WHERE id = ",
-                scope.table("sessions")
-            ));
-            sql.bind(session_id);
+            let mut sql = scope.sql("DELETE FROM sessions WHERE id = ");
+            sql.bind(Id(session_id));
             scope.execute(sql).await?;
             Ok(())
         })
@@ -150,10 +106,7 @@ impl Store {
             // milliseconds, and a session exactly at the limit is neither deleted here
             // nor returned by `get_session`
             // (`server/services/store/sqlstore/session.go:105-111`).
-            let mut sql = scope.sql(&format!(
-                "DELETE FROM {} WHERE update_at < ",
-                scope.table("sessions")
-            ));
+            let mut sql = scope.sql("DELETE FROM sessions WHERE update_at < ");
             sql.bind(millis_before_now(expire_time_seconds));
             scope.execute(sql).await?;
             Ok(())
@@ -167,11 +120,8 @@ pub(crate) async fn delete_sessions_of_user(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!(
-        "DELETE FROM {} WHERE user_id = ",
-        scope.table("sessions")
-    ));
-    sql.bind(user_id);
+    let mut sql = scope.sql("DELETE FROM sessions WHERE user_id = ");
+    sql.bind(Id(user_id));
     scope.execute(sql).await?;
     Ok(())
 }
@@ -185,10 +135,8 @@ pub(crate) async fn get_session(
     // (`server/services/store/sqlstore/session.go:30-34`). The original's authentication
     // code compares that zero with its refresh limit and so refreshes the session on
     // every request.
-    let mut sql = scope.sql(&format!(
-        "SELECT id, token, user_id, auth_service, props FROM {} WHERE token = ",
-        scope.table("sessions")
-    ));
+    let mut sql =
+        scope.sql("SELECT id, token, user_id, auth_service, props FROM sessions WHERE token = ");
     sql.bind(token)
         .push_bind(" AND update_at > ", millis_before_now(expire_time_seconds));
     // Preserved quirk: an unknown or expired token is reported with the database layer's
@@ -196,9 +144,9 @@ pub(crate) async fn get_session(
     // (`server/services/store/sqlstore/session.go:40-43`).
     let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
     Ok(Session {
-        id: row.text(0)?,
+        id: row.id(0)?,
         token: row.text(1)?,
-        user_id: row.text(2)?,
+        user_id: row.id(2)?,
         auth_service: row.text(3)?,
         props: row.json_map(4, "props")?,
         create_at: 0,

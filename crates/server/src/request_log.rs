@@ -94,7 +94,7 @@ pub(crate) async fn log_request(
     next: Next,
 ) -> Response {
     let started = Instant::now();
-    let request_id = Uuid::new_v4().to_string();
+    let request_id = Uuid::now_v7().to_string();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let peer = request

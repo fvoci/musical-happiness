@@ -6,6 +6,12 @@
 //! one block cannot collide; the store rules such collisions out, so those sleeps are not
 //! ported.
 //!
+//! The original names its users, boards and blocks with made-up text such as `user-id-1`,
+//! `board-id` and `block1`, and none of them has to exist. Here an identifier is a UUID,
+//! and what a block refers to (its board, the users who write it) is stored before the
+//! block. So every test first stores its users, its team and its boards, and the sample
+//! blocks carry the names the original gives them as their titles.
+//!
 //! After the ported suite come tests the original does not have: concurrent writers, rapid
 //! writes to one block, and behavior of the block operations that its suite leaves
 //! uncovered.
@@ -15,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, BoardsAndBlocksError, IdKind, JsonMap, new_id,
+    BlockType, BoardsAndBlocksError, FileInfo, JsonMap, new_id,
 };
 use fvoci_store::{
     BlockFilter, DbType, DuplicateAs, HistoryOrder, HistoryQuery, Paging, Store, StoreError,
@@ -28,11 +34,74 @@ use tokio::task::JoinSet;
 
 use crate::common;
 
-/// `testUserID` of the original suite.
-const TEST_USER_ID: &str = "user-id";
-const TEST_TEAM_ID: &str = "team-id";
-/// `testBoardID` of the original suite.
-const TEST_BOARD_ID: &str = "board-id";
+/// `subtreeSampleBlocks` (`server/services/store/storetests/blocks.go:529`): the name of
+/// each block, the name of its parent and its type.
+const SUBTREE_SAMPLE: [(&str, &str, &str); 6] = [
+    ("parent", "", ""),
+    ("child1", "parent", ""),
+    ("child2", "parent", ""),
+    ("grandchild1", "child1", ""),
+    ("grandchild2", "child2", ""),
+    ("greatgrandchild1", "grandchild1", ""),
+];
+
+/// The five blocks that `testGetBlocks` and `testGetBlockMetadata` insert: the name of
+/// each block, the name of its parent and its type.
+const TYPED_SAMPLE: [(&str, &str, &str); 5] = [
+    ("block1", "", "test"),
+    ("block2", "block1", "test"),
+    ("block3", "block1", "test"),
+    ("block4", "block1", "test2"),
+    ("block5", "block2", "test"),
+];
+
+/// What has to exist before a block does: a user to write it and a board to hold it,
+/// which in turn is a team's.
+#[expect(
+    clippy::struct_field_names,
+    reason = "the members are identifiers, named like the variables that hold them"
+)]
+struct Fixture {
+    /// Takes the place of `testUserID` of the original suite.
+    user_id: String,
+    team_id: String,
+    /// Takes the place of `testBoardID` of the original suite.
+    board_id: String,
+}
+
+/// Stores a user, a team and a board of that team.
+async fn fixture(store: &Store) -> Fixture {
+    let user_id = common::user(store, "test-user").await;
+    let team_id = common::team(store).await;
+    let board_id = another_board(store, &team_id, &user_id).await;
+    Fixture {
+        user_id,
+        team_id,
+        board_id,
+    }
+}
+
+/// Stores one more board of a team and returns its identifier.
+async fn another_board(store: &Store, team_id: &str, user_id: &str) -> String {
+    common::create_test_boards(store, team_id, user_id, 1)
+        .await
+        .into_iter()
+        .next()
+        .expect("one board was asked for")
+        .id
+}
+
+/// Stores `N` users, which take the place of `user-id-1`, `user-id-2` and so on of the
+/// original suite, and returns their identifiers.
+async fn users<const N: usize>(store: &Store) -> [String; N] {
+    let mut user_ids = Vec::with_capacity(N);
+    for number in 1..=N {
+        user_ids.push(common::user(store, &format!("user-{number}")).await);
+    }
+    user_ids
+        .try_into()
+        .expect("one identifier per user that was stored")
+}
 
 /// A block with the given identifier and board and nothing else.
 ///
@@ -46,50 +115,60 @@ fn block(id: &str, board_id: &str) -> Block {
     }
 }
 
-/// A block of the test board with a parent and a type.
-fn typed_block(id: &str, parent_id: &str, block_type: &str) -> Block {
-    Block {
-        parent_id: parent_id.to_owned(),
-        block_type: BlockType::from(block_type),
-        ..block(id, TEST_BOARD_ID)
+/// Blocks of a board with new identifiers, from the name, the parent's name and the type
+/// of each. A parent comes before its children; the empty name means no parent.
+///
+/// The name of a block is its title, and [`id_of`] finds its identifier by it.
+fn named_blocks(board_id: &str, specs: &[(&str, &str, &str)]) -> Vec<Block> {
+    let mut blocks: Vec<Block> = Vec::with_capacity(specs.len());
+    for &(name, parent, block_type) in specs {
+        let parent_id = if parent.is_empty() {
+            String::new()
+        } else {
+            id_of(&blocks, parent).to_owned()
+        };
+        blocks.push(Block {
+            parent_id,
+            block_type: BlockType::from(block_type),
+            title: name.to_owned(),
+            ..block(&new_id(), board_id)
+        });
     }
+    blocks
 }
 
-/// `subtreeSampleBlocks` (`server/services/store/storetests/blocks.go:529`).
-fn subtree_sample_blocks() -> Vec<Block> {
-    [
-        ("parent", ""),
-        ("child1", "parent"),
-        ("child2", "parent"),
-        ("grandchild1", "child1"),
-        ("grandchild2", "child2"),
-        ("greatgrandchild1", "grandchild1"),
-    ]
-    .into_iter()
-    .map(|(id, parent_id)| typed_block(id, parent_id, ""))
-    .collect()
+/// The identifier of the block that [`named_blocks`] made under the given name.
+#[track_caller]
+fn id_of<'a>(blocks: &'a [Block], name: &str) -> &'a str {
+    blocks
+        .iter()
+        .find(|block| block.title == name)
+        .map_or_else(|| panic!("no block is named {name}"), |block| &block.id)
 }
 
-/// The five blocks that `testGetBlocks` and `testGetBlockMetadata` insert.
-fn typed_sample_blocks() -> Vec<Block> {
-    [
-        ("block1", "", "test"),
-        ("block2", "block1", "test"),
-        ("block3", "block1", "test"),
-        ("block4", "block1", "test2"),
-        ("block5", "block2", "test"),
-    ]
-    .into_iter()
-    .map(|(id, parent_id, block_type)| typed_block(id, parent_id, block_type))
-    .collect()
+/// The names of blocks that [`named_blocks`] made, sorted.
+fn sorted_names(blocks: &[Block]) -> Vec<&str> {
+    let mut names: Vec<&str> = blocks.iter().map(|block| block.title.as_str()).collect();
+    names.sort_unstable();
+    names
+}
+
+/// The blocks of [`SUBTREE_SAMPLE`] on a board.
+fn subtree_sample_blocks(board_id: &str) -> Vec<Block> {
+    named_blocks(board_id, &SUBTREE_SAMPLE)
+}
+
+/// The blocks of [`TYPED_SAMPLE`] on a board.
+fn typed_sample_blocks(board_id: &str) -> Vec<Block> {
+    named_blocks(board_id, &TYPED_SAMPLE)
 }
 
 /// The three blocks that `testDeleteBlock` and `testUndeleteBlock` insert.
-fn three_blocks() -> Vec<Block> {
-    ["block1", "block2", "block3"]
-        .into_iter()
-        .map(|id| block(id, TEST_BOARD_ID))
-        .collect()
+fn three_blocks(board_id: &str) -> Vec<Block> {
+    named_blocks(
+        board_id,
+        &[("block1", "", ""), ("block2", "", ""), ("block3", "", "")],
+    )
 }
 
 /// Four fields that together exceed the size limit of a block's fields.
@@ -116,8 +195,9 @@ fn title_patch(title: &str) -> BlockPatch {
     }
 }
 
-fn ids<const N: usize>(ids: [&str; N]) -> Vec<String> {
-    ids.into_iter().map(str::to_owned).collect()
+/// Owned strings from string slices: a list of identifiers, or of field names.
+fn strings<const N: usize>(strings: [&str; N]) -> Vec<String> {
+    strings.into_iter().map(str::to_owned).collect()
 }
 
 fn now_millis() -> i64 {
@@ -154,6 +234,15 @@ fn assert_invalid_block(error: &StoreError, expected: &BlockError) {
     );
 }
 
+/// Asserts that a write was refused because `text` is no identifier.
+#[track_caller]
+fn assert_invalid_id(error: &StoreError, text: &str) {
+    assert!(
+        matches!(error, StoreError::InvalidId(refused) if refused == text),
+        "expected {text:?} to be refused as no identifier, got {error:?}"
+    );
+}
+
 /// `GetBlocksForBoard` followed by `require.NoError`.
 async fn board_blocks(store: &Store, board_id: &str) -> Vec<Block> {
     store
@@ -186,7 +275,8 @@ async fn board_history(store: &Store, board_id: &str, query: &HistoryQuery) -> V
         .expect("the history of a board is read")
 }
 
-/// `createTestCards` (`server/services/store/storetests/util.go:76`).
+/// `createTestCards` (`server/services/store/storetests/util.go:76`). Like the original,
+/// it gives a card its board as parent.
 async fn create_test_cards(
     store: &Store,
     user_id: &str,
@@ -200,7 +290,7 @@ async fn create_test_cards(
             block_type: BlockType::Card,
             created_by: user_id.to_owned(),
             title: format!("card {index}"),
-            ..block(&new_id(IdKind::Card), board_id)
+            ..block(&new_id(), board_id)
         };
         store
             .insert_block(&mut card, user_id)
@@ -227,7 +317,7 @@ async fn create_test_blocks_for_card(store: &Store, card_id: &str, count: usize)
             block_type: BlockType::Text,
             created_by: card.created_by.clone(),
             title: format!("text {index}"),
-            ..block(&new_id(IdKind::Block), &card.board_id)
+            ..block(&new_id(), &card.board_id)
         };
         store
             .insert_block(&mut text, &card.created_by)
@@ -246,26 +336,31 @@ async fn sqlite_connection(test: &common::TestStore) -> SqliteConnection {
         .expect("the test database opens a second time")
 }
 
-/// Writes a file-info row that is not deleted for each identifier.
-async fn insert_file_infos<const N: usize>(raw: &mut SqliteConnection, ids: [&str; N]) {
-    for id in ids {
-        sqlx::query(
-            "INSERT INTO file_info (id, create_at, delete_at, name, extension, size) \
-             VALUES ($1, 1, 0, 'file', 'png', 1)",
-        )
-        .bind(id)
-        .execute(&mut *raw)
+/// Stores the record of a file that a board has under the given stored name.
+async fn save_file(store: &Store, board_id: &str, stored_name: &str) {
+    let file_info = FileInfo {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        stored_name: stored_name.to_owned(),
+        name: format!("uploaded as {stored_name}"),
+        size: 1,
+        path: format!("{board_id}/{stored_name}"),
+        create_at: now_millis(),
+        ..FileInfo::default()
+    };
+    store
+        .save_file_info(&file_info)
         .await
-        .expect("a file-info row is written");
-    }
+        .expect("the record of a file is stored");
 }
 
-/// The identifiers of the file-info rows that are marked deleted, sorted.
-async fn deleted_file_infos(raw: &mut SqliteConnection) -> Vec<String> {
-    sqlx::query_scalar("SELECT id FROM file_info WHERE delete_at != 0 ORDER BY id")
-        .fetch_all(raw)
+/// Whether the file that a board has under the given stored name is marked as deleted.
+async fn file_is_deleted(store: &Store, board_id: &str, stored_name: &str) -> bool {
+    let file_info = store
+        .get_file_info(board_id, stored_name)
         .await
-        .expect("the file-info rows are read")
+        .unwrap_or_else(|error| panic!("file {stored_name} should have a record: {error:?}"));
+    file_info.delete_at != 0
 }
 
 /// `testInsertBlock`.
@@ -277,14 +372,23 @@ async fn deleted_file_infos(raw: &mut SqliteConnection) -> Vec<String> {
 async fn insert_block() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = TEST_BOARD_ID;
+    let Fixture {
+        user_id: owner_id,
+        team_id,
+        board_id,
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
+    // `board-id-1` of the original.
+    let other_board_id = another_board(store, &team_id, &owner_id).await;
+    let [user1, user2, user3, user4, user5, user6] = users(store).await;
 
     let initial_count = board_blocks(store, board_id).await.len();
 
     // "valid block"
-    let mut valid = block("id-test", board_id);
+    let test_id = new_id();
+    let mut valid = block(&test_id, board_id);
     store
-        .insert_block(&mut valid, "user-id-1")
+        .insert_block(&mut valid, &user1)
         .await
         .expect("a valid block is inserted");
     let blocks = board_blocks(store, board_id).await;
@@ -295,9 +399,9 @@ async fn insert_block() {
     );
 
     // "invalid rootid"
-    let mut without_board = block("id-test", "");
+    let mut without_board = block(&test_id, "");
     let error = store
-        .insert_block(&mut without_board, "user-id-1")
+        .insert_block(&mut without_board, &user1)
         .await
         .expect_err("a block without a board is rejected");
     assert_invalid_block(&error, &BlockError::EmptyBoardId);
@@ -316,10 +420,10 @@ async fn insert_block() {
     // "block with title too large"
     let mut long_title = Block {
         title: "A".repeat(BLOCK_TITLE_MAX_CHARS + 1),
-        ..block("id-test", board_id)
+        ..block(&test_id, board_id)
     };
     let error = store
-        .insert_block(&mut long_title, "user-id-1")
+        .insert_block(&mut long_title, &user1)
         .await
         .expect_err("a title over the limit is rejected");
     assert_invalid_block(&error, &BlockError::TitleSizeLimitExceeded);
@@ -327,102 +431,120 @@ async fn insert_block() {
     // "block with aggregated fields size too large"
     let mut large_fields = Block {
         fields: oversized_fields(),
-        ..block("id-test", board_id)
+        ..block(&test_id, board_id)
     };
     let error = store
-        .insert_block(&mut large_fields, "user-id-2")
+        .insert_block(&mut large_fields, &user2)
         .await
         .expect_err("fields over the limit are rejected");
     assert_invalid_block(&error, &BlockError::FieldsSizeLimitExceeded);
 
     // "insert new block"
-    let mut new_block = block("", TEST_BOARD_ID);
-    store
-        .insert_block(&mut new_block, "user-id-2")
+    // The block of the original has no identifier, and the original stores it under the
+    // empty one. Here the empty string is no identifier, so that block is refused, and
+    // the subtest goes on with a block that has one.
+    let mut without_id = block("", board_id);
+    let error = store
+        .insert_block(&mut without_id, &user2)
         .await
-        .expect("a block without an identifier is inserted");
+        .expect_err("a block without an identifier is refused");
+    assert_invalid_id(&error, "");
+    let blocks = board_blocks(store, board_id).await;
     assert_eq!(
-        new_block.created_by, "user-id-2",
+        blocks.len(),
+        initial_count + 1,
+        "the refused block changed nothing: {blocks:?}"
+    );
+
+    let mut new_block = block(&new_id(), board_id);
+    store
+        .insert_block(&mut new_block, &user2)
+        .await
+        .expect("a new block is inserted");
+    assert_eq!(
+        new_block.created_by, user2,
         "the creator of a new block is the inserting user"
     );
 
     // "update existing block"
+    let id2 = new_id();
     let mut old = Block {
         title: "Old Title".to_owned(),
-        ..block("id-2", "board-id-1")
+        ..block(&id2, &other_board_id)
     };
     store
-        .insert_block(&mut old, "user-id-2")
+        .insert_block(&mut old, &user2)
         .await
         .expect("the block is inserted");
     assert_eq!(
-        old.created_by, "user-id-2",
+        old.created_by, user2,
         "the creator of a new block is the inserting user"
     );
 
     let mut new = Block {
-        created_by: "user-id-3".to_owned(),
+        created_by: user3.clone(),
         title: "New Title".to_owned(),
-        ..block("id-2", "board-id-1")
+        ..block(&id2, &other_board_id)
     };
     store
-        .insert_block(&mut new, "user-id-4")
+        .insert_block(&mut new, &user4)
         .await
         .expect("the block is updated");
     assert_eq!(
-        new.created_by, "user-id-3",
+        new.created_by, user3,
         "the creator given for an existing block is not altered"
     );
     assert_eq!(new.title, "New Title", "the title is as given");
 
     // "update existing block with title too large"
+    let id3 = new_id();
     let mut existing = Block {
-        created_by: "user-id-3".to_owned(),
+        created_by: user3.clone(),
         title: "New Title".to_owned(),
-        ..block("id-3", "board-id-1")
+        ..block(&id3, &other_board_id)
     };
     store
-        .insert_block(&mut existing, "user-id-3")
+        .insert_block(&mut existing, &user3)
         .await
         .expect("the block is inserted");
     assert_eq!(
-        existing.created_by, "user-id-3",
+        existing.created_by, user3,
         "the creator of a new block is the inserting user"
     );
 
     let mut long_title = Block {
-        created_by: "user-id-3".to_owned(),
+        created_by: user3.clone(),
         title: "A".repeat(BLOCK_TITLE_MAX_CHARS + 1),
-        ..block("id-3", "board-id-1")
+        ..block(&id3, &other_board_id)
     };
     let error = store
-        .insert_block(&mut long_title, "user-id-3")
+        .insert_block(&mut long_title, &user3)
         .await
         .expect_err("an update with a title over the limit is rejected");
     assert_invalid_block(&error, &BlockError::TitleSizeLimitExceeded);
 
     // "update existing block with aggregated fields size too large"
     let mut existing = Block {
-        created_by: "user-id-3".to_owned(),
+        created_by: user3.clone(),
         title: "New Title".to_owned(),
-        ..block("id-3", "board-id-1")
+        ..block(&id3, &other_board_id)
     };
     store
-        .insert_block(&mut existing, "user-id-3")
+        .insert_block(&mut existing, &user3)
         .await
         .expect("the block is written again");
     assert_eq!(
-        existing.created_by, "user-id-3",
+        existing.created_by, user3,
         "the creator given for an existing block is not altered"
     );
 
     let mut large_fields = Block {
-        created_by: "user-id-3".to_owned(),
+        created_by: user3.clone(),
         fields: oversized_fields(),
-        ..block("id-3", "board-id-1")
+        ..block(&id3, &other_board_id)
     };
     let error = store
-        .insert_block(&mut large_fields, "user-id-3")
+        .insert_block(&mut large_fields, &user3)
         .await
         .expect_err("an update with fields over the limit is rejected");
     assert_invalid_block(&error, &BlockError::FieldsSizeLimitExceeded);
@@ -432,28 +554,29 @@ async fn insert_block() {
     // abbreviation that its parser reads as UTC.
     let created_at = 631_155_600_000;
     let updated_at = 631_242_000_000;
+    let id10 = new_id();
     let mut tampered = Block {
         title: "Old Title".to_owned(),
         create_at: created_at,
         update_at: updated_at,
-        created_by: "user-id-5".to_owned(),
-        modified_by: "user-id-6".to_owned(),
-        ..block("id-10", "board-id-1")
+        created_by: user5,
+        modified_by: user6,
+        ..block(&id10, &other_board_id)
     };
     store
-        .insert_block(&mut tampered, "user-id-1")
+        .insert_block(&mut tampered, &user1)
         .await
         .expect("the block is inserted");
     let expected_time = now_millis();
 
-    let retrieved = existing_block(store, "id-10").await;
-    assert_eq!(retrieved.board_id, "board-id-1", "the board is as given");
+    let retrieved = existing_block(store, &id10).await;
+    assert_eq!(retrieved.board_id, other_board_id, "the board is as given");
     assert_eq!(
-        retrieved.created_by, "user-id-1",
+        retrieved.created_by, user1,
         "the creator is the inserting user, not the one given"
     );
     assert_eq!(
-        retrieved.modified_by, "user-id-1",
+        retrieved.modified_by, user1,
         "the modifier is the inserting user, not the one given"
     );
     assert_within_a_second(expected_time, retrieved.create_at, "create time");
@@ -467,18 +590,22 @@ async fn insert_block() {
 async fn insert_blocks() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
 
-    let initial_count = board_blocks(store, "id-test").await.len();
+    let initial_count = board_blocks(store, &board_id).await.len();
 
     // "invalid block"
-    let mut new_blocks = [block("id-test", "id-test"), block("id-test", "")];
+    let block_id = new_id();
+    let mut new_blocks = [block(&block_id, &board_id), block(&block_id, "")];
     let error = store
-        .insert_blocks(&mut new_blocks, "user-id-1")
+        .insert_blocks(&mut new_blocks, &user_id)
         .await
         .expect_err("a batch with an invalid block is rejected");
     assert_invalid_block(&error, &BlockError::EmptyBoardId);
 
-    let blocks = board_blocks(store, "id-test").await;
+    let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
         blocks.len(),
         initial_count,
@@ -493,30 +620,36 @@ async fn insert_blocks() {
 async fn patch_block() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = "board-id-1";
+    let Fixture { board_id, .. } = fixture(store).await;
+    let board_id = board_id.as_str();
+    let [user1, user2] = users(store).await;
 
+    let block_id = new_id();
     let mut block = Block {
         title: "oldTitle".to_owned(),
         fields: fields(json!({ "test": "test value", "test2": "test value 2" })),
-        ..block("id-test", board_id)
+        ..block(&block_id, board_id)
     };
     store
-        .insert_block(&mut block, "user-id-1")
+        .insert_block(&mut block, &user1)
         .await
         .expect("the block is inserted");
 
     let initial_count = board_blocks(store, board_id).await.len();
 
     // "not existing block id"
-    let error = store
-        .patch_block("invalid-block-id", &BlockPatch::default(), "user-id-1")
-        .await
-        .expect_err("a missing block cannot be patched");
-    assert_not_found(&error);
-    assert!(
-        error.is_not_found(),
-        "the error counts as not found: {error:?}"
-    );
+    // An identifier that no block has, and the original's text, which is not even one.
+    for missing in [new_id().as_str(), "invalid-block-id"] {
+        let error = store
+            .patch_block(missing, &BlockPatch::default(), &user1)
+            .await
+            .expect_err("a missing block cannot be patched");
+        assert_not_found(&error);
+        assert!(
+            error.is_not_found(),
+            "the error counts as not found: {error:?}"
+        );
+    }
     let blocks = board_blocks(store, board_id).await;
     assert_eq!(
         blocks.len(),
@@ -531,12 +664,12 @@ async fn patch_block() {
 
     // "update block fields"
     store
-        .patch_block("id-test", &title_patch("New title"), "user-id-2")
+        .patch_block(&block_id, &title_patch("New title"), &user2)
         .await
         .expect("the title is patched");
-    let retrieved = existing_block(store, "id-test").await;
+    let retrieved = existing_block(store, &block_id).await;
     assert_eq!(
-        retrieved.modified_by, "user-id-2",
+        retrieved.modified_by, user2,
         "the modifier is the patching user"
     );
     assert_eq!(retrieved.title, "New title", "the title is the patched one");
@@ -547,12 +680,12 @@ async fn patch_block() {
         ..BlockPatch::default()
     };
     store
-        .patch_block("id-test", &patch, "user-id-2")
+        .patch_block(&block_id, &patch, &user2)
         .await
         .expect("the fields are patched");
-    let retrieved = existing_block(store, "id-test").await;
+    let retrieved = existing_block(store, &block_id).await;
     assert_eq!(
-        retrieved.modified_by, "user-id-2",
+        retrieved.modified_by, user2,
         "the modifier is the patching user"
     );
     assert_eq!(
@@ -573,16 +706,16 @@ async fn patch_block() {
 
     // "remove block custom fields"
     let patch = BlockPatch {
-        deleted_fields: ids(["test", "test3", "test100"]),
+        deleted_fields: strings(["test", "test3", "test100"]),
         ..BlockPatch::default()
     };
     store
-        .patch_block("id-test", &patch, "user-id-2")
+        .patch_block(&block_id, &patch, &user2)
         .await
         .expect("the fields are removed");
-    let retrieved = existing_block(store, "id-test").await;
+    let retrieved = existing_block(store, &block_id).await;
     assert_eq!(
-        retrieved.modified_by, "user-id-2",
+        retrieved.modified_by, user2,
         "the modifier is the patching user"
     );
     assert_eq!(
@@ -609,35 +742,44 @@ async fn patch_block() {
 async fn patch_blocks() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id,
+        team_id,
+        board_id,
+    } = fixture(store).await;
+    // The two blocks are on a board each, as in the original.
+    let second_board_id = another_board(store, &team_id, &user_id).await;
 
+    let first_id = new_id();
+    let second_id = new_id();
     let mut insert_blocks = [
         Block {
             title: "oldTitle".to_owned(),
-            ..block("id-test", "id-test")
+            ..block(&first_id, &board_id)
         },
         Block {
             title: "oldTitle2".to_owned(),
-            ..block("id-test2", "id-test2")
+            ..block(&second_id, &second_board_id)
         },
     ];
     store
-        .insert_blocks(&mut insert_blocks, "user-id-1")
+        .insert_blocks(&mut insert_blocks, &user_id)
         .await
         .expect("the blocks are inserted");
 
     // "successful updated existing blocks"
     let title = "updatedTitle";
     let batch = BlockPatchBatch {
-        block_ids: ids(["id-test", "id-test2"]),
+        block_ids: strings([&first_id, &second_id]),
         block_patches: vec![title_patch(title), title_patch(title)],
     };
     store
-        .patch_blocks(&batch, "user-id-1")
+        .patch_blocks(&batch, &user_id)
         .await
         .expect("both blocks are patched");
-    let retrieved = existing_block(store, "id-test").await;
+    let retrieved = existing_block(store, &first_id).await;
     assert_eq!(retrieved.title, title, "the first block has the new title");
-    let retrieved2 = existing_block(store, "id-test2").await;
+    let retrieved2 = existing_block(store, &second_id).await;
     assert_eq!(
         retrieved2.title, title,
         "the second block has the new title"
@@ -648,15 +790,15 @@ async fn patch_blocks() {
     // them on both databases, so it runs on both.
     let title = "Another Title";
     let batch = BlockPatchBatch {
-        block_ids: ids(["id-test", "invalid id"]),
+        block_ids: strings([&first_id, &new_id()]),
         block_patches: vec![title_patch(title), title_patch(title)],
     };
     let error = store
-        .patch_blocks(&batch, "user-id-1")
+        .patch_blocks(&batch, &user_id)
         .await
         .expect_err("a batch that names a missing block fails");
     assert_not_found(&error);
-    let retrieved = existing_block(store, "id-test").await;
+    let retrieved = existing_block(store, &first_id).await;
     assert_ne!(
         retrieved.title, title,
         "the patch of the first block was rolled back"
@@ -670,12 +812,15 @@ async fn patch_blocks() {
 async fn get_sub_tree2() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = TEST_BOARD_ID;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
 
     let initial_count = board_blocks(store, board_id).await.len();
 
-    let mut sample = subtree_sample_blocks();
-    common::insert_blocks(store, &mut sample, "user-id-1").await;
+    let mut sample = subtree_sample_blocks(board_id);
+    common::insert_blocks(store, &mut sample, &user_id).await;
 
     let blocks = board_blocks(store, board_id).await;
     assert_eq!(
@@ -686,33 +831,29 @@ async fn get_sub_tree2() {
 
     // "from root id"
     let blocks = store
-        .get_subtree(board_id, "parent", &SubtreeQuery::default())
+        .get_subtree(board_id, id_of(&sample, "parent"), &SubtreeQuery::default())
         .await
         .expect("the subtree of the root is read");
-    assert_eq!(blocks.len(), 3, "the root and its two children: {blocks:?}");
-    for id in ["parent", "child1", "child2"] {
-        assert!(
-            common::contains_block_with_id(&blocks, id),
-            "the subtree of the root contains {id}: {blocks:?}"
-        );
-    }
+    assert_eq!(
+        sorted_names(&blocks),
+        ["child1", "child2", "parent"],
+        "the root and its two children"
+    );
 
     // "from child id"
     let blocks = store
-        .get_subtree(board_id, "child1", &SubtreeQuery::default())
+        .get_subtree(board_id, id_of(&sample, "child1"), &SubtreeQuery::default())
         .await
         .expect("the subtree of a child is read");
-    assert_eq!(blocks.len(), 2, "the child and its one child: {blocks:?}");
-    for id in ["child1", "grandchild1"] {
-        assert!(
-            common::contains_block_with_id(&blocks, id),
-            "the subtree of the child contains {id}: {blocks:?}"
-        );
-    }
+    assert_eq!(
+        sorted_names(&blocks),
+        ["child1", "grandchild1"],
+        "the child and its one child"
+    );
 
     // "from not existing id"
     let blocks = store
-        .get_subtree(board_id, "not-exists", &SubtreeQuery::default())
+        .get_subtree(board_id, &new_id(), &SubtreeQuery::default())
         .await
         .expect("the subtree of a missing block is read");
     assert!(
@@ -720,7 +861,7 @@ async fn get_sub_tree2() {
         "a missing block has no subtree: {blocks:?}"
     );
 
-    common::delete_blocks(store, &sample, "test").await;
+    common::delete_blocks(store, &sample, &user_id).await;
     test.teardown().await;
 }
 
@@ -729,15 +870,19 @@ async fn get_sub_tree2() {
 async fn delete_block() {
     let test = common::setup().await;
     let store = &test.store;
-    let user_id = TEST_USER_ID;
-    let board_id = TEST_BOARD_ID;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let user_id = user_id.as_str();
+    let [user1] = users(store).await;
 
-    let initial_count = board_blocks(store, board_id).await.len();
+    let initial_count = board_blocks(store, &board_id).await.len();
 
-    let mut blocks_to_insert = three_blocks();
-    common::insert_blocks(store, &mut blocks_to_insert, "user-id-1").await;
+    let mut blocks_to_insert = three_blocks(&board_id);
+    common::insert_blocks(store, &mut blocks_to_insert, &user1).await;
+    let block1_id = id_of(&blocks_to_insert, "block1");
 
-    let blocks = board_blocks(store, board_id).await;
+    let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
         blocks.len(),
         initial_count + 3,
@@ -746,27 +891,27 @@ async fn delete_block() {
 
     // "existing id"
     store
-        .delete_block("block1", user_id)
+        .delete_block(block1_id, user_id)
         .await
         .expect("an existing block is deleted");
 
     // "existing id multiple times"
     store
-        .delete_block("block1", user_id)
+        .delete_block(block1_id, user_id)
         .await
         .expect("deleting a deleted block succeeds");
     store
-        .delete_block("block1", user_id)
+        .delete_block(block1_id, user_id)
         .await
         .expect("deleting a deleted block succeeds again");
 
     // "from not existing id"
     store
-        .delete_block("not-exists", user_id)
+        .delete_block(&new_id(), user_id)
         .await
         .expect("deleting a block that never existed succeeds");
 
-    common::delete_blocks(store, &blocks_to_insert, "test").await;
+    common::delete_blocks(store, &blocks_to_insert, user_id).await;
     test.teardown().await;
 }
 
@@ -775,15 +920,19 @@ async fn delete_block() {
 async fn undelete_block() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = TEST_BOARD_ID;
-    let user_id = TEST_USER_ID;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let user_id = user_id.as_str();
+    let [user1] = users(store).await;
 
-    let initial_count = board_blocks(store, board_id).await.len();
+    let initial_count = board_blocks(store, &board_id).await.len();
 
-    let mut blocks_to_insert = three_blocks();
-    common::insert_blocks(store, &mut blocks_to_insert, "user-id-1").await;
+    let mut blocks_to_insert = three_blocks(&board_id);
+    common::insert_blocks(store, &mut blocks_to_insert, &user1).await;
+    let block1_id = id_of(&blocks_to_insert, "block1");
 
-    let blocks = board_blocks(store, board_id).await;
+    let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
         blocks.len(),
         initial_count + 3,
@@ -792,44 +941,45 @@ async fn undelete_block() {
 
     // "existing id"
     store
-        .delete_block("block1", user_id)
+        .delete_block(block1_id, user_id)
         .await
         .expect("the block is deleted");
-    assert_no_block(store, "block1").await;
+    assert_no_block(store, block1_id).await;
 
     store
-        .undelete_block("block1", user_id)
+        .undelete_block(block1_id, user_id)
         .await
         .expect("the block is undeleted");
-    existing_block(store, "block1").await;
+    existing_block(store, block1_id).await;
 
     // "existing id multiple times"
     store
-        .delete_block("block1", user_id)
+        .delete_block(block1_id, user_id)
         .await
         .expect("the block is deleted a second time");
-    assert_no_block(store, "block1").await;
+    assert_no_block(store, block1_id).await;
 
     store
-        .undelete_block("block1", user_id)
+        .undelete_block(block1_id, user_id)
         .await
         .expect("the block is undeleted a second time");
-    existing_block(store, "block1").await;
+    existing_block(store, block1_id).await;
 
     store
-        .undelete_block("block1", user_id)
+        .undelete_block(block1_id, user_id)
         .await
         .expect("undeleting a block that is not deleted succeeds");
-    existing_block(store, "block1").await;
+    existing_block(store, block1_id).await;
 
     // "from not existing id"
+    let missing = new_id();
     store
-        .undelete_block("not-exists", user_id)
+        .undelete_block(&missing, user_id)
         .await
         .expect("undeleting a block that never existed succeeds");
-    assert_no_block(store, "not-exists").await;
+    assert_no_block(store, &missing).await;
 
-    common::delete_blocks(store, &blocks_to_insert, "test").await;
+    common::delete_blocks(store, &blocks_to_insert, user_id).await;
     test.teardown().await;
 }
 
@@ -838,15 +988,23 @@ async fn undelete_block() {
 async fn get_blocks() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = TEST_BOARD_ID;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
     let board = || BlockFilter::board(board_id);
 
-    let mut blocks_to_insert = typed_sample_blocks();
-    common::insert_blocks(store, &mut blocks_to_insert, "user-id-1").await;
+    let mut blocks_to_insert = typed_sample_blocks(board_id);
+    common::insert_blocks(store, &mut blocks_to_insert, &user_id).await;
+    let block1_id = id_of(&blocks_to_insert, "block1");
+    let block2_id = id_of(&blocks_to_insert, "block2");
+    let block4_id = id_of(&blocks_to_insert, "block4");
+    // An identifier that nothing has.
+    let missing = new_id();
 
     // "not existing parent"
     let filter = board()
-        .with_parent("not-exists")
+        .with_parent(&missing)
         .with_type(BlockType::from("test"));
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert!(
@@ -856,7 +1014,7 @@ async fn get_blocks() {
 
     // "not existing type"
     let filter = board()
-        .with_parent("block1")
+        .with_parent(block1_id)
         .with_type(BlockType::from("not-existing"));
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert!(
@@ -866,7 +1024,7 @@ async fn get_blocks() {
 
     // "valid parent and type"
     let filter = board()
-        .with_parent("block1")
+        .with_parent(block1_id)
         .with_type(BlockType::from("test"));
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(
@@ -876,7 +1034,7 @@ async fn get_blocks() {
     );
 
     // "not existing parent"
-    let filter = board().with_parent("not-exists");
+    let filter = board().with_parent(&missing);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert!(
         blocks.is_empty(),
@@ -884,7 +1042,7 @@ async fn get_blocks() {
     );
 
     // "valid parent"
-    let filter = board().with_parent("block1");
+    let filter = board().with_parent(block1_id);
     let blocks = store.get_blocks(&filter).await.expect("the query runs");
     assert_eq!(blocks.len(), 3, "block1 has three children: {blocks:?}");
 
@@ -902,11 +1060,14 @@ async fn get_blocks() {
     assert_eq!(blocks.len(), 4, "four blocks have the type: {blocks:?}");
 
     // "not existing board"
-    let blocks = board_blocks(store, "not-exists").await;
-    assert!(
-        blocks.is_empty(),
-        "a missing board has no blocks: {blocks:?}"
-    );
+    // An identifier that no board has, and the original's text, which is not even one.
+    for missing_board in [missing.as_str(), "not-exists"] {
+        let blocks = board_blocks(store, missing_board).await;
+        assert!(
+            blocks.is_empty(),
+            "the missing board {missing_board} has no blocks: {blocks:?}"
+        );
+    }
 
     // "all blocks of the a board"
     let blocks = board_blocks(store, board_id).await;
@@ -914,7 +1075,7 @@ async fn get_blocks() {
 
     // "several blocks by ids"
     let blocks = store
-        .get_blocks_by_ids(&ids(["block2", "block4"]))
+        .get_blocks_by_ids(&strings([block2_id, block4_id]))
         .await
         .expect("both blocks exist");
     assert_eq!(blocks.len(), 2, "both blocks are returned: {blocks:?}");
@@ -925,7 +1086,7 @@ async fn get_blocks() {
     // of the original (`server/app/blocks.go:106`, `server/app/boards_and_blocks.go:59`)
     // looks at the blocks when there is an error.
     let error = store
-        .get_blocks_by_ids(&ids(["block2", "blockNonexistent"]))
+        .get_blocks_by_ids(&strings([block2_id, &missing]))
         .await
         .expect_err("one of the two blocks does not exist");
     assert!(
@@ -939,7 +1100,7 @@ async fn get_blocks() {
 
     // "blocks by ids where none are found"
     let error = store
-        .get_blocks_by_ids(&ids(["blockNonexistent1", "blockNonexistent2"]))
+        .get_blocks_by_ids(&strings([&missing, &new_id()]))
         .await
         .expect_err("neither block exists");
     assert!(
@@ -951,7 +1112,7 @@ async fn get_blocks() {
         "the error counts as not found: {error:?}"
     );
 
-    common::delete_blocks(store, &blocks_to_insert, "test").await;
+    common::delete_blocks(store, &blocks_to_insert, &user_id).await;
     test.teardown().await;
 }
 
@@ -960,33 +1121,40 @@ async fn get_blocks() {
 async fn get_block() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let [user1] = users(store).await;
 
     // "get a block"
+    let block_id = new_id();
     let mut block = Block {
-        modified_by: "user-id-1".to_owned(),
-        ..block("block-id-10", "board-id-1")
+        modified_by: user1.clone(),
+        ..block(&block_id, &board_id)
     };
     store
-        .insert_block(&mut block, "user-id-1")
+        .insert_block(&mut block, &user1)
         .await
         .expect("the block is inserted");
 
-    let fetched = existing_block(store, "block-id-10").await;
-    assert_eq!(fetched.id, "block-id-10", "the identifier is as inserted");
-    assert_eq!(fetched.board_id, "board-id-1", "the board is as inserted");
+    let fetched = existing_block(store, &block_id).await;
+    assert_eq!(fetched.id, block_id, "the identifier is as inserted");
+    assert_eq!(fetched.board_id, board_id, "the board is as inserted");
     assert_eq!(
-        fetched.created_by, "user-id-1",
+        fetched.created_by, user1,
         "the creator is the inserting user"
     );
     assert_eq!(
-        fetched.modified_by, "user-id-1",
+        fetched.modified_by, user1,
         "the modifier is the inserting user"
     );
     assert_within_a_second(now_millis(), fetched.create_at, "create time");
     assert_within_a_second(now_millis(), fetched.update_at, "update time");
 
     // "get a non-existing block"
-    assert_no_block(store, "non-existing-id").await;
+    // An identifier that no block has, the original's text, which is not even one, and
+    // no text at all.
+    for missing in [new_id().as_str(), "non-existing-id", ""] {
+        assert_no_block(store, missing).await;
+    }
 
     test.teardown().await;
 }
@@ -996,16 +1164,30 @@ async fn get_block() {
 async fn duplicate_block() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id,
+        team_id,
+        board_id,
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
+    let user_id = user_id.as_str();
+    let [user1] = users(store).await;
 
-    let sample = subtree_sample_blocks();
-    let mut blocks_to_insert = sample.clone();
-    blocks_to_insert.push(typed_block("grandchild1a", "child1", "comment"));
-    blocks_to_insert.push(typed_block("grandchild2a", "child2", "comment"));
-    common::insert_blocks(store, &mut blocks_to_insert, "user-id-1").await;
+    let specs = [
+        &SUBTREE_SAMPLE[..],
+        &[
+            ("grandchild1a", "child1", "comment"),
+            ("grandchild2a", "child2", "comment"),
+        ],
+    ]
+    .concat();
+    let mut blocks_to_insert = named_blocks(board_id, &specs);
+    common::insert_blocks(store, &mut blocks_to_insert, &user1).await;
+    let child1_id = id_of(&blocks_to_insert, "child1");
 
     // "duplicate existing block as no template"
     let blocks = store
-        .duplicate_block(TEST_BOARD_ID, "child1", TEST_USER_ID, DuplicateAs::Copy)
+        .duplicate_block(board_id, child1_id, user_id, DuplicateAs::Copy)
         .await
         .expect("an existing block is duplicated");
     assert_eq!(
@@ -1021,7 +1203,7 @@ async fn duplicate_block() {
 
     // "duplicate existing block as template"
     let blocks = store
-        .duplicate_block(TEST_BOARD_ID, "child1", TEST_USER_ID, DuplicateAs::Template)
+        .duplicate_block(board_id, child1_id, user_id, DuplicateAs::Template)
         .await
         .expect("an existing block is duplicated as a template");
     assert_eq!(
@@ -1037,42 +1219,36 @@ async fn duplicate_block() {
 
     // "duplicate not existing block"
     let error = store
-        .duplicate_block(
-            TEST_BOARD_ID,
-            "not-existing-id",
-            TEST_USER_ID,
-            DuplicateAs::Copy,
-        )
+        .duplicate_block(board_id, &new_id(), user_id, DuplicateAs::Copy)
         .await
         .expect_err("a missing block cannot be duplicated");
     assert_not_found(&error);
 
     // "duplicate not existing board"
     let error = store
-        .duplicate_block(
-            "not-existing-board",
-            "not-existing-id",
-            TEST_USER_ID,
-            DuplicateAs::Copy,
-        )
+        .duplicate_block(&new_id(), &new_id(), user_id, DuplicateAs::Copy)
         .await
         .expect_err("a block of a missing board cannot be duplicated");
     assert_not_found(&error);
 
     // "not matching board/block"
-    let error = store
-        .duplicate_block("other-id", "child1", TEST_USER_ID, DuplicateAs::Copy)
-        .await
-        .expect_err("a block cannot be duplicated through another board");
-    assert_not_found(&error);
+    // The other board of the original does not exist. Here it does, which is the case
+    // that matters: a board that exists does not hand out the blocks of another.
+    let other_board_id = another_board(store, &team_id, user_id).await;
+    for other in [other_board_id, new_id()] {
+        let error = store
+            .duplicate_block(&other, child1_id, user_id, DuplicateAs::Copy)
+            .await
+            .expect_err("a block cannot be duplicated through another board");
+        assert_not_found(&error);
+    }
 
     // Like the original, this deletes the six sample blocks and leaves the comments.
-    common::delete_blocks(store, &sample, "test").await;
+    common::delete_blocks(store, &blocks_to_insert[..SUBTREE_SAMPLE.len()], user_id).await;
     test.teardown().await;
 }
 
-/// `testGetBlockMetadata`. Despite the name it tests the history of a board's blocks,
-/// and needs nothing but blocks.
+/// `testGetBlockMetadata`. Despite the name it tests the history of a board's blocks.
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
@@ -1081,24 +1257,29 @@ async fn duplicate_block() {
 async fn get_block_metadata() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = TEST_BOARD_ID;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
+    let user_id = user_id.as_str();
     let ascending = HistoryQuery::default();
     let descending = HistoryQuery {
         order: HistoryOrder::Descending,
         ..HistoryQuery::default()
     };
 
-    let mut blocks_to_insert = typed_sample_blocks();
+    let mut blocks_to_insert = typed_sample_blocks(board_id);
     for block in &mut blocks_to_insert {
         // The original sleeps 20 ms here. Unlike its 1 ms sleeps this one matters to the
         // test: the subtests on `update_at` bounds below need every block to have a later
         // modification time than the one before, and that time is the wall clock in
         // milliseconds.
         tokio::time::sleep(Duration::from_millis(2)).await;
-        common::insert_blocks(store, std::slice::from_mut(block), TEST_USER_ID).await;
+        common::insert_blocks(store, std::slice::from_mut(block), user_id).await;
     }
     let first_id = blocks_to_insert[0].id.as_str();
     let last_id = blocks_to_insert[blocks_to_insert.len() - 1].id.as_str();
+    let block3_id = id_of(&blocks_to_insert, "block3");
 
     // "get full block history"
     let blocks = board_history(store, board_id, &ascending).await;
@@ -1137,7 +1318,7 @@ async fn get_block_metadata() {
     assert_eq!(blocks[0].id, last_id, "the newest record is the first");
 
     // "get block history after updateAt"
-    let third = existing_block(store, "block3").await;
+    let third = existing_block(store, block3_id).await;
     assert_ne!(third.update_at, 0, "the block has a modification time");
     let query = HistoryQuery {
         after_update_at: Some(third.update_at),
@@ -1155,7 +1336,7 @@ async fn get_block_metadata() {
     );
 
     // "get block history before updateAt"
-    let third = existing_block(store, "block3").await;
+    let third = existing_block(store, block3_id).await;
     assert_ne!(third.update_at, 0, "the block has a modification time");
     let query = HistoryQuery {
         before_update_at: Some(third.update_at),
@@ -1175,7 +1356,7 @@ async fn get_block_metadata() {
     // "get full block history after delete"
     // This deletes `block1` and the three blocks that have `block1` as parent.
     store
-        .delete_block(first_id, TEST_USER_ID)
+        .delete_block(first_id, user_id)
         .await
         .expect("block1 is deleted");
     let blocks = board_history(store, board_id, &descending).await;
@@ -1189,7 +1370,7 @@ async fn get_block_metadata() {
     // "get full block history after undelete"
     // This undeletes `block1` and its children.
     store
-        .undelete_block(first_id, TEST_USER_ID)
+        .undelete_block(first_id, user_id)
         .await
         .expect("block1 is undeleted");
     let blocks = board_history(store, board_id, &descending).await;
@@ -1201,17 +1382,20 @@ async fn get_block_metadata() {
     );
 
     // "get block history of a board with no history"
-    let blocks = board_history(store, "nonexistent-board-id", &HistoryQuery::default()).await;
-    assert!(
-        blocks.is_empty(),
-        "a board without blocks has no history: {blocks:?}"
-    );
+    // An identifier that no board has, and the original's text, which is not even one.
+    for missing_board in [new_id().as_str(), "nonexistent-board-id"] {
+        let blocks = board_history(store, missing_board, &HistoryQuery::default()).await;
+        assert!(
+            blocks.is_empty(),
+            "the missing board {missing_board} has no history: {blocks:?}"
+        );
+    }
 
-    common::delete_blocks(store, &blocks_to_insert, "test").await;
+    common::delete_blocks(store, &blocks_to_insert, user_id).await;
     test.teardown().await;
 }
 
-/// `testUndeleteBlockChildren`, as far as it goes without the boards area.
+/// `testUndeleteBlockChildren`.
 #[tokio::test]
 #[expect(
     clippy::too_many_lines,
@@ -1220,9 +1404,11 @@ async fn get_block_metadata() {
 async fn undelete_block_children() {
     let test = common::setup().await;
     let store = &test.store;
-    let user_id = TEST_USER_ID;
+    let user_id = common::user(store, "test-user").await;
+    let user_id = user_id.as_str();
+    let team_id = common::team(store).await;
 
-    let boards = common::create_test_boards(store, TEST_TEAM_ID, user_id, 2).await;
+    let boards = common::create_test_boards(store, &team_id, user_id, 2).await;
     let board_delete_id = boards[0].id.clone();
     let board_keep_id = boards[1].id.clone();
 
@@ -1246,7 +1432,7 @@ async fn undelete_block_children() {
     };
 
     store
-        .delete_block(&deleted_card.id, TEST_USER_ID)
+        .delete_block(&deleted_card.id, user_id)
         .await
         .expect("the card is deleted");
 
@@ -1279,7 +1465,7 @@ async fn undelete_block_children() {
     );
 
     store
-        .undelete_block(&deleted_card.id, TEST_USER_ID)
+        .undelete_block(&deleted_card.id, user_id)
         .await
         .expect("the card is undeleted");
 
@@ -1299,7 +1485,7 @@ async fn undelete_block_children() {
 
     // "undelete block children for board"
     store
-        .delete_board(&board_delete_id, TEST_USER_ID)
+        .delete_board(&board_delete_id, user_id)
         .await
         .expect("the board is deleted");
 
@@ -1332,7 +1518,7 @@ async fn undelete_block_children() {
     );
 
     store
-        .undelete_board(&board_delete_id, TEST_USER_ID)
+        .undelete_board(&board_delete_id, user_id)
         .await
         .expect("the board is undeleted");
 
@@ -1359,56 +1545,102 @@ async fn undelete_block_children() {
 // `testGetBlockHistoryNewestChildren` has no counterpart: no code of the standalone server
 // calls `GetBlockHistoryNewestChildren`, so the store does not have it.
 
-/// The writes of one task of [`concurrent_writers_on_one_board_all_succeed`]: per round,
-/// four writes and one read. On failure, says which operation failed.
-async fn write_rounds(
+/// One task of [`concurrent_writers_on_one_board_all_succeed`].
+struct Writer {
     store: Store,
-    board_id: &'static str,
     task: usize,
-    rounds: usize,
-) -> Result<(), String> {
-    let user_id = format!("user-{task}");
-    let failed = |round: usize, operation: &str, error: StoreError| {
-        format!("task {task}, round {round}: {operation} failed: {error:?}")
-    };
+    /// The user the task writes as.
+    user_id: String,
+    board_id: String,
+    /// The block that every task patches.
+    shared_id: String,
+    /// The block the task inserts in each of its rounds.
+    own_ids: Vec<String>,
+}
 
-    for round in 0..rounds {
-        let own_id = format!("task-{task}-round-{round}");
-        let mut own = Block {
-            parent_id: "shared".to_owned(),
-            block_type: BlockType::Text,
-            ..block(&own_id, board_id)
+impl Writer {
+    /// Per round, four writes and one read. On failure, says which operation failed.
+    async fn write_rounds(self) -> Result<(), String> {
+        let Self {
+            store,
+            task,
+            user_id,
+            board_id,
+            shared_id,
+            own_ids,
+        } = self;
+        let failed = |round: usize, operation: &str, error: StoreError| {
+            format!("task {task}, round {round}: {operation} failed: {error:?}")
         };
-        store
-            .insert_block(&mut own, &user_id)
-            .await
-            .map_err(|error| failed(round, "insert", error))?;
-        store
-            .patch_block(&own_id, &title_patch("patched"), &user_id)
-            .await
-            .map_err(|error| failed(round, "patch", error))?;
-        let shared_title = format!("task {task}, round {round}");
-        store
-            .patch_block("shared", &title_patch(&shared_title), &user_id)
-            .await
-            .map_err(|error| failed(round, "patch of the shared block", error))?;
-        store
-            .get_subtree(board_id, "shared", &SubtreeQuery::default())
-            .await
-            .map_err(|error| failed(round, "read", error))?;
-        if round % 2 == 0 {
+
+        for (round, own_id) in own_ids.iter().enumerate() {
+            let mut own = Block {
+                parent_id: shared_id.clone(),
+                block_type: BlockType::Text,
+                ..block(own_id, &board_id)
+            };
             store
-                .delete_block(&own_id, &user_id)
+                .insert_block(&mut own, &user_id)
                 .await
-                .map_err(|error| failed(round, "delete", error))?;
-        } else {
+                .map_err(|error| failed(round, "insert", error))?;
             store
-                .patch_block(&own_id, &title_patch("kept"), &user_id)
+                .patch_block(own_id, &title_patch("patched"), &user_id)
                 .await
-                .map_err(|error| failed(round, "second patch", error))?;
+                .map_err(|error| failed(round, "patch", error))?;
+            let shared_title = format!("task {task}, round {round}");
+            store
+                .patch_block(&shared_id, &title_patch(&shared_title), &user_id)
+                .await
+                .map_err(|error| failed(round, "patch of the shared block", error))?;
+            store
+                .get_subtree(&board_id, &shared_id, &SubtreeQuery::default())
+                .await
+                .map_err(|error| failed(round, "read", error))?;
+            if round % 2 == 0 {
+                store
+                    .delete_block(own_id, &user_id)
+                    .await
+                    .map_err(|error| failed(round, "delete", error))?;
+            } else {
+                store
+                    .patch_block(own_id, &title_patch("kept"), &user_id)
+                    .await
+                    .map_err(|error| failed(round, "second patch", error))?;
+            }
         }
+        Ok(())
     }
-    Ok(())
+}
+
+/// Checks the blocks one task of [`concurrent_writers_on_one_board_all_succeed`] wrote
+/// against the blocks and the history of the board afterwards: every block has three
+/// records, and its last one says whether the block was deleted.
+fn assert_blocks_of_a_writer_add_up(
+    task: usize,
+    own_ids: &[String],
+    blocks: &[Block],
+    history: &[Block],
+) {
+    for (round, own_id) in own_ids.iter().enumerate() {
+        let own_history: Vec<&Block> = history.iter().filter(|block| &block.id == own_id).collect();
+        assert_eq!(
+            own_history.len(),
+            3,
+            "the block of task {task}, round {round} was written three times: {own_history:?}"
+        );
+        let deleted = own_history[2].delete_at != 0;
+        assert_eq!(
+            deleted,
+            round % 2 == 0,
+            "the newest record of the block of task {task}, round {round} says whether it \
+             was deleted"
+        );
+        assert_eq!(
+            common::contains_block_with_id(blocks, own_id),
+            !deleted,
+            "the block of task {task}, round {round} exists unless it was deleted"
+        );
+    }
 }
 
 /// Many tasks insert, patch and delete blocks of one board through clones of one store
@@ -1416,7 +1648,6 @@ async fn write_rounds(
 /// history must add up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_writers_on_one_board_all_succeed() {
-    const BOARD_ID: &str = "board-concurrent";
     const TASKS: usize = 16;
     /// Four writes per round, so twenty writes per task.
     const ROUNDS: usize = 5;
@@ -1425,20 +1656,43 @@ async fn concurrent_writers_on_one_board_all_succeed() {
 
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
 
     // One block that every task patches, so that writes to the same block race too.
+    let shared_id = new_id();
     let mut shared = Block {
         block_type: BlockType::Card,
-        ..block("shared", BOARD_ID)
+        ..block(&shared_id, board_id)
     };
     store
-        .insert_block(&mut shared, TEST_USER_ID)
+        .insert_block(&mut shared, &user_id)
         .await
         .expect("the shared block is inserted");
 
-    let mut writers = JoinSet::new();
+    // Every task writes as a user of its own, and its blocks have their identifiers
+    // before it starts, so that the test can look for them afterwards.
+    let mut writer_ids = Vec::with_capacity(TASKS);
     for task in 0..TASKS {
-        writers.spawn(write_rounds(store.clone(), BOARD_ID, task, ROUNDS));
+        writer_ids.push(common::user(store, &format!("writer-{task}")).await);
+    }
+    let own_ids: Vec<Vec<String>> = (0..TASKS)
+        .map(|_| (0..ROUNDS).map(|_| new_id()).collect())
+        .collect();
+
+    let mut writers = JoinSet::new();
+    for (task, (user_id, own_ids)) in writer_ids.into_iter().zip(&own_ids).enumerate() {
+        let writer = Writer {
+            store: store.clone(),
+            task,
+            user_id,
+            board_id: board_id.to_owned(),
+            shared_id: shared_id.clone(),
+            own_ids: own_ids.clone(),
+        };
+        writers.spawn(writer.write_rounds());
     }
     while let Some(joined) = writers.join_next().await {
         let outcome = joined.expect("a writer task runs to its end");
@@ -1446,14 +1700,14 @@ async fn concurrent_writers_on_one_board_all_succeed() {
     }
 
     // The blocks: the shared one and, per task, those of the rounds that did not delete.
-    let blocks = board_blocks(store, BOARD_ID).await;
+    let blocks = board_blocks(store, board_id).await;
     assert_eq!(
         blocks.len(),
         1 + TASKS * (ROUNDS - DELETING_ROUNDS),
         "the shared block and the surviving blocks of every task: {:?}",
         common::sorted_ids(&blocks)
     );
-    for block in blocks.iter().filter(|block| block.id != "shared") {
+    for block in blocks.iter().filter(|block| block.id != shared_id) {
         assert_eq!(
             block.title, "kept",
             "block {} survives with its last patch",
@@ -1462,14 +1716,14 @@ async fn concurrent_writers_on_one_board_all_succeed() {
     }
 
     // The history: one record per write.
-    let history = board_history(store, BOARD_ID, &HistoryQuery::default()).await;
+    let history = board_history(store, board_id, &HistoryQuery::default()).await;
     assert_eq!(
         history.len(),
         1 + TASKS * ROUNDS * 4,
         "one history record for the shared block's insert and one per write of every task"
     );
     let shared_history = store
-        .get_block_history("shared", &HistoryQuery::default())
+        .get_block_history(&shared_id, &HistoryQuery::default())
         .await
         .expect("the history of the shared block is read");
     assert_eq!(
@@ -1479,7 +1733,7 @@ async fn concurrent_writers_on_one_board_all_succeed() {
     );
 
     // The shared block is in the state of its newest history record.
-    let shared = existing_block(store, "shared").await;
+    let shared = existing_block(store, &shared_id).await;
     let newest = shared_history
         .last()
         .expect("the shared block has a history");
@@ -1489,30 +1743,8 @@ async fn concurrent_writers_on_one_board_all_succeed() {
         "the shared block matches its newest history record"
     );
 
-    // Every block a task wrote has three records, and its last one says whether the
-    // block was deleted.
-    for task in 0..TASKS {
-        for round in 0..ROUNDS {
-            let own_id = format!("task-{task}-round-{round}");
-            let own_history: Vec<&Block> =
-                history.iter().filter(|block| block.id == own_id).collect();
-            assert_eq!(
-                own_history.len(),
-                3,
-                "block {own_id} was written three times: {own_history:?}"
-            );
-            let deleted = own_history[2].delete_at != 0;
-            assert_eq!(
-                deleted,
-                round % 2 == 0,
-                "the newest record of block {own_id} says whether it was deleted"
-            );
-            assert_eq!(
-                common::contains_block_with_id(&blocks, &own_id),
-                !deleted,
-                "block {own_id} exists unless it was deleted"
-            );
-        }
+    for (task, own_ids) in own_ids.iter().enumerate() {
+        assert_blocks_of_a_writer_add_up(task, own_ids, &blocks, &history);
     }
 
     test.teardown().await;
@@ -1523,14 +1755,18 @@ async fn concurrent_writers_on_one_board_all_succeed() {
 async fn assert_rapid_writes_get_a_history_record_each(store: &Store) {
     const UPDATES: usize = 200;
 
-    let board_id = "board-rapid";
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let user_id = user_id.as_str();
 
+    let rapid_id = new_id();
     let mut rapid = Block {
         title: "write 0".to_owned(),
-        ..block("rapid", board_id)
+        ..block(&rapid_id, &board_id)
     };
     store
-        .insert_block(&mut rapid, TEST_USER_ID)
+        .insert_block(&mut rapid, user_id)
         .await
         .expect("the block is inserted");
 
@@ -1540,19 +1776,19 @@ async fn assert_rapid_writes_get_a_history_record_each(store: &Store) {
         if write % 2 == 0 {
             rapid.title = title;
             store
-                .insert_block(&mut rapid, TEST_USER_ID)
+                .insert_block(&mut rapid, user_id)
                 .await
                 .unwrap_or_else(|error| panic!("update {write} should succeed: {error:?}"));
         } else {
             store
-                .patch_block("rapid", &title_patch(&title), TEST_USER_ID)
+                .patch_block(&rapid_id, &title_patch(&title), user_id)
                 .await
                 .unwrap_or_else(|error| panic!("patch {write} should succeed: {error:?}"));
         }
     }
 
     let history = store
-        .get_block_history("rapid", &HistoryQuery::default())
+        .get_block_history(&rapid_id, &HistoryQuery::default())
         .await
         .expect("the history is read");
     let titles: Vec<&str> = history.iter().map(|block| block.title.as_str()).collect();
@@ -1567,16 +1803,16 @@ async fn assert_rapid_writes_get_a_history_record_each(store: &Store) {
     // Deleting and undeleting write history records too.
     for round in 0..10 {
         store
-            .delete_block("rapid", TEST_USER_ID)
+            .delete_block(&rapid_id, user_id)
             .await
             .unwrap_or_else(|error| panic!("delete {round} should succeed: {error:?}"));
         store
-            .undelete_block("rapid", TEST_USER_ID)
+            .undelete_block(&rapid_id, user_id)
             .await
             .unwrap_or_else(|error| panic!("undelete {round} should succeed: {error:?}"));
     }
     let history = store
-        .get_block_history("rapid", &HistoryQuery::default())
+        .get_block_history(&rapid_id, &HistoryQuery::default())
         .await
         .expect("the history is read");
     assert_eq!(
@@ -1637,20 +1873,24 @@ async fn one_batch_writing_a_block_many_times_never_collides_in_history() {
 
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
 
+    let batched_id = new_id();
     let mut batch: Vec<Block> = (0..WRITES)
         .map(|write| Block {
             title: format!("write {write}"),
-            ..block("batched", "board-batch")
+            ..block(&batched_id, &board_id)
         })
         .collect();
     store
-        .insert_blocks(&mut batch, TEST_USER_ID)
+        .insert_blocks(&mut batch, &user_id)
         .await
         .expect("a batch may write one block many times");
 
     let history = store
-        .get_block_history("batched", &HistoryQuery::default())
+        .get_block_history(&batched_id, &HistoryQuery::default())
         .await
         .expect("the history is read");
     assert_eq!(history.len(), WRITES, "one history record per write");
@@ -1661,7 +1901,7 @@ async fn one_batch_writing_a_block_many_times_never_collides_in_history() {
             "history record {write} is that of write {write}"
         );
     }
-    let stored = existing_block(store, "batched").await;
+    let stored = existing_block(store, &batched_id).await;
     assert_eq!(
         stored.title,
         format!("write {}", WRITES - 1),
@@ -1676,11 +1916,15 @@ async fn one_batch_writing_a_block_many_times_never_collides_in_history() {
 async fn get_blocks_by_ids_wants_one_block_per_identifier() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
 
-    let mut sample = typed_sample_blocks();
-    common::insert_blocks(store, &mut sample, TEST_USER_ID).await;
+    let mut sample = typed_sample_blocks(&board_id);
+    common::insert_blocks(store, &mut sample, &user_id).await;
+    let block1_id = id_of(&sample, "block1");
 
-    let all = ids(["block1", "block2", "block3", "block4", "block5"]);
+    let all = common::sorted_ids(&sample);
     let blocks = store
         .get_blocks_by_ids(&all)
         .await
@@ -1701,26 +1945,29 @@ async fn get_blocks_by_ids_wants_one_block_per_identifier() {
         blocks.len()
     );
 
-    let asked = ids(["block1", "missing"]);
-    let error = store
-        .get_blocks_by_ids(&asked)
-        .await
-        .expect_err("one block is missing");
-    match &error {
-        StoreError::NotAllFound { entity, ids } => {
-            assert_eq!(*entity, "block", "the error names the kind of record");
-            assert_eq!(ids, &asked, "the error names the identifiers asked for");
+    // An identifier that no block has, and text that is not even one.
+    for missing in [new_id().as_str(), "missing"] {
+        let asked = strings([block1_id, missing]);
+        let error = store
+            .get_blocks_by_ids(&asked)
+            .await
+            .expect_err("one block is missing");
+        match &error {
+            StoreError::NotAllFound { entity, ids } => {
+                assert_eq!(*entity, "block", "the error names the kind of record");
+                assert_eq!(ids, &asked, "the error names the identifiers asked for");
+            }
+            other => panic!("expected a not-all-found error, got {other:?}"),
         }
-        other => panic!("expected a not-all-found error, got {other:?}"),
+        assert!(
+            error.is_not_found(),
+            "the error counts as not found: {error:?}"
+        );
     }
-    assert!(
-        error.is_not_found(),
-        "the error counts as not found: {error:?}"
-    );
 
     // Preserved quirk: the same identifier twice finds one block for two identifiers.
     let error = store
-        .get_blocks_by_ids(&ids(["block1", "block1"]))
+        .get_blocks_by_ids(&strings([block1_id, block1_id]))
         .await
         .expect_err("one block for two identifiers is not all found");
     assert!(
@@ -1736,9 +1983,11 @@ async fn get_blocks_by_ids_wants_one_block_per_identifier() {
 async fn get_blocks_pages_the_result() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = new_id(IdKind::Board);
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
 
-    let cards = create_test_cards(store, TEST_USER_ID, &board_id, 5).await;
+    let cards = create_test_cards(store, &user_id, &board_id, 5).await;
     create_test_blocks_for_card(store, &cards[0].id, 3).await;
     let card_ids: BTreeSet<String> = cards.iter().map(|card| card.id.clone()).collect();
 
@@ -1796,26 +2045,32 @@ async fn get_blocks_pages_the_result() {
 async fn get_blocks_does_not_filter_by_the_empty_or_the_unknown_type() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
 
-    let mut sample = typed_sample_blocks();
-    sample.push(typed_block("typeless", "", ""));
-    sample.push(typed_block("unknown-typed", "", "unknown"));
-    common::insert_blocks(store, &mut sample, TEST_USER_ID).await;
+    let specs = [
+        &TYPED_SAMPLE[..],
+        &[("typeless", "", ""), ("unknown-typed", "", "unknown")],
+    ]
+    .concat();
+    let mut sample = named_blocks(&board_id, &specs);
+    common::insert_blocks(store, &mut sample, &user_id).await;
 
     for block_type in ["", "unknown"] {
-        let filter = BlockFilter::board(TEST_BOARD_ID).with_type(BlockType::from(block_type));
+        let filter = BlockFilter::board(&board_id).with_type(BlockType::from(block_type));
         let blocks = store.get_blocks(&filter).await.expect("the query runs");
         assert_eq!(
             blocks.len(),
             7,
             "the type {block_type:?} selects every block of the board: {:?}",
-            common::sorted_ids(&blocks)
+            sorted_names(&blocks)
         );
 
-        let filter = filter.with_parent("block1");
+        let filter = filter.with_parent(id_of(&sample, "block1"));
         let blocks = store.get_blocks(&filter).await.expect("the query runs");
         assert_eq!(
-            common::sorted_ids(&blocks),
+            sorted_names(&blocks),
             ["block2", "block3", "block4"],
             "the type {block_type:?} leaves the other filters in force"
         );
@@ -1829,29 +2084,35 @@ async fn get_blocks_does_not_filter_by_the_empty_or_the_unknown_type() {
 async fn patch_blocks_with_more_ids_than_patches_changes_nothing() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = "board-batch";
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
+    let user_id = user_id.as_str();
 
+    let first_id = new_id();
+    let second_id = new_id();
     let mut blocks = [
         Block {
             title: "first".to_owned(),
-            ..block("first", board_id)
+            ..block(&first_id, board_id)
         },
         Block {
             title: "second".to_owned(),
-            ..block("second", board_id)
+            ..block(&second_id, board_id)
         },
     ];
     store
-        .insert_blocks(&mut blocks, TEST_USER_ID)
+        .insert_blocks(&mut blocks, user_id)
         .await
         .expect("the blocks are inserted");
 
     let batch = BlockPatchBatch {
-        block_ids: ids(["first", "second"]),
+        block_ids: strings([&first_id, &second_id]),
         block_patches: vec![title_patch("patched")],
     };
     let error = store
-        .patch_blocks(&batch, TEST_USER_ID)
+        .patch_blocks(&batch, user_id)
         .await
         .expect_err("the second identifier has no patch");
     assert!(
@@ -1862,7 +2123,7 @@ async fn patch_blocks_with_more_ids_than_patches_changes_nothing() {
         "expected a mismatch error, got {error:?}"
     );
 
-    let first = existing_block(store, "first").await;
+    let first = existing_block(store, &first_id).await;
     assert_eq!(
         first.title, "first",
         "the patch of the first block was rolled back"
@@ -1876,16 +2137,16 @@ async fn patch_blocks_with_more_ids_than_patches_changes_nothing() {
 
     // More patches than identifiers is fine: the surplus is ignored, as in the original.
     let batch = BlockPatchBatch {
-        block_ids: ids(["first"]),
+        block_ids: strings([&first_id]),
         block_patches: vec![title_patch("patched"), title_patch("ignored")],
     };
     store
-        .patch_blocks(&batch, TEST_USER_ID)
+        .patch_blocks(&batch, user_id)
         .await
         .expect("surplus patches are ignored");
-    let first = existing_block(store, "first").await;
+    let first = existing_block(store, &first_id).await;
     assert_eq!(first.title, "patched", "the first block is patched");
-    let second = existing_block(store, "second").await;
+    let second = existing_block(store, &second_id).await;
     assert_eq!(second.title, "second", "the second block is untouched");
 
     test.teardown().await;
@@ -1896,29 +2157,33 @@ async fn patch_blocks_with_more_ids_than_patches_changes_nothing() {
 async fn delete_block_of_a_missing_block_writes_nothing() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
 
-    let mut sample = three_blocks();
-    common::insert_blocks(store, &mut sample, TEST_USER_ID).await;
+    let mut sample = three_blocks(&board_id);
+    common::insert_blocks(store, &mut sample, &user_id).await;
 
+    let missing = new_id();
     store
-        .delete_block("missing", TEST_USER_ID)
+        .delete_block(&missing, &user_id)
         .await
         .expect("deleting a missing block succeeds");
 
-    let blocks = board_blocks(store, TEST_BOARD_ID).await;
+    let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
-        common::sorted_ids(&blocks),
+        sorted_names(&blocks),
         ["block1", "block2", "block3"],
         "the blocks that exist are untouched"
     );
-    let history = board_history(store, TEST_BOARD_ID, &HistoryQuery::default()).await;
+    let history = board_history(store, &board_id, &HistoryQuery::default()).await;
     assert_eq!(
         history.len(),
         3,
         "only the three inserts are in the history: {history:?}"
     );
     let missing_history = store
-        .get_block_history("missing", &HistoryQuery::default())
+        .get_block_history(&missing, &HistoryQuery::default())
         .await
         .expect("the history is read");
     assert!(
@@ -1934,33 +2199,33 @@ async fn delete_block_of_a_missing_block_writes_nothing() {
 async fn undelete_block_of_a_block_that_is_not_deleted_writes_nothing() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let creator_id = common::user(store, "creator").await;
+    let someone_else_id = common::user(store, "someone-else").await;
 
-    let mut parent = block("parent", TEST_BOARD_ID);
-    store
-        .insert_block(&mut parent, "creator")
-        .await
-        .expect("the block is inserted");
     // A deleted child, which undeleting the parent would restore if it did anything.
-    let mut child = typed_block("child", "parent", "text");
+    let mut sample = named_blocks(
+        &board_id,
+        &[("parent", "", ""), ("child", "parent", "text")],
+    );
+    common::insert_blocks(store, &mut sample, &creator_id).await;
+    let parent_id = id_of(&sample, "parent");
+    let child_id = id_of(&sample, "child");
     store
-        .insert_block(&mut child, "creator")
-        .await
-        .expect("the child is inserted");
-    store
-        .delete_block("child", "creator")
+        .delete_block(child_id, &creator_id)
         .await
         .expect("the child is deleted");
-    let before = existing_block(store, "parent").await;
+    let before = existing_block(store, parent_id).await;
 
     store
-        .undelete_block("parent", "someone-else")
+        .undelete_block(parent_id, &someone_else_id)
         .await
         .expect("undeleting a block that is not deleted succeeds");
 
-    let after = existing_block(store, "parent").await;
+    let after = existing_block(store, parent_id).await;
     assert_eq!(after, before, "the block is untouched");
-    assert_no_block(store, "child").await;
-    let history = board_history(store, TEST_BOARD_ID, &HistoryQuery::default()).await;
+    assert_no_block(store, child_id).await;
+    let history = board_history(store, &board_id, &HistoryQuery::default()).await;
     assert_eq!(
         history.len(),
         3,
@@ -1970,44 +2235,57 @@ async fn undelete_block_of_a_block_that_is_not_deleted_writes_nothing() {
     test.teardown().await;
 }
 
-/// Preserved quirk: a block may have the empty identifier, and deleting or undeleting it
-/// takes every block of its board along, not only its children
-/// (`server/services/store/sqlstore/blocks.go:450`, `:522`, `:929`, `:1017`).
+/// The original lets a block have the empty identifier, and deleting or undeleting that
+/// block takes every block of its board along, not only its children
+/// (`server/services/store/sqlstore/blocks.go:450`, `:522`, `:929`, `:1017`). Here the
+/// empty string is no identifier: no block is stored under it, and deleting or
+/// undeleting it touches nothing.
 #[tokio::test]
-async fn deleting_the_block_with_the_empty_id_takes_its_whole_board_along() {
+async fn the_empty_id_names_no_block_and_deleting_it_leaves_its_board_alone() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let user_id = user_id.as_str();
 
-    let mut sample = subtree_sample_blocks();
-    sample.push(block("", TEST_BOARD_ID));
-    common::insert_blocks(store, &mut sample, TEST_USER_ID).await;
-    let mut other_board = block("elsewhere", "other-board");
-    store
-        .insert_block(&mut other_board, TEST_USER_ID)
-        .await
-        .expect("a block of another board is inserted");
+    let mut sample = subtree_sample_blocks(&board_id);
+    common::insert_blocks(store, &mut sample, user_id).await;
 
-    store
-        .delete_block("", TEST_USER_ID)
+    let mut without_id = block("", &board_id);
+    let error = store
+        .insert_block(&mut without_id, user_id)
         .await
-        .expect("the block with the empty identifier is deleted");
-    let blocks = board_blocks(store, TEST_BOARD_ID).await;
-    assert!(
-        blocks.is_empty(),
-        "every block of the board is gone, whatever its parent: {:?}",
-        common::sorted_ids(&blocks)
-    );
-    existing_block(store, "elsewhere").await;
+        .expect_err("a block is not stored under the empty identifier");
+    assert_invalid_id(&error, "");
+    assert_no_block(store, "").await;
 
     store
-        .undelete_block("", TEST_USER_ID)
+        .delete_block("", user_id)
         .await
-        .expect("the block with the empty identifier is undeleted");
-    let blocks = board_blocks(store, TEST_BOARD_ID).await;
+        .expect("deleting the block with the empty identifier succeeds");
+    let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
         common::sorted_ids(&blocks),
         common::sorted_ids(&sample),
-        "every block of the board is back"
+        "every block of the board is still there"
+    );
+
+    store
+        .undelete_block("", user_id)
+        .await
+        .expect("undeleting the block with the empty identifier succeeds");
+    let blocks = board_blocks(store, &board_id).await;
+    assert_eq!(
+        common::sorted_ids(&blocks),
+        common::sorted_ids(&sample),
+        "every block of the board is there once"
+    );
+    let history = board_history(store, &board_id, &HistoryQuery::default()).await;
+    assert_eq!(
+        history.len(),
+        sample.len(),
+        "only the inserts of the sample are in the history: {history:?}"
     );
 
     test.teardown().await;
@@ -2019,35 +2297,41 @@ async fn deleting_the_block_with_the_empty_id_takes_its_whole_board_along() {
 async fn insert_block_under_another_board_writes_only_history() {
     let test = common::setup().await;
     let store = &test.store;
+    let team_id = common::team(store).await;
+    let user_a = common::user(store, "user-a").await;
+    let user_b = common::user(store, "user-b").await;
+    let board_a = another_board(store, &team_id, &user_a).await;
+    let board_b = another_board(store, &team_id, &user_b).await;
 
+    let moving_id = new_id();
     let mut original = Block {
         title: "original".to_owned(),
-        ..block("moving", "board-a")
+        ..block(&moving_id, &board_a)
     };
     store
-        .insert_block(&mut original, "user-a")
+        .insert_block(&mut original, &user_a)
         .await
         .expect("the block is inserted");
-    let before = existing_block(store, "moving").await;
+    let before = existing_block(store, &moving_id).await;
 
     let mut moved = Block {
         title: "moved".to_owned(),
-        ..block("moving", "board-b")
+        ..block(&moving_id, &board_b)
     };
     store
-        .insert_block(&mut moved, "user-b")
+        .insert_block(&mut moved, &user_b)
         .await
         .expect("writing the block under another board succeeds");
 
-    let after = existing_block(store, "moving").await;
+    let after = existing_block(store, &moving_id).await;
     assert_eq!(after, before, "the block is untouched");
-    let blocks = board_blocks(store, "board-b").await;
+    let blocks = board_blocks(store, &board_b).await;
     assert!(
         blocks.is_empty(),
         "the other board did not get the block: {blocks:?}"
     );
     let history = store
-        .get_block_history("moving", &HistoryQuery::default())
+        .get_block_history(&moving_id, &HistoryQuery::default())
         .await
         .expect("the history is read");
     let records: Vec<(&str, &str, &str)> = history
@@ -2063,8 +2347,8 @@ async fn insert_block_under_another_board_writes_only_history() {
     assert_eq!(
         records,
         [
-            ("board-a", "original", "user-a"),
-            ("board-b", "moved", "user-b")
+            (board_a.as_str(), "original", user_a.as_str()),
+            (board_b.as_str(), "moved", user_b.as_str())
         ],
         "the write that changed nothing is in the history all the same"
     );
@@ -2079,29 +2363,33 @@ async fn insert_block_under_another_board_writes_only_history() {
 async fn the_history_record_of_an_update_names_the_updater_as_creator() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let creator_id = common::user(store, "creator").await;
+    let updater_id = common::user(store, "updater").await;
 
-    let mut block = block("updated", TEST_BOARD_ID);
+    let block_id = new_id();
+    let mut block = block(&block_id, &board_id);
     store
-        .insert_block(&mut block, "creator")
+        .insert_block(&mut block, &creator_id)
         .await
         .expect("the block is inserted");
-    let created = existing_block(store, "updated").await;
+    let created = existing_block(store, &block_id).await;
 
     // A later millisecond, so that the two times can be told apart.
     tokio::time::sleep(Duration::from_millis(2)).await;
     store
-        .patch_block("updated", &title_patch("new title"), "updater")
+        .patch_block(&block_id, &title_patch("new title"), &updater_id)
         .await
         .expect("the block is updated");
 
-    let updated = existing_block(store, "updated").await;
+    let updated = existing_block(store, &block_id).await;
     assert_eq!(
         (updated.created_by.as_str(), updated.create_at),
-        ("creator", created.create_at),
+        (creator_id.as_str(), created.create_at),
         "the block keeps its creator and creation time"
     );
     assert_eq!(
-        updated.modified_by, "updater",
+        updated.modified_by, updater_id,
         "the block has a new modifier"
     );
     assert!(
@@ -2112,14 +2400,14 @@ async fn the_history_record_of_an_update_names_the_updater_as_creator() {
     );
 
     let history = store
-        .get_block_history("updated", &HistoryQuery::default())
+        .get_block_history(&block_id, &HistoryQuery::default())
         .await
         .expect("the history is read");
     assert_eq!(history.len(), 2, "an insert and an update: {history:?}");
     let record = &history[1];
     assert_eq!(
         (record.created_by.as_str(), record.modified_by.as_str()),
-        ("updater", "updater"),
+        (updater_id.as_str(), updater_id.as_str()),
         "the record of the update names the updater as creator too"
     );
     assert_eq!(
@@ -2132,61 +2420,60 @@ async fn the_history_record_of_an_update_names_the_updater_as_creator() {
 }
 
 /// Deleting an image or an attachment, or a card that holds one, succeeds and marks the
-/// file as deleted. The original fails to delete such blocks when it runs standalone,
-/// because it updates a table that only its host application has
-/// (`server/services/store/sqlstore/blocks.go:429`, `:986`).
+/// file as deleted: the record its board has under the name in the block. The original
+/// fails to delete such blocks when it runs standalone, because it updates a table that
+/// only its host application has (`server/services/store/sqlstore/blocks.go:429`, `:986`).
 #[tokio::test]
 async fn deleting_blocks_that_hold_files_marks_the_files_deleted() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = new_id(IdKind::Board);
+    let Fixture {
+        user_id,
+        team_id,
+        board_id,
+    } = fixture(store).await;
+    let board_id = board_id.as_str();
+    let user_id = user_id.as_str();
 
-    // The blocks area has no operation for file infos, so their rows are written and
-    // checked on SQLite only; on PostgreSQL the test checks that the deletions work.
-    let mut raw = match common::db_type() {
-        DbType::Sqlite => Some(sqlite_connection(&test).await),
-        DbType::Postgres => None,
-    };
-    if let Some(raw) = &mut raw {
-        insert_file_infos(raw, ["direct", "image", "attachment", "untouched"]).await;
+    // A block names its file by the name the file is stored under.
+    for stored_name in ["direct.png", "image.png", "attachment.pdf", "untouched.png"] {
+        save_file(store, board_id, stored_name).await;
     }
+    // Another board has a file under the name of one that is deleted here.
+    let other_board_id = another_board(store, &team_id, user_id).await;
+    save_file(store, &other_board_id, "direct.png").await;
 
-    // A file name in a block is `7`, the identifier of the file info, and an extension.
-    let cards = create_test_cards(store, TEST_USER_ID, &board_id, 2).await;
+    let cards = create_test_cards(store, user_id, board_id, 2).await;
     let mut blocks: Vec<Block> = [
-        ("direct", 0, "image", "fileId", "7direct.png"),
-        ("image", 1, "image", "fileId", "7image.png"),
-        (
-            "attachment",
-            1,
-            "attachment",
-            "attachmentId",
-            "7attachment.pdf",
-        ),
-        ("kept", 0, "image", "fileId", "7untouched.png"),
+        (0, "image", "fileId", "direct.png"),
+        (1, "image", "fileId", "image.png"),
+        (1, "attachment", "attachmentId", "attachment.pdf"),
+        (0, "image", "fileId", "untouched.png"),
     ]
     .into_iter()
-    .map(|(id, card, block_type, field, file_name)| Block {
+    .map(|(card, block_type, field, stored_name)| Block {
         parent_id: cards[card].id.clone(),
         block_type: BlockType::from(block_type),
-        fields: fields(json!({ field: file_name })),
-        ..block(id, &board_id)
+        fields: fields(json!({ field: stored_name })),
+        ..block(&new_id(), board_id)
     })
     .collect();
-    common::insert_blocks(store, &mut blocks, TEST_USER_ID).await;
+    common::insert_blocks(store, &mut blocks, user_id).await;
+    let direct_id = blocks[0].id.as_str();
+    let kept_id = blocks[3].id.as_str();
 
     // An image on its own, then a card with an image and an attachment.
     store
-        .delete_block("direct", TEST_USER_ID)
+        .delete_block(direct_id, user_id)
         .await
         .expect("an image block is deleted");
     store
-        .delete_block(&cards[1].id, TEST_USER_ID)
+        .delete_block(&cards[1].id, user_id)
         .await
         .expect("a card that holds files is deleted");
 
-    let left = board_blocks(store, &board_id).await;
-    let mut expected_left = vec![cards[0].id.clone(), "kept".to_owned()];
+    let left = board_blocks(store, board_id).await;
+    let mut expected_left = strings([&cards[0].id, kept_id]);
     expected_left.sort();
     assert_eq!(
         common::sorted_ids(&left),
@@ -2194,16 +2481,23 @@ async fn deleting_blocks_that_hold_files_marks_the_files_deleted() {
         "the first card and its remaining image are left"
     );
 
-    if let Some(mut raw) = raw {
+    for (stored_name, deleted) in [
+        ("direct.png", true),
+        ("image.png", true),
+        ("attachment.pdf", true),
+        ("untouched.png", false),
+    ] {
         assert_eq!(
-            deleted_file_infos(&mut raw).await,
-            ["attachment", "direct", "image"],
-            "the files of the deleted blocks, and only those, are marked deleted"
+            file_is_deleted(store, board_id, stored_name).await,
+            deleted,
+            "the files of the deleted blocks, and only those, are marked deleted: \
+             {stored_name}"
         );
-        raw.close()
-            .await
-            .expect("the second connection closes cleanly");
     }
+    assert!(
+        !file_is_deleted(store, &other_board_id, "direct.png").await,
+        "the file another board has under the same name is not marked deleted"
+    );
 
     test.teardown().await;
 }
@@ -2213,26 +2507,29 @@ async fn deleting_blocks_that_hold_files_marks_the_files_deleted() {
 async fn get_subtree_applies_bounds_and_limit() {
     let test = common::setup().await;
     let store = &test.store;
-    let board_id = TEST_BOARD_ID;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
 
-    let mut sample = subtree_sample_blocks();
+    let mut sample = subtree_sample_blocks(&board_id);
     for block in &mut sample[..3] {
         // The bounds are on the modification time, which is the wall clock in
         // milliseconds; the three blocks of the subtree need three different ones.
         tokio::time::sleep(Duration::from_millis(2)).await;
-        common::insert_blocks(store, std::slice::from_mut(block), TEST_USER_ID).await;
+        common::insert_blocks(store, std::slice::from_mut(block), &user_id).await;
     }
     let child1_update_at = sample[1].update_at;
-    let subtree_ids = async |query: SubtreeQuery| -> Vec<String> {
+    let parent_id = id_of(&sample, "parent");
+    let subtree_names = async |query: SubtreeQuery| -> Vec<String> {
         let blocks = store
-            .get_subtree(board_id, "parent", &query)
+            .get_subtree(&board_id, parent_id, &query)
             .await
             .expect("the subtree is read");
-        blocks.into_iter().map(|block| block.id).collect()
+        blocks.into_iter().map(|block| block.title).collect()
     };
 
     assert_eq!(
-        subtree_ids(SubtreeQuery::default()).await,
+        subtree_names(SubtreeQuery::default()).await,
         ["parent", "child1", "child2"],
         "the whole subtree, oldest first"
     );
@@ -2241,7 +2538,7 @@ async fn get_subtree_applies_bounds_and_limit() {
         ..SubtreeQuery::default()
     };
     assert_eq!(
-        subtree_ids(query).await,
+        subtree_names(query).await,
         ["parent", "child1"],
         "blocks updated at or before the bound"
     );
@@ -2250,7 +2547,7 @@ async fn get_subtree_applies_bounds_and_limit() {
         ..SubtreeQuery::default()
     };
     assert_eq!(
-        subtree_ids(query).await,
+        subtree_names(query).await,
         ["child1", "child2"],
         "blocks updated at or after the bound"
     );
@@ -2259,7 +2556,7 @@ async fn get_subtree_applies_bounds_and_limit() {
         ..query
     };
     assert_eq!(
-        subtree_ids(query).await,
+        subtree_names(query).await,
         ["child1"],
         "the oldest block within the bounds"
     );
@@ -2272,6 +2569,11 @@ async fn get_subtree_applies_bounds_and_limit() {
 async fn get_block_counts_by_type_counts_existing_blocks() {
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id,
+        team_id,
+        board_id,
+    } = fixture(store).await;
 
     let counts = store
         .get_block_counts_by_type()
@@ -2279,21 +2581,22 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
         .expect("the counts are read");
     assert!(
         counts.is_empty(),
-        "an empty store has no counts: {counts:?}"
+        "a store without blocks has no counts: {counts:?}"
     );
 
-    let mut sample = typed_sample_blocks();
-    common::insert_blocks(store, &mut sample, TEST_USER_ID).await;
+    let mut sample = typed_sample_blocks(&board_id);
+    common::insert_blocks(store, &mut sample, &user_id).await;
+    let other_board_id = another_board(store, &team_id, &user_id).await;
     let mut other_board = Block {
         block_type: BlockType::from("test2"),
-        ..block("elsewhere", "other-board")
+        ..block(&new_id(), &other_board_id)
     };
     store
-        .insert_block(&mut other_board, TEST_USER_ID)
+        .insert_block(&mut other_board, &user_id)
         .await
         .expect("a block of another board is inserted");
     store
-        .delete_block("block5", TEST_USER_ID)
+        .delete_block(id_of(&sample, "block5"), &user_id)
         .await
         .expect("a block is deleted");
 
@@ -2312,7 +2615,7 @@ async fn get_block_counts_by_type_counts_existing_blocks() {
 }
 
 /// The original's SQLite driver stores the JSON of a block's fields as a blob, where this
-/// store writes text. A database written by the original must still be readable.
+/// store writes text. Fields that reached a database that way must still be readable.
 #[tokio::test]
 async fn sqlite_fields_stored_as_a_blob_are_read() {
     if common::db_type() != DbType::Sqlite {
@@ -2321,22 +2624,27 @@ async fn sqlite_fields_stored_as_a_blob_are_read() {
     }
     let test = common::setup().await;
     let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let user_id = user_id.as_str();
 
+    let card_id = new_id();
     let mut card = Block {
         block_type: BlockType::Card,
         fields: fields(json!({ "icon": "🎨", "contentOrder": ["a", ["b", "c"]] })),
-        ..block("card", TEST_BOARD_ID)
+        ..block(&card_id, &board_id)
     };
     store
-        .insert_block(&mut card, TEST_USER_ID)
+        .insert_block(&mut card, user_id)
         .await
         .expect("the card is inserted");
     store
-        .delete_block("card", TEST_USER_ID)
+        .delete_block(&card_id, user_id)
         .await
         .expect("the card is deleted");
     store
-        .undelete_block("card", TEST_USER_ID)
+        .undelete_block(&card_id, user_id)
         .await
         .expect("the card is undeleted");
 
@@ -2359,13 +2667,13 @@ async fn sqlite_fields_stored_as_a_blob_are_read() {
         .await
         .expect("the second connection closes cleanly");
 
-    let stored = existing_block(store, "card").await;
+    let stored = existing_block(store, &card_id).await;
     assert_eq!(
         stored.fields, card.fields,
         "the fields of a block are read from a blob"
     );
     let history = store
-        .get_block_history("card", &HistoryQuery::default())
+        .get_block_history(&card_id, &HistoryQuery::default())
         .await
         .expect("history records with blob fields are read");
     assert_eq!(history.len(), 3, "insert, delete and undelete: {history:?}");
@@ -2378,14 +2686,14 @@ async fn sqlite_fields_stored_as_a_blob_are_read() {
 
     // Deleting and undeleting copy the fields between the two tables.
     store
-        .delete_block("card", TEST_USER_ID)
+        .delete_block(&card_id, user_id)
         .await
         .expect("a block with blob fields is deleted");
     store
-        .undelete_block("card", TEST_USER_ID)
+        .undelete_block(&card_id, user_id)
         .await
         .expect("a block with blob fields is undeleted");
-    let restored = existing_block(store, "card").await;
+    let restored = existing_block(store, &card_id).await;
     assert_eq!(
         restored.fields, card.fields,
         "the fields survive a delete and an undelete"
@@ -2401,24 +2709,27 @@ async fn sqlite_fields_stored_as_a_blob_are_read() {
 async fn blocks_with_malformed_properties_are_not_stored() {
     let test = common::setup().await;
     let store = &test.store;
-    let block = |id: &str, properties: Value| {
-        let mut block = Block {
-            id: id.to_owned(),
-            board_id: TEST_BOARD_ID.to_owned(),
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let user_id = user_id.as_str();
+    let card_with = |id: &str, properties: Value| {
+        let mut card = Block {
             block_type: BlockType::Card,
-            ..Block::default()
+            ..block(id, &board_id)
         };
-        block.fields.insert("properties".to_owned(), properties);
-        block
+        card.fields.insert("properties".to_owned(), properties);
+        card
     };
 
-    for (id, properties) in [
-        ("a-number", json!({"p1": 3})),
-        ("an-object", json!({"p1": {"nested": true}})),
-        ("a-string", json!("no object")),
+    for (what, properties) in [
+        ("a number", json!({"p1": 3})),
+        ("an object", json!({"p1": {"nested": true}})),
+        ("a string", json!("no object")),
     ] {
+        let id = new_id();
         let error = store
-            .insert_block(&mut block(id, properties.clone()), TEST_USER_ID)
+            .insert_block(&mut card_with(&id, properties.clone()), user_id)
             .await
             .expect_err("malformed properties");
         assert!(
@@ -2432,17 +2743,18 @@ async fn blocks_with_malformed_properties_are_not_stored() {
             "properties {properties}: got {error:?}"
         );
         assert!(
-            store.get_block(id).await.unwrap_err().is_not_found(),
-            "{id}: nothing was stored"
+            store.get_block(&id).await.unwrap_err().is_not_found(),
+            "{what}: nothing was stored"
         );
     }
 
+    let fine_id = new_id();
     let well_formed = json!({"p1": "open", "p2": ["a", "b"], "p3": null});
     store
-        .insert_block(&mut block("fine", well_formed.clone()), TEST_USER_ID)
+        .insert_block(&mut card_with(&fine_id, well_formed.clone()), user_id)
         .await
         .expect("well-formed properties are stored");
-    let mut updated_fields = fvoci_model::JsonMap::new();
+    let mut updated_fields = JsonMap::new();
     updated_fields.insert("properties".to_owned(), json!({"p1": 3}));
     let patch = BlockPatch {
         title: Some("renamed".to_owned()),
@@ -2450,10 +2762,10 @@ async fn blocks_with_malformed_properties_are_not_stored() {
         ..BlockPatch::default()
     };
     store
-        .patch_block("fine", &patch, TEST_USER_ID)
+        .patch_block(&fine_id, &patch, user_id)
         .await
         .expect_err("a patch to malformed properties");
-    let stored = store.get_block("fine").await.unwrap();
+    let stored = store.get_block(&fine_id).await.unwrap();
     assert_eq!(stored.fields["properties"], well_formed, "unchanged");
     assert_eq!(stored.title, "", "and so is the rest of the block");
 

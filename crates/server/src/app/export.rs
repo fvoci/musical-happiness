@@ -98,7 +98,7 @@ impl App {
         filename: &str,
     ) -> Result<(), AppError> {
         start_entry(writer, &format!("{board_id}/{filename}"))?;
-        let Some(mut stream) = self.open_stored_file(team_id, board_id, filename).await? else {
+        let Some(mut stream) = self.open_stored_file(board_id, filename).await? else {
             tracing::error!(filename, team_id, board_id, "image file missing for export");
             return Ok(());
         };

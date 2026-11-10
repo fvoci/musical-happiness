@@ -1,9 +1,7 @@
 //! Port of `TestGenerateBlockIDs` and `TestStampModificationMetadata` from
 //! `server/model/block_test.go`. Each test maps to one subtest of the original.
 
-use fvoci_model::{
-    Block, IdKind, JsonMap, generate_block_ids, new_id, stamp_modification_metadata,
-};
+use fvoci_model::{Block, JsonMap, generate_block_ids, new_id, stamp_modification_metadata};
 use serde_json::{Value, json};
 
 fn block(id: &str, board_id: &str, parent_id: &str) -> Block {
@@ -23,7 +21,7 @@ fn fields(value: Value) -> JsonMap {
 }
 
 fn id() -> String {
-    new_id(IdKind::Block)
+    new_id()
 }
 
 /// "Should generate a new ID for a single block with no references"

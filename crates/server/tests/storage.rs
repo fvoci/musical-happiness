@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 
 use futures_util::TryStreamExt as _;
-use fvoci_model::{IdKind, new_id};
+use fvoci_model::new_id;
 use fvoci_server::config::AmazonS3Config;
 use fvoci_server::storage::{FileBackend, LocalFiles, S3Files, StorageError};
 
@@ -197,7 +197,7 @@ async fn refused_paths(backend: &FileBackend, existing: &str) {
 async fn local_backend() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("storage-tests")
-        .join(new_id(IdKind::None));
+        .join(new_id());
     let backend = FileBackend::Local(LocalFiles::new(&root));
 
     exercise(&backend, "run").await;
@@ -244,7 +244,7 @@ async fn s3_backend() {
     let backend = FileBackend::S3(S3Files::new(&config).expect("the S3 settings are usable"));
 
     // Objects of earlier runs stay in the bucket; a fresh prefix keeps runs apart.
-    exercise(&backend, &new_id(IdKind::None)).await;
+    exercise(&backend, &new_id()).await;
 }
 
 #[test]

@@ -10,7 +10,7 @@ use axum::http::header::{
 };
 use axum::http::{Request, StatusCode};
 use axum::response::Response;
-use fvoci_model::{IdKind, new_id};
+use fvoci_model::new_id;
 use fvoci_server::web::WebRoot;
 
 struct Fixture {
@@ -22,7 +22,7 @@ impl Fixture {
     fn new(server_root: &str) -> Self {
         let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
             .join("web-tests")
-            .join(new_id(IdKind::None));
+            .join(new_id());
         std::fs::create_dir_all(dir.join("static/sub")).expect("the fixture directory");
         let write = |name: &str, content: &str| {
             std::fs::write(dir.join(name), content).expect("a fixture file");

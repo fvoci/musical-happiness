@@ -6,11 +6,10 @@ use axum::routing::get;
 use fvoci_model::{Board, BoardSearchField};
 use fvoci_store::PublicBoards;
 
-use super::user_is_guest;
 use super::{ApiResult, RequiredSession, json_response, query_param};
+use super::{require_team_access, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::TeamPermission;
 
 pub(super) fn routes() -> Router<App> {
     Router::new()
@@ -33,9 +32,7 @@ async fn handle_search_boards(
             .parse::<BoardSearchField>()
             .map_err(AppError::bad_request)?
     };
-    if !app.has_permission_to_team(&session.user_id, &team_id, TeamPermission::ViewTeam) {
-        return Err(AppError::forbidden("access denied to team"));
-    }
+    require_team_access(&app, &session.user_id, &team_id, "access denied to team").await?;
 
     // Preserved quirk: the team of the path is not part of the search. The boards found
     // are those of every team (server/api/search.go:171).

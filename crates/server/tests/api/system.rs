@@ -5,7 +5,7 @@
 use reqwest::{Method, StatusCode};
 use serde_json::json;
 
-use crate::common::{Client, Setup};
+use crate::common::{Client, ROOT_TEAM_ID, Setup};
 
 /// `TestHello/"Returns 'Hello' on success"`
 #[tokio::test]
@@ -238,7 +238,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
 
     for round in 0..20 {
         let title = format!("abandoned {round}");
-        let body = json!({"teamId": "0", "type": "P", "title": title}).to_string();
+        let body = json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": title}).to_string();
         let request = format!(
             "POST /api/v2/boards HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\n\
              X-Requested-With: XMLHttpRequest\r\nContent-Type: application/json\r\n\
@@ -263,14 +263,22 @@ async fn a_request_is_finished_when_its_client_disconnects() {
     let mut settled = (0, 0, 0);
     for _ in 0..100 {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        let boards = th.client.get("/teams/0/boards").await.value();
+        let boards = th
+            .client
+            .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
+            .await
+            .value();
         let created: Vec<&str> = boards
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|board| board["id"].as_str())
             .collect();
-        let categories = th.client.get("/teams/0/categories").await.value();
+        let categories = th
+            .client
+            .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+            .await
+            .value();
         let filed: Vec<&str> = categories
             .as_array()
             .into_iter()

@@ -1,53 +1,81 @@
-//! Teams. A standalone server has one, the root team with identifier `0`.
+//! Teams. A server has one for now, the root team, which is made at the first start.
 
-use fvoci_model::{GLOBAL_TEAM_ID, IdKind, Team, new_id};
+use fvoci_model::{Team, new_id};
 
 use super::App;
+use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
 impl App {
-    /// Returns the root team, creating it with a fresh signup token on first use.
+    /// Returns the root team: the oldest team, created with a fresh signup token when
+    /// there is none yet.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the team can be neither read nor created.
     pub async fn root_team(&self) -> Result<Team, AppError> {
-        // The original takes any failure of this read for "no team yet" and then writes
-        // a new signup token, which silently invalidates every invitation after a
-        // passing database error. Only a team that is not there is created.
-        match self.store().get_team(GLOBAL_TEAM_ID).await {
-            Ok(team) => return Ok(team),
-            Err(error) if error.is_not_found() => {}
-            Err(error) => return Err(error.into()),
+        // Only a team that is not there is created. A read that fails is an error, not
+        // "no team yet": taken for that, it would end in a second team.
+        if let Some(team) = self.store().get_teams().await?.into_iter().next() {
+            return Ok(team);
         }
         let team = Team {
-            id: GLOBAL_TEAM_ID.to_owned(),
-            signup_token: new_id(IdKind::Token),
+            id: new_id(),
+            signup_token: new_secret(),
             ..Team::default()
         };
-        self.store().upsert_team_signup_token(&team).await?;
-        let team = self.store().get_team(GLOBAL_TEAM_ID).await?;
-        tracing::info!("initialized team");
-        Ok(team)
+        self.store().create_team(&team).await?;
+        tracing::info!(team_id = %team.id, "created the root team");
+        // Read back: two servers that start on one empty database each create a team,
+        // and both must agree on which one is the root.
+        self.store()
+            .get_teams()
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::internal("the root team is not there after its creation"))
     }
 
-    /// Returns every team; on a standalone server, the root team.
+    /// Returns the team with the given identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 404 if there is no such team, and the store's error if the query fails.
+    pub async fn team(&self, team_id: &str) -> Result<Team, AppError> {
+        match self.store().get_team(team_id).await {
+            Ok(team) => Ok(team),
+            Err(error) if error.is_not_found() => Err(AppError::not_found("team")),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Returns every team, oldest first.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
     pub async fn teams(&self) -> Result<Vec<Team>, AppError> {
-        Ok(self.store().get_all_teams().await?)
+        Ok(self.store().get_teams().await?)
     }
 
-    /// Replaces the root team's signup token with a fresh one.
+    /// Replaces a team's signup token with a fresh one, on behalf of a user.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the team cannot be read or written.
-    pub async fn regenerate_signup_token(&self) -> Result<(), AppError> {
-        let mut team = self.root_team().await?;
-        team.signup_token = new_id(IdKind::Token);
-        Ok(self.store().upsert_team_signup_token(&team).await?)
+    /// Returns a 404 if there is no such team, and the store's error if the write fails.
+    pub async fn regenerate_signup_token(
+        &self,
+        team_id: &str,
+        user_id: &str,
+    ) -> Result<(), AppError> {
+        match self
+            .store()
+            .set_team_signup_token(team_id, &new_secret(), user_id)
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(error) if error.is_not_found() => Err(AppError::not_found("team")),
+            Err(error) => Err(error.into()),
+        }
     }
 }

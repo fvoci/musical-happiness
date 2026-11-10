@@ -5,8 +5,8 @@
 
 use std::io::{Cursor, Read as _, Write as _};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
-use fvoci_model::{Block, BlockType, Board, BoardType, IdKind, new_id};
+use crate::common::{ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
+use fvoci_model::{Block, BlockType, Board, BoardType, new_id};
 use reqwest::Method;
 use reqwest::multipart::{Form, Part};
 
@@ -31,7 +31,7 @@ pub(crate) async fn import(client: &Client, team_id: &str, bytes: &[u8]) -> ApiR
 async fn board_with_card(ts: &TestServer, team_id: &str) -> Board {
     let board = ts.create_board(team_id, BoardType::Open).await;
     let card = Block {
-        id: new_id(IdKind::Card),
+        id: new_id(),
         parent_id: board.id.clone(),
         board_id: board.id.clone(),
         block_type: BlockType::Card,
@@ -52,18 +52,20 @@ async fn board_with_card(ts: &TestServer, team_id: &str) -> Board {
 #[tokio::test]
 async fn export_single_board_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = board_with_card(&ts, "test-team").await;
+    let board = board_with_card(&ts, TEST_TEAM_ID).await;
 
     let exported = export_board(&ts.client, &board.id).await;
     exported.check_ok();
     assert!(!exported.body.is_empty(), "the archive has bytes");
 
-    import(&ts.client, "0", &exported.body).await.check_ok();
+    import(&ts.client, ROOT_TEAM_ID, &exported.body)
+        .await
+        .check_ok();
 
     let user_id = ts.client.me().await.id;
     let boards = ts
         .app
-        .boards_for_user_and_team(&user_id, "0", fvoci_store::PublicBoards::Include)
+        .boards_for_user_and_team(&user_id, ROOT_TEAM_ID, fvoci_store::PublicBoards::Include)
         .await
         .expect("the imported boards");
     assert!(!boards.is_empty(), "a board was imported into team 0");
@@ -87,16 +89,18 @@ async fn export_single_board_round_trips() {
 #[tokio::test]
 async fn export_of_a_board_without_blocks_round_trips() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board("test-team", BoardType::Open).await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
 
     let exported = export_board(&ts.client, &board.id).await;
     exported.check_ok();
-    import(&ts.client, "0", &exported.body).await.check_ok();
+    import(&ts.client, ROOT_TEAM_ID, &exported.body)
+        .await
+        .check_ok();
 
     let user_id = ts.client.me().await.id;
     let boards = ts
         .app
-        .boards_for_user_and_team(&user_id, "0", fvoci_store::PublicBoards::Include)
+        .boards_for_user_and_team(&user_id, ROOT_TEAM_ID, fvoci_store::PublicBoards::Include)
         .await
         .expect("the imported boards");
     assert_eq!(boards.len(), 1, "the board was imported into team 0");
@@ -179,15 +183,18 @@ async fn export_board_access_control() {
 #[tokio::test]
 async fn export_team_is_a_zip() {
     let ts = Setup::native().start().await.init_basic().await;
-    board_with_card(&ts, "0").await;
-    let response = ts.client.get("/teams/0/archive/export").await;
+    board_with_card(&ts, ROOT_TEAM_ID).await;
+    let response = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/archive/export"))
+        .await;
     response.check_ok();
     assert!(
         zip::ZipArchive::new(Cursor::new(response.body.clone())).is_ok(),
         "a zip"
     );
     ts.anonymous()
-        .get("/teams/0/archive/export")
+        .get(&format!("/teams/{ROOT_TEAM_ID}/archive/export"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -197,11 +204,11 @@ async fn export_team_is_a_zip() {
 #[tokio::test]
 async fn import_is_allowed_for_any_signed_in_user() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = board_with_card(&ts, "0").await;
+    let board = board_with_card(&ts, ROOT_TEAM_ID).await;
     let archive = export_board(&ts.client, &board.id).await.body;
 
-    import(&ts.client2, "0", &archive).await.check_ok();
-    import(&ts.anonymous(), "0", &archive)
+    import(&ts.client2, ROOT_TEAM_ID, &archive).await.check_ok();
+    import(&ts.anonymous(), ROOT_TEAM_ID, &archive)
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -212,7 +219,7 @@ async fn import_is_allowed_for_any_signed_in_user() {
 #[tokio::test]
 async fn import_of_a_non_archive_is_a_bad_request() {
     let ts = Setup::native().start().await.init_basic().await;
-    let response = import(&ts.client, "0", b"this is not a zip file").await;
+    let response = import(&ts.client, ROOT_TEAM_ID, b"this is not a zip file").await;
     response.check_bad_request();
     assert_eq!(response.error_code(), "bad_request", "{}", response.text());
     ts.teardown().await;
@@ -226,7 +233,7 @@ async fn import_of_an_empty_zip_is_a_bad_request() {
         .finish()
         .expect("an empty zip")
         .into_inner();
-    let response = import(&ts.client, "0", &empty).await;
+    let response = import(&ts.client, ROOT_TEAM_ID, &empty).await;
     response.check_bad_request();
     assert_eq!(response.error_code(), "bad_request", "{}", response.text());
     ts.teardown().await;
@@ -244,7 +251,7 @@ async fn import_of_an_unsupported_version_is_a_bad_request() {
         .write_all(br#"{"version":99,"date":1}"#)
         .expect("write");
     let bytes = writer.finish().expect("finish").into_inner();
-    let response = import(&ts.client, "0", &bytes).await;
+    let response = import(&ts.client, ROOT_TEAM_ID, &bytes).await;
     response.check_bad_request();
     assert_eq!(response.error_code(), "bad_request", "{}", response.text());
     ts.teardown().await;
@@ -270,7 +277,7 @@ async fn import_of_a_traversing_entry_is_harmless() {
 
     // No board directory matches the orphan file, so it is skipped and the import is a
     // clean 200.
-    import(&ts.client, "0", &bytes).await.check_ok();
+    import(&ts.client, ROOT_TEAM_ID, &bytes).await.check_ok();
     ts.teardown().await;
 }
 
@@ -288,7 +295,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
             serde_json::Value::String(file.to_owned()),
         );
         fvoci_model::Block {
-            id: fvoci_model::new_id(fvoci_model::IdKind::Block),
+            id: fvoci_model::new_id(),
             board_id: board.id.clone(),
             parent_id: board.id.clone(),
             block_type: fvoci_model::BlockType::Image,

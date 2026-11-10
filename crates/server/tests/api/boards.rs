@@ -14,8 +14,7 @@
 //! - From `server/app/boards_test.go`: `TestAddMemberToBoard/"should convert synthetic
 //!   membership into natural membership"` (no synthetic memberships), the "-team check
 //!   true" cases of `TestGetMembersForBoard` and `TestGetMembersForUser` (nobody
-//!   administers the team) and `TestGetBoardCount` (a pass-through to the store, tested
-//!   there).
+//!   administers the team) and `TestGetBoardCount` (boards are not counted any more).
 //!
 //! Where the original arranges its data through routes of other areas (inserting blocks,
 //! sharing a board, creating categories), these tests arrange it through the store or
@@ -26,8 +25,9 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardType, BoardsAndBlocks,
-    Category, CategoryBoards, IdKind, JsonMap, Session, Sharing, new_id,
+    Category, CategoryBoards, JsonMap, Session, Sharing, Team, User, is_id, new_id,
 };
+use fvoci_server::auth::secret::new_secret;
 use fvoci_store::{BlockFilter, DuplicateAs, PublicBoards};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -35,7 +35,9 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{
+    ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID,
+};
 
 // -- helpers --------------------------------------------------------------------------
 
@@ -62,6 +64,39 @@ pub(crate) async fn board_without_members(th: &TestServer, board: Board, user_id
         .create_board(board, user_id)
         .await
         .expect("the board is created without members")
+}
+
+/// Stores one more team, next to the two every test server has, and returns its
+/// identifier.
+pub(crate) async fn another_team(th: &TestServer) -> String {
+    let team = Team {
+        id: new_id(),
+        signup_token: new_secret(),
+        ..Team::default()
+    };
+    th.app
+        .store()
+        .create_team(&team)
+        .await
+        .expect("the team is stored");
+    team.id
+}
+
+/// Stores a user who never signs in and returns their identifier: for tests of the
+/// application layer that need a second user next to [`TestServer::stranger`].
+pub(crate) async fn stored_user(th: &TestServer, username: &str) -> String {
+    let mut user = User {
+        id: new_id(),
+        username: username.to_owned(),
+        email: format!("{username}@sample.com"),
+        ..User::default()
+    };
+    th.app
+        .store()
+        .create_user(&mut user)
+        .await
+        .expect("the user is stored");
+    user.id
 }
 
 pub(crate) fn member(board_id: &str, user_id: &str) -> BoardMember {
@@ -109,7 +144,7 @@ pub(crate) async fn insert_block(th: &TestServer, mut block: Block, user_id: &st
 
 fn view_block(board_id: &str) -> Block {
     Block {
-        id: new_id(IdKind::Block),
+        id: new_id(),
         board_id: board_id.to_owned(),
         create_at: 1,
         update_at: 1,
@@ -225,9 +260,17 @@ fn sorted_ids(boards: &[Board]) -> Vec<String> {
 #[tokio::test]
 async fn get_boards_a_non_authenticated_client_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
-    board_without_members(&th, new_board("0", BoardType::Open, ""), "user-id").await;
+    board_without_members(
+        &th,
+        new_board(ROOT_TEAM_ID, BoardType::Open, ""),
+        &th.stranger().await,
+    )
+    .await;
 
-    let response = th.anonymous().get("/teams/0/boards").await;
+    let response = th
+        .anonymous()
+        .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
+        .await;
 
     response.check_unauthorized();
     th.teardown().await;
@@ -237,8 +280,8 @@ async fn get_boards_a_non_authenticated_client_should_be_rejected() {
 #[tokio::test]
 async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of() {
     let th = Setup::native().start().await.init_basic().await;
-    let team_id = "0";
-    let other_team_id = "other-team-id";
+    let team_id = ROOT_TEAM_ID;
+    let other_team_id = TEST_TEAM_ID;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
 
@@ -279,7 +322,11 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
     )
     .await;
 
-    let mut listed: Vec<Board> = th.client.get("/teams/0/boards").await.ok_json();
+    let mut listed: Vec<Board> = th
+        .client
+        .get(&format!("/teams/{team_id}/boards"))
+        .await
+        .ok_json();
     listed.sort_by(|a, b| a.title.cmp(&b.title));
     assert_eq!(
         listed,
@@ -302,15 +349,26 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
 }
 
 /// Verified on the original: a team without boards answers with an empty list, not
-/// `null`.
+/// `null`. The original answers so for any text in the place of the team; here the
+/// team must exist.
 #[tokio::test]
 async fn get_boards_of_a_team_without_boards_is_an_empty_list() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = th.client.get("/teams/empty-team/boards").await;
+    let response = th
+        .client
+        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .await;
 
     response.check_ok();
     assert_eq!(response.text(), "[]", "an empty JSON list");
+
+    for no_team in [UNKNOWN_ID, "empty-team"] {
+        th.client
+            .get(&format!("/teams/{no_team}/boards"))
+            .await
+            .check_error(StatusCode::NOT_FOUND, "team not found");
+    }
     th.teardown().await;
 }
 
@@ -344,10 +402,9 @@ async fn create_board_create_public_board() {
         .create_board(&new_board(TEST_TEAM_ID, BoardType::Open, title))
         .await
         .ok_json();
-    assert_eq!(board.id.len(), 27, "the board got an identifier");
     assert!(
-        board.id.starts_with('b'),
-        "a board identifier: {}",
+        is_id(&board.id),
+        "the board got an identifier: {}",
         board.id
     );
     assert_eq!(board.title, title, "the title is kept");
@@ -409,7 +466,11 @@ async fn create_board_create_private_board() {
         .create_board(&new_board(TEST_TEAM_ID, BoardType::Private, title))
         .await
         .ok_json();
-    assert_eq!(board.id.len(), 27, "the board got an identifier");
+    assert!(
+        is_id(&board.id),
+        "the board got an identifier: {}",
+        board.id
+    );
     assert_eq!(board.title, title, "the title is kept");
     assert_eq!(board.board_type, BoardType::Private, "the type is kept");
     assert_eq!(board.team_id, TEST_TEAM_ID, "the team is kept");
@@ -514,38 +575,31 @@ async fn create_board_create_invalid_board_no_type() {
     th.teardown().await;
 }
 
-/// `TestCreateBoard/"create invalid board"/"no team ID"`: the request is forbidden
-/// because the permission check fails on an empty team, before the type is looked at.
+/// `TestCreateBoard/"create invalid board"/"no team ID"`. The original forbids the
+/// request, because its permission check fails on an empty team. Here a board's team
+/// must exist: a body that names none, or one that does not exist, is a bad request,
+/// before the type is looked at.
 #[tokio::test]
 async fn create_board_create_invalid_board_no_team_id() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
 
-    let response = th
-        .client
-        .post(
-            "/boards",
-            &json!({"title": "invalid board title", "teamId": "", "type": ""}),
-        )
-        .await;
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to create private boards",
-        "anything but an open board counts as private"
-    );
-
-    // Verified on the original: with a valid type the message names the kind of board.
-    let response = th
-        .client
-        .post("/boards", &json!({"title": "x", "type": "O"}))
-        .await;
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to create public boards",
-        "an open board without a team"
-    );
+    for body in [
+        json!({"title": "invalid board title", "teamId": "", "type": ""}),
+        // With a valid type, and without the member.
+        json!({"title": "x", "type": "O"}),
+        // A team that does not exist, and text that is no identifier.
+        json!({"title": "x", "teamId": UNKNOWN_ID, "type": "O"}),
+        json!({"title": "x", "teamId": "nope", "type": "O"}),
+    ] {
+        let response = th.client.post("/boards", &body).await;
+        response.check_error(StatusCode::BAD_REQUEST, "no such team");
+        assert_eq!(
+            response.value()["field"],
+            json!("teamId"),
+            "the member at fault: {body}"
+        );
+    }
 
     assert_no_boards(&th, &user1.id).await;
     th.teardown().await;
@@ -619,7 +673,8 @@ async fn create_board_validates_the_body_like_the_original() {
 
 /// The wire format of a board, compared with what the original answers. The original
 /// sends `null` for `properties` and `cardProperties` that were never set; the port sends
-/// empty values (a deliberate difference of the model).
+/// empty values (a deliberate difference of the model). It has no `channelId`, and says
+/// whether the board is a built-in template.
 #[tokio::test]
 async fn create_board_wire_format() {
     let th = Setup::native().start().await.init_basic().await;
@@ -640,7 +695,6 @@ async fn create_board_wire_format() {
         json!({
             "id": value["id"],
             "teamId": TEST_TEAM_ID,
-            "channelId": "",
             "createdBy": me.id,
             "modifiedBy": me.id,
             "type": "O",
@@ -650,6 +704,7 @@ async fn create_board_wire_format() {
             "icon": "",
             "showDescription": false,
             "isTemplate": false,
+            "isBuiltin": false,
             "templateVersion": 0,
             "properties": {},
             "cardProperties": [],
@@ -715,7 +770,11 @@ async fn create_board_template_create_public_board_template() {
         })
         .await
         .ok_json();
-    assert_eq!(board.id.len(), 27, "the board got an identifier");
+    assert!(
+        is_id(&board.id),
+        "the board got an identifier: {}",
+        board.id
+    );
     assert_eq!(board.title, title, "the title is kept");
     assert_eq!(board.board_type, BoardType::Open, "the type is kept");
     assert_eq!(board.team_id, TEST_TEAM_ID, "the team is kept");
@@ -786,7 +845,11 @@ async fn create_board_template_create_private_board_template() {
         })
         .await
         .ok_json();
-    assert_eq!(board.id.len(), 27, "the board got an identifier");
+    assert!(
+        is_id(&board.id),
+        "the board got an identifier: {}",
+        board.id
+    );
     assert_eq!(board.title, title, "the title is kept");
     assert_eq!(board.board_type, BoardType::Private, "the type is kept");
     assert_eq!(board.team_id, TEST_TEAM_ID, "the team is kept");
@@ -866,7 +929,7 @@ async fn get_board_a_non_authenticated_user_should_be_rejected() {
 async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let sharing_token = new_id(IdKind::Token);
+    let sharing_token = new_secret();
     let board = board_with_admin(
         &th,
         new_board(
@@ -887,12 +950,21 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
         .await
         .check_unauthorized();
 
-    // ...but it can with the read token.
+    // ...but it can with the read token. Who reads without a session is not told who
+    // made the board.
     let read: Board = anonymous
         .get(&format!("/boards/{}?read_token={sharing_token}", board.id))
         .await
         .ok_json();
-    assert_eq!(read, board, "the shared board");
+    assert_eq!(
+        read,
+        Board {
+            created_by: String::new(),
+            modified_by: String::new(),
+            ..board
+        },
+        "the shared board, without its creator and modifier"
+    );
 
     th.teardown().await;
 }
@@ -902,9 +974,10 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
 async fn get_board_nonexisting_board() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = get_board(&th.client, "nonexistent board").await;
-
-    response.check_error(StatusCode::NOT_FOUND, "board not found");
+    for board_id in [UNKNOWN_ID, "nonexistent board"] {
+        let response = get_board(&th.client, board_id).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -925,13 +998,15 @@ async fn get_board_a_user_without_permissions_to_a_private_board_cannot_retrieve
 
     // The answer is the one for a board that does not exist. (The original answers 403.)
     response.check_error(StatusCode::NOT_FOUND, "board not found");
-    let missing = get_board(&th.client, "nonexistent board").await;
-    assert_eq!(response.status, missing.status, "the same status");
-    assert_eq!(
-        response.error_message(),
-        missing.error_message(),
-        "and the same message"
-    );
+    for board_id in [UNKNOWN_ID, "nonexistent board"] {
+        let missing = get_board(&th.client, board_id).await;
+        assert_eq!(response.status, missing.status, "the same status");
+        assert_eq!(
+            response.error_message(),
+            missing.error_message(),
+            "and the same message"
+        );
+    }
     th.teardown().await;
 }
 
@@ -1007,7 +1082,7 @@ async fn patch_board_a_non_authenticated_user_should_be_rejected() {
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, initial_title),
-        "user-id",
+        &th.stranger().await,
     )
     .await;
 
@@ -1027,14 +1102,10 @@ async fn patch_board_a_non_authenticated_user_should_be_rejected() {
 async fn patch_board_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = patch_board(
-        &th.client,
-        "non-existing-board",
-        &title_patch("a new title 2"),
-    )
-    .await;
-
-    response.check_not_found();
+    for board_id in [UNKNOWN_ID, "non-existing-board"] {
+        let response = patch_board(&th.client, board_id, &title_patch("a new title 2")).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -1134,7 +1205,7 @@ async fn patch_board_valid_patch_on_a_board_without_permissions() {
 }
 
 /// Verified on the original: an editor changes a board's title, but only an admin its
-/// type, minimum role and channel; each refusal has its own message.
+/// type and minimum role; each refusal has its own message.
 #[tokio::test]
 async fn patch_board_permissions_by_what_the_patch_touches() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1166,10 +1237,6 @@ async fn patch_board_permissions_by_what_the_patch_touches() {
             json!({"minimumRole": "viewer"}),
             "access denied to modifying board type",
         ),
-        (
-            json!({"channelId": "channel"}),
-            "access denied to modifying board access",
-        ),
     ] {
         let response = patch_board(&th.client2, &board.id, &patch).await;
         response.check_forbidden();
@@ -1186,7 +1253,10 @@ async fn patch_board_permissions_by_what_the_patch_touches() {
     .ok_json();
     assert_eq!(patched.board_type, BoardType::Private, "the type");
     assert_eq!(patched.minimum_role, BoardRole::Viewer, "the minimum role");
-    assert_eq!(patched.channel_id, "channel", "the channel");
+    // Channels belonged to the original's host application. The member means nothing
+    // any more: it is neither refused nor stored nor answered.
+    let answered: Value = get_board(&th.client, &board.id).await.value();
+    assert!(answered.get("channelId").is_none(), "{answered}");
 
     // The board's minimum role shows in its memberships.
     let members: Vec<BoardMember> = get_members(&th.client, &board.id).await.ok_json();
@@ -1216,7 +1286,7 @@ async fn delete_board_a_non_authenticated_user_should_be_rejected() {
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        "user-id",
+        &th.stranger().await,
     )
     .await;
 
@@ -1237,7 +1307,7 @@ async fn delete_board_a_user_without_permissions_should_be_rejected() {
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        "some-user-id",
+        &th.stranger().await,
     )
     .await;
 
@@ -1258,9 +1328,10 @@ async fn delete_board_a_user_without_permissions_should_be_rejected() {
 async fn delete_board_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = th.client.delete("/boards/non-existing-board").await;
-
-    response.check_not_found();
+    for board_id in [UNKNOWN_ID, "non-existing-board"] {
+        let response = th.client.delete(&format!("/boards/{board_id}")).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -1319,11 +1390,11 @@ async fn undelete_board_a_non_authenticated_user_should_be_rejected() {
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        "user-id",
+        &th.stranger().await,
     )
     .await;
     th.app
-        .delete_board(&board.id, "user-id")
+        .delete_board(&board.id, &th.stranger().await)
         .await
         .expect("the board is deleted");
 
@@ -1341,11 +1412,11 @@ async fn undelete_board_a_user_without_membership_should_be_rejected() {
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        "some-user-id",
+        &th.stranger().await,
     )
     .await;
     th.app
-        .delete_board(&board.id, "some-user-id")
+        .delete_board(&board.id, &th.stranger().await)
         .await
         .expect("the board is deleted");
 
@@ -1364,16 +1435,17 @@ async fn undelete_board_a_user_without_membership_should_be_rejected() {
 async fn undelete_board_a_user_with_membership_but_without_permissions_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
+    let stranger = th.stranger().await;
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        "some-user-id",
+        &stranger,
     )
     .await;
-    add_member(&th, &editor(&board.id, "user-id")).await;
+    add_member(&th, &editor(&board.id, &stranger)).await;
     add_member(&th, &editor(&board.id, &user1.id)).await;
     th.app
-        .delete_board(&board.id, "some-user-id")
+        .delete_board(&board.id, &stranger)
         .await
         .expect("the board is deleted");
 
@@ -1389,9 +1461,10 @@ async fn undelete_board_a_user_with_membership_but_without_permissions_should_be
 async fn undelete_board_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = undelete_board(&th.client, "non-existing-board").await;
-
-    response.check_error(StatusCode::NOT_FOUND, "board not found");
+    for board_id in [UNKNOWN_ID, "non-existing-board"] {
+        let response = undelete_board(&th.client, board_id).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -1411,7 +1484,7 @@ async fn undelete_board_an_existing_deleted_board_should_be_correctly_undeleted(
     undelete_board(&th.client, &board.id).await.check_ok();
 
     th.app
-        .delete_board(&board.id, "user-id")
+        .delete_board(&board.id, &th.stranger().await)
         .await
         .expect("the board is deleted");
     assert_board_is_gone(&th, &board.id).await;
@@ -1481,9 +1554,10 @@ async fn get_members_for_board_a_user_without_permissions_should_be_rejected() {
 async fn get_members_for_board_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = get_members(&th.client, "non-existing-board").await;
-
-    response.check_error(StatusCode::NOT_FOUND, "board not found");
+    for board_id in [UNKNOWN_ID, "non-existing-board"] {
+        let response = get_members(&th.client, board_id).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -1582,14 +1656,18 @@ async fn get_members_for_user_returns_the_memberships_as_stored() {
 #[tokio::test]
 async fn add_member_a_non_authenticated_user_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, "title"),
-        "user-id",
+        &th.stranger().await,
     )
     .await;
 
-    let response = th.anonymous().add_member(&editor(&board.id, "user1")).await;
+    let response = th
+        .anonymous()
+        .add_member(&editor(&board.id, &user1.id))
+        .await;
 
     response.check_unauthorized();
     th.teardown().await;
@@ -1599,14 +1677,15 @@ async fn add_member_a_non_authenticated_user_should_be_rejected() {
 #[tokio::test]
 async fn add_member_a_user_without_permissions_should_be_rejected() {
     let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
     let board = board_without_members(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Private, "title"),
-        "user-id",
+        &th.stranger().await,
     )
     .await;
 
-    let response = th.client.add_member(&editor(&board.id, "user1")).await;
+    let response = th.client.add_member(&editor(&board.id, &user1.id)).await;
 
     // A private board the user is no member of does not exist for them.
     response.check_error(StatusCode::NOT_FOUND, "board not found");
@@ -1617,13 +1696,12 @@ async fn add_member_a_user_without_permissions_should_be_rejected() {
 #[tokio::test]
 async fn add_member_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
 
-    let response = th
-        .client
-        .add_member(&editor("non-existing-board-id", "user1"))
-        .await;
-
-    response.check_not_found();
+    for board_id in [UNKNOWN_ID, "non-existing-board-id"] {
+        let response = th.client.add_member(&editor(board_id, &user1.id)).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -1794,19 +1872,18 @@ async fn add_member_validates_the_body_like_the_original() {
     );
 
     // The user must exist. (The original stores a membership of nobody.)
-    let response = th
-        .client
-        .post(
-            &path,
-            &json!({"userId": "no-such-user", "schemeEditor": true}),
-        )
-        .await;
-    response.check_error(StatusCode::BAD_REQUEST, "no such user");
-    assert_eq!(
-        response.value()["field"],
-        json!("userId"),
-        "the member at fault"
-    );
+    for no_user in [UNKNOWN_ID, "no-such-user"] {
+        let response = th
+            .client
+            .post(&path, &json!({"userId": no_user, "schemeEditor": true}))
+            .await;
+        response.check_error(StatusCode::BAD_REQUEST, "no such user");
+        assert_eq!(
+            response.value()["field"],
+            json!("userId"),
+            "the member at fault: {no_user}"
+        );
+    }
 
     // A membership without any role is stored as such.
     let user3 = th.add_user("user3").await.me().await;
@@ -2172,9 +2249,11 @@ async fn add_member_permissions_by_board_type_and_role() {
 #[tokio::test]
 async fn add_member_to_board_base_case() {
     let th = Setup::native().start().await;
+    let creator = th.stranger().await;
+    let user = stored_user(&th, "member").await;
     let board =
-        board_without_members(&th, new_board("team_id_1", BoardType::Open, ""), "creator").await;
-    let new_member = editor(&board.id, "user_id_1");
+        board_without_members(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &creator).await;
+    let new_member = editor(&board.id, &user);
 
     let added = add_member(&th, &new_member).await;
 
@@ -2185,18 +2264,20 @@ async fn add_member_to_board_base_case() {
         "and stored"
     );
     assert_eq!(
-        category_name_of(&th, "user_id_1", "team_id_1", &board.id).await,
+        category_name_of(&th, &user, TEST_TEAM_ID, &board.id).await,
         Some("Boards".to_owned()),
         "the board is in the member's default category"
     );
 
     // A board that does not exist has no members to add to.
-    let nothing = th
-        .app
-        .add_member_to_board(&editor("no-such-board", "user_id_1"))
-        .await
-        .expect("not an error");
-    assert_eq!(nothing, None, "nothing is answered");
+    for board_id in [UNKNOWN_ID, "no-such-board"] {
+        let nothing = th
+            .app
+            .add_member_to_board(&editor(board_id, &user))
+            .await
+            .expect("not an error");
+        assert_eq!(nothing, None, "nothing is answered for {board_id}");
+    }
 
     th.teardown().await;
 }
@@ -2206,15 +2287,17 @@ async fn add_member_to_board_base_case() {
 #[tokio::test]
 async fn add_member_to_board_return_existing_non_synthetic_membership_if_any() {
     let th = Setup::native().start().await;
+    let creator = th.stranger().await;
+    let user = stored_user(&th, "member").await;
     let board =
-        board_without_members(&th, new_board("team_id_1", BoardType::Open, ""), "creator").await;
-    let existing = add_member(&th, &editor(&board.id, "user_id_1")).await;
+        board_without_members(&th, new_board(TEST_TEAM_ID, BoardType::Open, ""), &creator).await;
+    let existing = add_member(&th, &editor(&board.id, &user)).await;
 
     let answered = add_member(
         &th,
         &BoardMember {
             scheme_admin: true,
-            ..member(&board.id, "user_id_1")
+            ..member(&board.id, &user)
         },
     )
     .await;
@@ -2277,9 +2360,10 @@ async fn update_member_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
 
-    let response = update_member(&th.client, &editor("non-existent-board-id", &user1.id)).await;
-
-    response.check_error(StatusCode::NOT_FOUND, "board not found");
+    for board_id in [UNKNOWN_ID, "non-existent-board-id"] {
+        let response = update_member(&th.client, &editor(board_id, &user1.id)).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -2357,7 +2441,7 @@ async fn update_member_checks() {
     // Who is no member of the private board learns nothing, whatever the body and
     // whoever the path names. (The original decodes the body and looks the user up
     // first, for anyone.)
-    for target in [user2.id.as_str(), "no-such-user"] {
+    for target in [user2.id.as_str(), UNKNOWN_ID, "no-such-user"] {
         for body in ["{bad", "{\"schemeEditor\":true}"] {
             let response = th
                 .client2
@@ -2381,7 +2465,7 @@ async fn update_member_checks() {
 
     // Then the membership: a user who is no member, or nobody at all, has none to
     // change. (The original answers 200 with `null` for the first.)
-    for target in [user2.id.as_str(), "no-such-user"] {
+    for target in [user2.id.as_str(), UNKNOWN_ID, "no-such-user"] {
         let response = th
             .client
             .put(
@@ -2480,9 +2564,10 @@ async fn delete_member_non_existing_board() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
 
-    let response = delete_member(&th.client, &member("non-existent-board-id", &user1.id)).await;
-
-    response.check_not_found();
+    for board_id in [UNKNOWN_ID, "non-existent-board-id"] {
+        let response = delete_member(&th.client, &member(board_id, &user1.id)).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -2571,10 +2656,13 @@ async fn delete_member_should_not_leave_a_board_without_any_admin() {
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert!(members[0].scheme_admin, "still an admin");
 
-    // Verified on the original: removing somebody who is not a member succeeds.
-    delete_member(&th.client, &member(&board.id, "no-such-user"))
-        .await
-        .check_ok();
+    // Verified on the original: removing somebody who is not a member succeeds, whether
+    // or not the path names anybody.
+    for no_member in [UNKNOWN_ID, "no-such-user"] {
+        delete_member(&th.client, &member(&board.id, no_member))
+            .await
+            .check_ok();
+    }
     th.teardown().await;
 }
 
@@ -2719,41 +2807,79 @@ async fn duplicate_board_create_and_duplicate_public_board_from_a_custom_categor
 #[tokio::test]
 async fn duplicate_board_base_case_and_as_template() {
     let th = Setup::native().start().await;
+    let user = th.stranger().await;
     let board = board_with_admin(
         &th,
-        new_board("team_id_1", BoardType::Open, "Source"),
-        "user_id_1",
+        new_board(TEST_TEAM_ID, BoardType::Open, "Source"),
+        &user,
     )
     .await;
-    insert_block(&th, view_block(&board.id), "user_id_1").await;
+    insert_block(&th, view_block(&board.id), &user).await;
 
     let (copy, members) = th
         .app
-        .duplicate_board(&board.id, "user_id_1", "team_id_1", DuplicateAs::Copy)
+        .duplicate_board(&board.id, &user, TEST_TEAM_ID, DuplicateAs::Copy)
         .await
         .expect("the board is duplicated");
     assert_eq!(copy.boards.len(), 1, "one board");
     assert_eq!(copy.blocks.len(), 1, "one block");
     assert_eq!(members.len(), 1, "one membership");
     assert_eq!(
-        category_name_of(&th, "user_id_1", "team_id_1", &copy.boards[0].id).await,
+        category_name_of(&th, &user, TEST_TEAM_ID, &copy.boards[0].id).await,
         Some("Boards".to_owned()),
         "a copy is filed under a category"
     );
 
     let (template, members) = th
         .app
-        .duplicate_board(&board.id, "user_id_1", "team_id_1", DuplicateAs::Template)
+        .duplicate_board(&board.id, &user, TEST_TEAM_ID, DuplicateAs::Template)
         .await
         .expect("the board is duplicated as a template");
     assert!(template.boards[0].is_template, "a template");
     assert_eq!(members.len(), 1, "one membership");
     assert_eq!(
-        category_name_of(&th, "user_id_1", "team_id_1", &template.boards[0].id).await,
+        category_name_of(&th, &user, TEST_TEAM_ID, &template.boards[0].id).await,
         None,
         "a template is filed nowhere"
     );
     th.teardown().await;
+}
+
+/// An open board of the test team that the user administers, with a card titled
+/// "Card 1" and a comment on that card.
+async fn board_with_a_commented_card(th: &TestServer, user_id: &str) -> Board {
+    let board = board_with_admin(
+        th,
+        new_board(TEST_TEAM_ID, BoardType::Open, "Public board"),
+        user_id,
+    )
+    .await;
+    let card = insert_block(
+        th,
+        Block {
+            id: new_id(),
+            board_id: board.id.clone(),
+            block_type: BlockType::Card,
+            title: "Card 1".to_owned(),
+            ..Block::default()
+        },
+        user_id,
+    )
+    .await;
+    insert_block(
+        th,
+        Block {
+            id: new_id(),
+            board_id: board.id.clone(),
+            parent_id: card.id,
+            block_type: BlockType::Comment,
+            title: "a comment".to_owned(),
+            ..Block::default()
+        },
+        user_id,
+    )
+    .await;
+    board
 }
 
 /// Verified on the original: who may duplicate what, and what the query parameters do.
@@ -2762,44 +2888,16 @@ async fn duplicate_board_permissions_and_parameters() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
-    let board = board_with_admin(
-        &th,
-        new_board(TEST_TEAM_ID, BoardType::Open, "Public board"),
-        &user1.id,
-    )
-    .await;
-    let card = insert_block(
-        &th,
-        Block {
-            id: new_id(IdKind::Card),
-            board_id: board.id.clone(),
-            block_type: BlockType::Card,
-            title: "Card 1".to_owned(),
-            ..Block::default()
-        },
-        &user1.id,
-    )
-    .await;
-    insert_block(
-        &th,
-        Block {
-            id: new_id(IdKind::Block),
-            board_id: board.id.clone(),
-            parent_id: card.id.clone(),
-            block_type: BlockType::Comment,
-            title: "a comment".to_owned(),
-            ..Block::default()
-        },
-        &user1.id,
-    )
-    .await;
+    let board = board_with_a_commented_card(&th, &user1.id).await;
 
     duplicate_board(&th.anonymous(), &board.id, "")
         .await
         .check_unauthorized();
-    duplicate_board(&th.client, "nonexistent", "")
-        .await
-        .check_not_found();
+    for board_id in [UNKNOWN_ID, "nonexistent"] {
+        duplicate_board(&th.client, board_id, "")
+            .await
+            .check_error(StatusCode::NOT_FOUND, "board not found");
+    }
 
     // An open board that is not a template can only be duplicated by its members.
     let response = duplicate_board(&th.client2, &board.id, "").await;
@@ -2836,15 +2934,24 @@ async fn duplicate_board_permissions_and_parameters() {
     );
 
     // `toTeam` puts the copy, and its category, into another team.
-    let moved: BoardsAndBlocks = duplicate_board(&th.client, &board.id, "?toTeam=other-team")
-        .await
-        .ok_json();
-    assert_eq!(moved.boards[0].team_id, "other-team", "the other team");
+    let other_team = another_team(&th).await;
+    let moved: BoardsAndBlocks =
+        duplicate_board(&th.client, &board.id, &format!("?toTeam={other_team}"))
+            .await
+            .ok_json();
+    assert_eq!(moved.boards[0].team_id, other_team, "the other team");
     assert_eq!(
-        category_name_of(&th, &user1.id, "other-team", &moved.boards[0].id).await,
+        category_name_of(&th, &user1.id, &other_team, &moved.boards[0].id).await,
         Some("Boards".to_owned()),
         "in the default category of that team"
     );
+
+    // The team must exist. (The original copies a board into a team of any name.)
+    for no_team in [UNKNOWN_ID, "other-team"] {
+        duplicate_board(&th.client, &board.id, &format!("?toTeam={no_team}"))
+            .await
+            .check_error(StatusCode::NOT_FOUND, "team not found");
+    }
 
     // A viewer of a private board may duplicate it, and administers the copy.
     let private = board_with_admin(
@@ -2885,8 +2992,8 @@ async fn duplicate_board_from_a_template() {
     let mut templates = Vec::new();
     for (team_id, board_type, title) in [
         (TEST_TEAM_ID, BoardType::Open, "Open template"),
-        ("0", BoardType::Open, "Global template"),
-        ("0", BoardType::Private, "Private template"),
+        (ROOT_TEAM_ID, BoardType::Open, "Global template"),
+        (ROOT_TEAM_ID, BoardType::Private, "Private template"),
     ] {
         let template = board_with_admin(
             &th,
@@ -2941,7 +3048,7 @@ async fn duplicate_board_from_a_template() {
     assert!(copy.boards[0].is_template, "a template");
     assert_eq!(copy.boards[0].title, "Open template copy", "a copy");
 
-    // A template of the global team, into the user's team.
+    // A template of the root team (the original's global team), into the user's team.
     let copy: BoardsAndBlocks = duplicate_board(
         &th.client2,
         &templates[1].id,
@@ -3176,9 +3283,10 @@ async fn join_board_create_and_join_private_board_should_not_succeed() {
 async fn join_board_join_invalid_board() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = join_board(&th.client2, "nonexistent-board-ID").await;
-
-    response.check_not_found();
+    for board_id in [UNKNOWN_ID, "nonexistent-board-ID"] {
+        let response = join_board(&th.client2, board_id).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     th.teardown().await;
 }
 
@@ -3194,8 +3302,10 @@ async fn leave_board_cases() {
     leave_board(&th.anonymous(), &board.id)
         .await
         .check_unauthorized();
-    let response = leave_board(&th.client, "nonexistent").await;
-    response.check_error(StatusCode::NOT_FOUND, "board not found");
+    for board_id in [UNKNOWN_ID, "nonexistent"] {
+        let response = leave_board(&th.client, board_id).await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
     let outsider = th.add_user("user3").await;
     leave_board(&outsider, &board.id).await.check_forbidden();
 
@@ -3229,10 +3339,13 @@ async fn leave_board_cases() {
 
 /// A client whose session belongs to a user that has no record, as after the user was
 /// removed from the database.
+///
+/// This helper and its test go with the next step: sessions get a foreign key to users,
+/// and then there is no session of a user without a record.
 async fn client_of_missing_user(th: &TestServer, user_id: &str) -> Client {
-    let token = new_id(IdKind::Token);
+    let token = new_secret();
     let session = Session {
-        id: new_id(IdKind::Session),
+        id: new_id(),
         token: token.clone(),
         user_id: user_id.to_owned(),
         auth_service: "native".to_owned(),
@@ -3251,11 +3364,15 @@ async fn client_of_missing_user(th: &TestServer, user_id: &str) -> Client {
 /// There are no guests on a standalone server, but where the original asks whether the
 /// user is one, a user without a record is a 404. Verified on the original by deleting
 /// the record of a signed-in user: these are its answers, in the order of its checks.
+///
+/// The user is a well-formed identifier that no user has. To be removed in the next
+/// step, when a session cannot be stored for a user without a record.
 #[tokio::test]
 async fn a_session_whose_user_is_gone_gets_not_found_where_the_user_is_looked_up() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let ghost = client_of_missing_user(&th, "ghost").await;
+    let ghost_id = UNKNOWN_ID;
+    let ghost = client_of_missing_user(&th, ghost_id).await;
     let open = board_with_admin(
         &th,
         new_board(TEST_TEAM_ID, BoardType::Open, "open"),
@@ -3268,7 +3385,7 @@ async fn a_session_whose_user_is_gone_gets_not_found_where_the_user_is_looked_up
         &user1.id,
     )
     .await;
-    add_member(&th, &editor(&open.id, "ghost")).await;
+    add_member(&th, &editor(&open.id, ghost_id)).await;
     let card = json!({"id": "b1", "boardId": "bd", "type": "card", "createAt": 1, "updateAt": 1});
 
     let not_found = [
@@ -3300,13 +3417,13 @@ async fn a_session_whose_user_is_gone_gets_not_found_where_the_user_is_looked_up
     }
 
     // A membership is changed without looking the member up as a user.
-    update_member(&th.client, &editor(&open.id, "ghost"))
+    update_member(&th.client, &editor(&open.id, ghost_id))
         .await
         .check_ok();
 
     // The checks that come before the lookup still come first.
     let response = ghost.post("/boards", &json!({"type": "O"})).await;
-    response.check_forbidden();
+    response.check_error(StatusCode::BAD_REQUEST, "no such team");
     get_board(&ghost, &private.id).await.check_not_found();
     join_board(&ghost, &private.id).await.check_not_found();
 
@@ -3315,8 +3432,8 @@ async fn a_session_whose_user_is_gone_gets_not_found_where_the_user_is_looked_up
     let patched: Board = patch_board(&ghost, &open.id, &title_patch("by a ghost"))
         .await
         .ok_json();
-    assert_eq!(patched.modified_by, "ghost", "the editor without a record");
-    delete_member(&th.client, &member(&open.id, "ghost"))
+    assert_eq!(patched.modified_by, ghost_id, "the editor without a record");
+    delete_member(&th.client, &member(&open.id, ghost_id))
         .await
         .check_ok();
     leave_board(&ghost, &open.id).await.check_forbidden();
@@ -3331,88 +3448,22 @@ async fn a_session_whose_user_is_gone_gets_not_found_where_the_user_is_looked_up
 #[tokio::test]
 async fn app_patch_board_base_case_title_patch() {
     let th = Setup::native().start().await;
+    let user = th.stranger().await;
     let board = board_with_admin(
         &th,
-        new_board("team_id_1", BoardType::Open, "Title"),
-        "user_id_1",
+        new_board(TEST_TEAM_ID, BoardType::Open, "Title"),
+        &user,
     )
     .await;
 
     let patched = th
         .app
-        .patch_board(&title_patch("Patched Title"), &board.id, "user_id_1")
+        .patch_board(&title_patch("Patched Title"), &board.id, &user)
         .await
         .expect("the board is patched");
 
     assert_eq!(patched.title, "Patched Title", "the new title");
     assert_eq!(stored_board(&th, &board.id).await, patched, "and stored");
-    th.teardown().await;
-}
-
-/// `TestPatchBoard/"patch type channel, user without post permissions"`, `"patch type
-/// channel, user with post permissions"` and `"patch type remove channel, user without
-/// post permissions"` in `server/app/boards_test.go`. On a standalone server everybody
-/// with a session may post to any channel, so only a patch on behalf of nobody is
-/// refused.
-#[tokio::test]
-async fn app_patch_board_channel() {
-    let th = Setup::native().start().await;
-    let board = board_with_admin(
-        &th,
-        new_board("team_id_1", BoardType::Open, "Title"),
-        "user_id_2",
-    )
-    .await;
-    let link = BoardPatch {
-        channel_id: Some("myChannel".to_owned()),
-        ..BoardPatch::default()
-    };
-    let unlink = BoardPatch {
-        board_type: Some(BoardType::Open),
-        channel_id: Some(String::new()),
-        ..BoardPatch::default()
-    };
-
-    // "user without post permissions"
-    let error = th
-        .app
-        .patch_board(&link, &board.id, "")
-        .await
-        .expect_err("nobody may not link a channel");
-    assert_eq!(error.status(), StatusCode::FORBIDDEN, "{error:?}");
-    assert_eq!(error.to_string(), "access denied to channel", "why");
-
-    // "user with post permissions"
-    let patched = th
-        .app
-        .patch_board(&link, &board.id, "user_id_2")
-        .await
-        .expect("the channel is linked");
-    assert_eq!(patched.channel_id, "myChannel", "the channel");
-
-    // "patch type remove channel, user without post permissions"
-    let error = th
-        .app
-        .patch_board(&unlink, &board.id, "")
-        .await
-        .expect_err("nobody may not unlink a channel");
-    assert_eq!(error.status(), StatusCode::FORBIDDEN, "{error:?}");
-    let patched = th
-        .app
-        .patch_board(&unlink, &board.id, "user_id_2")
-        .await
-        .expect("the channel is unlinked");
-    assert_eq!(patched.channel_id, "", "no channel");
-
-    // A board that does not exist: the error names it.
-    let error = th
-        .app
-        .patch_board(&link, "no-such-board", "user_id_2")
-        .await
-        .expect_err("there is no such board");
-    assert!(error.is_not_found(), "{error:?}");
-    assert_eq!(error.to_string(), "board not found", "the message");
-
     th.teardown().await;
 }
 
@@ -3424,12 +3475,13 @@ async fn app_patch_board_channel() {
 #[tokio::test]
 async fn board_category_no_boards_default_category_exists() {
     let th = Setup::native().start().await;
+    let user = th.stranger().await;
     for name in ["Category 1", "Category 2", "Category 3"] {
         th.app
             .create_category(Category {
                 name: name.to_owned(),
-                user_id: "user_id".to_owned(),
-                team_id: "team_id".to_owned(),
+                user_id: user.clone(),
+                team_id: TEST_TEAM_ID.to_owned(),
                 ..Category::default()
             })
             .await
@@ -3439,11 +3491,11 @@ async fn board_category_no_boards_default_category_exists() {
     let mut board_ids = Vec::new();
     for title in ["board 1", "board 2", "board 3"] {
         let board =
-            board_with_admin(&th, new_board("team_id", BoardType::Open, title), "user_id").await;
+            board_with_admin(&th, new_board(TEST_TEAM_ID, BoardType::Open, title), &user).await;
         board_ids.push(board.id);
     }
 
-    let categories = categories_of(&th, "user_id", "team_id").await;
+    let categories = categories_of(&th, &user, TEST_TEAM_ID).await;
     assert_eq!(categories.len(), 4, "the default category was added");
     let default = categories
         .iter()
@@ -3493,7 +3545,7 @@ impl TeamSocket {
 
         // Commands have no acknowledgement: wait until a broadcast comes through.
         let probe = Category {
-            id: new_id(IdKind::None),
+            id: new_id(),
             name: "subscription probe".to_owned(),
             user_id: user_id.to_owned(),
             team_id: team_id.to_owned(),

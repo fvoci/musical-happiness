@@ -4,8 +4,12 @@
 //! subscription, a user who has no business with it gets the same answer as for an
 //! identifier nobody has: the same status, the same code, the same message. Nothing in
 //! an answer tells the two apart, so nothing is learned about what others have.
+//!
+//! "An identifier nobody has" is asked twice: with a well-formed identifier that names
+//! nothing, and with text that is no identifier at all. What cannot be an identifier is
+//! not there either, and it gets the same answer again.
 
-use fvoci_model::{Block, BlockType, BoardType, Category, IdKind, new_id};
+use fvoci_model::{Block, BlockType, BoardType, Category, new_id};
 use reqwest::multipart::{Form, Part};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -16,13 +20,14 @@ use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
 /// request that names nothing.
 struct Hidden {
     th: TestServer,
-    /// The identifiers of what the first user has, each with one nobody has.
-    board: [String; 2],
-    card: [String; 2],
-    text: [String; 2],
-    file: [String; 2],
-    category: [String; 2],
-    owner: [String; 2],
+    /// The identifiers of what the first user has, each with one nobody has and with
+    /// text that is no identifier.
+    board: [String; 3],
+    card: [String; 3],
+    text: [String; 3],
+    file: [String; 3],
+    category: [String; 3],
+    owner: [String; 3],
     /// The second user, who sees none of it.
     outsider: String,
     /// What the second user has of their own: a private board with a card and a text
@@ -44,7 +49,7 @@ impl Hidden {
         let outsider = th.client2.me().await.id;
         let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
         let block = |block_type: BlockType, parent_id: &str| Block {
-            id: new_id(IdKind::Block),
+            id: new_id(),
             board_id: board.id.clone(),
             parent_id: parent_id.to_owned(),
             block_type,
@@ -124,7 +129,7 @@ impl Hidden {
             .await
             .ok_json::<fvoci_model::Board>();
         let own_block = |block_type: BlockType, parent_id: &str| Block {
-            id: new_id(IdKind::Block),
+            id: new_id(),
             board_id: own_board.id.clone(),
             parent_id: parent_id.to_owned(),
             block_type,
@@ -162,19 +167,24 @@ impl Hidden {
             own_card: own_card.id,
             own_text: own_text.id,
             own_category: own_category.id,
-            board: [board.id, new_id(IdKind::Board)],
-            card: [card.id, new_id(IdKind::Card)],
-            text: [text.id, new_id(IdKind::Block)],
-            file: [file, format!("{}.txt", new_id(IdKind::None))],
-            category: [category.id, new_id(IdKind::None)],
-            owner: [owner.id, new_id(IdKind::User)],
+            board: [board.id, new_id(), "no-board".to_owned()],
+            card: [card.id, new_id(), "no-card".to_owned()],
+            text: [text.id, new_id(), "no-text".to_owned()],
+            file: [
+                file,
+                format!("{}.txt", fvoci_server::auth::secret::new_secret()),
+                "no-file.txt".to_owned(),
+            ],
+            category: [category.id, new_id(), "no-category".to_owned()],
+            owner: [owner.id, new_id(), "no-user".to_owned()],
             outsider,
             th,
         }
     }
 }
 
-/// One request, said once for what is hidden and once for what does not exist.
+/// One request, said once for what is hidden, once for what does not exist, and once
+/// for what cannot exist.
 struct Case {
     method: Method,
     /// The path, with the existing identifiers or the missing ones.
@@ -641,6 +651,7 @@ async fn what_a_user_cannot_see_answers_as_what_does_not_exist() {
         let path = (case.path)(&hidden, 0);
         let existing = ask(outsider, &hidden, &case, 0).await;
         let missing = ask(outsider, &hidden, &case, 1).await;
+        let malformed = ask(outsider, &hidden, &case, 2).await;
 
         assert_eq!(
             existing.status,
@@ -654,6 +665,13 @@ async fn what_a_user_cannot_see_answers_as_what_does_not_exist() {
             told(&missing),
             "{} {path}: what is hidden and what is missing answer alike",
             case.method
+        );
+        assert_eq!(
+            told(&missing),
+            told(&malformed),
+            "{} {}: what is missing and what is no identifier answer alike",
+            case.method,
+            (case.path)(&hidden, 2)
         );
         assert_eq!(
             existing.value()["error"],
@@ -698,6 +716,7 @@ async fn a_hidden_thing_next_to_an_own_one_answers_as_one_that_does_not_exist() 
         let path = (case.path)(&hidden, 0);
         let existing = ask(outsider, &hidden, &case, 0).await;
         let missing = ask(outsider, &hidden, &case, 1).await;
+        let malformed = ask(outsider, &hidden, &case, 2).await;
 
         assert!(
             existing.status.is_client_error(),
@@ -711,6 +730,13 @@ async fn a_hidden_thing_next_to_an_own_one_answers_as_one_that_does_not_exist() 
             told(&missing),
             "{} {path}: what is hidden and what is missing answer alike",
             case.method
+        );
+        assert_eq!(
+            told(&missing),
+            told(&malformed),
+            "{} {}: what is missing and what is no identifier answer alike",
+            case.method,
+            (case.path)(&hidden, 2)
         );
     }
 
@@ -758,6 +784,195 @@ async fn without_a_session_nothing_is_told_either() {
             "{} {path}: what is there and what is missing answer alike",
             case.method
         );
+    }
+    hidden.th.teardown().await;
+}
+
+/// Text that is no identifier answers as an identifier of nothing, also where the asker
+/// is allowed everything: on their own board, in their own team, about themselves. An
+/// identifier column takes no such text, and no route may let that show: not as a 500,
+/// and not as an answer that differs from "there is no such thing".
+#[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "a table with one entry per route, not logic"
+)]
+async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
+    let hidden = Hidden::start().await;
+    let owner = &hidden.th.client;
+    let me = &hidden.owner[0];
+    let board = &hidden.board[0];
+    let card = &hidden.card[0];
+    let category = &hidden.category[0];
+    let team = TEST_TEAM_ID;
+
+    // `{}` stands for the identifier that is asked about.
+    let requests: Vec<(Method, String, Value)> = vec![
+        (Method::GET, "/teams/{}".to_owned(), Value::Null),
+        (Method::GET, "/teams/{}/boards".to_owned(), Value::Null),
+        (Method::GET, "/teams/{}/templates".to_owned(), Value::Null),
+        (Method::GET, "/teams/{}/users".to_owned(), Value::Null),
+        (Method::GET, "/teams/{}/categories".to_owned(), Value::Null),
+        (
+            Method::GET,
+            "/teams/{}/boards/search?q=x".to_owned(),
+            Value::Null,
+        ),
+        (Method::POST, "/teams/{}/onboard".to_owned(), Value::Null),
+        (
+            Method::POST,
+            "/teams/{}/regenerate_signup_token".to_owned(),
+            Value::Null,
+        ),
+        (Method::GET, "/users/{}".to_owned(), Value::Null),
+        (
+            Method::PUT,
+            "/users/{}/config".to_owned(),
+            json!({"updatedFields": {"a": "b"}}),
+        ),
+        (Method::GET, "/subscriptions/{}".to_owned(), Value::Null),
+        (
+            Method::DELETE,
+            format!("/subscriptions/{{}}/{me}"),
+            Value::Null,
+        ),
+        (
+            Method::DELETE,
+            format!("/subscriptions/{card}/{{}}"),
+            Value::Null,
+        ),
+        (Method::GET, "/cards/{}".to_owned(), Value::Null),
+        (Method::PATCH, "/cards/{}".to_owned(), json!({"title": "x"})),
+        (
+            Method::GET,
+            format!("/boards/{board}/blocks?block_id={{}}"),
+            Value::Null,
+        ),
+        (
+            Method::GET,
+            format!("/boards/{board}/blocks?parent_id={{}}"),
+            Value::Null,
+        ),
+        (
+            Method::PATCH,
+            format!("/boards/{board}/blocks/{{}}"),
+            json!({"title": "x"}),
+        ),
+        (
+            Method::DELETE,
+            format!("/boards/{board}/blocks/{{}}"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/boards/{board}/blocks/{{}}/undelete"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/boards/{board}/blocks/{{}}/duplicate"),
+            Value::Null,
+        ),
+        (
+            Method::PUT,
+            format!("/boards/{board}/members/{{}}"),
+            json!({"schemeEditor": true}),
+        ),
+        (
+            Method::DELETE,
+            format!("/boards/{board}/members/{{}}"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/boards/{board}/members"),
+            json!({"userId": "{}", "schemeEditor": true}),
+        ),
+        (
+            Method::POST,
+            format!("/boards/{board}/duplicate?toTeam={{}}"),
+            Value::Null,
+        ),
+        (
+            Method::PUT,
+            format!("/teams/{team}/categories/{{}}"),
+            json!({"id": "{}", "name": "x", "userID": me, "teamID": team}),
+        ),
+        (
+            Method::DELETE,
+            format!("/teams/{team}/categories/{{}}"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/teams/{team}/categories/{{}}/boards/{board}"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/teams/{team}/categories/{category}/boards/{{}}"),
+            Value::Null,
+        ),
+        (
+            Method::PUT,
+            format!("/teams/{team}/categories/{category}/boards/{{}}/hide"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/content-blocks/{{}}/moveto/after/{card}"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            format!("/content-blocks/{card}/moveto/after/{{}}"),
+            Value::Null,
+        ),
+        (
+            Method::POST,
+            "/subscriptions".to_owned(),
+            json!({"blockType": "card", "blockId": "{}", "subscriberType": "user", "subscriberId": me}),
+        ),
+    ];
+
+    let unknown = new_id();
+    for (method, path, body) in requests {
+        let ask = async |identifier: &str| {
+            let path = path.replace("{}", identifier);
+            let request = owner.request(method.clone(), &path);
+            let request = if body.is_null() {
+                request
+            } else {
+                let body: Value = serde_json::from_str(&body.to_string().replace("{}", identifier))
+                    .expect("the body is JSON with any identifier in it");
+                request.json(&body)
+            };
+            Client::send(request).await
+        };
+        let missing = ask(&unknown).await;
+        assert_ne!(
+            missing.status,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{method} {path}: {}",
+            missing.text()
+        );
+        // (An empty value is not in the list: an empty path segment is another route,
+        // and an empty member of a body is a missing one.)
+        for no_identifier in [
+            "nope",
+            "0",
+            "01890A5D-AC96-774B-BCCE-B302099A8057",
+            "00000000-0000-0000-0000-000000000000",
+            "' OR 1=1 --",
+        ] {
+            let malformed = ask(no_identifier).await;
+            assert_eq!(
+                told(&missing),
+                told(&malformed),
+                "{method} {path} with {no_identifier:?}: what is no identifier answers as an \
+                 identifier of nothing"
+            );
+        }
     }
     hidden.th.teardown().await;
 }

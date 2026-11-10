@@ -6,6 +6,7 @@
 
 use serde_json::{Value, json};
 
+use crate::common::ROOT_TEAM_ID;
 use crate::harness::{API, Session};
 
 pub(crate) async fn system(s: &mut Session) {
@@ -217,16 +218,19 @@ pub(crate) async fn auth(s: &mut Session) {
 pub(crate) async fn teams(s: &mut Session) {
     let [alice] = s.users("teams", ["alice"]).await;
     s.get("teams", &format!("{API}/teams")).user(&alice).await;
-    s.get("team 0", &format!("{API}/teams/0"))
+    s.get("team 0", &format!("{API}/teams/{ROOT_TEAM_ID}"))
         .user(&alice)
         .await;
     s.get("some other team id", &format!("{API}/teams/anything"))
         .user(&alice)
         .await;
-    s.get("team without session", &format!("{API}/teams/0"))
-        .await;
+    s.get(
+        "team without session",
+        &format!("{API}/teams/{ROOT_TEAM_ID}"),
+    )
+    .await;
     let users = s
-        .get("team users", &format!("{API}/teams/0/users"))
+        .get("team users", &format!("{API}/teams/{ROOT_TEAM_ID}/users"))
         .user(&alice)
         .unrecorded()
         .await;
@@ -239,23 +243,29 @@ pub(crate) async fn teams(s: &mut Session) {
     s.note("team users include me", &json!(includes_me));
     s.get(
         "team users search",
-        &format!("{API}/teams/0/users?search=teams-ali"),
+        &format!("{API}/teams/{ROOT_TEAM_ID}/users?search=teams-ali"),
     )
     .user(&alice)
     .await;
     s.get(
         "team users search without match",
-        &format!("{API}/teams/0/users?search=zzzz-no-such"),
+        &format!("{API}/teams/{ROOT_TEAM_ID}/users?search=zzzz-no-such"),
     )
     .user(&alice)
     .await;
     let alice_id = s.user_id(&alice).await;
-    s.post("team users by id", &format!("{API}/teams/0/users"))
-        .json(json!([alice_id]))
-        .user(&alice)
-        .await;
-    s.post("team users by id: empty", &format!("{API}/teams/0/users"))
-        .json(json!([]))
-        .user(&alice)
-        .await;
+    s.post(
+        "team users by id",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/users"),
+    )
+    .json(json!([alice_id]))
+    .user(&alice)
+    .await;
+    s.post(
+        "team users by id: empty",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/users"),
+    )
+    .json(json!([]))
+    .user(&alice)
+    .await;
 }

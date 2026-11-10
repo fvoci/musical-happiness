@@ -22,7 +22,7 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockPatch, BlockPatchBatch, BlockType,
-    Board, BoardMember, BoardType, Category, IdKind, JsonMap, Sharing, new_id,
+    Board, BoardMember, BoardType, Category, JsonMap, Sharing, new_id,
 };
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::error::ErrorKind;
@@ -60,7 +60,7 @@ enum Role {
 /// the original's `th.CreateBoard`, which goes through the board routes.
 async fn store_board(th: &TestServer, mut board: Board) -> Board {
     let admin = th.client.me().await;
-    board.id = new_id(IdKind::Board);
+    board.id = new_id();
     th.app
         .store()
         .insert_board_with_admin(&mut board, &admin.id)
@@ -161,7 +161,7 @@ async fn card_with_content(th: &TestServer, boards: &Boards) -> Content {
 /// times set to 1.
 fn new_block(board_id: &str, block_type: BlockType, title: &str) -> Block {
     Block {
-        id: new_id(block_type.id_kind()),
+        id: new_id(),
         board_id: board_id.to_owned(),
         create_at: 1,
         update_at: 1,
@@ -296,7 +296,7 @@ impl Socket {
             .await;
 
         let probe = Category {
-            id: new_id(IdKind::None),
+            id: new_id(),
             name: "subscription probe".to_owned(),
             user_id: client.me().await.id,
             team_id: team_id.to_owned(),
@@ -688,14 +688,22 @@ async fn app_insert_block_success_scenario() {
     let mut block = new_block(&board.id, BlockType::Card, "A card");
 
     th.app
-        .insert_block(&mut block, "user-id-1", ChangeNotification::Send)
+        .insert_block(&mut block, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the block is inserted");
 
     let stored = th.app.block(&block.id).await.expect("the block is stored");
     assert_eq!(stored.title, "A card", "as given");
-    assert_eq!(stored.created_by, "user-id-1", "created by the modifier");
-    assert_eq!(stored.modified_by, "user-id-1", "and modified by them");
+    assert_eq!(
+        stored.created_by,
+        th.stranger().await,
+        "created by the modifier"
+    );
+    assert_eq!(
+        stored.modified_by,
+        th.stranger().await,
+        "and modified by them"
+    );
 
     th.teardown().await;
 }
@@ -715,7 +723,11 @@ async fn app_insert_block_error_scenario() {
     );
     let error = th
         .app
-        .insert_block(&mut too_long, "user-id-1", ChangeNotification::Send)
+        .insert_block(
+            &mut too_long,
+            &th.stranger().await,
+            ChangeNotification::Send,
+        )
         .await
         .expect_err("the title is too long");
     assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
@@ -727,7 +739,11 @@ async fn app_insert_block_error_scenario() {
     let mut homeless = new_block("no-such-board", BlockType::Card, "");
     let error = th
         .app
-        .insert_block(&mut homeless, "user-id-1", ChangeNotification::Send)
+        .insert_block(
+            &mut homeless,
+            &th.stranger().await,
+            ChangeNotification::Send,
+        )
         .await
         .expect_err("the board does not exist");
     assert!(error.is_not_found(), "{error:?}");
@@ -746,7 +762,7 @@ async fn app_patch_blocks_success_scenario() {
         .patch_blocks(
             TEST_TEAM_ID,
             &batch(&[(&block, "new title")]),
-            "user-id-1",
+            &th.stranger().await,
             ChangeNotification::Send,
         )
         .await
@@ -754,7 +770,7 @@ async fn app_patch_blocks_success_scenario() {
 
     let stored = th.app.block(&block.id).await.expect("the block exists");
     assert_eq!(stored.title, "new title", "patched");
-    assert_eq!(stored.modified_by, "user-id-1", "by the modifier");
+    assert_eq!(stored.modified_by, th.stranger().await, "by the modifier");
 
     th.teardown().await;
 }
@@ -774,7 +790,7 @@ async fn app_patch_blocks_error_scenario() {
         .patch_blocks(
             TEST_TEAM_ID,
             &batch(&[(&block, "new title"), (&missing, "new title")]),
-            "user-id-1",
+            &th.stranger().await,
             ChangeNotification::Send,
         )
         .await
@@ -795,7 +811,7 @@ async fn app_delete_block_success_scenario() {
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "")).await;
 
     th.app
-        .delete_block(&block.id, "user-id-1", ChangeNotification::Send)
+        .delete_block(&block.id, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the block is deleted");
 
@@ -812,7 +828,7 @@ async fn app_delete_block_success_scenario() {
         .expect("the history is read")
         .expect("the block has a history");
     assert_ne!(last.delete_at, 0, "the history records the deletion");
-    assert_eq!(last.modified_by, "user-id-1", "and who deleted");
+    assert_eq!(last.modified_by, th.stranger().await, "and who deleted");
 
     th.teardown().await;
 }
@@ -825,7 +841,11 @@ async fn app_delete_block_error_scenario() {
 
     let error = th
         .app
-        .delete_block("no-such-block", "user-id-1", ChangeNotification::Send)
+        .delete_block(
+            "no-such-block",
+            &th.stranger().await,
+            ChangeNotification::Send,
+        )
         .await
         .expect_err("there is no such block");
     assert!(error.is_not_found(), "{error:?}");
@@ -841,13 +861,13 @@ async fn app_undelete_block_success_scenario() {
     let board = create_board_in_store(&th, BoardType::Open).await;
     let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "back")).await;
     th.app
-        .delete_block(&block.id, "user-id-1", ChangeNotification::Send)
+        .delete_block(&block.id, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the block is deleted");
 
     let undeleted = th
         .app
-        .undelete_block(&block.id, "user-id-1")
+        .undelete_block(&block.id, &th.stranger().await)
         .await
         .expect("the block is undeleted")
         .expect("the block has a history");
@@ -868,7 +888,7 @@ async fn app_undelete_block_that_never_existed() {
 
     let undeleted = th
         .app
-        .undelete_block("no-such-block", "user-id-1")
+        .undelete_block("no-such-block", &th.stranger().await)
         .await
         .expect("no error");
     assert_eq!(undeleted, None, "and no block");
@@ -884,19 +904,20 @@ async fn app_insert_blocks_success_scenario() {
     let mut blocks = vec![new_block(&board.id, BlockType::Card, "A card")];
 
     th.app
-        .insert_blocks(&mut blocks, "user-id-1", ChangeNotification::Send)
+        .insert_blocks(&mut blocks, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("the blocks are inserted");
 
     let stored = th.app.blocks_for_board(&board.id).await.expect("readable");
     assert_eq!(ids(&stored), [blocks[0].id.as_str()], "the block is stored");
     assert_eq!(
-        blocks[0].modified_by, "user-id-1",
+        blocks[0].modified_by,
+        th.stranger().await,
         "the caller's copy says who stored it"
     );
 
     th.app
-        .insert_blocks(&mut [], "user-id-1", ChangeNotification::Send)
+        .insert_blocks(&mut [], &th.stranger().await, ChangeNotification::Send)
         .await
         .expect("no blocks are no error");
 
@@ -919,7 +940,11 @@ async fn app_insert_blocks_error_scenario() {
     )];
     let error = th
         .app
-        .insert_blocks(&mut too_long, "user-id-1", ChangeNotification::Send)
+        .insert_blocks(
+            &mut too_long,
+            &th.stranger().await,
+            ChangeNotification::Send,
+        )
         .await
         .expect_err("the title is too long");
     assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
@@ -930,7 +955,7 @@ async fn app_insert_blocks_error_scenario() {
     ];
     let error = th
         .app
-        .insert_blocks(&mut mixed, "user-id-1", ChangeNotification::Send)
+        .insert_blocks(&mut mixed, &th.stranger().await, ChangeNotification::Send)
         .await
         .expect_err("two boards in one call");
     assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
@@ -1251,8 +1276,11 @@ async fn post_blocks_answer_and_stored_block() {
 
     assert_eq!(answered.len(), 2, "both blocks are answered, in order");
     assert_ne!(answered[0].id, card.id, "the card has a new identifier");
-    assert_eq!(answered[0].id.len(), 27, "a generated one");
-    assert!(answered[0].id.starts_with('c'), "of the card kind");
+    assert!(
+        fvoci_model::is_id(&answered[0].id),
+        "a generated one: {}",
+        answered[0].id
+    );
     assert_eq!(
         answered[1].parent_id, answered[0].id,
         "the link between the blocks follows the new identifier"
@@ -1481,7 +1509,7 @@ async fn post_blocks_size_limits() {
     response.check_bad_request();
     let message = response.error_message();
     assert!(
-        message.starts_with("error validating block c")
+        message.starts_with("error validating block ")
             && message.ends_with(": block title size limit exceeded"),
         "{message}"
     );
@@ -2407,7 +2435,7 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
     let outsider = &th.client2;
     let outsider_id = outsider.me().await.id;
     let mut own = Board {
-        id: new_id(IdKind::Board),
+        id: new_id(),
         team_id: TEST_TEAM_ID.to_owned(),
         board_type: BoardType::Private,
         ..Board::default()

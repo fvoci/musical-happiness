@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use fvoci_model::{BoardPatch, BoardType, GLOBAL_TEAM_ID, UserPreferencesPatch};
+use fvoci_model::{BoardPatch, BoardType, UserPreferencesPatch};
 use fvoci_store::DuplicateAs;
 
 use super::App;
@@ -77,12 +77,11 @@ impl App {
 
     /// The identifier of the built-in template the tour copies.
     ///
-    /// The original takes the first open template of the global team that has the
-    /// welcome board's title (`server/app/onboarding.go:47-66`). The global team is also
-    /// the team every user of a standalone server makes boards in, so a template that
-    /// any user gave that title could be handed to new users as their first board.
+    /// It is looked for among the built-in templates only. A template that a user gave
+    /// the welcome board's title, or its mark, is never handed to new users as their
+    /// first board.
     async fn onboarding_board_id(&self) -> Result<String, AppError> {
-        let boards = self.store().get_template_boards(GLOBAL_TEAM_ID, "").await?;
+        let boards = self.store().get_builtin_templates().await?;
         boards
             .into_iter()
             .find(is_onboarding_template)

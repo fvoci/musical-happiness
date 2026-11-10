@@ -9,13 +9,17 @@ use std::io::{Cursor, Read as _};
 
 use serde_json::{Value, json};
 
+use crate::common::ROOT_TEAM_ID;
 use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board};
 use crate::harness::{API, OCTET_STREAM, Session, multipart, string_member};
 
 pub(crate) async fn templates(s: &mut Session) {
     let [alice] = s.users("tpl", ["alice"]).await;
     let listing = s
-        .get("templates", &format!("{API}/teams/0/templates"))
+        .get(
+            "templates",
+            &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
+        )
         .user(&alice)
         .unrecorded()
         .await;
@@ -59,12 +63,15 @@ pub(crate) async fn templates(s: &mut Session) {
         *counts.entry(string_member(item, "type")).or_default() += 1;
     }
     s.note("welcome template block counts", &json!(counts));
-    s.get("templates: anonymous", &format!("{API}/teams/0/templates"))
-        .await;
+    s.get(
+        "templates: anonymous",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
+    )
+    .await;
     let custom = new_board(s, &alice, "My template", "P", json!({"isTemplate": true})).await;
     s.get(
         "templates include mine",
-        &format!("{API}/teams/0/templates"),
+        &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
     )
     .user(&alice)
     .unrecorded()
@@ -73,7 +80,7 @@ pub(crate) async fn templates(s: &mut Session) {
         .user(&alice)
         .await;
     let onboard = s
-        .post("onboard", &format!("{API}/teams/0/onboard"))
+        .post("onboard", &format!("{API}/teams/{ROOT_TEAM_ID}/onboard"))
         .user(&alice)
         .await;
     let tour_board = onboard.string("boardID");
@@ -90,13 +97,16 @@ pub(crate) async fn templates(s: &mut Session) {
         .await;
     let tour_blocks = tour.json().as_array().map_or(0, Vec::len);
     s.note("onboarding board block count", &json!(tour_blocks));
-    s.post("onboard again", &format!("{API}/teams/0/onboard"))
-        .user(&alice)
-        .unrecorded()
-        .await;
+    s.post(
+        "onboard again",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/onboard"),
+    )
+    .user(&alice)
+    .unrecorded()
+    .await;
     s.get(
         "categories after onboarding",
-        &format!("{API}/teams/0/categories"),
+        &format!("{API}/teams/{ROOT_TEAM_ID}/categories"),
     )
     .user(&alice)
     .await;
@@ -118,7 +128,7 @@ pub(crate) async fn files(s: &mut Session) {
 
     let [alice, bob] = s.users("files", ["alice", "bob"]).await;
     let board = new_board(s, &alice, "Board with files", "P", json!({})).await;
-    let upload = format!("{API}/teams/0/{board}/files");
+    let upload = format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files");
     let png = || multipart("file", "pixel.png", &PNG, "image/png");
 
     let uploaded = s.post("upload", &upload).payload(png()).user(&alice).await;
@@ -148,7 +158,7 @@ pub(crate) async fn files(s: &mut Session) {
     s.post("upload: anonymous", &upload).payload(png()).await;
     s.post(
         "upload: unknown board",
-        &format!("{API}/teams/0/unknown-board/files"),
+        &format!("{API}/teams/{ROOT_TEAM_ID}/unknown-board/files"),
     )
     .payload(png())
     .user(&alice)
@@ -158,7 +168,7 @@ pub(crate) async fn files(s: &mut Session) {
         .user(&alice)
         .await;
 
-    let files = format!("{API}/files/teams/0/{board}");
+    let files = format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}");
     let download = format!("{files}/{file_id}");
     s.get("download", &download)
         .user(&alice)
@@ -315,7 +325,10 @@ pub(crate) async fn archive(s: &mut Session) {
     )
     .await;
     let file_id = s
-        .post("upload", &format!("{API}/teams/0/{board}/files"))
+        .post(
+            "upload",
+            &format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files"),
+        )
         .payload(multipart("file", "pixel.png", &PNG, "image/png"))
         .user(&alice)
         .unrecorded()
@@ -373,7 +386,10 @@ pub(crate) async fn archive(s: &mut Session) {
     .user(&alice)
     .await;
     let team_export = s
-        .get("team export", &format!("{API}/teams/0/archive/export"))
+        .get(
+            "team export",
+            &format!("{API}/teams/{ROOT_TEAM_ID}/archive/export"),
+        )
         .user(&alice)
         .unrecorded()
         .await;
@@ -388,7 +404,7 @@ pub(crate) async fn archive(s: &mut Session) {
         s.note("team export entries", &json!(entries));
     }
 
-    let import = format!("{API}/teams/0/archive/import");
+    let import = format!("{API}/teams/{ROOT_TEAM_ID}/archive/import");
     s.post("import", &import)
         .payload(multipart(
             "file",
@@ -425,7 +441,10 @@ pub(crate) async fn archive(s: &mut Session) {
         .user(&bob)
         .await;
     let imported = s
-        .get("boards after import", &format!("{API}/teams/0/boards"))
+        .get(
+            "boards after import",
+            &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+        )
         .user(&bob)
         .await;
     let copy = imported
@@ -453,7 +472,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let imported_file = string_member(&images.json()[0]["fields"], "fileId");
     s.get(
         "imported file",
-        &format!("{API}/files/teams/0/{copy}/{imported_file}"),
+        &format!("{API}/files/teams/{ROOT_TEAM_ID}/{copy}/{imported_file}"),
     )
     .user(&bob)
     .await;
@@ -489,7 +508,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let boards = s
         .get(
             "boards after legacy import",
-            &format!("{API}/teams/0/boards"),
+            &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
         )
         .user(&bob)
         .unrecorded()

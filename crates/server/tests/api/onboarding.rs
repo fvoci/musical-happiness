@@ -3,10 +3,10 @@
 //! Ports `TestPrepareOnboardingTour` and `TestCreateWelcomeBoard`
 //! (`server/app/onboarding_test.go`).
 
-use fvoci_model::{Block, BlockType, Board, BoardType, IdKind, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardType, new_id};
 use serde_json::{Value, json};
 
-use crate::common::{Client, Setup, TestServer};
+use crate::common::{Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
 
 /// The title of the built-in welcome board.
 const WELCOME_TITLE: &str = "Welcome to Boards!";
@@ -19,14 +19,14 @@ async fn impostor_template(client: &Client) -> Board {
         .post(
             "/boards",
             &json!({
-                "teamId": "0", "type": "O", "title": WELCOME_TITLE, "isTemplate": true,
+                "teamId": ROOT_TEAM_ID, "type": "O", "title": WELCOME_TITLE, "isTemplate": true,
                 "properties": {"onboarding": true}, "createdBy": "system",
             }),
         )
         .await
         .ok_json();
     let card = Block {
-        id: new_id(IdKind::Card),
+        id: new_id(),
         board_id: board.id.clone(),
         parent_id: board.id.clone(),
         block_type: BlockType::Card,
@@ -51,11 +51,14 @@ async fn card_titles(ts: &TestServer, client: &Client, board_id: &str) -> Vec<St
 
 /// The built-in template that carries the onboarding mark.
 async fn marked_template(client: &Client) -> Board {
-    let templates: Vec<Board> = client.get("/teams/0/templates").await.ok_json();
+    let templates: Vec<Board> = client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .await
+        .ok_json();
     let marked: Vec<Board> = templates
         .into_iter()
         .filter(|board| {
-            board.created_by == "system" && board.properties.get("onboarding") == Some(&json!(true))
+            board.is_builtin && board.properties.get("onboarding") == Some(&json!(true))
         })
         .collect();
     assert_eq!(marked.len(), 1, "one built-in template is marked");
@@ -76,10 +79,17 @@ async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template
         "a client does not choose who created its board"
     );
 
-    let response = ts.client2.post_empty("/teams/0/onboard").await;
+    let response = ts
+        .client2
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .await;
 
     response.check_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
-    let boards: Vec<Board> = ts.client2.get("/teams/0/boards").await.ok_json();
+    let boards: Vec<Board> = ts
+        .client2
+        .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
+        .await
+        .ok_json();
     assert_eq!(
         boards
             .iter()
@@ -113,7 +123,7 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
 
     let value = ts
         .client2
-        .post_empty("/teams/0/onboard")
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardID"].as_str().expect("a board id").to_owned();
@@ -156,13 +166,13 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
     };
     ts.app
         .store()
-        .patch_board(&built_in.id, &rename, "system")
+        .patch_board(&built_in.id, &rename, "")
         .await
         .expect("the built-in board is renamed");
 
     let value = ts
         .client
-        .post_empty("/teams/0/onboard")
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardID"].as_str().expect("a board id").to_owned();
@@ -190,9 +200,16 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
         .init_basic()
         .await;
 
-    let response = ts.client.post_empty("/teams/0/onboard").await;
+    let response = ts
+        .client
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .await;
     let value = response.ok_json::<Value>();
-    assert_eq!(value["teamID"], Value::String("0".to_owned()), "the team");
+    assert_eq!(
+        value["teamID"],
+        Value::String(ROOT_TEAM_ID.to_owned()),
+        "the team"
+    );
     let board_id = value["boardID"].as_str().expect("a board id").to_owned();
     assert!(!board_id.is_empty(), "a board id is returned");
 
@@ -254,12 +271,12 @@ async fn onboard_echoes_the_team_identifier() {
         .await;
     let value = ts
         .client
-        .post_empty("/teams/my-team/onboard")
+        .post_empty(&format!("/teams/{TEST_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     assert_eq!(
         value["teamID"],
-        Value::String("my-team".to_owned()),
+        Value::String(TEST_TEAM_ID.to_owned()),
         "the team is echoed"
     );
     assert!(
@@ -279,7 +296,7 @@ async fn onboard_without_a_session_is_refused() {
         .init_basic()
         .await;
     ts.anonymous()
-        .post_empty("/teams/0/onboard")
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
         .await
         .check_unauthorized();
     ts.teardown().await;

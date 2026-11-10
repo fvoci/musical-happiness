@@ -9,9 +9,11 @@ use std::fmt::Write as _;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use fvoci_model::is_id;
 use serde_json::Value;
 use sqlx::postgres::{PgConnection, PgRow};
 use sqlx::sqlite::{SqliteConnection, SqliteRow};
+use sqlx::types::Uuid;
 use sqlx::{AssertSqlSafe, Row as _};
 
 use crate::error::StoreError;
@@ -80,6 +82,76 @@ pub(crate) enum Param {
     Json(String),
     /// JSON text bound to a `jsonb` column (`TEXT` on SQLite).
     Jsonb(String),
+    /// An identifier, bound to a `uuid` column (`TEXT` on SQLite). `None` binds `NULL`.
+    Id(Option<Uuid>),
+}
+
+/// An identifier as a query parameter.
+///
+/// The value is whatever a caller was given: text that is not an identifier (see
+/// [`fvoci_model::is_id`]) names nothing. A statement that reads then finds no row
+/// under it, and one that writes is refused with [`StoreError::InvalidId`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Id<'a>(pub(crate) &'a str);
+
+/// A reference that may be absent, as a query parameter: the empty string binds `NULL`,
+/// anything else is bound as [`Id`] binds it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OptId<'a>(pub(crate) &'a str);
+
+/// A parameter of a statement, and whether it carried text that is no identifier where
+/// one was needed.
+#[derive(Debug, Clone)]
+pub(crate) struct Bound {
+    param: Param,
+    invalid_id: Option<String>,
+}
+
+impl<T: Into<Param>> From<T> for Bound {
+    fn from(value: T) -> Self {
+        Self {
+            param: value.into(),
+            invalid_id: None,
+        }
+    }
+}
+
+impl From<Id<'_>> for Bound {
+    fn from(Id(text): Id<'_>) -> Self {
+        if is_id(text)
+            && let Ok(uuid) = Uuid::try_parse(text)
+        {
+            return Self {
+                param: Param::Id(Some(uuid)),
+                invalid_id: None,
+            };
+        }
+        // No row has the nil identifier: it is no identifier itself, so no write stores
+        // it. A query bound to it matches nothing.
+        Self {
+            param: Param::Id(Some(Uuid::nil())),
+            invalid_id: Some(text.to_owned()),
+        }
+    }
+}
+
+impl From<&Id<'_>> for Bound {
+    fn from(id: &Id<'_>) -> Self {
+        Self::from(*id)
+    }
+}
+
+impl From<OptId<'_>> for Bound {
+    fn from(OptId(text): OptId<'_>) -> Self {
+        if text.is_empty() {
+            Self {
+                param: Param::Id(None),
+                invalid_id: None,
+            }
+        } else {
+            Self::from(Id(text))
+        }
+    }
 }
 
 impl From<&str> for Param {
@@ -137,6 +209,8 @@ pub(crate) struct Sql {
     dialect: Dialect,
     text: String,
     params: Vec<Param>,
+    /// The first bound value that had to be an identifier and was not.
+    invalid_id: Option<String>,
 }
 
 impl Sql {
@@ -147,8 +221,11 @@ impl Sql {
     }
 
     /// Appends a placeholder and records its value.
-    pub(crate) fn bind(&mut self, param: impl Into<Param>) -> &mut Self {
-        let param = param.into();
+    pub(crate) fn bind(&mut self, bound: impl Into<Bound>) -> &mut Self {
+        let Bound { param, invalid_id } = bound.into();
+        if self.invalid_id.is_none() {
+            self.invalid_id = invalid_id;
+        }
         let index = self.params.len() + 1;
         // PostgreSQL needs the type of a JSON parameter spelled out; SQLite stores JSON as
         // plain text and would mangle the value if asked to cast it.
@@ -164,7 +241,7 @@ impl Sql {
     }
 
     /// Appends `text` followed by a placeholder: `push("id = ").bind(id)` in one call.
-    pub(crate) fn push_bind(&mut self, text: &str, param: impl Into<Param>) -> &mut Self {
+    pub(crate) fn push_bind(&mut self, text: &str, param: impl Into<Bound>) -> &mut Self {
         self.push(text).bind(param)
     }
 
@@ -174,7 +251,7 @@ impl Sql {
     pub(crate) fn bind_list<I>(&mut self, items: I) -> &mut Self
     where
         I: IntoIterator,
-        I::Item: Into<Param>,
+        I::Item: Into<Bound>,
     {
         let mut first = true;
         for item in items {
@@ -228,19 +305,31 @@ pub(crate) struct Scope<'c> {
     shared: &'c Shared,
 }
 
-/// Binds every parameter of `$sql` to `$query` for one database.
+/// Binds every parameter of `$sql` to `$query` for one database. `$id` turns an
+/// identifier into what that database's identifier columns hold.
 macro_rules! bind_params {
-    ($query:expr, $params:expr) => {{
+    ($query:expr, $params:expr, $id:expr) => {{
         let mut query = $query;
         for param in $params {
             query = match param {
                 Param::Text(value) | Param::Json(value) | Param::Jsonb(value) => query.bind(value),
                 Param::Int(value) => query.bind(value),
                 Param::Bool(value) => query.bind(value),
+                Param::Id(value) => query.bind(value.map($id)),
             };
         }
         query
     }};
+}
+
+/// SQLite keeps identifiers as their canonical text.
+fn sqlite_id(uuid: Uuid) -> String {
+    uuid.hyphenated().to_string()
+}
+
+/// PostgreSQL has a type for them.
+fn postgres_id(uuid: Uuid) -> Uuid {
+    uuid
 }
 
 impl<'c> Scope<'c> {
@@ -256,21 +345,13 @@ impl<'c> Scope<'c> {
         }
     }
 
-    /// The name of a table as it goes into SQL text.
-    #[expect(
-        clippy::unused_self,
-        reason = "the statements that call it are rewritten with the identifier columns"
-    )]
-    pub(crate) fn table(&self, name: &str) -> String {
-        name.to_owned()
-    }
-
     /// Starts a statement with the given text.
     pub(crate) fn sql(&self, text: &str) -> Sql {
         Sql {
             dialect: self.dialect(),
             text: text.to_owned(),
             params: Vec::new(),
+            invalid_id: None,
         }
     }
 
@@ -283,19 +364,21 @@ impl<'c> Scope<'c> {
     }
 
     /// Runs a query and returns all its rows.
+    ///
+    /// A value bound as an identifier that is not one matches no row.
     pub(crate) async fn fetch_all(&mut self, sql: Sql) -> Result<Vec<Row>, StoreError> {
         // The text is built from literals in this crate; every value is a bound
         // parameter.
         let text = AssertSqlSafe(sql.text);
         match &mut self.conn {
             ConnRef::Sqlite(conn) => {
-                let rows = bind_params!(sqlx::query(text), sql.params)
+                let rows = bind_params!(sqlx::query(text), sql.params, sqlite_id)
                     .fetch_all(&mut **conn)
                     .await?;
                 Ok(rows.into_iter().map(Row::Sqlite).collect())
             }
             ConnRef::Postgres(conn) => {
-                let rows = bind_params!(sqlx::query(text), sql.params)
+                let rows = bind_params!(sqlx::query(text), sql.params, postgres_id)
                     .fetch_all(&mut **conn)
                     .await?;
                 Ok(rows.into_iter().map(Row::Postgres).collect())
@@ -308,15 +391,23 @@ impl<'c> Scope<'c> {
         Ok(self.fetch_all(sql).await?.into_iter().next())
     }
 
-    /// Runs a statement and returns the number of rows it affected.
+    /// Runs a statement that writes and returns the number of rows it affected.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::InvalidId`], without running the statement, if a value
+    /// bound as an identifier is not one.
     pub(crate) async fn execute(&mut self, sql: Sql) -> Result<u64, StoreError> {
+        if let Some(invalid) = sql.invalid_id {
+            return Err(StoreError::InvalidId(invalid));
+        }
         let text = AssertSqlSafe(sql.text);
         match &mut self.conn {
-            ConnRef::Sqlite(conn) => Ok(bind_params!(sqlx::query(text), sql.params)
+            ConnRef::Sqlite(conn) => Ok(bind_params!(sqlx::query(text), sql.params, sqlite_id)
                 .execute(&mut **conn)
                 .await?
                 .rows_affected()),
-            ConnRef::Postgres(conn) => Ok(bind_params!(sqlx::query(text), sql.params)
+            ConnRef::Postgres(conn) => Ok(bind_params!(sqlx::query(text), sql.params, postgres_id)
                 .execute(&mut **conn)
                 .await?
                 .rows_affected()),
@@ -326,9 +417,9 @@ impl<'c> Scope<'c> {
 
 /// A result row from either database, read by column position.
 ///
-/// The getters treat SQL `NULL` as the empty value of their type. The original schema
-/// leaves most columns nullable and its own code never writes `NULL` into them, so this
-/// only matters for rows written by something else.
+/// The getters treat SQL `NULL` as the empty value of their type. The columns that may
+/// be `NULL` are references that may be absent (a block's parent, a creator), and the
+/// model spells "none" as the empty string.
 #[derive(Debug)]
 pub(crate) enum Row {
     Sqlite(SqliteRow),
@@ -343,6 +434,21 @@ impl Row {
             Self::Postgres(row) => row.try_get(index)?,
         };
         Ok(value.unwrap_or_default())
+    }
+
+    /// Reads an identifier column: `uuid` on PostgreSQL, text on SQLite. `NULL` reads
+    /// as the empty string, which is how the model says "none".
+    pub(crate) fn id(&self, index: usize) -> Result<String, StoreError> {
+        match self {
+            Self::Sqlite(row) => {
+                let value: Option<String> = row.try_get(index)?;
+                Ok(value.unwrap_or_default())
+            }
+            Self::Postgres(row) => {
+                let value: Option<Uuid> = row.try_get(index)?;
+                Ok(value.map(sqlite_id).unwrap_or_default())
+            }
+        }
     }
 
     /// Reads a 64-bit integer column. Narrower PostgreSQL integer columns must be cast to
@@ -372,8 +478,8 @@ impl Row {
         match self {
             Self::Sqlite(row) => {
                 // Read as bytes, which accepts both storage classes: this server writes
-                // JSON as text, while the original binds it as bytes and SQLite keeps
-                // those as a BLOB even in a text column.
+                // JSON as text, and SQLite keeps what is bound as bytes as a BLOB even
+                // in a text column.
                 let bytes: Option<Vec<u8>> = row.try_get(index)?;
                 match bytes.as_deref() {
                     None | Some([]) => Ok(Value::Null),

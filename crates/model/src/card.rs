@@ -7,7 +7,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType};
-use crate::id::{IdKind, new_id};
+use crate::id::new_id;
 use crate::serde_util::null_as_default;
 
 /// Errors from validating cards and converting them to and from blocks.
@@ -77,7 +77,7 @@ impl Card {
     /// (milliseconds since the epoch) for a zero creation or modification time.
     pub fn populate(&mut self, now: i64) {
         if self.id.is_empty() {
-            self.id = new_id(IdKind::Card);
+            self.id = new_id();
         }
         if self.create_at == 0 {
             self.create_at = now;

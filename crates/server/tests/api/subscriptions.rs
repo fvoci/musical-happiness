@@ -9,15 +9,13 @@
 
 use std::time::Duration;
 
-use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, IdKind, SubscriberType, Subscription, new_id,
-};
+use fvoci_model::{Block, BlockType, Board, BoardMember, BoardType, SubscriberType, Subscription};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::boards::TeamSocket;
 use crate::cards::{Roles, board_with_roles, check_error, insert_block, new_block};
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID};
+use crate::common::{ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, UNKNOWN_ID};
 
 /// How long background notifications may take to finish.
 const BACKGROUND: Duration = Duration::from_secs(10);
@@ -90,7 +88,7 @@ async fn insert_card(client: &Client, board_id: &str) -> Block {
 async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscription>, String) {
     let user = client.me().await;
     let board = Board {
-        team_id: "0".to_owned(),
+        team_id: ROOT_TEAM_ID.to_owned(),
         board_type: BoardType::Open,
         create_at: 1,
         update_at: 1,
@@ -162,6 +160,7 @@ async fn create_subscription_create_invalid_subscription() {
 #[tokio::test]
 async fn create_subscription_create_subscription_for_another_user() {
     let th = Setup::native().start().await.init_basic().await;
+    let other = th.client2.me().await;
 
     let response = th
         .client
@@ -171,7 +170,7 @@ async fn create_subscription_create_subscription_for_another_user() {
                 "blockType": "",
                 "blockId": "",
                 "subscriberType": "",
-                "subscriberId": new_id(IdKind::User),
+                "subscriberId": other.id,
                 "createAt": 0,
                 "deleteAt": 0,
             }),
@@ -227,9 +226,10 @@ async fn delete_subscription_delete_invalid_subscription() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
 
-    let response = unsubscribe(&th.client, "bogus", &user.id).await;
-
-    check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
+    for block_id in [UNKNOWN_ID, "bogus"] {
+        let response = unsubscribe(&th.client, block_id, &user.id).await;
+        check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
+    }
     th.teardown().await;
 }
 
@@ -296,12 +296,12 @@ async fn create_subscription_validation() {
     }
 
     // Complete, but for someone else; whether the block exists is not looked at.
-    for block_id in [card.id.as_str(), "nope"] {
+    for block_id in [card.id.as_str(), UNKNOWN_ID, "nope"] {
         let response = th.client.post(PATH, &request(block_id, &other)).await;
         check_error(&response, StatusCode::FORBIDDEN, NOT_FOR_OTHERS);
     }
     // A block that does not exist. Boards are no blocks.
-    for block_id in ["nope", board.id.as_str()] {
+    for block_id in [UNKNOWN_ID, "nope", board.id.as_str()] {
         let response = th.client.post(PATH, &request(block_id, &me)).await;
         check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
     }
@@ -432,10 +432,10 @@ async fn subscriptions_of_another_user_are_refused() {
 
     // The subscriptions of another user are nobody's business: the answer is the same
     // for a user who has some, a user who has none, and nobody at all.
-    for subscriber_id in [user1.as_str(), "nobody"] {
+    for subscriber_id in [user1.as_str(), UNKNOWN_ID, "nobody"] {
         let response = get_subscriptions(&th.client2, subscriber_id).await;
         check_error(&response, StatusCode::NOT_FOUND, "subscriber not found");
-        for block_id in [card.id.as_str(), "nope"] {
+        for block_id in [card.id.as_str(), UNKNOWN_ID, "nope"] {
             let response = unsubscribe(&th.client2, block_id, subscriber_id).await;
             check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
         }
@@ -554,8 +554,10 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
         "nothing was stored"
     );
 
-    let response = th.client2.post(PATH, &request("nope", &outsider)).await;
-    check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
+    for block_id in [UNKNOWN_ID, "nope"] {
+        let response = th.client2.post(PATH, &request(block_id, &outsider)).await;
+        check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
+    }
 
     // Once they have joined the open board, they can subscribe to its cards.
     let card = insert_card(&th.client, &open_board.id).await;
@@ -629,7 +631,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     let mut cards = Vec::new();
     let mut boards = Vec::new();
     for _ in 0..2 {
-        let board = th.create_board("0", BoardType::Private).await;
+        let board = th.create_board(ROOT_TEAM_ID, BoardType::Private).await;
         let member = BoardMember {
             board_id: board.id.clone(),
             user_id: user2_id.clone(),

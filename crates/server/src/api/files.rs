@@ -16,17 +16,14 @@ use axum::http::header::{
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use fvoci_model::FileInfo;
-use fvoci_store::DuplicateAs;
-use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::{
     ApiResult, OptionalSession, RequiredSession, board_refusal, has_valid_read_token,
     json_response, require_board_permission,
 };
 use crate::app::App;
-use crate::app::{FILE, belongs_to_board};
+use crate::app::FILE;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
@@ -116,20 +113,18 @@ async fn handle_serve_file(
     headers: HeaderMap,
 ) -> ApiResult {
     check_read_access(&app, session.user_id(), &board_id, query.as_deref()).await?;
-    let board = app.board(&board_id).await?;
 
-    let (info, path) = app
-        .get_file_path(&board.team_id, &board_id, &filename)
-        .await?;
-    // A file is tied to the board its path names. Through another board it is as
-    // missing as a file that does not exist: the answers must not tell the two apart.
-    if !belongs_to_board(&path, &board_id) || !app.files().exists(&path).await? {
+    // A file is its board's. Through another board it is as missing as a file that
+    // does not exist: the answers must not tell the two apart.
+    let Some(info) = app.file_info(&board_id, &filename).await? else {
+        return Err(AppError::not_found(FILE));
+    };
+    if !app.files().exists(&info.path).await? {
         return Err(AppError::not_found(FILE));
     }
-    let size = app.files().size(&path).await?.unwrap_or(0);
-    let mime_type = info.map(|info| info.mime_type).unwrap_or_default();
+    let size = app.files().size(&info.path).await?.unwrap_or(0);
 
-    serve_content(&app, &filename, &path, size, &mime_type, &headers).await
+    serve_content(&app, &filename, &info.path, size, "", &headers).await
 }
 
 /// `GET /files/teams/{team_id}/{board_id}/{filename}/info`: the metadata of a file.
@@ -140,18 +135,10 @@ async fn handle_get_file_info(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     check_read_access(&app, session.user_id(), &board_id, query.as_deref()).await?;
-    // The members are serialized in the original's order, straight from the struct, so a
-    // client sees the same JSON shape.
-    let board = app.board(&board_id).await?;
-    match app
-        .get_file_path(&board.team_id, &board_id, &filename)
-        .await?
-    {
-        (Some(info), path) if belongs_to_board(&path, &board_id) => {
-            Ok(json_response(&FileInfoResponse::from(info)))
-        }
+    match app.file_info(&board_id, &filename).await? {
+        Some(info) => Ok(json_response(&info)),
         // No record, or the record of another board's file.
-        _ => Err(AppError::not_found(FILE)),
+        None => Err(AppError::not_found(FILE)),
     }
 }
 
@@ -171,24 +158,12 @@ async fn handle_upload_file(
         "access denied to make board changes",
     )
     .await?;
-    let board = app.board(&board_id).await?;
     let max_file_size = app.config().max_file_size;
 
     let mut multipart = multipart.map_err(|_| AppError::bad_request(NOT_MULTIPART))?;
     let (filename, bytes) = read_upload(&mut multipart, max_file_size).await?;
-    let as_template = if board.is_template {
-        DuplicateAs::Template
-    } else {
-        DuplicateAs::Copy
-    };
     let file_id = app
-        .save_file(
-            &mut bytes.as_slice(),
-            &board.team_id,
-            &board_id,
-            &filename,
-            as_template,
-        )
+        .save_file(&mut bytes.as_slice(), &board_id, &filename)
         .await?;
     tracing::debug!(filename, file_id, "uploadFile");
     Ok(json_response(&json!({ "fileId": file_id })))
@@ -231,46 +206,6 @@ async fn read_upload(
             bytes.extend_from_slice(&chunk);
         }
         return Ok((filename, bytes));
-    }
-}
-
-/// The JSON form of a file's metadata, with the members the original's file-info JSON
-/// carries that this server never fills in, so a client sees the same shape.
-#[derive(Debug, Serialize)]
-struct FileInfoResponse {
-    id: String,
-    #[serde(rename = "user_id")]
-    creator_id: String,
-    channel_id: String,
-    create_at: i64,
-    update_at: i64,
-    delete_at: i64,
-    name: String,
-    extension: String,
-    size: i64,
-    mime_type: String,
-    mini_preview: Option<Value>,
-    remote_id: Option<Value>,
-    archived: bool,
-}
-
-impl From<FileInfo> for FileInfoResponse {
-    fn from(info: FileInfo) -> Self {
-        Self {
-            id: info.id,
-            creator_id: info.creator_id,
-            channel_id: String::new(),
-            create_at: info.create_at,
-            update_at: info.update_at,
-            delete_at: info.delete_at,
-            name: info.name,
-            extension: info.extension,
-            size: info.size,
-            mime_type: info.mime_type,
-            mini_preview: None,
-            remote_id: None,
-            archived: info.archived,
-        }
     }
 }
 

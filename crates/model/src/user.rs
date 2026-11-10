@@ -8,12 +8,6 @@ use serde::{Deserialize, Serialize};
 use crate::JsonMap;
 use crate::serde_util::{is_zero, null_as_default};
 
-/// The identifier of the one team a standalone server has.
-pub const GLOBAL_TEAM_ID: &str = "0";
-
-/// The identifier recorded as creator of the built-in templates.
-pub const SYSTEM_USER_ID: &str = "system";
-
 /// A user account.
 ///
 /// The JSON form carries only the public members. The email address, password hash and
@@ -39,15 +33,6 @@ pub struct User {
     /// The bcrypt hash of the password.
     #[serde(skip)]
     pub password: String,
-    /// The multi-factor secret; unused.
-    #[serde(skip)]
-    pub mfa_secret: String,
-    /// The authentication service the account belongs to; empty for native accounts.
-    #[serde(skip)]
-    pub auth_service: String,
-    /// Opaque data of the authentication service.
-    #[serde(skip)]
-    pub auth_data: String,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(rename = "create_at", skip_serializing_if = "is_zero")]
     pub create_at: i64,
@@ -72,7 +57,7 @@ pub struct User {
 }
 
 impl fmt::Debug for User {
-    /// Leaves out the password hash and the multi-factor secret.
+    /// Leaves out the password hash.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("User")
             .field("id", &self.id)
@@ -81,7 +66,6 @@ impl fmt::Debug for User {
             .field("nickname", &self.nickname)
             .field("first_name", &self.first_name)
             .field("last_name", &self.last_name)
-            .field("auth_service", &self.auth_service)
             .field("create_at", &self.create_at)
             .field("update_at", &self.update_at)
             .field("delete_at", &self.delete_at)
@@ -130,7 +114,6 @@ impl fmt::Debug for Session {
         f.debug_struct("Session")
             .field("id", &self.id)
             .field("user_id", &self.user_id)
-            .field("auth_service", &self.auth_service)
             .field("props", &self.props)
             .field("create_at", &self.create_at)
             .field("update_at", &self.update_at)

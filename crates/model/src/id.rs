@@ -1,84 +1,37 @@
-//! Identifier generation.
+//! Identifiers.
+//!
+//! Every entity (team, board, block, user, category, session, file record) is named by a
+//! version 7 UUID in its canonical text form: 36 characters, lower-case hexadecimal
+//! digits with hyphens. The first 48 bits are the time the identifier was made, so new
+//! identifiers land next to each other in an index.
+//!
+//! An identifier is a name and not a secret, and its order is not the order of
+//! creation: identifiers made by one process sort in the order they were made, but two
+//! processes (two servers, or one before and after a restart) order theirs by their
+//! clocks. Sorting by creation uses the creation time, with the identifier to break
+//! ties. Secrets (session tokens, read tokens, signup tokens, stored file names) do not
+//! come from here.
 
 use uuid::Uuid;
 
-/// The kind of entity an identifier names. It decides the identifier's first character.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IdKind {
-    /// No specific kind; also used for categories and uploaded file names.
-    None,
-    /// A team.
-    Team,
-    /// A board.
-    Board,
-    /// A card block.
-    Card,
-    /// A view block.
-    View,
-    /// A login session.
-    Session,
-    /// A user.
-    User,
-    /// A session token.
-    Token,
-    /// A text, checkbox, comment or divider block.
-    Block,
-    /// An image or attachment block.
-    Attachment,
+/// Returns a new identifier.
+pub fn new_id() -> String {
+    Uuid::now_v7().hyphenated().to_string()
 }
 
-impl IdKind {
-    /// Returns the character that identifiers of this kind start with.
-    pub const fn prefix(self) -> char {
-        match self {
-            Self::None => '7',
-            Self::Team => 't',
-            Self::Board => 'b',
-            Self::Card => 'c',
-            Self::View => 'v',
-            Self::Session => 's',
-            Self::User => 'u',
-            Self::Token => 'k',
-            Self::Block => 'a',
-            Self::Attachment => 'i',
-        }
-    }
-}
-
-/// The base32 alphabet of the original identifiers (z-base-32).
-const ALPHABET: &[u8; 32] = b"ybndrfg8ejkmcpqxot1uwisza345h769";
-
-/// Length of an identifier: the kind prefix plus 26 base32 characters.
-const ID_LEN: usize = 27;
-
-/// Returns a new random identifier of the given kind.
+/// Whether `text` has the form of an identifier: a UUID in canonical text form, other
+/// than the nil UUID.
 ///
-/// The identifier is 27 characters long: the kind's prefix followed by a random version 4
-/// UUID in unpadded z-base-32.
-pub fn new_id(kind: IdKind) -> String {
-    let mut id = String::with_capacity(ID_LEN);
-    id.push(kind.prefix());
-    encode_base32(Uuid::new_v4().as_bytes(), &mut id);
-    id
-}
-
-/// Appends the unpadded base32 encoding of `bytes` to `out`.
-fn encode_base32(bytes: &[u8], out: &mut String) {
-    let mut buffer: usize = 0;
-    let mut bits: u32 = 0;
-    for &byte in bytes {
-        buffer = (buffer << 8) | usize::from(byte);
-        bits += 8;
-        while bits >= 5 {
-            bits -= 5;
-            out.push(char::from(ALPHABET[(buffer >> bits) & 0x1f]));
-        }
-        // Keep only the bits not yet emitted so the buffer never grows.
-        buffer &= (1 << bits) - 1;
-    }
-    if bits > 0 {
-        out.push(char::from(ALPHABET[(buffer << (5 - bits)) & 0x1f]));
-    }
+/// Other spellings of a UUID (upper case, braces, no hyphens) are not identifiers. A
+/// database that stores identifiers as text would not find a row under them, and one
+/// that stores them as UUIDs would; refusing them keeps the two the same. The nil UUID
+/// (all zeros) is the identifier of nothing: no row can have it, which lets the store
+/// use it as the value that matches no row.
+pub fn is_id(text: &str) -> bool {
+    text.len() == uuid::fmt::Hyphenated::LENGTH
+        && Uuid::try_parse(text).is_ok_and(|uuid| {
+            !uuid.is_nil() && uuid.hyphenated().encode_lower(&mut Uuid::encode_buffer()) == text
+        })
 }
 
 #[cfg(test)]
@@ -86,36 +39,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn base32_matches_reference_vectors() {
-        // Reference values from the z-base-32 alphabet applied to RFC 4648 bit grouping.
-        let cases: [(&[u8], &str); 4] = [
-            (b"", ""),
-            (&[0x00], "yy"),
-            (&[0xff], "9h"),
-            (&[0xf0, 0xbf, 0xc7], "6n9hq"),
-        ];
-        for (input, want) in cases {
-            let mut got = String::new();
-            encode_base32(input, &mut got);
-            assert_eq!(got, want, "input {input:02x?}");
-        }
+    fn new_ids_are_version_7_uuids_in_canonical_form() {
+        let id = new_id();
+        assert!(is_id(&id), "id {id}");
+        let uuid = Uuid::try_parse(&id).expect("an identifier is a UUID");
+        assert_eq!(uuid.get_version_num(), 7, "id {id}");
     }
 
     #[test]
-    fn new_id_is_prefix_plus_26_alphabet_characters() {
-        for kind in [IdKind::None, IdKind::Board, IdKind::Attachment] {
-            let id = new_id(kind);
-            assert_eq!(id.len(), ID_LEN, "id {id}");
-            assert!(id.starts_with(kind.prefix()), "id {id}");
-            assert!(
-                id.bytes().skip(1).all(|b| ALPHABET.contains(&b)),
-                "id {id} has a character outside the alphabet"
-            );
-        }
+    fn ids_of_one_process_sort_in_the_order_they_were_made() {
+        let ids: Vec<String> = (0..1000).map(|_| new_id()).collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        assert_eq!(
+            ids, sorted,
+            "identifiers made in a row are already in order"
+        );
+        sorted.dedup();
+        assert_eq!(sorted.len(), ids.len(), "and no two are the same");
     }
 
     #[test]
-    fn new_ids_differ() {
-        assert_ne!(new_id(IdKind::Card), new_id(IdKind::Card));
+    fn only_the_canonical_form_is_an_identifier() {
+        let id = "01890a5d-ac96-774b-bcce-b302099a8057";
+        assert!(is_id(id), "the canonical form");
+        for other in [
+            "",
+            "0",
+            "system",
+            "01890A5D-AC96-774B-BCCE-B302099A8057",
+            "01890a5dac96774bbcceb302099a8057",
+            "{01890a5d-ac96-774b-bcce-b302099a8057}",
+            "urn:uuid:01890a5d-ac96-774b-bcce-b302099a8057",
+            "01890a5d-ac96-774b-bcce-b302099a805",
+            "01890a5d-ac96-774b-bcce-b302099a8057 ",
+            "01890a5d-ac96-774b-bcce-b302099a805g",
+            "bjqnmgfbzbjd9zrqoqjgapxfmyo",
+            "00000000-0000-0000-0000-000000000000",
+        ] {
+            assert!(!is_id(other), "{other:?} is not an identifier");
+        }
     }
 }

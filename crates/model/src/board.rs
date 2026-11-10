@@ -92,12 +92,8 @@ pub struct Board {
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
     pub team_id: String,
-    /// The identifier of the channel the board was created from; unused, kept for the
-    /// wire format.
-    #[serde(default)]
-    #[serde(deserialize_with = "null_as_default")]
-    pub channel_id: String,
-    /// The identifier of the user who created the board.
+    /// The identifier of the user who created the board; empty for a built-in template,
+    /// which no user made.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
     pub created_by: String,
@@ -132,6 +128,12 @@ pub struct Board {
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
     pub is_template: bool,
+    /// Whether the board is one of the templates the server ships with. They are
+    /// offered to every team and nobody can change them. The server decides this:
+    /// what a client sends here is ignored.
+    #[serde(default)]
+    #[serde(deserialize_with = "null_as_default")]
+    pub is_builtin: bool,
     /// The version of the built-in template this board came from.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
@@ -204,9 +206,6 @@ pub struct BoardPatch {
     /// Whether the description is shown.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_description: Option<bool>,
-    /// The new channel identifier.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub channel_id: Option<String>,
     /// Board properties to set.
     #[serde(deserialize_with = "null_as_default")]
     pub updated_properties: JsonMap,
@@ -257,9 +256,6 @@ impl BoardPatch {
         }
         if let Some(show_description) = self.show_description {
             board.show_description = show_description;
-        }
-        if let Some(channel_id) = &self.channel_id {
-            board.channel_id.clone_from(channel_id);
         }
         for (key, value) in &self.updated_properties {
             board.properties.insert(key.clone(), value.clone());

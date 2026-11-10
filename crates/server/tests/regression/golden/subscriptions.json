@@ -6,19 +6,19 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
       "id": "<id:2>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Subscribed board",
       "type": "P",
@@ -37,7 +37,7 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:3>",
+        "id": "<id:4>",
         "modifiedBy": "<id:1>",
         "parentId": "<id:2>",
         "schema": 1,
@@ -60,7 +60,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "blockId": "<id:3>",
+      "blockId": "<id:4>",
       "blockType": "card",
       "createAt": "<ts>",
       "deleteAt": 0,
@@ -75,7 +75,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "blockId": "<id:3>",
+      "blockId": "<id:4>",
       "blockType": "card",
       "createAt": "<ts>",
       "deleteAt": 0,
@@ -137,7 +137,7 @@
     "content_type": "application/json",
     "body": [
       {
-        "blockId": "<id:3>",
+        "blockId": "<id:4>",
         "blockType": "card",
         "createAt": "<ts>",
         "deleteAt": 0,
@@ -160,7 +160,7 @@
   },
   {
     "name": "delete: another user's",
-    "request": "DELETE /api/v2/subscriptions/<id:3>/<id:1> as subs-bob",
+    "request": "DELETE /api/v2/subscriptions/<id:4>/<id:1> as subs-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -171,14 +171,14 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v2/subscriptions/<id:3>/<id:1> as subs-alice",
+    "request": "DELETE /api/v2/subscriptions/<id:4>/<id:1> as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "delete: again",
-    "request": "DELETE /api/v2/subscriptions/<id:3>/<id:1> as subs-alice",
+    "request": "DELETE /api/v2/subscriptions/<id:4>/<id:1> as subs-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {

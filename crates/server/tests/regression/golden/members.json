@@ -6,19 +6,19 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
       "id": "<id:2>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Team board",
       "type": "P",
@@ -32,19 +32,19 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:3>",
+      "id": "<id:4>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
@@ -106,7 +106,7 @@
       "schemeEditor": true,
       "schemeViewer": false,
       "synthetic": false,
-      "userId": "<id:4>"
+      "userId": "<id:5>"
     }
   },
   {
@@ -158,7 +158,7 @@
       "schemeEditor": false,
       "schemeViewer": true,
       "synthetic": false,
-      "userId": "<id:5>"
+      "userId": "<id:6>"
     }
   },
   {
@@ -175,7 +175,7 @@
       "schemeEditor": false,
       "schemeViewer": true,
       "synthetic": false,
-      "userId": "<id:5>"
+      "userId": "<id:6>"
     }
   },
   {
@@ -193,7 +193,7 @@
         "schemeEditor": false,
         "schemeViewer": true,
         "synthetic": false,
-        "userId": "<id:5>"
+        "userId": "<id:6>"
       },
       {
         "boardId": "<id:2>",
@@ -204,7 +204,7 @@
         "schemeEditor": true,
         "schemeViewer": false,
         "synthetic": false,
-        "userId": "<id:4>"
+        "userId": "<id:5>"
       },
       {
         "boardId": "<id:2>",
@@ -234,13 +234,13 @@
         "schemeEditor": true,
         "schemeViewer": false,
         "synthetic": false,
-        "userId": "<id:4>"
+        "userId": "<id:5>"
       }
     ]
   },
   {
     "name": "update: to commenter",
-    "request": "PUT /api/v2/boards/<id:2>/members/<id:5> as members-alice",
+    "request": "PUT /api/v2/boards/<id:2>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -252,12 +252,12 @@
       "schemeEditor": false,
       "schemeViewer": false,
       "synthetic": false,
-      "userId": "<id:5>"
+      "userId": "<id:6>"
     }
   },
   {
     "name": "update: by editor",
-    "request": "PUT /api/v2/boards/<id:2>/members/<id:5> as members-bob",
+    "request": "PUT /api/v2/boards/<id:2>/members/<id:6> as members-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -291,7 +291,7 @@
   },
   {
     "name": "delete: by editor",
-    "request": "DELETE /api/v2/boards/<id:2>/members/<id:5> as members-bob",
+    "request": "DELETE /api/v2/boards/<id:2>/members/<id:6> as members-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -314,14 +314,14 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v2/boards/<id:2>/members/<id:5> as members-alice",
+    "request": "DELETE /api/v2/boards/<id:2>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "delete: not a member",
-    "request": "DELETE /api/v2/boards/<id:2>/members/<id:5> as members-alice",
+    "request": "DELETE /api/v2/boards/<id:2>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
@@ -339,11 +339,11 @@
   },
   {
     "name": "join: open board",
-    "request": "POST /api/v2/boards/<id:3>/join as members-carol",
+    "request": "POST /api/v2/boards/<id:4>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:3>",
+      "boardId": "<id:4>",
       "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
@@ -351,16 +351,16 @@
       "schemeEditor": true,
       "schemeViewer": false,
       "synthetic": false,
-      "userId": "<id:5>"
+      "userId": "<id:6>"
     }
   },
   {
     "name": "join: again",
-    "request": "POST /api/v2/boards/<id:3>/join as members-carol",
+    "request": "POST /api/v2/boards/<id:4>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:3>",
+      "boardId": "<id:4>",
       "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
@@ -368,7 +368,7 @@
       "schemeEditor": true,
       "schemeViewer": false,
       "synthetic": false,
-      "userId": "<id:5>"
+      "userId": "<id:6>"
     }
   },
   {
@@ -384,14 +384,14 @@
   },
   {
     "name": "leave",
-    "request": "POST /api/v2/boards/<id:3>/leave as members-carol",
+    "request": "POST /api/v2/boards/<id:4>/leave as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "leave: not a member",
-    "request": "POST /api/v2/boards/<id:3>/leave as members-carol",
+    "request": "POST /api/v2/boards/<id:4>/leave as members-carol",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -402,7 +402,7 @@
   },
   {
     "name": "leave: the last admin",
-    "request": "POST /api/v2/boards/<id:3>/leave as members-alice",
+    "request": "POST /api/v2/boards/<id:4>/leave as members-alice",
     "status": 409,
     "content_type": "application/json",
     "body": {
@@ -427,7 +427,7 @@
         "schemeEditor": true,
         "schemeViewer": false,
         "synthetic": false,
-        "userId": "<id:4>"
+        "userId": "<id:5>"
       },
       {
         "boardId": "<id:2>",

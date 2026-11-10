@@ -4,7 +4,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{get, post};
-use fvoci_model::{Board, BoardPatch, BoardRole, BoardType, GLOBAL_TEAM_ID, JsonMap};
+use fvoci_model::{Board, BoardPatch, BoardRole, BoardType, JsonMap};
 use fvoci_store::PublicBoards;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -14,7 +14,8 @@ use super::{
     json_response, query_param,
 };
 use super::{
-    duplicate_as, json_object, require_board_permission, require_team_access, user_is_guest,
+    duplicate_as, json_object, require_board_permission, require_team_access, require_team_in_body,
+    user_is_guest,
 };
 use crate::app::App;
 use crate::error::AppError;
@@ -116,7 +117,7 @@ async fn handle_get_boards(
     Path(team_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    require_team_access(&app, user_id, &team_id, "access denied to team")?;
+    require_team_access(&app, user_id, &team_id, "access denied to team").await?;
 
     // A guest would see only the boards they are a member of.
     let public_boards = if user_is_guest(&app, user_id).await? {
@@ -152,6 +153,7 @@ async fn handle_create_board(
             "access denied to create private boards",
         ),
     };
+    require_team_in_body(&app, &board.team_id, "teamId").await?;
     if !app.has_permission_to_team(user_id, &board.team_id, permission) {
         return Err(AppError::forbidden(denial));
     }
@@ -202,6 +204,13 @@ async fn handle_get_board(
             return Err(AppError::not_found("board"));
         }
     }
+    let mut board = board;
+    if user_id.is_empty() {
+        // Whoever reads through a read token alone is nobody the server knows. An
+        // identifier tells when it was made: a user's would tell when they signed up.
+        board.created_by.clear();
+        board.modified_by.clear();
+    }
     Ok(json_response(&board))
 }
 
@@ -230,16 +239,6 @@ async fn handle_patch_board(
             &board_id,
             BoardPermission::ManageBoardType,
             "access denied to modifying board type",
-        )
-        .await?;
-    }
-    if patch.channel_id.is_some() {
-        require_board_permission(
-            &app,
-            user_id,
-            &board_id,
-            BoardPermission::ManageBoardRoles,
-            "access denied to modifying board access",
         )
         .await?;
     }
@@ -286,10 +285,10 @@ async fn handle_duplicate_board(
     let denial = "access denied to board";
     let board = app.board(&board_id).await?;
     if board.is_template && board.board_type == BoardType::Open {
-        // An open template is for everybody in its team, and one of the global team for
+        // An open template is for everybody in its team, and a built-in one for
         // everybody.
-        if board.team_id != GLOBAL_TEAM_ID {
-            require_team_access(&app, user_id, &board.team_id, denial)?;
+        if !board.is_builtin {
+            require_team_access(&app, user_id, &board.team_id, denial).await?;
         }
     } else {
         require_board_permission(&app, user_id, &board_id, BoardPermission::ViewBoard, denial)
@@ -299,7 +298,7 @@ async fn handle_duplicate_board(
         to_team.clone_from(&board.team_id);
     }
     // A board without a team, copied to no team, fails here too.
-    require_team_access(&app, user_id, &to_team, "access denied to team")?;
+    require_team_access(&app, user_id, &to_team, "access denied to team").await?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }

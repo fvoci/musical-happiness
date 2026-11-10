@@ -10,7 +10,7 @@ use std::time::Duration;
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
-use crate::common::{Setup, TestServer};
+use crate::common::{ROOT_TEAM_ID, Setup, TestServer};
 
 /// What a path answered.
 #[derive(Debug)]
@@ -124,7 +124,7 @@ async fn check_path_rules(origin: &str, base: &str) {
         "/api",
         "/api/",
         "/api/v1/boards",
-        "/api/v2/teams/0/channels",
+        &format!("/api/v2/teams/{ROOT_TEAM_ID}/channels"),
     ] {
         for method in [Method::GET, Method::POST] {
             let answer = ask_owned(origin, method.clone(), format!("{base}{path}")).await;

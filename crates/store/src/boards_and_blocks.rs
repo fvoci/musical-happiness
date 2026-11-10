@@ -90,7 +90,7 @@ impl Store {
     /// Copies a board and its blocks, except comments, under new identifiers. Returns the
     /// copies and the membership that makes `user_id` an administrator of the new board.
     ///
-    /// The copy is a private board created by `user_id`, without a channel, in `to_team`
+    /// The copy is a private board created by `user_id`, in `to_team`
     /// or else in the team of the original. A copy of the same kind as the original has
     /// " copy" appended to its title, and a template made from a board is titled "New
     /// board template".
@@ -231,7 +231,6 @@ pub(crate) async fn duplicate_board(
     board.board_type = BoardType::Private;
     board.is_template = as_template;
     user_id.clone_into(&mut board.created_by);
-    board.channel_id.clear();
     if let Some(team_id) = to_team {
         team_id.clone_into(&mut board.team_id);
     }

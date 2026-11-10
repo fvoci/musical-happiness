@@ -288,6 +288,13 @@ impl From<StoreError> for AppError {
             | StoreError::BlockNotInDeletedBoards { .. }
             | StoreError::InvalidCategory(_)
             | StoreError::InvalidSubscription(_) => Self::bad_request(error),
+            // What a request names by something that is no identifier does not exist.
+            // The text is not echoed: it is the client's own, and it may be long.
+            StoreError::InvalidId(_) => {
+                tracing::debug!(%error, "a write named something that is no identifier");
+                Self::bad_request("an identifier in the request is not a valid identifier")
+            }
+            StoreError::Conflict(_) => Self::conflict(error),
             other => Self::from(anyhow::Error::from(other)),
         }
     }

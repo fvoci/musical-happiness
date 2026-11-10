@@ -10,18 +10,38 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Board, BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, IdKind, new_id,
+    Board, BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, User, is_id,
+    new_id,
 };
+use fvoci_store::StoreError;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{
+    ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID,
+};
 
-/// The users of the application-level tests. Categories do not need their user to exist.
-const USER_ID: &str = "user_id";
-const OTHER_USER_ID: &str = "user_id_2";
-const TEAM_ID: &str = "team_id";
+/// What a write answers that was given text where it needs an identifier.
+const NOT_AN_IDENTIFIER: &str = "an identifier in the request is not a valid identifier";
+
+/// Stores the user of an application-level test and returns the identifier. Those tests
+/// work in [`TEST_TEAM_ID`] for this user, who never signs in; where one needs somebody
+/// else, that is the harness's stranger.
+async fn stored_user(th: &TestServer) -> String {
+    let mut user = User {
+        id: new_id(),
+        username: "category-owner".to_owned(),
+        email: "category-owner@sample.com".to_owned(),
+        ..User::default()
+    };
+    th.app
+        .store()
+        .create_user(&mut user)
+        .await
+        .expect("the user is stored");
+    user.id
+}
 
 fn category(team_id: &str, user_id: &str, name: &str) -> Category {
     Category {
@@ -36,7 +56,7 @@ fn category(team_id: &str, user_id: &str, name: &str) -> Category {
 /// its administrator.
 async fn board_with_admin(th: &TestServer, team_id: &str, user_id: &str) -> Board {
     let mut board = Board {
-        id: new_id(IdKind::Board),
+        id: new_id(),
         team_id: team_id.to_owned(),
         board_type: BoardType::Open,
         ..Board::default()
@@ -52,7 +72,7 @@ async fn board_with_admin(th: &TestServer, team_id: &str, user_id: &str) -> Boar
 /// Puts an open board into the store that `creator_id` created but is not a member of.
 async fn board_without_member(th: &TestServer, team_id: &str, creator_id: &str) -> Board {
     let mut board = Board {
-        id: new_id(IdKind::Board),
+        id: new_id(),
         team_id: team_id.to_owned(),
         board_type: BoardType::Open,
         ..Board::default()
@@ -65,34 +85,35 @@ async fn board_without_member(th: &TestServer, team_id: &str, creator_id: &str) 
     board
 }
 
-/// Puts an open board with the given identifier into the store, of which nobody is a
-/// member: every user of the team sees it, and it is filed nowhere by itself.
-async fn open_board(th: &TestServer, team_id: &str, board_id: &str) {
-    let mut board = Board {
-        id: board_id.to_owned(),
-        team_id: team_id.to_owned(),
-        board_type: BoardType::Open,
-        ..Board::default()
-    };
-    th.app
-        .store()
-        .insert_board(&mut board, "somebody")
+/// Puts an open board into the store, of which nobody is a member, and returns its
+/// identifier: every user of the team sees it, and it is filed nowhere by itself.
+async fn open_board(th: &TestServer, team_id: &str) -> String {
+    board_without_member(th, team_id, &th.stranger().await)
         .await
-        .expect("the board is inserted");
+        .id
+}
+
+/// Puts `count` open boards into the store, as [`open_board`] does.
+async fn open_boards(th: &TestServer, team_id: &str, count: usize) -> Vec<String> {
+    let mut boards = Vec::with_capacity(count);
+    for _ in 0..count {
+        boards.push(open_board(th, team_id).await);
+    }
+    boards
 }
 
 /// Puts a private board into the store that the test's users are no members of, and
 /// returns its identifier.
 async fn board_of_somebody_else(th: &TestServer, team_id: &str) -> String {
     let mut board = Board {
-        id: new_id(IdKind::Board),
+        id: new_id(),
         team_id: team_id.to_owned(),
         board_type: BoardType::Private,
         ..Board::default()
     };
     th.app
         .store()
-        .insert_board(&mut board, "somebody")
+        .insert_board(&mut board, &th.stranger().await)
         .await
         .expect("the board is inserted");
     board.id
@@ -347,14 +368,15 @@ async fn hide_unhide_board() {
 #[tokio::test]
 async fn create_category_base_case() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
 
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Category"))
         .await
         .expect("a valid category is created");
 
-    assert_eq!(created.id.len(), 27, "it got an identifier");
+    assert!(is_id(&created.id), "it got an identifier: {}", created.id);
     assert_eq!(created.name, "Category", "the name is kept");
     assert_eq!(
         created.category_type,
@@ -379,17 +401,18 @@ async fn create_category_base_case() {
 #[tokio::test]
 async fn create_category_creating_invalid_category() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     let cases = [
         (
-            category(TEAM_ID, USER_ID, ""),
+            category(TEST_TEAM_ID, &user_id, ""),
             "category name cannot be empty",
         ),
         (
-            category(TEAM_ID, "", "Name"),
+            category(TEST_TEAM_ID, "", "Name"),
             "category user ID cannot be empty",
         ),
         (
-            category("", USER_ID, "Name"),
+            category("", &user_id, "Name"),
             "category team id ID cannot be empty",
         ),
     ];
@@ -406,7 +429,7 @@ async fn create_category_creating_invalid_category() {
     let stored = th
         .app
         .store()
-        .get_user_categories(USER_ID, TEAM_ID)
+        .get_user_categories(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are read");
     assert!(stored.is_empty(), "nothing was stored: {stored:?}");
@@ -418,9 +441,10 @@ async fn create_category_creating_invalid_category() {
 #[tokio::test]
 async fn update_category_base_case() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Category"))
         .await
         .expect("the category is created");
 
@@ -468,9 +492,10 @@ async fn update_category_base_case() {
 #[tokio::test]
 async fn update_category_updating_invalid_category() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Category"))
         .await
         .expect("the category is created");
 
@@ -528,15 +553,16 @@ async fn update_category_updating_invalid_category() {
 #[tokio::test]
 async fn update_category_trying_to_update_someone_elses_category() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Category"))
         .await
         .expect("the category is created");
 
     let change = Category {
         name: "Taken over".to_owned(),
-        user_id: OTHER_USER_ID.to_owned(),
+        user_id: th.stranger().await,
         ..created.clone()
     };
     let error = th
@@ -558,15 +584,16 @@ async fn update_category_trying_to_update_someone_elses_category() {
 #[tokio::test]
 async fn update_category_trying_to_update_some_other_teams_category() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Category"))
         .await
         .expect("the category is created");
 
     let change = Category {
         name: "Moved".to_owned(),
-        team_id: "team_id_2".to_owned(),
+        team_id: ROOT_TEAM_ID.to_owned(),
         ..created.clone()
     };
     let error = th
@@ -602,7 +629,8 @@ async fn default_category(th: &TestServer, user_id: &str, team_id: &str) -> Cate
 #[tokio::test]
 async fn update_category_should_not_be_allowed_to_rename_system_category() {
     let th = Setup::native().start().await;
-    let system = default_category(&th, USER_ID, TEAM_ID).await;
+    let user_id = stored_user(&th).await;
+    let system = default_category(&th, &user_id, TEST_TEAM_ID).await;
 
     let change = Category {
         name: "Updated Name".to_owned(),
@@ -628,7 +656,8 @@ async fn update_category_should_not_be_allowed_to_rename_system_category() {
 #[tokio::test]
 async fn update_category_should_be_allowed_to_collapse_and_expand_any_category_type() {
     let th = Setup::native().start().await;
-    let system = default_category(&th, USER_ID, TEAM_ID).await;
+    let user_id = stored_user(&th).await;
+    let system = default_category(&th, &user_id, TEST_TEAM_ID).await;
     assert!(!system.collapsed, "expanded to begin with");
 
     let change = Category {
@@ -672,16 +701,17 @@ async fn update_category_should_be_allowed_to_collapse_and_expand_any_category_t
 #[tokio::test]
 async fn delete_category_base_case() {
     let th = Setup::native().start().await;
-    let system = default_category(&th, USER_ID, TEAM_ID).await;
+    let user_id = stored_user(&th).await;
+    let system = default_category(&th, &user_id, TEST_TEAM_ID).await;
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category 1"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Category 1"))
         .await
         .expect("the category is created");
 
     let deleted = th
         .app
-        .delete_category(&created.id, USER_ID, TEAM_ID)
+        .delete_category(&created.id, &user_id, TEST_TEAM_ID)
         .await
         .expect("the owner deletes the category");
 
@@ -689,7 +719,7 @@ async fn delete_category_base_case() {
     assert!(deleted.delete_at > 0, "marked as deleted");
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -705,14 +735,15 @@ async fn delete_category_base_case() {
 #[tokio::test]
 async fn delete_category_trying_to_delete_already_deleted_category() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category 1"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Category 1"))
         .await
         .expect("the category is created");
     let deleted = th
         .app
-        .delete_category(&created.id, USER_ID, TEAM_ID)
+        .delete_category(&created.id, &user_id, TEST_TEAM_ID)
         .await
         .expect("the owner deletes the category");
 
@@ -720,7 +751,7 @@ async fn delete_category_trying_to_delete_already_deleted_category() {
     // original answers the deleted category again.)
     let error = th
         .app
-        .delete_category(&created.id, USER_ID, TEAM_ID)
+        .delete_category(&created.id, &user_id, TEST_TEAM_ID)
         .await
         .expect_err("there is no such category any more");
     assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
@@ -737,11 +768,12 @@ async fn delete_category_trying_to_delete_already_deleted_category() {
 #[tokio::test]
 async fn delete_category_trying_to_delete_system_category() {
     let th = Setup::native().start().await;
-    let system = default_category(&th, USER_ID, TEAM_ID).await;
+    let user_id = stored_user(&th).await;
+    let system = default_category(&th, &user_id, TEST_TEAM_ID).await;
 
     let error = th
         .app
-        .delete_category(&system.id, USER_ID, TEAM_ID)
+        .delete_category(&system.id, &user_id, TEST_TEAM_ID)
         .await
         .expect_err("a system category cannot be deleted");
 
@@ -764,26 +796,27 @@ async fn delete_category_trying_to_delete_system_category() {
 #[tokio::test]
 async fn move_boards_to_default_category_when_default_category_already_exists() {
     let th = Setup::native().start().await;
-    let system = default_category(&th, USER_ID, TEAM_ID).await;
+    let user_id = stored_user(&th).await;
+    let system = default_category(&th, &user_id, TEST_TEAM_ID).await;
     let custom = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Custom Category 1"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Custom Category 1"))
         .await
         .expect("the category is created");
-    let board_ids_filed = ["board_id_1".to_owned(), "board_id_2".to_owned()];
+    let board_ids_filed = open_boards(&th, TEST_TEAM_ID, 2).await;
     th.app
-        .add_update_user_category_board(TEAM_ID, USER_ID, &custom.id, &board_ids_filed)
+        .add_update_user_category_board(TEST_TEAM_ID, &user_id, &custom.id, &board_ids_filed)
         .await
         .expect("the boards are filed");
 
     th.app
-        .delete_category(&custom.id, USER_ID, TEAM_ID)
+        .delete_category(&custom.id, &user_id, TEST_TEAM_ID)
         .await
         .expect("the category is deleted");
 
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -793,7 +826,7 @@ async fn move_boards_to_default_category_when_default_category_already_exists() 
     );
     assert_eq!(
         sorted(board_ids(&listed[0])),
-        ["board_id_1", "board_id_2"],
+        sorted(board_ids_filed.iter().map(String::as_str).collect()),
         "the boards moved to the default category"
     );
 
@@ -804,34 +837,36 @@ async fn move_boards_to_default_category_when_default_category_already_exists() 
 #[tokio::test]
 async fn move_boards_to_default_category_when_default_category_doesnt_already_exists() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     // Created without listing the categories first, so there is no default one yet. The
     // board is filed through the store for the same reason.
     let custom = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Custom Category 1"))
+        .create_category(category(TEST_TEAM_ID, &user_id, "Custom Category 1"))
         .await
         .expect("the category is created");
+    let board_id = open_board(&th, TEST_TEAM_ID).await;
     th.app
         .store()
-        .add_update_category_board(USER_ID, &custom.id, &["board_id_1".to_owned()])
+        .add_update_category_board(&user_id, &custom.id, std::slice::from_ref(&board_id))
         .await
         .expect("the board is filed");
     let stored = th
         .app
         .store()
-        .get_user_categories(USER_ID, TEAM_ID)
+        .get_user_categories(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are read");
     assert_eq!(stored.len(), 1, "only the custom category: {stored:?}");
 
     th.app
-        .delete_category(&custom.id, USER_ID, TEAM_ID)
+        .delete_category(&custom.id, &user_id, TEST_TEAM_ID)
         .await
         .expect("the category is deleted");
 
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(names(&listed), ["Boards"], "a default category was created");
@@ -840,24 +875,28 @@ async fn move_boards_to_default_category_when_default_category_doesnt_already_ex
         CategoryType::System,
         "as a system category"
     );
-    assert_eq!(board_ids(&listed[0]), ["board_id_1"], "and got the board");
+    assert_eq!(
+        board_ids(&listed[0]),
+        [board_id.as_str()],
+        "and got the board"
+    );
 
     th.teardown().await;
 }
 
-/// Three categories of [`USER_ID`]: the default one and two custom ones, in the order
-/// they are listed.
-async fn three_categories(th: &TestServer) -> Vec<String> {
-    default_category(th, USER_ID, TEAM_ID).await;
+/// Three categories of the user in [`TEST_TEAM_ID`]: the default one and two custom
+/// ones, in the order they are listed.
+async fn three_categories(th: &TestServer, user_id: &str) -> Vec<String> {
+    default_category(th, user_id, TEST_TEAM_ID).await;
     for name in ["Category 2", "Category 3"] {
         th.app
-            .create_category(category(TEAM_ID, USER_ID, name))
+            .create_category(category(TEST_TEAM_ID, user_id, name))
             .await
             .expect("the category is created");
     }
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -868,9 +907,9 @@ async fn three_categories(th: &TestServer) -> Vec<String> {
     listed.into_iter().map(|entry| entry.category.id).collect()
 }
 
-async fn listed_ids(th: &TestServer) -> Vec<String> {
+async fn listed_ids(th: &TestServer, user_id: &str) -> Vec<String> {
     th.app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed")
         .into_iter()
@@ -882,17 +921,22 @@ async fn listed_ids(th: &TestServer) -> Vec<String> {
 #[tokio::test]
 async fn reorder_categories_base_case() {
     let th = Setup::native().start().await;
-    let listed = three_categories(&th).await;
+    let user_id = stored_user(&th).await;
+    let listed = three_categories(&th, &user_id).await;
     let new_order = vec![listed[2].clone(), listed[0].clone(), listed[1].clone()];
 
     let answered = th
         .app
-        .reorder_categories(USER_ID, TEAM_ID, new_order.clone())
+        .reorder_categories(&user_id, TEST_TEAM_ID, new_order.clone())
         .await
         .expect("an order that names every category is accepted");
 
     assert_eq!(answered, new_order, "the new order is returned");
-    assert_eq!(listed_ids(&th).await, new_order, "and is the listed order");
+    assert_eq!(
+        listed_ids(&th, &user_id).await,
+        new_order,
+        "and is the listed order"
+    );
 
     th.teardown().await;
 }
@@ -901,17 +945,26 @@ async fn reorder_categories_base_case() {
 #[tokio::test]
 async fn reorder_categories_not_specifying_all_categories_should_fail() {
     let th = Setup::native().start().await;
-    let listed = three_categories(&th).await;
+    let user_id = stored_user(&th).await;
+    let listed = three_categories(&th, &user_id).await;
 
     let error = th
         .app
-        .reorder_categories(USER_ID, TEAM_ID, vec![listed[1].clone(), listed[0].clone()])
+        .reorder_categories(
+            &user_id,
+            TEST_TEAM_ID,
+            vec![listed[1].clone(), listed[0].clone()],
+        )
         .await
         .expect_err("an order that leaves a category out is refused");
 
     // (The original does not classify this error and answers 500.)
     assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
-    assert_eq!(listed_ids(&th).await, listed, "the order is unchanged");
+    assert_eq!(
+        listed_ids(&th, &user_id).await,
+        listed,
+        "the order is unchanged"
+    );
 
     th.teardown().await;
 }
@@ -923,17 +976,20 @@ async fn reorder_categories_not_specifying_all_categories_should_fail() {
 async fn verify_new_categories_match_existing_base_case() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let default_id = category_boards(&th.client, "0").await[0]
+    let default_id = category_boards(&th.client, ROOT_TEAM_ID).await[0]
         .category
         .id
         .clone();
-    let second = create_category(&th.client, &category("0", &user.id, "Category 2")).await;
-    let third = create_category(&th.client, &category("0", &user.id, "Category 3")).await;
+    let second = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Category 2")).await;
+    let third = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Category 3")).await;
     let new_order = [second.id.as_str(), third.id.as_str(), default_id.as_str()];
 
     let response = th
         .client
-        .put("/teams/0/categories/reorder", &new_order)
+        .put(
+            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
+            &new_order,
+        )
         .await;
 
     assert_eq!(
@@ -941,7 +997,7 @@ async fn verify_new_categories_match_existing_base_case() {
         new_order,
         "the new order is answered"
     );
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&listed), new_order, "and is the listed order");
 
     th.teardown().await;
@@ -952,15 +1008,15 @@ async fn verify_new_categories_match_existing_base_case() {
 async fn verify_new_categories_match_existing_different_category_counts() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    category_boards(&th.client, "0").await;
-    let second = create_category(&th.client, &category("0", &user.id, "Category 2")).await;
-    let third = create_category(&th.client, &category("0", &user.id, "Category 3")).await;
-    let before = category_boards(&th.client, "0").await;
+    category_boards(&th.client, ROOT_TEAM_ID).await;
+    let second = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Category 2")).await;
+    let third = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Category 3")).await;
+    let before = category_boards(&th.client, ROOT_TEAM_ID).await;
 
     let response = th
         .client
         .put(
-            "/teams/0/categories/reorder",
+            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
             &[second.id.as_str(), third.id.as_str()],
         )
         .await;
@@ -970,7 +1026,7 @@ async fn verify_new_categories_match_existing_different_category_counts() {
         StatusCode::BAD_REQUEST,
         "the new order must list every category once: it has 2, the user has 3",
     );
-    let after = category_boards(&th.client, "0").await;
+    let after = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&after), ids(&before), "the order is unchanged");
 
     th.teardown().await;
@@ -986,10 +1042,10 @@ async fn get_user_category_boards_user_had_no_default_category_and_had_boards() 
     let user = th.client.me().await;
     let mut boards = Vec::new();
     for _ in 0..3 {
-        boards.push(board_with_admin(&th, "0", &user.id).await.id);
+        boards.push(board_with_admin(&th, ROOT_TEAM_ID, &user.id).await.id);
     }
 
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
 
     assert_eq!(
         names(&listed),
@@ -1012,7 +1068,10 @@ async fn get_user_category_boards_user_had_no_default_category_and_had_boards() 
 async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = th.client.get("/teams/0/categories").await;
+    let response = th
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await;
 
     let listed: Vec<CategoryBoards> = response.ok_json();
     assert_eq!(
@@ -1030,7 +1089,7 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
             "id": listed[0].category.id,
             "name": "Boards",
             "userID": user.id,
-            "teamID": "0",
+            "teamID": ROOT_TEAM_ID,
             "createAt": listed[0].category.create_at,
             "updateAt": listed[0].category.create_at,
             "deleteAt": 0,
@@ -1053,14 +1112,14 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
 async fn get_user_category_boards_user_already_had_a_default_boards_category_with_boards_in_it() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    board_with_admin(&th, "0", &user.id).await;
-    board_with_admin(&th, "0", &user.id).await;
-    let first = category_boards(&th.client, "0").await;
+    board_with_admin(&th, ROOT_TEAM_ID, &user.id).await;
+    board_with_admin(&th, ROOT_TEAM_ID, &user.id).await;
+    let first = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(first[0].board_metadata.len(), 2, "two boards to begin with");
 
     // A board that appears later is not filed by listing the categories.
-    board_with_admin(&th, "0", &user.id).await;
-    let second = category_boards(&th.client, "0").await;
+    board_with_admin(&th, ROOT_TEAM_ID, &user.id).await;
+    let second = category_boards(&th.client, ROOT_TEAM_ID).await;
 
     assert_eq!(second, first, "the same category with the same boards");
 
@@ -1073,17 +1132,18 @@ async fn get_user_category_boards_user_already_had_a_default_boards_category_wit
 #[tokio::test]
 async fn create_boards_category_user_doesnt_have_any_boards_implicit_or_explicit() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
 
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
 
     assert_eq!(names(&listed), ["Boards"], "the default category");
     assert!(listed[0].board_metadata.is_empty(), "with no boards");
-    assert_eq!(listed[0].category.user_id, USER_ID, "of the user");
-    assert_eq!(listed[0].category.team_id, TEAM_ID, "in the team");
+    assert_eq!(listed[0].category.user_id, user_id, "of the user");
+    assert_eq!(listed[0].category.team_id, TEST_TEAM_ID, "in the team");
 
     th.teardown().await;
 }
@@ -1095,13 +1155,14 @@ async fn create_boards_category_user_doesnt_have_any_boards_implicit_or_explicit
 #[tokio::test]
 async fn create_boards_category_user_has_implicit_access_to_some_board() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     for _ in 0..3 {
-        board_without_member(&th, TEAM_ID, OTHER_USER_ID).await;
+        board_without_member(&th, TEST_TEAM_ID, &th.stranger().await).await;
     }
 
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
 
@@ -1118,16 +1179,17 @@ async fn create_boards_category_user_has_implicit_access_to_some_board() {
 #[tokio::test]
 async fn create_boards_category_user_has_explicit_access_to_some_board() {
     let th = Setup::native().start().await;
+    let user_id = stored_user(&th).await;
     let mut boards = Vec::new();
     for _ in 0..3 {
-        boards.push(board_with_admin(&th, TEAM_ID, USER_ID).await.id);
+        boards.push(board_with_admin(&th, TEST_TEAM_ID, &user_id).await.id);
     }
     // A board of another team is not filed in this team's default category.
-    board_with_admin(&th, "team_id_2", USER_ID).await;
+    board_with_admin(&th, ROOT_TEAM_ID, &user_id).await;
 
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
 
@@ -1140,7 +1202,7 @@ async fn create_boards_category_user_has_explicit_access_to_some_board() {
     // What was returned at creation is what is stored.
     let again = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
     assert_eq!(ids(&again), ids(&listed), "the same category");
@@ -1157,13 +1219,14 @@ async fn create_boards_category_user_has_explicit_access_to_some_board() {
 #[tokio::test]
 async fn create_boards_category_user_has_both_implicit_and_explicit_access_to_some_board() {
     let th = Setup::native().start().await;
-    let own = board_with_admin(&th, TEAM_ID, USER_ID).await;
-    board_without_member(&th, TEAM_ID, OTHER_USER_ID).await;
-    board_without_member(&th, TEAM_ID, OTHER_USER_ID).await;
+    let user_id = stored_user(&th).await;
+    let own = board_with_admin(&th, TEST_TEAM_ID, &user_id).await;
+    board_without_member(&th, TEST_TEAM_ID, &th.stranger().await).await;
+    board_without_member(&th, TEST_TEAM_ID, &th.stranger().await).await;
 
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(&user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
 
@@ -1177,29 +1240,35 @@ async fn create_boards_category_user_has_both_implicit_and_explicit_access_to_so
     th.teardown().await;
 }
 
-/// A category of [`USER_ID`] with the given boards filed in it, in the listed order.
-async fn category_with_boards(th: &TestServer, board_ids_filed: &[&str]) -> Category {
+/// A category of the user in [`TEST_TEAM_ID`] with `count` boards filed in it, and those
+/// boards in the order they are listed.
+async fn category_with_boards(
+    th: &TestServer,
+    user_id: &str,
+    count: usize,
+) -> (Category, Vec<String>) {
     let created = th
         .app
-        .create_category(category(TEAM_ID, USER_ID, "Category 1"))
+        .create_category(category(TEST_TEAM_ID, user_id, "Category 1"))
         .await
         .expect("the category is created");
-    let board_ids_filed: Vec<String> = board_ids_filed.iter().map(|id| (*id).to_owned()).collect();
+    let board_ids_filed = open_boards(th, TEST_TEAM_ID, count).await;
     th.app
-        .add_update_user_category_board(TEAM_ID, USER_ID, &created.id, &board_ids_filed)
+        .add_update_user_category_board(TEST_TEAM_ID, user_id, &created.id, &board_ids_filed)
         .await
         .expect("the boards are filed");
-    th.app
-        .reorder_category_boards(USER_ID, TEAM_ID, &created.id, board_ids_filed)
+    let order = th
+        .app
+        .reorder_category_boards(user_id, TEST_TEAM_ID, &created.id, board_ids_filed)
         .await
         .expect("the boards are put in order");
-    created
+    (created, order)
 }
 
-async fn listed_board_ids(th: &TestServer, category_id: &str) -> Vec<String> {
+async fn listed_board_ids(th: &TestServer, user_id: &str, category_id: &str) -> Vec<String> {
     let listed = th
         .app
-        .user_category_boards(USER_ID, TEAM_ID)
+        .user_category_boards(user_id, TEST_TEAM_ID)
         .await
         .expect("the categories are listed");
     board_ids(entry(&listed, category_id))
@@ -1212,28 +1281,25 @@ async fn listed_board_ids(th: &TestServer, category_id: &str) -> Vec<String> {
 #[tokio::test]
 async fn reorder_category_boards_base_case() {
     let th = Setup::native().start().await;
-    let created = category_with_boards(&th, &["board_id_1", "board_id_2"]).await;
+    let user_id = stored_user(&th).await;
+    let (created, boards) = category_with_boards(&th, &user_id, 2).await;
     assert_eq!(
-        listed_board_ids(&th, &created.id).await,
-        ["board_id_1", "board_id_2"],
+        listed_board_ids(&th, &user_id, &created.id).await,
+        boards,
         "the order to begin with"
     );
+    let reversed = vec![boards[1].clone(), boards[0].clone()];
 
     let new_order = th
         .app
-        .reorder_category_boards(
-            USER_ID,
-            TEAM_ID,
-            &created.id,
-            vec!["board_id_2".to_owned(), "board_id_1".to_owned()],
-        )
+        .reorder_category_boards(&user_id, TEST_TEAM_ID, &created.id, reversed.clone())
         .await
         .expect("an order that names every board is accepted");
 
-    assert_eq!(new_order, ["board_id_2", "board_id_1"], "the new order");
+    assert_eq!(new_order, reversed, "the new order");
     assert_eq!(
-        listed_board_ids(&th, &created.id).await,
-        ["board_id_2", "board_id_1"],
+        listed_board_ids(&th, &user_id, &created.id).await,
+        reversed,
         "and is the listed order"
     );
 
@@ -1244,15 +1310,16 @@ async fn reorder_category_boards_base_case() {
 #[tokio::test]
 async fn reorder_category_boards_not_specifying_all_boards() {
     let th = Setup::native().start().await;
-    let created = category_with_boards(&th, &["board_id_1", "board_id_2", "board_id_3"]).await;
+    let user_id = stored_user(&th).await;
+    let (created, boards) = category_with_boards(&th, &user_id, 3).await;
 
     let error = th
         .app
         .reorder_category_boards(
-            USER_ID,
-            TEAM_ID,
+            &user_id,
+            TEST_TEAM_ID,
             &created.id,
-            vec!["board_id_2".to_owned(), "board_id_1".to_owned()],
+            vec![boards[1].clone(), boards[0].clone()],
         )
         .await
         .expect_err("an order that leaves a board out is refused");
@@ -1260,8 +1327,8 @@ async fn reorder_category_boards_not_specifying_all_boards() {
     // (The original does not classify this error and answers 500.)
     assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(
-        listed_board_ids(&th, &created.id).await,
-        ["board_id_1", "board_id_2", "board_id_3"],
+        listed_board_ids(&th, &user_id, &created.id).await,
+        boards,
         "the order is unchanged"
     );
 
@@ -1277,15 +1344,36 @@ async fn category_routes_need_a_session() {
     let th = Setup::native().start().await.init_basic().await;
     let anonymous = th.anonymous();
     let requests = [
-        (Method::GET, "/teams/0/categories"),
-        (Method::POST, "/teams/0/categories"),
-        (Method::PUT, "/teams/0/categories/reorder"),
-        (Method::PUT, "/teams/0/categories/any"),
-        (Method::DELETE, "/teams/0/categories/any"),
-        (Method::PUT, "/teams/0/categories/any/boards/reorder"),
-        (Method::POST, "/teams/0/categories/any/boards/any"),
-        (Method::PUT, "/teams/0/categories/any/boards/any/hide"),
-        (Method::PUT, "/teams/0/categories/any/boards/any/unhide"),
+        (Method::GET, &format!("/teams/{ROOT_TEAM_ID}/categories")),
+        (Method::POST, &format!("/teams/{ROOT_TEAM_ID}/categories")),
+        (
+            Method::PUT,
+            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
+        ),
+        (
+            Method::PUT,
+            &format!("/teams/{ROOT_TEAM_ID}/categories/any"),
+        ),
+        (
+            Method::DELETE,
+            &format!("/teams/{ROOT_TEAM_ID}/categories/any"),
+        ),
+        (
+            Method::PUT,
+            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/reorder"),
+        ),
+        (
+            Method::POST,
+            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/any"),
+        ),
+        (
+            Method::PUT,
+            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/any/hide"),
+        ),
+        (
+            Method::PUT,
+            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/any/unhide"),
+        ),
     ];
 
     for (method, path) in requests {
@@ -1296,22 +1384,78 @@ async fn category_routes_need_a_session() {
     th.teardown().await;
 }
 
+/// The category routes are about a team that exists. A path that names no team answers
+/// that, whatever else it names, and alike for an identifier of nothing and for text
+/// that is no identifier. (While the server had one team and took any name for it, these
+/// requests were answered for their category.)
+#[tokio::test]
+async fn category_routes_need_a_team_that_exists() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user = th.client.me().await;
+    category_boards(&th.client, ROOT_TEAM_ID).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let board = board_with_admin(&th, ROOT_TEAM_ID, &user.id).await;
+    file_board(&th.client, ROOT_TEAM_ID, &created.id, &board.id).await;
+    let before = category_boards(&th.client, ROOT_TEAM_ID).await;
+
+    for team_id in [UNKNOWN_ID, "1"] {
+        let categories = categories_path(team_id);
+        let one = format!("{categories}/{}", created.id);
+        let place = format!("{one}/boards/{}", board.id);
+        let new = json!({"name": "New", "userID": user.id, "teamID": team_id});
+        let change = json!({
+            "id": created.id, "name": "Renamed", "userID": user.id, "teamID": team_id,
+        });
+        let requests = [
+            (Method::GET, categories.clone(), Value::Null),
+            (Method::POST, categories.clone(), new),
+            (
+                Method::PUT,
+                format!("{categories}/reorder"),
+                json!(ids(&before)),
+            ),
+            (Method::PUT, one.clone(), change),
+            (Method::DELETE, one.clone(), Value::Null),
+            (
+                Method::PUT,
+                format!("{one}/boards/reorder"),
+                json!([board.id]),
+            ),
+            (Method::POST, place.clone(), Value::Null),
+            (Method::PUT, format!("{place}/hide"), Value::Null),
+            (Method::PUT, format!("{place}/unhide"), Value::Null),
+        ];
+        for (method, path, body) in requests {
+            let response = th
+                .client
+                .send_raw_body(method, &path, &body.to_string())
+                .await;
+            check_error(&response, StatusCode::NOT_FOUND, "team not found");
+        }
+    }
+
+    let after = category_boards(&th.client, ROOT_TEAM_ID).await;
+    assert_eq!(after, before, "none of these changed anything");
+
+    th.teardown().await;
+}
+
 /// The default category is created by the first listing, once per team, and is the same
 /// from then on.
 #[tokio::test]
 async fn the_default_category_is_created_once_per_team() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let first = category_boards(&th.client, "0").await;
-    let second = category_boards(&th.client, "0").await;
-    let other_team = category_boards(&th.client, "other-team").await;
-    let other_user = category_boards(&th.client2, "0").await;
+    let first = category_boards(&th.client, ROOT_TEAM_ID).await;
+    let second = category_boards(&th.client, ROOT_TEAM_ID).await;
+    let other_team = category_boards(&th.client, TEST_TEAM_ID).await;
+    let other_user = category_boards(&th.client2, ROOT_TEAM_ID).await;
 
     assert_eq!(names(&first), ["Boards"], "created by the first listing");
     assert_eq!(second, first, "and not again by the second");
     assert_eq!(names(&other_team), ["Boards"], "each team has its own");
     assert_ne!(ids(&other_team), ids(&first), "with its own identifier");
-    assert_eq!(other_team[0].category.team_id, "other-team", "in that team");
+    assert_eq!(other_team[0].category.team_id, TEST_TEAM_ID, "in that team");
     assert_eq!(names(&other_user), ["Boards"], "each user has their own");
     assert_ne!(ids(&other_user), ids(&first), "with its own identifier");
 
@@ -1324,9 +1468,9 @@ async fn the_default_category_is_created_once_per_team() {
 async fn a_custom_category_named_boards_stands_in_for_the_default_one() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let custom = create_category(&th.client, &category("0", &user.id, "Boards")).await;
+    let custom = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Boards")).await;
 
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
 
     assert_eq!(
         ids(&listed),
@@ -1351,8 +1495,8 @@ async fn create_category_answers_the_stored_category() {
     let response = th
         .client
         .post(
-            "/teams/0/categories",
-            &json!({"name": "Cat A", "userID": user.id, "teamID": "0"}),
+            &format!("/teams/{ROOT_TEAM_ID}/categories"),
+            &json!({"name": "Cat A", "userID": user.id, "teamID": ROOT_TEAM_ID}),
         )
         .await;
     let created: Category = response.ok_json();
@@ -1362,7 +1506,7 @@ async fn create_category_answers_the_stored_category() {
             "id": created.id,
             "name": "Cat A",
             "userID": user.id,
-            "teamID": "0",
+            "teamID": ROOT_TEAM_ID,
             "createAt": created.create_at,
             "updateAt": created.create_at,
             "deleteAt": 0,
@@ -1374,7 +1518,7 @@ async fn create_category_answers_the_stored_category() {
         }),
         "the created category"
     );
-    assert_eq!(created.id.len(), 27, "a generated identifier");
+    assert!(is_id(&created.id), "a generated identifier: {}", created.id);
     assert!(created.create_at > 0, "a creation time");
 
     // What the client may choose: the times, the collapsed state and the type. A
@@ -1383,11 +1527,11 @@ async fn create_category_answers_the_stored_category() {
     let response = th
         .client
         .post(
-            "/teams/0/categories",
+            &format!("/teams/{ROOT_TEAM_ID}/categories"),
             &json!({
                 "name": "With id",
                 "userID": user.id,
-                "teamID": "0",
+                "teamID": ROOT_TEAM_ID,
                 "sortOrder": -5,
                 "createAt": 5,
                 "sorting": "alpha",
@@ -1398,14 +1542,14 @@ async fn create_category_answers_the_stored_category() {
         .await;
     let answered = response.ok_json::<Value>();
     let made_id = answered["id"].as_str().expect("an identifier").to_owned();
-    assert_eq!(made_id.len(), 27, "a generated identifier");
+    assert!(is_id(&made_id), "a generated identifier: {made_id}");
     assert_eq!(
         answered,
         json!({
             "id": made_id,
             "name": "With id",
             "userID": user.id,
-            "teamID": "0",
+            "teamID": ROOT_TEAM_ID,
             "createAt": 5,
             "updateAt": 5,
             "deleteAt": 0,
@@ -1422,8 +1566,8 @@ async fn create_category_answers_the_stored_category() {
         let response = th
             .client
             .post(
-                "/teams/0/categories",
-                &json!({"name": "Blank type", "userID": user.id, "teamID": "0", "type": blank}),
+                &format!("/teams/{ROOT_TEAM_ID}/categories"),
+                &json!({"name": "Blank type", "userID": user.id, "teamID": ROOT_TEAM_ID, "type": blank}),
             )
             .await;
         assert_eq!(
@@ -1442,14 +1586,14 @@ async fn create_category_refuses_invalid_requests() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let other = th.client2.me().await;
-    let path = "/teams/0/categories";
+    let path = &format!("/teams/{ROOT_TEAM_ID}/categories");
     let invalid_type = "category type is invalid. Allowed types: system and custom";
     // A category is made for the session's user and nobody else, whatever else the
     // body says.
     for body in [
-        json!({"name": "x", "userID": other.id, "teamID": "0"}),
-        json!({"name": "x", "teamID": "0"}),
-        json!({"name": "x", "userID": other.id, "teamID": "0", "type": "bogus"}),
+        json!({"name": "x", "userID": other.id, "teamID": ROOT_TEAM_ID}),
+        json!({"name": "x", "teamID": ROOT_TEAM_ID}),
+        json!({"name": "x", "userID": other.id, "teamID": ROOT_TEAM_ID, "type": "bogus"}),
     ] {
         let response = th.client.post(path, &body).await;
         check_error(
@@ -1460,30 +1604,33 @@ async fn create_category_refuses_invalid_requests() {
         assert_eq!(response.value()["field"], json!("userID"), "{body}");
     }
 
+    // Another team than the path's: one that exists, one that does not, and text that
+    // is no identifier.
+    for team_id in [TEST_TEAM_ID, UNKNOWN_ID, "1"] {
+        let body = json!({"name": "x", "userID": user.id, "teamID": team_id});
+        let response = th.client.post(path, &body).await;
+        check_error(&response, StatusCode::BAD_REQUEST, "teamID mismatch");
+    }
+
     let cases = [
         (
-            "another team than the path's",
-            json!({"name": "x", "userID": user.id, "teamID": "1"}),
-            "teamID mismatch".to_owned(),
-        ),
-        (
             "a blank name",
-            json!({"name": "  ", "userID": user.id, "teamID": "0"}),
+            json!({"name": "  ", "userID": user.id, "teamID": ROOT_TEAM_ID}),
             "category name cannot be empty".to_owned(),
         ),
         (
             "a `null` name",
-            json!({"name": null, "userID": user.id, "teamID": "0"}),
+            json!({"name": null, "userID": user.id, "teamID": ROOT_TEAM_ID}),
             "category name cannot be empty".to_owned(),
         ),
         (
             "an unknown type",
-            json!({"name": "x", "userID": user.id, "teamID": "0", "type": "bogus"}),
+            json!({"name": "x", "userID": user.id, "teamID": ROOT_TEAM_ID, "type": "bogus"}),
             invalid_type.to_owned(),
         ),
         (
             "a blank name and an unknown type: the name is checked first",
-            json!({"name": "", "userID": user.id, "teamID": "0", "type": "bogus"}),
+            json!({"name": "", "userID": user.id, "teamID": ROOT_TEAM_ID, "type": "bogus"}),
             "category name cannot be empty".to_owned(),
         ),
     ];
@@ -1511,9 +1658,9 @@ async fn create_category_refuses_invalid_requests() {
     // The server makes the identifier. A request that names one is refused whether or
     // not somebody has a category of that identifier: the answer must not tell. (The
     // original stores the client's identifier, and answers 500 for one that is taken.)
-    let others = create_category(&th.client2, &category("0", &other.id, "Theirs")).await;
-    for id in ["fresh", others.id.as_str()] {
-        let named = json!({"id": id, "name": "x", "userID": user.id, "teamID": "0"});
+    let others = create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "Theirs")).await;
+    for id in ["fresh", UNKNOWN_ID, others.id.as_str()] {
+        let named = json!({"id": id, "name": "x", "userID": user.id, "teamID": ROOT_TEAM_ID});
         let response = th.client.post(path, &named).await;
         check_error(
             &response,
@@ -1529,12 +1676,12 @@ async fn create_category_refuses_invalid_requests() {
     th.client
         .post(
             path,
-            &json!({"name": "x", "userID": user.id, "teamID": "0"}),
+            &json!({"name": "x", "userID": user.id, "teamID": ROOT_TEAM_ID}),
         )
         .await
         .check_ok();
 
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(
         names(&listed),
         ["x", "Boards"],
@@ -1549,17 +1696,17 @@ async fn create_category_refuses_invalid_requests() {
 async fn update_category_changes_the_name_and_the_collapsed_state_only() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
 
     let response = th
         .client
         .put(
-            &format!("/teams/0/categories/{}", created.id),
+            &format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id),
             &json!({
                 "id": created.id,
                 "name": "Cat A2",
                 "userID": user.id,
-                "teamID": "0",
+                "teamID": ROOT_TEAM_ID,
                 "collapsed": true,
                 "sortOrder": 99,
                 "type": "system",
@@ -1576,7 +1723,7 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
             "id": created.id,
             "name": "Cat A2",
             "userID": user.id,
-            "teamID": "0",
+            "teamID": ROOT_TEAM_ID,
             "createAt": created.create_at,
             "updateAt": updated.update_at,
             "deleteAt": 0,
@@ -1601,10 +1748,11 @@ async fn update_category_refuses_invalid_requests() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let other = th.client2.me().await;
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
-    let path = format!("/teams/0/categories/{}", created.id);
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
     let body = |change: Value| {
-        let mut body = json!({"id": created.id, "name": "n", "userID": user.id, "teamID": "0"});
+        let mut body =
+            json!({"id": created.id, "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID});
         for (name, value) in change.as_object().expect("an object") {
             body[name] = value.clone();
         }
@@ -1617,9 +1765,15 @@ async fn update_category_refuses_invalid_requests() {
             "the category of the body is not the one of the path",
         ),
         (
+            body(json!({"id": UNKNOWN_ID})),
+            "the category of the body is not the one of the path",
+        ),
+        (
             body(json!({"userID": other.id})),
             "the user of the body is not the session's",
         ),
+        (body(json!({"teamID": TEST_TEAM_ID})), "teamID mismatch"),
+        (body(json!({"teamID": UNKNOWN_ID})), "teamID mismatch"),
         (body(json!({"teamID": "1"})), "teamID mismatch"),
         (body(json!({"name": ""})), "category name cannot be empty"),
         (
@@ -1634,19 +1788,23 @@ async fn update_category_refuses_invalid_requests() {
 
     // A category of another team than the path's, one that does not exist, and
     // another user's all answer alike, whatever the body.
-    let others = create_category(&th.client2, &category("0", &other.id, "Theirs")).await;
+    let others = create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "Theirs")).await;
     for (route, request) in [
         (
-            format!("/teams/1/categories/{}", created.id),
-            body(json!({"teamID": "1"})),
+            format!("/teams/{TEST_TEAM_ID}/categories/{}", created.id),
+            body(json!({"teamID": TEST_TEAM_ID})),
         ),
         (
-            "/teams/0/categories/nope".to_owned(),
-            json!({"id": "nope", "name": "n", "userID": user.id, "teamID": "0"}),
+            format!("/teams/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}"),
+            json!({"id": UNKNOWN_ID, "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID}),
         ),
         (
-            format!("/teams/0/categories/{}", others.id),
-            json!({"id": others.id, "name": "n", "userID": user.id, "teamID": "0"}),
+            format!("/teams/{ROOT_TEAM_ID}/categories/nope"),
+            json!({"id": "nope", "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID}),
+        ),
+        (
+            format!("/teams/{ROOT_TEAM_ID}/categories/{}", others.id),
+            json!({"id": others.id, "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID}),
         ),
     ] {
         let response = th.client.put(&route, &request).await;
@@ -1677,27 +1835,32 @@ async fn update_category_refuses_invalid_requests() {
 async fn delete_category_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let default_id = category_boards(&th.client, "0").await[0]
+    let default_id = category_boards(&th.client, ROOT_TEAM_ID).await[0]
         .category
         .id
         .clone();
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
-    let path = format!("/teams/0/categories/{}", created.id);
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
 
-    let response = th.client.delete("/teams/0/categories/nope").await;
-    check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    for missing in [UNKNOWN_ID, "nope"] {
+        let response = th
+            .client
+            .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{missing}"))
+            .await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
 
     // In another team than its own the category does not exist.
     let response = th
         .client
-        .delete(&format!("/teams/1/categories/{}", created.id))
+        .delete(&format!("/teams/{TEST_TEAM_ID}/categories/{}", created.id))
         .await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     // (The original answers 500.)
     let response = th
         .client
-        .delete(&format!("/teams/0/categories/{default_id}"))
+        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}"))
         .await;
     check_error(
         &response,
@@ -1705,7 +1868,7 @@ async fn delete_category_over_the_api() {
         "a system category cannot be deleted",
     );
 
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(names(&listed), ["Cat A", "Boards"], "nothing was deleted");
 
     let response = th.client.delete(&path).await;
@@ -1717,7 +1880,7 @@ async fn delete_category_over_the_api() {
             "id": created.id,
             "name": "Cat A",
             "userID": user.id,
-            "teamID": "0",
+            "teamID": ROOT_TEAM_ID,
             "createAt": created.create_at,
             "updateAt": created.update_at,
             "deleteAt": deleted.delete_at,
@@ -1733,7 +1896,7 @@ async fn delete_category_over_the_api() {
     let response = th.client.delete(&path).await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(names(&listed), ["Boards"], "the category is gone");
 
     th.teardown().await;
@@ -1744,7 +1907,7 @@ async fn delete_category_over_the_api() {
 async fn reorder_categories_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let path = "/teams/0/categories/reorder";
+    let path = &format!("/teams/{ROOT_TEAM_ID}/categories/reorder");
 
     // With no categories, the empty order is accepted and answered with the empty
     // list. The user has none before the first listing creates the default one. (The
@@ -1757,19 +1920,20 @@ async fn reorder_categories_over_the_api() {
         .await
         .check_bad_request();
 
-    let default_id = category_boards(&th.client, "0").await[0]
+    let default_id = category_boards(&th.client, ROOT_TEAM_ID).await[0]
         .category
         .id
         .clone();
-    let second = create_category(&th.client, &category("0", &user.id, "Category 2")).await;
-    let third = create_category(&th.client, &category("0", &user.id, "Category 3")).await;
+    let second = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Category 2")).await;
+    let third = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Category 3")).await;
     let before = [third.id.as_str(), second.id.as_str(), default_id.as_str()];
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&listed), before, "the order to begin with");
 
     let refused = [
         json!([default_id, second.id]),
         json!([default_id, second.id, "zzz"]),
+        json!([default_id, second.id, UNKNOWN_ID]),
         json!([default_id, second.id, third.id, third.id]),
         json!([]),
         Value::Null,
@@ -1786,20 +1950,20 @@ async fn reorder_categories_over_the_api() {
         .send_raw_body(Method::PUT, path, "[")
         .await
         .check_bad_request();
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&listed), before, "a refused order changes nothing");
 
     // Another user's order of these categories is refused: they are not theirs.
-    category_boards(&th.client2, "0").await;
+    category_boards(&th.client2, ROOT_TEAM_ID).await;
     let response = th.client2.put(path, &json!([default_id])).await;
     response.check_bad_request();
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&listed), before, "and changes nothing");
 
     let new_order = [default_id.as_str(), third.id.as_str(), second.id.as_str()];
     let response = th.client.put(path, &new_order).await;
     assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&listed), new_order, "the new order");
 
     // Preserved quirk: only the count and the membership are checked, so naming one
@@ -1807,7 +1971,7 @@ async fn reorder_categories_over_the_api() {
     let twice = [default_id.as_str(), default_id.as_str(), second.id.as_str()];
     let response = th.client.put(path, &twice).await;
     assert_eq!(response.ok_json::<Vec<String>>(), twice, "the answer");
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(
         sorted(ids(&listed)),
         sorted(new_order.to_vec()),
@@ -1822,32 +1986,36 @@ async fn reorder_categories_over_the_api() {
 async fn reorder_category_boards_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let default_id = category_boards(&th.client, "0").await[0]
+    let default_id = category_boards(&th.client, ROOT_TEAM_ID).await[0]
         .category
         .id
         .clone();
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
-    for board_id in ["board-1", "board-2", "board-3"] {
-        open_board(&th, "0", board_id).await;
-        file_board(&th.client, "0", &created.id, board_id).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let boards = open_boards(&th, ROOT_TEAM_ID, 3).await;
+    for board_id in &boards {
+        file_board(&th.client, ROOT_TEAM_ID, &created.id, board_id).await;
     }
-    let path = format!("/teams/0/categories/{}/boards/reorder", created.id);
+    let path = format!(
+        "/teams/{ROOT_TEAM_ID}/categories/{}/boards/reorder",
+        created.id
+    );
     let order = async || {
-        let listed = category_boards(&th.client, "0").await;
+        let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
         board_ids(entry(&listed, &created.id))
             .into_iter()
             .map(str::to_owned)
             .collect::<Vec<_>>()
     };
 
-    let new_order = ["board-2", "board-3", "board-1"];
+    let new_order = [boards[1].as_str(), boards[2].as_str(), boards[0].as_str()];
     let response = th.client.put(&path, &new_order).await;
     assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
     assert_eq!(order().await, new_order, "the new order");
 
     let refused = [
-        json!(["board-1", "board-2"]),
-        json!(["board-1", "board-2", "other"]),
+        json!([boards[0], boards[1]]),
+        json!([boards[0], boards[1], "other"]),
+        json!([boards[0], boards[1], UNKNOWN_ID]),
         json!([]),
         Value::Null,
         json!({}),
@@ -1866,8 +2034,12 @@ async fn reorder_category_boards_over_the_api() {
 
     // A category of another team than the path's, and one that does not exist.
     for route in [
-        format!("/teams/1/categories/{}/boards/reorder", created.id),
-        "/teams/0/categories/nope/boards/reorder".to_owned(),
+        format!(
+            "/teams/{TEST_TEAM_ID}/categories/{}/boards/reorder",
+            created.id
+        ),
+        format!("/teams/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}/boards/reorder"),
+        format!("/teams/{ROOT_TEAM_ID}/categories/nope/boards/reorder"),
     ] {
         let response = th.client.put(&route, &new_order).await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -1880,7 +2052,7 @@ async fn reorder_category_boards_over_the_api() {
         .client
         .send_raw_body(
             Method::PUT,
-            &format!("/teams/0/categories/{default_id}/boards/reorder"),
+            &format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/reorder"),
             "[]",
         )
         .await;
@@ -1889,7 +2061,7 @@ async fn reorder_category_boards_over_the_api() {
 
     // A deleted category has no boards to order.
     th.client
-        .delete(&format!("/teams/0/categories/{}", created.id))
+        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id))
         .await
         .check_ok();
     let response = th.client.put(&path, &new_order).await;
@@ -1903,12 +2075,12 @@ async fn reorder_category_boards_over_the_api() {
 async fn update_category_board_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, "0", &user.id).await;
-    let default_id = category_boards(&th.client, "0").await[0]
+    let board = board_with_admin(&th, ROOT_TEAM_ID, &user.id).await;
+    let default_id = category_boards(&th.client, ROOT_TEAM_ID).await[0]
         .category
         .id
         .clone();
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
     let board_path = |team_id: &str, category_id: &str| {
         format!(
             "/teams/{team_id}/categories/{category_id}/boards/{}",
@@ -1916,7 +2088,7 @@ async fn update_category_board_over_the_api() {
         )
     };
     let places = async || {
-        let listed = category_boards(&th.client, "0").await;
+        let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
         (
             board_ids(entry(&listed, &created.id))
                 .into_iter()
@@ -1935,7 +2107,10 @@ async fn update_category_board_over_the_api() {
     );
 
     // (The original answers the bare word `ok`, labelled as JSON.)
-    let response = th.client.post_empty(&board_path("0", &created.id)).await;
+    let response = th
+        .client
+        .post_empty(&board_path(ROOT_TEAM_ID, &created.id))
+        .await;
     response.check_ok();
     assert_eq!(response.text(), "{}", "the body");
     assert_eq!(
@@ -1952,15 +2127,16 @@ async fn update_category_board_over_the_api() {
     // A category that does not exist, is in another team, or is deleted: the original
     // answers these with a server error after moving the board out of sight. Here the
     // board stays where it is.
-    let deleted = create_category(&th.client, &category("0", &user.id, "Deleted")).await;
+    let deleted = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Deleted")).await;
     th.client
-        .delete(&format!("/teams/0/categories/{}", deleted.id))
+        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", deleted.id))
         .await
         .check_ok();
     for path in [
-        board_path("0", "nope"),
-        board_path("1", &default_id),
-        board_path("0", &deleted.id),
+        board_path(ROOT_TEAM_ID, UNKNOWN_ID),
+        board_path(ROOT_TEAM_ID, "nope"),
+        board_path(TEST_TEAM_ID, &default_id),
+        board_path(ROOT_TEAM_ID, &deleted.id),
     ] {
         let response = th.client.post_empty(&path).await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -1973,12 +2149,12 @@ async fn update_category_board_over_the_api() {
 
     // Only a board the user can see is filed. (The original does not look at the
     // board, so any identifier can be filed.)
-    let private = board_of_somebody_else(&th, "0").await;
-    for board_id in ["no-such-board", private.as_str()] {
+    let private = board_of_somebody_else(&th, ROOT_TEAM_ID).await;
+    for board_id in [UNKNOWN_ID, "no-such-board", private.as_str()] {
         let response = th
             .client
             .post_empty(&format!(
-                "/teams/0/categories/{default_id}/boards/{board_id}"
+                "/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/{board_id}"
             ))
             .await;
         check_error(&response, StatusCode::NOT_FOUND, "board not found");
@@ -1999,45 +2175,59 @@ async fn update_category_board_over_the_api() {
 async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let board = board_with_admin(&th, "0", &user.id).await;
-    let before = category_boards(&th.client, "0").await;
+    let board = board_with_admin(&th, ROOT_TEAM_ID, &user.id).await;
+    let before = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(before[0].board_metadata, [visible(&board.id)], "one board");
     let default_id = &before[0].category.id;
 
-    for (path, missing) in [
-        (
-            "/teams/0/categories/nope/boards/nope/hide".to_owned(),
-            "category not found",
-        ),
-        (
-            format!("/teams/0/categories/nope/boards/{}/hide", board.id),
-            "category not found",
-        ),
-        (
-            "/teams/0/categories/nope/boards/nope/unhide".to_owned(),
-            "category not found",
-        ),
-        (
-            format!("/teams/0/categories/{default_id}/boards/nope/hide"),
-            "board not found",
-        ),
-    ] {
-        let response = put_empty(&th.client, &path).await;
-        check_error(&response, StatusCode::NOT_FOUND, missing);
+    // What does not exist is asked for by an identifier of nothing and by text that is
+    // no identifier: the answers are the same.
+    for nothing in [UNKNOWN_ID, "nope"] {
+        for (path, missing) in [
+            (
+                format!("/teams/{ROOT_TEAM_ID}/categories/{nothing}/boards/{nothing}/hide"),
+                "category not found",
+            ),
+            (
+                format!(
+                    "/teams/{ROOT_TEAM_ID}/categories/{nothing}/boards/{}/hide",
+                    board.id
+                ),
+                "category not found",
+            ),
+            (
+                format!("/teams/{ROOT_TEAM_ID}/categories/{nothing}/boards/{nothing}/unhide"),
+                "category not found",
+            ),
+            (
+                format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/{nothing}/hide"),
+                "board not found",
+            ),
+            (
+                format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/{nothing}/unhide"),
+                "board not found",
+            ),
+        ] {
+            let response = put_empty(&th.client, &path).await;
+            check_error(&response, StatusCode::NOT_FOUND, missing);
+        }
     }
 
     // A board the user sees, in a category of the user's it is not filed in.
-    let other = create_category(&th.client, &category("0", &user.id, "Other")).await;
-    let before = category_boards(&th.client, "0").await;
+    let other = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Other")).await;
+    let before = category_boards(&th.client, ROOT_TEAM_ID).await;
     let response = put_empty(
         &th.client,
-        &format!("/teams/0/categories/{}/boards/{}/hide", other.id, board.id),
+        &format!(
+            "/teams/{ROOT_TEAM_ID}/categories/{}/boards/{}/hide",
+            other.id, board.id
+        ),
     )
     .await;
     response.check_ok();
     assert_eq!(response.value(), json!({}), "the answer");
 
-    let after = category_boards(&th.client, "0").await;
+    let after = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(after, before, "nothing changed");
 
     th.teardown().await;
@@ -2051,10 +2241,13 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
 async fn the_word_reorder_is_reserved() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    category_boards(&th.client, "0").await;
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
+    category_boards(&th.client, ROOT_TEAM_ID).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
 
-    let response = th.client.delete("/teams/0/categories/reorder").await;
+    let response = th
+        .client
+        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/reorder"))
+        .await;
     check_error(
         &response,
         StatusCode::METHOD_NOT_ALLOWED,
@@ -2065,7 +2258,7 @@ async fn the_word_reorder_is_reserved() {
     let response = th
         .client
         .post_empty(&format!(
-            "/teams/0/categories/{}/boards/reorder",
+            "/teams/{ROOT_TEAM_ID}/categories/{}/boards/reorder",
             created.id
         ))
         .await;
@@ -2098,11 +2291,12 @@ impl TwoUsers {
         let th = Setup::native().start().await.init_basic().await;
         let owner = th.client.me().await;
         let intruder = th.client2.me().await;
-        category_boards(&th.client, "0").await;
-        category_boards(&th.client2, "0").await;
-        let board = board_with_admin(&th, "0", &owner.id).await;
-        let category = create_category(&th.client, &category("0", &owner.id, "Private")).await;
-        file_board(&th.client, "0", &category.id, &board.id).await;
+        category_boards(&th.client, ROOT_TEAM_ID).await;
+        category_boards(&th.client2, ROOT_TEAM_ID).await;
+        let board = board_with_admin(&th, ROOT_TEAM_ID, &owner.id).await;
+        let category =
+            create_category(&th.client, &category(ROOT_TEAM_ID, &owner.id, "Private")).await;
+        file_board(&th.client, ROOT_TEAM_ID, &category.id, &board.id).await;
         Self {
             th,
             category,
@@ -2113,7 +2307,7 @@ impl TwoUsers {
 
     /// What the owner sees of their categories.
     async fn owner_view(&self) -> Vec<CategoryBoards> {
-        category_boards(&self.th.client, "0").await
+        category_boards(&self.th.client, ROOT_TEAM_ID).await
     }
 }
 
@@ -2125,16 +2319,16 @@ impl TwoUsers {
 async fn filing_a_board_into_another_users_category_is_refused() {
     let two = TwoUsers::start().await;
     let before = two.owner_view().await;
-    let intruder_before = category_boards(&two.th.client2, "0").await;
+    let intruder_before = category_boards(&two.th.client2, ROOT_TEAM_ID).await;
 
     // Another user's category answers as one that does not exist.
-    for category_id in [two.category.id.as_str(), "nope"] {
-        for board_id in ["planted", two.board_id.as_str()] {
+    for category_id in [two.category.id.as_str(), UNKNOWN_ID, "nope"] {
+        for board_id in [UNKNOWN_ID, "planted", two.board_id.as_str()] {
             let response = two
                 .th
                 .client2
                 .post_empty(&format!(
-                    "/teams/0/categories/{category_id}/boards/{board_id}"
+                    "/teams/{ROOT_TEAM_ID}/categories/{category_id}/boards/{board_id}"
                 ))
                 .await;
             check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -2147,7 +2341,7 @@ async fn filing_a_board_into_another_users_category_is_refused() {
         "the owner's categories are untouched"
     );
     assert_eq!(
-        category_boards(&two.th.client2, "0").await,
+        category_boards(&two.th.client2, ROOT_TEAM_ID).await,
         intruder_before,
         "and nothing was filed for the intruder either"
     );
@@ -2160,12 +2354,16 @@ async fn filing_a_board_into_another_users_category_is_refused() {
 #[tokio::test]
 async fn filing_a_board_into_an_own_category_works() {
     let two = TwoUsers::start().await;
-    let own = create_category(&two.th.client2, &category("0", &two.intruder_id, "Mine")).await;
+    let own = create_category(
+        &two.th.client2,
+        &category(ROOT_TEAM_ID, &two.intruder_id, "Mine"),
+    )
+    .await;
 
     // The same board identifier, filed by each user under a category of their own.
-    file_board(&two.th.client2, "0", &own.id, &two.board_id).await;
+    file_board(&two.th.client2, ROOT_TEAM_ID, &own.id, &two.board_id).await;
 
-    let listed = category_boards(&two.th.client2, "0").await;
+    let listed = category_boards(&two.th.client2, ROOT_TEAM_ID).await;
     assert_eq!(
         board_ids(entry(&listed, &own.id)),
         [two.board_id.as_str()],
@@ -2187,7 +2385,7 @@ async fn filing_a_board_into_an_own_category_works() {
 #[tokio::test]
 async fn another_users_deleted_category_is_not_handed_out() {
     let two = TwoUsers::start().await;
-    let path = format!("/teams/0/categories/{}", two.category.id);
+    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", two.category.id);
     two.th.client.delete(&path).await.check_ok();
 
     for client in [&two.th.client2, &two.th.client] {
@@ -2205,7 +2403,7 @@ async fn another_users_category_cannot_be_changed() {
     let two = TwoUsers::start().await;
     let before = two.owner_view().await;
     let intruder = &two.th.client2;
-    let path = format!("/teams/0/categories/{}", two.category.id);
+    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", two.category.id);
 
     // Update, whoever the body says the category belongs to.
     let as_owner = Category {
@@ -2233,15 +2431,19 @@ async fn another_users_category_cannot_be_changed() {
 
     // Reorder the categories: they are not among the intruder's.
     let order: Vec<&str> = ids(&before);
-    let response = intruder.put("/teams/0/categories/reorder", &order).await;
+    let response = intruder
+        .put(&format!("/teams/{ROOT_TEAM_ID}/categories/reorder"), &order)
+        .await;
     response.check_bad_request();
 
     // The same answers as for a category nobody has.
-    let nobody = "/teams/0/categories/nope";
-    let response = intruder.put(nobody, &as_intruder).await;
-    check_error(&response, StatusCode::NOT_FOUND, "category not found");
-    let response = intruder.delete(nobody).await;
-    check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    for nobodys in [UNKNOWN_ID, "nope"] {
+        let nobody = &format!("/teams/{ROOT_TEAM_ID}/categories/{nobodys}");
+        let response = intruder.put(nobody, &as_intruder).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+        let response = intruder.delete(nobody).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
 
     // Hide and show.
     let place = format!("{path}/boards/{}", two.board_id);
@@ -2277,62 +2479,136 @@ async fn another_users_category_cannot_be_changed() {
     two.th.teardown().await;
 }
 
+/// Text as one segment of a path, with every byte that is no letter or digit
+/// percent-encoded, so that the server is handed exactly this text.
+fn path_segment(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
+}
+
+/// Checks that the store refused to write because `text` is no identifier.
+#[track_caller]
+fn check_not_an_identifier<T: std::fmt::Debug>(written: Result<T, StoreError>, text: &str) {
+    match written {
+        Err(StoreError::InvalidId(refused)) => {
+            assert_eq!(refused, text, "the text that was refused");
+        }
+        other => panic!("the store refuses to write with {text:?}, but answered {other:?}"),
+    }
+}
+
+/// The stored categories of a user in the root team, places included.
+async fn stored_categories(th: &TestServer, user_id: &str) -> Vec<Category> {
+    th.app
+        .store()
+        .get_user_categories(user_id, ROOT_TEAM_ID)
+        .await
+        .expect("the categories are read")
+}
+
 /// Security fix of the store, checked through the route. The original builds the reorder
 /// statement by pasting the identifiers into it, and a category's identifier is the
-/// client's to choose (`server/services/store/sqlstore/category.go:221`): with the
+/// client's to choose (`server/services/store/sqlstore/category.go:221`): with the first
 /// identifier below, the original answers 200 and lists the categories in another order
 /// than the one asked for.
+///
+/// Here the server makes the identifiers, and text that is not one reaches a statement
+/// as a bound value only: no category can be stored under it, an order that names it is
+/// refused, the store does not run a statement that would write with it, and in a path
+/// it names nothing. None of that changes a row, the user's or anybody else's.
 #[tokio::test]
 async fn reorder_categories_treats_a_hostile_identifier_as_data() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let default_id = category_boards(&th.client, "0").await[0]
+    let other = th.client2.me().await;
+    let default_id = category_boards(&th.client, ROOT_TEAM_ID).await[0]
         .category
         .id
         .clone();
-    let hostile_ids = [
+    let plain = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "plain")).await;
+    let second = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "second")).await;
+    category_boards(&th.client2, ROOT_TEAM_ID).await;
+    create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "theirs")).await;
+    let before = stored_categories(&th, &user.id).await;
+    let others_before = stored_categories(&th, &other.id).await;
+    let path = &format!("/teams/{ROOT_TEAM_ID}/categories/reorder");
+
+    for hostile_id in [
         "a' THEN 777 WHEN 'zz",
         "q'q",
-        "x'; DROP TABLE test_categories; --",
-    ];
-    for hostile_id in hostile_ids {
+        "x'; DROP TABLE categories; --",
+        "zz' OR '1'='1",
+    ] {
+        // The API makes its own identifiers. Past it, where the original took any text
+        // (as it could from an import or an older database), the category is refused.
         let hostile = Category {
             id: hostile_id.to_owned(),
-            ..category("0", &user.id, "hostile")
+            ..category(ROOT_TEAM_ID, &user.id, "hostile")
         };
-        // The API makes its own identifiers; a hostile one comes in through the store,
-        // as one could through an import or an older database.
-        th.app
+        let error = th
+            .app
             .create_category(hostile)
             .await
-            .expect("the store takes any identifier as data");
-    }
-    let plain = create_category(&th.client, &category("0", &user.id, "plain")).await;
-    let path = "/teams/0/categories/reorder";
+            .expect_err("no category is stored under text that is no identifier");
+        assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
+        assert_eq!(error.to_string(), NOT_AN_IDENTIFIER, "for {hostile_id:?}");
 
-    let new_order = [
-        plain.id.as_str(),
-        hostile_ids[1],
-        default_id.as_str(),
-        hostile_ids[2],
-        hostile_ids[0],
-    ];
+        // An order that names it where a category belongs is refused like any other
+        // that names something the user does not have.
+        let order = [second.id.as_str(), hostile_id, default_id.as_str()];
+        let response = th.client.put(path, &order).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "for {hostile_id:?}");
+
+        // Asked past that check, the store does not run the statement.
+        let written = th
+            .app
+            .store()
+            .reorder_categories(&user.id, ROOT_TEAM_ID, order.map(str::to_owned).into())
+            .await;
+        check_not_an_identifier(written, hostile_id);
+
+        // In a path it names no category.
+        let named = format!(
+            "/teams/{ROOT_TEAM_ID}/categories/{}",
+            path_segment(hostile_id)
+        );
+        let change = category(ROOT_TEAM_ID, &user.id, "renamed");
+        let response = th.client.put(&named, &change).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+        let response = th.client.delete(&named).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
+
+    assert_eq!(
+        stored_categories(&th, &user.id).await,
+        before,
+        "the user's categories are as they were, each in its place"
+    );
+    assert_eq!(
+        stored_categories(&th, &other.id).await,
+        others_before,
+        "and so are another user's"
+    );
+
+    // An order of identifiers is still taken, and is exactly the order asked for.
+    let new_order = [plain.id.as_str(), default_id.as_str(), second.id.as_str()];
     let response = th.client.put(path, &new_order).await;
     assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
-    let listed = category_boards(&th.client, "0").await;
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&listed), new_order, "exactly the order asked for");
-
-    // A hostile identifier that names no category is refused like any other.
-    let unknown = [
-        plain.id.as_str(),
-        hostile_ids[1],
-        default_id.as_str(),
-        hostile_ids[2],
-        "zz' OR '1'='1",
-    ];
-    th.client.put(path, &unknown).await.check_bad_request();
-    let listed = category_boards(&th.client, "0").await;
-    assert_eq!(ids(&listed), new_order, "and changes nothing");
+    assert_eq!(
+        stored_categories(&th, &other.id).await,
+        others_before,
+        "which moves nobody else's categories"
+    );
 
     th.teardown().await;
 }
@@ -2341,53 +2617,95 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
 /// identifiers into the statement too (`server/services/store/sqlstore/category_boards.go:144`),
 /// and the identifier comes from the path of the request that files the board: with
 /// `q'q` filed, the original answers the reorder request with 500 (a syntax error).
+///
+/// Here only a board that exists is filed, and no board has text that is no identifier
+/// for its identifier: the request that would file it finds no such board, an order
+/// that names it is refused, the store does not run a statement that would write with
+/// it, and as the category of a path it names nothing. None of that changes what is
+/// filed where, nor in which order.
 #[tokio::test]
 async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    category_boards(&th.client, "0").await;
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
-    let other = create_category(&th.client, &category("0", &user.id, "Cat B")).await;
-    for board_id in ["bystander", "q'q", "b' THEN 5 WHEN 'c", "plain"] {
-        open_board(&th, "0", board_id).await;
+    category_boards(&th.client, ROOT_TEAM_ID).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let other = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat B")).await;
+    let bystander = open_board(&th, ROOT_TEAM_ID).await;
+    file_board(&th.client, ROOT_TEAM_ID, &other.id, &bystander).await;
+    let boards = open_boards(&th, ROOT_TEAM_ID, 3).await;
+    for board_id in &boards {
+        file_board(&th.client, ROOT_TEAM_ID, &created.id, board_id).await;
     }
-    file_board(&th.client, "0", &other.id, "bystander").await;
-    // `%27` is the apostrophe and `%20` the space.
-    file_board(&th.client, "0", &created.id, "q%27q").await;
-    file_board(
-        &th.client,
-        "0",
-        &created.id,
-        "b%27%20THEN%205%20WHEN%20%27c",
-    )
-    .await;
-    file_board(&th.client, "0", &created.id, "plain").await;
-    let path = format!("/teams/0/categories/{}/boards/reorder", created.id);
-
-    let new_order = ["plain", "b' THEN 5 WHEN 'c", "q'q"];
+    let category_path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let path = format!("{category_path}/boards/reorder");
+    let new_order = [boards[2].as_str(), boards[0].as_str(), boards[1].as_str()];
     let response = th.client.put(&path, &new_order).await;
     assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
-    let listed = category_boards(&th.client, "0").await;
+    let before = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(
-        board_ids(entry(&listed, &created.id)),
+        board_ids(entry(&before, &created.id)),
         new_order,
         "exactly the order asked for"
     );
 
-    // A hostile identifier that is not in the category is refused like any other.
-    let unknown = ["plain", "q'q", "x' OR category_id <> '"];
-    th.client.put(&path, &unknown).await.check_bad_request();
-    let listed = category_boards(&th.client, "0").await;
+    for hostile_id in [
+        "q'q",
+        "b' THEN 5 WHEN 'c",
+        "x' OR category_id <> '",
+        "x'; DROP TABLE category_boards; --",
+    ] {
+        let segment = path_segment(hostile_id);
+
+        // The request that files a board finds no board of that name, and the store,
+        // asked past the route, does not file one.
+        let response = th
+            .client
+            .post_empty(&format!("{category_path}/boards/{segment}"))
+            .await;
+        check_error(&response, StatusCode::NOT_FOUND, "board not found");
+        let filed = th
+            .app
+            .store()
+            .add_update_category_board(&user.id, &created.id, &[hostile_id.to_owned()])
+            .await;
+        check_not_an_identifier(filed, hostile_id);
+
+        // An order that names it where a board belongs is refused like any other that
+        // names a board the category does not have; the store does not run the statement.
+        let order = [boards[0].as_str(), hostile_id, boards[2].as_str()];
+        let response = th.client.put(&path, &order).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "for {hostile_id:?}");
+        let written = th
+            .app
+            .store()
+            .reorder_category_boards(&created.id, order.map(str::to_owned).into())
+            .await;
+        check_not_an_identifier(written, hostile_id);
+
+        // As the category of the path it names nothing.
+        let response = th
+            .client
+            .put(
+                &format!("/teams/{ROOT_TEAM_ID}/categories/{segment}/boards/reorder"),
+                &new_order,
+            )
+            .await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
+
+    let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(
         board_ids(entry(&listed, &created.id)),
         new_order,
-        "and changes nothing"
+        "the boards of the category are in the order they were"
     );
     assert_eq!(
         board_ids(entry(&listed, &other.id)),
-        ["bystander"],
+        [bystander.as_str()],
         "the other category is untouched"
     );
+    assert_eq!(listed, before, "and nothing else changed either");
 
     th.teardown().await;
 }
@@ -2459,20 +2777,20 @@ async fn expect_message(stream: &mut Stream, after: &str) -> Value {
 async fn category_changes_are_sent_to_the_users_connection() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let default_id = category_boards(&th.client, "0").await[0]
+    let default_id = category_boards(&th.client, ROOT_TEAM_ID).await[0]
         .category
         .id
         .clone();
-    let mut socket = subscribed_socket(&th, "0", &user.id).await;
+    let mut socket = subscribed_socket(&th, ROOT_TEAM_ID, &user.id).await;
 
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
     assert_eq!(
         expect_message(&mut socket, "creating a category").await,
-        json!({"action": "UPDATE_CATEGORY", "teamId": "0", "category": created}),
+        json!({"action": "UPDATE_CATEGORY", "teamId": ROOT_TEAM_ID, "category": created}),
         "after creating a category"
     );
 
-    let path = format!("/teams/0/categories/{}", created.id);
+    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
     let change = Category {
         name: "Cat B".to_owned(),
         ..created.clone()
@@ -2480,13 +2798,16 @@ async fn category_changes_are_sent_to_the_users_connection() {
     let renamed: Category = th.client.put(&path, &change).await.ok_json();
     assert_eq!(
         expect_message(&mut socket, "updating a category").await,
-        json!({"action": "UPDATE_CATEGORY", "teamId": "0", "category": renamed}),
+        json!({"action": "UPDATE_CATEGORY", "teamId": ROOT_TEAM_ID, "category": renamed}),
         "after updating a category"
     );
 
     let category_order = [default_id.as_str(), created.id.as_str()];
     th.client
-        .put("/teams/0/categories/reorder", &category_order)
+        .put(
+            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
+            &category_order,
+        )
         .await
         .check_ok();
     assert_eq!(
@@ -2494,25 +2815,25 @@ async fn category_changes_are_sent_to_the_users_connection() {
         json!({
             "action": "REORDER_CATEGORIES",
             "categoryOrder": category_order,
-            "teamId": "0",
+            "teamId": ROOT_TEAM_ID,
         }),
         "after reordering the categories"
     );
 
     // Deleting moves the boards to the default category first, which is its own message.
-    open_board(&th, "0", "board-1").await;
-    file_board(&th.client, "0", &created.id, "board-1").await;
+    let board_id = open_board(&th, ROOT_TEAM_ID).await;
+    file_board(&th.client, ROOT_TEAM_ID, &created.id, &board_id).await;
     expect_message(&mut socket, "filing a board").await;
     let deleted: Category = th.client.delete(&path).await.ok_json();
-    let moved = json!({"boardID": "board-1", "categoryID": default_id, "hidden": false});
+    let moved = json!({"boardID": board_id, "categoryID": default_id, "hidden": false});
     assert_eq!(
         expect_message(&mut socket, "deleting a category").await,
-        json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": "0", "blockCategories": [moved]}),
+        json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "blockCategories": [moved]}),
         "after deleting a category: its board is in the default category"
     );
     assert_eq!(
         expect_message(&mut socket, "deleting a category").await,
-        json!({"action": "UPDATE_CATEGORY", "teamId": "0", "category": deleted}),
+        json!({"action": "UPDATE_CATEGORY", "teamId": ROOT_TEAM_ID, "category": deleted}),
         "after deleting a category: the category"
     );
 
@@ -2525,24 +2846,24 @@ async fn category_changes_are_sent_to_the_users_connection() {
 async fn category_board_changes_are_sent_to_the_users_connection() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    category_boards(&th.client, "0").await;
-    let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
-    let path = format!("/teams/0/categories/{}", created.id);
-    let mut socket = subscribed_socket(&th, "0", &user.id).await;
-    let board_change = |boards: Value| json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": "0", "blockCategories": boards});
-    let shown = json!({"boardID": "board-1", "categoryID": created.id, "hidden": false});
-    let hidden = json!({"boardID": "board-1", "categoryID": created.id, "hidden": true});
+    category_boards(&th.client, ROOT_TEAM_ID).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let mut socket = subscribed_socket(&th, ROOT_TEAM_ID, &user.id).await;
+    let board_change = |boards: Value| json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "blockCategories": boards});
+    let first = open_board(&th, ROOT_TEAM_ID).await;
+    let second = open_board(&th, ROOT_TEAM_ID).await;
+    let shown = json!({"boardID": first, "categoryID": created.id, "hidden": false});
+    let hidden = json!({"boardID": first, "categoryID": created.id, "hidden": true});
 
     // Filing a board sends all the boards of the category.
-    open_board(&th, "0", "board-1").await;
-    open_board(&th, "0", "board-2").await;
-    file_board(&th.client, "0", &created.id, "board-1").await;
+    file_board(&th.client, ROOT_TEAM_ID, &created.id, &first).await;
     assert_eq!(
         expect_message(&mut socket, "filing a board").await,
         board_change(json!([shown])),
         "after filing a board"
     );
-    file_board(&th.client, "0", &created.id, "board-2").await;
+    file_board(&th.client, ROOT_TEAM_ID, &created.id, &second).await;
     let message = expect_message(&mut socket, "filing a second board").await;
     assert_eq!(
         message["blockCategories"].as_array().map(Vec::len),
@@ -2551,7 +2872,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     );
 
     // Hiding and showing send the one board.
-    put_empty(&th.client, &format!("{path}/boards/board-1/hide"))
+    put_empty(&th.client, &format!("{path}/boards/{first}/hide"))
         .await
         .check_ok();
     assert_eq!(
@@ -2559,7 +2880,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
         board_change(json!([hidden])),
         "after hiding a board"
     );
-    put_empty(&th.client, &format!("{path}/boards/board-1/unhide"))
+    put_empty(&th.client, &format!("{path}/boards/{first}/unhide"))
         .await
         .check_ok();
     assert_eq!(
@@ -2568,7 +2889,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
         "after showing a board"
     );
 
-    let board_order = ["board-2", "board-1"];
+    let board_order = [second.as_str(), first.as_str()];
     th.client
         .put(&format!("{path}/boards/reorder"), &board_order)
         .await
@@ -2579,7 +2900,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
             "action": "REORDER_CATEGORY_BOARDS",
             "CategoryId": created.id,
             "BoardOrder": board_order,
-            "teamId": "0",
+            "teamId": ROOT_TEAM_ID,
         }),
         "after reordering the boards"
     );
@@ -2597,7 +2918,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
     let board = |title: String| {
         let client = th.client.clone();
         async move {
-            let body = json!({"teamId": "0", "type": "P", "title": title});
+            let body = json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": title});
             client.post("/boards", &body).await
         }
     };
@@ -2608,7 +2929,11 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
         response.check_ok();
     }
 
-    let categories = th.client.get("/teams/0/categories").await.value();
+    let categories = th
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await
+        .value();
     let categories = categories.as_array().expect("a list of categories");
     assert_eq!(categories.len(), 1, "one default category: {categories:?}");
     assert_eq!(

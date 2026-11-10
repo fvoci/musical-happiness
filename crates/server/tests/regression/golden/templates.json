@@ -33,13 +33,13 @@
     "status": 0,
     "body": [
       "cardProperties",
-      "channelId",
       "createAt",
       "createdBy",
       "deleteAt",
       "description",
       "icon",
       "id",
+      "isBuiltin",
       "isTemplate",
       "minimumRole",
       "modifiedBy",
@@ -66,7 +66,7 @@
   },
   {
     "name": "templates: anonymous",
-    "request": "GET /api/v2/teams/0/templates as anonymous",
+    "request": "GET /api/v2/teams/<id:1>/templates as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -82,21 +82,19 @@
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:2>",
+      "id": "<id:3>",
+      "isBuiltin": false,
       "isTemplate": true,
       "minimumRole": "",
-      "modifiedBy": "<id:1>",
-      "properties": {
-        "trackingTemplateId": "b96ce93c61b856a0163c116820646b19"
-      },
+      "modifiedBy": "<id:2>",
+      "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:1>",
       "templateVersion": 0,
       "title": "My template",
       "type": "P",
@@ -105,26 +103,24 @@
   },
   {
     "name": "my template",
-    "request": "GET /api/v2/boards/<id:2> as tpl-alice",
+    "request": "GET /api/v2/boards/<id:3> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
-      "channelId": "",
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "",
       "icon": "",
-      "id": "<id:2>",
+      "id": "<id:3>",
+      "isBuiltin": false,
       "isTemplate": true,
       "minimumRole": "",
-      "modifiedBy": "<id:1>",
-      "properties": {
-        "trackingTemplateId": "b96ce93c61b856a0163c116820646b19"
-      },
+      "modifiedBy": "<id:2>",
+      "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:1>",
       "templateVersion": 0,
       "title": "My template",
       "type": "P",
@@ -133,122 +129,122 @@
   },
   {
     "name": "onboard",
-    "request": "POST /api/v2/teams/0/onboard as tpl-alice",
+    "request": "POST /api/v2/teams/<id:1>/onboard as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardID": "<id:3>",
-      "teamID": "0"
+      "boardID": "<id:4>",
+      "teamID": "<id:1>"
     }
   },
   {
     "name": "onboarding board",
-    "request": "GET /api/v2/boards/<id:3> as tpl-alice",
+    "request": "GET /api/v2/boards/<id:4> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "cardProperties": [
         {
-          "id": "<id:4>",
-          "name": "Assignee",
-          "options": [],
-          "type": "person"
+          "id": "<id:5>",
+          "name": "Status",
+          "options": [
+            {
+              "color": "propColorGreen",
+              "id": "agkinkjy5983wsk6kppsujajxqw",
+              "value": "Completed 🙌"
+            },
+            {
+              "color": "propColorPurple",
+              "id": "ajurey3xkocs1nwx8di5zx6oe7o",
+              "value": "Later"
+            },
+            {
+              "color": "propColorRed",
+              "id": "amm6wfhnbuxojwssyftgs9dipqe",
+              "value": "To do 🔥"
+            },
+            {
+              "color": "propColorYellow",
+              "id": "af3p8ztcyxgn8wd9z4az7o9tjeh",
+              "value": "Next up"
+            }
+          ],
+          "type": "select"
         },
         {
-          "id": "<id:5>",
+          "id": "a4nfnb5xr3txr5xq7y9ho7kyz6c",
+          "name": "Reference",
+          "options": [],
+          "type": "url"
+        },
+        {
+          "id": "a9gzwi3dt5n55nddej6zcbhxaeh",
           "name": "Created by",
           "options": [],
           "type": "createdBy"
         },
         {
-          "id": "<id:6>",
+          "id": "acmg7mz1rr1eykfug4hcdpb1y1o",
           "name": "Due Date",
           "options": [],
           "type": "date"
         },
         {
-          "id": "<id:7>",
-          "name": "Last updated time",
-          "options": [],
-          "type": "updatedTime"
-        },
-        {
-          "id": "<id:8>",
+          "id": "acypkejeb5yfujhj9te57p9kaxw",
           "name": "Priority",
           "options": [
             {
               "color": "propColorBrown",
-              "id": "<id:9>",
+              "id": "ascd7nm9r491ayot8i86g1gmgqw",
               "value": "2. Medium"
             },
             {
               "color": "propColorGray",
-              "id": "<id:10>",
+              "id": "aq6ukoiciyfctgwyhwzpfss8ghe",
               "value": "3. Low"
             },
             {
               "color": "propColorOrange",
-              "id": "<id:11>",
+              "id": "aanaehcw3m13jytujsjk5hpf6ry",
               "value": "1. High"
             }
           ],
           "type": "select"
         },
         {
-          "id": "<id:12>",
-          "name": "Reference",
-          "options": [],
-          "type": "url"
-        },
-        {
-          "id": "<id:13>",
+          "id": "amewjwfjrtpu8ha73xsrdmxazxr",
           "name": "Reviewed",
           "options": [],
           "type": "checkbox"
         },
         {
-          "id": "a972dc7a-5f4c-45d2-8044-8c28c69717f1",
-          "name": "Status",
-          "options": [
-            {
-              "color": "propColorGreen",
-              "id": "<id:14>",
-              "value": "Completed 🙌"
-            },
-            {
-              "color": "propColorPurple",
-              "id": "<id:15>",
-              "value": "Later"
-            },
-            {
-              "color": "propColorRed",
-              "id": "<id:16>",
-              "value": "To do 🔥"
-            },
-            {
-              "color": "propColorYellow",
-              "id": "<id:17>",
-              "value": "Next up"
-            }
-          ],
-          "type": "select"
+          "id": "aqh13jabwexjkzr3jqsz1i1syew",
+          "name": "Assignee",
+          "options": [],
+          "type": "person"
+        },
+        {
+          "id": "attzzboqaz6m1sdti5xa7gjnk1e",
+          "name": "Last updated time",
+          "options": [],
+          "type": "updatedTime"
         }
       ],
-      "channelId": "",
       "createAt": "<ts>",
-      "createdBy": "<id:1>",
+      "createdBy": "<id:2>",
       "deleteAt": 0,
       "description": "Mattermost Boards is an open source project management tool that helps you organize, track, and manage work across teams. Select a card to learn more.",
       "icon": "👋",
-      "id": "<id:3>",
+      "id": "<id:4>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
-      "modifiedBy": "<id:1>",
+      "modifiedBy": "<id:2>",
       "properties": {
         "trackingTemplateId": "65aba997282f3ac457cd66736fb86915"
       },
       "showDescription": true,
-      "teamId": "0",
+      "teamId": "<id:1>",
       "templateVersion": 6,
       "title": "Welcome to Boards!",
       "type": "P",
@@ -263,32 +259,32 @@
   },
   {
     "name": "categories after onboarding",
-    "request": "GET /api/v2/teams/0/categories as tpl-alice",
+    "request": "GET /api/v2/teams/<id:1>/categories as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "boardMetadata": [
           {
-            "boardID": "<id:3>",
+            "boardID": "<id:4>",
             "hidden": false
           },
           {
-            "boardID": "<id:18>",
+            "boardID": "<id:6>",
             "hidden": false
           }
         ],
         "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:19>",
+        "id": "<id:7>",
         "name": "Boards",
         "sortOrder": 0,
         "sorting": "",
-        "teamID": "0",
+        "teamID": "<id:1>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userID": "<id:2>"
       }
     ]
   },
@@ -301,19 +297,19 @@
       {
         "category": "fvoci",
         "name": "onboardingTourStarted",
-        "user_id": "<id:1>",
+        "user_id": "<id:2>",
         "value": "1"
       },
       {
         "category": "fvoci",
         "name": "onboardingTourStep",
-        "user_id": "<id:1>",
+        "user_id": "<id:2>",
         "value": "0"
       },
       {
         "category": "fvoci",
         "name": "tourCategory",
-        "user_id": "<id:1>",
+        "user_id": "<id:2>",
         "value": "onboarding"
       }
     ]

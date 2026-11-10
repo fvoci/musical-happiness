@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use crate::block::Block;
-use crate::id::{IdKind, new_id};
+use crate::id::new_id;
 
 /// Gives every block a new identifier while keeping references between them intact.
 ///
@@ -16,13 +16,8 @@ use crate::id::{IdKind, new_id};
 ///
 /// Fields of an unexpected JSON type are left untouched.
 pub fn generate_block_ids(blocks: &mut [Block]) {
-    // The first block seen with a given identifier decides its kind.
-    let mut kinds: HashMap<&str, IdKind> = HashMap::new();
     let mut referenced: HashSet<&str> = HashSet::new();
     for block in blocks.iter() {
-        kinds
-            .entry(&block.id)
-            .or_insert_with(|| block.block_type.id_kind());
         referenced.insert(&block.board_id);
         referenced.insert(&block.parent_id);
 
@@ -39,14 +34,14 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
         }
     }
 
-    let renamed: HashMap<String, String> = kinds
+    // Blocks that share an identifier share the new one too.
+    let renamed: HashMap<String, String> = blocks
         .iter()
-        .filter(|(id, _)| referenced.contains(*id))
-        .map(|(id, kind)| ((*id).to_owned(), new_id(*kind)))
-        .collect();
-    let kinds: HashMap<String, IdKind> = kinds
+        .filter(|block| referenced.contains(block.id.as_str()))
+        .map(|block| block.id.as_str())
+        .collect::<HashSet<&str>>()
         .into_iter()
-        .map(|(id, kind)| (id.to_owned(), kind))
+        .map(|id| (id.to_owned(), new_id()))
         .collect();
 
     let renamed_or_same = |id: &mut String| {
@@ -59,7 +54,7 @@ pub fn generate_block_ids(blocks: &mut [Block]) {
         block.id = match renamed.get(&block.id) {
             Some(new) => new.clone(),
             // Not referenced by anything, so no other block needs to learn the new value.
-            None => new_id(kinds.get(&block.id).copied().unwrap_or(IdKind::None)),
+            None => new_id(),
         };
         renamed_or_same(&mut block.board_id);
         renamed_or_same(&mut block.parent_id);

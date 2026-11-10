@@ -7,6 +7,7 @@
 
 use serde_json::json;
 
+use crate::common::ROOT_TEAM_ID;
 use crate::fixtures::{add_member, block, id_of, merged, new_blocks, new_board};
 use crate::harness::{API, Session};
 
@@ -16,30 +17,30 @@ pub(crate) async fn categories(s: &mut Session) {
     let other = new_board(s, &alice, "Other board", "P", json!({})).await;
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
-    let path = format!("{API}/teams/0/categories");
+    let path = format!("{API}/teams/{ROOT_TEAM_ID}/categories");
 
     s.get("list: default only", &path).user(&alice).await;
     s.get("list: other user", &path).user(&bob).await;
     let created = s
         .post("create", &path)
-        .json(json!({"name": "Projects", "userID": alice_id, "teamID": "0"}))
+        .json(json!({"name": "Projects", "userID": alice_id, "teamID": ROOT_TEAM_ID}))
         .user(&alice)
         .await
         .json()
         .clone();
     let second = s
         .post("create second", &path)
-        .json(json!({"name": "Archive", "userID": alice_id, "teamID": "0", "collapsed": true}))
+        .json(json!({"name": "Archive", "userID": alice_id, "teamID": ROOT_TEAM_ID, "collapsed": true}))
         .user(&alice)
         .await
         .json()
         .clone();
     s.post("create: no name", &path)
-        .json(json!({"name": "", "userID": alice_id, "teamID": "0"}))
+        .json(json!({"name": "", "userID": alice_id, "teamID": ROOT_TEAM_ID}))
         .user(&alice)
         .await;
     s.post("create: for another user", &path)
-        .json(json!({"name": "x", "userID": bob_id, "teamID": "0"}))
+        .json(json!({"name": "x", "userID": bob_id, "teamID": ROOT_TEAM_ID}))
         .user(&alice)
         .await;
     s.post("create: for another team", &path)
@@ -47,7 +48,7 @@ pub(crate) async fn categories(s: &mut Session) {
         .user(&alice)
         .await;
     s.post("create: bad type", &path)
-        .json(json!({"name": "x", "userID": alice_id, "teamID": "0", "type": "weird"}))
+        .json(json!({"name": "x", "userID": alice_id, "teamID": ROOT_TEAM_ID, "type": "weird"}))
         .user(&alice)
         .await;
     s.post("create: malformed body", &path)
@@ -90,7 +91,7 @@ pub(crate) async fn categories(s: &mut Session) {
     .await;
     s.put("update: system category", &format!("{path}/{default}"))
         .json(json!({
-            "id": default, "name": "Renamed", "userID": alice_id, "teamID": "0", "type": "system",
+            "id": default, "name": "Renamed", "userID": alice_id, "teamID": ROOT_TEAM_ID, "type": "system",
         }))
         .user(&alice)
         .await;
@@ -363,7 +364,7 @@ pub(crate) async fn search(s: &mut Session) {
     new_board(s, &alice, "Quarterly zebra plan", "P", json!({})).await;
     new_board(s, &alice, "Open zebra notes", "O", json!({})).await;
     new_board(s, &bob, "Private zebra diary", "P", json!({})).await;
-    let team_search = format!("{API}/teams/0/boards/search");
+    let team_search = format!("{API}/teams/{ROOT_TEAM_ID}/boards/search");
 
     s.get("team search", &format!("{team_search}?q=zebra"))
         .user(&alice)
@@ -409,12 +410,18 @@ pub(crate) async fn search(s: &mut Session) {
     )
     .user(&alice)
     .await;
-    s.get("channels", &format!("{API}/teams/0/channels?search=x"))
-        .user(&alice)
-        .await;
-    s.get("channel", &format!("{API}/teams/0/channels/some-channel"))
-        .user(&alice)
-        .await;
+    s.get(
+        "channels",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/channels?search=x"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "channel",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/channels/some-channel"),
+    )
+    .user(&alice)
+    .await;
     s.get("statistics", &format!("{API}/statistics"))
         .user(&alice)
         .await;

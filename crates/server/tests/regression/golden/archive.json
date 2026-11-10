@@ -13,19 +13,19 @@
           "type": "select"
         }
       ],
-      "channelId": "",
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "description": "to export",
       "icon": "",
       "id": "<id:2>",
+      "isBuiltin": false,
       "isTemplate": false,
       "minimumRole": "",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "0",
+      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Exported board",
       "type": "P",
@@ -44,7 +44,7 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {
-          "fileId": "<id:3>.png"
+          "fileId": "<secret:1>.png"
         },
         "id": "<id:4>",
         "modifiedBy": "<id:1>",
@@ -124,7 +124,7 @@
             "createdBy": "<id:1>",
             "deleteAt": 0,
             "fields": {
-              "fileId": "<id:3>.png"
+              "fileId": "<secret:1>.png"
             },
             "id": "<id:4>",
             "modifiedBy": "<id:1>",
@@ -215,19 +215,19 @@
                 "type": "select"
               }
             ],
-            "channelId": "",
             "createAt": "<ts>",
             "createdBy": "<id:1>",
             "deleteAt": 0,
             "description": "to export",
             "icon": "",
             "id": "<id:2>",
+            "isBuiltin": false,
             "isTemplate": false,
             "minimumRole": "",
             "modifiedBy": "<id:1>",
             "properties": {},
             "showDescription": false,
-            "teamId": "0",
+            "teamId": "<id:3>",
             "templateVersion": 0,
             "title": "Exported board",
             "type": "P",
@@ -237,7 +237,7 @@
         }
       ],
       "names": [
-        "<id:2>/<id:3>.png",
+        "<id:2>/<secret:1>.png",
         "<id:2>/board.jsonl",
         "version.json"
       ],
@@ -297,14 +297,14 @@
   },
   {
     "name": "import",
-    "request": "POST /api/v2/teams/0/archive/import as arch-bob",
+    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "import: anonymous",
-    "request": "POST /api/v2/teams/0/archive/import as anonymous",
+    "request": "POST /api/v2/teams/<id:3>/archive/import as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -315,7 +315,7 @@
   },
   {
     "name": "import: not an archive",
-    "request": "POST /api/v2/teams/0/archive/import as arch-bob",
+    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -326,7 +326,7 @@
   },
   {
     "name": "import: wrong field",
-    "request": "POST /api/v2/teams/0/archive/import as arch-bob",
+    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -338,7 +338,7 @@
   },
   {
     "name": "boards after import",
-    "request": "GET /api/v2/teams/0/boards as arch-bob",
+    "request": "GET /api/v2/teams/<id:3>/boards as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -351,19 +351,19 @@
             "type": "select"
           }
         ],
-        "channelId": "",
         "createAt": "<ts>",
         "createdBy": "<id:8>",
         "deleteAt": 0,
         "description": "to export",
         "icon": "",
         "id": "<id:9>",
+        "isBuiltin": false,
         "isTemplate": false,
         "minimumRole": "",
         "modifiedBy": "<id:8>",
         "properties": {},
         "showDescription": false,
-        "teamId": "0",
+        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Exported board",
         "type": "P",
@@ -383,11 +383,11 @@
         "createdBy": "<id:8>",
         "deleteAt": 0,
         "fields": {
-          "fileId": "<id:10>.png"
+          "fileId": "<secret:2>.png"
         },
-        "id": "<id:11>",
+        "id": "<id:10>",
         "modifiedBy": "<id:8>",
-        "parentId": "<id:12>",
+        "parentId": "<id:11>",
         "schema": 1,
         "title": "",
         "type": "image",
@@ -401,9 +401,9 @@
         "fields": {
           "icon": "x"
         },
-        "id": "<id:12>",
+        "id": "<id:11>",
         "modifiedBy": "<id:8>",
-        "parentId": "<id:2>",
+        "parentId": "",
         "schema": 1,
         "title": "Exported card",
         "type": "card",
@@ -417,9 +417,9 @@
         "fields": {
           "viewType": "table"
         },
-        "id": "<id:13>",
+        "id": "<id:12>",
         "modifiedBy": "<id:8>",
-        "parentId": "<id:2>",
+        "parentId": "",
         "schema": 1,
         "title": "Exported view",
         "type": "view",
@@ -431,9 +431,9 @@
         "createdBy": "<id:8>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:14>",
+        "id": "<id:13>",
         "modifiedBy": "<id:8>",
-        "parentId": "<id:12>",
+        "parentId": "<id:11>",
         "schema": 1,
         "title": "Exported text",
         "type": "text",
@@ -473,14 +473,14 @@
   },
   {
     "name": "imported file",
-    "request": "GET /api/v2/files/teams/0/<id:9>/<id:10>.png as arch-bob",
+    "request": "GET /api/v2/files/teams/<id:3>/<id:9>/<secret:2>.png as arch-bob",
     "status": 200,
     "content_type": "application/octet-stream",
     "body": "<67 bytes>"
   },
   {
     "name": "import: legacy format",
-    "request": "POST /api/v2/teams/0/archive/import as arch-bob",
+    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/json",
     "body": {

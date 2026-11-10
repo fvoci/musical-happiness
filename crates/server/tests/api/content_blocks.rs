@@ -26,7 +26,7 @@ use crate::boards::TeamSocket;
 use crate::cards::{
     Roles, board_with_roles, check_error, check_internal_error, insert_block, new_block,
 };
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
 
 /// How long background notifications may take to finish.
 const BACKGROUND: Duration = Duration::from_secs(10);
@@ -234,7 +234,8 @@ async fn move_content_block_valid_request_changing_order_with_after() {
 // -- server/app/content_blocks_test.go, through the real store ----------------------------
 
 /// A block that exists only as a value: the application function takes the blocks to
-/// move as its caller read them.
+/// move as its caller read them. Nothing is stored under its identifier, which only has
+/// to be found in the content order of the card.
 fn loose_block(id: &str, parent_id: &str) -> Block {
     Block {
         id: id.to_owned(),
@@ -259,7 +260,7 @@ async fn app_move(
             &loose_block(source, &card.id),
             &loose_block(destination, &card.id),
             position,
-            "user-id",
+            &th.stranger().await,
         )
         .await;
     (outcome, content_order(th, &card.id).await)
@@ -284,7 +285,7 @@ async fn app_move_content_block_not_matching_parents() {
             &loose_block("test-1", "test-card"),
             &loose_block("test-2", "other-test-card"),
             MovePosition::After,
-            "user-id",
+            &th.stranger().await,
         )
         .await;
 
@@ -297,19 +298,21 @@ async fn app_move_content_block_not_matching_parents() {
 async fn app_move_content_block_parent_not_found() {
     let th = Setup::one_user().start().await;
 
-    let error = th
-        .app
-        .move_content_block(
-            &loose_block("test-1", "invalid-card"),
-            &loose_block("test-2", "invalid-card"),
-            MovePosition::After,
-            "user-id",
-        )
-        .await
-        .expect_err("the parent does not exist");
+    for card_id in [UNKNOWN_ID, "invalid-card"] {
+        let error = th
+            .app
+            .move_content_block(
+                &loose_block("test-1", card_id),
+                &loose_block("test-2", card_id),
+                MovePosition::After,
+                &th.stranger().await,
+            )
+            .await
+            .expect_err("the parent does not exist");
 
-    assert!(error.is_not_found(), "{error:?}");
-    assert_eq!(error.to_string(), "block not found");
+        assert!(error.is_not_found(), "{card_id}: {error:?}");
+        assert_eq!(error.to_string(), "block not found", "{card_id}");
+    }
     th.teardown().await;
 }
 
@@ -448,8 +451,11 @@ async fn move_content_block_refusals() {
     // cannot read the board, its blocks do not exist either, whatever else is asked.
     let missing = "block not found";
     for (block_id, position, dst_id) in [
+        (UNKNOWN_ID, "after", b.id.as_str()),
         ("nope", "after", b.id.as_str()),
+        (a.id.as_str(), "after", UNKNOWN_ID),
         (a.id.as_str(), "after", "nope"),
+        (UNKNOWN_ID, "after", "nope"),
         ("nope", "after", "nope2"),
         ("nope", "sideways", b.id.as_str()),
     ] {
@@ -457,8 +463,10 @@ async fn move_content_block_refusals() {
         check_error(&response, StatusCode::NOT_FOUND, missing);
     }
     for (block_id, position, dst_id) in [
+        (UNKNOWN_ID, "after", b.id.as_str()),
         ("nope", "after", b.id.as_str()),
         (a.id.as_str(), "after", b.id.as_str()),
+        (a.id.as_str(), "after", UNKNOWN_ID),
         (a.id.as_str(), "after", "nope"),
         (a.id.as_str(), "sideways", b.id.as_str()),
         (a.id.as_str(), "after", other_texts[0].id.as_str()),

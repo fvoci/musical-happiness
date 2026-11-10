@@ -8,7 +8,7 @@ use thiserror::Error;
 use crate::block::{Block, BlockPatch};
 use crate::block_ids::generate_block_ids;
 use crate::board::{Board, BoardPatch};
-use crate::id::{IdKind, new_id};
+use crate::id::new_id;
 use crate::serde_util::null_as_default;
 
 /// Reasons a boards-and-blocks request is rejected.
@@ -180,7 +180,8 @@ pub fn generate_boards_and_blocks_ids(
 /// that is copied: unlike a request, they may be boards without blocks.
 ///
 /// Blocks come back grouped by board, in the order of `boards`. A block of a board that
-/// is not among `boards` is left out.
+/// is not among `boards` is left out. A block that named its board as its parent comes
+/// back without a parent.
 #[must_use]
 pub fn renew_boards_and_blocks_ids(boards_and_blocks: BoardsAndBlocks) -> BoardsAndBlocks {
     let BoardsAndBlocks { mut boards, blocks } = boards_and_blocks;
@@ -195,12 +196,18 @@ pub fn renew_boards_and_blocks_ids(boards_and_blocks: BoardsAndBlocks) -> Boards
 
     let mut blocks = Vec::new();
     for board in &mut boards {
-        let new_board_id = new_id(IdKind::Board);
+        let new_board_id = new_id();
         // Validation does not reject two boards sharing an identifier. Here the first one
         // takes the blocks; the original lists those blocks twice, attached to the last
         // such board.
         for mut block in blocks_by_board.remove(&board.id).unwrap_or_default() {
             block.board_id.clone_from(&new_board_id);
+            // A block directly on its board has no parent. Clients used to name the
+            // board there; left as it is, that would be a reference to the board the
+            // copy was made from.
+            if block.parent_id == board.id {
+                block.parent_id.clear();
+            }
             blocks.push(block);
         }
         board.id = new_board_id;

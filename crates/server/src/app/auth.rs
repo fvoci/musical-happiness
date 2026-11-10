@@ -3,11 +3,12 @@
 use std::num::NonZero;
 use std::sync::LazyLock;
 
-use fvoci_model::{IdKind, JsonMap, Session, User, new_id};
+use fvoci_model::{JsonMap, Session, User, new_id};
 use tokio::sync::Semaphore;
 
 use super::App;
 use crate::auth::password::{PasswordSettings, check_password, compare_password, hash_password};
+use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
 
 /// How many passwords are hashed or checked at a time: one per processor. Hashing is
@@ -63,14 +64,10 @@ impl App {
         }
 
         let session = Session {
-            id: new_id(IdKind::Session),
-            token: new_id(IdKind::Token),
+            id: new_id(),
+            token: new_secret(),
             user_id: user.id.clone(),
-            auth_service: if user.auth_service.is_empty() {
-                "native".to_owned()
-            } else {
-                user.auth_service
-            },
+            auth_service: self.config().auth_mode.clone(),
             props: JsonMap::new(),
             create_at: 0,
             update_at: 0,
@@ -164,17 +161,28 @@ impl App {
         })?;
 
         let mut user = User {
-            id: new_id(IdKind::User),
+            id: new_id(),
             username: username.to_owned(),
             email: email.to_owned(),
             password: hash(password).await?,
-            auth_service: self.config().auth_mode.clone(),
             ..User::default()
         };
-        self.store()
-            .create_user(&mut user)
-            .await
-            .map_err(|error| AppError::from(error).context("Unable to create the new user"))
+        // The two lookups above answer the usual case. Two registrations at once both
+        // pass them, and then the unique indexes decide: the second is the same conflict.
+        match self.store().create_user(&mut user).await {
+            Ok(()) => Ok(()),
+            Err(fvoci_store::StoreError::Conflict(what)) if what.contains("email") => {
+                Err(AppError::conflict("the email already exists")
+                    .with_reason(Reason::EmailTaken)
+                    .with_field("email"))
+            }
+            Err(fvoci_store::StoreError::Conflict(_)) => {
+                Err(AppError::conflict("the username already exists")
+                    .with_reason(Reason::UsernameTaken)
+                    .with_field("username"))
+            }
+            Err(error) => Err(AppError::from(error).context("Unable to create the new user")),
+        }
     }
 
     /// Sets the password of every user with the given name and signs them out

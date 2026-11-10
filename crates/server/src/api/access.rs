@@ -115,17 +115,38 @@ async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> Result<boo
     }
 }
 
-/// Fails with a 403 that says `denial` unless the user may see the team.
-pub(crate) fn require_team_access(
+/// Fails with a 404 if there is no such team, and with a 403 that says `denial` unless
+/// the user may see it.
+///
+/// Every user may see every team for now: there is one. The check stays where teams
+/// are named, for the time there are several.
+pub(crate) async fn require_team_access(
     app: &App,
     user_id: &str,
     team_id: &str,
     denial: &str,
 ) -> Result<(), AppError> {
+    app.team(team_id).await?;
     if app.has_permission_to_team(user_id, team_id, TeamPermission::ViewTeam) {
         Ok(())
     } else {
         Err(AppError::forbidden(denial))
+    }
+}
+
+/// Fails with a 400 that names the member `field` if the team a request body names
+/// does not exist.
+pub(crate) async fn require_team_in_body(
+    app: &App,
+    team_id: &str,
+    field: &'static str,
+) -> Result<(), AppError> {
+    match app.team(team_id).await {
+        Ok(_) => Ok(()),
+        Err(error) if error.is_not_found() => {
+            Err(AppError::bad_request("no such team").with_field(field))
+        }
+        Err(error) => Err(error),
     }
 }
 

@@ -9,13 +9,12 @@ use fvoci_model::{User, UserPreferencesPatch};
 use serde::{Deserialize, Serialize};
 
 use crate::Store;
-use crate::db::{Row, Scope, Sql, now_millis};
+use crate::db::{Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
-const USER_COLUMNS: &str = "id, username, email, password, mfa_secret, auth_service, auth_data, \
-                            create_at, update_at, delete_at";
+const USER_COLUMNS: &str = "id, username, email, password, create_at, update_at, delete_at";
 
 /// The category under which this server files its user preferences.
 ///
@@ -50,10 +49,7 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_registered_user_count(&self) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let sql = scope.sql(&format!(
-                "SELECT COUNT(*) FROM {} WHERE delete_at = 0",
-                scope.table("users")
-            ));
+            let sql = scope.sql("SELECT COUNT(*) FROM users WHERE delete_at = 0");
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.int(0),
                 None => Ok(0),
@@ -85,7 +81,9 @@ impl Store {
     pub async fn get_users_list(&self, user_ids: &[String]) -> Result<Vec<User>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_users(scope);
-            sql.push(" AND id IN (").bind_list(user_ids).push(")");
+            sql.push(" AND id IN (")
+                .bind_list(user_ids.iter().map(|id| Id(id)))
+                .push(")");
             let users = fetch_users(scope, sql).await?;
             if users.is_empty() {
                 return Err(user_not_found());
@@ -103,27 +101,29 @@ impl Store {
         .await
     }
 
-    /// Returns a user with the given email address, unless deleted.
+    /// Returns the user with the given email address, unless deleted.
     ///
-    /// The address is compared exactly, including letter case, on both databases.
+    /// The address is compared without regard to case, as the unique index on it is:
+    /// all letters on PostgreSQL, the ASCII letters on SQLite.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such user.
     pub async fn get_user_by_email(&self, email: &str) -> Result<User, StoreError> {
-        self.with_conn(async |scope| find_user(scope, "email", email).await)
+        self.with_conn(async |scope| find_user(scope, Lookup::Email(email)).await)
             .await
     }
 
-    /// Returns a user with the given name, unless deleted.
+    /// Returns the user with the given name, unless deleted.
     ///
-    /// The name is compared exactly, including letter case, on both databases.
+    /// The name is compared without regard to case, as the unique index on it is: all
+    /// letters on PostgreSQL, the ASCII letters on SQLite.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such user.
     pub async fn get_user_by_username(&self, username: &str) -> Result<User, StoreError> {
-        self.with_conn(async |scope| find_user(scope, "username", username).await)
+        self.with_conn(async |scope| find_user(scope, Lookup::Username(username)).await)
             .await
     }
 
@@ -131,44 +131,21 @@ impl Store {
     ///
     /// `user` is updated to what was stored: the current time as creation and
     /// modification time, and not deleted. Of its members, only the identifier, the
-    /// name, the email address and the authentication members are stored. Nothing but
-    /// the identifier has to be unique.
+    /// name, the email address and the password hash are stored.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a user with the same identifier exists.
+    /// Returns [`StoreError::Conflict`] if another user, deleted or not, has the name or
+    /// the email address in any letter case, and [`StoreError::InvalidId`] if the
+    /// identifier is not one.
     pub async fn create_user(&self, user: &mut User) -> Result<(), StoreError> {
         self.with_conn(async |scope| create_user(scope, user).await)
             .await
     }
 
-    /// Changes the name and the email address of the user with `user`'s identifier.
-    ///
-    /// `user` gets the current time as modification time. No other member is written,
-    /// and a deleted user is updated like any other.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::UserNotFound`] if there is no such user.
-    pub async fn update_user(&self, user: &mut User) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
-            // Preserved quirk: only the name and the email address are written, so this
-            // can neither delete nor restore a user, and it does not skip deleted users
-            // (`server/services/store/sqlstore/user.go:144-148`).
-            user.update_at = now_millis();
-            let mut sql = scope.sql(&format!("UPDATE {} SET ", scope.table("users")));
-            sql.push_bind("username = ", &user.username)
-                .push_bind(", email = ", &user.email)
-                .push_bind(", update_at = ", user.update_at)
-                .push_bind(" WHERE id = ", &user.id);
-            require_user(scope.execute(sql).await?, &user.id)
-        })
-        .await
-    }
-
-    /// Sets the password hash of every user with the given name and deletes their
-    /// sessions, so that nobody stays signed in with the old password. For a password an
-    /// administrator sets. Returns the identifiers of those users.
+    /// Sets the password hash of the user with the given name, in any letter case, and
+    /// deletes their sessions, so that nobody stays signed in with the old password. For
+    /// a password an administrator sets. Returns the identifier of that user.
     ///
     /// Either both happen or neither does.
     ///
@@ -181,14 +158,15 @@ impl Store {
         password: &str,
     ) -> Result<Vec<String>, StoreError> {
         self.transaction(async |scope| {
-            update_password(scope, "username", username, password).await?;
-            let mut sql = scope.sql(&format!("SELECT id FROM {} WHERE ", scope.table("users")));
-            sql.push_bind("username = ", username);
+            let lookup = Lookup::Username(username);
+            update_password(scope, lookup, password).await?;
+            let mut sql = scope.sql("SELECT id FROM users WHERE ");
+            lookup.push_condition(&mut sql);
             let user_ids: Vec<String> = scope
                 .fetch_all(sql)
                 .await?
                 .iter()
-                .map(|row| row.text(0))
+                .map(|row| row.id(0))
                 .collect::<Result<_, _>>()?;
             for user_id in &user_ids {
                 sessions::delete_sessions_of_user(scope, user_id).await?;
@@ -208,7 +186,7 @@ impl Store {
         user_id: &str,
         password: &str,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| update_password(scope, "id", user_id, password).await)
+        self.with_conn(async |scope| update_password(scope, Lookup::Id(user_id), password).await)
             .await
     }
 
@@ -281,8 +259,7 @@ impl Store {
 /// Starts the query for the users that are not deleted; conditions follow with `AND`.
 fn select_users(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!(
-        "SELECT {USER_COLUMNS} FROM {} WHERE delete_at = 0",
-        scope.table("users")
+        "SELECT {USER_COLUMNS} FROM users WHERE delete_at = 0"
     ))
 }
 
@@ -297,16 +274,13 @@ async fn fetch_users(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<User>, Store
 
 fn user_from_row(row: &Row) -> Result<User, StoreError> {
     Ok(User {
-        id: row.text(0)?,
+        id: row.id(0)?,
         username: row.text(1)?,
         email: row.text(2)?,
         password: row.text(3)?,
-        mfa_secret: row.text(4)?,
-        auth_service: row.text(5)?,
-        auth_data: row.text(6)?,
-        create_at: row.int(7)?,
-        update_at: row.int(8)?,
-        delete_at: row.int(9)?,
+        create_at: row.int(4)?,
+        update_at: row.int(5)?,
+        delete_at: row.int(6)?,
         ..User::default()
     })
 }
@@ -319,10 +293,30 @@ fn user_not_found() -> StoreError {
     StoreError::not_found("user")
 }
 
-/// Returns the first user that is not deleted and whose `column` equals `value`.
-async fn find_user(scope: &mut Scope<'_>, column: &str, value: &str) -> Result<User, StoreError> {
+/// What a user is looked up by.
+#[derive(Debug, Clone, Copy)]
+enum Lookup<'a> {
+    Id(&'a str),
+    Username(&'a str),
+    Email(&'a str),
+}
+
+impl Lookup<'_> {
+    /// Appends the condition that selects the user.
+    fn push_condition(self, sql: &mut Sql) {
+        match self {
+            Self::Id(id) => sql.push_bind("id = ", Id(id)),
+            Self::Username(name) => sql.push_bind("lower(username) = lower(", name).push(")"),
+            Self::Email(email) => sql.push_bind("lower(email) = lower(", email).push(")"),
+        };
+    }
+}
+
+/// Returns the user that is not deleted and that `lookup` selects.
+async fn find_user(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User, StoreError> {
     let mut sql = select_users(scope);
-    sql.push(" AND ").push(column).push_bind(" = ", value);
+    sql.push(" AND ");
+    lookup.push_condition(&mut sql);
     fetch_users(scope, sql)
         .await?
         .into_iter()
@@ -334,7 +328,7 @@ pub(crate) async fn get_user_by_id(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<User, StoreError> {
-    find_user(scope, "id", user_id).await
+    find_user(scope, Lookup::Id(user_id)).await
 }
 
 pub(crate) async fn create_user(scope: &mut Scope<'_>, user: &mut User) -> Result<(), StoreError> {
@@ -343,47 +337,55 @@ pub(crate) async fn create_user(scope: &mut Scope<'_>, user: &mut User) -> Resul
     user.update_at = now;
     user.delete_at = 0;
 
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO {} ({USER_COLUMNS}) VALUES (",
-        scope.table("users")
-    ));
-    sql.bind(&user.id)
+    let mut sql = scope.sql(&format!("INSERT INTO users ({USER_COLUMNS}) VALUES ("));
+    sql.bind(Id(&user.id))
         .push_bind(", ", &user.username)
         .push_bind(", ", &user.email)
         .push_bind(", ", &user.password)
-        .push_bind(", ", &user.mfa_secret)
-        .push_bind(", ", &user.auth_service)
-        .push_bind(", ", &user.auth_data)
         .push_bind(", ", user.create_at)
         .push_bind(", ", user.update_at)
         .push_bind(", ", user.delete_at)
         .push(")");
-    scope.execute(sql).await?;
-    Ok(())
+    match scope.execute(sql).await {
+        Ok(_) => Ok(()),
+        Err(StoreError::Database(error)) => Err(unique_violation(error)),
+        Err(error) => Err(error),
+    }
 }
 
-/// Sets the password hash of the users whose `column` equals `value`.
+/// Reads the violation of one of the two unique indexes of the users as a conflict.
+fn unique_violation(error: sqlx::Error) -> StoreError {
+    let Some(database_error) = error.as_database_error() else {
+        return StoreError::Database(error);
+    };
+    if !database_error.is_unique_violation() {
+        return StoreError::Database(error);
+    }
+    // PostgreSQL names the index; SQLite names the indexed expression.
+    let message = database_error.message();
+    let of_index = database_error.constraint().unwrap_or(message);
+    if of_index.contains("email") {
+        StoreError::Conflict("the email address")
+    } else if of_index.contains("username") {
+        StoreError::Conflict("the user name")
+    } else {
+        StoreError::Database(error)
+    }
+}
+
+/// Sets the password hash of the user that `lookup` selects, deleted or not.
 async fn update_password(
     scope: &mut Scope<'_>,
-    column: &str,
-    value: &str,
+    lookup: Lookup<'_>,
     password: &str,
 ) -> Result<(), StoreError> {
-    // Preserved quirk: deleted users are not skipped, and since user names are not
-    // unique in the database, every user with the name gets the password
-    // (`server/services/store/sqlstore/user.go:170-173` and `:195-198`).
-    let mut sql = scope.sql(&format!("UPDATE {} SET ", scope.table("users")));
+    let mut sql = scope.sql("UPDATE users SET ");
     sql.push_bind("password = ", password)
         .push_bind(", update_at = ", now_millis())
-        .push(" WHERE ")
-        .push(column)
-        .push_bind(" = ", value);
-    require_user(scope.execute(sql).await?, value)
-}
-
-/// Turns an update that changed no row into the error for a missing user.
-fn require_user(rows_affected: u64, user: &str) -> Result<(), StoreError> {
-    if rows_affected == 0 {
+        .push(" WHERE ");
+    lookup.push_condition(&mut sql);
+    if scope.execute(sql).await? == 0 {
+        let (Lookup::Id(user) | Lookup::Username(user) | Lookup::Email(user)) = lookup;
         return Err(StoreError::UserNotFound(user.to_owned()));
     }
     Ok(())
@@ -393,11 +395,9 @@ pub(crate) async fn get_user_preferences(
     scope: &mut Scope<'_>,
     user_id: &str,
 ) -> Result<Vec<Preference>, StoreError> {
-    let mut sql = scope.sql(&format!(
-        "SELECT userid, category, name, value FROM {} WHERE userid = ",
-        scope.table("preferences")
-    ));
-    sql.bind(user_id)
+    let mut sql =
+        scope.sql("SELECT user_id, category, name, value FROM preferences WHERE user_id = ");
+    sql.bind(Id(user_id))
         .push_bind(" AND category = ", PREFERENCES_CATEGORY);
     scope
         .fetch_all(sql)
@@ -405,7 +405,7 @@ pub(crate) async fn get_user_preferences(
         .iter()
         .map(|row| {
             Ok(Preference {
-                user_id: row.text(0)?,
+                user_id: row.id(0)?,
                 category: row.text(1)?,
                 name: row.text(2)?,
                 value: row.text(3)?,
@@ -419,18 +419,16 @@ pub(crate) async fn patch_user_preferences(
     user_id: &str,
     patch: &UserPreferencesPatch,
 ) -> Result<Vec<Preference>, StoreError> {
-    let table = scope.table("preferences");
     let mut preferences = get_user_preferences(scope, user_id).await?;
 
     for (name, value) in &patch.updated_fields {
-        let mut sql = scope.sql(&format!(
-            "INSERT INTO {table} (userid, category, name, value) VALUES ("
-        ));
-        sql.bind(user_id)
+        let mut sql =
+            scope.sql("INSERT INTO preferences (user_id, category, name, value) VALUES (");
+        sql.bind(Id(user_id))
             .push_bind(", ", PREFERENCES_CATEGORY)
             .push_bind(", ", name)
             .push_bind(", ", value)
-            .push(") ON CONFLICT (userid, category, name) DO UPDATE SET value = EXCLUDED.value");
+            .push(") ON CONFLICT (user_id, category, name) DO UPDATE SET value = EXCLUDED.value");
         scope.execute(sql).await?;
 
         preferences.retain(|existing| existing.name != *name);
@@ -443,8 +441,8 @@ pub(crate) async fn patch_user_preferences(
     }
 
     for name in &patch.deleted_fields {
-        let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE userid = "));
-        sql.bind(user_id)
+        let mut sql = scope.sql("DELETE FROM preferences WHERE user_id = ");
+        sql.bind(Id(user_id))
             .push_bind(" AND category = ", PREFERENCES_CATEGORY)
             .push_bind(" AND name = ", name);
         scope.execute(sql).await?;

@@ -54,11 +54,11 @@ pub use category::{
 pub use client_config::ClientConfig;
 pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
-pub use id::{IdKind, new_id};
+pub use id::{is_id, new_id};
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::Team;
-pub use user::{GLOBAL_TEAM_ID, SYSTEM_USER_ID, Session, User, UserPreferencesPatch};
+pub use user::{Session, User, UserPreferencesPatch};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.
 pub type JsonMap = serde_json::Map<String, serde_json::Value>;

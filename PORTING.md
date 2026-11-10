@@ -244,6 +244,43 @@ S6에서 새로 본 것:
 | 멤버 추가의 확인 후 쓰기, 마지막 관리자 확인과 삭제가 따로인 것(동시 요청의 경쟁) | **남김.** 고치려면 행 잠금이 필요한데 SQLite와 PostgreSQL에서 방법이 다르고, 멤버십 쓰기는 새 스키마 단계(설계 5.3)에서 다시 짠다. 알려진 경쟁으로 적어 둔다: 두 관리자가 동시에 나가면 관리자 없는 보드가 남을 수 있다 |
 | Consider 가운데 남긴 것 | 타임스탬프를 모두 `<ts>`로 가리는 것, ID의 종류 접두사, 바이너리 본문을 길이로만 고정하는 것(하네스의 정밀도를 올리는 일이다). 실패한 시나리오의 teardown. S3 테스트가 0건이어도 통과하는 것, SeaweedFS 이미지의 태그 고정(지금 컨테이너를 다시 받게 된다), 이름 검사가 기록된 응답의 옛 이름을 실패로 보지 않는 것. 기록이 빈 경로인 파일의 정보, 복사에 실패한 파일의 기록. 자기 비밀번호를 바꿀 때 다른 세션을 끊는 것은 설계 5.4의 안이다 |
 
+### G. 구현 3단계: 새 기준 스키마 (2026-11-10 19:59 KST~)
+
+`docs/s6-design.md` 5절의 보완 a–h가 모두 권고대로 승인됐고 추가 결정 다섯(같은 문서 5.10)을 받았다. 설계 문서의 "구현 순서" 3단계를 아래 순서로 구현한다. 커밋 하나가 줄 하나다. 커밋마다 `cargo xtask check`와 `cargo xtask test`(SQLite, PostgreSQL, S3)를 통과시켰다.
+
+| 커밋 | 무엇 | 응답 스냅샷 |
+|---|---|---|
+| `408faa63` | **마이그레이션 체계(3.9).** 스키마를 sqlx의 migrator가 적용한다(`crates/store/schema/{sqlite,postgres}/0001_baseline.sql`, 기록은 `_sqlx_migrations`). 테이블 접두사를 없앴다. 원본 서버의 DB(SQLite의 `db_migrations`, PostgreSQL의 `…schema_migrations`), 기록 없는 테이블, 더 새 서버가 올린 DB, 고쳐 쓴 이력을 이유와 함께 거절한다. `dbtableprefix`는 설정이 아니다(값이 있으면 시작 오류) | 변화 없음 |
+| `297a452b` | **single-user 모드 제거(5.1의 6번 (a)).** 플래그, 토큰 변수, 가상 사용자와 그 특례(세션, 사용자, 팀, 공유, 가져오기, WebSocket)를 걷어 냈다. 가상 사용자의 고정된 이름은 새 스키마의 식별자가 될 수 없어서, 사용자가 정한 순서(인증 전달 단계)보다 앞당겼다 | 변화 없음(시나리오는 이 모드를 쓰지 않았다) |
+| (이 커밋) | **UUIDv7과 비밀 값(3.2, 3.3).** 아래 | 382단계 가운데 221단계. 상태 코드는 2단계 |
+
+**UUIDv7과 비밀 값에서 바뀐 것.**
+
+| 바뀐 것 | 왜 | 어디 |
+|---|---|---|
+| 엔티티의 식별자(팀, 보드, 블록, 사용자, 카테고리, 카테고리-보드 행, 세션, 파일 기록)가 UUIDv7이다. 표기는 하이픈이 든 소문자 36자. PostgreSQL은 `uuid` 열, SQLite는 `TEXT`. 종류 접두사(`b…`, `c…`)는 없다 | 설계 3.2. 색인의 삽입 지역성. 순서의 뜻은 없다(정렬은 만든 시각으로 한다) | `fvoci_model::{new_id, is_id}`, `crates/store/src/db.rs`의 `Id`·`OptId`·`Row::id` |
+| **식별자가 아닌 글은 아무것도 가리키지 않는다.** 조회는 아무 줄도 찾지 못하고(그 라우트의 404), 그것을 저장하려는 쓰기는 400 `bad_request`다. 다른 표기의 UUID(대문자, 중괄호, 하이픈 없음)와 nil UUID(전부 0)도 식별자가 아니다 | 설계 2.3의 마지막 행. PostgreSQL의 `uuid` 열에 잘못된 값이 가지 않고, 두 DB의 답이 같다. 경로를 미리 거르는 미들웨어는 두지 않았다: 세션(401)보다 먼저 404가 나가면 검사 순서가 어긋난다. 대신 저장소가 막고, 테스트가 "없는 것"과 답이 같은지 라우트마다 비교한다 | `StoreError::InvalidId`, 테스트 `visibility::text_that_is_no_identifier_answers_as_an_identifier_of_nothing`(33개 요청 × 5가지 글), `visibility::what_a_user_cannot_see_…`(42개 요청에 세 번째 경우) |
+| 세션 토큰, 가입 토큰, 저장 파일 이름은 식별자 생성기를 쓰지 않는다. 운영체제 난수 256비트, base64url 43자 | 설계 3.3. UUIDv7은 앞이 시각이고 한 밀리초 안에서는 카운터가 이어진다 | `fvoci_server::auth::secret::new_secret` |
+| **팀.** 루트 팀은 처음 시작할 때 UUIDv7으로 만들어진다(가장 오래된 팀이 루트다). 팀 `0`은 없다. `GET /teams/{id}`는 그 팀만 답하고 다른 ID는 404다. 경로가 가리키는 팀이 없으면 팀 라우트 전부가 404 `team not found`, 본문이 가리키면 400 `no such team`이다 | 결정 6(팀은 유지, 루트 팀도 UUIDv7). 보존한 quirk "`GET /teams/{아무 ID}`는 루트 팀을 답한다"가 닫혔다. 가입 토큰을 관리자만 보는 것은 관리자 단계에서 한다 | `App::{root_team, team}`, `api::access::{require_team_access, require_team_in_body}` |
+| **내장 템플릿은 표식 열로 구분한다.** `boards.is_builtin`(와이어 `isBuiltin`). 만든 사용자가 없는(`createdBy`가 빈) 템플릿이다. 루트 팀에 속하고 모든 팀에 제공된다: `GET /teams/{team}/templates`가 그 팀의 템플릿과 내장 템플릿을 함께 답한다. `system`이라는 사용자와 내장 템플릿의 관리자 멤버십은 없다. 클라이언트가 보낸 `isBuiltin`은 무시한다. 사용자가 루트 팀에 만든 템플릿은 `trackingTemplateId`를 받지 않는다(전에는 팀 `0`의 템플릿이면 받았다) | 결정 6. 온보딩(S18)이 "시스템이 만든 보드"를 `createdBy`의 글자가 아니라 이 열로 본다 | `Store::{get_builtin_templates, remove_builtin_templates}`, `app/templates.rs` |
+| **채널이 없다.** 보드와 패치의 `channelId` 멤버, 채널 열, 채널 권한 검사가 없다. 패치에 `channelId`가 와도 무시한다 | 결정 4에서 이 단계로 미뤄 둔 것 | 모델 `Board`, `BoardPatch` |
+| **파일.** 저장 이름은 비밀 값 + 확장자다(템플릿 보드에 올려도 같다. 전에는 클라이언트의 이름을 그대로 썼다). 파일 기록(`file_info`)에 기본 키, `board_id`, 저장 이름(`name`), 올린 이름(`original_name`)이 있고, 파일은 `(보드, 저장 이름)`으로 찾는다. 기록이 없는 파일은 어느 보드로도 나가지 않는다. 정보 JSON은 `id, create_at, delete_at, name, extension, size, archived`다(원본의 채움 멤버 여섯을 뺐다) | 설계 3.2·3.9. S16의 "파일은 한 보드의 것"이 경로 문자열이 아니라 열이 됐다. 이름의 첫 글자를 떼어 기록을 찾던 규칙이 없어졌다 | `app/files.rs`, `store/file_info.rs` |
+| 읽기 토큰만으로(세션 없이) 읽은 보드와 블록의 `createdBy`·`modifiedBy`는 빈 값이다 | 결정 7. UUIDv7이 그 사용자의 가입 시각을 드러낸다 | `api/boards.rs`, `api/blocks.rs` |
+| 사용자 이름과 이메일은 대소문자와 무관하게 하나뿐이다(유일 색인 `lower(…)`). 조회도 대소문자를 무시한다. 동시에 온 가입 둘 가운데 하나는 409다(전에는 둘 다 들어갔다) | 설계 3.9. SQLite의 `lower()`는 ASCII만 접는다(PostgreSQL은 DB의 로케일을 따른다). 두 DB의 차이로 적어 둔다 | `store/users.rs`, `StoreError::Conflict` |
+| 보드에 바로 달린 블록에는 부모가 없다. 복제와 가져오기에서 "부모 = 보드 ID"는 빈 `parentId`가 된다(전에는 복사본이 **원본** 보드의 ID를 부모로 들고 있었다). 가져오기는 부모가 아카이브에 없는 블록을 건너뛴다(내장 템플릿의 주인 없는 블록 38개가 이제 저장되지 않는다. 어느 카드에도 속하지 않아 화면에 보인 적이 없다) | UUID 열에는 옛 형식의 ID가 들어갈 수 없다. 블록의 부모를 외래 키로 묶는 것은 삭제와 복원 단계에서 한다(그때 `POST /boards/{id}/cards`가 부모로 보드 ID를 넣는 것도 고친다) | `fvoci_model::renew_boards_and_blocks_ids`, `app/import.rs`의 `drop_orphans` |
+| 스키마에서 뺀 것: `blocks.root_id`·`channel_id`, `boards.channel_id`, `categories.channel_id`, `sharing.workspace_id`, `subscriptions.workspace_id`, `board_members.roles`, `users.mfa_secret`·`auth_service`·`auth_data`·`props`, 테이블 `notification_hints`·`system_settings`·`board_members_history`. 길이 제한이 붙은 `VARCHAR`는 `TEXT`로, 대부분의 열은 `NOT NULL`로 | 설계 3.1. 쓰이지 않거나 값이 하나뿐이었다. 저장소의 쓰이지 않는 함수(`get_board_count`, `get_active_user_count`, `update_user`, `update_session`, 시스템 설정 등)도 함께 지웠다 | `crates/store/schema/` |
+
+**스냅샷.** 382단계 그대로, 권한 표 636칸은 한 칸도 바뀌지 않았다. 바뀐 221단계 가운데 상태 코드가 바뀐 것은 둘이다: `GET /teams/anything`이 200(루트 팀)에서 404로, 팀 없는 `POST /boards`가 403에서 400(`no such team`)으로. 나머지 219단계는 본문만 바뀌었다: 팀 ID가 `0`에서 식별자로, `channelId`가 빠지고 `isBuiltin`이 생기고, 복제·가져온 카드의 `parentId`가 비고, 파일 이름이 `<secret:N>`이 되고, 공유로 읽은 보드·블록의 작성자가 비고, 파일 정보의 멤버가 줄었다. 내장 템플릿의 속성 ID(옛 형식 27자)는 이제 식별자로 보지 않아 스냅샷에 그대로 나온다(아카이브의 상수다). 회귀 하네스는 UUID를 `<id:N>`으로, 43자 비밀 값을 `<secret:N>`으로 바꾼다.
+
+**테스트.** 스토어의 테스트(원본 스위트를 옮긴 것)는 새 스키마에 맞게 고쳤다: 식별자는 모두 생성한 것이고, 줄이 가리키는 것(사용자, 팀, 보드)은 모두 실제로 저장한다(외래 키는 삭제와 복원 단계에서 넣는다). 없앤 함수의 테스트는 지웠다(`get_board_count`, `get_active_user_count`, `update_session`, `upsert_team_settings`, 멤버십 이력, 시스템 설정). 스토어 테스트의 변환(네 묶음)과 서버 API 테스트의 일부(보드 묶음, 사이드바)는 하위 에이전트에게 맡겼다. 여섯 모두 Fable 5.2로 지정했고 다른 모델로 넘어간 것은 없다(각자 보고에 적었다). 에이전트가 찾아 고친 것: PostgreSQL 테스트 스키마 이름에 하이픈이 들어간 것(하네스), nil UUID가 식별자로 통해 "식별자가 아닌 글"의 조회에 답하던 것, 템플릿이 아닌 보드까지 내장으로 표시되던 것, 카테고리 생성이 팀보다 본문을 먼저 보던 것.
+
+| 검증 (이 커밋, 2026-11-10 20:48 KST, rustc 1.99.1) | 결과 |
+|---|---|
+| `cargo xtask check` | format, clippy, unit tests, documentation, names, licenses and advisories 모두 PASS |
+| `cargo xtask test` — SQLite | 782건 통과, 실패 0 |
+| `cargo xtask test` — PostgreSQL | 690건 통과, 실패 0 |
+| `cargo xtask test` — S3 | 1건 통과 |
+
 ## 플러그인 저장소의 수정 사항 점검
 
 원본에서 갈라진 플러그인 저장소가 분리 뒤에 넣은 보안·검증 수정 15건(서버 쪽)을 원본 standalone 경로에 대해 하나씩 확인했다. 원본에 같은 결함이 있는지는 오라클에서 재현해 판단했고, 처리 결과는 `crates/server/PORTING.md`의 보안 수정 표, 의도적 차이, 보안 결정 대기 표에 PR 번호와 함께 적었다.

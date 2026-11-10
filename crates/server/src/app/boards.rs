@@ -1,8 +1,7 @@
 //! Boards and their members.
 
 use fvoci_model::{
-    Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, DeleteBoardsAndBlocks, IdKind,
-    new_id,
+    Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, DeleteBoardsAndBlocks, new_id,
 };
 use fvoci_store::{DuplicateAs, HistoryOrder, HistoryQuery, PublicBoards};
 
@@ -92,7 +91,7 @@ impl App {
             // (`server/app/boards.go:234-236`).
             return Err(AppError::bad_request("new board cannot have an ID").with_field("id"));
         }
-        board.id = new_id(IdKind::Board);
+        board.id = new_id();
 
         let creator = match membership {
             CreatorMembership::Admin => Some(
@@ -112,15 +111,10 @@ impl App {
             app.ws()
                 .broadcast_board_change(&created.team_id, &created)
                 .await;
-            if created.channel_id.is_empty() {
-                if let Some(creator) = creator {
-                    app.ws()
-                        .broadcast_member_change(&created.team_id, &created.id, &creator)
-                        .await;
-                }
-            } else {
-                // A board that is linked to a channel announces all its members.
-                app.broadcast_members(&created).await;
+            if let Some(creator) = creator {
+                app.ws()
+                    .broadcast_member_change(&created.team_id, &created.id, &creator)
+                    .await;
             }
         });
 
@@ -133,20 +127,6 @@ impl App {
             .await?;
         }
         Ok(board)
-    }
-
-    /// Tells the members of a board about every membership of it.
-    async fn broadcast_members(&self, board: &Board) {
-        match self.members_for_board(&board.id).await {
-            Ok(members) => {
-                for member in &members {
-                    self.ws()
-                        .broadcast_member_change(&board.team_id, &member.board_id, member)
-                        .await;
-                }
-            }
-            Err(error) => tracing::error!(%error, "Unable to get the board members"),
-        }
     }
 
     /// Files boards under a user's default category in a team, creating that category
@@ -174,8 +154,7 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if there is no such board, a permission error if the
-    /// patch concerns a channel and names no user, or the store's error.
+    /// Returns a not-found error if there is no such board, or the store's error.
     pub async fn patch_board(
         &self,
         patch: &BoardPatch,
@@ -183,7 +162,7 @@ impl App {
         user_id: &str,
     ) -> Result<Board, AppError> {
         let mut is_template = false;
-        if patch.board_type.is_some() || patch.channel_id.is_some() {
+        if patch.board_type.is_some() {
             let board = match self.store().get_board(board_id).await {
                 Ok(board) => board,
                 Err(error) if error.is_not_found() => {
@@ -192,24 +171,9 @@ impl App {
                 Err(error) => return Err(error.into()),
             };
             is_template = board.is_template;
-
-            // Linking, unlinking and retyping a board that has a channel need the
-            // permission to post to that channel, which on a standalone server everybody
-            // has who is somebody.
-            let channel_id = match patch.channel_id.as_deref() {
-                Some(new_channel) if !new_channel.is_empty() => new_channel,
-                _ => board.channel_id.as_str(),
-            };
-            if !channel_id.is_empty() && user_id.is_empty() {
-                return Err(AppError::forbidden("access denied to channel"));
-            }
         }
 
         let updated = self.store().patch_board(board_id, patch, user_id).await?;
-
-        // The original posts a message to the channel when a board is linked to or
-        // unlinked from it, which a standalone server cannot do, and announces the
-        // channel's members as members of the board, of which there are none.
 
         let app = self.clone();
         let board = updated.clone();
@@ -355,7 +319,7 @@ impl App {
 
         // The copied blocks get files of their own.
         if let Err(error) = self
-            .copy_and_update_card_files(board_id, user_id, &copies.blocks, duplicate_as)
+            .copy_and_update_card_files(board_id, user_id, &copies.blocks)
             .await
         {
             let delete = DeleteBoardsAndBlocks::from(&copies);

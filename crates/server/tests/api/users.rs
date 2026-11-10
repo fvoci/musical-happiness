@@ -4,11 +4,11 @@
 //! Not ported here: `TestGetUserList` (runs in the host-application mode this server does
 //! not have) and `TestTeamUploadFile` (in the `files` module).
 
-use fvoci_model::{ChangePasswordRequest, IdKind, LoginRequest, RegisterRequest, User, new_id};
+use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest, User, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
-use crate::common::{PASSWORD, Setup};
+use crate::common::{PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, UNKNOWN_ID};
 
 const FAKE_USERNAME: &str = "fakeUsername";
 const FAKE_EMAIL: &str = "mock@test.com";
@@ -36,7 +36,7 @@ fn login_request(username: &str, email: &str, password: &str) -> LoginRequest {
 #[tokio::test]
 async fn user_register() {
     let th = Setup::native().start().await;
-    let request = register_request(&new_id(IdKind::None));
+    let request = register_request(&new_id());
 
     th.client.post("/register", &request).await.check_ok();
 
@@ -46,7 +46,7 @@ async fn user_register() {
     assert_eq!(again.error_reason(), "signup_token_required");
 
     // With the token, the name is found to be taken.
-    let mut with_token = register_request(&new_id(IdKind::None));
+    let mut with_token = register_request(&new_id());
     with_token.token = th.app.root_team().await.expect("root team").signup_token;
     let taken = th.client.post("/register", &with_token).await;
     taken.check_status(StatusCode::CONFLICT);
@@ -64,7 +64,7 @@ async fn user_register() {
 #[tokio::test]
 async fn user_login_with_nonexist_user() {
     let th = Setup::native().start().await;
-    let request = login_request("nonexistuser", "", &new_id(IdKind::None));
+    let request = login_request("nonexistuser", "", &new_id());
 
     let response = th.client.post("/login", &request).await;
 
@@ -81,7 +81,7 @@ async fn user_login_with_nonexist_user() {
 #[tokio::test]
 async fn user_login_with_registered_user() {
     let th = Setup::native().start().await;
-    let password = new_id(IdKind::None);
+    let password = new_id();
     th.client
         .post("/register", &register_request(&password))
         .await
@@ -101,8 +101,12 @@ async fn user_login_with_registered_user() {
         .to_owned();
     assert_eq!(
         token.len(),
-        27,
-        "the session token is a generated identifier"
+        fvoci_server::auth::secret::SECRET_LENGTH,
+        "the session token is a secret, not an identifier: its length"
+    );
+    assert!(
+        !fvoci_model::is_id(&token),
+        "the session token does not have the form of an identifier"
     );
     th.teardown().await;
 }
@@ -246,10 +250,6 @@ async fn register_user_cases() {
         user.email, "new@example.com",
         "the address is stored trimmed"
     );
-    assert_eq!(
-        user.auth_service, "native",
-        "the user belongs to native authentication"
-    );
     assert!(
         user.password.starts_with("$2"),
         "the password is stored hashed"
@@ -284,7 +284,7 @@ async fn get_me_not_login_yet() {
 #[tokio::test]
 async fn get_me_logged_in() {
     let th = Setup::native().start().await;
-    let password = new_id(IdKind::None);
+    let password = new_id();
     let client = th
         .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &password, "")
         .await;
@@ -312,7 +312,7 @@ async fn get_me_logged_in() {
 async fn get_user() {
     let th = Setup::native().start().await;
     let client = th
-        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &new_id(IdKind::None), "")
+        .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &new_id(), "")
         .await;
     let me = client.me().await;
 
@@ -375,15 +375,23 @@ async fn users_list_and_profiles() {
         .await
         .check_not_found();
 
-    let team_users: Vec<User> = th.client.get("/teams/0/users").await.ok_json();
+    let team_users: Vec<User> = th
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/users"))
+        .await
+        .ok_json();
     assert_eq!(team_users.len(), 2, "the team has both users");
-    let found: Vec<User> = th.client.get("/teams/0/users?search=user2").await.ok_json();
+    let found: Vec<User> = th
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/users?search=user2"))
+        .await
+        .ok_json();
     assert_eq!(found.len(), 1, "the search narrows the list");
     assert_eq!(found[0].id, user2.id, "to the user that matches");
 
     let by_id: Vec<User> = th
         .client
-        .post("/teams/0/users", &[&user2.id])
+        .post(&format!("/teams/{ROOT_TEAM_ID}/users"), &[&user2.id])
         .await
         .ok_json();
     assert_eq!(by_id.len(), 1, "one user was asked for");
@@ -395,12 +403,12 @@ async fn users_list_and_profiles() {
 #[tokio::test]
 async fn user_change_password() {
     let th = Setup::native().start().await;
-    let password = new_id(IdKind::None);
+    let password = new_id();
     let client = th
         .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &password, "")
         .await;
     let me = client.me().await;
-    let new_password = new_id(IdKind::None);
+    let new_password = new_id();
 
     let request = ChangePasswordRequest {
         old_password: password.clone(),
@@ -617,7 +625,7 @@ async fn user_preferences() {
     th.teardown().await;
 }
 
-/// The team routes of a standalone server.
+/// The team routes.
 #[tokio::test]
 async fn teams() {
     let th = Setup::native().start().await.init_basic().await;
@@ -625,32 +633,66 @@ async fn teams() {
     let teams = th.client.get("/teams").await.value();
     assert_eq!(
         teams.as_array().map(Vec::len),
-        Some(1),
-        "there is one team: {teams}"
+        Some(2),
+        "the two teams of the test server: {teams}"
     );
-    assert_eq!(teams[0]["id"], json!("0"), "the root team: {teams}");
+    assert_eq!(
+        teams[0]["id"],
+        json!(ROOT_TEAM_ID),
+        "the oldest team, the root team, comes first: {teams}"
+    );
 
-    // Preserved quirk: any team identifier gets the root team.
-    let team = th.client.get("/teams/some-other-team").await.value();
-    assert_eq!(team["id"], json!("0"), "{team}");
+    // A team is asked for by its identifier. Any other identifier, well-formed or
+    // not, names no team; the original answered the root team to whatever was asked.
+    for no_team in [UNKNOWN_ID, "some-other-team", "0"] {
+        let response = th.client.get(&format!("/teams/{no_team}")).await;
+        response.check_error(StatusCode::NOT_FOUND, "team not found");
+    }
+    let team = th
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .await
+        .value();
+    assert_eq!(team["id"], json!(ROOT_TEAM_ID), "{team}");
     let signup_token = team["signupToken"].as_str().unwrap_or_default().to_owned();
-    assert!(
-        !signup_token.is_empty(),
-        "the signup token is part of the team: {team}"
+    assert_eq!(
+        signup_token.len(),
+        fvoci_server::auth::secret::SECRET_LENGTH,
+        "the signup token is a secret and part of the team: {team}"
     );
 
     th.client
-        .post_empty("/teams/0/regenerate_signup_token")
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/regenerate_signup_token"))
         .await
         .check_ok();
-    let regenerated = th.client.get("/teams/0").await.value();
+    let regenerated = th
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .await
+        .value();
     assert_ne!(
         regenerated["signupToken"],
         json!(signup_token),
         "the token changed"
     );
+    let other = th
+        .client
+        .get(&format!("/teams/{TEST_TEAM_ID}"))
+        .await
+        .value();
+    assert_ne!(
+        other["signupToken"], regenerated["signupToken"],
+        "each team has a token of its own"
+    );
+    th.client
+        .post_empty(&format!("/teams/{UNKNOWN_ID}/regenerate_signup_token"))
+        .await
+        .check_error(StatusCode::NOT_FOUND, "team not found");
 
-    th.anonymous().get("/teams/0").await.check_unauthorized();
+    th.anonymous()
+        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .await
+        .check_unauthorized();
     th.teardown().await;
 }
 
@@ -667,7 +709,10 @@ async fn app_get_root_team() {
         .expect("the root team exists after startup");
     let second = th.app.root_team().await.expect("and is returned again");
 
-    assert_eq!(first.id, "0", "the root team has the global identifier");
+    assert_eq!(
+        first.id, ROOT_TEAM_ID,
+        "the root team has the global identifier"
+    );
     assert!(!first.signup_token.is_empty(), "it has a signup token");
     assert_eq!(first.modified_by, "", "nobody modified it");
     assert_eq!(

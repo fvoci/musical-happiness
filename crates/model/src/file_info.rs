@@ -4,27 +4,23 @@ use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 
 /// What the server records about an uploaded file.
-///
-/// The members are the ones the original server stores or sets for a new upload. Its
-/// JSON form of this record has further members, which a standalone server never fills
-/// in; they are not part of this type.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FileInfo {
-    /// The record's identifier: the stored file name without its leading kind character
-    /// and without its extension.
+    /// The record's identifier.
     #[serde(deserialize_with = "null_as_default")]
     pub id: String,
-    /// Who uploaded the file; the original sets the fixed text `boards`. Not stored.
-    #[serde(rename = "user_id")]
-    #[serde(deserialize_with = "null_as_default")]
-    pub creator_id: String,
+    /// The board the file belongs to. Never sent to clients: they ask for a file
+    /// through its board.
+    #[serde(skip)]
+    pub board_id: String,
+    /// The name the file is stored and asked for under: random, with the extension.
+    /// Never sent to clients in this record; they have it from the upload's answer.
+    #[serde(skip)]
+    pub stored_name: String,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
-    /// Last modification time in milliseconds since the Unix epoch. Not stored.
-    #[serde(deserialize_with = "null_as_default")]
-    pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
@@ -40,9 +36,6 @@ pub struct FileInfo {
     /// The size of the file in bytes.
     #[serde(deserialize_with = "null_as_default")]
     pub size: i64,
-    /// The media type derived from the extension. Not stored.
-    #[serde(deserialize_with = "null_as_default")]
-    pub mime_type: String,
     /// Whether the file has been archived.
     #[serde(deserialize_with = "null_as_default")]
     pub archived: bool,
@@ -55,44 +48,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn json_form_has_the_original_member_names_and_no_path() {
+    fn json_form_has_no_place_in_the_storage() {
         let file_info = FileInfo {
             id: "abc".to_owned(),
-            creator_id: "boards".to_owned(),
+            board_id: "board".to_owned(),
+            stored_name: "random.png".to_owned(),
             create_at: 1,
-            update_at: 2,
             delete_at: 3,
-            path: "boards/20240101/7abc.png".to_owned(),
+            path: "boards/20240101/board/random.png".to_owned(),
             name: "picture.png".to_owned(),
             extension: ".png".to_owned(),
             size: 4,
-            mime_type: "image/png".to_owned(),
             archived: true,
         };
-        let encoded = serde_json::to_string(&file_info).expect("a file info serializes");
+        let encoded = serde_json::to_value(&file_info).expect("a file info serializes");
         assert_eq!(
             encoded,
-            r#"{"id":"abc","user_id":"boards","create_at":1,"update_at":2,"delete_at":3,"name":"picture.png","extension":".png","size":4,"mime_type":"image/png","archived":true}"#,
-            "members in the original's order"
-        );
-
-        let decoded: FileInfo = serde_json::from_value(json!({
-            "id": "abc",
-            "user_id": "boards",
-            "path": "ignored",
-            "channel_id": "",
-            "mini_preview": null,
-            "remote_id": null,
-        }))
-        .expect("the original's extra members are ignored");
-        assert_eq!(
-            decoded,
-            FileInfo {
-                id: "abc".to_owned(),
-                creator_id: "boards".to_owned(),
-                ..FileInfo::default()
-            },
-            "missing members default and the path is never read"
+            json!({
+                "id": "abc",
+                "create_at": 1,
+                "delete_at": 3,
+                "name": "picture.png",
+                "extension": ".png",
+                "size": 4,
+                "archived": true,
+            }),
+            "neither the path, nor the board, nor the stored name"
         );
     }
 }

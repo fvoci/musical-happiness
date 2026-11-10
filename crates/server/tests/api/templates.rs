@@ -9,7 +9,7 @@ use std::time::Instant;
 use fvoci_model::{Block, Board, BoardType};
 use serde_json::{Value, json};
 
-use crate::common::Setup;
+use crate::common::{ROOT_TEAM_ID, Setup};
 
 /// `TestGetTemplates`: the built-in templates are listed, each with blocks, and each can
 /// be duplicated into a non-template board.
@@ -23,7 +23,7 @@ async fn get_templates_returns_the_built_in_templates() {
         .await;
     let boards = ts
         .client
-        .get("/teams/0/templates")
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -64,7 +64,7 @@ async fn get_templates_returns_the_built_in_templates() {
     let duplicate = ts
         .client
         .post(
-            &format!("/boards/{}/duplicate?toTeam=0", first.id),
+            &format!("/boards/{}/duplicate?toTeam={ROOT_TEAM_ID}", first.id),
             &json!({}),
         )
         .await
@@ -96,7 +96,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
         .await;
     let boards = ts
         .client
-        .get("/teams/0/templates")
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -133,7 +133,7 @@ async fn get_templates_without_a_session_is_401() {
         .init_basic()
         .await;
     ts.anonymous()
-        .get("/teams/0/templates")
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -178,10 +178,10 @@ async fn template_initialization_is_idempotent_and_measured() {
     ts.teardown().await;
 }
 
-/// The number of template boards team 0 has.
+/// The number of template boards the root team is offered.
 async fn ts_template_count(ts: &crate::common::TestServer) -> usize {
     ts.app
-        .template_boards("0", "")
+        .template_boards(ROOT_TEAM_ID, "")
         .await
         .expect("the template boards")
         .len()
@@ -205,7 +205,11 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
             .map(|board| board.id.clone())
             .collect::<Vec<_>>()
     };
-    let before: Vec<Board> = ts.client.get("/teams/0/templates").await.ok_json();
+    let before: Vec<Board> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .await
+        .ok_json();
     let marked_before = marked(&before);
     assert_eq!(
         marked_before.len(),
@@ -224,7 +228,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     };
     ts.app
         .store()
-        .patch_board(&marked_before[0], &unmark, "system")
+        .patch_board(&marked_before[0], &unmark, "")
         .await
         .expect("the mark is removed");
 
@@ -232,12 +236,19 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
         ts.app.init_templates().await.expect("the import runs"),
         "templates without a marked one are imported again"
     );
-    let after: Vec<Board> = ts.client.get("/teams/0/templates").await.ok_json();
+    let after: Vec<Board> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .await
+        .ok_json();
     assert_eq!(after.len(), before.len(), "the same number of templates");
     let marked_after = marked(&after);
     assert_eq!(marked_after.len(), 1, "one marked template again");
     assert_ne!(marked_after, marked_before, "a newly imported board");
-    ts.client.post_empty("/teams/0/onboard").await.check_ok();
+    ts.client
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .await
+        .check_ok();
     ts.teardown().await;
 }
 
@@ -255,7 +266,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .await;
     let templates = ts
         .client
-        .get("/teams/0/templates")
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
     let welcome = templates

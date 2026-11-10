@@ -1,6 +1,7 @@
 //! Authentication: session tokens, passwords, and read tokens of shared boards.
 
 pub mod password;
+pub mod secret;
 pub mod token;
 
 use fvoci_model::Session;

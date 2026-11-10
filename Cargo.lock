@@ -883,6 +883,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "bcrypt",
  "bytes",
  "clap",
@@ -890,6 +891,7 @@ dependencies = [
  "futures-util",
  "fvoci-model",
  "fvoci-store",
+ "getrandom 0.4.3",
  "httpdate",
  "object_store",
  "rcgen",
@@ -2436,6 +2438,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -2500,6 +2503,7 @@ dependencies = [
  "sqlx-core",
  "thiserror",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -2534,6 +2538,7 @@ dependencies = [
  "stringprep",
  "thiserror",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -2559,6 +2564,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 
 use bytes::Bytes;
-use fvoci_model::{Block, Board, BoardType, GLOBAL_TEAM_ID, SYSTEM_USER_ID};
+use fvoci_model::{Block, Board, BoardType};
 use serde_json::Value;
 
 use super::App;
@@ -42,7 +42,7 @@ impl App {
     /// Returns the store's error if the templates cannot be read or removed, or an
     /// import error if the archive cannot be imported.
     pub async fn init_templates(&self) -> Result<bool, AppError> {
-        let boards = self.store().get_template_boards(GLOBAL_TEAM_ID, "").await?;
+        let boards = self.store().get_builtin_templates().await?;
         tracing::debug!(count = boards.len(), "Fetched template boards");
 
         let Some(reason) = initialization_reason(&boards) else {
@@ -55,11 +55,14 @@ impl App {
             "Importing new default templates"
         );
 
-        self.store().remove_default_templates(&boards).await?;
+        self.store().remove_builtin_templates().await?;
 
         let options = ImportOptions {
-            team_id: GLOBAL_TEAM_ID.to_owned(),
-            modified_by: SYSTEM_USER_ID.to_owned(),
+            // A built-in template is offered to every team; it is filed under the root
+            // team because a board has to be some team's.
+            team_id: self.root_team().await?.id,
+            // No user: what is stored on behalf of nobody is the system's own.
+            modified_by: String::new(),
             board_modifier: Some(Box::new(fix_template_board)),
             block_modifier: Some(Box::new(fix_template_block)),
         };
@@ -71,22 +74,15 @@ impl App {
             // import carry the current version and would pass the check at the next
             // start, without their files; remove them so that the import is tried again.
             self.remove_partial_templates().await;
-            return Err(error.context(format_args!(
-                "cannot initialize global templates for team {GLOBAL_TEAM_ID}"
-            )));
+            return Err(error.context("cannot import the built-in templates"));
         }
         Ok(true)
     }
 
     /// Removes the built-in templates that a failed import left behind.
     async fn remove_partial_templates(&self) {
-        match self.store().get_template_boards(GLOBAL_TEAM_ID, "").await {
-            Ok(partial) => {
-                if let Err(error) = self.store().remove_default_templates(&partial).await {
-                    tracing::error!(%error, "cannot remove partially imported templates");
-                }
-            }
-            Err(error) => tracing::error!(%error, "cannot list partially imported templates"),
+        if let Err(error) = self.store().remove_builtin_templates().await {
+            tracing::error!(%error, "cannot remove partially imported templates");
         }
     }
 
@@ -100,7 +96,9 @@ impl App {
         team_id: &str,
         user_id: &str,
     ) -> Result<Vec<Board>, AppError> {
-        Ok(self.store().get_template_boards(team_id, user_id).await?)
+        let mut boards = self.store().get_template_boards(team_id, user_id).await?;
+        boards.extend(self.store().get_builtin_templates().await?);
+        Ok(boards)
     }
 }
 
@@ -111,8 +109,7 @@ impl App {
 /// session's user, on every route that makes a board; nobody signs in as the system.
 pub(crate) fn is_onboarding_template(board: &Board) -> bool {
     board.is_template
-        && board.team_id == GLOBAL_TEAM_ID
-        && board.created_by == SYSTEM_USER_ID
+        && board.is_builtin
         && board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true))
 }
 
@@ -124,9 +121,6 @@ fn initialization_reason(boards: &[Board]) -> Option<&'static str> {
         return Some("no default templates found");
     }
     for board in boards {
-        if board.created_by != SYSTEM_USER_ID {
-            continue;
-        }
         if board.template_version < DEFAULT_TEMPLATE_VERSION {
             return Some("template_version too old");
         }
@@ -174,9 +168,9 @@ mod tests {
     fn unmarked() -> Board {
         Board {
             id: "b-built-in".to_owned(),
-            team_id: GLOBAL_TEAM_ID.to_owned(),
-            created_by: SYSTEM_USER_ID.to_owned(),
+            team_id: "t-root".to_owned(),
             is_template: true,
+            is_builtin: true,
             template_version: DEFAULT_TEMPLATE_VERSION,
             board_type: BoardType::Open,
             ..Board::default()
@@ -199,17 +193,13 @@ mod tests {
 
         let by_a_user = Board {
             created_by: "u-somebody".to_owned(),
+            is_builtin: false,
             ..marked()
         };
         assert!(
             !is_onboarding_template(&by_a_user),
             "a user's board with the mark and the title"
         );
-        let in_another_team = Board {
-            team_id: "t-other".to_owned(),
-            ..marked()
-        };
-        assert!(!is_onboarding_template(&in_another_team), "another team");
         let no_template = Board {
             is_template: false,
             ..marked()

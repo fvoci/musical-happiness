@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use fvoci_model::{
     BLOCK_TITLE_MAX_CHARS, Block, BlockType, Board, BoardMember, BoardType, Card, CardPatch,
-    IdKind, JsonMap, new_id,
+    JsonMap, is_id, new_id,
 };
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::error::ErrorKind;
@@ -24,7 +24,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::boards::TeamSocket;
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
 
 /// How long background notifications may take to finish.
 const BACKGROUND: Duration = Duration::from_secs(10);
@@ -125,13 +125,11 @@ async fn cards_of(client: &Client, board_id: &str, query: &str) -> Vec<Card> {
 
 /// `MakeCardProps`: `count` properties with random names and values.
 fn make_card_props(count: usize) -> JsonMap {
-    (0..count)
-        .map(|_| (new_id(IdKind::Block), json!(new_id(IdKind::Block))))
-        .collect()
+    (0..count).map(|_| (new_id(), json!(new_id()))).collect()
 }
 
 fn new_block_ids(count: usize) -> Vec<String> {
-    (0..count).map(|_| new_id(IdKind::Block)).collect()
+    (0..count).map(|_| new_id()).collect()
 }
 
 /// `CreateBoardAndCards`: an open board of the first user with `count` cards.
@@ -166,7 +164,7 @@ async fn create_board_and_cards(th: &TestServer, count: usize) -> (Board, Vec<Ca
 /// A block as the original's tests send it, with both times set to 1.
 pub(crate) fn new_block(board_id: &str, parent_id: &str, block_type: BlockType) -> Block {
     Block {
-        id: new_id(IdKind::Block),
+        id: new_id(),
         board_id: board_id.to_owned(),
         parent_id: parent_id.to_owned(),
         create_at: 1,
@@ -389,7 +387,7 @@ async fn patch_card_good() {
     let updated_props: JsonMap = card
         .properties
         .keys()
-        .map(|id| (id.clone(), json!(new_id(IdKind::Block))))
+        .map(|id| (id.clone(), json!(new_id())))
         .collect();
     let patch = CardPatch {
         title: Some("another title".to_owned()),
@@ -474,7 +472,7 @@ async fn get_card_good() {
 async fn app_create_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let user_id = new_id(IdKind::User);
+    let user_id = th.stranger().await;
     let card = Card {
         board_id: board.id.clone(),
         created_by: user_id.clone(),
@@ -505,7 +503,7 @@ async fn app_create_card_success_scenario() {
 async fn app_create_card_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let user_id = new_id(IdKind::User);
+    let user_id = th.stranger().await;
 
     let too_long = Card {
         title: "a".repeat(BLOCK_TITLE_MAX_CHARS + 1),
@@ -524,17 +522,19 @@ async fn app_create_card_error_scenario() {
         "what is wrong with the card, without the app layer's own words: {error}"
     );
 
-    let error = th
-        .app
-        .create_card(
-            Card::default(),
-            "no-such-board",
-            &user_id,
-            ChangeNotification::Send,
-        )
-        .await
-        .expect_err("the board does not exist");
-    assert!(error.is_not_found(), "{error:?}");
+    for board_id in [UNKNOWN_ID, "no-such-board"] {
+        let error = th
+            .app
+            .create_card(
+                Card::default(),
+                board_id,
+                &user_id,
+                ChangeNotification::Send,
+            )
+            .await
+            .expect_err("the board does not exist");
+        assert!(error.is_not_found(), "{board_id}: {error:?}");
+    }
 
     let cards = th
         .app
@@ -558,7 +558,11 @@ async fn app_get_cards_success_scenario() {
         })
         .collect();
     th.app
-        .insert_blocks(&mut blocks, "user-id", ChangeNotification::Suppress)
+        .insert_blocks(
+            &mut blocks,
+            &th.stranger().await,
+            ChangeNotification::Suppress,
+        )
         .await
         .expect("the card blocks are stored");
 
@@ -601,7 +605,7 @@ async fn app_get_cards_error_scenario() {
 async fn app_patch_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let user_id = new_id(IdKind::User);
+    let user_id = th.stranger().await;
     let props = make_card_props(3);
     let card = Card {
         title: "test card for patch".to_owned(),
@@ -622,7 +626,7 @@ async fn app_patch_card_success_scenario() {
         icon: Some("😀".to_owned()),
         updated_properties: props
             .keys()
-            .map(|id| (id.clone(), json!(new_id(IdKind::Block))))
+            .map(|id| (id.clone(), json!(new_id())))
             .collect(),
     };
     let mut expected = card.clone();
@@ -652,18 +656,25 @@ async fn app_patch_card_error_scenario() {
     let card = &cards[0];
     let patch_card = async |patch: &CardPatch, card_id: &str| {
         th.app
-            .patch_card(patch, card_id, "user-id", ChangeNotification::Send)
+            .patch_card(
+                patch,
+                card_id,
+                &th.stranger().await,
+                ChangeNotification::Send,
+            )
             .await
             .expect_err("the patch is refused")
     };
 
-    let error = patch_card(&title_patch("x"), "no-such-card").await;
-    assert!(error.is_not_found(), "{error:?}");
-    assert_eq!(
-        error.to_string(),
-        "not found",
-        "nothing but that it is not there"
-    );
+    for card_id in [UNKNOWN_ID, "no-such-card"] {
+        let error = patch_card(&title_patch("x"), card_id).await;
+        assert!(error.is_not_found(), "{card_id}: {error:?}");
+        assert_eq!(
+            error.to_string(),
+            "not found",
+            "nothing but that it is not there"
+        );
+    }
 
     let too_long = title_patch(&"a".repeat(BLOCK_TITLE_MAX_CHARS + 1));
     let error = patch_card(&too_long, &card.id).await;
@@ -687,7 +698,7 @@ async fn app_get_card_success_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let props = make_card_props(5);
-    let content_order = vec![new_id(IdKind::User), new_id(IdKind::User)];
+    let content_order = vec![new_id(), new_id()];
     let fields = json!({
         "contentOrder": content_order,
         "properties": props,
@@ -716,15 +727,16 @@ async fn app_get_card_success_scenario() {
 #[tokio::test]
 async fn app_get_card_not_found() {
     let th = Setup::native().start().await.init_basic().await;
-    let bogus_id = new_id(IdKind::Block);
 
-    let error = th
-        .app
-        .card(&bogus_id)
-        .await
-        .expect_err("there is no such block");
+    for bogus_id in [UNKNOWN_ID, "nope"] {
+        let error = th
+            .app
+            .card(bogus_id)
+            .await
+            .expect_err("there is no such block");
 
-    assert!(error.is_not_found(), "{error:?}");
+        assert!(error.is_not_found(), "{bogus_id}: {error:?}");
+    }
     th.teardown().await;
 }
 
@@ -781,8 +793,8 @@ async fn create_card_answer_and_stored_block() {
         .await;
     let card: Card = response.ok_json();
     assert!(
-        card.id.starts_with('c') && card.id.len() == 27,
-        "a new card identifier, not the client's: {}",
+        is_id(&card.id),
+        "a new identifier, not the client's: {}",
         card.id
     );
     assert!(card.create_at >= before, "created now: {}", card.create_at);
@@ -899,8 +911,10 @@ async fn create_card_refusals() {
         let response = outsider.send_raw_body(Method::POST, &path, body).await;
         check_error(&response, StatusCode::NOT_FOUND, "board not found");
     }
-    let response = th.client.post(&cards_path("no-such-board"), &card).await;
-    check_error(&response, StatusCode::NOT_FOUND, "board not found");
+    for board_id in [UNKNOWN_ID, "no-such-board"] {
+        let response = th.client.post(&cards_path(board_id), &card).await;
+        check_error(&response, StatusCode::NOT_FOUND, "board not found");
+    }
 
     // A body that is no card is a bad request.
     for body in [
@@ -924,10 +938,14 @@ async fn create_card_refusals() {
         "an editor creates cards"
     );
 
-    let other_board = json!({"boardId": "other"});
     let bad_icon = json!({"icon": "😱😱"});
-    let response = th.client.post(&path, &other_board).await;
-    check_error(&response, StatusCode::BAD_REQUEST, "Board IDs do not match");
+    for other_board in [UNKNOWN_ID, "other"] {
+        let response = th
+            .client
+            .post(&path, &json!({"boardId": other_board}))
+            .await;
+        check_error(&response, StatusCode::BAD_REQUEST, "Board IDs do not match");
+    }
     let response = th.client.post(&path, &bad_icon).await;
     check_error(
         &response,
@@ -940,10 +958,12 @@ async fn create_card_refusals() {
     let response = th.client.post(&path, &too_long).await;
     response.check_bad_request();
     let message = response.error_message();
+    let block_id = message
+        .strip_prefix("error validating block ")
+        .and_then(|rest| rest.strip_suffix(": block title size limit exceeded"));
     assert!(
-        message.starts_with("error validating block c")
-            && message.ends_with(": block title size limit exceeded"),
-        "{message}"
+        block_id.is_some_and(is_id),
+        "the message names the block by the identifier it would have had: {message}"
     );
 
     let cards = cards_of(&th.client, &roles.board.id, "").await;
@@ -974,8 +994,10 @@ async fn get_cards_permissions_and_malformed_paging() {
     // The private board answers an outsider as a board that does not exist.
     let response = outsider.get(&path).await;
     check_error(&response, StatusCode::NOT_FOUND, "board not found");
-    let response = th.client.get(&cards_path("no-such-board")).await;
-    check_error(&response, StatusCode::NOT_FOUND, "board not found");
+    for board_id in [UNKNOWN_ID, "no-such-board"] {
+        let response = th.client.get(&cards_path(board_id)).await;
+        check_error(&response, StatusCode::NOT_FOUND, "board not found");
+    }
 
     // The original writes these refusals and then the cards after them; here the
     // refusal is the whole answer, and it names the parameter.
@@ -1014,7 +1036,11 @@ async fn get_cards_paging() {
         })
         .collect();
     th.app
-        .insert_blocks(&mut blocks, "user-id", ChangeNotification::Suppress)
+        .insert_blocks(
+            &mut blocks,
+            &th.stranger().await,
+            ChangeNotification::Suppress,
+        )
         .await
         .expect("the card blocks are stored");
     let count = async |query: &str| cards_of(&th.client, &board.id, query).await.len();
@@ -1141,7 +1167,7 @@ async fn get_card_permissions_and_refusals() {
 
     // No card: an identifier nobody has, a block that is no card, a board.
     let text = insert_block(&th.client, &new_block(board_id, &card.id, BlockType::Text)).await;
-    for card_id in ["nope", text.id.as_str(), board_id] {
+    for card_id in [UNKNOWN_ID, "nope", text.id.as_str(), board_id] {
         for client in [&th.client, outsider] {
             let response = client.get(&card_path(card_id)).await;
             check_error(&response, StatusCode::NOT_FOUND, "card not found");
@@ -1191,7 +1217,7 @@ async fn patch_card_refusals() {
 
     // No card: not found for everyone, whatever the body. A card on a board the user
     // cannot read answers the same.
-    for card_id in ["nope", text.id.as_str()] {
+    for card_id in [UNKNOWN_ID, "nope", text.id.as_str()] {
         for client in [&th.client, outsider] {
             let response = client
                 .send_raw_body(Method::PATCH, &card_path(card_id), malformed)

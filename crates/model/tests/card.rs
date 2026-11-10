@@ -1,7 +1,7 @@
 //! Port of `TestBlock2Card` from `server/model/card_test.go`, plus tests for the card
 //! conversions and patches the original leaves untested.
 
-use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, IdKind, JsonMap, new_id};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, JsonMap, new_id};
 use serde_json::{Value, json};
 
 const NOW: i64 = 1_660_046_400_000;
@@ -41,10 +41,10 @@ fn sample_fields() -> JsonMap {
 }
 
 fn sample_block() -> Block {
-    let board_id = new_id(IdKind::Board);
-    let user_id = new_id(IdKind::User);
+    let board_id = new_id();
+    let user_id = new_id();
     Block {
-        id: new_id(IdKind::Card),
+        id: new_id(),
         parent_id: board_id.clone(),
         created_by: user_id.clone(),
         modified_by: user_id,
@@ -231,7 +231,7 @@ fn card_populate_keeps_existing_values() {
 
     let mut blank = Card::default();
     blank.populate(NOW);
-    assert!(blank.id.starts_with('c'), "new card id {}", blank.id);
+    assert!(fvoci_model::is_id(&blank.id), "new card id {}", blank.id);
 }
 
 #[test]

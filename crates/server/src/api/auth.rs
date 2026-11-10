@@ -6,7 +6,9 @@ use axum::extract::{Path, State};
 use axum::routing::post;
 use fvoci_model::{ChangePasswordRequest, LoginRequest, LoginResponse, RegisterRequest};
 
-use super::{ApiResult, RequiredSession, decode_object, empty_response, json_response};
+use super::{
+    ApiResult, RequiredSession, decode_object, empty_response, json_response, require_team_access,
+};
 use crate::app::App;
 use crate::auth::tokens_match;
 use crate::error::{AppError, Reason};
@@ -80,9 +82,12 @@ async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
 
 async fn handle_regenerate_signup_token(
     State(app): State<App>,
-    RequiredSession(_session): RequiredSession,
+    RequiredSession(session): RequiredSession,
+    Path(team_id): Path<String>,
 ) -> ApiResult {
-    app.regenerate_signup_token().await?;
+    require_team_access(&app, &session.user_id, &team_id, "access denied to team").await?;
+    app.regenerate_signup_token(&team_id, &session.user_id)
+        .await?;
     Ok(empty_response())
 }
 

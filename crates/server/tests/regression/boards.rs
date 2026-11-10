@@ -6,6 +6,7 @@
 
 use serde_json::json;
 
+use crate::common::ROOT_TEAM_ID;
 use crate::fixtures::{block, id_of, new_blocks, new_board};
 use crate::harness::{API, Session, id_by_title};
 
@@ -13,11 +14,11 @@ pub(crate) async fn boards(s: &mut Session) {
     let [alice, bob] = s.users("boards", ["alice", "bob"]).await;
     let boards = format!("{API}/boards");
     s.post("create: no type", &boards)
-        .json(json!({"teamId": "0", "title": "x"}))
+        .json(json!({"teamId": ROOT_TEAM_ID, "title": "x"}))
         .user(&alice)
         .await;
     s.post("create: bad type", &boards)
-        .json(json!({"teamId": "0", "type": "X", "title": "x"}))
+        .json(json!({"teamId": ROOT_TEAM_ID, "type": "X", "title": "x"}))
         .user(&alice)
         .await;
     s.post("create: no team", &boards)
@@ -25,7 +26,7 @@ pub(crate) async fn boards(s: &mut Session) {
         .user(&alice)
         .await;
     s.post("create: without session", &boards)
-        .json(json!({"teamId": "0", "type": "P"}))
+        .json(json!({"teamId": ROOT_TEAM_ID, "type": "P"}))
         .await;
     s.post("create: malformed body", &boards)
         .raw(b"{nope")
@@ -55,12 +56,18 @@ pub(crate) async fn boards(s: &mut Session) {
     s.get("get: non-member, open", &open_path).user(&bob).await;
     s.get("get: anonymous", &path).await;
     s.get("get: unknown board", &unknown).user(&alice).await;
-    s.get("list: member", &format!("{API}/teams/0/boards"))
-        .user(&alice)
-        .await;
-    s.get("list: other user", &format!("{API}/teams/0/boards"))
-        .user(&bob)
-        .await;
+    s.get(
+        "list: member",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "list: other user",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+    )
+    .user(&bob)
+    .await;
     s.get("metadata", &format!("{path}/metadata"))
         .user(&alice)
         .await;
@@ -158,9 +165,12 @@ pub(crate) async fn boards(s: &mut Session) {
     s.get("blocks after undelete", &format!("{path}/blocks"))
         .user(&alice)
         .await;
-    s.get("list at the end", &format!("{API}/teams/0/boards"))
-        .user(&alice)
-        .await;
+    s.get(
+        "list at the end",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+    )
+    .user(&alice)
+    .await;
 }
 
 pub(crate) async fn members(s: &mut Session) {
@@ -284,8 +294,8 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
     let path = format!("{API}/boards-and-blocks");
     let body = json!({
         "boards": [
-            {"id": "board-a", "teamId": "0", "type": "P", "title": "Board A"},
-            {"id": "board-b", "teamId": "0", "type": "O", "title": "Board B"},
+            {"id": "board-a", "teamId": ROOT_TEAM_ID, "type": "P", "title": "Board A"},
+            {"id": "board-b", "teamId": ROOT_TEAM_ID, "type": "O", "title": "Board B"},
         ],
         "blocks": [
             block("blk-a", "board-a", "card", "Card A", "", json!({})),
@@ -309,20 +319,20 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
         .await;
     s.post("create: block of another board", &path)
         .json(json!({
-            "boards": [{"id": "b1", "teamId": "0", "type": "P"}],
+            "boards": [{"id": "b1", "teamId": ROOT_TEAM_ID, "type": "P"}],
             "blocks": [block("k1", "elsewhere", "card", "", "", json!({}))],
         }))
         .user(&alice)
         .await;
     s.post("create: boards of two teams", &path)
         .json(json!({
-            "boards": [{"id": "b1", "teamId": "0", "type": "P"}, {"id": "b2", "teamId": "1", "type": "P"}],
+            "boards": [{"id": "b1", "teamId": ROOT_TEAM_ID, "type": "P"}, {"id": "b2", "teamId": "1", "type": "P"}],
             "blocks": [],
         }))
         .user(&alice)
         .await;
     s.post("create: board without type", &path)
-        .json(json!({"boards": [{"id": "b1", "teamId": "0"}], "blocks": []}))
+        .json(json!({"boards": [{"id": "b1", "teamId": ROOT_TEAM_ID}], "blocks": []}))
         .user(&alice)
         .await;
     s.post("create: malformed body", &path)

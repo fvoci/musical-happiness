@@ -12,7 +12,6 @@ use fvoci_model::{
     ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardType, BoardsAndBlocks,
     BoardsAndBlocksError, JsonMap, renew_boards_and_blocks_ids,
 };
-use fvoci_store::DuplicateAs;
 use serde_json::Value;
 
 use super::App;
@@ -142,19 +141,8 @@ impl App {
                 continue;
             };
             let bytes = read_entry(&zip, index).await?;
-            let as_template = if board.is_template {
-                DuplicateAs::Template
-            } else {
-                DuplicateAs::Copy
-            };
             let new_name = self
-                .save_file(
-                    &mut bytes.as_ref(),
-                    &options.team_id,
-                    &board.id,
-                    &filename,
-                    as_template,
-                )
+                .save_file(&mut bytes.as_ref(), &board.id, &filename)
                 .await
                 .map_err(|error| {
                     error.context(format_args!(
@@ -170,8 +158,8 @@ impl App {
         Ok(())
     }
 
-    /// Rewrites every image and attachment block of each imported (non-template) board
-    /// to point at the newly stored file. Failures are logged, as in the original.
+    /// Rewrites every image and attachment block of each imported board to point at the
+    /// newly stored file. Failures are logged, as in the original.
     async fn fix_images_attachments(
         &self,
         board_map: &HashMap<String, Board>,
@@ -179,9 +167,6 @@ impl App {
         user_id: &str,
     ) {
         for board in board_map.values() {
-            if board.is_template {
-                continue;
-            }
             let blocks = match self.store().get_blocks(&board_blocks(&board.id)).await {
                 Ok(blocks) => blocks,
                 Err(error) => {
@@ -262,6 +247,13 @@ impl App {
         }
 
         apply_modifiers(&mut boards_and_blocks, options);
+        let orphans = drop_orphans(&mut boards_and_blocks);
+        if orphans > 0 {
+            tracing::warn!(
+                orphans,
+                "skipped blocks of the archive whose parent is not in the archive"
+            );
+        }
 
         let boards_and_blocks = match boards_and_blocks.validate() {
             // A board without blocks is a board all the same, and what exporting one
@@ -281,13 +273,17 @@ impl App {
             .map_err(|error| error.context("error inserting archive blocks"))?;
 
         for board in &created.boards {
-            let admin = BoardMember {
-                board_id: board.id.clone(),
-                user_id: options.modified_by.clone(),
-                scheme_admin: true,
-                ..BoardMember::default()
-            };
-            self.add_member_to_board(&admin).await?;
+            // What is imported on behalf of no user, the built-in templates, has no
+            // administrator: nobody changes it.
+            if !options.modified_by.is_empty() {
+                let admin = BoardMember {
+                    board_id: board.id.clone(),
+                    user_id: options.modified_by.clone(),
+                    scheme_admin: true,
+                    ..BoardMember::default()
+                };
+                self.add_member_to_board(&admin).await?;
+            }
             for member in &kept_members {
                 let member = BoardMember {
                     board_id: board.id.clone(),
@@ -302,6 +298,42 @@ impl App {
             .into_iter()
             .next()
             .ok_or_else(|| AppError::bad_request("missing board in archive: invalid board block"))
+    }
+}
+
+/// Removes the blocks whose parent is neither a block nor a board of the archive, and
+/// the blocks below them, and returns how many went.
+///
+/// Such a block belongs to nothing that is imported: no card lists it, and its parent
+/// would be a reference to something outside the import.
+fn drop_orphans(boards_and_blocks: &mut BoardsAndBlocks) -> usize {
+    let before = boards_and_blocks.blocks.len();
+    loop {
+        let known: HashSet<&str> = boards_and_blocks
+            .boards
+            .iter()
+            .map(|board| board.id.as_str())
+            .chain(
+                boards_and_blocks
+                    .blocks
+                    .iter()
+                    .map(|block| block.id.as_str()),
+            )
+            .collect();
+        let orphans: HashSet<String> = boards_and_blocks
+            .blocks
+            .iter()
+            .filter(|block| {
+                !block.parent_id.is_empty() && !known.contains(block.parent_id.as_str())
+            })
+            .map(|block| block.id.clone())
+            .collect();
+        if orphans.is_empty() {
+            return before - boards_and_blocks.blocks.len();
+        }
+        boards_and_blocks
+            .blocks
+            .retain(|block| !orphans.contains(&block.id));
     }
 }
 

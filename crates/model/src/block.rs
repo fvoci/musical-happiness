@@ -8,7 +8,6 @@ use thiserror::Error;
 
 use crate::JsonMap;
 use crate::card_property::{CardPropertyError, validate_block_properties};
-use crate::id::IdKind;
 use crate::serde_util::null_as_default;
 
 /// Maximum number of characters in a block title.
@@ -70,18 +69,6 @@ impl BlockType {
     /// Returns `true` if this is the empty type string, which a block must not have.
     pub fn is_empty(&self) -> bool {
         self.as_str().is_empty()
-    }
-
-    /// Returns the identifier kind used for blocks of this type.
-    pub fn id_kind(&self) -> IdKind {
-        match self {
-            Self::Board => IdKind::Board,
-            Self::Card => IdKind::Card,
-            Self::View => IdKind::View,
-            Self::Text | Self::Checkbox | Self::Comment | Self::Divider => IdKind::Block,
-            Self::Image | Self::Attachment => IdKind::Attachment,
-            Self::Other(_) => IdKind::None,
-        }
     }
 
     /// Maps an exact wire string to a known type, if it is one.

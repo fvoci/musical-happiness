@@ -15,11 +15,15 @@ fvoci-store = { path = "crates/store" }
 
 anyhow = "1"
 axum = { version = "0.8", features = ["ws", "multipart", "macros"] }
+# The alphabet of the secrets: tokens and stored file names. License: MIT OR Apache-2.0.
+base64 = "0.22"
 bcrypt = "0.19"
 bytes = "1"
 # The pure-Rust DEFLATE backend (miniz_oxide) that `zip` uses. License: MIT OR Apache-2.0.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 futures-util = "0.3"
+# The operating system's random number generator, for secrets. License: MIT OR Apache-2.0.
+getrandom = "0.4"
 # RFC 1123 date formatting and parsing for Last-Modified / If-Modified-Since. License: MIT OR Apache-2.0.
 httpdate = "1"
 md-5 = { version = "0.11", default-features = false }
@@ -37,6 +41,7 @@ sqlx = { version = "0.9", default-features = false, features = [
     "postgres",
     "json",
     "migrate",
+    "uuid",
 ] }
 subtle = "2"
 thiserror = "2"
@@ -49,7 +54,7 @@ tower-http = { version = "0.7", features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 unicode-segmentation = "1"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v7"] }
 # Pure-Rust ZIP, DEFLATE via flate2/miniz_oxide only (no AES/bzip2/zstd/lzma), for the
 # board archive format. License: MIT.
 zip = { version = "9", default-features = false, features = ["deflate-flate2"] }

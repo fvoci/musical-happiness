@@ -9,12 +9,12 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fvoci_model::{IdKind, new_id};
+use fvoci_model::new_id;
 use fvoci_server::TlsFiles;
 use reqwest::{Method, StatusCode};
 use serde_json::json;
 
-use crate::common::{Client, PASSWORD, Setup, TestServer};
+use crate::common::{Client, PASSWORD, ROOT_TEAM_ID, Setup, TestServer};
 
 /// The administration socket. Unix sockets are what it is made of.
 #[cfg(unix)]
@@ -22,7 +22,7 @@ mod socket {
     use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
     use std::path::{Path, PathBuf};
 
-    use fvoci_model::{ErrorBody, IdKind, new_id};
+    use fvoci_model::{ErrorBody, new_id};
     use reqwest::{Method, StatusCode};
     use serde_json::json;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -36,7 +36,7 @@ mod socket {
     /// A path for a socket. The build directory is too long for a socket address, so the
     /// sockets of these tests live in the system's directory for temporary files.
     fn socket_path() -> PathBuf {
-        std::env::temp_dir().join(format!("fvoci-{}.socket", new_id(IdKind::None)))
+        std::env::temp_dir().join(format!("fvoci-{}.socket", new_id()))
     }
 
     /// A server with `user1` and `user2` and the administration socket at the returned path.
@@ -470,7 +470,7 @@ fn write_certificate(directory: &Path) -> (TlsFiles, reqwest::Certificate) {
 fn certificate_directory() -> PathBuf {
     PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("tls-tests")
-        .join(new_id(IdKind::None))
+        .join(new_id())
 }
 
 /// The port the test server listens on.
@@ -655,7 +655,7 @@ async fn without_use_ssl_missing_certificate_files_do_not_matter() {
 #[tokio::test]
 async fn routes_of_the_host_application_do_not_exist() {
     let paths = [
-        "/teams/0/channels/some-channel",
+        &format!("/teams/{ROOT_TEAM_ID}/channels/some-channel"),
         "/statistics",
         "/admin/boards",
         "/admin/boards?team_id=nope&page=x",
