@@ -515,7 +515,7 @@
           },
           "properties": {
             "additionalProperties": true,
-            "description": "Property values keyed by property identifier.",
+            "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`, and for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`.",
             "type": "object"
           },
           "tasksDone": {

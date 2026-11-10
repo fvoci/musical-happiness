@@ -1,0 +1,400 @@
+//! The value of a date property (`docs/s6-design.md` 5.7, the wire shape B).
+//!
+//! A calendar date is a `YYYY-MM-DD` string, the same day for everybody, and a time is
+//! an integer of milliseconds since 1970-01-01 00:00 UTC:
+//!
+//! | Value | Shape |
+//! |---|---|
+//! | A date | `{"from": "2026-03-05"}` |
+//! | A range of dates | `{"from": "2026-03-05", "to": "2026-03-09"}`; `to` is the last day |
+//! | A time | `{"from": 1772703000000}` |
+//!
+//! `to` is of the kind of `from`, not before it, and left out when it would equal it.
+//! There are no other members: whether a time is set is said by the kind, and the time
+//! zone is the viewer's (5.8), not the value's.
+
+use std::collections::HashSet;
+use std::hash::BuildHasher;
+
+use serde_json::{Map, Value};
+use thiserror::Error;
+
+use crate::JsonMap;
+
+/// The last millisecond a time may be: 9999-12-31 23:59:59.999 UTC.
+pub const LAST_MILLISECOND: i64 = 253_402_300_799_999;
+
+/// Milliseconds in a day.
+const DAY_MILLIS: i64 = 86_400_000;
+
+/// Why a date value is refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum DateValueError {
+    /// A member other than `from` and `to`.
+    #[error("a date value has no members but from and to")]
+    UnknownMember,
+    /// No `from`.
+    #[error("a date value needs from")]
+    MissingFrom,
+    /// A `from` or `to` that is neither a calendar date nor a time.
+    #[error(
+        "from and to are calendar dates (YYYY-MM-DD, years 1-9999) or milliseconds from 0 to the end of 9999"
+    )]
+    NotADateOrTime,
+    /// `from` and `to` of different kinds.
+    #[error("from and to are both dates or both times")]
+    MixedKinds,
+    /// `to` before `from`.
+    #[error("to is not before from")]
+    ToBeforeFrom,
+    /// `to` the same as `from`.
+    #[error("to is left out when it would be from")]
+    ToIsFrom,
+}
+
+/// What a `from` or `to` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Point<'v> {
+    Date(&'v str),
+    Time(i64),
+}
+
+impl<'v> Point<'v> {
+    fn read(value: &'v Value) -> Result<Self, DateValueError> {
+        match value {
+            Value::String(date) if is_calendar_date(date) => Ok(Self::Date(date)),
+            Value::Number(number) => number
+                .as_i64()
+                .filter(|millis| (0..=LAST_MILLISECOND).contains(millis))
+                .map(Self::Time)
+                .ok_or(DateValueError::NotADateOrTime),
+            _ => Err(DateValueError::NotADateOrTime),
+        }
+    }
+}
+
+/// Checks a date value.
+///
+/// # Errors
+///
+/// Returns the first [`DateValueError`] the value has.
+pub fn check_date_value(value: &JsonMap) -> Result<(), DateValueError> {
+    if value.keys().any(|key| key != "from" && key != "to") {
+        return Err(DateValueError::UnknownMember);
+    }
+    let from = Point::read(value.get("from").ok_or(DateValueError::MissingFrom)?)?;
+    let Some(to) = value.get("to") else {
+        return Ok(());
+    };
+    // Dates in `YYYY-MM-DD` compare as their strings do.
+    match (from, Point::read(to)?) {
+        (Point::Date(_), Point::Time(_)) | (Point::Time(_), Point::Date(_)) => {
+            Err(DateValueError::MixedKinds)
+        }
+        (from, to) if to < from => Err(DateValueError::ToBeforeFrom),
+        (from, to) if to == from => Err(DateValueError::ToIsFrom),
+        _ => Ok(()),
+    }
+}
+
+/// Whether the text is a day of the calendar as `YYYY-MM-DD`, years 1 to 9999.
+fn is_calendar_date(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let number = |range: std::ops::Range<usize>| {
+        bytes[range].iter().try_fold(0_u32, |sum, byte| {
+            byte.is_ascii_digit()
+                .then(|| sum * 10 + u32::from(byte - b'0'))
+        })
+    };
+    let (Some(year), Some(month), Some(day)) = (number(0..4), number(5..7), number(8..10)) else {
+        return false;
+    };
+    year >= 1 && (1..=12).contains(&month) && day >= 1 && day <= days_in_month(year, month)
+}
+
+fn days_in_month(year: u32, month: u32) -> u32 {
+    match month {
+        2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => {
+            29
+        }
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
+}
+
+/// The UTC calendar day of a time, as `YYYY-MM-DD`; `None` outside years 1 to 9999.
+fn utc_date(millis: i64) -> Option<String> {
+    // Days to the civil date: Howard Hinnant's `civil_from_days`.
+    let days = millis.div_euclid(DAY_MILLIS) + 719_468;
+    let era = days.div_euclid(146_097);
+    let day_of_era = days.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    (1..=9999)
+        .contains(&year)
+        .then(|| format!("{year:04}-{month:02}-{day:02}"))
+}
+
+/// The value the previous form of a date value stands for, or `None` if the text is not
+/// one. The previous form was JSON in a string, `{"from": <ms>, "to": <ms>,
+/// "includeTime": <bool>}`, and a date without a time was the noon of that day; such a
+/// date becomes its UTC day, which is the day it was written for in every time zone
+/// from UTC-12 to UTC+11.
+#[must_use]
+pub fn date_value_from_previous(text: &str) -> Option<Value> {
+    let previous: JsonMap = serde_json::from_str(text).ok()?;
+    let millis = |key: &str| previous.get(key).map(|value| value.as_i64().ok_or(()));
+    let from = millis("from")?.ok()?;
+    let to = millis("to").transpose().ok()?;
+    let with_time = previous.get("includeTime") == Some(&Value::Bool(true));
+    let mut value = Map::new();
+    if with_time {
+        value.insert("from".to_owned(), Value::from(from));
+        if let Some(to) = to.filter(|to| *to > from) {
+            value.insert("to".to_owned(), Value::from(to));
+        }
+    } else {
+        let from = utc_date(from)?;
+        if let Some(to) = to.and_then(utc_date).filter(|to| *to > from) {
+            value.insert("to".to_owned(), Value::from(to));
+        }
+        value.insert("from".to_owned(), Value::from(from));
+    }
+    check_date_value(&value).ok()?;
+    Some(Value::Object(value))
+}
+
+/// The calendar date a date filter's previous value stands for: milliseconds in a
+/// string became the UTC day, as [`date_value_from_previous`] does with a date.
+#[must_use]
+pub fn date_filter_value_from_previous(text: &str) -> Option<String> {
+    text.parse::<i64>().ok().and_then(utc_date)
+}
+
+/// The identifiers of the date properties among a board's definitions.
+#[must_use]
+pub fn date_property_ids<'d>(
+    definitions: impl IntoIterator<Item = &'d JsonMap>,
+) -> HashSet<String> {
+    definitions
+        .into_iter()
+        .filter(|definition| {
+            definition.get("type").and_then(Value::as_str) == Some(crate::DATE_PROPERTY_TYPE)
+        })
+        .filter_map(|definition| definition.get("id").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Rewrites the date values in the previous shape among a card's or a view's fields,
+/// given the identifiers of the board's date properties. Returns whether anything
+/// changed.
+///
+/// A card's date value in the previous shape becomes the new one, and one that cannot
+/// be read becomes `null`: a date property holds a date value or nothing. A date
+/// filter's values that are milliseconds become calendar dates.
+pub fn rewrite_previous_date_values<S: BuildHasher>(
+    fields: &mut Value,
+    dates: &HashSet<String, S>,
+) -> bool {
+    if dates.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    if let Some(Value::Object(values)) = fields.get_mut("properties") {
+        for (id, value) in values.iter_mut() {
+            if !dates.contains(id) || value.is_null() || value.is_object() {
+                continue;
+            }
+            *value = value
+                .as_str()
+                .and_then(date_value_from_previous)
+                .unwrap_or(Value::Null);
+            changed = true;
+        }
+    }
+    if let Some(filter) = fields.get_mut("filter") {
+        changed |= rewrite_filter(filter, dates);
+    }
+    changed
+}
+
+/// Rewrites the values of a view's filter group, and of the groups within it, that
+/// filter on date properties.
+fn rewrite_filter<S: BuildHasher>(group: &mut Value, dates: &HashSet<String, S>) -> bool {
+    let Some(filters) = group.get_mut("filters").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    let mut changed = false;
+    for filter in filters {
+        changed |= rewrite_filter(filter, dates);
+        let Some(filter) = filter.as_object_mut() else {
+            continue;
+        };
+        if !is_date_filter(filter, dates) {
+            continue;
+        }
+        let Some(values) = filter.get_mut("values").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        for value in values {
+            if let Some(date) = value.as_str().and_then(date_filter_value_from_previous) {
+                *value = Value::String(date);
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+fn is_date_filter<S: BuildHasher>(filter: &JsonMap, dates: &HashSet<String, S>) -> bool {
+    filter
+        .get("propertyId")
+        .and_then(Value::as_str)
+        .is_some_and(|id| dates.contains(id))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn check(value: &Value) -> Result<(), DateValueError> {
+        check_date_value(value.as_object().expect("an object"))
+    }
+
+    #[test]
+    fn dates_ranges_and_times_are_date_values() {
+        for value in [
+            json!({"from": "2026-03-05"}),
+            json!({"from": "2026-03-05", "to": "2026-03-09"}),
+            json!({"from": "2024-02-29"}),
+            json!({"from": "0001-01-01", "to": "9999-12-31"}),
+            json!({"from": 1_772_703_000_000_i64}),
+            json!({"from": 0, "to": LAST_MILLISECOND}),
+        ] {
+            assert_eq!(check(&value), Ok(()), "{value}");
+        }
+    }
+
+    #[test]
+    fn what_is_no_date_value_is_refused_with_its_reason() {
+        for (value, error) in [
+            (json!({}), DateValueError::MissingFrom),
+            (json!({"to": "2026-03-05"}), DateValueError::MissingFrom),
+            (
+                json!({"from": "2026-03-05", "includeTime": false}),
+                DateValueError::UnknownMember,
+            ),
+            (
+                json!({"from": "2026-02-30"}),
+                DateValueError::NotADateOrTime,
+            ),
+            (
+                json!({"from": "2023-02-29"}),
+                DateValueError::NotADateOrTime,
+            ),
+            (
+                json!({"from": "0000-01-01"}),
+                DateValueError::NotADateOrTime,
+            ),
+            (json!({"from": "2026-3-05"}), DateValueError::NotADateOrTime),
+            (
+                json!({"from": "2026-03-05T00:00"}),
+                DateValueError::NotADateOrTime,
+            ),
+            (json!({"from": -1}), DateValueError::NotADateOrTime),
+            (
+                json!({"from": LAST_MILLISECOND + 1}),
+                DateValueError::NotADateOrTime,
+            ),
+            (json!({"from": 1.5}), DateValueError::NotADateOrTime),
+            (
+                json!({"from": "1772703000000"}),
+                DateValueError::NotADateOrTime,
+            ),
+            (json!({"from": null}), DateValueError::NotADateOrTime),
+            (
+                json!({"from": "2026-03-05", "to": 1}),
+                DateValueError::MixedKinds,
+            ),
+            (
+                json!({"from": "2026-03-05", "to": "2026-03-04"}),
+                DateValueError::ToBeforeFrom,
+            ),
+            (json!({"from": 5, "to": 4}), DateValueError::ToBeforeFrom),
+            (
+                json!({"from": "2026-03-05", "to": "2026-03-05"}),
+                DateValueError::ToIsFrom,
+            ),
+        ] {
+            assert_eq!(check(&value), Err(error), "{value}");
+        }
+    }
+
+    #[test]
+    fn utc_dates_are_the_days_of_the_calendar() {
+        assert_eq!(utc_date(0).as_deref(), Some("1970-01-01"));
+        assert_eq!(utc_date(-1).as_deref(), Some("1969-12-31"));
+        assert_eq!(utc_date(951_782_400_000).as_deref(), Some("2000-02-29"));
+        assert_eq!(utc_date(LAST_MILLISECOND).as_deref(), Some("9999-12-31"));
+        assert_eq!(utc_date(LAST_MILLISECOND + 1), None, "year 10000");
+        assert_eq!(utc_date(-62_135_596_800_001), None, "year 0");
+        assert_eq!(utc_date(-62_135_596_800_000).as_deref(), Some("0001-01-01"));
+    }
+
+    #[test]
+    fn previous_values_become_dates_or_times() {
+        // The noon of 2026-03-05 in Seoul, a date written there.
+        assert_eq!(
+            date_value_from_previous(r#"{"from":1772679600000}"#),
+            Some(json!({"from": "2026-03-05"}))
+        );
+        assert_eq!(
+            date_value_from_previous(
+                r#"{"from":1772679600000,"to":1773025200000,"includeTime":false}"#
+            ),
+            Some(json!({"from": "2026-03-05", "to": "2026-03-09"}))
+        );
+        assert_eq!(
+            date_value_from_previous(r#"{"from":1772679600000,"to":1772679600000}"#),
+            Some(json!({"from": "2026-03-05"})),
+            "a range of one day is a day"
+        );
+        assert_eq!(
+            date_value_from_previous(
+                r#"{"from":1772703000000,"includeTime":true,"timeZone":"Asia/Seoul"}"#
+            ),
+            Some(json!({"from": 1_772_703_000_000_i64}))
+        );
+        for text in [
+            "",
+            "x",
+            "{}",
+            r#"{"from":"x"}"#,
+            r#"{"from":1,"to":"y"}"#,
+            "[1]",
+        ] {
+            assert_eq!(date_value_from_previous(text), None, "{text:?}");
+        }
+        assert_eq!(
+            date_filter_value_from_previous("1772679600000").as_deref(),
+            Some("2026-03-05")
+        );
+        assert_eq!(date_filter_value_from_previous("2026-03-05"), None);
+    }
+}

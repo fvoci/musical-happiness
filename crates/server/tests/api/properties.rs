@@ -523,3 +523,103 @@ async fn an_archive_with_malformed_property_data_is_refused() {
     .check_no_content();
     th.teardown().await;
 }
+
+/// A date property holds a date value (`docs/s6-design.md` 5.7): a calendar date, a
+/// range of them or a time, or `null`. Text in its place is refused, and so is a date
+/// value in another property, on the routes of cards and of blocks.
+#[tokio::test]
+async fn date_properties_hold_date_values() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board: Board = new_board(
+        &th.client,
+        json!([
+            {"id": "due", "name": "Due", "type": "date"},
+            {"id": "note", "name": "Note", "type": "text"},
+        ]),
+    )
+    .await
+    .created_json();
+    let cards = format!("/boards/{}/cards", board.id);
+
+    for due in [
+        json!({"from": "2026-03-05"}),
+        json!({"from": "2026-03-05", "to": "2026-03-09"}),
+        json!({"from": 1_772_703_000_000_i64}),
+        Value::Null,
+    ] {
+        let created: Value = th
+            .client
+            .post(
+                &cards,
+                &json!({"title": "Card", "properties": {"due": due}}),
+            )
+            .await
+            .created_json();
+        assert_eq!(created["properties"]["due"], due, "{created}");
+    }
+    let card: Card = th
+        .client
+        .post(
+            &cards,
+            &json!({"title": "Card", "properties": {"note": "x"}}),
+        )
+        .await
+        .created_json();
+
+    for (what, properties) in [
+        ("a date as text", json!({"due": "{\"from\":1772679600000}"})),
+        ("no calendar day", json!({"due": {"from": "2026-02-30"}})),
+        (
+            "a time zone",
+            json!({"due": {"from": 1, "timeZone": "UTC"}}),
+        ),
+        (
+            "to before from",
+            json!({"due": {"from": "2026-03-05", "to": "2026-03-01"}}),
+        ),
+        (
+            "a date in a text property",
+            json!({"note": {"from": "2026-03-05"}}),
+        ),
+        (
+            "a date in no property",
+            json!({"other": {"from": "2026-03-05"}}),
+        ),
+    ] {
+        check_refused(
+            &th.client
+                .post(&cards, &json!({"title": "Card", "properties": properties}))
+                .await,
+            what,
+        );
+        check_refused(
+            &th.client
+                .patch(
+                    &format!("/cards/{}", card.id),
+                    &json!({"updatedProperties": properties}),
+                )
+                .await,
+            what,
+        );
+        check_refused(
+            &th.client
+                .post(
+                    &format!("/boards/{}/blocks", board.id),
+                    &json!([card_block(&board.id, properties)]),
+                )
+                .await,
+            what,
+        );
+    }
+    let stored: Card = th
+        .client
+        .get(&format!("/cards/{}", card.id))
+        .await
+        .ok_json();
+    assert_eq!(
+        stored.properties, card.properties,
+        "the refused patches changed nothing"
+    );
+
+    th.teardown().await;
+}

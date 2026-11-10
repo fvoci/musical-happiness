@@ -62,7 +62,10 @@ pub struct Card {
     /// Whether the card is a template.
     #[serde(deserialize_with = "null_as_default")]
     pub is_template: bool,
-    /// Property values keyed by property identifier.
+    /// Property values keyed by property identifier: a string, a list of strings, or
+    /// `null`, and for a property of the type `date` a date value (`{"from":
+    /// "2026-03-05"}`, `{"from": "2026-03-05", "to": "2026-03-09"}` or `{"from":
+    /// 1772703000000}`) or `null`.
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub properties: JsonMap,

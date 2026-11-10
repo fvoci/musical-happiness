@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use fvoci_model::{
     BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
-    TaskCount, generate_block_ids,
+    TaskCount, generate_block_ids, validate_card_property_kinds,
 };
 use serde_json::Value;
 
@@ -517,6 +517,15 @@ async fn insert_block_at(
             || !is_block_of_board(scope, &block.parent_id, &block.board_id).await?)
     {
         return Err(invalid(block, BlockError::ParentNotOnBoard));
+    }
+    // A date value is the value of a date property, and a date property has one or
+    // none: that takes the board's definitions (`docs/s6-design.md` 5.7).
+    if let Some(Value::Object(values)) = block.fields.get("properties")
+        && !values.is_empty()
+        && let Some(board) = boards::find_board(scope, &block.board_id).await?
+    {
+        validate_card_property_kinds(values, &board.card_properties)
+            .map_err(|error| invalid(block, BlockError::from(error)))?;
     }
 
     let now = at.unwrap_or_else(now_millis);

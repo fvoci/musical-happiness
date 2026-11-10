@@ -19,6 +19,7 @@ mod card;
 mod card_property;
 mod category;
 mod client_config;
+mod date_value;
 mod error_response;
 mod file_info;
 mod id;
@@ -53,7 +54,8 @@ pub use body::{
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{
-    CardPropertyError, validate_block_properties, validate_card_property_definitions,
+    CardPropertyError, DATE_PROPERTY_TYPE, validate_block_properties,
+    validate_card_property_definitions, validate_card_property_kinds,
     validate_card_property_values,
 };
 pub use category::{
@@ -61,6 +63,10 @@ pub use category::{
     CategoryBoards, CategoryError, CategoryType,
 };
 pub use client_config::ClientConfig;
+pub use date_value::{
+    DateValueError, LAST_MILLISECOND, check_date_value, date_filter_value_from_previous,
+    date_property_ids, date_value_from_previous, rewrite_previous_date_values,
+};
 pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};

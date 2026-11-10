@@ -13,6 +13,7 @@ mod boards_and_blocks;
 mod categories;
 mod category_boards;
 mod connect;
+mod data_steps;
 mod db;
 mod error;
 mod file_info;
@@ -118,6 +119,7 @@ impl Store {
             }),
         };
         schema::migrate(&store).await?;
+        data_steps::run(&store).await?;
         Ok(store)
     }
 

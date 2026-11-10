@@ -248,6 +248,7 @@ impl App {
         }
 
         apply_modifiers(&mut boards_and_blocks, options);
+        rewrite_date_values(&mut boards_and_blocks);
         let orphans = drop_orphans(&mut boards_and_blocks);
         if orphans > 0 {
             tracing::warn!(
@@ -651,6 +652,35 @@ fn with_a_minimum_role(mut board: Value) -> Value {
         }
     }
     board
+}
+
+/// Turns the date values of an archive written before `docs/s6-design.md` 5.7 into the
+/// shape of 5.7, as migration 4 did with the stored ones.
+fn rewrite_date_values(boards_and_blocks: &mut BoardsAndBlocks) {
+    let dates: std::collections::HashMap<&str, std::collections::HashSet<String>> =
+        boards_and_blocks
+            .boards
+            .iter()
+            .map(|board| {
+                (
+                    board.id.as_str(),
+                    fvoci_model::date_property_ids(&board.card_properties),
+                )
+            })
+            .collect();
+    for block in &mut boards_and_blocks.blocks {
+        if block.block_type != BlockType::Card && block.block_type != BlockType::View {
+            continue;
+        }
+        let Some(dates) = dates.get(block.board_id.as_str()) else {
+            continue;
+        };
+        let mut fields = Value::Object(std::mem::take(&mut block.fields));
+        fvoci_model::rewrite_previous_date_values(&mut fields, dates);
+        if let Value::Object(fields) = fields {
+            block.fields = fields;
+        }
+    }
 }
 
 #[cfg(test)]

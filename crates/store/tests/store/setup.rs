@@ -663,6 +663,90 @@ fn blocks_showing(board_id: &str) -> [Block; 5] {
     ]
 }
 
+/// The data step of migration 4 turns stored date values of the previous shape into
+/// those of `docs/s6-design.md` 5.7: a card's value of a date property, live or in the
+/// trash, and a view's date filter. Other properties and filters stay as they were.
+#[tokio::test]
+async fn the_date_value_step_rewrites_what_was_stored_before() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    let mut blocks = [BlockType::Card, BlockType::Card, BlockType::View].map(|block_type| Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type,
+        ..Block::default()
+    });
+    common::insert_blocks(&test, &mut blocks, &user_id).await;
+    test.delete_block(&blocks[1].id, &user_id)
+        .await
+        .expect("a card goes to the trash");
+    test.store.close().await;
+    // As the server before it stored them.
+    let card_fields = r#"{"properties": {"due": "{\"from\":1772679600000}", "note": "{\"from\":1}", "bad": "x"}}"#;
+    let mut in_trash = serde_json::to_value(&blocks[1]).expect("a block is JSON");
+    in_trash["fields"] = serde_json::from_str(card_fields).expect("the fields are JSON");
+    for statement in [
+        format!(
+            r#"UPDATE boards SET card_properties = '[{{"id": "due", "type": "date"}}, {{"id": "bad", "type": "date"}}, {{"id": "note", "type": "text"}}]' WHERE id = '{board_id}'"#
+        ),
+        format!(
+            "UPDATE blocks SET fields = '{card_fields}' WHERE id = '{}'",
+            blocks[0].id
+        ),
+        format!(
+            r#"UPDATE blocks SET fields = '{{"filter": {{"operation": "and", "filters": [{{"propertyId": "due", "condition": "is", "values": ["1772679600000"]}}, {{"operation": "or", "filters": [{{"propertyId": "note", "condition": "is", "values": ["1"]}}]}}]}}}}' WHERE id = '{}'"#,
+            blocks[2].id
+        ),
+        format!(
+            "UPDATE deleted_blocks SET block = '{in_trash}' WHERE id = '{}'",
+            blocks[1].id
+        ),
+        "INSERT INTO data_steps (name) VALUES ('date_values')".to_owned(),
+    ] {
+        common::execute_raw(&test.dbconfig(), &statement).await;
+    }
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store does the step");
+    let card = store.get_block(&blocks[0].id).await.expect("the card");
+    let expected = serde_json::json!({
+        "due": {"from": "2026-03-05"}, "note": "{\"from\":1}", "bad": null,
+    });
+    assert_eq!(card.fields["properties"], expected, "{card:?}");
+    let view = store.get_block(&blocks[2].id).await.expect("the view");
+    assert_eq!(
+        view.fields["filter"]["filters"][0]["values"],
+        serde_json::json!(["2026-03-05"])
+    );
+    assert_eq!(
+        view.fields["filter"]["filters"][1]["filters"][0]["values"],
+        serde_json::json!(["1"]),
+        "a filter of another property"
+    );
+    let restored = store
+        .undelete_block(&blocks[1].id, &user_id)
+        .await
+        .expect("the card comes back");
+    assert_eq!(restored.fields["properties"], expected, "{restored:?}");
+    store.close().await;
+
+    // Done once: the step's row is gone, and the server starts without it.
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store starts again");
+    store.close().await;
+    let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM data_steps")
+        .await
+        .expect("the table is there");
+    assert_eq!(left, 0, "no step is left");
+
+    test.teardown().await;
+}
+
 /// The migration of file references puts down what the blocks show, live and in the
 /// trash, and counts a file that none shows from the migration: it is collected only
 /// once the grace period has passed from then.

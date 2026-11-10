@@ -3,13 +3,18 @@
 //! A board defines the properties of its cards (`cardProperties`), and every card holds a
 //! value per property (`fields.properties` of its block). Both are free-form JSON, and
 //! clients render them as they are: a value is text or a list of texts, and a definition
-//! names itself and its options with strings. Anything else is refused before it is
-//! stored, so that one member cannot break the board for the others.
+//! names itself and its options with strings, and the value of a date property is a
+//! date value (`docs/s6-design.md` 5.7). Anything else is refused before it is stored,
+//! so that one member cannot break the board for the others.
 
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::date_value::{DateValueError, check_date_value};
+
+/// The `type` of a property definition whose values are date values.
+pub const DATE_PROPERTY_TYPE: &str = "date";
 
 /// The members of a property definition that must be strings when present.
 const DEFINITION_STRING_MEMBERS: [&str; 2] = ["name", "type"];
@@ -23,9 +28,32 @@ pub enum CardPropertyError {
     /// The properties of a block are not a JSON object.
     #[error("card properties must be an object of property values")]
     ValuesNotObject,
-    /// A property value is neither a string, nor a list of strings, nor `null`.
-    #[error("the value of card property {id:?} must be a string or a list of strings")]
+    /// A property value is neither a string, nor a list of strings, nor a date value,
+    /// nor `null`.
+    #[error(
+        "the value of card property {id:?} must be a string, a list of strings or a date value"
+    )]
     InvalidValue {
+        /// The identifier of the property.
+        id: String,
+    },
+    /// A property value is an object that is no date value.
+    #[error("the date value of card property {id:?} is refused: {reason}")]
+    InvalidDateValue {
+        /// The identifier of the property.
+        id: String,
+        /// What is wrong with it.
+        reason: DateValueError,
+    },
+    /// The value of a date property is not a date value.
+    #[error("card property {id:?} is a date: its value is a date value or null")]
+    NotADateValue {
+        /// The identifier of the property.
+        id: String,
+    },
+    /// A date value is the value of a property that is no date.
+    #[error("card property {id:?} is no date: its value is no date value")]
+    DateValueOfOtherProperty {
         /// The identifier of the property.
         id: String,
     },
@@ -60,20 +88,60 @@ pub enum CardPropertyError {
     },
 }
 
-/// Checks the property values of a card: each is a string, a list of strings, or `null`.
+/// Checks the property values of a card: each is a string, a list of strings, a date
+/// value, or `null`. Whether a date value belongs to a date property is for
+/// [`validate_card_property_kinds`], which needs the board's definitions.
 ///
 /// # Errors
 ///
-/// Returns [`CardPropertyError::InvalidValue`] for the first value of another shape.
+/// Returns [`CardPropertyError::InvalidValue`] for the first value of another shape,
+/// and [`CardPropertyError::InvalidDateValue`] for an object that is no date value.
 pub fn validate_card_property_values(values: &JsonMap) -> Result<(), CardPropertyError> {
     for (id, value) in values {
         let valid = match value {
             Value::Null | Value::String(_) => true,
             Value::Array(items) => items.iter().all(Value::is_string),
-            Value::Bool(_) | Value::Number(_) | Value::Object(_) => false,
+            Value::Object(date) => {
+                check_date_value(date).map_err(|reason| CardPropertyError::InvalidDateValue {
+                    id: id.clone(),
+                    reason,
+                })?;
+                true
+            }
+            Value::Bool(_) | Value::Number(_) => false,
         };
         if !valid {
             return Err(CardPropertyError::InvalidValue { id: id.clone() });
+        }
+    }
+    Ok(())
+}
+
+/// Checks that the date values of a card are the values of its board's date properties,
+/// and that a date property has a date value or `null`. A value of a property the board
+/// does not define is no date value.
+///
+/// # Errors
+///
+/// Returns [`CardPropertyError::NotADateValue`] or
+/// [`CardPropertyError::DateValueOfOtherProperty`] for the first value in the wrong
+/// place.
+pub fn validate_card_property_kinds(
+    values: &JsonMap,
+    definitions: &[JsonMap],
+) -> Result<(), CardPropertyError> {
+    for (id, value) in values {
+        let is_date = definitions.iter().any(|definition| {
+            definition.get("id").and_then(Value::as_str) == Some(id.as_str())
+                && definition.get("type").and_then(Value::as_str) == Some(DATE_PROPERTY_TYPE)
+        });
+        match (is_date, value) {
+            (true, Value::Null | Value::Object(_))
+            | (false, Value::Null | Value::String(_) | Value::Array(_)) => {}
+            (true, _) => return Err(CardPropertyError::NotADateValue { id: id.clone() }),
+            (false, _) => {
+                return Err(CardPropertyError::DateValueOfOtherProperty { id: id.clone() });
+            }
         }
     }
     Ok(())
@@ -158,6 +226,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::date_value::DateValueError;
 
     fn object(value: Value) -> JsonMap {
         match value {
@@ -180,12 +249,74 @@ mod tests {
     }
 
     #[test]
+    fn an_object_is_a_date_value_or_refused_as_one() {
+        let values = object(json!({"d": {"from": "2026-03-05"}, "t": {"from": 1}}));
+        assert_eq!(validate_card_property_values(&values), Ok(()));
+        let values = object(json!({"p1": {"nested": "x"}}));
+        assert_eq!(
+            validate_card_property_values(&values),
+            Err(CardPropertyError::InvalidDateValue {
+                id: "p1".to_owned(),
+                reason: DateValueError::UnknownMember,
+            })
+        );
+    }
+
+    #[test]
+    fn date_values_are_the_values_of_date_properties_only() {
+        let definitions = [
+            object(json!({"id": "due", "name": "Due", "type": "date"})),
+            object(json!({"id": "note", "name": "Note", "type": "text"})),
+        ];
+        let accepted = object(json!({
+            "due": {"from": "2026-03-05"}, "note": "x", "other": ["a"],
+        }));
+        assert_eq!(
+            validate_card_property_kinds(&accepted, &definitions),
+            Ok(())
+        );
+        let unset = object(json!({"due": null}));
+        assert_eq!(validate_card_property_kinds(&unset, &definitions), Ok(()));
+        for (values, error) in [
+            (
+                json!({"due": "{\"from\":1}"}),
+                CardPropertyError::NotADateValue {
+                    id: "due".to_owned(),
+                },
+            ),
+            (
+                json!({"due": ["2026-03-05"]}),
+                CardPropertyError::NotADateValue {
+                    id: "due".to_owned(),
+                },
+            ),
+            (
+                json!({"note": {"from": "2026-03-05"}}),
+                CardPropertyError::DateValueOfOtherProperty {
+                    id: "note".to_owned(),
+                },
+            ),
+            (
+                json!({"undefined": {"from": "2026-03-05"}}),
+                CardPropertyError::DateValueOfOtherProperty {
+                    id: "undefined".to_owned(),
+                },
+            ),
+        ] {
+            assert_eq!(
+                validate_card_property_kinds(&object(values.clone()), &definitions),
+                Err(error),
+                "{values}"
+            );
+        }
+    }
+
+    #[test]
     fn other_shapes_are_no_property_values() {
         for value in [
             json!(3),
             json!(1.5),
             json!(true),
-            json!({"nested": "x"}),
             json!(["a", 1]),
             json!([["a"]]),
             json!([null]),
