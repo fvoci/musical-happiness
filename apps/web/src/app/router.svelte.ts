@@ -11,7 +11,7 @@
  * with entries of their own that carry no address (lib/layout/back.svelte.ts);
  * those are passed over here.
  */
-import { releaseOverlayEntries } from '$lib/layout/back.svelte.ts';
+import { afterOwnSteps, releaseOverlayEntries } from '$lib/layout/back.svelte.ts';
 import { buildUrl, fillPath, normalizeBasePath } from '$lib/logic/urls.ts';
 
 export interface Route {
@@ -76,6 +76,9 @@ export class Router {
   });
   /** Whether the card on screen was opened from the board in this visit: then "back" closes it. */
   #cardEntered = false;
+  /** Addresses that `go` has yet to write to the history, and the last of them. */
+  #writes = 0;
+  #heading: string | undefined;
 
   constructor(basePath: string) {
     this.basePath = basePath;
@@ -85,6 +88,9 @@ export class Router {
   /** Starts following the back and forward buttons. Returns the function that stops. */
   listen(): () => void {
     const onPopState = (): void => {
+      // The address of where the reader went is not written yet (it waits for a
+      // sheet's step back, which is what arrives here): the bar still shows the old one.
+      if (this.#writes > 0) return;
       // An entry of a sheet or the drawer has the address it was opened on: no change.
       const next = parseRoute(location.pathname, this.basePath);
       const now = this.route;
@@ -118,13 +124,22 @@ export class Router {
       unknown: false,
     };
     const path = routePath(next, this.basePath);
-    if (path !== location.pathname) {
-      // Going somewhere from inside a drawer or a sheet: the new address takes
-      // the place of the overlay's entry, so that "back" returns to where the
-      // reader was before opening it.
-      const overOverlay = releaseOverlayEntries() > 0;
-      if (options.replace || overOverlay) history.replaceState(null, '', path);
-      else history.pushState(null, '', path);
+    // While an address waits to be written, that one is where the bar is heading.
+    const shown = this.#writes > 0 ? this.#heading : location.pathname;
+    if (path !== shown) {
+      // The address is written once no sheet that just closed is still giving
+      // its entry back (back.svelte.ts): at once, unless one is.
+      this.#writes += 1;
+      this.#heading = path;
+      afterOwnSteps(() => {
+        this.#writes -= 1;
+        // Going somewhere from inside a drawer or a sheet: the new address takes
+        // the place of the overlay's entry, so that "back" returns to where the
+        // reader was before opening it.
+        const overOverlay = releaseOverlayEntries() > 0;
+        if (options.replace || overOverlay) history.replaceState(null, '', path);
+        else history.pushState(null, '', path);
+      });
     }
     this.route = next;
   }
@@ -157,7 +172,10 @@ export class Router {
     if (this.route.cardId === undefined) return;
     if (this.#cardEntered) {
       this.#cardEntered = false;
-      history.back();
+      // After whatever still waits to be written: the step is counted from there.
+      afterOwnSteps(() => {
+        history.back();
+      });
     } else {
       this.go({ ...this.route, cardId: undefined }, { replace: true });
     }

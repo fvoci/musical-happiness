@@ -244,6 +244,22 @@ describe('files', () => {
     );
     expect(error.kind).toBe('network');
   });
+
+  it('leaves the failure asked for the next upload to that one, not to one given up meanwhile', async () => {
+    const { backend, boardId } = await firstBoard();
+    const controller = new AbortController();
+    backend.latency = 30;
+    const givenUp = rejection(
+      backend.upload(boardId, new File(['x'], 'slow.txt'), { signal: controller.signal }),
+    );
+    controller.abort();
+    backend.failNext('upload', new BackendError(413, { limit: 1 }));
+    // The one given up ends as given up, although the failure was waiting when its turn came.
+    expect((await givenUp).kind).toBe('network');
+    backend.latency = 0;
+    const refused = await rejection(backend.upload(boardId, new File(['y'], 'next.txt')));
+    expect(refused.status).toBe(413);
+  });
 });
 
 describe('the seed made of the built-in templates', () => {

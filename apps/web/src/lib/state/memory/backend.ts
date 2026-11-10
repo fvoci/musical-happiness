@@ -167,7 +167,12 @@ export class MemoryBackend implements Backend {
     this.#failures.set(method, error);
   }
 
-  async #enter(method: MethodName): Promise<void> {
+  /**
+   * The wait every call starts with, and the failure a test asked for. A call
+   * that was given up while it waited (`signal`) ends here as given up: it
+   * does not take the failure meant for the next call.
+   */
+  async #enter(method: MethodName, signal?: AbortSignal): Promise<void> {
     if (this.latency > 0) {
       await new Promise((resolve) => {
         setTimeout(resolve, this.latency);
@@ -175,6 +180,7 @@ export class MemoryBackend implements Backend {
     } else {
       await Promise.resolve();
     }
+    if (signal?.aborted) throw new BackendError(0, { message: 'the call was given up' });
     const failure = this.#failures.get(method);
     if (failure) {
       this.#failures.delete(method);
@@ -698,7 +704,7 @@ export class MemoryBackend implements Backend {
   // -------------------------------------------------------------- files
 
   async upload(boardId: string, file: File, options: UploadOptions = {}): Promise<UploadedFile> {
-    await this.#enter('upload');
+    await this.#enter('upload', options.signal);
     this.#board(boardId);
     if (file.size > LIMITS.fileBytes) {
       fail(413, 'the file is too large', { limit: LIMITS.fileBytes });
@@ -706,8 +712,7 @@ export class MemoryBackend implements Backend {
     // In parts, as the server takes a large file; progress is told after each.
     const parts = Math.max(1, Math.ceil(file.size / LIMITS.uploadPartBytes));
     for (let part = 1; part <= parts; part += 1) {
-      await this.#enter('upload');
-      if (options.signal?.aborted) throw new BackendError(0, { message: 'the upload was aborted' });
+      await this.#enter('upload', options.signal);
       options.onProgress?.({
         sentBytes: Math.min(file.size, part * LIMITS.uploadPartBytes),
         totalBytes: file.size,

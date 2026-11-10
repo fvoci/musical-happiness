@@ -12,9 +12,32 @@
  * the address they were made on, so the router sees no change in them.
  */
 
-const closers: (() => void)[] = [];
-/** How many `popstate` events are our own doing and close nothing. */
-let ownPops = 0;
+/** One thing that is open: how it is closed, and whether its entry is in the history yet. */
+interface Open {
+  close: () => void;
+  entered: boolean;
+}
+
+const opened: Open[] = [];
+/**
+ * How many steps back of our own are on their way: asked for, their
+ * `popstate` not here yet. Such a `popstate` closes nothing.
+ */
+let ownSteps = 0;
+/**
+ * What waits for those steps to arrive before it writes to the history, in
+ * the order it was asked for.
+ *
+ * `history.back()` happens later, and an entry added in the meantime can be
+ * counted from the wrong place: the browser may have fixed where the step
+ * lands before it heard of the new entry. The step then goes one entry too
+ * far, and the next thing to close takes the reader out of the card, or off
+ * the page. So nothing of ours is written while a step of ours is under way.
+ */
+const waiting: (() => void)[] = [];
+/** How long writes wait for a step back at most, in milliseconds: a step that never arrives must not hold them for good. */
+const WAIT_LIMIT = 2000;
+let waitTimer: ReturnType<typeof setTimeout> | undefined;
 let listening = false;
 
 const MARK = 'fvociOverlay';
@@ -24,12 +47,33 @@ export function isOverlayEntry(state: unknown): boolean {
   return typeof state === 'object' && state !== null && MARK in state;
 }
 
-function onPopState(): void {
-  if (ownPops > 0) {
-    ownPops -= 1;
+function runWaiting(): void {
+  clearTimeout(waitTimer);
+  waitTimer = undefined;
+  for (const write of waiting.splice(0)) write();
+}
+
+/**
+ * Runs `write`, which writes to the history, once no step back of ours is on
+ * its way: at once when none is. The router adds and replaces its entries
+ * through this, for the reason given at `waiting`.
+ */
+export function afterOwnSteps(write: () => void): void {
+  if (ownSteps === 0 && waiting.length === 0) {
+    write();
     return;
   }
-  closers.pop()?.();
+  waiting.push(write);
+  waitTimer ??= setTimeout(runWaiting, WAIT_LIMIT);
+}
+
+function onPopState(): void {
+  if (ownSteps > 0) {
+    ownSteps -= 1;
+    if (ownSteps === 0) runWaiting();
+    return;
+  }
+  opened.pop()?.close();
 }
 
 /** Call while a component is being set up. */
@@ -43,17 +87,23 @@ export function closeOnBack(isOpen: () => boolean, close: () => void): void {
       window.addEventListener('popstate', onPopState);
       listening = true;
     }
-    const closer = (): void => {
-      close();
-    };
-    closers.push(closer);
-    history.pushState({ ...(history.state as object | null), [MARK]: closers.length }, '');
+    const mine: Open = { close, entered: false };
+    opened.push(mine);
+    afterOwnSteps(() => {
+      // Closed, or let go of by the router, before its turn came: there is nothing to add.
+      const at = opened.indexOf(mine);
+      if (at === -1) return;
+      history.pushState({ ...(history.state as object | null), [MARK]: at + 1 }, '');
+      mine.entered = true;
+    });
     return () => {
-      const at = closers.indexOf(closer);
+      const at = opened.indexOf(mine);
       // Not in the list: the back button took it out, and the entry with it.
       if (at === -1) return;
-      closers.splice(at, 1);
-      ownPops += 1;
+      opened.splice(at, 1);
+      // Closed before its entry was added: there is none to take back.
+      if (!mine.entered) return;
+      ownSteps += 1;
       history.back();
     };
   });
@@ -67,7 +117,8 @@ export function closeOnBack(isOpen: () => boolean, close: () => void): void {
  * moment later, leaves the history alone.
  */
 export function releaseOverlayEntries(): number {
-  const open = closers.length;
-  closers.length = 0;
-  return open;
+  // Only what has an entry counts: something still waiting for its turn gets none.
+  const entered = opened.filter((one) => one.entered).length;
+  opened.length = 0;
+  return entered;
 }
