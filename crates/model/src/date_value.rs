@@ -22,7 +22,7 @@ use thiserror::Error;
 use crate::JsonMap;
 
 /// The last millisecond a time may be: 9999-12-31 23:59:59.999 UTC.
-pub const LAST_MILLISECOND: i64 = 253_402_300_799_999;
+pub(crate) const LAST_MILLISECOND: i64 = 253_402_300_799_999;
 
 /// Milliseconds in a day.
 const DAY_MILLIS: i64 = 86_400_000;
@@ -154,7 +154,7 @@ fn utc_date(millis: i64) -> Option<String> {
 /// date becomes its UTC day, which is the day it was written for in every time zone
 /// from UTC-12 to UTC+11.
 #[must_use]
-pub fn date_value_from_previous(text: &str) -> Option<Value> {
+pub(crate) fn date_value_from_previous(text: &str) -> Option<Value> {
     let previous: JsonMap = serde_json::from_str(text).ok()?;
     let millis = |key: &str| previous.get(key).map(|value| value.as_i64().ok_or(()));
     let from = millis("from")?.ok()?;
@@ -163,7 +163,7 @@ pub fn date_value_from_previous(text: &str) -> Option<Value> {
     let mut value = Map::new();
     if with_time {
         value.insert("from".to_owned(), Value::from(from));
-        if let Some(to) = to.filter(|to| *to > from) {
+        if let Some(to) = to.filter(|to| *to > from && *to <= LAST_MILLISECOND) {
             value.insert("to".to_owned(), Value::from(to));
         }
     } else {
@@ -180,7 +180,7 @@ pub fn date_value_from_previous(text: &str) -> Option<Value> {
 /// The calendar date a date filter's previous value stands for: milliseconds in a
 /// string became the UTC day, as [`date_value_from_previous`] does with a date.
 #[must_use]
-pub fn date_filter_value_from_previous(text: &str) -> Option<String> {
+pub(crate) fn date_filter_value_from_previous(text: &str) -> Option<String> {
     text.parse::<i64>().ok().and_then(utc_date)
 }
 
@@ -206,6 +206,7 @@ pub fn date_property_ids<'d>(
 /// A card's date value in the previous shape becomes the new one, and one that cannot
 /// be read becomes `null`: a date property holds a date value or nothing. A date
 /// filter's values that are milliseconds become calendar dates.
+#[must_use]
 pub fn rewrite_previous_date_values<S: BuildHasher>(
     fields: &mut Value,
     dates: &HashSet<String, S>,

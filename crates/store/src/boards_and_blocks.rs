@@ -243,11 +243,12 @@ pub(crate) async fn duplicate_board(
         team_id.clone_into(&mut board.team_id);
     }
 
-    let blocks: Vec<_> = blocks::get_blocks(scope, &BlockFilter::board(board_id))
+    let mut blocks: Vec<_> = blocks::get_blocks(scope, &BlockFilter::board(board_id))
         .await?
         .into_iter()
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
+    blocks::clear_copied_values(&mut blocks, &board.card_properties);
 
     // A board without blocks, or with comments only, is copied as a board without
     // blocks. The original refuses it, because it regenerates the identifiers with the

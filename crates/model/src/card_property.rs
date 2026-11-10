@@ -52,7 +52,7 @@ pub enum CardPropertyError {
         id: String,
     },
     /// A date value is the value of a property that is no date.
-    #[error("card property {id:?} is no date: its value is no date value")]
+    #[error("card property {id:?} is not a date property, so its value cannot be a date value")]
     DateValueOfOtherProperty {
         /// The identifier of the property.
         id: String,
@@ -131,20 +131,55 @@ pub fn validate_card_property_kinds(
     definitions: &[JsonMap],
 ) -> Result<(), CardPropertyError> {
     for (id, value) in values {
-        let is_date = definitions.iter().any(|definition| {
-            definition.get("id").and_then(Value::as_str) == Some(id.as_str())
-                && definition.get("type").and_then(Value::as_str) == Some(DATE_PROPERTY_TYPE)
-        });
-        match (is_date, value) {
-            (true, Value::Null | Value::Object(_))
-            | (false, Value::Null | Value::String(_) | Value::Array(_)) => {}
-            (true, _) => return Err(CardPropertyError::NotADateValue { id: id.clone() }),
-            (false, _) => {
-                return Err(CardPropertyError::DateValueOfOtherProperty { id: id.clone() });
-            }
+        if fits_kind(id, value, definitions) {
+            continue;
         }
+        return Err(if value.is_object() {
+            CardPropertyError::DateValueOfOtherProperty { id: id.clone() }
+        } else {
+            CardPropertyError::NotADateValue { id: id.clone() }
+        });
     }
     Ok(())
+}
+
+/// Whether a property is one of the board's date properties.
+fn is_date_property(id: &str, definitions: &[JsonMap]) -> bool {
+    definitions.iter().any(|definition| {
+        definition.get("id").and_then(Value::as_str) == Some(id)
+            && definition.get("type").and_then(Value::as_str) == Some(DATE_PROPERTY_TYPE)
+    })
+}
+
+/// Whether a value fits the kind of its property: a date property holds a date value
+/// or `null`, any other property no date value.
+fn fits_kind(id: &str, value: &Value, definitions: &[JsonMap]) -> bool {
+    matches!(
+        (is_date_property(id, definitions), value),
+        (true, Value::Null | Value::Object(_))
+            | (false, Value::Null | Value::String(_) | Value::Array(_))
+    )
+}
+
+/// Sets to `null` the values that no longer fit the kind of their property: those of a
+/// property that became or stopped being a date, or that the board no longer defines
+/// while holding a date value. For what is copied from stored cards, which may be older
+/// than a change of the definitions. Returns how many were cleared.
+pub fn clear_values_of_another_kind(values: &mut JsonMap, definitions: &[JsonMap]) -> usize {
+    let mut cleared = 0;
+    for (id, value) in values.iter_mut() {
+        // A value of the other kind; a malformed one is left to be refused.
+        let other_kind = match value {
+            Value::Object(_) => !is_date_property(id, definitions),
+            Value::String(_) | Value::Array(_) => is_date_property(id, definitions),
+            Value::Null | Value::Bool(_) | Value::Number(_) => false,
+        };
+        if other_kind {
+            *value = Value::Null;
+            cleared += 1;
+        }
+    }
+    cleared
 }
 
 /// Checks the `properties` among a block's fields, if there are any: a JSON object of

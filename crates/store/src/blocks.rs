@@ -333,6 +333,9 @@ impl Store {
             copies.push(root);
             copies.extend(children);
             generate_block_ids(&mut copies);
+            if let Some(board) = boards::find_board(scope, board_id).await? {
+                clear_copied_values(&mut copies, &board.card_properties);
+            }
             insert_blocks(scope, &mut copies, user_id).await?;
             Ok(copies)
         })
@@ -518,22 +521,14 @@ async fn insert_block_at(
     {
         return Err(invalid(block, BlockError::ParentNotOnBoard));
     }
-    // A date value is the value of a date property, and a date property has one or
-    // none: that takes the board's definitions (`docs/s6-design.md` 5.7).
-    if let Some(Value::Object(values)) = block.fields.get("properties")
-        && !values.is_empty()
-        && let Some(board) = boards::find_board(scope, &block.board_id).await?
-    {
-        validate_card_property_kinds(values, &board.card_properties)
-            .map_err(|error| invalid(block, BlockError::from(error)))?;
-    }
-
     let now = at.unwrap_or_else(now_millis);
     block.update_at = now;
     block.delete_at = 0;
     user_id.clone_into(&mut block.modified_by);
 
-    if let Some(existing) = find_block(scope, &block.id).await? {
+    let existing = find_block(scope, &block.id).await?;
+    check_written_kinds(scope, block, existing.as_ref()).await?;
+    if let Some(existing) = existing {
         // Every change of a block moves its `updateAt` on, also within one millisecond
         // and when the clock steps back: a writer that read the block before this
         // change is told so (`readAt`).
@@ -570,6 +565,50 @@ async fn insert_block_at(
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
         insert_block_row(scope, block).await
+    }
+}
+
+/// Checks that the values a write gives a card fit the kinds of the board's properties
+/// (`docs/s6-design.md` 5.7): a date value for a date property, and none for another.
+/// Only the values the write changes are checked; one that a change of the definitions
+/// left behind stays until it is written.
+async fn check_written_kinds(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    existing: Option<&Block>,
+) -> Result<(), StoreError> {
+    let Some(Value::Object(values)) = block.fields.get("properties") else {
+        return Ok(());
+    };
+    let before = existing
+        .and_then(|existing| existing.fields.get("properties"))
+        .and_then(Value::as_object);
+    let written: fvoci_model::JsonMap = values
+        .iter()
+        .filter(|(id, value)| before.and_then(|before| before.get(*id)) != Some(*value))
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect();
+    if written.is_empty() {
+        return Ok(());
+    }
+    let Some(board) = boards::find_board(scope, &block.board_id).await? else {
+        return Ok(());
+    };
+    validate_card_property_kinds(&written, &board.card_properties).map_err(|error| {
+        StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source: BlockError::from(error),
+        }
+    })
+}
+
+/// Clears the values of copied cards that no longer fit their board's definitions, as
+/// [`fvoci_model::clear_values_of_another_kind`] does.
+pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[fvoci_model::JsonMap]) {
+    for block in blocks {
+        if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
+            fvoci_model::clear_values_of_another_kind(values, definitions);
+        }
     }
 }
 

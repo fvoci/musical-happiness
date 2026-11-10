@@ -468,33 +468,35 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     th.teardown().await;
 }
 
+/// An archive of the previous version with one board and one card on it.
+fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
+    let board = json!({"type": "board", "data": {
+        "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Imported",
+        "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
+    }});
+    let block = json!({"type": "block", "data": card_block("b1", values)});
+    let options = zip::write::SimpleFileOptions::default();
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    writer.start_file("version.json", options).expect("start");
+    writer
+        .write_all(br#"{"version":2,"date":1}"#)
+        .expect("write");
+    writer.start_file("b1/board.jsonl", options).expect("start");
+    writer
+        .write_all(format!("{board}\n{block}\n").as_bytes())
+        .expect("write");
+    writer.finish().expect("finish").into_inner()
+}
+
 /// An archive is another way in, open to every signed-in user.
 #[tokio::test]
 async fn an_archive_with_malformed_property_data_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
-    let archive = |card_properties: Value, values: Value| {
-        let board = json!({"type": "board", "data": {
-            "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Imported",
-            "cardProperties": card_properties, "createAt": 1, "updateAt": 1,
-        }});
-        let block = json!({"type": "block", "data": card_block("b1", values)});
-        let options = zip::write::SimpleFileOptions::default();
-        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        writer.start_file("version.json", options).expect("start");
-        writer
-            .write_all(br#"{"version":2,"date":1}"#)
-            .expect("write");
-        writer.start_file("b1/board.jsonl", options).expect("start");
-        writer
-            .write_all(format!("{board}\n{block}\n").as_bytes())
-            .expect("write");
-        writer.finish().expect("finish").into_inner()
-    };
 
     let response = import(
         &th.client,
         TEST_TEAM_ID,
-        &archive(json!([{"name": "no id"}]), json!({})),
+        &archive(&json!([{"name": "no id"}]), json!({})),
     )
     .await;
     check_refused(&response, "an archive with a definition without id");
@@ -503,7 +505,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
     let response = import(
         &th.client,
         TEST_TEAM_ID,
-        &archive(json!([{"id": "p1"}]), json!({"p1": 3})),
+        &archive(&json!([{"id": "p1"}]), json!({"p1": 3})),
     )
     .await;
     check_refused(&response, "an archive with a number as value");
@@ -517,7 +519,7 @@ async fn an_archive_with_malformed_property_data_is_refused() {
     import(
         &th.client,
         TEST_TEAM_ID,
-        &archive(json!([{"id": "p1"}]), json!({"p1": "v"})),
+        &archive(&json!([{"id": "p1"}]), json!({"p1": "v"})),
     )
     .await
     .check_no_content();
@@ -619,6 +621,142 @@ async fn date_properties_hold_date_values() {
     assert_eq!(
         stored.properties, card.properties,
         "the refused patches changed nothing"
+    );
+
+    th.teardown().await;
+}
+
+/// A change of the board's definitions leaves the cards' values as they are: a card
+/// whose value no longer fits is still written, copied and exported, and the value is
+/// checked when it is written again. A copy clears such a value.
+#[tokio::test]
+async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board: Board = new_board(
+        &th.client,
+        json!([
+            {"id": "due", "name": "Due", "type": "date"},
+            {"id": "note", "name": "Note", "type": "text"},
+        ]),
+    )
+    .await
+    .created_json();
+    let card: Card = th
+        .client
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &json!({"title": "Card", "properties": {"due": {"from": "2026-03-05"}, "note": "x"}}),
+        )
+        .await
+        .created_json();
+    th.client
+        .patch(
+            &format!("/boards/{}", board.id),
+            &json!({"deletedCardProperties": ["due"],
+                    "updatedCardProperties": [{"id": "note", "name": "Note", "type": "date"}]}),
+        )
+        .await
+        .check_ok();
+
+    let path = format!("/cards/{}", card.id);
+    let renamed: Card = th
+        .client
+        .patch(&path, &json!({"title": "Renamed"}))
+        .await
+        .ok_json();
+    assert_eq!(renamed.properties, card.properties, "the values stay");
+    check_refused(
+        &th.client
+            .patch(&path, &json!({"updatedProperties": {"note": "y"}}))
+            .await,
+        "a text written to what is now a date",
+    );
+    th.client
+        .patch(
+            &path,
+            &json!({"updatedProperties": {"note": {"from": "2026-03-06"}}}),
+        )
+        .await
+        .check_ok();
+
+    let copies: Vec<Value> = th
+        .client
+        .post_empty(&format!(
+            "/boards/{}/blocks/{}/duplicate",
+            board.id, card.id
+        ))
+        .await
+        .created_json();
+    let copy = copies
+        .iter()
+        .find(|block| block["type"] == json!("card"))
+        .expect("the copy");
+    let copy_values = &copy["fields"]["properties"];
+    assert!(
+        copy_values["due"].is_null(),
+        "the date of the deleted property is cleared in the copy: {copy}"
+    );
+    assert_eq!(copy_values["note"], json!({"from": "2026-03-06"}), "{copy}");
+    th.client
+        .post_empty(&format!("/boards/{}/duplicate", board.id))
+        .await
+        .check_status(StatusCode::CREATED);
+
+    th.teardown().await;
+}
+
+/// The routes of block patches and the archive take date values as the card routes do,
+/// and an archive of the previous version has its date values rewritten.
+#[tokio::test]
+async fn date_values_on_the_patch_routes_and_in_an_archive() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (board, card) = board_with_card(&th).await;
+    th.client
+        .patch(
+            &format!("/boards/{}", board.id),
+            &json!({"updatedCardProperties": [{"id": "due", "name": "Due", "type": "date"}]}),
+        )
+        .await
+        .check_ok();
+    let block_path = format!("/boards/{}/blocks/{}", board.id, card.id);
+    let text = json!({"updatedFields": {"properties": {"p1": "open", "due": "soon"}}});
+    check_refused(&th.client.patch(&block_path, &text).await, "patchBlock");
+    let request = json!({
+        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "blockIds": [card.id], "blockPatches": [text],
+    });
+    check_refused(
+        &th.client.patch("/boards-and-blocks", &request).await,
+        "patchBoardsAndBlocks",
+    );
+    let date =
+        json!({"updatedFields": {"properties": {"p1": "open", "due": {"from": "2026-03-05"}}}});
+    th.client.patch(&block_path, &date).await.check_no_content();
+
+    import(
+        &th.client,
+        TEST_TEAM_ID,
+        &archive(
+            &json!([{"id": "due", "name": "Due", "type": "date"}]),
+            json!({"due": "{\"from\":1772679600000}"}),
+        ),
+    )
+    .await
+    .check_no_content();
+    let boards: Vec<Board> = th
+        .client
+        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .await
+        .ok_json();
+    let imported = boards
+        .iter()
+        .find(|board| board.title == "Imported")
+        .expect("the imported board");
+    let blocks = blocks_of(&th.client, &imported.id).await;
+    assert_eq!(
+        blocks[0].fields["properties"],
+        json!({"due": {"from": "2026-03-05"}}),
+        "the previous shape became the new one"
     );
 
     th.teardown().await;

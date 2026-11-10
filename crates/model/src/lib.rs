@@ -54,7 +54,7 @@ pub use body::{
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{
-    CardPropertyError, DATE_PROPERTY_TYPE, validate_block_properties,
+    CardPropertyError, DATE_PROPERTY_TYPE, clear_values_of_another_kind, validate_block_properties,
     validate_card_property_definitions, validate_card_property_kinds,
     validate_card_property_values,
 };
@@ -64,8 +64,7 @@ pub use category::{
 };
 pub use client_config::ClientConfig;
 pub use date_value::{
-    DateValueError, LAST_MILLISECOND, check_date_value, date_filter_value_from_previous,
-    date_property_ids, date_value_from_previous, rewrite_previous_date_values,
+    DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
 pub use error_response::ErrorBody;
 pub use file_info::FileInfo;

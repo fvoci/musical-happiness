@@ -655,29 +655,28 @@ fn with_a_minimum_role(mut board: Value) -> Value {
 }
 
 /// Turns the date values of an archive written before `docs/s6-design.md` 5.7 into the
-/// shape of 5.7, as migration 4 did with the stored ones.
+/// shape of 5.7, as migration 4 did with the stored ones, and clears the values that do
+/// not fit the kind of their property, as a copy of stored cards does.
 fn rewrite_date_values(boards_and_blocks: &mut BoardsAndBlocks) {
-    let dates: std::collections::HashMap<&str, std::collections::HashSet<String>> =
-        boards_and_blocks
-            .boards
-            .iter()
-            .map(|board| {
-                (
-                    board.id.as_str(),
-                    fvoci_model::date_property_ids(&board.card_properties),
-                )
-            })
-            .collect();
+    let definitions: HashMap<&str, &[JsonMap]> = boards_and_blocks
+        .boards
+        .iter()
+        .map(|board| (board.id.as_str(), board.card_properties.as_slice()))
+        .collect();
     for block in &mut boards_and_blocks.blocks {
         if block.block_type != BlockType::Card && block.block_type != BlockType::View {
             continue;
         }
-        let Some(dates) = dates.get(block.board_id.as_str()) else {
+        let Some(definitions) = definitions.get(block.board_id.as_str()) else {
             continue;
         };
+        let dates = fvoci_model::date_property_ids(definitions.iter());
         let mut fields = Value::Object(std::mem::take(&mut block.fields));
-        fvoci_model::rewrite_previous_date_values(&mut fields, dates);
-        if let Value::Object(fields) = fields {
+        let _ = fvoci_model::rewrite_previous_date_values(&mut fields, &dates);
+        if let Value::Object(mut fields) = fields {
+            if let Some(Value::Object(values)) = fields.get_mut("properties") {
+                fvoci_model::clear_values_of_another_kind(values, definitions);
+            }
             block.fields = fields;
         }
     }

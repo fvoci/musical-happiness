@@ -663,75 +663,117 @@ fn blocks_showing(board_id: &str) -> [Block; 5] {
     ]
 }
 
+/// Writes, as the server before migration 4 stored them, date properties on every
+/// board, and the values of cards and the filters of views among the blocks: a date in
+/// the previous shape, one that cannot be read, and their look-alikes in a text
+/// property.
+async fn store_previous_shapes(dbconfig: &str, blocks: &[Block]) {
+    let definitions = r#"[{"id": "due", "type": "date"}, {"id": "bad", "type": "date"}, {"id": "note", "type": "text"}]"#;
+    let card_fields = r#"{"properties": {"due": "{\"from\":1772679600000}", "note": "{\"from\":1}", "bad": "x"}}"#;
+    let view_fields = r#"{"filter": {"operation": "and", "filters": [{"propertyId": "due", "condition": "is", "values": ["1772679600000"]}, {"operation": "or", "filters": [{"propertyId": "note", "condition": "is", "values": ["1"]}]}]}}"#;
+    let mut statements = vec![format!(
+        "UPDATE boards SET card_properties = '{definitions}'"
+    )];
+    for (block, fields) in blocks.iter().zip([
+        card_fields,
+        view_fields,
+        card_fields,
+        view_fields,
+        card_fields,
+    ]) {
+        statements.push(format!(
+            "UPDATE blocks SET fields = '{fields}' WHERE id = '{}'",
+            block.id
+        ));
+    }
+    for statement in &statements {
+        common::execute_raw(dbconfig, statement).await;
+    }
+}
+
 /// The data step of migration 4 turns stored date values of the previous shape into
-/// those of `docs/s6-design.md` 5.7: a card's value of a date property, live or in the
-/// trash, and a view's date filter. Other properties and filters stay as they were.
+/// those of `docs/s6-design.md` 5.7: a card's value of a date property and a view's
+/// date filter, live, in the trash, and on a board in the trash. Other properties and
+/// filters stay as they were.
 #[tokio::test]
 async fn the_date_value_step_rewrites_what_was_stored_before() {
     let test = common::setup().await;
     let user_id = common::user(&test, "migrated").await;
     let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
-    let board_id = &boards[0].id;
-    let mut blocks = [BlockType::Card, BlockType::Card, BlockType::View].map(|block_type| Block {
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 2).await;
+    let (board_id, trashed_board) = (&boards[0].id, &boards[1].id);
+    let block = |board_id: &str, block_type| Block {
         id: new_id(),
-        board_id: board_id.clone(),
+        board_id: board_id.to_owned(),
         block_type,
         ..Block::default()
-    });
+    };
+    // A card and a view that stay, a card and a view that go to the trash, and a card
+    // of the board that goes to the trash.
+    let mut blocks = [
+        block(board_id, BlockType::Card),
+        block(board_id, BlockType::View),
+        block(board_id, BlockType::Card),
+        block(board_id, BlockType::View),
+        block(trashed_board, BlockType::Card),
+    ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
-    test.delete_block(&blocks[1].id, &user_id)
-        .await
-        .expect("a card goes to the trash");
     test.store.close().await;
-    // As the server before it stored them.
-    let card_fields = r#"{"properties": {"due": "{\"from\":1772679600000}", "note": "{\"from\":1}", "bad": "x"}}"#;
-    let mut in_trash = serde_json::to_value(&blocks[1]).expect("a block is JSON");
-    in_trash["fields"] = serde_json::from_str(card_fields).expect("the fields are JSON");
-    for statement in [
-        format!(
-            r#"UPDATE boards SET card_properties = '[{{"id": "due", "type": "date"}}, {{"id": "bad", "type": "date"}}, {{"id": "note", "type": "text"}}]' WHERE id = '{board_id}'"#
-        ),
-        format!(
-            "UPDATE blocks SET fields = '{card_fields}' WHERE id = '{}'",
-            blocks[0].id
-        ),
-        format!(
-            r#"UPDATE blocks SET fields = '{{"filter": {{"operation": "and", "filters": [{{"propertyId": "due", "condition": "is", "values": ["1772679600000"]}}, {{"operation": "or", "filters": [{{"propertyId": "note", "condition": "is", "values": ["1"]}}]}}]}}}}' WHERE id = '{}'"#,
-            blocks[2].id
-        ),
-        format!(
-            "UPDATE deleted_blocks SET block = '{in_trash}' WHERE id = '{}'",
-            blocks[1].id
-        ),
-        "INSERT INTO data_steps (name) VALUES ('date_values')".to_owned(),
-    ] {
-        common::execute_raw(&test.dbconfig(), &statement).await;
+    store_previous_shapes(&test.dbconfig(), &blocks).await;
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store starts");
+    for in_trash in [&blocks[2], &blocks[3]] {
+        store
+            .delete_block(&in_trash.id, &user_id)
+            .await
+            .expect("a block goes to the trash");
     }
+    store
+        .delete_board(trashed_board, &user_id)
+        .await
+        .expect("a board goes to the trash");
+    store.close().await;
+    common::execute_raw(
+        &test.dbconfig(),
+        "INSERT INTO data_steps (name) VALUES ('date_values')",
+    )
+    .await;
 
     let store = Store::connect(common::db_type(), &test.dbconfig())
         .await
         .expect("the store does the step");
-    let card = store.get_block(&blocks[0].id).await.expect("the card");
+    store
+        .undelete_board(trashed_board, &user_id)
+        .await
+        .expect("the board comes back");
+    for in_trash in [&blocks[2], &blocks[3]] {
+        store
+            .undelete_block(&in_trash.id, &user_id)
+            .await
+            .expect("a block comes back");
+    }
     let expected = serde_json::json!({
         "due": {"from": "2026-03-05"}, "note": "{\"from\":1}", "bad": null,
     });
-    assert_eq!(card.fields["properties"], expected, "{card:?}");
-    let view = store.get_block(&blocks[2].id).await.expect("the view");
-    assert_eq!(
-        view.fields["filter"]["filters"][0]["values"],
-        serde_json::json!(["2026-03-05"])
-    );
-    assert_eq!(
-        view.fields["filter"]["filters"][1]["filters"][0]["values"],
-        serde_json::json!(["1"]),
-        "a filter of another property"
-    );
-    let restored = store
-        .undelete_block(&blocks[1].id, &user_id)
-        .await
-        .expect("the card comes back");
-    assert_eq!(restored.fields["properties"], expected, "{restored:?}");
+    for card in [&blocks[0], &blocks[2], &blocks[4]] {
+        let card = store.get_block(&card.id).await.expect("the card");
+        assert_eq!(card.fields["properties"], expected, "{card:?}");
+    }
+    for view in [&blocks[1], &blocks[3]] {
+        let view = store.get_block(&view.id).await.expect("the view");
+        let filters = &view.fields["filter"]["filters"];
+        assert_eq!(
+            filters[0]["values"],
+            serde_json::json!(["2026-03-05"]),
+            "{view:?}"
+        );
+        assert_eq!(
+            filters[1]["filters"][0]["values"],
+            serde_json::json!(["1"]),
+            "a filter of another property"
+        );
+    }
     store.close().await;
 
     // Done once: the step's row is gone, and the server starts without it.
