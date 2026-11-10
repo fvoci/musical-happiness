@@ -114,9 +114,8 @@ impl App {
             .iter()
             .map(|(block, summary)| {
                 // Preserved quirk: one card block that is no well-formed card fails the
-                // whole list (server/app/cards.go:54-60). The original's web app writes
-                // such blocks: a `contentOrder` with side-by-side content has nested
-                // lists. What is stored is no card, so this is a server error.
+                // whole list (server/app/cards.go:54-60). What is stored is no card, so
+                // this is a server error.
                 // A list says whether a card has a body; the body is read with the card.
                 card_from_stored_block(block, now)
                     .map(|card| card.listed(*summary))

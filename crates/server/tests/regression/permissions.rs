@@ -33,7 +33,7 @@ const ROLES: [&str; 6] = [
 const MEMBER_ROLES: [&str; 4] = ["viewer", "commenter", "editor", "admin"];
 
 /// The rows of the table, in order. [`request`] builds the request of each.
-const ROUTES: [&str; 53] = [
+const ROUTES: [&str; 52] = [
     "board: get",
     "board: patch title",
     "board: patch properties",
@@ -71,7 +71,6 @@ const ROUTES: [&str; 53] = [
     "cards: list",
     "cards: get",
     "cards: patch",
-    "content: move",
     "sharing: get",
     "sharing: post",
     "subscriptions: create",
@@ -133,8 +132,6 @@ struct Fixture<'a> {
     users: &'a Users,
     board: String,
     card: String,
-    text: String,
-    text2: String,
     view: String,
     comment: String,
 }
@@ -176,8 +173,6 @@ impl<'a> Fixture<'a> {
                 &blocks,
                 Payload::Json(json!([
                     block("card", &board, "card", "card", "", json!({})),
-                    block("text", &board, "text", "text", "card", json!({})),
-                    block("text2", &board, "text", "text2", "card", json!({})),
                     block(
                         "view",
                         &board,
@@ -210,8 +205,6 @@ impl<'a> Fixture<'a> {
         Self {
             http,
             users,
-            text: id_by_title(created, "text"),
-            text2: id_by_title(created, "text2"),
             view: id_by_title(created, "view"),
             comment: id_of(&comment.json()[0]),
             card,
@@ -404,18 +397,6 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             format!("{API}/cards/{}", fx.card),
             json!({"title": "patched"}),
         ),
-        "content: move" => {
-            fx.owner(
-                Method::PATCH,
-                &format!("{API}/cards/{}", fx.card),
-                Payload::Json(json!({"contentOrder": [fx.text, fx.text2]})),
-            )
-            .await;
-            Request::new(
-                Method::POST,
-                format!("{API}/content-blocks/{}/moveto/after/{}", fx.text, fx.text2),
-            )
-        }
         "sharing: get" => {
             fx.owner(
                 Method::POST,

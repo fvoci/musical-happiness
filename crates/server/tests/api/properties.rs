@@ -228,9 +228,12 @@ async fn a_block_with_malformed_properties_is_not_inserted() {
         check_refused(&response, &format!("properties that are {properties}"));
     }
     // `properties` means property values on a block of any type.
-    let mut text = card_block(&board.id, json!({"p1": 1}));
-    text["type"] = json!("text");
-    check_refused(&th.client.post(&path, &json!([text])).await, "a text block");
+    let mut attachment = card_block(&board.id, json!({"p1": 1}));
+    attachment["type"] = json!("attachment");
+    check_refused(
+        &th.client.post(&path, &json!([attachment])).await,
+        "an attachment block",
+    );
     assert_eq!(blocks_of(&th.client, &board.id).await, [], "nothing stored");
     th.teardown().await;
 }

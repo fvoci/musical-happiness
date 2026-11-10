@@ -334,7 +334,8 @@ impl From<StoreError> for AppError {
                 source:
                     source @ (BlockError::ParentNotOnBoard
                     | BlockError::ParentBelowBlock
-                    | BlockError::BodyNotAllowed),
+                    | BlockError::BodyNotAllowed
+                    | BlockError::TypeNotCurrent(_)),
                 ..
             } => Self::from(source),
             // What a request names by something that is no identifier does not exist.
@@ -374,6 +375,7 @@ impl From<BlockError> for AppError {
             | BlockError::FieldsSizeLimitExceeded
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
             BlockError::BodyNotAllowed => Self::bad_request(error).with_field("body"),
+            BlockError::TypeNotCurrent(_) => Self::bad_request(error).with_field("type"),
             BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock => {
                 Self::bad_request(error).with_field("parentId")
             }

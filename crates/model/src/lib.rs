@@ -37,7 +37,7 @@ pub use auth::{
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, ParseBlockTypeError, stamp_modification_metadata,
+    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, stamp_modification_metadata,
 };
 pub use block_ids::generate_block_ids;
 pub use board::{

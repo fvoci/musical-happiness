@@ -1,4 +1,4 @@
-//! Blocks: the basic unit of board content (cards, views, text, images and so on).
+//! Blocks: the basic unit of board content (cards, views, comments and attachments).
 
 use std::fmt;
 use std::str::FromStr;
@@ -17,14 +17,20 @@ use crate::serde_util::null_as_default;
 /// four bytes per character.
 pub const BLOCK_TITLE_MAX_CHARS: usize = 65535 / 4;
 
-/// Maximum number of characters in a block's `fields` once serialized to JSON.
+/// Maximum number of characters in a view's `fields` once serialized to JSON, and in
+/// those of a block of a type that new blocks no longer have.
 pub const BLOCK_FIELDS_MAX_CHARS: usize = 800_000;
+
+/// Maximum number of characters in the `fields` of a card, a comment or an attachment
+/// once serialized to JSON (`docs/s6-design.md` 5.7). A card's content is its body.
+pub const CARD_FIELDS_MAX_CHARS: usize = 64_000;
 
 /// The type of a block.
 ///
-/// The server stores and returns any type string a client sends (the web app has types
-/// such as `h1` and `list-item` that the server knows nothing about), so unrecognized
-/// strings are kept verbatim in [`BlockType::Other`].
+/// A new block has one of four types ([`BlockType::is_current`]). Blocks stored before a
+/// card's content became its body have others, among them type strings the server knows
+/// nothing about (the original's web app had `h1` and `list-item`); those are read and
+/// returned verbatim, kept in [`BlockType::Other`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(from = "String", into = "String")]
 pub enum BlockType {
@@ -56,6 +62,28 @@ impl BlockType {
     #[must_use]
     pub fn has_body(&self) -> bool {
         matches!(self, Self::Card | Self::Comment)
+    }
+
+    /// Returns `true` for the types a new block may have: a card, a view, a comment and
+    /// an attachment (`docs/s6-design.md` 5.7). A block of another type was stored
+    /// before a card's content became its body; it stays as it is, but no block is
+    /// made one.
+    #[must_use]
+    pub fn is_current(&self) -> bool {
+        matches!(
+            self,
+            Self::Card | Self::View | Self::Comment | Self::Attachment
+        )
+    }
+
+    /// Returns the maximum number of characters in the serialized `fields` of a block
+    /// of this type.
+    #[must_use]
+    pub fn fields_max_chars(&self) -> usize {
+        match self {
+            Self::Card | Self::Comment | Self::Attachment => CARD_FIELDS_MAX_CHARS,
+            _ => BLOCK_FIELDS_MAX_CHARS,
+        }
     }
 
     /// Returns the wire string of this type.
@@ -162,9 +190,14 @@ pub enum BlockError {
     /// The title is longer than [`BLOCK_TITLE_MAX_CHARS`].
     #[error("block title size limit exceeded")]
     TitleSizeLimitExceeded,
-    /// The serialized fields are longer than [`BLOCK_FIELDS_MAX_CHARS`].
+    /// The serialized fields are longer than the limit of the block's type
+    /// ([`BlockType::fields_max_chars`]).
     #[error("block fields size limit exceeded")]
     FieldsSizeLimitExceeded,
+    /// A new block, or a patch, gives a type that no new block has
+    /// ([`BlockType::is_current`]).
+    #[error("a block of the type {0:?} is not made any more: a card's content is its body")]
+    TypeNotCurrent(String),
     /// The `properties` among the fields are not well-formed card property values.
     #[error(transparent)]
     InvalidCardProperties(#[from] CardPropertyError),
@@ -192,7 +225,10 @@ pub struct Block {
     /// The schema version of the block.
     #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
-    /// The block type.
+    /// The block type: `card`, `view`, `comment` or `attachment`. A block stored before a
+    /// card's content became its body may have another (`text`, `image`, `checkbox`,
+    /// `divider` and others the web app had); it keeps it, but no block is made one or
+    /// patched into one (400 naming `type`).
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
@@ -200,7 +236,8 @@ pub struct Block {
     /// The display title.
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
-    /// Type-specific data, free-form.
+    /// Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
+    /// comment or an attachment and 800,000 for a view or a block of another type.
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
@@ -228,7 +265,7 @@ impl Block {
     /// # Errors
     ///
     /// Returns a [`BlockError`] if the board identifier is empty, the title or the
-    /// serialized fields exceed their size limits, or the fields hold `properties` that
+    /// serialized fields exceed their size limits (the latter by type), or the fields hold `properties` that
     /// are not well-formed card property values. The last applies to blocks of every
     /// type: `properties` among a block's fields always means card property values.
     pub fn validate(&self) -> Result<(), BlockError> {
@@ -241,7 +278,8 @@ impl Block {
         // Serializing a map with string keys cannot fail; if it ever did, the fields would
         // not be storable either.
         match serde_json::to_string(&self.fields) {
-            Ok(fields_json) if fields_json.chars().count() <= BLOCK_FIELDS_MAX_CHARS => {}
+            Ok(fields_json)
+                if fields_json.chars().count() <= self.block_type.fields_max_chars() => {}
             _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
         validate_block_properties(&self.fields)?;
@@ -283,7 +321,8 @@ pub struct BlockPatch {
     /// The new schema version.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<i64>,
-    /// The new block type.
+    /// The new block type: `card`, `view`, `comment` or `attachment`, or the type the
+    /// block has. Any other is refused (400 naming `type`).
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
     pub block_type: Option<BlockType>,
@@ -333,6 +372,21 @@ impl BlockPatch {
             block.fields.remove(key);
         }
         self.body.apply_to(&mut block.body);
+    }
+
+    /// Checks the type the patch gives a block of the type `stored`: a block may keep
+    /// its type, whatever it is, or take one that a new block may have.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockError::TypeNotCurrent`] for a change to another type.
+    pub fn check_type(&self, stored: &BlockType) -> Result<(), BlockError> {
+        match &self.block_type {
+            Some(new_type) if new_type != stored && !new_type.is_current() => {
+                Err(BlockError::TypeNotCurrent(new_type.as_str().to_owned()))
+            }
+            _ => Ok(()),
+        }
     }
 }
 

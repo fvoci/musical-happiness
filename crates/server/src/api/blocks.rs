@@ -290,6 +290,9 @@ async fn handle_post_blocks(
                     .with_field("type"),
             );
         }
+        if !block.block_type.is_current() {
+            return Err(BlockError::TypeNotCurrent(block.block_type.to_string()).into());
+        }
         if block.block_type == BlockType::Comment {
             has_comments = true;
         } else {

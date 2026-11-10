@@ -740,6 +740,12 @@ pub(crate) async fn patch_block(
     boards::lock_board(scope, &board_id).await?;
     let mut block = get_block(scope, block_id).await?;
     let stored_update_at = block.update_at;
+    patch
+        .check_type(&block.block_type)
+        .map_err(|source| StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source,
+        })?;
     patch.apply(&mut block);
     // A patch whose block breaks the limits of a block (title, fields) is refused as
     // such (400) before it is refused for being made against an older block (409). The

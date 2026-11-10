@@ -67,7 +67,7 @@
         "parentId": "<id:4>",
         "schema": 1,
         "title": "Exported text",
-        "type": "text",
+        "type": "comment",
         "updateAt": "<ts>"
       },
       {
@@ -84,7 +84,7 @@
         "parentId": "<id:4>",
         "schema": 1,
         "title": "",
-        "type": "image",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
@@ -184,7 +184,7 @@
             "parentId": "<id:4>",
             "schema": 1,
             "title": "Exported text",
-            "type": "text",
+            "type": "comment",
             "updateAt": "<ts>"
           },
           "type": "block"
@@ -204,7 +204,7 @@
             "parentId": "<id:4>",
             "schema": 1,
             "title": "",
-            "type": "image",
+            "type": "attachment",
             "updateAt": "<ts>"
           },
           "type": "block"
@@ -410,7 +410,7 @@
         "parentId": "<id:10>",
         "schema": 1,
         "title": "Exported text",
-        "type": "text",
+        "type": "comment",
         "updateAt": "<ts>"
       },
       {
@@ -427,7 +427,7 @@
         "parentId": "<id:10>",
         "schema": 1,
         "title": "",
-        "type": "image",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {

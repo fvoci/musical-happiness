@@ -302,7 +302,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
             id: fvoci_model::new_id(),
             board_id: board.id.clone(),
             parent_id: board.id.clone(),
-            block_type: fvoci_model::BlockType::Image,
+            block_type: fvoci_model::BlockType::Attachment,
             fields,
             create_at: 1,
             update_at: 1,
@@ -411,7 +411,7 @@ async fn an_archive_carries_the_images_of_bodies() {
         id: new_id(),
         parent_id: board.id.clone(),
         board_id: board.id.clone(),
-        block_type: BlockType::Image,
+        block_type: BlockType::Attachment,
         create_at: 1,
         update_at: 1,
         ..Block::default()
@@ -515,7 +515,7 @@ async fn an_archive_reads_back_whatever_an_image_block_names() {
             id: new_id(),
             board_id: board.id.clone(),
             parent_id: board.id.clone(),
-            block_type: BlockType::Image,
+            block_type: BlockType::Attachment,
             fields,
             create_at: 1,
             update_at: 1,
@@ -541,5 +541,52 @@ async fn an_archive_reads_back_whatever_an_image_block_names() {
         .await
         .check_no_content();
     assert_eq!(boards_of(&ts).await.len(), before + 1, "one board was made");
+    ts.teardown().await;
+}
+
+/// An archive that holds a block of a type no new block has, as an export of a board
+/// that an older server stored can, is refused before anything of it is stored.
+#[tokio::test]
+async fn an_archive_with_a_block_of_another_type_stores_nothing() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let lines = [
+        serde_json::json!({"type": "board", "data": {
+            "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Older", "createAt": 1,
+            "updateAt": 1,
+        }}),
+        serde_json::json!({"type": "block", "data": {
+            "id": "c1", "boardId": "b1", "type": "card", "title": "card", "createAt": 1,
+            "updateAt": 1,
+        }}),
+        serde_json::json!({"type": "block", "data": {
+            "id": "t1", "boardId": "b1", "parentId": "c1", "type": "text", "title": "text",
+            "createAt": 1, "updateAt": 1,
+        }}),
+    ];
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    writer.start_file("version.json", options).expect("start");
+    writer
+        .write_all(br#"{"version":3,"date":1}"#)
+        .expect("write");
+    writer.start_file("b1/board.jsonl", options).expect("start");
+    for line in &lines {
+        writer
+            .write_all(format!("{line}\n").as_bytes())
+            .expect("write");
+    }
+    let bytes = writer.finish().expect("finish").into_inner();
+
+    let before = boards_of(&ts).await.len();
+    let response = import(&ts.client, TEST_TEAM_ID, &bytes).await;
+    response.check_bad_request();
+    assert!(
+        response.value()["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("\"text\"")),
+        "the refusal names the type: {}",
+        response.text()
+    );
+    assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
     ts.teardown().await;
 }

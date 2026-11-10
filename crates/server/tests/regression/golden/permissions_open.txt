@@ -37,7 +37,6 @@ cards: create                               401        403        403        403
 cards: list                                 401        403        200        200        200        200
 cards: get                                  401        404        200        200        200        200
 cards: patch                                401        404        403        403        200        200
-content: move                               401        404        403        403        204        204
 sharing: get                                401        403        403        403        403        200
 sharing: post                               401        403        403        403        403        200
 subscriptions: create                       401        404        201        201        201        201

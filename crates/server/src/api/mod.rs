@@ -14,7 +14,6 @@ mod body;
 mod cards;
 mod categories;
 mod config;
-mod content_blocks;
 pub mod contract;
 mod files;
 mod limits;
@@ -94,7 +93,6 @@ fn routes() -> Routes {
         .merge(cards::routes())
         .merge(categories::routes())
         .merge(config::routes())
-        .merge(content_blocks::routes())
         .merge(files::routes())
         .merge(members::routes())
         .merge(onboarding::routes())

@@ -135,6 +135,11 @@ async fn handle_create_boards_and_blocks(
 fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'static str, String)> {
     if block.block_type.is_empty() {
         Some(("type", format!("missing type for block id {}", block.id)))
+    } else if !block.block_type.is_current() {
+        Some((
+            "type",
+            fvoci_model::BlockError::TypeNotCurrent(block.block_type.to_string()).to_string(),
+        ))
     } else if block.create_at < 1 {
         Some((
             "createAt",

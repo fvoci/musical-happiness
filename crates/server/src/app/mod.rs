@@ -10,7 +10,6 @@ mod boards_and_blocks;
 mod cards;
 mod category;
 mod category_boards;
-mod content_blocks;
 mod export;
 mod files;
 mod import;
@@ -25,7 +24,6 @@ mod users;
 pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
-pub use content_blocks::MovePosition;
 pub(crate) use files::FILE;
 pub use users::sanitize;
 

@@ -255,6 +255,19 @@ impl App {
             }
         }
 
+        // An archive of this server may hold blocks stored before a card's content
+        // became its body; none is made again (`docs/contract-pending.md` 8).
+        if let Some(block) = boards_and_blocks
+            .blocks
+            .iter()
+            .find(|block| !block.block_type.is_current())
+        {
+            return Err(AppError::bad_request(format_args!(
+                "the archive's block {}: {}",
+                block.id,
+                fvoci_model::BlockError::TypeNotCurrent(block.block_type.to_string())
+            )));
+        }
         clear_values_of_another_kind(&mut boards_and_blocks);
         let orphans = drop_orphans(&mut boards_and_blocks);
         if orphans > 0 {

@@ -126,7 +126,7 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -149,7 +149,7 @@
         "parentId": "<id:8>",
         "schema": 1,
         "title": "Below the comment",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -268,7 +268,7 @@
       "parentId": "<id:8>",
       "schema": 1,
       "title": "Below the comment",
-      "type": "text",
+      "type": "attachment",
       "updateAt": "<ts>"
     }
   },
@@ -337,7 +337,7 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
@@ -352,7 +352,7 @@
         "parentId": "<id:8>",
         "schema": 1,
         "title": "Below the comment",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -459,7 +459,7 @@
       "parentId": "<id:6>",
       "schema": 1,
       "title": "Text",
-      "type": "text",
+      "type": "attachment",
       "updateAt": "<ts>"
     }
   },
@@ -496,7 +496,7 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -736,7 +736,7 @@
         "parentId": "<id:6>",
         "schema": 1,
         "title": "Text",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
@@ -751,7 +751,7 @@
         "parentId": "<id:8>",
         "schema": 1,
         "title": "Below the comment",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]

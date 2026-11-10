@@ -53,9 +53,6 @@ pub struct Card {
     /// The display title.
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
-    /// The identifiers of the card's content blocks, in display order.
-    #[serde(deserialize_with = "null_as_default")]
-    pub content_order: Vec<String>,
     /// The card's icon; at most one grapheme.
     #[serde(deserialize_with = "null_as_default")]
     pub icon: String,
@@ -150,32 +147,15 @@ impl Card {
     /// # Errors
     ///
     /// Returns [`CardError::NotCardBlock`] for any other block type, and
-    /// [`CardError::InvalidFieldType`] if `contentOrder` is not a list of strings, `icon`
-    /// is not a string, `isTemplate` is not a boolean or `properties` is not an object.
-    /// A `contentOrder` with nested lists, which the web app writes for side-by-side
-    /// content, is rejected this way too.
+    /// [`CardError::InvalidFieldType`] if `icon` is not a string, `isTemplate` is not a
+    /// boolean or `properties` is not an object. A card's content is its body; a
+    /// `contentOrder` that a card stored before has is left among the block's fields and
+    /// is not read (`docs/s6-design.md` 5.7).
     pub fn from_block(block: &Block, now: i64) -> Result<Self, CardError> {
         if block.block_type != BlockType::Card {
             return Err(CardError::NotCardBlock);
         }
 
-        let content_order = match block.fields.get("contentOrder") {
-            None => Vec::new(),
-            Some(Value::Array(items)) => items
-                .iter()
-                .map(|item| match item {
-                    Value::String(id) => Ok(id.clone()),
-                    _ => Err(CardError::InvalidFieldType {
-                        field: "contentOrder item",
-                    }),
-                })
-                .collect::<Result<Vec<String>, CardError>>()?,
-            Some(_) => {
-                return Err(CardError::InvalidFieldType {
-                    field: "contentOrder",
-                });
-            }
-        };
         let icon = match block.fields.get("icon") {
             None => String::new(),
             Some(Value::String(icon)) => icon.clone(),
@@ -207,7 +187,6 @@ impl Card {
             created_by: block.created_by.clone(),
             modified_by: block.modified_by.clone(),
             title: block.title.clone(),
-            content_order,
             icon,
             is_template,
             properties,
@@ -229,7 +208,6 @@ impl From<Card> for Block {
     /// without a parent.
     fn from(card: Card) -> Self {
         let mut fields = JsonMap::new();
-        fields.insert("contentOrder".to_owned(), Value::from(card.content_order));
         fields.insert("icon".to_owned(), Value::from(card.icon));
         fields.insert("isTemplate".to_owned(), Value::from(card.is_template));
         fields.insert("properties".to_owned(), Value::Object(card.properties));
@@ -259,9 +237,6 @@ pub struct CardPatch {
     /// The new title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    /// The new content order.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_order: Option<Vec<String>>,
     /// The new icon; at most one grapheme.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
@@ -288,9 +263,6 @@ impl CardPatch {
     pub fn apply(&self, card: &mut Card) {
         if let Some(title) = &self.title {
             card.title.clone_from(title);
-        }
-        if let Some(content_order) = &self.content_order {
-            card.content_order.clone_from(content_order);
         }
         if let Some(icon) = &self.icon {
             card.icon.clone_from(icon);
@@ -330,12 +302,6 @@ impl CardPatch {
         self.validate()?;
 
         let mut updated_fields = JsonMap::new();
-        if let Some(content_order) = &self.content_order {
-            updated_fields.insert(
-                "contentOrder".to_owned(),
-                Value::from(content_order.clone()),
-            );
-        }
         if let Some(icon) = &self.icon {
             updated_fields.insert("icon".to_owned(), Value::from(icon.clone()));
         }

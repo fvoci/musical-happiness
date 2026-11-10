@@ -554,7 +554,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
 
     // What may not be stored, and a body on a block that is no card.
     for (block, field) in [
-        (card_block(&board.id, &json!("text")), "body"),
+        (card_block(&board.id, &json!("attachment")), "body"),
         (
             card_block(
                 &board.id,
@@ -563,7 +563,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
             "body",
         ),
         (
-            json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "text",
+            json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "attachment",
                    "createAt": 1, "updateAt": 1, "body": document()}),
             "body",
         ),
@@ -577,7 +577,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
             "/boards-and-blocks",
             &json!({
                 "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
-                "blocks": [card_block("bd", &json!("text"))],
+                "blocks": [card_block("bd", &json!("attachment"))],
             }),
         )
         .await;
@@ -585,7 +585,10 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     // A card with a body may not become another block.
     let response = th
         .client
-        .patch(&format!("{blocks}/{card_id}"), &json!({"type": "text"}))
+        .patch(
+            &format!("{blocks}/{card_id}"),
+            &json!({"type": "attachment"}),
+        )
         .await;
     check_refused_member(&response, "body");
     // Nothing of the refused requests was stored: no block, no board.
@@ -941,7 +944,7 @@ async fn a_comment_body_goes_every_way_a_card_body_does() {
 
     // A comment with a body may not become a block that has none.
     check_refused_member(
-        &th.client.patch(&path, &json!({"type": "text"})).await,
+        &th.client.patch(&path, &json!({"type": "attachment"})).await,
         "body",
     );
     // Back from the trash with its body.

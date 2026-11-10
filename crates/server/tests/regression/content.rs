@@ -259,22 +259,22 @@ pub(crate) async fn files(s: &mut Session) {
             block(
                 "img1",
                 &board,
-                "image",
+                "attachment",
                 "",
                 "card1",
                 json!({"fileId": file_id})
             ),
         ]),
-        "insert an image block",
+        "insert an attachment block",
     )
     .await;
     let image = created
         .as_array()
         .expect("the created blocks are a list")
         .iter()
-        .find(|block| block["type"] == "image")
+        .find(|block| block["type"] == "attachment")
         .map(id_of)
-        .expect("the image block was created");
+        .expect("the attachment block was created");
     s.delete(
         "delete the image block",
         &format!("{API}/boards/{board}/blocks/{image}"),
@@ -374,11 +374,18 @@ pub(crate) async fn archive(s: &mut Session) {
                 "",
                 json!({"icon": "x"})
             ),
-            block("text1", &board, "text", "Exported text", "card1", json!({})),
+            block(
+                "text1",
+                &board,
+                "comment",
+                "Exported text",
+                "card1",
+                json!({})
+            ),
             block(
                 "img1",
                 &board,
-                "image",
+                "attachment",
                 "",
                 "card1",
                 json!({"fileId": file_id})
@@ -490,8 +497,8 @@ pub(crate) async fn archive(s: &mut Session) {
         .await;
     let images = s
         .get(
-            "imported image block",
-            &format!("{API}/boards/{copy}/blocks?type=image"),
+            "imported attachment block",
+            &format!("{API}/boards/{copy}/blocks?type=attachment"),
         )
         .user(&bob)
         .unrecorded()

@@ -48,7 +48,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment or an attachment and 800,000 for a view or a block of another type.",
             "type": "object"
           },
           "id": {
@@ -73,7 +73,7 @@
             "type": "string"
           },
           "type": {
-            "description": "The block type.",
+            "description": "The block type: `card`, `view`, `comment` or `attachment`. A block stored before a\ncard's content became its body may have another (`text`, `image`, `checkbox`,\n`divider` and others the web app had); it keeps it, but no block is made one or\npatched into one (400 naming `type`).",
             "type": "string"
           },
           "updateAt": {
@@ -151,7 +151,7 @@
             ]
           },
           "type": {
-            "description": "The new block type.",
+            "description": "The new block type: `card`, `view`, `comment` or `attachment`, or the type the\nblock has. Any other is refused (400 naming `type`).",
             "type": [
               "string",
               "null"
@@ -472,13 +472,6 @@
               }
             ]
           },
-          "contentOrder": {
-            "description": "The identifiers of the card's content blocks, in display order.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "createAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
             "format": "int64",
@@ -543,7 +536,6 @@
         "required": [
           "boardId",
           "body",
-          "contentOrder",
           "createAt",
           "createdBy",
           "deleteAt",
@@ -581,16 +573,6 @@
               {
                 "type": "null"
               }
-            ]
-          },
-          "contentOrder": {
-            "description": "The new content order.",
-            "items": {
-              "type": "string"
-            },
-            "type": [
-              "array",
-              "null"
             ]
           },
           "icon": {
@@ -1048,7 +1030,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form. The `properties` of a card among them are values\nby property identifier: a string, a list of strings, or `null`.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card,\na comment or an attachment and 800,000 for a view. The `properties` of a card\namong them are values by property identifier: a string, a list of strings, or\n`null`.",
             "type": [
               "object",
               "null"
@@ -1084,7 +1066,7 @@
             ]
           },
           "type": {
-            "description": "The block type, such as `card`, `view`, `comment` or `text`.",
+            "description": "The block type: `card`, `view`, `comment` or `attachment`. Any other type is\nrefused (400 naming `type`): a card's content is its body.",
             "type": "string"
           },
           "updateAt": {
@@ -1242,16 +1224,6 @@
               {
                 "type": "null"
               }
-            ]
-          },
-          "contentOrder": {
-            "description": "The identifiers of the card's content blocks, in display order.",
-            "items": {
-              "type": "string"
-            },
-            "type": [
-              "array",
-              "null"
             ]
           },
           "icon": {
@@ -3737,60 +3709,6 @@
         "summary": "What a client must know about the server",
         "tags": [
           "system"
-        ]
-      }
-    },
-    "/api/v1/content-blocks/{blockId}/moveto/{where}/{dstBlockId}": {
-      "post": {
-        "description": "Moves a content block right before or after another one in the content order of\ntheir card. For editors of the board. A block on a board the user may not see is\nnot there, whichever of the two it is.",
-        "operationId": "moveContentBlock",
-        "parameters": [
-          {
-            "description": "The identifier of the block.",
-            "in": "path",
-            "name": "blockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Where the block goes: `before` or `after` the other one.",
-            "in": "path",
-            "name": "where",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the block the moved one is put next to.",
-            "in": "path",
-            "name": "dstBlockId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The block is moved."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
-          }
-        },
-        "summary": "Move a content block within its card",
-        "tags": [
-          "blocks"
         ]
       }
     },

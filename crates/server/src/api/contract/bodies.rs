@@ -70,15 +70,18 @@ pub(crate) struct NewBlock {
     /// The block this one is below: a block of the same board, or the name of another
     /// block of the request. Left out for a block directly on its board.
     parent_id: Option<String>,
-    /// The block type, such as `card`, `view`, `comment` or `text`.
+    /// The block type: `card`, `view`, `comment` or `attachment`. Any other type is
+    /// refused (400 naming `type`): a card's content is its body.
     #[schema(rename = "type")]
     block_type: String,
     /// The schema version of the block.
     schema: Option<i64>,
     /// The display title.
     title: Option<String>,
-    /// Type-specific data, free-form. The `properties` of a card among them are values
-    /// by property identifier: a string, a list of strings, or `null`.
+    /// Type-specific data, free-form: serialized, at most 64,000 characters for a card,
+    /// a comment or an attachment and 800,000 for a view. The `properties` of a card
+    /// among them are values by property identifier: a string, a list of strings, or
+    /// `null`.
     #[schema(value_type = Option<Object>)]
     fields: Option<JsonMap>,
     /// Must be 1 or more. The server does not keep it: the block is created when the
@@ -106,8 +109,6 @@ pub(crate) struct NewCard {
     board_id: Option<String>,
     /// The display title.
     title: Option<String>,
-    /// The identifiers of the card's content blocks, in display order.
-    content_order: Option<Vec<String>>,
     /// The card's icon; at most one grapheme.
     icon: Option<String>,
     /// Whether the card is a template.

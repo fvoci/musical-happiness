@@ -47,10 +47,6 @@
     "body": {
       "boardId": "<id:2>",
       "body": null,
-      "contentOrder": [
-        "a",
-        "b"
-      ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -76,7 +72,6 @@
     "body": {
       "boardId": "<id:2>",
       "body": null,
-      "contentOrder": [],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -134,10 +129,6 @@
       {
         "boardId": "<id:2>",
         "body": null,
-        "contentOrder": [
-          "a",
-          "b"
-        ],
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -157,7 +148,6 @@
       {
         "boardId": "<id:2>",
         "body": null,
-        "contentOrder": [],
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -183,10 +173,6 @@
       {
         "boardId": "<id:2>",
         "body": null,
-        "contentOrder": [
-          "a",
-          "b"
-        ],
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -206,7 +192,6 @@
       {
         "boardId": "<id:2>",
         "body": null,
-        "contentOrder": [],
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -257,10 +242,6 @@
     "body": {
       "boardId": "<id:2>",
       "body": null,
-      "contentOrder": [
-        "a",
-        "b"
-      ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -286,10 +267,6 @@
     "body": {
       "boardId": "<id:2>",
       "body": null,
-      "contentOrder": [
-        "a",
-        "b"
-      ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -326,10 +303,6 @@
     "body": {
       "boardId": "<id:2>",
       "body": null,
-      "contentOrder": [
-        "b",
-        "a"
-      ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -388,10 +361,6 @@
     "body": {
       "boardId": "<id:2>",
       "body": null,
-      "contentOrder": [
-        "b",
-        "a"
-      ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -427,7 +396,7 @@
         "parentId": "<id:5>",
         "schema": 1,
         "title": "one",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
@@ -442,7 +411,7 @@
         "parentId": "<id:5>",
         "schema": 1,
         "title": "two",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       },
       {
@@ -457,7 +426,7 @@
         "parentId": "<id:5>",
         "schema": 1,
         "title": "three",
-        "type": "text",
+        "type": "attachment",
         "updateAt": "<ts>"
       }
     ]
@@ -470,11 +439,6 @@
     "body": {
       "boardId": "<id:2>",
       "body": null,
-      "contentOrder": [
-        "<id:7>",
-        "<id:8>",
-        "<id:9>"
-      ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
       "deleteAt": 0,
@@ -493,118 +457,13 @@
     }
   },
   {
-    "name": "move after",
+    "name": "move: the route is gone",
     "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:9> as cards-alice",
-    "status": 204,
-    "body": "<0 bytes>"
-  },
-  {
-    "name": "card after move",
-    "request": "GET /api/v1/cards/<id:5> as cards-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {
-      "boardId": "<id:2>",
-      "body": null,
-      "contentOrder": [
-        "<id:8>",
-        "<id:9>",
-        "<id:7>"
-      ],
-      "createAt": "<ts>",
-      "createdBy": "<id:1>",
-      "deleteAt": 0,
-      "hasBody": false,
-      "icon": "🂡",
-      "id": "<id:5>",
-      "isTemplate": false,
-      "modifiedBy": "<id:1>",
-      "properties": {
-        "p2": "v2"
-      },
-      "tasksDone": 0,
-      "tasksTotal": 0,
-      "title": "Card one, renamed",
-      "updateAt": "<ts>"
-    }
-  },
-  {
-    "name": "move before",
-    "request": "POST /api/v1/content-blocks/<id:9>/moveto/before/<id:8> as cards-alice",
-    "status": 204,
-    "body": "<0 bytes>"
-  },
-  {
-    "name": "card after second move",
-    "request": "GET /api/v1/cards/<id:5> as cards-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {
-      "boardId": "<id:2>",
-      "body": null,
-      "contentOrder": [
-        "<id:9>",
-        "<id:8>",
-        "<id:7>"
-      ],
-      "createAt": "<ts>",
-      "createdBy": "<id:1>",
-      "deleteAt": 0,
-      "hasBody": false,
-      "icon": "🂡",
-      "id": "<id:5>",
-      "isTemplate": false,
-      "modifiedBy": "<id:1>",
-      "properties": {
-        "p2": "v2"
-      },
-      "tasksDone": 0,
-      "tasksTotal": 0,
-      "title": "Card one, renamed",
-      "updateAt": "<ts>"
-    }
-  },
-  {
-    "name": "move: bad direction",
-    "request": "POST /api/v1/content-blocks/<id:7>/moveto/sideways/<id:8> as cards-alice",
-    "status": 400,
-    "content_type": "application/json",
-    "body": {
-      "error": "bad_request",
-      "message": "invalid where parameter, use before or after",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "move: unknown block",
-    "request": "POST /api/v1/content-blocks/unknown-block/moveto/after/<id:8> as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
       "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "move: unknown target",
-    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/unknown-block as cards-alice",
-    "status": 404,
-    "content_type": "application/json",
-    "body": {
-      "error": "not_found",
-      "message": "block not found",
-      "request_id": "<request-id>"
-    }
-  },
-  {
-    "name": "move: viewer",
-    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:8> as cards-bob",
-    "status": 403,
-    "content_type": "application/json",
-    "body": {
-      "error": "forbidden",
-      "message": "access denied to modify board cards",
+      "message": "route not found",
       "request_id": "<request-id>"
     }
   }

@@ -22,7 +22,7 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockPatch, BlockPatchBatch, BlockType,
-    Board, BoardMember, BoardType, Category, JsonMap, new_id,
+    Board, BoardMember, BoardType, CARD_FIELDS_MAX_CHARS, Category, JsonMap, new_id,
 };
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::error::ErrorKind;
@@ -138,7 +138,7 @@ struct Content {
 async fn card_with_content(th: &TestServer, boards: &Boards) -> Content {
     let board_id = &boards.board.id;
     let card = insert_one(&th.client, &new_block(board_id, BlockType::Card, "card")).await;
-    let text = insert_one(&th.client, &child_of(&card, BlockType::Text, "text")).await;
+    let text = insert_one(&th.client, &child_of(&card, BlockType::Attachment, "text")).await;
     let comment = insert_one(
         &boards.commenter,
         &child_of(&card, BlockType::Comment, "comment"),
@@ -578,8 +578,9 @@ async fn delete_block_delete_a_block() {
     th.teardown().await;
 }
 
-/// The block the subtests of `TestUndeleteBlock` delete and undelete: a legacy board
-/// block on an open board of the first user.
+/// The block the subtests of `TestUndeleteBlock` delete and undelete: a view on an open
+/// board of the first user. The original's tests use a legacy board block, a type that
+/// no new block has any more.
 async fn undelete_block_fixture(th: &TestServer) -> Block {
     let board = create_board_in_store(th, BoardType::Open).await;
     assert!(
@@ -588,7 +589,7 @@ async fn undelete_block_fixture(th: &TestServer) -> Block {
     );
     insert_one(
         &th.client,
-        &new_block(&board.id, BlockType::Board, "New title"),
+        &new_block(&board.id, BlockType::View, "New title"),
     )
     .await
 }
@@ -599,7 +600,7 @@ async fn undelete_block_create_a_block() {
     let th = Setup::native().start().await.init_basic().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
 
-    let block = new_block(&board.id, BlockType::Board, "New title");
+    let block = new_block(&board.id, BlockType::View, "New title");
     let inserted = insert(&th.client, &board.id, std::slice::from_ref(&block)).await;
     assert_eq!(inserted.len(), 1, "one block is answered");
     assert!(!inserted[0].id.is_empty(), "it has an identifier");
@@ -1131,11 +1132,17 @@ async fn get_blocks_filters() {
 
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     let children = [
-        child_of(&card, BlockType::Text, "text"),
+        child_of(&card, BlockType::Attachment, "text"),
         child_of(&card, BlockType::Comment, "comment"),
-        child_of(&card, BlockType::from("h1"), "heading"),
     ];
     insert(&th.client, &board.id, &children).await;
+    // A block of a type the server does not know, as an older server stored it: no new
+    // block is made one.
+    let mut heading = [child_of(&card, BlockType::from("h1"), "heading")];
+    th.app
+        .insert_blocks(&mut heading, &th.stranger().await, ChangeNotification::Send)
+        .await
+        .expect("the older block is stored");
     insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card 2")).await;
     let children_of_card = format!("parentId={}", card.id);
 
@@ -1162,7 +1169,7 @@ async fn get_blocks_filters() {
         ("by type", "?type=card".to_owned(), vec!["card", "card 2"]),
         (
             "by type and parent",
-            format!("?type=text&{children_of_card}"),
+            format!("?type=attachment&{children_of_card}"),
             vec!["text"],
         ),
         (
@@ -1207,7 +1214,7 @@ async fn get_blocks_by_block_id() {
     let other_board = create_board_in_store(&th, BoardType::Open).await;
     let path = blocks_path(&board.id);
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
-    insert_one(&th.client, &child_of(&card, BlockType::Text, "text")).await;
+    insert_one(&th.client, &child_of(&card, BlockType::Attachment, "text")).await;
     let other_block = insert_one(
         &th.client,
         &new_block(&other_board.id, BlockType::Card, "other"),
@@ -1331,7 +1338,7 @@ async fn post_blocks_answer_and_stored_block() {
     let before = fvoci_server::auth::now_millis();
 
     let card = new_block(&board.id, BlockType::Card, "card");
-    let text = child_of(&card, BlockType::Text, "text");
+    let text = child_of(&card, BlockType::Attachment, "text");
     let response = th
         .client
         .insert_blocks(&board.id, &[card.clone(), text])
@@ -1403,7 +1410,11 @@ async fn post_blocks_without_identifiers_and_in_the_order_of_the_request() {
     let mut request: Vec<Block> = Vec::new();
     for index in 0..20 {
         let card = new_block(&board.id, BlockType::Card, &format!("card {index}"));
-        request.push(child_of(&card, BlockType::Text, &format!("text {index}")));
+        request.push(child_of(
+            &card,
+            BlockType::Attachment,
+            &format!("text {index}"),
+        ));
         request.push(card);
     }
     let made = insert(&th.client, &board.id, &request).await;
@@ -2049,7 +2060,7 @@ async fn delete_block_takes_the_children_along() {
     let board_id = &boards.board.id;
     let image = Block {
         fields: fields(json!({"fileId": "7abcdefghijklmnopqrstuvwxyz.png"})),
-        ..child_of(&content.card, BlockType::Image, "image")
+        ..child_of(&content.card, BlockType::Attachment, "image")
     };
     insert_one(&th.client, &image).await;
     insert_one(&th.client, &new_block(board_id, BlockType::Card, "card 2")).await;
@@ -2232,9 +2243,10 @@ async fn duplicate_block_refusals() {
 async fn post_blocks_larger_than_two_megabytes() {
     let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
+    // Views, whose fields may be that large.
     let big = |title: &str| Block {
         fields: fields(json!({"big": "a".repeat(750_000)})),
-        ..new_block(&board.id, BlockType::Card, title)
+        ..new_block(&board.id, BlockType::View, title)
     };
     let blocks = [big("1"), big("2"), big("3")];
     let size = serde_json::to_vec(&blocks).expect("blocks are JSON").len();
@@ -2330,7 +2342,7 @@ async fn block_changes_are_broadcast() {
 
     // Insert: one message per block, in order.
     let card = new_block(&board.id, BlockType::Card, "card");
-    let text = child_of(&card, BlockType::Text, "text");
+    let text = child_of(&card, BlockType::Attachment, "text");
     let inserted = insert(&th.client, &board.id, &[card, text]).await;
     let (card, text) = (&inserted[0], &inserted[1]);
     for block in [card, text] {
@@ -2476,7 +2488,7 @@ async fn block_changes_call_the_webhook() {
     let nothing: [(String, String); 0] = [];
 
     let card = new_block(&board.id, BlockType::Card, "card");
-    let text = child_of(&card, BlockType::Text, "text");
+    let text = child_of(&card, BlockType::Attachment, "text");
     let inserted = insert(&th.client, &board.id, &[card, text]).await;
     let (card, text) = (&inserted[0], &inserted[1]);
     assert_eq!(
@@ -2559,7 +2571,7 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
 
     let image = Block {
         fields: fields(json!({"fileId": "7aaaaaaaaaaaaaaaaaaaaaaaaaa.png"})),
-        ..new_block(&own.id, BlockType::Image, "")
+        ..new_block(&own.id, BlockType::Attachment, "")
     };
     for source in [foreign.id.as_str(), "no-such-board"] {
         let response = outsider
@@ -2682,4 +2694,167 @@ async fn delete_comment_by_its_author_or_by_an_admin_works() {
         "access denied to make board changes",
         "a commenter cannot delete at all"
     );
+}
+
+// -- the types of new blocks and the limits of their fields ------------------------------
+
+/// A new block is a card, a view, a comment or an attachment: the content blocks went
+/// with the card's content order (`docs/s6-design.md` 5.7). Any other type is refused
+/// as the type on the routes that make blocks, and nothing is stored.
+#[tokio::test]
+async fn a_new_block_of_another_type_is_refused() {
+    let th = Setup::one_user().start().await;
+    let board = create_board_in_store(&th, BoardType::Open).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
+    for name in [
+        "text",
+        "image",
+        "checkbox",
+        "divider",
+        "board",
+        "h1",
+        "list-item",
+    ] {
+        let fine = child_of(&card, BlockType::Attachment, "fine");
+        let block = child_of(&card, BlockType::from(name), name);
+        let response = th.client.insert_blocks(&board.id, &[fine, block]).await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], "type", "{name}");
+
+        let response = th
+            .client
+            .post(
+                "/boards-and-blocks",
+                &json!({
+                    "boards": [{"id": "b1", "teamId": TEST_TEAM_ID, "type": "O"}],
+                    "blocks": [{
+                        "id": "x1", "boardId": "b1", "type": name, "createAt": 1, "updateAt": 1,
+                    }],
+                }),
+            )
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], "type", "{name} with a board");
+    }
+    assert_eq!(
+        ids(&blocks_of(&th.client, &board.id).await),
+        [card.id.as_str()],
+        "the card alone"
+    );
+    th.teardown().await;
+}
+
+/// A patch, alone or in a batch, may not give a block one of those types. A block that
+/// an older server stored as one keeps its type and is changed like any other, also to
+/// a type that a new block may have.
+#[tokio::test]
+async fn a_patch_does_not_make_a_block_of_another_type() {
+    let th = Setup::one_user().start().await;
+    let board = create_board_in_store(&th, BoardType::Open).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
+    let to_text = BlockPatch {
+        block_type: Some(BlockType::Text),
+        ..BlockPatch::default()
+    };
+    let response = th
+        .client
+        .patch(&block_path(&board.id, &card.id), &to_text)
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], "type", "one patch");
+    let batch = BlockPatchBatch {
+        block_ids: vec![card.id.clone()],
+        block_patches: vec![to_text.clone()],
+    };
+    let response = th.client.patch(&blocks_path(&board.id), &batch).await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], "type", "a batch");
+    assert_eq!(
+        blocks_of(&th.client, &board.id).await[0].block_type,
+        BlockType::Card,
+        "still a card"
+    );
+
+    let mut older = [child_of(&card, BlockType::Text, "older")];
+    th.app
+        .insert_blocks(&mut older, &th.stranger().await, ChangeNotification::Send)
+        .await
+        .expect("the older block is stored");
+    let [older] = older;
+    let retitle = BlockPatch {
+        title: Some("retitled".to_owned()),
+        ..to_text
+    };
+    patch(&th.client, &older, &retitle).await;
+    let stored = th.app.block(&older.id).await.expect("the block is stored");
+    assert_eq!(
+        (stored.block_type, stored.title.as_str()),
+        (BlockType::Text, "retitled"),
+        "kept its type, changed its title"
+    );
+    let to_attachment = BlockPatch {
+        block_type: Some(BlockType::Attachment),
+        ..BlockPatch::default()
+    };
+    patch(&th.client, &older, &to_attachment).await;
+    let stored = th.app.block(&older.id).await.expect("the block is stored");
+    assert_eq!(
+        stored.block_type,
+        BlockType::Attachment,
+        "now an attachment"
+    );
+    th.teardown().await;
+}
+
+/// The serialized fields of a card, a comment or an attachment have at most 64,000
+/// characters, those of a view 800,000 (`docs/s6-design.md` 5.7), when the block is made
+/// and when it is patched.
+#[tokio::test]
+async fn the_fields_of_a_block_are_limited_by_its_type() {
+    let th = Setup::one_user().start().await;
+    let board = create_board_in_store(&th, BoardType::Open).await;
+    let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
+    // {"k":"<value>"} is the value and eight characters.
+    let sized = |block_type: BlockType, len: usize| Block {
+        fields: fields(json!({"k": "a".repeat(len)})),
+        ..child_of(&card, block_type, "sized")
+    };
+    for (block_type, limit) in [
+        (BlockType::Card, CARD_FIELDS_MAX_CHARS),
+        (BlockType::Comment, CARD_FIELDS_MAX_CHARS),
+        (BlockType::Attachment, CARD_FIELDS_MAX_CHARS),
+        (BlockType::View, BLOCK_FIELDS_MAX_CHARS),
+    ] {
+        insert(
+            &th.client,
+            &board.id,
+            &[sized(block_type.clone(), limit - 8)],
+        )
+        .await;
+        let response = th
+            .client
+            .insert_blocks(&board.id, &[sized(block_type.clone(), limit - 7)])
+            .await;
+        response.check_bad_request();
+        assert!(
+            response.value()["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("block fields size limit exceeded")),
+            "{block_type} over the limit: {}",
+            response.value()
+        );
+    }
+
+    let grow = BlockPatch {
+        updated_fields: fields(json!({"more": "b".repeat(CARD_FIELDS_MAX_CHARS)})),
+        ..BlockPatch::default()
+    };
+    let response = th
+        .client
+        .patch(&block_path(&board.id, &card.id), &grow)
+        .await;
+    response.check_bad_request();
+    let stored = th.app.block(&card.id).await.expect("the card is stored");
+    assert!(!stored.fields.contains_key("more"), "the card is as it was");
+    th.teardown().await;
 }

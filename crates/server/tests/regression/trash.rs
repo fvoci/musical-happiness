@@ -47,7 +47,7 @@ pub(crate) async fn trash(s: &mut Session) {
         &board,
         json!([
             block("m1", &board, "comment", "Comment", &card, json!({})),
-            block("t1", &board, "text", "Text", &card, json!({})),
+            block("t1", &board, "attachment", "Text", &card, json!({})),
         ]),
         "insert a comment and a text on the card",
     )
@@ -60,7 +60,7 @@ pub(crate) async fn trash(s: &mut Session) {
         json!([block(
             "d1",
             &board,
-            "text",
+            "attachment",
             "Below the comment",
             &comment,
             json!({})

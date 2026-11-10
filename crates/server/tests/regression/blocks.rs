@@ -29,7 +29,14 @@ pub(crate) async fn blocks(s: &mut Session) {
                 "",
                 json!({"icon": "x", "contentOrder": ["text1"]})
             ),
-            block("text1", &board, "text", "Some text", "card1", json!({})),
+            block(
+                "text1",
+                &board,
+                "attachment",
+                "Some text",
+                "card1",
+                json!({})
+            ),
             block(
                 "view1",
                 &board,
@@ -55,13 +62,13 @@ pub(crate) async fn blocks(s: &mut Session) {
         .await;
     s.get(
         "list: by parent and type",
-        &format!("{path}?parentId={card}&type=text"),
+        &format!("{path}?parentId={card}&type=attachment"),
     )
     .user(&alice)
     .await;
     s.get(
         "list: the old name of the parameter is no filter",
-        &format!("{path}?parent_id={card}&type=text"),
+        &format!("{path}?parent_id={card}&type=attachment"),
     )
     .user(&alice)
     .await;
@@ -298,7 +305,7 @@ pub(crate) async fn blocks(s: &mut Session) {
         &alice,
         &second,
         json!([
-            block("t1", &second, "text", "Text of A", "a", json!({})),
+            block("t1", &second, "attachment", "Text of A", "a", json!({})),
             block(
                 "a",
                 &second,
@@ -307,7 +314,7 @@ pub(crate) async fn blocks(s: &mut Session) {
                 "",
                 json!({"contentOrder": ["t1"]})
             ),
-            block("t2", &second, "text", "Text of B", "b", json!({})),
+            block("t2", &second, "attachment", "Text of B", "b", json!({})),
             block(
                 "b",
                 &second,
@@ -432,9 +439,9 @@ pub(crate) async fn cards(s: &mut Session) {
         &alice,
         &board,
         json!([
-            block("t1", &board, "text", "one", &card, json!({})),
-            block("t2", &board, "text", "two", &card, json!({})),
-            block("t3", &board, "text", "three", &card, json!({})),
+            block("t1", &board, "attachment", "one", &card, json!({})),
+            block("t2", &board, "attachment", "two", &card, json!({})),
+            block("t3", &board, "attachment", "three", &card, json!({})),
         ]),
         "insert content",
     )
@@ -446,45 +453,11 @@ pub(crate) async fn cards(s: &mut Session) {
         .json(json!({"contentOrder": [one, two, three]}))
         .user(&alice)
         .await;
-    let moving = format!("{API}/content-blocks");
+    // The route that moved content blocks is gone: a card's content is its body.
     s.post(
-        "move after",
-        &format!("{moving}/{one}/moveto/after/{three}"),
+        "move: the route is gone",
+        &format!("{API}/content-blocks/{one}/moveto/after/{three}"),
     )
     .user(&alice)
-    .await;
-    s.get("card after move", &card_path).user(&alice).await;
-    s.post(
-        "move before",
-        &format!("{moving}/{three}/moveto/before/{two}"),
-    )
-    .user(&alice)
-    .await;
-    s.get("card after second move", &card_path)
-        .user(&alice)
-        .await;
-    s.post(
-        "move: bad direction",
-        &format!("{moving}/{one}/moveto/sideways/{two}"),
-    )
-    .user(&alice)
-    .await;
-    s.post(
-        "move: unknown block",
-        &format!("{moving}/unknown-block/moveto/after/{two}"),
-    )
-    .user(&alice)
-    .await;
-    s.post(
-        "move: unknown target",
-        &format!("{moving}/{one}/moveto/after/unknown-block"),
-    )
-    .user(&alice)
-    .await;
-    s.post(
-        "move: viewer",
-        &format!("{moving}/{one}/moveto/after/{two}"),
-    )
-    .user(&bob)
     .await;
 }

@@ -40,8 +40,6 @@ parameter!(CategoryId: Path "categoryId", String, True, "The identifier of the c
 parameter!(UserId: Path "userId", String, True, "The identifier of the user.");
 parameter!(FileId: Path "fileId", String, True, "The identifier of the file, as the upload answered it. It is no UUID: an unguessable name that ends in the file's extension.");
 parameter!(SubscriberId: Path "subscriberId", String, True, "The identifier of the subscriber: the user of the session.");
-parameter!(MoveWhere: Path "where", String, True, "Where the block goes: `before` or `after` the other one.");
-parameter!(DestinationBlockId: Path "dstBlockId", String, True, "The identifier of the block the moved one is put next to.");
 
 // -- in the query ----------------------------------------------------------------------
 
