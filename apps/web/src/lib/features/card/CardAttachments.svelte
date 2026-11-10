@@ -1,0 +1,207 @@
+<!--
+  The files attached to a card: their names and sizes, each a link that
+  fetches the file; and, where the reader may edit, attaching more (the
+  button, or files dropped on this part of the card; several at once),
+  following an upload while it runs, giving it up, and deleting a file.
+
+  A deleted attachment can be brought back with "Undo" (the card's menu), so
+  deleting does not ask first. An upload that failed stays in the list,
+  marked, until the reader dismisses it.
+-->
+<script lang="ts">
+  import FileTextIcon from '@lucide/svelte/icons/file-text';
+  import PaperclipIcon from '@lucide/svelte/icons/paperclip';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import UploadIcon from '@lucide/svelte/icons/upload';
+  import XIcon from '@lucide/svelte/icons/x';
+
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import { humanFileSize } from '$lib/logic/format.ts';
+  import type { BoardStore, CardStore, Upload } from '$lib/state/index.ts';
+  import { Button } from '$lib/ui/button/index.js';
+
+  interface Props {
+    board: BoardStore;
+    card: CardStore;
+  }
+
+  let { board, card }: Props = $props();
+
+  const uid = $props.id();
+  const editable = $derived(board.canEdit);
+
+  let input = $state<HTMLInputElement>();
+  /** Files are being dragged over this part of the card. */
+  let over = $state(false);
+  /** How many elements of this part the drag is inside of: it enters a child before it leaves the parent. */
+  let inside = 0;
+
+  function attach(files: Iterable<File> | null | undefined): void {
+    for (const file of files ?? []) void card.attach(file);
+  }
+
+  const carriesFiles = (event: DragEvent): boolean =>
+    editable && (event.dataTransfer?.types.includes('Files') ?? false);
+
+  function ondragenter(event: DragEvent): void {
+    if (!carriesFiles(event)) return;
+    inside += 1;
+    over = true;
+  }
+
+  function ondragover(event: DragEvent): void {
+    // Saying so is what makes this a place to drop on.
+    if (carriesFiles(event)) event.preventDefault();
+  }
+
+  function ondragleave(event: DragEvent): void {
+    if (!carriesFiles(event)) return;
+    inside = Math.max(0, inside - 1);
+    over = inside > 0;
+  }
+
+  function ondrop(event: DragEvent): void {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    inside = 0;
+    over = false;
+    attach(event.dataTransfer?.files);
+  }
+
+  const percent = (upload: Upload): number =>
+    upload.totalBytes > 0
+      ? Math.min(100, Math.round((upload.sentBytes / upload.totalBytes) * 100))
+      : 0;
+</script>
+
+{#if editable || card.attachments.length > 0}
+  <section
+    aria-labelledby="{uid}-heading"
+    class={[
+      'flex flex-col gap-2 border-t pt-5',
+      over && 'rounded-lg outline-2 outline-offset-4 outline-ring outline-dashed',
+    ]}
+    data-testid="card-attachments"
+    data-over={over ? '' : undefined}
+    {ondragenter}
+    {ondragover}
+    {ondragleave}
+    {ondrop}
+  >
+    <div class="flex min-h-8 items-center gap-2">
+      <h3 id="{uid}-heading" class="min-w-0 flex-1 font-semibold">
+        {m.card_attachments()}
+        <span class="font-normal text-muted-foreground">{card.attachments.length}</span>
+      </h3>
+      {#if editable}
+        <Button
+          variant="outline"
+          class="roomy:min-h-touch"
+          data-testid="attach"
+          onclick={() => input?.click()}
+        >
+          <PaperclipIcon data-icon="inline-start" aria-hidden="true" />
+          {m['CardDetail.Attach']()}
+        </Button>
+        <input
+          bind:this={input}
+          type="file"
+          multiple
+          class="sr-only"
+          tabindex="-1"
+          aria-hidden="true"
+          data-testid="attach-input"
+          onchange={(event) => {
+            attach(event.currentTarget.files);
+            // The same file can be chosen again.
+            event.currentTarget.value = '';
+          }}
+        />
+      {/if}
+    </div>
+
+    {#if over}
+      <p class="text-muted-foreground">{m.card_attachment_drop()}</p>
+    {/if}
+
+    {#if card.attachments.length > 0}
+      <ul class="flex flex-col gap-2">
+        {#each card.attachments as attachment (attachment.id)}
+          {@const url = card.fileUrl(attachment.fileId)}
+          <li
+            class="flex items-center gap-3 rounded-lg border py-1 pr-1 pl-3"
+            data-attachment={attachment.id}
+          >
+            <FileTextIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div class="min-w-0 flex-1 py-0.5">
+              {#if url}
+                <a
+                  href={url}
+                  download={attachment.name}
+                  title={m.card_attachment_download({ name: attachment.name })}
+                  class="block truncate underline-offset-2 hover:underline roomy:py-1"
+                >
+                  {attachment.name}
+                </a>
+              {:else}
+                <p class="truncate">{attachment.name}</p>
+              {/if}
+              <p class="text-xs text-muted-foreground">{humanFileSize(attachment.size)}</p>
+            </div>
+            {#if editable}
+              <IconButton
+                label={m.card_attachment_delete({ name: attachment.name })}
+                onclick={() => void card.deleteAttachment(attachment.id)}
+              >
+                <Trash2Icon aria-hidden="true" />
+              </IconButton>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    {/if}
+
+    <ul class="flex flex-col gap-2 empty:hidden" aria-live="polite" data-testid="card-uploads">
+      {#each card.uploads as upload (upload.id)}
+        <li
+          class="flex items-center gap-3 rounded-lg border border-dashed py-1 pr-1 pl-3"
+          data-upload={upload.name}
+          data-failed={upload.failed ? '' : undefined}
+        >
+          <UploadIcon class="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <div class="min-w-0 flex-1 py-0.5">
+            <p class="truncate">{upload.name}</p>
+            {#if upload.failed}
+              <p class="text-xs text-destructive">{m.card_upload_failed()}</p>
+            {:else}
+              <div
+                role="progressbar"
+                aria-label={m.card_upload_progress({ name: upload.name })}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={percent(upload)}
+                class="mt-1.5 mb-1 h-1.5 overflow-hidden rounded-full bg-muted"
+              >
+                <div
+                  class="h-full rounded-full bg-primary transition-[width]"
+                  style:width="{percent(upload)}%"
+                ></div>
+              </div>
+            {/if}
+          </div>
+          <IconButton
+            label={upload.failed
+              ? m.card_upload_dismiss({ name: upload.name })
+              : m.card_upload_cancel({ name: upload.name })}
+            onclick={() => {
+              upload.cancel();
+            }}
+          >
+            <XIcon aria-hidden="true" />
+          </IconButton>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}

@@ -116,6 +116,7 @@
     {board}
     {view}
     cardId={router.route.cardId}
+    onOpenCard={openCard}
     onClose={() => {
       router.closeCard();
     }}
