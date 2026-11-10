@@ -1,6 +1,6 @@
 # 서버의 설정
 
-적은 때: 2026-11-11 04:58 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
+적은 때: 2026-11-11 05:05 KST, 고친 때: 05:36 KST. 서버(`fvoci-server`)가 읽는 설정의 전부다. 코드는 `crates/server/src/config.rs`다.
 
 이 문서는 코드와 함께 검사된다. `config.rs`의 테스트 `the_configuration_document_lists_every_key`가 다음을 견준다.
 
@@ -18,14 +18,14 @@
 1. **설정 파일.** JSON 객체 하나다. 자리는 명령줄의 `--config`로 주며 기본은 `./config.json`이다.
    - 키는 대소문자를 가리지 않는다(`serverRoot`와 `serverroot`는 같다). `filess3config` 안의 키도 같다.
    - 모르는 키는 말없이 무시한다(원본 서버의 설정 파일을 그대로 쓸 수 있게).
-   - 값의 타입이 틀리면 서버가 시작하지 않는다.
+   - 값의 타입이 틀리면 서버가 시작하지 않는다(`filess3config`가 객체가 아닌 것도).
 2. **환경 변수.** `FVOCI_`에 키를 대문자로 이은 이름이다(예: `FVOCI_SESSION_IDLE_DAYS`). 아래 표의 "환경 변수" 칸에 이름이 있는 키만 바꿀 수 있다.
    - 수는 정수로 읽는다.
    - 참·거짓은 `true`·`1`·`t`·`yes`·`on`과 `false`·`0`·`f`·`no`·`off`로 읽는다.
    - 목록은 쉼표로 나눈다.
 3. **명령줄 인자.** `--port`, `--dbtype`, `--dbconfig` 셋이다(아래 "명령줄 인자"). 빈 값이나 0은 무시한다.
 
-읽은 뒤에 서버는 값을 검사하고, 받을 수 없는 값이 있으면 시작하지 않는다. 표의 "뜻과 범위" 칸이 그 범위다. "받지만 아무 일도 하지 않는" 키는 따로 표시했다.
+읽은 뒤에 서버는 값을 검사하고, 받을 수 없는 값이 있으면 시작하지 않는다. 받는 범위는 표의 "타입" 칸과 "뜻과 범위" 칸에 있다. "받지만 아무 일도 하지 않는" 키는 따로 표시했다.
 
 "기본값" 칸은 JSON으로 적는다. 키를 빼면 그 값이다.
 
@@ -33,8 +33,8 @@
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
-| `serverRoot` | `FVOCI_SERVERROOT` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로 아래에 놓인다. 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
-| `port` | `FVOCI_PORT` | 정수(1–65535) | `8000` | 들을 포트 |
+| `serverRoot` | `FVOCI_SERVERROOT` | 문자열 | `"http://localhost:8000"` | 사용자가 서버에 닿는 주소다. 경로가 있으면 웹앱이 그 경로를 자기 주소의 기준으로 쓴다. 서버가 실제로 그 경로 아래에서 답하게 하는 것은 `FVOCI_HTTP_SERVER_BASEPATH`(아래 "그 밖의 환경 변수")이므로 둘을 같게 준다. 경로를 떼어 넘기는 프록시 뒤라면 그 변수는 비워 둔다. 바꾸는 요청과 WebSocket이 받아들이는 출처(`Origin`)가 이 주소에서 나온다. `https://`로 시작하면 세션 쿠키가 `Secure`가 되고 이름이 `__Host-fvoci_session`이 된다. 출처로 읽을 수 없는 주소면 시작하지 않는다 |
+| `port` | `FVOCI_PORT` | 정수(1–65535) | `8000` | 들을 포트. 0이면 시작하지 않는다 |
 | `localOnly` | `FVOCI_LOCALONLY` | 참·거짓 | `false` | 참이면 루프백(`localhost`)에서만 듣는다. 거짓이면 모든 인터페이스(IPv6, 안 되면 IPv4)에서 듣는다 |
 | `useSSL` | `FVOCI_USESSL` | 참·거짓 | `false` | 참이면 서버가 직접 HTTPS를 연다. 인증서는 작업 디렉터리의 `./cert/cert.pem`과 `./cert/key.pem`이다 |
 | `webpath` | `FVOCI_WEBPATH` | 문자열 | `"./pack"` | 웹앱의 빌드 산출물이 든 디렉터리(`index.html`과 `static/`) |
@@ -55,7 +55,7 @@
 |---|---|---|---|---|
 | `filesdriver` | `FVOCI_FILESDRIVER` | 문자열 | `"local"` | `local`(디스크) 또는 `amazons3`(S3와 S3 호환 저장소). 그 밖의 값이면 시작하지 않는다 |
 | `filespath` | `FVOCI_FILESPATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리 |
-| `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(바이트) | `0` | 올릴 수 있는 파일의 가장 큰 크기. 0이면 한도가 없다 |
+| `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(바이트) | `0` | 올릴 수 있는 파일의 가장 큰 크기. 0 이하면 한도가 없다 |
 | `filess3config.accesskeyid` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `filess3config.secretaccesskey` | — | 문자열 | `""` | 비밀 키. `accesskeyid`가 있을 때만 쓴다. 로그에 남기지 않는다 |
 | `filess3config.bucket` | — | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다 |
@@ -63,7 +63,7 @@
 | `filess3config.region` | — | 문자열 | `""` | 버킷의 리전. 비우면 S3 클라이언트의 기본값이다 |
 | `filess3config.endpoint` | — | 문자열 | `""` | AWS가 아닌 S3 호환 저장소의 호스트(포트 포함, 스킴 없이). 있으면 경로 방식(`호스트/버킷/키`)으로 부른다. 비우면 AWS다 |
 | `filess3config.ssl` | — | 참·거짓 | `false` | `endpoint`에 HTTPS로 닿는지. 거짓이면 HTTP도 허락한다 |
-| `filess3config.signv2` | — | 참·거짓 | `false` | 옛 서명 방식 v2. **받지 않는다**: 참이면 시작하지 않는다(요청은 v4로 서명한다) |
+| `filess3config.signv2` | — | 참·거짓 | `false` | 옛 서명 방식 v2. **받지 않는다**: `filesdriver`가 `amazons3`인데 참이면 시작하지 않는다(요청은 v4로 서명한다) |
 | `filess3config.sse` | — | 참·거짓 | `false` | 참이면 저장하는 객체에 서버 쪽 암호화(SSE-S3, `AES256`)를 청한다 |
 | `filess3config.trace` | — | 참·거짓 | `false` | **받지만 아무 일도 하지 않는다**(원본 서버에서는 S3 요청마다 로그를 남겼다) |
 | `filess3config.timeout` | — | 정수(밀리초) | `0` | S3 요청의 시간 제한. 0 이하면 클라이언트의 기본값이다 |
@@ -169,7 +169,7 @@ AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… fvoci-server --config config.jso
 
 ## 없앤 키
 
-원본 서버에 있었고 이 서버에는 없는 키다. 파일이나 환경 변수(`FVOCI_` + 대문자)가 이 키에 뜻이 있는 값(빈 문자열, 0, `false`, `null`, 빈 목록이 아닌 것)을 주면 **서버가 시작하지 않는다**. 말없이 무시하면 운영자가 적은 것과 다르게 돌기 때문이다.
+원본 서버에 있었고 이 서버에는 없는 키다. 파일이 이 키에 뜻이 있는 값(빈 문자열, 0, `false`, `null`, 빈 목록이 아닌 것)을 주거나, 환경 변수(`FVOCI_` + 대문자)가 비어 있지 않으면(`false`나 `0`이어도) **서버가 시작하지 않는다**. 말없이 무시하면 운영자가 적은 것과 다르게 돌기 때문이다.
 
 | 키 | 대신 |
 |---|---|

@@ -54,13 +54,13 @@ async fn listed(client: &Client, board_id: &str, card_id: &str) -> (bool, u64, u
         .get(&format!("/boards/{board_id}/cards"))
         .await
         .value();
+    let Value::Array(cards) = cards else {
+        panic!("a list: {cards}");
+    };
     let card = cards
-        .as_array()
-        .expect("a list")
-        .iter()
+        .into_iter()
         .find(|card| card["id"] == json!(card_id))
-        .unwrap_or_else(|| panic!("{card_id} is listed: {cards}"))
-        .clone();
+        .unwrap_or_else(|| panic!("{card_id} is listed"));
     let count = |name: &str| {
         card[name]
             .as_u64()
@@ -378,6 +378,8 @@ async fn the_routes_of_blocks_refuse_a_body() {
                "body": body})
     };
     let empty = json!({"type": "doc", "content": [{"type": "paragraph"}]});
+    let teams_boards = format!("/teams/{TEST_TEAM_ID}/boards");
+    let boards_before = th.client.get(&teams_boards).await.value();
 
     // A document, an empty one and something that is none: all refused as a body.
     for body in [document(), empty, json!("text")] {
@@ -424,6 +426,15 @@ async fn the_routes_of_blocks_refuse_a_body() {
             .await;
         check_refused_member(&response, "body");
     }
+    // Nothing of the refused requests was stored: no block, no board, no new title.
+    let stored = th.client.get(&blocks).await.value();
+    let stored = stored.as_array().expect("a list of blocks");
+    assert_eq!(stored.len(), 1, "only the card: {stored:?}");
+    assert_eq!(
+        th.client.get(&teams_boards).await.value(),
+        boards_before,
+        "no board was made or renamed"
+    );
     // A block without a body, or with `null`, is made as before.
     th.client
         .post(&blocks, &[block(&Value::Null)])

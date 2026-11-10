@@ -458,11 +458,15 @@ impl Configuration {
             bail!("the configuration must be a JSON object");
         };
         let mut keys = lower_case_keys(file);
-        if let Some(Value::Object(s3)) = keys.remove("filess3config") {
-            keys.insert(
-                "filess3config".to_owned(),
-                Value::Object(lower_case_keys(s3)),
-            );
+        match keys.remove("filess3config") {
+            Some(Value::Object(s3)) => {
+                keys.insert(
+                    "filess3config".to_owned(),
+                    Value::Object(lower_case_keys(s3)),
+                );
+            }
+            None | Some(Value::Null) => {}
+            Some(_) => bail!("filess3config must be a JSON object"),
         }
 
         for (key, kind) in ENV_KEYS {
@@ -516,6 +520,9 @@ impl Configuration {
         }
         // Zero does not mean "no limit": a server that takes bodies of any size is not
         // something to end up with by leaving a number out.
+        if self.port == 0 {
+            bail!("port must be 1 to 65535, not 0");
+        }
         if self.max_request_bytes == 0 {
             bail!("max_request_bytes must be a positive number of bytes, not 0");
         }
@@ -709,6 +716,18 @@ mod tests {
             Vec::<String>::new(),
             "the defaults cause no warning"
         );
+    }
+
+    #[test]
+    fn a_port_of_zero_and_s3_settings_that_are_no_object_are_refused() {
+        let config = Configuration::parse(r#"{"port": 0}"#, no_env).expect("read");
+        let error = config.check().expect_err("port 0 is refused");
+        assert!(error.to_string().contains("port"), "{error}");
+        let error = Configuration::parse(r#"{"filesS3Config": "x"}"#, no_env)
+            .err()
+            .expect("a string is no S3 settings");
+        assert!(error.to_string().contains("filess3config"), "{error}");
+        Configuration::parse(r#"{"filesS3Config": null}"#, no_env).expect("null is no settings");
     }
 
     /// A file written for the original server, with its unknown keys, but for the
@@ -1049,7 +1068,7 @@ mod tests {
     #[test]
     fn the_example_configuration_files_are_read() {
         // The configuration files of the repository: what is copied into the image.
-        let examples = vec!["docker/fvoci/config.json"];
+        let examples = ["docker/fvoci/config.json"];
         for path in examples {
             let config = Configuration::parse(&repository_file(path), no_env)
                 .unwrap_or_else(|error| panic!("{path} is read: {error:#}"));

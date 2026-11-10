@@ -883,6 +883,7 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 | 0 WebSocket 문서 | `12c22af..0803dd6` | Must 4, Should 7, Consider 9 | Must 4와 Should 6, Consider 6을 문서·테스트에 반영. `deleteBoardsAndBlocks`가 읽기 토큰 연결을 닫지 않는 것은 코드의 결함이라 `docs/contract-pending.md` 8절에 올리고 남은 결함을 고치는 tracer-bullet(12)에서 고친다 |
 | 1 카드의 본문 | `8134dc2..233431d` | Must 1, Should 6, Consider 7 | Must와 Should 모두 반영: 같은 밀리초의 두 쓰기가 `readAt`을 지나가던 것(고칠 때마다 `updateAt`이 커진다), 블록 경로가 검사 없이 본문을 받던 것(400 `field: body`), 카드 목록이 본문을 모두 읽던 것(요약 열을 읽는다), 휴지통 복원이 본문을 요청의 검증기로 다시 읽던 것, 설계와 다른 열 타입(PostgreSQL `JSONB`, SQLite `TEXT`. 올리기 전이라 `0002`를 고쳤다), 낡은 문서, 빠진 테스트(본문 없는 `readAt`, 블록 경로, 휴지통과 복제, 옛 DB의 이전, 1 MiB의 경계, `body: null`, 두 DB의 `0002` 일치). Consider 가운데 둘(파일 중간의 `use`, 모호한 주석) 반영. 멘션의 사용자 ID가 익명 독자에게 가는 것은 "사용자 결정 필요"로 `docs/contract-pending.md` 1절에 |
 | 1 반영분의 재검토 | `233431d..acc2030` | Must 1, Should 3, Consider 8 | Must와 Should 모두 반영: U+0000을 담은 본문이 PostgreSQL에서 500이던 것(검증이 거절하고 공유 벡터에 두 경우를 더함), 블록 경로가 빈 문서나 문서 아닌 본문을 `field` 없는 400으로 거절하던 것(디코딩 전에 원시 JSON에서 꺼내 거절), `updateAt`이 커지는 것과 저장된 할 일 수를 보는 테스트가 없던 것. Consider 가운데 넷 반영: 409보다 400이 먼저, 목록 열의 자리를 이름 붙인 상수와 테스트로, 블록용·패치용 거절 함수를 둘로, 계약의 `Block.body`·`BlockPatch.body` 설명. 128단보다 깊은 JSON이 `field` 없는 400인 것은 `docs/contract-pending.md` 1절에 적음 |
+| 1b 설정, 1 재검토분 | `acc2030..33d25e1` | Must 0, Should 5, Consider 6 | 모두 반영하되 하나는 빼고: 없앤 키를 환경 변수로 줄 때의 문서, 포트 0을 거절(`check`), 블록 경로의 테스트가 거절된 만들기와 보드 패치가 아무것도 남기지 않은 것을 봄, U+0000 벡터를 아는 속성의 값과 링크에(판 2의 벡터에 넣음), `serverRoot`의 경로와 `FVOCI_HTTP_SERVER_BASEPATH`, 400과 409의 순서를 실제대로 좁혀 적음, 객체가 아닌 `filess3config`를 거절, `signv2`와 음수 `maxfilesize`의 문서, 문서의 시각, 제목의 U+0000을 8절의 결함으로, 상수의 문서와 테스트의 복제 |
 
 **받지 않은 지적.**
 
@@ -896,6 +897,7 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 - TB1 재검토, `InvalidNode`의 문구가 사실처럼 읽힘(Consider): 검증기는 다음 tracer-bullet에서 허용 목록으로 다시 쓰고, 그때 문구를 잘못을 말하는 꼴로 바꾼다.
 - TB1 재검토, `createCard`가 읽기 전용인 `hasBody`·`tasksTotal`·`tasksDone`의 타입을 검사함(Consider): 계약에서 정수인 멤버에 다른 타입을 보내면 400인 것은 다른 읽기 전용 멤버(`createAt` 등)와 같다. 값은 서버가 다시 센다.
 - TB1 재검토, 빈 `attrs`를 가진 문단이 빈 문서로 보이지 않음, 크기·깊이·노드 수의 벡터가 없음(Consider): 둘 다 다음 tracer-bullet(허용 목록 전체와 벡터 판 2)의 일이다.
+- TB1b 리뷰, `createBlocks`가 `Vec<Value>`를 거쳐 읽어 같은 JSON 키가 두 번 오면 뒤의 것을 받음(Consider): `serde_json`이 블록으로 바로 읽을 때도 `Value`의 멤버(`fields` 등)에서는 같은 일을 한다. 해가 없고, 본문을 꺼내려면 거쳐야 한다.
 
 ## 작성 모델
 

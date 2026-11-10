@@ -32,10 +32,13 @@ const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"sc
                              fields, create_at, update_at, board_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
-/// Where [`LISTED_BLOCK_COLUMNS`] puts what it says of the body, after the columns of a
-/// block (the `NULL` stands for the body itself).
+// Where [`LISTED_BLOCK_COLUMNS`] puts what it says of the body, after the columns of a
+// block (the `NULL` stands for the body itself).
+/// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
 const LISTED_HAS_BODY: usize = 12;
+/// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.
 const LISTED_TASKS_TOTAL: usize = 13;
+/// The column of [`LISTED_BLOCK_COLUMNS`] with the body's checked task items.
 const LISTED_TASKS_DONE: usize = 14;
 
 /// The order of every list of blocks.
@@ -691,8 +694,9 @@ pub(crate) async fn patch_block(
     let mut block = get_block(scope, block_id).await?;
     let stored_update_at = block.update_at;
     patch.apply(&mut block);
-    // A patch that could not be stored at all is refused as such (400) before it is
-    // refused for being made against an older block (409), the order of every check.
+    // A patch whose block breaks the limits of a block (title, fields) is refused as
+    // such (400) before it is refused for being made against an older block (409). The
+    // checks of the parent still come after, in `insert_block_at`.
     block
         .validate()
         .map_err(|source| StoreError::InvalidBlock {
