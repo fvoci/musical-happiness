@@ -1,6 +1,6 @@
 # 내장 템플릿의 변환 산출물
 
-원본의 내장 템플릿 아카이브(`server/assets/templates.boardarchive`)를 새 서버가 받을 모양으로 바꾼 결과다. 서버 설계(`docs/s6-design.md` 5.7절의 "3.10의 갱신")가 정한 대로, 서버 저장소가 이 폴더를 `crates/server/assets/templates/`에 받아 내장 템플릿으로 쓴다. 이 README를 뺀 파일은 도구가 쓴 것이고 손으로 고치지 않는다.
+원본의 내장 템플릿 아카이브(`server/assets/templates.boardarchive`)를 새 서버가 받을 모양으로 바꾼 결과다. 서버 설계(저장소 루트의 `docs/s6-design.md` 5.7절의 "3.10의 갱신")가 정한 대로, 서버가 이 폴더를 저장소 루트의 `crates/server/assets/templates/`에 받아 내장 템플릿으로 쓴다. 이 README를 뺀 파일은 도구가 쓴 것이고 손으로 고치지 않는다.
 
 ```bash
 cd apps/web
@@ -29,7 +29,7 @@ node tools/templates/convert.ts --archive <파일> --write tools/templates/outpu
 
 ## 템플릿 파일의 모양 (임시)
 
-**타입은 임시다.** 서버의 계약(`contracts/openapi.json`)이 아직 없어서, 서버 설계 문서와 아카이브의 내용을 보고 `tools/templates/output.ts`에 손으로 적었다. 계약이 나오면 거기서 생성한 타입(보드, 블록, 본문)에 맞추고 다시 만든다.
+**타입은 임시다.** 서버의 계약이 없을 때 서버 설계 문서와 아카이브의 내용을 보고 `tools/templates/output.ts`에 손으로 적었다. 계약은 그 뒤에 나왔다(저장소 루트의 `contracts/openapi.json`). 거기서 생성한 타입(보드, 블록, 본문)에 맞추고 다시 만드는 일이 남아 있다.
 
 ```jsonc
 {

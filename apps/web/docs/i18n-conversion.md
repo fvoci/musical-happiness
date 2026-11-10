@@ -366,7 +366,7 @@ paraglide 3.2.1은 점과 하이픈이 있는 키를 그대로 받는다. 컴파
 
 <!-- /generated:removed-by-decision -->
 
-- `badge.guest`, `guest-no-board.*`: 게스트 계정의 배지와, 게스트가 볼 보드가 없을 때의 화면이다. 서버 설계 문서에는 게스트라는 말이 없다(서버 트랙의 `docs/s6-design.md`를 찾아봤다).
+- `badge.guest`, `guest-no-board.*`: 게스트 계정의 배지와, 게스트가 볼 보드가 없을 때의 화면이다. 서버 설계 문서에는 게스트라는 말이 없다(저장소 루트의 `docs/s6-design.md`를 찾아봤다).
 - `Error.mobileweb`: 모바일 웹 지원이 초기 베타라는 옛 제품의 안내다.
 - `SidebarTour.SidebarCategories.*`: 둘러보기의 한 단계로, 옛 제품의 v7.2 업그레이드가 사이드바와 워크스페이스에 한 일을 설명한다.
 

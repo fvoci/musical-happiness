@@ -1,11 +1,28 @@
 # 서버 인수인계
 
-고친 때: 2026-11-11 03:44 KST. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+고친 때: 2026-11-11 03:44 KST. 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+
+## 저장소가 하나로 합쳐졌다
+
+서버와 웹앱은 따로 갈라진 브랜치에서 만들어졌고, 2026-11-11에 `master`에서 합쳐졌다. 서버는 저장소 루트에(`crates/`, `xtask/`, `contracts/`, `docs/`), 웹앱은 `apps/web/`에 있다. 이 문서는 서버의 인수인계이고, 웹앱의 것은 `apps/web/docs/handoff.md`다.
+
+- **브랜치.** 일마다 `master`에서 워크트리를 새로 갈라 일하고, 끝나면 `master`에 합친다. 합치기 전의 브랜치 `server`와 `web`의 커밋은 모두 `master`에 들어 있다.
+- **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다(`git push origin <브랜치>`). 강제 푸시는 하지 않는다. 올라간 커밋은 고쳐 쓰지 않는다.
+- **검증 명령.** 양쪽 모두 저장소 루트에서 돌린다.
+
+  | 쪽 | 명령 | 명령의 설명과 기대 결과 |
+  |---|---|---|
+  | 서버 | `cargo xtask check`, `cargo xtask test` | 이 문서의 1절 |
+  | 웹앱 | `pnpm install --frozen-lockfile` 뒤에 `pnpm --filter web run check`, `test`, `build`, `e2e` | `apps/web/PORTING.md`의 "검증 명령"과 "마지막 검증". `pnpm`을 놓는 법은 `apps/web/docs/handoff.md`의 "도구가 있는 곳" |
+
+- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 `~/atlas/musical-happiness-carry/` 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브를 놓아야 컴파일되고, 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
+- **무시 규칙.** 저장소 루트의 `.gitignore`가 `target/`, `node_modules/`, 템플릿 아카이브를 무시한다. 웹앱의 빌드 산출물과 글꼴은 `apps/web/.gitignore`가 맡는다.
+- **컨테이너.** 필요할 때 만들고 그 일이 끝나면 닫는다. `cargo xtask test`가 PostgreSQL과 S3 컨테이너를 스스로 준비하고, 돌린 세션이 일을 마칠 때 멈춘다(2절). 웹앱의 검증은 컨테이너를 쓰지 않는다.
 
 ## 지금 상태
 
 - **서버.** 설계(`docs/s6-design.md`)의 "구현 순서" 1–7단계가 끝났다. 끝난 것은 오류 응답과 경로 규칙, 요청 크기 한도, 새 기준 스키마, 쿠키 인증, 로그인 시도 제한, 접두어 `/api/v1`, 계약 파일이다. 남은 것은 8단계와 9단계이고 6절에 적었다.
-- **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)다. 서버의 브랜치는 `server`, 웹앱의 브랜치는 `web`이고, 둘을 `master`로 합친 뒤 이어 간다. 일마다 워크트리를 새로 만들고 끝나면 `master`에 합친다.
+- **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
 - **새 워크트리에서는 서버가 컴파일되지 않는다.** 내장 템플릿의 아카이브 `server/assets/templates.boardarchive`가 저장소에 없기 때문이다(`crates/server/src/app/templates.rs`가 빌드할 때 읽는다). 이 파일은 커밋하지 않는다. 이 기기의 보관 폴더 `~/atlas/musical-happiness-carry/server/`에서 워크트리마다 제자리에 놓아 쓴다. 명령은 그 폴더의 `README.md` 3절에 있다. 다음 작업 묶음이 이 의존을 끊는다(6절).
 - **CI.** 이 저장소에는 워크플로 파일이 없다. 검증은 1절의 명령을 손으로 돌린다.
@@ -24,7 +41,7 @@
 | 스토어, 모델 | `crates/store/PORTING.md`, `crates/model/PORTING.md` |
 | CDN과 프록시 뒤에 둘 때 | `docs/fvoci-cdn.md` |
 | 웹앱의 계획 | 저장소 밖 `~/.claude/plans/fvoci-web-svelte.md` |
-| 웹앱의 편집기 스파이크, 날짜 모델, 계약에 대한 가정 | 웹앱의 문서 `apps/web/docs/spike-editor.md`, `apps/web/PORTING.md`, `apps/web/docs/contract-assumptions.md`. `master`로 합치기 전에는 `git show origin/web:<경로>`로 본다 |
+| 웹앱의 편집기 스파이크, 날짜 모델, 계약에 대한 가정 | 웹앱의 문서 `apps/web/docs/spike-editor.md`, `apps/web/PORTING.md`, `apps/web/docs/contract-assumptions.md` |
 | 원본(Focalboard의 Go 서버)과 견줄 때 쓰던 도구 | 7절 |
 
 ## 1. 검증
@@ -108,7 +125,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 ## 2. 이 기기의 상태
 
-**지금 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 다음 `cargo xtask test`가 둘을 새로 만든다. PostgreSQL은 `postgres:18`로 만들어진다.
+**평소에 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 그 뒤로는 `cargo xtask test`가 둘을 만들고(PostgreSQL은 `postgres:18`), 돌린 세션이 끝날 때 멈춘다. 멈춘 채 남아 있는 것은 다음 `cargo xtask test`가 다시 시작한다.
 
 **컨테이너를 쓰는 규칙(사용자 결정).**
 
@@ -212,7 +229,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 **웹앱 쪽에 전할 것.**
 
-- 계약 파일 `contracts/openapi.json`(브랜치 `server`, 합친 뒤에는 `master`)과 `docs/contract-pending.md`.
+- 계약 파일 `contracts/openapi.json`과 `docs/contract-pending.md`. 웹앱과 같은 트리에 있다.
 - 타입 생성은 웹앱 쪽이 한다. `openapi-typescript` 7.13.0이 이 파일을 받는 것은 확인했다.
 - 날짜 값의 시각 표기는 UTC 밀리초 정수다(설계 5.7).
 - WebSocket 메시지는 계약에 없다(`docs/contract-pending.md` 6절).
