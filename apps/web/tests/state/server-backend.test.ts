@@ -219,4 +219,36 @@ describe('changing a card on the server', () => {
     ]);
     expect(card().properties).toEqual({ a: '1', b: '2' });
   });
+
+  it('clears the last value with a new title: the title by the card patch, the values by the block', async () => {
+    const { sent, card } = oneCard({ a: '1' });
+    await new ServerBackend('').patchCard('b', 'c1', { title: 'T', deletedProperties: ['a'] });
+    expect(sent.filter((one) => one.method === 'PATCH').map((one) => [one.url, one.body])).toEqual([
+      ['/api/v1/cards/c1', { title: 'T' }],
+      ['/api/v1/boards/b/blocks/c1', { updatedFields: { properties: {} } }],
+    ]);
+    expect(card()).toMatchObject({ title: 'T', properties: {} });
+  });
+
+  it('sends nothing when the values come out as they were', async () => {
+    const { sent } = oneCard({});
+    const answer = await new ServerBackend('').patchCard('b', 'c1', { deletedProperties: ['x'] });
+    expect(sent.map((one) => one.method)).toEqual(['GET']);
+    expect(answer.id).toBe('c1');
+  });
+
+  it('keeps a clearing that was saved when only reading the card back fails', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      calls += 1;
+      if (calls === 3) return Promise.reject(new TypeError('offline'));
+      if (init.method === 'PATCH') return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(
+        new Response(JSON.stringify({ ...CARD, properties: { a: '1' } }), { status: 200 }),
+      );
+    });
+    const answer = await new ServerBackend('').patchCard('b', 'c1', { deletedProperties: ['a'] });
+    expect(calls).toBe(3);
+    expect(answer.fields.properties).toEqual({});
+  });
 });

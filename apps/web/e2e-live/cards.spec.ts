@@ -79,7 +79,10 @@ test('a card’s title and values are changed on the server, the last value take
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, {
     title: 'House',
-    cards: [{ title: 'Paint the shed', status: 'To do' }],
+    cards: [
+      { title: 'Paint the shed', status: 'To do' },
+      { title: 'Fix the gate', status: 'To do', note: 'the latch' },
+    ],
   });
   const cardId = board.cards['Paint the shed'] ?? '';
   const stored = async (): Promise<Schemas['Card']> =>
@@ -111,10 +114,26 @@ test('a card’s title and values are changed on the server, the last value take
   expect((await stored()).title).toBe('Paint the whole shed');
 
   await page.goBack();
+  await expect(dialog).toBeHidden();
+
+  // A card with another value: changing one keeps the other.
+  const gate = board.cards['Fix the gate'] ?? '';
+  await column(page, 'To do').getByText('Fix the gate').click();
+  await status.locator('[data-slot="property-select"]').click();
+  await page.getByRole('option', { name: 'Doing' }).click();
+  await expect
+    .poll(
+      async () =>
+        ((await (await api.get(`/api/v1/cards/${gate}`)).json()) as Schemas['Card']).properties,
+    )
+    .toEqual({ status: board.options.Doing, note: 'the latch' });
+  await page.goBack();
+
   await page.reload();
   await expect(page.getByText('Paint the whole shed')).toBeVisible();
   await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(0);
   await expect(column(page, 'Done').locator('[data-card]')).toHaveCount(0);
+  await expect(column(page, 'Doing').getByText('Fix the gate')).toBeVisible();
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();
   expect(errors).toEqual([]);

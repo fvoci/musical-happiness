@@ -105,12 +105,15 @@ export function watchErrors(page: Page): string[] {
   return errors;
 }
 
-/** What a test board is made of: one select property "Status", one kanban view grouped by it. */
+/**
+ * What a test board is made of: a select property "Status", a text property
+ * "Note", and one kanban view grouped by "Status".
+ */
 export interface BoardPlan {
   title: string;
   /** The options of "Status", in order. */
   statuses?: string[];
-  cards?: { title: string; status?: string }[];
+  cards?: { title: string; status?: string; note?: string }[];
   /** Other people to add, and the role each gets. */
   members?: { who: Person; role: 'viewer' | 'commenter' | 'editor' }[];
 }
@@ -153,6 +156,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
               color: 'propColorBlue',
             })),
           },
+          { id: 'note', name: 'Note', type: 'text', options: [] },
         ],
       },
     }),
@@ -186,9 +190,13 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
   const cards: Record<string, string> = {};
   for (const card of plan.cards ?? []) {
     const status = card.status === undefined ? undefined : options[card.status];
+    const properties = {
+      ...(status ? { status } : {}),
+      ...(card.note === undefined ? {} : { note: card.note }),
+    };
     const made = await json<Schemas['Card']>(
       await api.post(`/api/v1/boards/${board.id}/cards`, {
-        data: { title: card.title, properties: status ? { status } : {} },
+        data: { title: card.title, properties },
       }),
       `create card ${card.title}`,
     );

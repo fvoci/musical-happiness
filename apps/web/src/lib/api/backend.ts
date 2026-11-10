@@ -259,13 +259,20 @@ export class ServerBackend implements Backend, Account {
 
   /** A card without its body: the server keeps none yet (`docs/contract-pending.md`, 1). */
   async card(boardId: string, cardId: string): Promise<CardDetail> {
+    return cardDetailOf(await this.#card(boardId, cardId));
+  }
+
+  /**
+   * A card of this board. The route finds a card on any board the reader
+   * may see; a card of another board is not this board's (as the memory
+   * backend says): 404.
+   */
+  async #card(boardId: string, cardId: string): Promise<Schemas['Card']> {
     const card = await this.#http.request<Schemas['Card']>('/api/v1/cards/{cardId}', { cardId });
-    // The route finds a card on any board the reader may see; a card of
-    // another board is not this board's (as the memory backend says).
     if (card.boardId !== boardId) {
       throw new BackendError(404, { message: 'no such card on this board', reason: 'not_found' });
     }
-    return cardDetailOf(card);
+    return card;
   }
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
@@ -302,33 +309,42 @@ export class ServerBackend implements Backend, Account {
   }
 
   async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    const touchesValues =
-      Object.keys(patch.updatedProperties ?? {}).length > 0 ||
-      (patch.deletedProperties ?? []).length > 0;
     const request: Schemas['CardPatch'] = {};
     if (patch.title !== undefined) request.title = patch.title;
     if (patch.icon !== undefined) request.icon = patch.icon;
-    if (touchesValues) {
-      const current = await this.card(boardId, cardId);
-      const properties = applyCardPatch(current, patch).fields.properties;
-      if (Object.keys(properties).length === 0) {
-        const fields: Record<string, unknown> = { properties: {} };
-        if (patch.icon !== undefined) fields.icon = patch.icon;
-        await this.#http.request(
-          '/api/v1/boards/{boardId}/blocks/{blockId}',
-          { boardId, blockId: cardId },
-          {
-            method: 'PATCH',
-            json: {
-              updatedFields: fields,
-              ...(patch.title === undefined ? {} : { title: patch.title }),
-            },
-          },
-        );
-        return this.card(boardId, cardId);
-      }
-      request.updatedProperties = properties;
+    const touchesValues =
+      Object.keys(patch.updatedProperties ?? {}).length > 0 ||
+      (patch.deletedProperties ?? []).length > 0;
+    if (!touchesValues) return this.#sendCardPatch(cardId, request);
+
+    const current = cardOf(await this.#card(boardId, cardId));
+    const changed = applyCardPatch(current, patch);
+    const properties = changed.fields.properties;
+    const same = JSON.stringify(properties) === JSON.stringify(current.fields.properties);
+    if (Object.keys(properties).length > 0 || same) {
+      // Values that stay as they are need not be sent (an empty list would not clear them anyway).
+      if (!same) request.updatedProperties = properties;
+      return Object.keys(request).length === 0 ? current : this.#sendCardPatch(cardId, request);
     }
+
+    // No value left: the card patch cannot clear the last one (H6), the
+    // card's block can. Title and icon still go by the card patch, which
+    // checks them.
+    if (Object.keys(request).length > 0) await this.#sendCardPatch(cardId, request);
+    await this.#http.request(
+      '/api/v1/boards/{boardId}/blocks/{blockId}',
+      { boardId, blockId: cardId },
+      { method: 'PATCH', json: { updatedFields: { properties: {} } } },
+    );
+    try {
+      return cardOf(await this.#card(boardId, cardId));
+    } catch {
+      // Saved; only reading it back failed. What was sent is what it is.
+      return changed;
+    }
+  }
+
+  async #sendCardPatch(cardId: string, request: Schemas['CardPatch']): Promise<CardSummary> {
     const card = await this.#http.request<Schemas['Card']>(
       '/api/v1/cards/{cardId}',
       { cardId },
