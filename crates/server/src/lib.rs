@@ -181,15 +181,15 @@ impl Server {
     /// Serves connections from `listener` until `shutdown` completes, then waits for
     /// notifications in flight and closes the database.
     ///
-    /// Connections are served over TLS if the configuration has `usessl` and the
-    /// certificate and key files exist. While serving, the administration socket is open
+    /// Connections are served over TLS if the configuration has `usessl`. While serving, the administration socket is open
     /// if the configuration has `enablelocalmode`, and sessions that are no longer used
     /// are deleted every ten minutes.
     ///
     /// # Errors
     ///
-    /// Returns an error if the certificate or the key cannot be used, the administration
-    /// socket cannot be opened, or accepting connections fails.
+    /// Returns an error, before any connection is accepted, if `usessl` is set and the
+    /// certificate or the key is missing or cannot be used, or the administration socket
+    /// cannot be opened. Returns an error if accepting connections fails.
     pub async fn serve(
         self,
         listener: tokio::net::TcpListener,
@@ -255,21 +255,25 @@ impl Server {
     }
 
     /// The TLS settings to serve with, or `None` to serve plain HTTP.
+    ///
+    /// With `usessl` a missing certificate or key is an error. The original serves plain
+    /// HTTP then, without a word (`server/web/webserver.go:113`): an operator who asked
+    /// for TLS would be sending sessions and passwords in the clear without knowing.
     fn tls_config(&self) -> anyhow::Result<Option<tls::ServerConfig>> {
         if !self.app.config().use_ssl {
             return Ok(None);
         }
-        if !self.tls_files.exist() {
-            // Preserved quirk: the original serves plain HTTP without a word when `usessl`
-            // is set and a file is missing (`server/web/webserver.go:113`). The warning is
-            // this server's own.
-            tracing::warn!(
-                certificate = %self.tls_files.certificate.display(),
-                key = %self.tls_files.key.display(),
-                "usessl is set, but the certificate and key files do not both exist; \
-                 serving plain HTTP without TLS"
+        let missing = self.tls_files.missing();
+        if !missing.is_empty() {
+            let missing: Vec<String> = missing
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect();
+            bail!(
+                "usessl is set, but there is no file {}; provide the certificate and the key, \
+                 or turn usessl off to serve plain HTTP",
+                missing.join(" and no file ")
             );
-            return Ok(None);
         }
         self.tls_files.load().map(Some)
     }

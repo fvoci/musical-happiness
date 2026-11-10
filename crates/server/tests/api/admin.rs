@@ -560,10 +560,11 @@ async fn use_ssl_failed_handshakes_do_not_disturb_the_server() {
     let _ = std::fs::remove_dir_all(&directory);
 }
 
-/// Preserved quirk of `server/web/webserver.go:113`: with `usessl` but without the
-/// certificate files the server serves plain HTTP.
+/// Not in the original, which serves plain HTTP when `usessl` is set and the files are
+/// missing (`server/web/webserver.go:113`). An operator who asked for TLS must not end up
+/// serving sessions and passwords in the clear: the server refuses to serve.
 #[tokio::test]
-async fn use_ssl_without_certificate_files_serves_plain_http() {
+async fn use_ssl_without_certificate_files_refuses_to_serve() {
     let directory = certificate_directory();
     let tls_files = TlsFiles {
         certificate: directory.join("cert.pem"),
@@ -574,6 +575,60 @@ async fn use_ssl_without_certificate_files_serves_plain_http() {
         .configure(|config| config.use_ssl = true)
         .start()
         .await;
+    let port = port_of(&th);
+
+    let error = th.stop().await.expect_err("serving is refused");
+
+    let message = format!("{error:#}");
+    for expected in ["usessl is set", "cert.pem", "key.pem", "turn usessl off"] {
+        assert!(
+            message.contains(expected),
+            "{expected:?} is missing from the refusal: {message}"
+        );
+    }
+    assert!(
+        reqwest::Client::new()
+            .get(format!("http://localhost:{port}/hello"))
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await
+            .is_err(),
+        "nothing is served, in particular not plain HTTP"
+    );
+}
+
+/// One of the two files is not enough, and the refusal names the one that is missing.
+#[tokio::test]
+async fn use_ssl_with_a_certificate_but_no_key_refuses_to_serve() {
+    let directory = certificate_directory();
+    let (tls_files, _root) = write_certificate(&directory);
+    std::fs::remove_file(&tls_files.key).expect("the key file is removed");
+    let th = Setup::native()
+        .tls_files(tls_files)
+        .configure(|config| config.use_ssl = true)
+        .start()
+        .await;
+
+    let error = th.stop().await.expect_err("serving is refused");
+
+    let message = format!("{error:#}");
+    assert!(message.contains("key.pem"), "the missing file: {message}");
+    assert!(
+        !message.contains("cert.pem"),
+        "the file that is there is not named: {message}"
+    );
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// Without `usessl` the certificate files are not looked at: plain HTTP, as asked.
+#[tokio::test]
+async fn without_use_ssl_missing_certificate_files_do_not_matter() {
+    let directory = certificate_directory();
+    let tls_files = TlsFiles {
+        certificate: directory.join("cert.pem"),
+        key: directory.join("key.pem"),
+    };
+    let th = Setup::native().tls_files(tls_files).start().await;
 
     let response = Client::send(th.client.raw_request(Method::GET, "/hello")).await;
 

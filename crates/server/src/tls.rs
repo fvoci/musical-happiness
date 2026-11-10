@@ -51,9 +51,13 @@ impl Default for TlsFiles {
 }
 
 impl TlsFiles {
-    /// Returns whether both files exist.
-    pub(crate) fn exist(&self) -> bool {
-        self.certificate.is_file() && self.key.is_file()
+    /// The files that are not there, for the refusal to start without them.
+    pub(crate) fn missing(&self) -> Vec<&std::path::Path> {
+        [&self.certificate, &self.key]
+            .into_iter()
+            .filter(|path| !path.is_file())
+            .map(PathBuf::as_path)
+            .collect()
     }
 
     /// Reads the files into the settings of a TLS listener: TLS 1.2 and 1.3, no

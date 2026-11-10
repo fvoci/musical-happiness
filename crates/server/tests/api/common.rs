@@ -277,6 +277,16 @@ impl TestServer {
         self.client.post("/boards", &board).await.ok_json()
     }
 
+    /// Stops the server, removes its database and files, and returns how serving ended.
+    /// For servers that are expected to refuse to serve.
+    pub(crate) async fn stop(self) -> anyhow::Result<()> {
+        let _ = self.shutdown.send(());
+        let served = self.serving.await.expect("the server task does not panic");
+        self.database.remove().await;
+        let _ = std::fs::remove_dir_all(&self.directory);
+        served
+    }
+
     /// Stops the server and removes its database and files. The counterpart of
     /// `TearDown`.
     pub(crate) async fn teardown(self) {

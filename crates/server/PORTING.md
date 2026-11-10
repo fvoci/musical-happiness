@@ -111,7 +111,7 @@
 | `integrationtests/compliance_test.go` (3개 함수, 16케이스) | `admin::get_boards_for_compliance_is_refused_in_standalone_mode` 등 3건 | 플러그인 모드 전용. "비로그인 거절", "권한 없는 사용자 거절"만 standalone 응답으로 확인 |
 | `utils/callbackqueue_test.go` | — | 큐를 tokio 태스크 추적으로 바꿔 대응 코드가 없다 |
 
-추가한 테스트: `admin::socket::*`(비밀번호 설정, 사용자 이름 디코딩, 빈 비밀번호 거절, 72바이트 초과 거절, 없는 사용자·잘못된 본문 500, 소켓에는 관리자 라우트만, TCP로는 닿지 않음, 소켓 권한 0600과 종료 시 삭제, 이전 실행의 소켓 교체, 기본은 닫힘), `admin::use_ssl_*` 3건(TLS 서빙, 실패한 핸드셰이크, 인증서 없으면 평문), `get_channel_is_not_implemented_in_standalone_mode`, `statistics_are_not_implemented_in_standalone_mode`, `standalone_refusals_are_the_same_in_single_user_mode`, `sessions_are_cleaned_up_after_the_longer_of_31_days_and_their_lifetime`, `lib.rs`의 요청 로그·클라이언트 주소·패닉 처리 단위 테스트.
+추가한 테스트: `admin::socket::*`(비밀번호 설정, 사용자 이름 디코딩, 빈 비밀번호 거절, 72바이트 초과 거절, 없는 사용자·잘못된 본문 500, 소켓에는 관리자 라우트만, TCP로는 닿지 않음, 소켓 권한 0600과 종료 시 삭제, 이전 실행의 소켓 교체, 기본은 닫힘), `admin::use_ssl_*` 3건(TLS 서빙, 실패한 핸드셰이크, 인증서 없으면 평문. 마지막 것은 S6에서 "인증서 없으면 시작 거부" 2건과 "`usessl`이 꺼져 있으면 무관" 1건으로 바뀌었다), `get_channel_is_not_implemented_in_standalone_mode`, `statistics_are_not_implemented_in_standalone_mode`, `standalone_refusals_are_the_same_in_single_user_mode`, `sessions_are_cleaned_up_after_the_longer_of_31_days_and_their_lifetime`, `lib.rs`의 요청 로그·클라이언트 주소·패닉 처리 단위 테스트.
 
 ### 블록
 
@@ -328,7 +328,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 | S1 | `server/api/teams.go:106-131` | 로그인한 사용자는 누구나 `GET /teams/{아무 ID}`로 가입 토큰을 읽는다. 원본 웹 앱의 "초대 링크 복사"가 이 값을 쓰므로 응답에서 빼면 그 기능이 달라진다 | 원본대로 |
 | S2 | `server/api/auth.go:25` | 로그인한 사용자는 누구나 가입 토큰을 재발급할 수 있다(관리자 개념이 없다) | 원본대로 |
 | S3 | `server/api/admin.go` | 관리자가 비밀번호를 재설정해도 그 사용자의 기존 세션이 살아 있다. 끊으면 다른 기기가 로그아웃된다 | **S6에서 정리됨(2026-11-10).** 재설정하면 그 이름의 사용자가 가진 세션을 모두 지우고(비밀번호 변경과 한 트랜잭션), 그 사용자로 인증한 WebSocket 연결을 닫는다. 재설정이 거절되면(빈 비밀번호, 없는 사용자) 세션은 그대로다. 다른 사용자의 세션은 건드리지 않는다. `Store::reset_user_password`, `App::reset_user_password`, `Hub::close_user`. 테스트 `admin::socket::admin_set_password_ends_every_session_of_the_user`, `…_leaves_the_sessions_of_other_users`, `a_refused_admin_set_password_keeps_the_sessions`, `websocket::resetting_a_password_closes_the_websocket_connections_of_that_user`, 스토어 `sessions::reset_user_password_deletes_the_sessions_of_those_users_only` |
-| S4 | `server/web/webserver.go:113` | `usessl`인데 인증서 파일이 없으면 조용히 평문 HTTP로 뜬다. 시작을 거부하는 편이 안전하지만 운영자가 보는 동작이 바뀐다 | 원본대로 + 경고 로그 |
+| S4 | `server/web/webserver.go:113` | `usessl`인데 인증서 파일이 없으면 조용히 평문 HTTP로 뜬다. 시작을 거부하는 편이 안전하지만 운영자가 보는 동작이 바뀐다 | **S6에서 정리됨(2026-11-10).** `usessl`인데 인증서나 키 파일이 없으면 연결을 하나도 받지 않고 오류로 끝난다. 오류는 없는 파일을 이름으로 알려 주고 "`usessl`을 끄면 평문으로 뜬다"고 안내한다(바이너리로 확인: 종료 코드 1). `usessl`이 꺼져 있으면 파일을 보지 않는다. 테스트 `admin::use_ssl_without_certificate_files_refuses_to_serve`, `admin::use_ssl_with_a_certificate_but_no_key_refuses_to_serve`, `admin::without_use_ssl_missing_certificate_files_do_not_matter`, 허용되는 쪽은 기존 `admin::use_ssl_serves_over_tls` |
 | S5 | `server/api/blocks.go` 전반 | 요청 본문 크기에 제한이 없다. 로그인한 사용자가 서버 메모리를 원하는 만큼 쓰게 할 수 있다. 블록 하나의 `fields`가 정당하게 2MB를 넘을 수 있어 일괄 제한은 정상 요청을 막을 수 있다 | 원본대로(제한 없음) |
 | S6 | `server/api/blocks.go` undelete·duplicate·묶음 패치 | 비멤버가 403과 404의 차이로 보드·블록의 존재 여부를 알 수 있다. 고치면 정상 클라이언트가 보는 상태 코드가 바뀐다 | 원본대로 |
 | S7 | — | (보안 수정 표로 옮김: 삽입의 `sourceBoardID` 권한 검사) | — |
@@ -369,7 +369,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 - **블록 구독과 보드 멤버 구독을 함께 가진 연결은 같은 블록 변경을 구독 수만큼 받는다.**
 - **`/users/me?channelID=x`는 채널이 있든 없든 `permissions: ["create_post"]`를 붙인다**(standalone의 채널 권한 검사는 항상 참).
 - **세션 정리 기준은 `max(31일, session_expire_time)`이다**(`server/server/server.go:258-261`). 10분마다 돈다.
-- **`usessl`인데 인증서 파일이 없으면 평문 HTTP로 뜬다**(`server/web/webserver.go:113`, 오라클 확인). 포트는 경고를 한 줄 남긴다. 보안 결정 대기 항목이기도 하다.
+- **`usessl`인데 인증서 파일이 없으면 평문 HTTP로 뜬다**(`server/web/webserver.go:113`, 오라클 확인). 포트는 경고를 한 줄 남긴다. 보안 결정 대기 항목이기도 하다. → **S6에서 정리됨:** 이제 시작을 거부한다(보안 결정 대기 S4).
 - **컴플라이언스 라우트의 거절은 403이 아니라 401이다**(`server/api/compliance.go:75-78` 등). 히스토리 두 라우트는 권한보다 `modified_since`를 먼저 본다(없으면 400).
 - **채널·통계 라우트는 501 `not permitted in standalone mode`.**
 - **관리자 라우트의 없는 사용자와 잘못된 본문은 둘 다 500이다.** TCP로 관리자 경로를 부르면 다른 모르는 경로처럼 `index.html`(200)이다.

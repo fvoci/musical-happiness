@@ -28,7 +28,7 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | `serverRoot` | 공개 URL. 예: `https://boards.example.com`. 오리진 주소가 아니라 CDN에 연결한 도메인을 적는다. base path도 이 값에서 정해진다. 서버는 이 값을 `index.html`에 채워 보낸다. |
 | `FVOCI_HTTP_SERVER_BASEPATH` (환경 변수) | 경로 접두사 아래에서 서비스할 때 쓴다. |
 | `port`, `localOnly` | 수신 포트. `localOnly`가 true면 `localhost`에서만 받는다. 같은 호스트의 프록시나 터널 뒤에 둘 때 쓴다. |
-| `useSSL` | TLS는 보통 CDN에서 끝난다. 오리진은 사설망 안에서 HTTP로 두거나 `useSSL`로 HTTPS를 쓴다. |
+| `useSSL` | TLS는 보통 CDN에서 끝난다. 오리진은 사설망 안에서 HTTP로 두거나 `useSSL`로 HTTPS를 쓴다. `useSSL`을 켰는데 `./cert/cert.pem`이나 `./cert/key.pem`이 없으면 서버는 뜨지 않는다(평문으로 떨어지지 않는다). |
 | `trust_forwarded_for` | 기본값 false. true면 `X-Forwarded-For`의 첫 번째 주소를 로그의 클라이언트 주소로 쓴다. 서버에 CDN이나 프록시로만 도달할 수 있을 때만 켠다. |
 | `websocket_ping_seconds` | 기본값 30. 서버가 이 간격으로 ping 프레임을 보낸다. 0이면 끈다. |
 | `maxfilesize` | 서버 자체의 업로드 한도(바이트). 0이면 제한이 없다. CDN의 한도와 별개로 적용된다. |
