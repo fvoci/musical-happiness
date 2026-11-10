@@ -207,6 +207,48 @@
       },
       "expect": "reject",
       "reason": "invalidNode"
+    },
+    {
+      "name": "a text holding U+0000",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a\u0000b"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "an attribute holding U+0000",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 1,
+              "x\u0000": "y"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
     }
   ]
 }

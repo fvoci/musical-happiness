@@ -5,10 +5,9 @@ use std::collections::HashSet;
 use axum::body::Bytes;
 use axum::extract::State;
 use fvoci_model::{
-    Block, BoardsAndBlocks, DeleteBoardsAndBlocks, JsonMap, PatchBoardsAndBlocks,
+    Block, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids,
 };
-use serde_json::Value;
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -18,8 +17,9 @@ use super::contract::tag;
 
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
-use super::{ApiResult, RequiredSession, json_response, no_content, refuse_block_bodies};
+use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
+use super::{objects_mut, take_block_bodies, take_patch_bodies};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
@@ -30,20 +30,6 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         handle_patch_boards_and_blocks,
         handle_delete_boards_and_blocks
     ))
-}
-
-/// The JSON objects in the list that is the member `name` of `object`. An element of the
-/// list that is not an object is `None`.
-fn objects_mut<'v>(
-    object: &'v mut JsonMap,
-    name: &str,
-) -> impl Iterator<Item = Option<&'v mut JsonMap>> {
-    object
-        .get_mut(name)
-        .and_then(Value::as_array_mut)
-        .into_iter()
-        .flatten()
-        .map(Value::as_object_mut)
 }
 
 /// Make boards with their blocks
@@ -72,19 +58,22 @@ async fn handle_create_boards_and_blocks(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let (request, invalid): (BoardsAndBlocks, Option<InvalidBoardMember>) =
-        decode_object_with(&body, |body| {
-            objects_mut(body, "boards")
-                .flatten()
-                .find_map(take_invalid_board_members)
-        })?;
+    let (request, (invalid, refused)): (BoardsAndBlocks, _) = decode_object_with(&body, |body| {
+        let invalid: Option<InvalidBoardMember> = objects_mut(body, "boards")
+            .flatten()
+            .find_map(take_invalid_board_members);
+        (
+            invalid,
+            take_block_bodies(objects_mut(body, "blocks").flatten()),
+        )
+    })?;
     // Not as in the original, which validates neither the type nor the minimum role of
     // these boards and stores whatever it is given. The model has no way to hold such a
     // board, so it is refused as `POST /boards` refuses it.
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
     }
-    refuse_block_bodies(&request.blocks, [])?;
+    refused?;
 
     if request.boards.is_empty() {
         return Err(AppError::bad_request("at least one board is required"));
@@ -184,14 +173,18 @@ async fn handle_patch_boards_and_blocks(
     let user_id = &session.user_id;
     // The patches' types and minimum roles are validated board by board below, as in the
     // original, not while decoding.
-    let (patches, invalid_members): (PatchBoardsAndBlocks, Vec<Option<InvalidBoardMember>>) =
+    let (patches, (invalid_members, refused)): (PatchBoardsAndBlocks, _) =
         decode_object_with(&body, |body| {
-            objects_mut(body, "boardPatches")
+            let invalid: Vec<Option<InvalidBoardMember>> = objects_mut(body, "boardPatches")
                 .map(|patch| patch.and_then(take_invalid_patch_members))
-                .collect()
+                .collect();
+            (
+                invalid,
+                take_patch_bodies(objects_mut(body, "blockPatches").flatten()),
+            )
         })?;
     patches.validate().map_err(AppError::bad_request)?;
-    refuse_block_bodies([], &patches.block_patches)?;
+    refused?;
 
     let mut team_id = String::new();
     let mut board_ids = HashSet::new();

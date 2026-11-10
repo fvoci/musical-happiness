@@ -882,6 +882,7 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 |---|---|---|---|
 | 0 WebSocket 문서 | `12c22af..0803dd6` | Must 4, Should 7, Consider 9 | Must 4와 Should 6, Consider 6을 문서·테스트에 반영. `deleteBoardsAndBlocks`가 읽기 토큰 연결을 닫지 않는 것은 코드의 결함이라 `docs/contract-pending.md` 8절에 올리고 남은 결함을 고치는 tracer-bullet(12)에서 고친다 |
 | 1 카드의 본문 | `8134dc2..233431d` | Must 1, Should 6, Consider 7 | Must와 Should 모두 반영: 같은 밀리초의 두 쓰기가 `readAt`을 지나가던 것(고칠 때마다 `updateAt`이 커진다), 블록 경로가 검사 없이 본문을 받던 것(400 `field: body`), 카드 목록이 본문을 모두 읽던 것(요약 열을 읽는다), 휴지통 복원이 본문을 요청의 검증기로 다시 읽던 것, 설계와 다른 열 타입(PostgreSQL `JSONB`, SQLite `TEXT`. 올리기 전이라 `0002`를 고쳤다), 낡은 문서, 빠진 테스트(본문 없는 `readAt`, 블록 경로, 휴지통과 복제, 옛 DB의 이전, 1 MiB의 경계, `body: null`, 두 DB의 `0002` 일치). Consider 가운데 둘(파일 중간의 `use`, 모호한 주석) 반영. 멘션의 사용자 ID가 익명 독자에게 가는 것은 "사용자 결정 필요"로 `docs/contract-pending.md` 1절에 |
+| 1 반영분의 재검토 | `233431d..acc2030` | Must 1, Should 3, Consider 8 | Must와 Should 모두 반영: U+0000을 담은 본문이 PostgreSQL에서 500이던 것(검증이 거절하고 공유 벡터에 두 경우를 더함), 블록 경로가 빈 문서나 문서 아닌 본문을 `field` 없는 400으로 거절하던 것(디코딩 전에 원시 JSON에서 꺼내 거절), `updateAt`이 커지는 것과 저장된 할 일 수를 보는 테스트가 없던 것. Consider 가운데 넷 반영: 409보다 400이 먼저, 목록 열의 자리를 이름 붙인 상수와 테스트로, 블록용·패치용 거절 함수를 둘로, 계약의 `Block.body`·`BlockPatch.body` 설명. 128단보다 깊은 JSON이 `field` 없는 400인 것은 `docs/contract-pending.md` 1절에 적음 |
 
 **받지 않은 지적.**
 
@@ -892,6 +893,9 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 - TB1, 노드마다 경로 문자열을 만드는 것과 크기를 재려고 직렬화하는 것(Consider): 검증기는 다음 tracer-bullet(허용 목록 전체)에서 다시 쓴다. 그때 오류가 날 때만 경로를 만들고, 직렬화 없이 센다.
 - TB1, 제목만 고쳐도 본문 열을 다시 씀(Consider): 블록 쓰기가 한 길(`insert_block_at`)이라 요약 열이 어긋날 수 없다. 1 MiB 한도 안의 비용이고, 재 보고 크면 바꾼다.
 - TB1, 휴지통의 JSON에 `body_version`이 없음(Consider): 판 1은 판 2에 들어가므로 되살릴 때 지금의 판을 적어도 틀리지 않는다. 판이 옛 문서를 받지 않게 바뀌면 그때 휴지통에 판을 싣는다.
+- TB1 재검토, `InvalidNode`의 문구가 사실처럼 읽힘(Consider): 검증기는 다음 tracer-bullet에서 허용 목록으로 다시 쓰고, 그때 문구를 잘못을 말하는 꼴로 바꾼다.
+- TB1 재검토, `createCard`가 읽기 전용인 `hasBody`·`tasksTotal`·`tasksDone`의 타입을 검사함(Consider): 계약에서 정수인 멤버에 다른 타입을 보내면 400인 것은 다른 읽기 전용 멤버(`createAt` 등)와 같다. 값은 서버가 다시 센다.
+- TB1 재검토, 빈 `attrs`를 가진 문단이 빈 문서로 보이지 않음, 크기·깊이·노드 수의 벡터가 없음(Consider): 둘 다 다음 tracer-bullet(허용 목록 전체와 벡터 판 2)의 일이다.
 
 ## 작성 모델
 

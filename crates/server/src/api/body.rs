@@ -3,7 +3,7 @@
 //! A body that is not the JSON a route expects is a bad request (400), whatever is wrong
 //! with it: not JSON at all, the wrong type, `null`, a member of the wrong type.
 
-use fvoci_model::{Block, BlockPatch, BodyChange, JsonMap};
+use fvoci_model::{BodyChange, JsonMap};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
@@ -61,24 +61,62 @@ pub(crate) fn decode_object_with<T: DeserializeOwned, R>(
     Ok((decoded, prepared))
 }
 
-/// Refuses a body sent through the routes of blocks. A body is written through the card
-/// routes (`createCard`, `patchCard`), which check it and ask for the time it was read
-/// at, until the routes of blocks do the same.
+/// The JSON objects in the list that is the member `name` of `object`. An element of the
+/// list that is not an object is `None`.
+pub(crate) fn objects_mut<'v>(
+    object: &'v mut JsonMap,
+    name: &str,
+) -> impl Iterator<Item = Option<&'v mut JsonMap>> {
+    object
+        .get_mut(name)
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .map(Value::as_object_mut)
+}
+
+/// The refusal of a body sent through the routes of blocks. A body is written through
+/// the card routes (`createCard`, `patchCard`), which check it and ask for the time it
+/// was read at, until the routes of blocks do the same.
+fn block_body_refused() -> AppError {
+    AppError::bad_request("a body is written through the routes of cards (createCard, patchCard)")
+        .with_field("body")
+}
+
+/// Takes the member `body` out of blocks of a request before they are decoded, so that
+/// whatever it holds is refused as a body (`field: body`).
 ///
 /// # Errors
 ///
-/// Returns a bad request that names `body` if a block or a patch carries one.
-pub(crate) fn refuse_block_bodies<'a>(
-    blocks: impl IntoIterator<Item = &'a Block>,
-    patches: impl IntoIterator<Item = &'a BlockPatch>,
+/// Returns a bad request that names `body` if a block has one that is not `null`.
+pub(crate) fn take_block_bodies<'a>(
+    blocks: impl IntoIterator<Item = &'a mut JsonMap>,
 ) -> Result<(), AppError> {
-    let sent = blocks.into_iter().any(|block| block.body.is_some())
-        || patches.into_iter().any(|patch| !patch.body.is_keep());
+    let mut sent = false;
+    for block in blocks {
+        sent |= block.remove("body").is_some_and(|body| !body.is_null());
+    }
     if sent {
-        return Err(AppError::bad_request(
-            "a body is written through the routes of cards (createCard, patchCard)",
-        )
-        .with_field("body"));
+        return Err(block_body_refused());
+    }
+    Ok(())
+}
+
+/// Takes the member `body` out of block patches of a request before they are decoded:
+/// a patch of a block may not change its body yet, not even to `null`.
+///
+/// # Errors
+///
+/// Returns a bad request that names `body` if a patch has the member.
+pub(crate) fn take_patch_bodies<'a>(
+    patches: impl IntoIterator<Item = &'a mut JsonMap>,
+) -> Result<(), AppError> {
+    let mut sent = false;
+    for patch in patches {
+        sent |= patch.remove("body").is_some();
+    }
+    if sent {
+        return Err(block_body_refused());
     }
     Ok(())
 }

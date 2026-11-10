@@ -293,6 +293,9 @@ fn check_node(node: &Value, depth: usize, path: &str, nodes: &mut usize) -> Resu
         if member.is_null() {
             return Err(invalid("a member of a node is not null"));
         }
+        if name != "content" && holds_nul(member) {
+            return Err(invalid("no text holds the character U+0000"));
+        }
     }
     if !members.get("type").is_some_and(Value::is_string) {
         return Err(invalid("a node has a type"));
@@ -323,6 +326,19 @@ fn check_node(node: &Value, depth: usize, path: &str, nodes: &mut usize) -> Resu
         }
     }
     Ok(())
+}
+
+/// Whether a string or a member name in the value holds U+0000, which PostgreSQL cannot
+/// store in `jsonb` (and the web app could not show).
+fn holds_nul(value: &Value) -> bool {
+    match value {
+        Value::String(text) => text.contains('\0'),
+        Value::Array(items) => items.iter().any(holds_nul),
+        Value::Object(members) => members
+            .iter()
+            .any(|(name, member)| name.contains('\0') || holds_nul(member)),
+        Value::Null | Value::Bool(_) | Value::Number(_) => false,
+    }
 }
 
 /// Calls `f` for every node of the document, the document first.

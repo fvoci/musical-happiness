@@ -2,7 +2,7 @@
 //! routes, checked before it is stored, and guarded against overwriting a change the
 //! writer has not seen (`docs/s6-design.md` 3.7, 5.7).
 
-use fvoci_model::{BoardType, Card};
+use fvoci_model::{BLOCK_TITLE_MAX_CHARS, BoardType, Card};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -45,6 +45,32 @@ async fn new_card(client: &Client, board_id: &str, card: &Value) -> ApiResponse 
 
 async fn card(client: &Client, card_id: &str) -> Card {
     client.get(&format!("/cards/{card_id}")).await.ok_json()
+}
+
+/// What the list of cards says of a card's body: whether it has one, and its tasks,
+/// done and all. The list reads them from what was stored with the body.
+async fn listed(client: &Client, board_id: &str, card_id: &str) -> (bool, u64, u64) {
+    let cards = client
+        .get(&format!("/boards/{board_id}/cards"))
+        .await
+        .value();
+    let card = cards
+        .as_array()
+        .expect("a list")
+        .iter()
+        .find(|card| card["id"] == json!(card_id))
+        .unwrap_or_else(|| panic!("{card_id} is listed: {cards}"))
+        .clone();
+    let count = |name: &str| {
+        card[name]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{name}: {card}"))
+    };
+    (
+        card["hasBody"].as_bool().expect("hasBody"),
+        count("tasksTotal"),
+        count("tasksDone"),
+    )
 }
 
 /// A card made with a body is read back with it; the list of cards says that it has
@@ -125,6 +151,11 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
         patched.body.as_ref().map(fvoci_model::Body::document),
         Some(&document())
     );
+    assert_eq!(
+        listed(&th.client, &board.id, &created.id).await,
+        (true, 2, 1),
+        "the list reads what the patch stored"
+    );
 
     // The first version is no longer the card's.
     let stale = th
@@ -141,6 +172,16 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
         patched,
         "a refused patch changes nothing"
     );
+    // A patch that could not be stored anyway is refused for that first.
+    let too_long = "a".repeat(BLOCK_TITLE_MAX_CHARS + 1);
+    let invalid = th
+        .client
+        .patch(
+            &path,
+            &json!({"title": too_long, "readAt": created.update_at}),
+        )
+        .await;
+    invalid.check_status(StatusCode::BAD_REQUEST);
 
     // `null` takes the body away; a title alone needs no `readAt`.
     let cleared: Card = th
@@ -151,6 +192,10 @@ async fn a_body_is_changed_only_from_the_card_as_it_is() {
     assert_eq!(cleared.body, None);
     assert!(!cleared.has_body);
     assert_eq!((cleared.tasks_total, cleared.tasks_done), (0, 0));
+    assert_eq!(
+        listed(&th.client, &board.id, &created.id).await,
+        (false, 0, 0)
+    );
     th.client
         .patch(&path, &json!({"title": "Renamed"}))
         .await
@@ -290,6 +335,11 @@ async fn a_body_comes_back_from_the_trash_and_is_copied() {
     let restored = card(&th.client, &created.id).await;
     assert_eq!(restored.body, created.body, "{restored:?}");
     assert_eq!((restored.tasks_total, restored.tasks_done), (2, 1));
+    assert_eq!(
+        listed(&th.client, &board.id, &created.id).await,
+        (true, 2, 1),
+        "the list reads what was restored"
+    );
 
     let copies: Vec<Value> = th
         .client
@@ -301,8 +351,89 @@ async fn a_body_comes_back_from_the_trash_and_is_copied() {
         .find(|block| block["type"] == json!("card"))
         .expect("the copy of the card");
     assert_eq!(copy["body"], document(), "{copy}");
-    let copy = card(&th.client, copy["id"].as_str().expect("an id")).await;
+    let copy_id = copy["id"].as_str().expect("an id");
+    let copy = card(&th.client, copy_id).await;
     assert_eq!((copy.tasks_total, copy.tasks_done), (2, 1));
+    assert_eq!(
+        listed(&th.client, &board.id, copy_id).await,
+        (true, 2, 1),
+        "the list reads what was copied"
+    );
+
+    th.teardown().await;
+}
+
+/// The routes of blocks take no body, whatever it is, until they check one the way
+/// the routes of cards do: each refusal names `body` and stores nothing.
+#[tokio::test]
+async fn the_routes_of_blocks_refuse_a_body() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let created: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
+        .await
+        .created_json();
+    let blocks = format!("/boards/{}/blocks", board.id);
+    let block = |body: &Value| {
+        json!({"id": "b1", "boardId": board.id, "type": "card", "createAt": 1, "updateAt": 1,
+               "body": body})
+    };
+    let empty = json!({"type": "doc", "content": [{"type": "paragraph"}]});
+
+    // A document, an empty one and something that is none: all refused as a body.
+    for body in [document(), empty, json!("text")] {
+        let response = th.client.post(&blocks, &[block(&body)]).await;
+        check_refused_member(&response, "body");
+        let response = th
+            .client
+            .post(
+                "/boards-and-blocks",
+                &json!({
+                    "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
+                    "blocks": [{"id": "b1", "boardId": "bd", "type": "card",
+                                "createAt": 1, "updateAt": 1, "body": body}],
+                }),
+            )
+            .await;
+        check_refused_member(&response, "body");
+    }
+    // A patch may not even take the body away.
+    for body in [document(), Value::Null, json!("text")] {
+        let patch = json!({"title": "Patched", "body": body});
+        let response = th
+            .client
+            .patch(&format!("{blocks}/{}", created.id), &patch)
+            .await;
+        check_refused_member(&response, "body");
+        let response = th
+            .client
+            .patch(
+                &blocks,
+                &json!({"blockIds": [created.id], "blockPatches": [patch]}),
+            )
+            .await;
+        check_refused_member(&response, "body");
+        let response = th
+            .client
+            .patch(
+                "/boards-and-blocks",
+                &json!({
+                    "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+                    "blockIds": [created.id], "blockPatches": [patch],
+                }),
+            )
+            .await;
+        check_refused_member(&response, "body");
+    }
+    // A block without a body, or with `null`, is made as before.
+    th.client
+        .post(&blocks, &[block(&Value::Null)])
+        .await
+        .check_status(StatusCode::CREATED);
+    assert_eq!(
+        card(&th.client, &created.id).await,
+        created,
+        "no refused patch changed the card"
+    );
 
     th.teardown().await;
 }

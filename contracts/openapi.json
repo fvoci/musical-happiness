@@ -25,7 +25,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card or a comment; `null` for a block without one."
+                "description": "The body of a card or a comment; `null` for a block without one. Read here; the\nroutes of blocks refuse one that is sent (400 naming `body`): it is written\nthrough `createCard` and `patchCard`."
               },
               {
                 "type": "null"
@@ -106,7 +106,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The new body; `null` takes the body away."
+                "description": "Not taken yet: the routes of blocks refuse the member, even `null` (400 naming\n`body`). A card's body is changed through `patchCard`."
               },
               {
                 "type": "null"

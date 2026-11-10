@@ -194,7 +194,9 @@ pub struct Block {
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
-    /// The body of a card or a comment; `null` for a block without one.
+    /// The body of a card or a comment; `null` for a block without one. Read here; the
+    /// routes of blocks refuse one that is sent (400 naming `body`): it is written
+    /// through `createCard` and `patchCard`.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
@@ -261,7 +263,8 @@ pub struct BlockPatch {
     /// Keys of fields to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
-    /// The new body; `null` takes the body away.
+    /// Not taken yet: the routes of blocks refuse the member, even `null` (400 naming
+    /// `body`). A card's body is changed through `patchCard`.
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,

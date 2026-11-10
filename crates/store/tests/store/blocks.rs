@@ -781,6 +781,49 @@ async fn patch_block() {
     test.teardown().await;
 }
 
+/// A block's `update_at` moves on with every change, even when the clock has not: a
+/// patch made against the time a block was read at must see every change after it.
+#[tokio::test]
+async fn update_at_moves_on_with_every_change() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let [user_id] = users(store).await;
+    let block_id = new_id();
+    let mut block = block(&block_id, &board_id);
+    store
+        .insert_block(&mut block, &user_id)
+        .await
+        .expect("the block is inserted");
+
+    // A time an hour ahead of the clock, as a block written by a clock that ran fast.
+    let ahead = existing_block(store, &block_id).await.update_at + 3_600_000;
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE blocks SET update_at = {ahead} WHERE id = '{block_id}'"),
+    )
+    .await;
+    store
+        .patch_block(&block_id, &title_patch("once"), &user_id)
+        .await
+        .expect("the block is patched");
+    let once = existing_block(store, &block_id).await.update_at;
+    assert_eq!(
+        once,
+        ahead + 1,
+        "the patch moved update_at past the stored one"
+    );
+
+    store
+        .patch_block(&block_id, &title_patch("twice"), &user_id)
+        .await
+        .expect("the block is patched again");
+    let twice = existing_block(store, &block_id).await.update_at;
+    assert_eq!(twice, once + 1, "a second patch moved it on again");
+
+    test.teardown().await;
+}
+
 /// `testPatchBlocks`.
 #[tokio::test]
 async fn patch_blocks() {

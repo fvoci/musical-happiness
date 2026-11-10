@@ -32,6 +32,12 @@ const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"sc
                              fields, create_at, update_at, board_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
+/// Where [`LISTED_BLOCK_COLUMNS`] puts what it says of the body, after the columns of a
+/// block (the `NULL` stands for the body itself).
+const LISTED_HAS_BODY: usize = 12;
+const LISTED_TASKS_TOTAL: usize = 13;
+const LISTED_TASKS_DONE: usize = 14;
+
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
 
@@ -126,11 +132,11 @@ impl Store {
                 .iter()
                 .map(|row| {
                     let tasks = TaskCount {
-                        total: count_column(row, 13, "body_tasks_total")?,
-                        done: count_column(row, 14, "body_tasks_done")?,
+                        total: count_column(row, LISTED_TASKS_TOTAL, "body_tasks_total")?,
+                        done: count_column(row, LISTED_TASKS_DONE, "body_tasks_done")?,
                     };
                     let summary = BodySummary {
-                        has_body: row.bool(12)?,
+                        has_body: row.bool(LISTED_HAS_BODY)?,
                         tasks,
                     };
                     Ok((block_from_row(row)?, summary))
@@ -684,16 +690,25 @@ pub(crate) async fn patch_block(
     let board_id = get_block(scope, block_id).await?.board_id;
     boards::lock_board(scope, &board_id).await?;
     let mut block = get_block(scope, block_id).await?;
+    let stored_update_at = block.update_at;
+    patch.apply(&mut block);
+    // A patch that could not be stored at all is refused as such (400) before it is
+    // refused for being made against an older block (409), the order of every check.
+    block
+        .validate()
+        .map_err(|source| StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source,
+        })?;
     if let Some(read_at) = patch.read_at
-        && read_at != block.update_at
+        && read_at != stored_update_at
     {
         return Err(StoreError::Stale {
             id: block.id,
             read_at,
-            update_at: block.update_at,
+            update_at: stored_update_at,
         });
     }
-    patch.apply(&mut block);
     insert_block(scope, &mut block, user_id).await
 }
 
@@ -714,6 +729,17 @@ mod tests {
             .into_iter()
             .map(|index| blocks[index].id.as_str())
             .collect()
+    }
+
+    #[test]
+    fn the_listed_columns_are_where_the_list_reads_them() {
+        let columns: Vec<&str> = LISTED_BLOCK_COLUMNS.split(", ").map(str::trim).collect();
+        let block_columns = BLOCK_COLUMNS.split(", ").count();
+        assert_eq!(columns[block_columns - 1], "NULL", "the body is not read");
+        assert_eq!(columns[LISTED_HAS_BODY], "body IS NOT NULL");
+        assert_eq!(columns[LISTED_TASKS_TOTAL], "body_tasks_total");
+        assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
+        assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
     }
 
     #[test]
