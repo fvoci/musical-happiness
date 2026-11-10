@@ -29,6 +29,7 @@
     "tests/**/*",
     "e2e/**/*",
     "stories/**/*",
+    "spikes/**/*",
     "tools/**/*",
     ".storybook/**/*",
     "*.config.ts",

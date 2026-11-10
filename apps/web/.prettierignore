@@ -1,5 +1,6 @@
 # Build output and generated files
 dist/
+dist-spikes/
 storybook-static/
 test-results/
 playwright-report/

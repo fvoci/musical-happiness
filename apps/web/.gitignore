@@ -1,5 +1,6 @@
 # Output of the build, of Storybook and of Playwright
 dist/
+dist-spikes/
 storybook-static/
 test-results/
 playwright-report/

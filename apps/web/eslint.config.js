@@ -5,6 +5,7 @@ import globals from 'globals';
 import ts from 'typescript-eslint';
 
 import svelteConfig from './svelte.config.js';
+import layers from './tools/lint/layers.ts';
 
 /** Code written by the shadcn-svelte CLI. See src/lib/ui/README.md. */
 const GENERATED_UI = ['src/lib/ui/**', 'src/lib/hooks/**', 'src/lib/utils.ts'];
@@ -16,6 +17,7 @@ export default ts.config(
       'storybook-static/',
       'test-results/',
       'playwright-report/',
+      'dist-spikes/',
       'src/lib/i18n/paraglide/',
       'src/styles/fonts/',
     ],
@@ -58,6 +60,12 @@ export default ts.config(
         { allowNumber: true, allowBoolean: true },
       ],
     },
+  },
+  {
+    // See src/lib/features/README.md.
+    files: ['src/lib/**'],
+    plugins: { fvoci: layers },
+    rules: { 'fvoci/feature-boundaries': 'error' },
   },
   {
     files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
