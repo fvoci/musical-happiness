@@ -1,0 +1,9 @@
+# Build context filter for docker/fvoci/Dockerfile (the context is the repository root).
+# Everything is left out except what the image is built from.
+*
+!Cargo.toml
+!Cargo.lock
+!clippy.toml
+!crates/
+!server/assets/
+!docker/fvoci/
