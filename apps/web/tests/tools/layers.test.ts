@@ -12,7 +12,7 @@ import layers from '../../tools/lint/layers.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 
-function messages(file: string, code: string): string[] {
+function messages(file: string, code: string, rule = 'fvoci/feature-boundaries'): string[] {
   const linter = new Linter({ cwd: ROOT });
   return linter
     .verify(
@@ -21,7 +21,7 @@ function messages(file: string, code: string): string[] {
         {
           files: ['**/*.ts'],
           plugins: { fvoci: layers },
-          rules: { 'fvoci/feature-boundaries': 'error' },
+          rules: { [rule]: 'error' },
         },
       ],
       { filename: path.join(ROOT, file) },
@@ -166,5 +166,100 @@ describe('the time zone of the device', () => {
     };
     walk('src');
     expect(found).toEqual(['src/lib/regional.ts']);
+  });
+});
+
+describe('the order of the layers', () => {
+  const order = (file: string, code: string): string[] => messages(file, code, 'fvoci/layer-order');
+
+  it('lets a layer import from itself and from the layers below it', () => {
+    expect(
+      order(
+        'src/lib/components/properties/PropertyValue.ts',
+        [
+          "import { a } from '$lib/logic/wire.ts';",
+          "import { b } from '$lib/ui/button/index.js';",
+          "import { c } from '$lib/components/pick-list/PickList.ts';",
+          "import { d } from '$lib/layout/stage.svelte.ts';",
+          "import { e } from '$lib/regional.ts';",
+        ].join('\n'),
+      ),
+    ).toEqual([]);
+    expect(order('src/lib/state/board.ts', "import { a } from '$lib/editor/schema.ts';")).toEqual(
+      [],
+    );
+  });
+
+  it('refuses an import from a layer that is not below', () => {
+    expect(order('src/lib/logic/sort.ts', "import { a } from '$lib/state/board.ts';")).toEqual([
+      expect.stringContaining('lib/logic imports from lib/state'),
+    ]);
+    expect(
+      order('src/lib/state/board.ts', "import { a } from '$lib/ui/button/index.js';"),
+    ).toHaveLength(1);
+    expect(
+      order('src/lib/editor/render.ts', "import { a } from '../components/x.ts';"),
+    ).toHaveLength(1);
+  });
+
+  it('keeps the shared components from the state although it is below them', () => {
+    expect(
+      order(
+        'src/lib/components/properties/PropertyValue.ts',
+        "import { a } from '$lib/state/x.ts';",
+      ),
+    ).toEqual([expect.stringContaining('takes values and callbacks')]);
+  });
+
+  it('wants a new folder under src/lib to be entered in the table', () => {
+    expect(order('src/lib/newthing/a.ts', 'export const a = 1;')).toEqual([
+      expect.stringContaining('not a known layer'),
+    ]);
+  });
+
+  it('leaves features and the app to the other rule', () => {
+    expect(order('src/lib/features/board/a.ts', "import { a } from '$lib/state/x.ts';")).toEqual(
+      [],
+    );
+    expect(order('src/app/App.ts', "import { a } from '$lib/features/board/b.ts';")).toEqual([]);
+  });
+});
+
+describe('screens do not reach a server themselves', () => {
+  const server = (file: string, code: string): string[] =>
+    messages(file, code, 'fvoci/no-direct-server');
+  const inFeature = 'src/lib/features/board/Board.ts';
+
+  it('refuses the globals that talk to a server', () => {
+    expect(server(inFeature, "await fetch('/api/v1/boards');")).toEqual([
+      expect.stringContaining('`fetch` reaches a server'),
+    ]);
+    expect(server(inFeature, "await window.fetch('/api/v1/boards');")).toHaveLength(1);
+    expect(server(inFeature, 'new XMLHttpRequest();')).toHaveLength(1);
+    expect(server(inFeature, "new WebSocket('/ws');")).toHaveLength(1);
+    expect(server(inFeature, "new EventSource('/events');")).toHaveLength(1);
+    expect(server(inFeature, "navigator.sendBeacon('/x');")).toHaveLength(1);
+  });
+
+  it('refuses an import of an implementation of the boundary', () => {
+    expect(server(inFeature, "import { a } from '$lib/state/memory/backend.ts';")).toEqual([
+      expect.stringContaining('implementation of the data boundary'),
+    ]);
+    expect(server(inFeature, "import { a } from '$lib/api/client.ts';")).toHaveLength(1);
+    expect(server(inFeature, "const a = await import('../../state/memory/seed.ts');")).toHaveLength(
+      1,
+    );
+  });
+
+  it('lets a screen use the interface', () => {
+    expect(
+      server(
+        inFeature,
+        [
+          "import { a } from '$lib/state/index.ts';",
+          "import { b } from '$lib/state/board.svelte.ts';",
+        ].join('\n'),
+      ),
+    ).toEqual([]);
   });
 });

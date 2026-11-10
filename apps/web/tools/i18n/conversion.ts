@@ -6,8 +6,11 @@
  * Sources, per locale:
  *
  * - `webapp/i18n/<file>.json`: the original, ICU MessageFormat. Read only.
- * - `messages-own/<tag>.json`: the messages only this app has, already in the
- *   inlang format. They are copied as they are and come first.
+ * - `messages-own/<tag>.json` and `messages-own/<group>/<tag>.json`: the
+ *   messages only this app has, already in the inlang format. They are copied
+ *   as they are and come first: the file at the top, then the groups in the
+ *   order of their names. A group is a folder so that screens built side by
+ *   side each add their keys to a file of their own.
  * - `messages-fill/<tag>.json`: translations for ids the original file of
  *   that locale lacks, in ICU MessageFormat like the original. They go
  *   through the same conversion.
@@ -212,6 +215,32 @@ function readOptional<T>(file: string): Record<string, T> {
   return existsSync(file) ? (readJson(file) as Record<string, T>) : {};
 }
 
+/**
+ * The app's own messages of one locale: `messages-own/<tag>.json`, then
+ * `messages-own/<group>/<tag>.json` for each group folder in name order. A
+ * key that two files define stops the conversion.
+ */
+function readOwn(webRoot: string, tag: string): Record<string, InlangMessage> {
+  const root = path.join(webRoot, 'messages-own');
+  const merged: Record<string, InlangMessage> = {};
+  const add = (file: string, name: string): void => {
+    for (const [key, message] of Object.entries(readOptional<InlangMessage>(file))) {
+      if (key in merged) throw new Error(`${name}: "${key}" is defined in another file as well`);
+      merged[key] = message;
+    }
+  };
+  add(path.join(root, `${tag}.json`), `messages-own/${tag}.json`);
+  if (!existsSync(root)) return merged;
+  const groups = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  for (const group of groups) {
+    add(path.join(root, group, `${tag}.json`), `messages-own/${group}/${tag}.json`);
+  }
+  return merged;
+}
+
 function readOverrides(webRoot: string, tag: string, isBase: boolean): Record<string, Override> {
   const name = `messages-override/${tag}.json`;
   const entries = readOptional<unknown>(path.join(webRoot, name));
@@ -354,9 +383,7 @@ export function convertAll(
     }
   }
 
-  const baseOwn = readOptional<InlangMessage>(
-    path.join(webRoot, 'messages-own', `${base.tag}.json`),
-  );
+  const baseOwn = readOwn(webRoot, base.tag);
   for (const key of Object.keys(baseOwn)) {
     if (!OWN_KEY.test(key)) throw new Error(`messages-own: "${key}" is not lower_snake_case`);
     if (key in english) throw new Error(`messages-own: "${key}" is an id of the original`);
@@ -371,12 +398,10 @@ export function convertAll(
     if (stray.length > 0) {
       throw new Error(`${locale.file}.json has ids the English file lacks: ${stray.join(', ')}`);
     }
-    const own = readOptional<InlangMessage>(
-      path.join(webRoot, 'messages-own', `${locale.tag}.json`),
-    );
+    const own = readOwn(webRoot, locale.tag);
     const strayOwn = Object.keys(own).filter((key) => !(key in baseOwn));
     if (strayOwn.length > 0) {
-      throw new Error(`messages-own/${locale.tag}.json: not in en.json: ${strayOwn.join(', ')}`);
+      throw new Error(`messages-own (${locale.tag}): not in English: ${strayOwn.join(', ')}`);
     }
     const fill = readOptional<string>(path.join(webRoot, 'messages-fill', `${locale.tag}.json`));
     const strayFill = Object.keys(fill).filter((id) => !kept.includes(id));

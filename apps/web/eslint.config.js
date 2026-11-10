@@ -65,7 +65,14 @@ export default ts.config(
     // See src/lib/features/README.md.
     files: ['src/lib/**'],
     plugins: { fvoci: layers },
-    rules: { 'fvoci/feature-boundaries': 'error' },
+    rules: { 'fvoci/feature-boundaries': 'error', 'fvoci/layer-order': 'error' },
+  },
+  {
+    // Screens reach data through lib/state. See src/lib/README.md.
+    files: ['src/**'],
+    ignores: ['src/lib/state/**', 'src/lib/api/**', 'src/app/backend.ts'],
+    plugins: { fvoci: layers },
+    rules: { 'fvoci/no-direct-server': 'error' },
   },
   {
     // The logic takes the reader's time zone as an argument. See src/lib/logic/dates.ts.

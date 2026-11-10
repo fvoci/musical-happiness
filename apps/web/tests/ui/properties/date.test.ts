@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { PropertyValueProps } from '$lib/features/properties/types.ts';
+import type { PropertyValueProps } from '$lib/components/properties/types.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 
 import {

@@ -11,8 +11,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/sve
 import { tick } from 'svelte';
 import { afterEach, vi, type Mock } from 'vitest';
 
-import PropertyValue from '$lib/features/properties/PropertyValue.svelte';
-import type { PropertyUser, PropertyValueProps } from '$lib/features/properties/types.ts';
+import PropertyValue from '$lib/components/properties/PropertyValue.svelte';
+import type { PropertyUser, PropertyValueProps } from '$lib/components/properties/types.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import {
   createCard,

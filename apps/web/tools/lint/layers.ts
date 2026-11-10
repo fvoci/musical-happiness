@@ -1,13 +1,15 @@
 /**
- * ESLint rules of this project: the layering of src/lib, and keeping the
- * time zone of the device out of the logic (`no-device-time`, below).
+ * ESLint rules of this project: the layering of src/lib, keeping the screens
+ * away from the server (`no-direct-server`), and keeping the time zone of the
+ * device out of the logic (`no-device-time`).
  *
  * - A feature (`src/lib/features/<name>/`) does not import from another
- *   feature. What two features share moves down into `logic`, `state`, `api`
- *   or `ui`.
- * - Those shared layers do not import from a feature.
+ *   feature. What two features share moves down into a shared layer.
+ * - The shared layers do not import from a feature.
+ * - The shared layers are stacked (`layer-order`): a layer imports only from
+ *   the layers below it. See `LAYERS`.
  *
- * The rule looks at the path an import resolves to, so `$lib/features/x` and
+ * The rules look at the path an import resolves to, so `$lib/features/x` and
  * `../x` are treated alike.
  */
 import path from 'node:path';
@@ -26,7 +28,10 @@ interface Place {
 function place(file: string): Place | undefined {
   const at = file.lastIndexOf(LIB);
   if (at === -1) return undefined;
-  const [layer = '', second] = file.slice(at + LIB.length).split(path.sep);
+  const [first = '', second] = file.slice(at + LIB.length).split(path.sep);
+  // A file directly under src/lib is a layer of its own, named without the
+  // extension (imports write `utils.js` for `utils.ts`).
+  const layer = first.replace(/\.(ts|js)$/, '');
   return { layer, feature: layer === 'features' ? second : undefined };
 }
 
@@ -224,8 +229,189 @@ const noDeviceTime: Rule.RuleModule = {
   },
 };
 
+/**
+ * The layers of src/lib, from the bottom. A file imports from its own layer
+ * and from layers of a lower level; nothing else. The name of a layer is the
+ * first folder under src/lib, or the name of a file there without its extension.
+ *
+ * `components` sits above `state` in the stack but is kept from it all the
+ * same (`NEVER`): a shared component takes values and callbacks, so that it
+ * can be drawn in a story or a test without a store behind it.
+ */
+export const LAYERS: Readonly<Record<string, number>> = {
+  logic: 0,
+  i18n: 0,
+  hooks: 0,
+  utils: 0,
+  regional: 1,
+  'display.svelte': 1,
+  'theme.svelte': 1,
+  fonts: 1,
+  layout: 1,
+  drag: 1,
+  editor: 1,
+  state: 2,
+  ui: 2,
+  components: 3,
+  features: 4,
+};
+
+/** Imports the levels would allow and the design does not. */
+const NEVER: Readonly<Record<string, readonly string[]>> = {
+  components: ['state'],
+};
+
+const layerOrder: Rule.RuleModule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'a layer of src/lib imports only from the layers below it' },
+    schema: [],
+    messages: {
+      unknown:
+        'lib/{{layer}} is not a known layer. Add it to LAYERS in tools/lint/layers.ts and to src/lib/README.md.',
+      upward:
+        'lib/{{from}} imports from lib/{{to}}, which is not below it. See src/lib/README.md for the layers.',
+      never:
+        'lib/{{from}} does not import from lib/{{to}}: it takes values and callbacks instead. See src/lib/README.md.',
+    },
+  },
+  create(context) {
+    const from = place(context.filename);
+    if (!from) return {};
+    const fromLevel = LAYERS[from.layer];
+    if (fromLevel === undefined) {
+      return {
+        Program(node) {
+          context.report({ node, messageId: 'unknown', data: { layer: from.layer } });
+        },
+      };
+    }
+
+    function check(node: Rule.Node, source: unknown): void {
+      const specifier =
+        typeof source === 'object' && source !== null && 'value' in source
+          ? source.value
+          : undefined;
+      if (typeof specifier !== 'string') return;
+      const target = resolve(specifier, context.filename);
+      const to = target === undefined ? undefined : place(target);
+      if (!to || !from || to.layer === from.layer) return;
+      const toLevel = LAYERS[to.layer];
+      const data = { from: from.layer, to: to.layer };
+      if (NEVER[from.layer]?.includes(to.layer)) {
+        context.report({ node, messageId: 'never', data });
+      } else if (toLevel === undefined || toLevel >= (fromLevel ?? 0)) {
+        context.report({ node, messageId: 'upward', data });
+      }
+    }
+
+    return {
+      ImportDeclaration: (node) => {
+        check(node, node.source);
+      },
+      ExportNamedDeclaration: (node) => {
+        check(node, node.source);
+      },
+      ExportAllDeclaration: (node) => {
+        check(node, node.source);
+      },
+      ImportExpression: (node) => {
+        check(node, node.source);
+      },
+    };
+  },
+};
+
+/** Globals that reach a server. */
+const SERVER_GLOBALS = new Set(['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource']);
+/** The folders under src/lib that are implementations of the data boundary. */
+const SERVER_LAYERS = [`state${path.sep}memory`, 'api'];
+
+/**
+ * A screen reads and writes through `lib/state` and never talks to a server
+ * itself: no `fetch`, no `XMLHttpRequest`, `WebSocket`, `EventSource` or
+ * `sendBeacon`, and no import of an implementation of the boundary (the
+ * in-memory one, or the one that will call the server). The one place that
+ * chooses the implementation is exempted in eslint.config.js.
+ */
+const noDirectServer: Rule.RuleModule = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'screens reach data through lib/state only' },
+    schema: [],
+    messages: {
+      global:
+        '`{{name}}` reaches a server from a screen. Read and write through lib/state instead.',
+      implementation:
+        'This imports an implementation of the data boundary. Screens use the interface of lib/state; only src/app/backend.ts picks the implementation.',
+    },
+  },
+  create(context) {
+    function checkImport(node: Rule.Node, source: unknown): void {
+      const specifier =
+        typeof source === 'object' && source !== null && 'value' in source
+          ? source.value
+          : undefined;
+      if (typeof specifier !== 'string') return;
+      const target = resolve(specifier, context.filename);
+      if (target === undefined) return;
+      const at = target.lastIndexOf(LIB);
+      if (at === -1) return;
+      const inside = target.slice(at + LIB.length);
+      if (SERVER_LAYERS.some((layer) => inside === layer || inside.startsWith(layer + path.sep))) {
+        context.report({ node, messageId: 'implementation' });
+      }
+    }
+
+    function nameOf(callee: {
+      type: string;
+      name?: string;
+      property?: unknown;
+    }): string | undefined {
+      if (callee.type === 'Identifier') return callee.name;
+      if (callee.type === 'MemberExpression') {
+        const property = callee.property as { type: string; name?: string } | undefined;
+        return property?.type === 'Identifier' ? property.name : undefined;
+      }
+      return undefined;
+    }
+
+    return {
+      ImportDeclaration: (node) => {
+        checkImport(node, node.source);
+      },
+      ExportNamedDeclaration: (node) => {
+        checkImport(node, node.source);
+      },
+      ExportAllDeclaration: (node) => {
+        checkImport(node, node.source);
+      },
+      ImportExpression: (node) => {
+        checkImport(node, node.source);
+      },
+      CallExpression(node) {
+        const name = nameOf(node.callee);
+        if (name === 'fetch' || name === 'sendBeacon') {
+          context.report({ node, messageId: 'global', data: { name } });
+        }
+      },
+      NewExpression(node) {
+        const name = nameOf(node.callee);
+        if (name !== undefined && SERVER_GLOBALS.has(name)) {
+          context.report({ node, messageId: 'global', data: { name } });
+        }
+      },
+    };
+  },
+};
+
 const plugin: ESLint.Plugin = {
-  rules: { 'feature-boundaries': featureBoundaries, 'no-device-time': noDeviceTime },
+  rules: {
+    'feature-boundaries': featureBoundaries,
+    'layer-order': layerOrder,
+    'no-direct-server': noDirectServer,
+    'no-device-time': noDeviceTime,
+  },
 };
 
 export default plugin;

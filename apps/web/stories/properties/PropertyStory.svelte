@@ -35,8 +35,8 @@
 <script lang="ts">
   import { DEFAULT_OPTION_COLOR, OPTION_COLORS } from '$lib/components/option-chip/colors.ts';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
-  import PropertyValue from '$lib/features/properties/PropertyValue.svelte';
-  import type { PropertyUser } from '$lib/features/properties/types.ts';
+  import PropertyValue from '$lib/components/properties/PropertyValue.svelte';
+  import type { PropertyUser } from '$lib/components/properties/types.ts';
   import { getLocale } from '$lib/i18n/paraglide/runtime.js';
   import { createCard, createId, type PropertyOption } from '$lib/logic/wire.ts';
 
