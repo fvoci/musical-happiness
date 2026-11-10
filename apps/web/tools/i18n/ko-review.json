@@ -1,0 +1,66 @@
+{
+  "listed": [
+    ["Sidebar.import"],
+    ["RegistrationLink.regenerateToken"],
+    ["ShareBoard.tokenRegenrated"],
+    ["View.NewGalleryTitle"],
+    ["SidebarTour.ManageCategories.Body"],
+    ["person.add-user-to-board-warning"],
+    ["tutorial_tip.seen"],
+    ["shareBoard.lastAdmin"],
+    ["Filter.contains"],
+    ["UndoRedoHotKeys.cannotRedo"],
+    ["UndoRedoHotKeys.cannotUndo"],
+    ["ViewHeader.view-header-menu"],
+    ["FindBoardsDialog.IntroText"],
+    ["Sidebar.product-tour"],
+    ["TableRow.MoreOption"],
+    ["ConfirmationDialog.confirm-action"],
+    ["Calculations.Options.sum.label", "Calculations.Options.sum.displayName"],
+    [
+      "Calculations.Options.earliest.displayName",
+      "Calculations.Options.earliest.label",
+      "Calculations.Options.latest.displayName",
+      "Calculations.Options.latest.label"
+    ],
+    ["Calculations.Options.countValue.label"],
+    ["Calculations.Options.countUniqueValue.label"],
+    [
+      "Calculations.Options.countChecked.displayName",
+      "Calculations.Options.countChecked.label",
+      "Calculations.Options.percentChecked.displayName",
+      "Calculations.Options.percentChecked.label"
+    ],
+    ["GroupBy.hideEmptyGroups"],
+    ["SidebarCategories.CategoryMenu.DeleteModal.Body"],
+    ["SidebarTour.SearchForBoards.Body"],
+    ["SidebarTour.SidebarCategories.Body"],
+    ["OnboardingTour.AddComments.Body"],
+    ["OnboardingTour.AddView.Body"],
+    ["CardDetailProperty.confirm-property-name-change-subtext"],
+    [
+      "CardDialog.delete-confirmation-dialog-heading",
+      "CardDialog.delete-confirmation-dialog-attachment"
+    ],
+    ["DeleteBoardDialog.confirm-info-template"],
+    ["FindBoardsDialog.SubTitle"],
+    ["ShareBoard.PublishTitle"],
+    ["ShareBoard.userPermissionsYouText"],
+    ["shareBoard.confirm-change-team-role.body"],
+    ["ViewHeader.group-by"],
+    ["person.add-user-to-board", "person.add-user-to-board-question"],
+    ["error.page.title"],
+    ["guest-no-board.title", "guest-no-board.subtitle"],
+    ["BoardComponent.new", "TableComponent.plus-new"],
+    ["Sidebar.export-archive", "Sidebar.import-archive"],
+    ["PropertyType.MultiSelect", "PropertyType.Select"],
+    ["CardActionsMenu.copiedLink"],
+    ["PropertyValueElement.empty", "Filter.is-empty"],
+    ["BoardPage.newVersion"]
+  ],
+  "unchanged": ["Sidebar.export-archive", "PropertyType.Select"],
+  "firstFilled": {
+    "boardPage.confirm-join-button": "참여하기",
+    "boardPage.confirm-join-title": "비공개 보드 참여하기"
+  }
+}

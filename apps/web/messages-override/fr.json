@@ -1,0 +1,7 @@
+{
+  "BoardPage.newVersion": {
+    "was": "Une nouvelle version de Boards est disponible, cliquez ici pour recharger.",
+    "now": "Une nouvelle version de fvoci est disponible, cliquez ici pour recharger.",
+    "kind": ["name"]
+  }
+}

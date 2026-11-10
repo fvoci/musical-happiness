@@ -12,9 +12,9 @@
   "FilterValue.empty": "(비어 있음)",
   "PersonProperty.me": "나",
   "TableRow.DuplicateCard": "카드 복제",
-  "boardPage.confirm-join-button": "참여하기",
+  "boardPage.confirm-join-button": "참여",
   "boardPage.confirm-join-text": "보드 관리자가 직접 추가하지 않은 비공개 보드에 참여하려고 합니다. 이 비공개 보드에 참여하시겠습니까?",
-  "boardPage.confirm-join-title": "비공개 보드 참여하기",
+  "boardPage.confirm-join-title": "비공개 보드 참여",
   "centerPanel.undefined": "{propertyName} 속성 없음",
   "centerPanel.unknown-user": "알 수 없는 사용자"
 }

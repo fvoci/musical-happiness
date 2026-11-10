@@ -11,6 +11,10 @@
  * - `messages-fill/<tag>.json`: translations for ids the original file of
  *   that locale lacks, in ICU MessageFormat like the original. They go
  *   through the same conversion.
+ * - `messages-override/<tag>.json`: texts written by hand that replace a text
+ *   the original file of that locale has, in ICU MessageFormat as well. Each
+ *   entry quotes the text it replaces (`was`), and the conversion stops when
+ *   the original no longer says that. See `Override`.
  *
  * The result, `messages/<tag>.json`, is generated: an edit there is undone by
  * the next run. Ids are kept as they are, in the order of the English file.
@@ -18,7 +22,7 @@
  * Left out are the ids listed in `removed.json` (features that are not
  * ported) and the ids no source file of the original uses.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { IcuSyntaxError, parseIcu } from './icu.ts';
@@ -61,6 +65,41 @@ export function renameProduct(text: string, locale: string, id: string): string 
     throw new Error(`${locale} ${id}: names the old company; decide what the message should say`);
   }
   return text.replace(new RegExp([OLD_PRODUCT, ...found].join('|'), 'gi'), PRODUCT_NAME);
+}
+
+/** What an override is for. The review of the overrides is sorted by these. */
+export const OVERRIDE_KINDS = [
+  'name', // the product is named, or was named something else
+  'rewrite', // the message says something else now
+  'typo',
+  'mistranslation',
+  'omission', // the translation left something out
+  'term', // one word for one thing
+  'form', // one form for labels: a noun phrase
+  'tone', // one register for sentences
+  'particle', // a particle that was wrong for some of the values put in
+  'punctuation',
+] as const;
+export type OverrideKind = (typeof OVERRIDE_KINDS)[number];
+
+/**
+ * An entry of `messages-override/<tag>.json`: the text `now` replaces the
+ * text of the original.
+ *
+ * `was` is the text being replaced, after the old names were replaced in it
+ * (so that no override file has to spell them). When the original says
+ * something else, the override was written for a text that is gone, and the
+ * conversion stops instead of applying it.
+ *
+ * `stale`, only for English, says the message means something else now: the
+ * translations of the old text are left out, and each locale shows the
+ * English text until its own override file gives a new translation.
+ */
+export interface Override {
+  was: string;
+  now: string;
+  kind: OverrideKind[];
+  stale?: boolean;
 }
 
 export type Converted = { ok: true; message: InlangMessage } | { ok: false; reason: string };
@@ -129,6 +168,10 @@ export interface LocaleReport {
   converted: number;
   notConverted: { id: string; reason: string }[];
   filled: string[];
+  /** Ids whose text is one written by hand in place of the original's. They count as converted. */
+  overridden: ({ id: string } & Override)[];
+  /** Ids the original translates but that are left out: the English text was rewritten since. */
+  stale: string[];
   own: number;
   /** Keys of the English file this locale ends up without; the English text is shown for them. */
   missing: string[];
@@ -150,6 +193,8 @@ export interface Report {
 export interface Outcome {
   /** Path under the web app → content. */
   files: Map<string, string>;
+  /** Locale → id → the ICU text the message was converted from; the app's own messages are not in it. */
+  texts: Map<string, Record<string, string>>;
   report: Report;
 }
 
@@ -165,6 +210,32 @@ function readOriginal(originalRoot: string, locale: Locale): Messages {
 
 function readOptional<T>(file: string): Record<string, T> {
   return existsSync(file) ? (readJson(file) as Record<string, T>) : {};
+}
+
+function readOverrides(webRoot: string, tag: string, isBase: boolean): Record<string, Override> {
+  const name = `messages-override/${tag}.json`;
+  const entries = readOptional<unknown>(path.join(webRoot, name));
+  const kinds: readonly unknown[] = OVERRIDE_KINDS;
+  for (const [id, entry] of Object.entries(entries)) {
+    const fail = (problem: string): never => {
+      throw new Error(`${name}: ${id}: ${problem}`);
+    };
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      fail('has to be an object with "was", "now" and "kind"');
+    }
+    const { was, now, kind, stale, ...rest } = entry as Record<string, unknown>;
+    if (typeof was !== 'string' || typeof now !== 'string') {
+      fail('"was" and "now" have to be texts');
+    }
+    if (!Array.isArray(kind) || kind.length === 0 || !kind.every((one) => kinds.includes(one))) {
+      fail(`"kind" has to be a list of ${OVERRIDE_KINDS.join(', ')}`);
+    }
+    if (stale !== undefined && (stale !== true || !isBase)) {
+      fail('"stale" can only be true, and only for English');
+    }
+    if (Object.keys(rest).length > 0) fail(`unknown: ${Object.keys(rest).join(', ')}`);
+  }
+  return entries as Record<string, Override>;
 }
 
 function survey(messages: Messages, shapes: Map<string, Shape>): Survey {
@@ -257,6 +328,32 @@ export function convertAll(
     }
   }
 
+  // Translations are held against the English text as it is shown, which is
+  // the override where there is one.
+  const overrideDirectory = path.join(webRoot, 'messages-override');
+  if (existsSync(overrideDirectory)) {
+    const unknown = readdirSync(overrideDirectory)
+      .sort()
+      .filter((name) => !LOCALES.some((locale) => `${locale.tag}.json` === name));
+    if (unknown.length > 0) {
+      throw new Error(`messages-override: not the file of a locale: ${unknown.join(', ')}`);
+    }
+  }
+  const baseOverrides = readOverrides(webRoot, base.tag, true);
+  const shown = new Map(shapes);
+  const stale = new Set<string>();
+  for (const [id, override] of Object.entries(baseOverrides)) {
+    if (override.stale) stale.add(id);
+    try {
+      shown.set(id, shapeOf(parseIcu(override.now)));
+    } catch (error) {
+      if (!(error instanceof IcuSyntaxError)) throw error;
+      throw new Error(`messages-override/${base.tag}.json: ${id}: ICU syntax: ${error.message}`, {
+        cause: error,
+      });
+    }
+  }
+
   const baseOwn = readOptional<InlangMessage>(
     path.join(webRoot, 'messages-own', `${base.tag}.json`),
   );
@@ -266,6 +363,7 @@ export function convertAll(
   }
 
   const files = new Map<string, string>();
+  const texts = new Map<string, Record<string, string>>();
   const reports: LocaleReport[] = [];
   for (const locale of LOCALES) {
     const original = readOriginal(originalRoot, locale);
@@ -286,6 +384,13 @@ export function convertAll(
       throw new Error(`messages-fill/${locale.tag}.json: not a kept id: ${strayFill.join(', ')}`);
     }
 
+    const overrides = locale === base ? baseOverrides : readOverrides(webRoot, locale.tag, false);
+    const overrideFile = `messages-override/${locale.tag}.json`;
+    const strayOverride = Object.keys(overrides).filter((id) => !kept.includes(id));
+    if (strayOverride.length > 0) {
+      throw new Error(`${overrideFile}: not a kept id: ${strayOverride.join(', ')}`);
+    }
+
     const report: LocaleReport = {
       tag: locale.tag,
       file: locale.file,
@@ -296,12 +401,15 @@ export function convertAll(
       converted: 0,
       notConverted: [],
       filled: [],
+      overridden: [],
+      stale: [],
       own: 0,
       missing: [],
       renamed: [],
       survey: survey(original, locale === base ? new Map<string, Shape>() : shapes),
     };
     const output: Record<string, InlangMessage> = {};
+    const sources: Record<string, string> = {};
     for (const key of Object.keys(baseOwn)) {
       const message = own[key];
       if (message === undefined) {
@@ -312,41 +420,86 @@ export function convertAll(
       report.own += 1;
     }
     for (const id of kept) {
-      const shape = locale === base ? undefined : shapes.get(id);
-      const convert = (text: string): Converted => {
+      const shape = locale === base ? undefined : shown.get(id);
+      /** The text with the old names replaced, and what it converts to. */
+      const convert = (text: string): Converted & { text: string } => {
         if (OUTSIDE_URL.test(text)) {
-          return { ok: false, reason: 'the text has the address of an outside site' };
+          return { text, ok: false, reason: 'the text has the address of an outside site' };
         }
         const renamed = renameProduct(text, locale.tag, id);
-        if (renamed !== text) report.renamed.push(id);
-        return convertMessage(renamed, shape);
+        return { text: renamed, ...convertMessage(renamed, shape) };
+      };
+      const emit = (text: string, message: InlangMessage): void => {
+        output[id] = message;
+        sources[id] = text;
       };
       const fromOriginal = original[id] === undefined ? undefined : convert(original[id]);
+      if (fromOriginal && fromOriginal.text !== original[id]) report.renamed.push(id);
+
+      const override = overrides[id];
+      if (override) {
+        const refuse = (problem: string): Error => new Error(`${overrideFile}: ${id}: ${problem}`);
+        if (!fromOriginal) {
+          throw refuse('the original has no text to replace; a new text belongs in messages-fill');
+        }
+        if (override.was !== fromOriginal.text) {
+          throw refuse(`"was" is not what the original says: ${JSON.stringify(fromOriginal.text)}`);
+        }
+        if (override.now === override.was) throw refuse('"now" is the text of the original');
+        // A text written by hand has to pass what a translation has to pass;
+        // where a translation would be left out, this stops.
+        const written = convert(override.now);
+        if (written.text !== override.now) throw refuse('"now" has one of the old names');
+        if (!written.ok) throw refuse(written.reason);
+        emit(override.now, written.message);
+        report.converted += 1;
+        report.overridden.push({ id, ...override });
+        continue;
+      }
+
+      // The English text was rewritten: what the original has translates the old one.
+      if (locale !== base && stale.has(id) && fromOriginal) {
+        if (id in fill) {
+          throw new Error(
+            `messages-fill/${locale.tag}.json: ${id} is in the original; its new translation belongs in ${overrideFile}`,
+          );
+        }
+        report.stale.push(id);
+        report.missing.push(id);
+        continue;
+      }
+
       if (fromOriginal?.ok) {
         if (id in fill) {
           throw new Error(`messages-fill/${locale.tag}.json: ${id} is in the original already`);
         }
-        output[id] = fromOriginal.message;
+        emit(fromOriginal.text, fromOriginal.message);
         report.converted += 1;
         continue;
       }
       if (fromOriginal) report.notConverted.push({ id, reason: fromOriginal.reason });
       const filled = fill[id] === undefined ? undefined : convert(fill[id]);
       if (filled?.ok) {
-        output[id] = filled.message;
+        emit(filled.text, filled.message);
         report.filled.push(id);
       } else {
-        if (filled) throw new Error(`messages-fill/${locale.tag}.json: ${id}: ${filled.reason}`);
-        if (locale === base) throw new Error(`en ${id}: ${fromOriginal?.reason ?? 'no text'}`);
+        if (filled) {
+          throw new Error(`messages-fill/${locale.tag}.json: ${id}: ${filled.reason}`);
+        }
+        if (locale === base) {
+          throw new Error(`en ${id}: ${fromOriginal?.reason ?? 'no text'}`);
+        }
         report.missing.push(id);
       }
     }
+    texts.set(locale.tag, sources);
     files.set(`messages/${locale.tag}.json`, `${JSON.stringify(output, null, 2)}\n`);
     reports.push(report);
   }
 
   return {
     files,
+    texts,
     report: {
       bundled,
       kept,

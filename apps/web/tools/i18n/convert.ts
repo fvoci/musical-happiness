@@ -7,8 +7,9 @@
  *
  * The message files are generated. What is edited by hand is the sources:
  * `messages-own/` (messages only this app has), `messages-fill/`
- * (translations the original lacks) and `tools/i18n/removed.json`. See
- * conversion.ts, and docs/i18n-conversion.md for what was found.
+ * (translations the original lacks), `messages-override/` (texts that replace
+ * one of the original) and `tools/i18n/removed.json`. See conversion.ts, and
+ * docs/i18n-conversion.md for what was found.
  *
  * `project.inlang/settings.json` is not written, but its locales have to be
  * the ones of locales.ts.
@@ -49,7 +50,7 @@ if (mode === '--check') {
   if (stale.length > 0) {
     console.error(
       `generated message files differ from their sources:\n  ${stale.map(([name]) => name).join('\n  ')}\n` +
-        'They are written by tools/i18n/convert.ts: edit messages-own/ or messages-fill/, then run "pnpm run i18n:convert".',
+        'They are written by tools/i18n/convert.ts: edit messages-own/, messages-fill/ or messages-override/, then run "pnpm run i18n:convert".',
     );
     process.exit(1);
   }
@@ -62,19 +63,23 @@ for (const [name, content] of files) writeFileSync(path.join(WEB_ROOT, name), co
 console.log(
   `English: ${report.kept.length} ids kept, ${report.removed.length} removed, ${report.dead.length} dead\n`,
 );
-console.log('locale   original converted  not conv.  removed  dead  filled  own  missing');
+console.log(
+  'locale   original converted (overridden)  not conv.  stale  removed  dead  filled  own  missing',
+);
 for (const locale of report.locales) {
   const cells = [
     locale.original,
     locale.converted,
+    locale.overridden.length,
     locale.notConverted.length,
+    locale.stale.length,
     locale.removed,
     locale.dead,
     locale.filled.length,
     locale.own,
     locale.missing.length,
   ];
-  const widths = [8, 9, 10, 8, 5, 7, 4, 8];
+  const widths = [8, 9, 12, 10, 6, 8, 5, 7, 4, 8];
   console.log(
     locale.tag.padEnd(8) +
       cells.map((cell, at) => String(cell).padStart(widths[at] ?? 8)).join(' '),

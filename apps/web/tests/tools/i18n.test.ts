@@ -1,20 +1,34 @@
 /**
  * The tools of tools/i18n: the comparison of key sets, the ICU parser, the
- * conversion of each construct to the inlang message format, and what the
- * converted messages return once paraglide has compiled them.
+ * conversion of each construct to the inlang message format, what the
+ * converted messages return once paraglide has compiled them, and the texts
+ * written by hand that replace one of the original.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { compile } from '@inlang/paraglide-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { convertAll, convertMessage, renameProduct } from '../../tools/i18n/conversion.ts';
+import {
+  convertAll,
+  convertMessage,
+  type LocaleReport,
+  type Outcome,
+  renameProduct,
+} from '../../tools/i18n/conversion.ts';
 import { IcuSyntaxError, parseIcu } from '../../tools/i18n/icu.ts';
 import { type InlangMessage, shapeOf, toInlang } from '../../tools/i18n/inlang.ts';
 import { compareKeys, keyErrors, messageKeys } from '../../tools/i18n/keys.ts';
-import { bundledFiles, LOCALES, WEB_ROOT } from '../../tools/i18n/locales.ts';
+import {
+  bundledFiles,
+  LOCALES,
+  ORIGINAL_ROOT,
+  REPOSITORY_ROOT,
+  WEB_ROOT,
+} from '../../tools/i18n/locales.ts';
+import { koReview, reviewDocuments } from '../../tools/i18n/review.ts';
 
 const convert = (icu: string): InlangMessage => toInlang(parseIcu(icu));
 
@@ -565,5 +579,311 @@ describe('the conversion of the original files', () => {
 
   it('writes the same files when run again', () => {
     expect([...convertAll().files]).toEqual([...files]);
+  });
+
+  const text = (tag: string, id: string): unknown =>
+    (JSON.parse(files.get(`messages/${tag}.json`) ?? '{}') as Record<string, unknown>)[id];
+  const of = (tag: string): LocaleReport => {
+    const locale = report.locales.find((one) => one.tag === tag);
+    if (!locale) throw new Error(`no locale ${tag}`);
+    return locale;
+  };
+
+  it('names the product where the English text named it "Boards", and only there', () => {
+    for (const id of [
+      'BoardPage.newVersion',
+      'OnboardingTour.OpenACard.Body',
+      'error.invalid-read-only-board',
+      'error.not-logged-in',
+    ]) {
+      expect(text('en', id)).toContain('fvoci');
+      expect(text('en', id)).not.toContain('Boards');
+      expect(text('ko', id)).toContain('fvoci');
+    }
+    // The default category of the sidebar is called "Boards"; that stays.
+    expect(text('en', 'SidebarCategories.CategoryMenu.DeleteModal.Body')).toContain(
+      'the Boards categories',
+    );
+  });
+
+  it('shows the English text where the English message was rewritten, except in Korean', () => {
+    for (const id of ['ShareBoard.searchPlaceholder', 'OnboardingTour.CopyLink.Body']) {
+      expect(of('en').overridden.find((entry) => entry.id === id)).toMatchObject({ stale: true });
+      expect(of('ko').overridden.map((entry) => entry.id)).toContain(id);
+      expect(text('de', id)).toBeUndefined();
+      expect(of('de').stale).toContain(id);
+    }
+    // Italian never translated the first of the two: nothing was left out there.
+    expect(of('it').stale).toEqual(['OnboardingTour.CopyLink.Body']);
+  });
+
+  it('accounts for every message of an original file', () => {
+    for (const locale of report.locales) {
+      const counted =
+        locale.converted +
+        locale.notConverted.length +
+        locale.stale.length +
+        locale.removed +
+        locale.dead;
+      expect([locale.tag, counted]).toEqual([locale.tag, locale.original]);
+    }
+  });
+
+  it('has no Korean particle right after a value, where it would depend on how the value ends', () => {
+    const particle = /\}(?:<\/b>)?["”]?(?:은|는|이|가|을|를|로|으로|와|과)(?:\s|$)/;
+    const risky = Object.entries(convertAll().texts.get('ko') ?? {}).filter(([, source]) =>
+      particle.test(source),
+    );
+    expect(risky.map(([id]) => id)).toEqual([]);
+  });
+});
+
+describe('texts that replace one of the original', () => {
+  let root = '';
+
+  /** Converts the original with only these override files, each locale → id → entry. */
+  const run = (overrides: Record<string, Record<string, unknown>>): Outcome => {
+    rmSync(path.join(root, 'messages-override'), { recursive: true, force: true });
+    mkdirSync(path.join(root, 'messages-override'));
+    for (const [name, entries] of Object.entries(overrides)) {
+      writeFileSync(path.join(root, 'messages-override', name), JSON.stringify(entries));
+    }
+    return convertAll(ORIGINAL_ROOT, root, REPOSITORY_ROOT);
+  };
+  const messages = (outcome: Outcome, tag: string): Record<string, unknown> =>
+    JSON.parse(outcome.files.get(`messages/${tag}.json`) ?? '{}') as Record<string, unknown>;
+  const reportOf = (outcome: Outcome, tag: string): LocaleReport => {
+    const locale = outcome.report.locales.find((one) => one.tag === tag);
+    if (!locale) throw new Error(`no locale ${tag}`);
+    return locale;
+  };
+
+  const typo = { was: '사이드바 가져요기', now: '가져오기', kind: ['typo'] };
+  const groups = { was: 'Hide {count} empty groups', kind: ['rewrite'] };
+  const placeholder = { was: 'Search for people and channels', now: 'Search for people' };
+
+  beforeAll(() => {
+    const cache = path.join(WEB_ROOT, 'node_modules/.cache');
+    mkdirSync(cache, { recursive: true });
+    root = mkdtempSync(path.join(cache, 'i18n-override-'));
+  });
+
+  afterAll(() => {
+    if (root !== '') rmSync(root, { recursive: true, force: true });
+  });
+
+  it('puts the new text in place of the original one, in that locale only', () => {
+    const plain = run({});
+    const outcome = run({ 'ko.json': { 'Sidebar.import': typo } });
+    expect(messages(plain, 'ko')['Sidebar.import']).toBe('사이드바 가져요기');
+    expect(messages(outcome, 'ko')['Sidebar.import']).toBe('가져오기');
+    expect(outcome.texts.get('ko')?.['Sidebar.import']).toBe('가져오기');
+    expect(outcome.files.get('messages/de.json')).toBe(plain.files.get('messages/de.json'));
+    expect(Object.keys(messages(outcome, 'ko'))).toEqual(Object.keys(messages(plain, 'ko')));
+  });
+
+  it('reports what it replaced, and counts it as converted', () => {
+    const plain = reportOf(run({}), 'ko');
+    const korean = reportOf(run({ 'ko.json': { 'Sidebar.import': typo } }), 'ko');
+    expect(plain.overridden).toEqual([]);
+    expect(korean.overridden).toEqual([{ id: 'Sidebar.import', ...typo }]);
+    expect(korean.converted).toBe(plain.converted);
+  });
+
+  it('converts the new text like a text of the original', () => {
+    const outcome = run({
+      'ko.json': {
+        'GroupBy.hideEmptyGroups': {
+          was: '{count} 그룹 숨기기',
+          now: "'{'{ count }'}'개",
+          kind: ['omission'],
+        },
+        'FindBoardsDialog.SubTitle': {
+          was: run({}).texts.get('ko')?.['FindBoardsDialog.SubTitle'],
+          now: '<b>ESC</b>로 닫기',
+          kind: ['mistranslation'],
+        },
+      },
+    });
+    expect(messages(outcome, 'ko')['GroupBy.hideEmptyGroups']).toBe('\\{{count}\\}개');
+    expect(messages(outcome, 'ko')['FindBoardsDialog.SubTitle']).toBe('{#b}ESC{/b}로 닫기');
+  });
+
+  it('writes the same bytes when run again', () => {
+    const overrides = { 'ko.json': { 'Sidebar.import': typo }, 'en.json': {} };
+    expect([...run(overrides).files]).toEqual([...run(overrides).files]);
+  });
+
+  it('stops when the original no longer says what was replaced', () => {
+    expect(() => run({ 'ko.json': { 'Sidebar.import': { ...typo, was: '가져요기' } } })).toThrow(
+      'messages-override/ko.json: Sidebar.import: "was" is not what the original says: "사이드바 가져요기"',
+    );
+  });
+
+  it.each([
+    ['is in no file of the original', 'No.such-id'],
+    ['was removed', 'Sidebar.about'],
+    ['is used nowhere in the original', 'AppBar.Tooltip'],
+  ])('stops when the id %s', (_, id) => {
+    expect(() => run({ 'ko.json': { [id]: typo } })).toThrow(
+      `messages-override/ko.json: not a kept id: ${id}`,
+    );
+  });
+
+  it('stops when the original of that locale has no text for the id', () => {
+    expect(() => run({ 'ko.json': { 'ConfirmPerson.empty': { ...typo, was: 'Empty' } } })).toThrow(
+      /ConfirmPerson\.empty: the original has no text to replace; a new text belongs in messages-fill/,
+    );
+  });
+
+  it('stops when nothing is replaced', () => {
+    expect(() => run({ 'ko.json': { 'Sidebar.import': { ...typo, now: typo.was } } })).toThrow(
+      /"now" is the text of the original/,
+    );
+  });
+
+  it.each([
+    [
+      'an argument the English message lacks',
+      '빈 그룹 {n}개 숨기기',
+      'not in the English message: {n}',
+    ],
+    [
+      'a tag the English message lacks',
+      '<i>{count}</i>개 숨기기',
+      'not in the English message: <i>',
+    ],
+    ['a syntax error', '빈 그룹 {count 개 숨기기', 'ICU syntax: MALFORMED_ARGUMENT'],
+    [
+      'the address of an outside site',
+      '{count}개: https://example.com',
+      'the text has the address',
+    ],
+    ['a date', '{count, date, short}', 'the date format of "count"'],
+  ])('stops at a new text with %s', (_, now, reason) => {
+    const entry = { was: '{count} 그룹 숨기기', now, kind: ['omission'] };
+    expect(() => run({ 'ko.json': { 'GroupBy.hideEmptyGroups': entry } })).toThrow(
+      `messages-override/ko.json: GroupBy.hideEmptyGroups: ${reason}`,
+    );
+  });
+
+  it('stops at a new text that has one of the old names', () => {
+    const product = ['Focal', 'board'].join('');
+    const entry = { ...typo, now: `${product} 가져오기` };
+    expect(() => run({ 'ko.json': { 'Sidebar.import': entry } })).toThrow(
+      /Sidebar\.import: "now" has one of the old names/,
+    );
+  });
+
+  it('quotes the original with the old names replaced already', () => {
+    // The original names the old company here; no override file has to.
+    const id = 'OnboardingTour.AddComments.Body';
+    const was =
+      'You can comment on issues, and even @mention your fellow fvoci users to get their attention.';
+    const outcome = run({ 'en.json': { [id]: { was, now: 'Comment.', kind: ['rewrite'] } } });
+    expect(messages(outcome, 'en')[id]).toBe('Comment.');
+    expect(reportOf(outcome, 'en').renamed).toEqual([id]);
+  });
+
+  it.each([
+    ['an entry that is not an object', '가져오기', 'has to be an object'],
+    ['no "was"', { now: '가져오기', kind: ['typo'] }, '"was" and "now" have to be texts'],
+    ['no "kind"', { was: typo.was, now: typo.now }, '"kind" has to be a list of'],
+    ['an empty "kind"', { ...typo, kind: [] }, '"kind" has to be a list of'],
+    ['an unknown "kind"', { ...typo, kind: ['style'] }, '"kind" has to be a list of'],
+    [
+      '"stale" outside English',
+      { ...typo, stale: true },
+      '"stale" can only be true, and only for English',
+    ],
+    ['a field it does not know', { ...typo, note: 'x' }, 'unknown: note'],
+  ])('refuses %s', (_, entry, problem) => {
+    expect(() => run({ 'ko.json': { 'Sidebar.import': entry } })).toThrow(
+      `messages-override/ko.json: Sidebar.import: ${problem}`,
+    );
+  });
+
+  it('refuses a file that is not the file of a locale', () => {
+    expect(() => run({ 'kr.json': {} })).toThrow(
+      'messages-override: not the file of a locale: kr.json',
+    );
+  });
+
+  describe('of an English message', () => {
+    const id = 'ShareBoard.searchPlaceholder';
+    const rewrite = { ...placeholder, kind: ['rewrite'] };
+
+    it('keeps the translations when the text is not marked as meaning something else', () => {
+      const outcome = run({ 'en.json': { [id]: rewrite } });
+      expect(messages(outcome, 'en')[id]).toBe('Search for people');
+      expect(messages(outcome, 'de')[id]).toBe('Suche nach Personen und Kanälen');
+      expect(reportOf(outcome, 'de').stale).toEqual([]);
+    });
+
+    it('leaves the translations out when it is, so that the English text is shown', () => {
+      const plain = run({});
+      const outcome = run({ 'en.json': { [id]: { ...rewrite, stale: true } } });
+      for (const tag of ['de', 'ko', 'ru']) {
+        expect(messages(outcome, tag)[id]).toBeUndefined();
+        expect(reportOf(outcome, tag).stale).toEqual([id]);
+        expect(reportOf(outcome, tag).missing).toContain(id);
+        expect(reportOf(outcome, tag).converted).toBe(reportOf(plain, tag).converted - 1);
+      }
+      // A locale that never had the text has nothing left out.
+      expect(reportOf(outcome, 'it').stale).toEqual([]);
+      expect(reportOf(outcome, 'it').missing).toContain(id);
+    });
+
+    it('takes the new translation from the override file of a locale', () => {
+      const korean = { was: '사용자 및 채널 검색', now: '사용자 검색', kind: ['rewrite'] };
+      const outcome = run({
+        'en.json': { [id]: { ...rewrite, stale: true } },
+        'ko.json': { [id]: korean },
+      });
+      expect(messages(outcome, 'ko')[id]).toBe('사용자 검색');
+      expect(reportOf(outcome, 'ko').stale).toEqual([]);
+      expect(reportOf(outcome, 'ko').overridden).toEqual([{ id, ...korean }]);
+      expect(messages(outcome, 'de')[id]).toBeUndefined();
+    });
+
+    it('holds the translations against the new text, not the original one', () => {
+      const outcome = run({
+        'en.json': { 'GroupBy.hideEmptyGroups': { ...groups, now: 'Hide the empty groups' } },
+      });
+      expect(messages(outcome, 'de')['GroupBy.hideEmptyGroups']).toBeUndefined();
+      expect(reportOf(outcome, 'de').notConverted).toEqual([
+        { id: 'GroupBy.hideEmptyGroups', reason: 'not in the English message: {count}' },
+      ]);
+      // And a translation written for the new text may use what the new text has.
+      const renamed = run({
+        'en.json': { 'GroupBy.hideEmptyGroups': { ...groups, now: 'Hide {n} empty groups' } },
+        'ko.json': {
+          'GroupBy.hideEmptyGroups': {
+            was: '{count} 그룹 숨기기',
+            now: '빈 그룹 {n}개 숨기기',
+            kind: ['omission'],
+          },
+        },
+      });
+      expect(messages(renamed, 'ko')['GroupBy.hideEmptyGroups']).toBe('빈 그룹 {n}개 숨기기');
+    });
+  });
+});
+
+describe('the documents about the messages', () => {
+  it('have the tables the review tool writes from the messages', async () => {
+    for (const [name, content] of await reviewDocuments()) {
+      expect([name, readFileSync(path.join(WEB_ROOT, name), 'utf8')]).toEqual([name, content]);
+    }
+  });
+
+  it('list every Korean text that is not the original one, once', () => {
+    const outcome = convertAll();
+    const korean = outcome.report.locales.find((locale) => locale.tag === 'ko');
+    const rows = (koReview(outcome).table ?? '').split('\n').slice(2);
+    const ids = rows.map((row) => /`([^`]+)`/.exec(row)?.[1] ?? '');
+    expect(ids.toSorted()).toEqual(
+      [...(korean?.overridden.map(({ id }) => id) ?? []), ...(korean?.filled ?? [])].toSorted(),
+    );
   });
 });

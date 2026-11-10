@@ -1,0 +1,22 @@
+{
+  "BoardPage.newVersion": {
+    "was": "Uma nova versão do Boards está disponível, clique aqui para recarregar.",
+    "now": "Uma nova versão do fvoci está disponível, clique aqui para recarregar.",
+    "kind": ["name"]
+  },
+  "OnboardingTour.OpenACard.Body": {
+    "was": "Abra um cartão para explorar formas poderosas que os Boards podem ajudar a organizar seu trabalho.",
+    "now": "Abra um cartão para explorar formas poderosas que o fvoci pode ajudar a organizar seu trabalho.",
+    "kind": ["name"]
+  },
+  "error.invalid-read-only-board": {
+    "was": "Você não possui acesso a este board. Faça log in para acessar Boards.",
+    "now": "Você não possui acesso a este board. Faça log in para acessar fvoci.",
+    "kind": ["name"]
+  },
+  "error.not-logged-in": {
+    "was": "Sua sessão pode ter expirado ou você não está logado. Faça Log in para obter acesso ao Boards.",
+    "now": "Sua sessão pode ter expirado ou você não está logado. Faça Log in para obter acesso ao fvoci.",
+    "kind": ["name"]
+  }
+}

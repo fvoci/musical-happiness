@@ -46,5 +46,17 @@
       "VersionMessage.help",
       "VersionMessage.learn-more"
     ]
+  },
+  "guest-accounts": {
+    "why": "Guest accounts, an account kind of the old company's product that the server design does not mention. Left out by the product owner's decision.",
+    "ids": ["badge.guest", "guest-no-board.subtitle", "guest-no-board.title"]
+  },
+  "old-notice": {
+    "why": "A notice about the state of the old product (mobile web in early beta). Left out by the product owner's decision.",
+    "ids": ["Error.mobileweb"]
+  },
+  "upgrade-tour-step": {
+    "why": "The tour step that explains what the 7.2 upgrade of the old product did to the sidebar and its workspaces. Left out by the product owner's decision.",
+    "ids": ["SidebarTour.SidebarCategories.Body", "SidebarTour.SidebarCategories.Title"]
   }
 }
