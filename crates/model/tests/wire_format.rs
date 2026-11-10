@@ -23,6 +23,7 @@ fn block_json_members() {
         block_type: BlockType::Text,
         title: "hello".to_owned(),
         fields: serde_json::from_value(json!({ "z": 1, "a": [true] })).expect("object"),
+        body: None,
         create_at: 10,
         update_at: 20,
         delete_at: 0,
@@ -30,7 +31,7 @@ fn block_json_members() {
     };
     let want = json!({
         "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2", "schema": 1,
-        "type": "text", "title": "hello", "fields": { "a": [true], "z": 1 },
+        "type": "text", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
         "createAt": 10, "updateAt": 20, "deleteAt": 0, "boardId": "b1"
     });
     assert_eq!(to_json(&block), want);

@@ -117,7 +117,9 @@ impl App {
                 // whole list (server/app/cards.go:54-60). The original's web app writes
                 // such blocks: a `contentOrder` with side-by-side content has nested
                 // lists. What is stored is no card, so this is a server error.
+                // A list says whether a card has a body; the body is read with the card.
                 card_from_stored_block(block, now)
+                    .map(|card| Card { body: None, ..card })
                     .map_err(|error| AppError::from(error).context("Block2Card fail"))
             })
             .collect()

@@ -21,6 +21,17 @@
             "description": "The identifier of the board the block belongs to.",
             "type": "string"
           },
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The body of a card or a comment; `null` for a block without one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "createAt": {
             "description": "Creation time in milliseconds since the Unix epoch.",
             "format": "int64",
@@ -73,6 +84,7 @@
         },
         "required": [
           "boardId",
+          "body",
           "createAt",
           "createdBy",
           "deleteAt",
@@ -90,6 +102,17 @@
       "BlockPatch": {
         "description": "A partial update of a `Block`. Absent members leave the block unchanged.",
         "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The new body; `null` takes the body away."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "deletedFields": {
             "description": "Keys of fields to remove.",
             "items": {
@@ -101,6 +124,14 @@
             "description": "The new parent identifier.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "readAt": {
+            "description": "The `updateAt` of the block as the client read it. If the block has changed\nsince, the patch is refused.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -418,12 +449,28 @@
         ],
         "type": "object"
       },
+      "Body": {
+        "additionalProperties": true,
+        "description": "A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 1 MiB as JSON, 32 levels deep and 20,000 nodes.",
+        "type": "object"
+      },
       "Card": {
         "description": "A card: a titled group of properties and content blocks on a board.",
         "properties": {
           "boardId": {
             "description": "The identifier of the board the card belongs to.",
             "type": "string"
+          },
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The card's body. `null` for a card without one, and in a list of cards, which\nsays only whether there is one (`hasBody`): a card is read alone for its body."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "contentOrder": {
             "description": "The identifiers of the card's content blocks, in display order.",
@@ -446,6 +493,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "hasBody": {
+            "description": "Whether the card has a body.",
+            "type": "boolean"
+          },
           "icon": {
             "description": "The card's icon; at most one grapheme.",
             "type": "string"
@@ -467,6 +518,18 @@
             "description": "Property values keyed by property identifier.",
             "type": "object"
           },
+          "tasksDone": {
+            "description": "How many task items of the body are checked.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tasksTotal": {
+            "description": "How many task items the body has.",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
           "title": {
             "description": "The display title.",
             "type": "string"
@@ -479,15 +542,19 @@
         },
         "required": [
           "boardId",
+          "body",
           "contentOrder",
           "createAt",
           "createdBy",
           "deleteAt",
+          "hasBody",
           "icon",
           "id",
           "isTemplate",
           "modifiedBy",
           "properties",
+          "tasksDone",
+          "tasksTotal",
           "title",
           "updateAt"
         ],
@@ -505,6 +572,17 @@
       "CardPatch": {
         "description": "What a card is changed to. A member that is left out stays as it is.",
         "properties": {
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The new body; `null` takes the body away. Sent only with `readAt`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "contentOrder": {
             "description": "The new content order.",
             "items": {
@@ -519,6 +597,14 @@
             "description": "The new icon; at most one grapheme.",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "readAt": {
+            "description": "The `updateAt` of the card as the client read it: if the card has changed since,\nthe patch is refused with 409 and changes nothing. Needed with `body`, and\nchecked whenever it is sent.",
+            "format": "int64",
+            "type": [
+              "integer",
               "null"
             ]
           },
@@ -1145,6 +1231,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "body": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Body",
+                "description": "The card's body; left out or `null` for none."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "contentOrder": {

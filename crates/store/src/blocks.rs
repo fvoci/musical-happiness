@@ -7,7 +7,10 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use fvoci_model::{Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, generate_block_ids};
+use fvoci_model::{
+    BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body,
+    generate_block_ids,
+};
 use serde_json::Value;
 
 use crate::Store;
@@ -17,7 +20,11 @@ use crate::error::StoreError;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, board_id";
+                             fields, create_at, update_at, board_id, body";
+
+/// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
+/// when it is stored.
+const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, body_tasks_done";
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -317,6 +324,10 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         // A block that exists is not deleted.
         delete_at: 0,
         board_id: row.id(10)?,
+        body: match row.json(11, "body")? {
+            Value::Null => None,
+            document => Some(Body::from_stored(document)),
+        },
     })
 }
 
@@ -469,8 +480,9 @@ async fn insert_block_at(
             .push_bind(", type = ", block.block_type.as_str())
             .push_bind(", title = ", &block.title)
             .push_bind(", fields = ", Param::json(&block.fields)?)
-            .push_bind(", update_at = ", block.update_at)
-            .push_bind(" WHERE id = ", Id(&block.id))
+            .push_bind(", update_at = ", block.update_at);
+        push_body(&mut sql, block.body.as_ref(), Assign)?;
+        sql.push_bind(" WHERE id = ", Id(&block.id))
             .push_bind(" AND board_id = ", Id(&block.board_id));
         if scope.execute(sql).await? == 0 {
             return Err(StoreError::not_found(format_args!(
@@ -492,7 +504,9 @@ pub(crate) async fn insert_block_row(
     scope: &mut Scope<'_>,
     block: &Block,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql(&format!("INSERT INTO blocks ({BLOCK_COLUMNS}) VALUES ("));
+    let mut sql = scope.sql(&format!(
+        "INSERT INTO blocks ({BLOCK_COLUMNS}, {BODY_SUMMARY_COLUMNS}) VALUES ("
+    ));
     sql.bind(Id(&block.id))
         .push_bind(", ", OptId(&block.parent_id))
         .push_bind(", ", OptId(&block.created_by))
@@ -503,9 +517,41 @@ pub(crate) async fn insert_block_row(
         .push_bind(", ", Param::json(&block.fields)?)
         .push_bind(", ", block.create_at)
         .push_bind(", ", block.update_at)
-        .push_bind(", ", Id(&block.board_id))
-        .push(")");
+        .push_bind(", ", Id(&block.board_id));
+    push_body(&mut sql, block.body.as_ref(), List)?;
+    sql.push(")");
     scope.execute(sql).await?;
+    Ok(())
+}
+
+/// How [`push_body`] writes the body's columns.
+#[derive(Debug, Clone, Copy)]
+enum BodyColumns {
+    /// As `, column = value` for an `UPDATE`.
+    Assign,
+    /// As `, value` in the order of [`BLOCK_COLUMNS`]' `body` and then
+    /// [`BODY_SUMMARY_COLUMNS`], for an `INSERT`.
+    List,
+}
+use BodyColumns::{Assign, List};
+
+/// Appends the body and what is worked out from it.
+fn push_body(sql: &mut Sql, body: Option<&Body>, how: BodyColumns) -> Result<(), StoreError> {
+    let tasks = body.map(Body::tasks).unwrap_or_default();
+    let values = [
+        ("body", Param::opt_json(body.map(Body::document))?),
+        ("body_version", Param::OptInt(body.map(|_| BODY_VERSION))),
+        // The text for searching comes with the full allowlist.
+        ("body_text", Param::OptText(None)),
+        ("body_tasks_total", Param::Int(i64::from(tasks.total))),
+        ("body_tasks_done", Param::Int(i64::from(tasks.done))),
+    ];
+    for (column, value) in values {
+        match how {
+            Assign => sql.push_bind(&format!(", {column} = "), value),
+            List => sql.push_bind(", ", value),
+        };
+    }
     Ok(())
 }
 
@@ -581,6 +627,15 @@ pub(crate) async fn patch_block(
     let board_id = get_block(scope, block_id).await?.board_id;
     boards::lock_board(scope, &board_id).await?;
     let mut block = get_block(scope, block_id).await?;
+    if let Some(read_at) = patch.read_at
+        && read_at != block.update_at
+    {
+        return Err(StoreError::Stale {
+            id: block.id,
+            read_at,
+            update_at: block.update_at,
+        });
+    }
     patch.apply(&mut block);
     insert_block(scope, &mut block, user_id).await
 }

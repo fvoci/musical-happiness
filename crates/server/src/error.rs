@@ -341,6 +341,10 @@ impl From<StoreError> for AppError {
                 Self::bad_request("an identifier in the request is not a valid identifier")
             }
             StoreError::Conflict(_) => Self::conflict(error),
+            // The times are the client's to compare, but which block is in the path.
+            StoreError::Stale { .. } => {
+                Self::conflict("the block has changed since it was read").context(error)
+            }
             other => Self::from(anyhow::Error::from(other)),
         }
     }
@@ -378,6 +382,7 @@ impl From<CardError> for AppError {
         match error {
             // What a client sent.
             CardError::BoardIdMismatch | CardError::Invalid(_) => Self::bad_request(error),
+            CardError::ReadAtMissing => Self::bad_request(error).with_field("readAt"),
             // What is stored cannot be read as a card.
             CardError::NotCardBlock | CardError::InvalidFieldType { .. } => {
                 Self::from(anyhow::Error::from(error))

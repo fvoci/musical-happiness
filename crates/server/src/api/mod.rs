@@ -44,7 +44,8 @@ pub(crate) use access::{
     require_permission_through, require_team_access, require_team_in_body, user_is_guest,
 };
 pub(crate) use body::{
-    decode_json, decode_object, decode_object_members, decode_object_with, json_object,
+    decode_json, decode_object, decode_object_members, decode_object_with, decode_with_document,
+    json_object,
 };
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};

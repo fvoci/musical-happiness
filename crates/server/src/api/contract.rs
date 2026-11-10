@@ -165,6 +165,7 @@ enum Members {
 const SCHEMAS: &[(&str, Members)] = &[
     // What the server answers with.
     ("Block", Members::All),
+    ("Body", Members::AsWritten),
     ("Board", Members::All),
     ("BoardMember", Members::All),
     ("BoardsAndBlocks", Members::All),

@@ -43,13 +43,22 @@
 | `body`의 한도 | 직렬화한 JSON 1 MiB, 깊이 32, 노드 20,000개 |
 | `image` 노드의 `fileId` | 같은 보드의 파일이어야 한다. 아니면 400 |
 
+**들어간 것(tracer-bullet 1, 2026-11-11 04:45 KST).** 아래는 계약 파일에 이미 있다. 표의 나머지는 아직이다.
+
+- `Card`에 `body`, `hasBody`, `tasksTotal`, `tasksDone`가 늘 있다. `getCard`와 `createCard`·`patchCard`의 답은 `body`에 문서를, `getCards`는 `body`에 `null`을 싣고 나머지 셋으로 본문이 있는지와 할 일 수를 알린다.
+- `Block`에 `body`가 늘 있다(없으면 `null`). WebSocket의 `UPDATE_BLOCK`도 `Block` 전체이므로 본문을 싣는다(`contracts/websocket.md`).
+- `createCard`가 `body`를 받는다. 빠졌거나 `null`이거나 빈 문서(빈 문단 하나)면 본문이 없다.
+- `patchCard`가 `body`와 `readAt`을 받는다. `body`가 빠지면 본문은 그대로, `null`이나 빈 문서면 지운다. **`body`를 보내려면 `readAt`(그 카드를 읽었을 때의 `updateAt`)이 있어야 한다.** 없으면 400이고 `field`가 `readAt`이다. `readAt`이 지금의 `updateAt`과 다르면 409(`conflict`)이고 아무것도 바뀌지 않는다. `readAt`은 `body` 없이 보내도 검사한다.
+- 검증은 아직 **구조**만 본다: 맨 위가 `type: doc`이고 `content`가 비지 않은 목록, 노드의 멤버는 `type`·`attrs`·`content`·`marks`·`text`뿐이고 `null`인 멤버가 없으며, `text`는 빈 문자열이 아니고, 크기·깊이·노드 수의 한도. 노드와 마크의 종류, 속성, 포함 관계(허용 목록)는 다음 tracer-bullet이다. 어긋나면 400이고 `field`가 `body`다.
+- 블록의 경로(`createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`)의 `body`는 다음 tracer-bullet이다. 지금은 계약에 멤버가 보이지만 그 경로로 보내지 않는다.
+
 **허용 목록의 판.** 설계 5.7의 표는 `body_version` 1이다. 여기에 수식 노드 둘을 더해 `body_version`을 2로 하기로 정해졌고, 아직 구현되지 않았다(웹앱 쪽의 제안을 사용자가 받아들였다. 2026-11-11 03:13 KST의 작업 지시에 적힌 결정이다).
 
 - 새 노드는 `inlineMath`(인라인)와 `blockMath`(블록)다. 둘 다 속성은 `latex` 하나이고 1–4,000자의 문자열이다.
 - 다이어그램은 언어가 `mermaid`인 `codeBlock`이다. 허용 목록도 서버도 바뀌지 않는다.
 - 자세한 것(새 노드가 올 수 있는 자리, 테스트 벡터에 더할 경우)은 웹앱의 문서 `apps/web/docs/contract-assumptions.md` 4절에 있다.
 
-**공유 테스트 벡터.** 클라이언트의 검증기와 서버의 검증은 `contracts/body-vectors.json`으로 맞춘다. 서버 쪽이 처음 만든다. 아직 없다.
+**공유 테스트 벡터.** 클라이언트의 검증기와 서버의 검증은 `contracts/body-vectors.json`으로 맞춘다. 첫판이 있다: 경우마다 문서와 기대(`accept`, `empty`, `reject`와 그 까닭)를 적고, 서버의 테스트 `crates/model/tests/body_vectors.rs`가 모두 읽는다. 지금은 구조의 경우만 있고, 허용 목록과 웹앱 문서 4.4의 경우(UTF-16으로 세는 6번과 10번 포함)는 다음 tracer-bullet이 더한다.
 
 **웹앱이 지금 해도 되는 것.** 카드의 속성, 제목, 아이콘, 뷰, 카드 목록의 쪽 나누기는 그대로다. 콘텐츠 블록을 읽고 쓰는 코드와 `contentOrder`를 다루는 코드는 만들지 않는다.
 

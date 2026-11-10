@@ -13,6 +13,7 @@ mod block;
 mod block_ids;
 mod board;
 mod boards_and_blocks;
+mod body;
 mod card;
 mod card_property;
 mod category;
@@ -44,6 +45,10 @@ pub use board::{
 pub use boards_and_blocks::{
     BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
+};
+pub use body::{
+    BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
+    TaskCount,
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{

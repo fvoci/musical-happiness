@@ -15,7 +15,7 @@ use super::contract::tag;
 
 use super::change_notification;
 use super::{ApiResult, RequiredSession, created, json_response, query_param};
-use super::{decode_object, require_board_permission, require_permission_through};
+use super::{decode_with_document, require_board_permission, require_permission_through};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -102,7 +102,8 @@ async fn handle_create_card(
         "access denied to create card",
     )
     .await?;
-    let mut card: Card = decode_object(&body)?;
+    let (mut card, document): (Card, _) = decode_with_document(&body)?;
+    card.body = document.into_body();
     if !card.board_id.is_empty() && card.board_id != board_id {
         return Err(CardError::BoardIdMismatch.into());
     }
@@ -192,7 +193,8 @@ async fn handle_patch_card(
         "access denied to patch card",
     )
     .await?;
-    let patch: CardPatch = decode_object(&body)?;
+    let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
+    patch.body = document;
 
     let patched = app
         .patch_card(&patch, &card.id, user_id, notification)

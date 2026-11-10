@@ -89,6 +89,17 @@ pub enum StoreError {
     #[error("{0} is taken")]
     Conflict(Taken),
 
+    /// A patch was made against a block as it was before its last change.
+    #[error("block {id} changed at {update_at}, after it was read at {read_at}")]
+    Stale {
+        /// The block.
+        id: String,
+        /// The `updateAt` the patch was made against.
+        read_at: i64,
+        /// The block's `updateAt`.
+        update_at: i64,
+    },
+
     /// The database configuration cannot be used.
     #[error("invalid database configuration: {0}")]
     Config(String),

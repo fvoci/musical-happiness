@@ -11,6 +11,7 @@ mod admins;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod bodies;
 mod cards;
 mod content_blocks;
 mod cookies;

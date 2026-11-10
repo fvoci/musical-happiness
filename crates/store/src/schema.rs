@@ -23,12 +23,20 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 1] = [Step {
-    version: 1,
-    description: "baseline",
-    sqlite: include_str!("../schema/sqlite/0001_baseline.sql"),
-    postgres: include_str!("../schema/postgres/0001_baseline.sql"),
-}];
+const STEPS: [Step; 2] = [
+    Step {
+        version: 1,
+        description: "baseline",
+        sqlite: include_str!("../schema/sqlite/0001_baseline.sql"),
+        postgres: include_str!("../schema/postgres/0001_baseline.sql"),
+    },
+    Step {
+        version: 2,
+        description: "body",
+        sqlite: include_str!("../schema/sqlite/0002_body.sql"),
+        postgres: include_str!("../schema/postgres/0002_body.sql"),
+    },
+];
 
 /// Tables that only a database of the original server has: the bookkeeping of its
 /// migration engine. On PostgreSQL the name follows that server's table prefix, so

@@ -1,0 +1,212 @@
+{
+  "description": "Shared test vectors for the body of a card or a comment: documents and what the server and the web app's validator must do with them. expect is accept (stored as sent), empty (stored as no body) or reject; a rejection names its kind in reason: notDocument, tooLarge, tooDeep, tooManyNodes, invalidNode. The server's test is crates/model/tests/body_vectors.rs. Either side that finds the two disagree adds a case. The allowlist is docs/s6-design.md 5.7; bodyVersion is the version of it the cases are written for.",
+  "bodyVersion": 1,
+  "cases": [
+    {
+      "name": "a paragraph of text",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello"
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "a task list",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": true
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "done"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "accept"
+    },
+    {
+      "name": "null",
+      "body": null,
+      "expect": "empty"
+    },
+    {
+      "name": "one empty paragraph",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph"
+          }
+        ]
+      },
+      "expect": "empty"
+    },
+    {
+      "name": "one paragraph with empty content",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": []
+          }
+        ]
+      },
+      "expect": "empty"
+    },
+    {
+      "name": "a string",
+      "body": "Hello",
+      "expect": "reject",
+      "reason": "notDocument"
+    },
+    {
+      "name": "a list",
+      "body": [
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "Hello"
+            }
+          ]
+        }
+      ],
+      "expect": "reject",
+      "reason": "notDocument"
+    },
+    {
+      "name": "a paragraph at the top",
+      "body": {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "notDocument"
+    },
+    {
+      "name": "a document without content",
+      "body": {
+        "type": "doc"
+      },
+      "expect": "reject",
+      "reason": "notDocument"
+    },
+    {
+      "name": "a document with empty content",
+      "body": {
+        "type": "doc",
+        "content": []
+      },
+      "expect": "reject",
+      "reason": "notDocument"
+    },
+    {
+      "name": "an unknown member",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "id": "x"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a null member",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": null
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "a node without a type",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "content": []
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "an empty text",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ]
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    },
+    {
+      "name": "content that is no list",
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": {}
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "invalidNode"
+    }
+  ]
+}

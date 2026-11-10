@@ -27,8 +27,8 @@
   | # | tracer-bullet | 상태 |
   |---|---|---|
   | 0 | WebSocket 메시지를 지금 모양대로 적는다(`contracts/websocket.md`, `websocket.json`, 견주는 테스트), 웹앱의 G1–G6에 답한다 | 끝 |
-  | 1 | 카드의 본문 하나를 쓰고 읽는다: `body` 열, `createCard`·`patchCard`·`getCard`, 목록의 본문 여부와 할 일 수, 읽은 판의 409, 검증의 최소한, 벡터 몇 개. 설계의 "답을 기다리는 것" 셋을 결정으로 옮긴다 | 다음 |
-  | 2 | 허용 목록과 한도 전체(판 2, 수식 노드, UTF-16), 블록 길(`createBlocks`, `patchBlock`, boards-and-blocks)의 `body`, 검색용 평문, 이미지의 `fileId`, 공유 벡터 전체 | |
+  | 1 | 카드의 본문 하나를 쓰고 읽는다: `body` 열, `createCard`·`patchCard`·`getCard`, 목록의 본문 여부와 할 일 수, 읽은 판의 409, 검증의 최소한, 벡터 몇 개. 설계의 "답을 기다리는 것" 셋을 결정으로 옮긴다 | 끝 |
+  | 2 | 허용 목록과 한도 전체(판 2, 수식 노드, UTF-16), 블록 길(`createBlocks`, `patchBlock`, boards-and-blocks)의 `body`, 검색용 평문, 이미지의 `fileId`, 공유 벡터 전체 | 다음 |
   | 3 | 댓글의 본문 | |
   | 4 | 템플릿 받기: 산출물을 저장소에, 이미지 빼기, 아카이브 판 3, 옛 형식 걷기, `onboarding` 표식, `onboard`의 500, Dockerfile | |
   | 5 | 콘텐츠 블록 걷어 내기: 콘텐츠 블록 종류, `contentOrder`, `moveContentBlock`, 종류별 `fields` 한도 | |

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::body::{Body, BodyChange};
 use crate::card_property::{CardPropertyError, validate_block_properties};
 use crate::serde_util::null_as_default;
 
@@ -193,6 +194,8 @@ pub struct Block {
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
+    /// The body of a card or a comment; `null` for a block without one.
+    pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
@@ -258,6 +261,14 @@ pub struct BlockPatch {
     /// Keys of fields to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
+    /// The new body; `null` takes the body away.
+    #[serde(skip_serializing_if = "BodyChange::is_keep")]
+    #[schema(value_type = Option<Body>)]
+    pub body: BodyChange,
+    /// The `updateAt` of the block as the client read it. If the block has changed
+    /// since, the patch is refused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<i64>,
 }
 
 impl BlockPatch {
@@ -284,6 +295,7 @@ impl BlockPatch {
         for key in &self.deleted_fields {
             block.fields.remove(key);
         }
+        self.body.apply_to(&mut block.body);
     }
 }
 

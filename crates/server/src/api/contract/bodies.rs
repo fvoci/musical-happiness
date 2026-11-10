@@ -12,7 +12,8 @@
 )]
 
 use fvoci_model::{
-    BoardType, CardOpen, CategoryType, Density, HourCycle, JsonMap, MinimumRole, Theme, WeekStart,
+    BoardType, Body, CardOpen, CategoryType, Density, HourCycle, JsonMap, MinimumRole, Theme,
+    WeekStart,
 };
 use utoipa::ToSchema;
 
@@ -114,6 +115,8 @@ pub(crate) struct NewCard {
     /// Property values by property identifier: a string, a list of strings, or `null`.
     #[schema(value_type = Option<Object>)]
     properties: Option<JsonMap>,
+    /// The card's body; left out or `null` for none.
+    body: Option<Body>,
 }
 
 /// A sidebar category to make.

@@ -319,6 +319,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -333,6 +334,7 @@
       },
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
@@ -363,6 +365,7 @@
     "body": [
       {
         "boardId": "<id:2>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,

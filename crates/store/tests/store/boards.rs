@@ -4167,6 +4167,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         block_type: BlockType::Text,
         title: "a text".to_owned(),
         fields: object(json!({ "contentOrder": ["a", "b"], "isTemplate": true })),
+        body: None,
         create_at: 0,
         update_at: 0,
         delete_at: 0,

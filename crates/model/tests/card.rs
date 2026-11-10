@@ -53,6 +53,7 @@ fn sample_block() -> Block {
         block_type: BlockType::Card,
         title: "My card title".to_owned(),
         fields: sample_fields(),
+        body: None,
         create_at: NOW,
         update_at: NOW,
         delete_at: 0,

@@ -7,6 +7,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType};
+use crate::body::{Body, BodyChange};
 use crate::id::new_id;
 use crate::serde_util::null_as_default;
 
@@ -28,6 +29,9 @@ pub enum CardError {
     /// The card belongs to a different board than the one named in the request.
     #[error("Board IDs do not match")]
     BoardIdMismatch,
+    /// A new body is sent without the time the card was read at.
+    #[error("a new body is sent with readAt, the updateAt of the card as it was read")]
+    ReadAtMissing,
 }
 
 /// A card: a titled group of properties and content blocks on a board.
@@ -62,6 +66,18 @@ pub struct Card {
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub properties: JsonMap,
+    /// The card's body. `null` for a card without one, and in a list of cards, which
+    /// says only whether there is one (`hasBody`): a card is read alone for its body.
+    pub body: Option<Body>,
+    /// Whether the card has a body.
+    #[serde(deserialize_with = "null_as_default")]
+    pub has_body: bool,
+    /// How many task items the body has.
+    #[serde(deserialize_with = "null_as_default")]
+    pub tasks_total: u32,
+    /// How many task items of the body are checked.
+    #[serde(deserialize_with = "null_as_default")]
+    pub tasks_done: u32,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
@@ -168,6 +184,7 @@ impl Card {
             }
         };
 
+        let tasks = block.body.as_ref().map(Body::tasks).unwrap_or_default();
         let mut card = Self {
             id: block.id.clone(),
             board_id: block.board_id.clone(),
@@ -178,6 +195,10 @@ impl Card {
             icon,
             is_template,
             properties,
+            body: block.body.clone(),
+            has_body: block.body.is_some(),
+            tasks_total: tasks.total,
+            tasks_done: tasks.done,
             create_at: block.create_at,
             update_at: block.update_at,
             delete_at: block.delete_at,
@@ -206,6 +227,7 @@ impl From<Card> for Block {
             block_type: BlockType::Card,
             title: card.title,
             fields,
+            body: card.body,
             create_at: card.create_at,
             update_at: card.update_at,
             delete_at: card.delete_at,
@@ -234,6 +256,15 @@ pub struct CardPatch {
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub updated_properties: JsonMap,
+    /// The new body; `null` takes the body away. Sent only with `readAt`.
+    #[serde(skip_serializing_if = "BodyChange::is_keep")]
+    #[schema(value_type = Option<Body>)]
+    pub body: BodyChange,
+    /// The `updateAt` of the card as the client read it: if the card has changed since,
+    /// the patch is refused with 409 and changes nothing. Needed with `body`, and
+    /// checked whenever it is sent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<i64>,
 }
 
 impl CardPatch {
@@ -251,14 +282,19 @@ impl CardPatch {
         for (id, value) in &self.updated_properties {
             card.properties.insert(id.clone(), value.clone());
         }
+        self.body.apply_to(&mut card.body);
     }
 
     /// Checks that the patch may be applied.
     ///
     /// # Errors
     ///
-    /// Returns [`CardError::Invalid`] if the new icon is more than one grapheme.
+    /// Returns [`CardError::Invalid`] if the new icon is more than one grapheme, and
+    /// [`CardError::ReadAtMissing`] for a new body without the time it was read at.
     pub fn validate(&self) -> Result<(), CardError> {
+        if !self.body.is_keep() && self.read_at.is_none() {
+            return Err(CardError::ReadAtMissing);
+        }
         match &self.icon {
             Some(icon) => check_icon(icon),
             None => Ok(()),
@@ -297,6 +333,8 @@ impl CardPatch {
         Ok(BlockPatch {
             title: self.title.clone(),
             updated_fields,
+            body: self.body.clone(),
+            read_at: self.read_at,
             ..BlockPatch::default()
         })
     }

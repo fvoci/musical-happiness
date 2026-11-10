@@ -8,6 +8,7 @@
       "blocks": [
         {
           "boardId": "<id:1>",
+          "body": null,
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
@@ -22,6 +23,7 @@
         },
         {
           "boardId": "<id:4>",
+          "body": null,
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
@@ -155,6 +157,7 @@
       "blocks": [
         {
           "boardId": "<id:1>",
+          "body": null,
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
@@ -169,6 +172,7 @@
         },
         {
           "boardId": "<id:4>",
+          "body": null,
           "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
@@ -317,6 +321,7 @@
     "body": [
       {
         "boardId": "<id:4>",
+        "body": null,
         "createAt": "<ts>",
         "createdBy": "<id:2>",
         "deleteAt": 0,

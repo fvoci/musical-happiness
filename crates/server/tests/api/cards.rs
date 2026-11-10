@@ -381,6 +381,7 @@ async fn patch_card_good() {
         icon: Some("🐿".to_owned()),
         content_order: Some(new_content_order.clone()),
         updated_properties: updated_props.clone(),
+        ..CardPatch::default()
     };
 
     let patched: Card = th
@@ -615,6 +616,7 @@ async fn app_patch_card_success_scenario() {
             .keys()
             .map(|id| (id.clone(), json!(new_id())))
             .collect(),
+        ..CardPatch::default()
     };
     let mut expected = card.clone();
     card_patch.apply(&mut expected);
@@ -803,6 +805,10 @@ async fn create_card_answer_and_stored_block() {
             "icon": "👨‍👩‍👧",
             "isTemplate": true,
             "properties": {"p": "v", "q": ["1", "2"]},
+            "body": null,
+            "hasBody": false,
+            "tasksTotal": 0,
+            "tasksDone": 0,
             "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
@@ -827,6 +833,7 @@ async fn create_card_answer_and_stored_block() {
                 "isTemplate": true,
                 "properties": {"p": "v", "q": ["1", "2"]},
             },
+            "body": null,
             "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
@@ -863,6 +870,10 @@ async fn create_card_without_members() {
                 "icon": "",
                 "isTemplate": false,
                 "properties": {},
+                "body": null,
+                "hasBody": false,
+                "tasksTotal": 0,
+                "tasksDone": 0,
                 "createAt": card.create_at,
                 "updateAt": card.update_at,
                 "deleteAt": 0,
@@ -1180,6 +1191,10 @@ async fn get_card_permissions_and_refusals() {
             "icon": "",
             "isTemplate": false,
             "properties": {},
+            "body": null,
+            "hasBody": false,
+            "tasksTotal": 0,
+            "tasksDone": 0,
             "createAt": response.value()["createAt"],
             "updateAt": response.value()["updateAt"],
             "deleteAt": 0,

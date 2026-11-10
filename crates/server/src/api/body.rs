@@ -3,7 +3,7 @@
 //! A body that is not the JSON a route expects is a bad request (400), whatever is wrong
 //! with it: not JSON at all, the wrong type, `null`, a member of the wrong type.
 
-use fvoci_model::JsonMap;
+use fvoci_model::{BodyChange, JsonMap};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
@@ -59,6 +59,27 @@ pub(crate) fn decode_object_with<T: DeserializeOwned, R>(
     let prepared = prepare(&mut object);
     let decoded = serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
     Ok((decoded, prepared))
+}
+
+/// Decodes a request body that must be a JSON object and may carry a document under
+/// `body`. The document is checked apart from the rest, so that its refusal names it
+/// (`field: body`). Returns what the member asks for: [`BodyChange::Keep`] if it was
+/// left out.
+///
+/// # Errors
+///
+/// Returns a bad request if the body is not a JSON object with the expected members, or
+/// its document may not be stored.
+pub(crate) fn decode_with_document<T: DeserializeOwned>(
+    body: &[u8],
+) -> Result<(T, BodyChange), AppError> {
+    let (decoded, document) = decode_object_with(body, |members| members.remove("body"))?;
+    let change = match document {
+        None => BodyChange::Keep,
+        Some(value) => BodyChange::parse(value)
+            .map_err(|error| AppError::bad_request(error).with_field("body"))?,
+    };
+    Ok((decoded, change))
 }
 
 /// Reads the members of a request body that must be a JSON object, leaving out those
