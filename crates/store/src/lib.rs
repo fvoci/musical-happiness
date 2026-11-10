@@ -39,7 +39,7 @@ pub use connect::DbType;
 pub use db::Dialect;
 pub use error::StoreError;
 pub use trash::{DeletedBlock, DeletedBoard};
-pub use users::Preference;
+pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};
 

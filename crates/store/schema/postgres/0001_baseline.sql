@@ -17,12 +17,24 @@ CREATE TABLE users (
     update_at BIGINT NOT NULL,
     -- Zero while the account is in use. A user is never removed: what they made keeps
     -- pointing at them.
-    delete_at BIGINT NOT NULL DEFAULT 0
+    delete_at BIGINT NOT NULL DEFAULT 0,
+    -- An administrator of the instance: sees and renews the signup token, makes others
+    -- administrators.
+    is_admin BOOLEAN NOT NULL DEFAULT FALSE
 );
 -- A name and an address belong to one account, whatever their case. SQLite's lower()
 -- folds ASCII letters only.
 CREATE UNIQUE INDEX users_username_key ON users (lower(username));
 CREATE UNIQUE INDEX users_email_key ON users (lower(email));
+
+-- What is true of the installation as a whole: one row.
+CREATE TABLE instance (
+    id SMALLINT NOT NULL PRIMARY KEY CHECK (id = 1),
+    -- Whether the first user has registered. Whoever turns this on is that user, and the
+    -- first administrator; nobody else gets in without the signup token.
+    bootstrapped BOOLEAN NOT NULL DEFAULT FALSE
+);
+INSERT INTO instance (id, bootstrapped) VALUES (1, FALSE);
 
 CREATE TABLE teams (
     id UUID NOT NULL PRIMARY KEY,

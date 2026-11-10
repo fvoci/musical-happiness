@@ -11,6 +11,11 @@ pub enum StoreError {
     #[error("{{{0}}} not found")]
     NotFound(String),
 
+    /// A user tried to register without the signup token although the instance has
+    /// its first user already.
+    #[error("the first user has registered already")]
+    NotFirstUser,
+
     /// A lookup of a single session or sharing record matched no row.
     ///
     /// The message stays in the log: the HTTP layer answers "not found" without it.

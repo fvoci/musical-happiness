@@ -9,9 +9,10 @@ use axum::routing::post;
 use fvoci_model::{ChangePasswordRequest, LoginRequest, LoginResponse, RegisterRequest};
 
 use super::{
-    ApiResult, RequiredSession, decode_object, empty_response, json_response, require_team_access,
+    ApiResult, RequiredSession, decode_object, empty_response, json_response, require_admin,
+    require_team_access,
 };
-use crate::app::App;
+use crate::app::{Admission, App};
 use crate::auth::tokens_match;
 use crate::error::{AppError, Reason};
 
@@ -84,13 +85,16 @@ async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
     register.email = register.email.trim().to_owned();
     register.username = register.username.trim().to_owned();
 
-    // The first user needs no signup token; everyone after needs the team's.
-    if register.token.is_empty() {
-        if app.registered_user_count().await? > 0 {
+    // The first user needs no signup token; everyone after needs the team's. Asked
+    // here so that a request without one costs no password hash; whether it really is
+    // the first is decided where the user is stored.
+    let admission = if register.token.is_empty() {
+        if app.store().is_bootstrapped().await? {
             return Err(AppError::forbidden("registration needs the signup token")
                 .with_reason(Reason::SignupTokenRequired)
                 .with_field("token"));
         }
+        Admission::FirstUserOnly
     } else {
         let team = app.root_team().await?;
         if !tokens_match(&team.signup_token, &register.token) {
@@ -98,11 +102,17 @@ async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
                 .with_reason(Reason::SignupTokenInvalid)
                 .with_field("token"));
         }
-    }
+        Admission::WithToken
+    };
     register.validate()?;
 
-    app.register_user(&register.username, &register.email, &register.password)
-        .await?;
+    app.register_user(
+        &register.username,
+        &register.email,
+        &register.password,
+        admission,
+    )
+    .await?;
     Ok(empty_response())
 }
 
@@ -112,9 +122,12 @@ async fn handle_regenerate_signup_token(
     Path(team_id): Path<String>,
 ) -> ApiResult {
     require_team_access(&app, &session.user_id, &team_id, "access denied to team").await?;
-    app.regenerate_signup_token(&team_id, &session.user_id)
+    require_admin(&app, &session.user_id).await?;
+    let team = app
+        .regenerate_signup_token(&team_id, &session.user_id)
         .await?;
-    Ok(empty_response())
+    // The team with its new token: the one answer that carries it without being asked.
+    Ok(json_response(&team))
 }
 
 async fn handle_change_password(

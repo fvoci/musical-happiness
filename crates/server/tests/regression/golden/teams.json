@@ -9,7 +9,6 @@
         "id": "<id:1>",
         "modifiedBy": "",
         "settings": {},
-        "signupToken": "<secret>",
         "title": "",
         "updateAt": "<ts>"
       },
@@ -17,7 +16,6 @@
         "id": "<id:2>",
         "modifiedBy": "",
         "settings": {},
-        "signupToken": "<secret>",
         "title": "",
         "updateAt": "<ts>"
       }
@@ -32,7 +30,6 @@
       "id": "<id:1>",
       "modifiedBy": "",
       "settings": {},
-      "signupToken": "<secret>",
       "title": "",
       "updateAt": "<ts>"
     }
@@ -76,6 +73,7 @@
         "delete_at": 0,
         "firstname": "",
         "id": "<id:3>",
+        "isAdmin": false,
         "is_bot": false,
         "is_guest": false,
         "lastname": "",
@@ -104,6 +102,7 @@
         "delete_at": 0,
         "firstname": "",
         "id": "<id:3>",
+        "isAdmin": false,
         "is_bot": false,
         "is_guest": false,
         "lastname": "",

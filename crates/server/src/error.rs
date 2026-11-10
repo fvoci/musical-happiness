@@ -79,8 +79,10 @@ pub enum Reason {
     UsernameTaken,
     /// The email address is taken.
     EmailTaken,
-    /// The change would leave the board without an admin.
+    /// The change would leave the board, or the instance, without an administrator.
     LastAdmin,
+    /// Only an administrator of the instance may do this.
+    AdminRequired,
     /// Public sharing is turned off in the server's configuration.
     SharingDisabled,
 }
@@ -96,6 +98,7 @@ impl Reason {
             Self::UsernameTaken => "username_taken",
             Self::EmailTaken => "email_taken",
             Self::LastAdmin => "last_admin",
+            Self::AdminRequired => "admin_required",
             Self::SharingDisabled => "sharing_disabled",
         }
     }
@@ -270,6 +273,10 @@ impl From<StoreError> for AppError {
                 tracing::debug!(%error, "not found in the store");
                 Self::new(ErrorKind::NotFound, "not found")
             }
+            // A registration without the signup token that was not the first after all.
+            StoreError::NotFirstUser => Self::forbidden("registration needs the signup token")
+                .with_reason(Reason::SignupTokenRequired)
+                .with_field("token"),
             // The one lookup that names its kind: a password is set for a user.
             StoreError::UserNotFound(_) => {
                 tracing::debug!(%error, "not found in the store");

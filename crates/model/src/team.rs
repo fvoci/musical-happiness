@@ -17,8 +17,12 @@ pub struct Team {
     /// The team's title.
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
-    /// The token new users must present to register.
-    #[serde(deserialize_with = "null_as_default")]
+    /// The token new users must present to register. Empty, and left out of the JSON
+    /// form, in what is answered to anyone but an administrator of the instance.
+    #[serde(
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub signup_token: String,
     /// Free-form team settings.
     #[serde(deserialize_with = "null_as_default")]

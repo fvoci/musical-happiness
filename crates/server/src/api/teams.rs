@@ -25,9 +25,15 @@ const TEAM_DENIED: &str = "access denied to team";
 
 async fn handle_get_teams(
     State(app): State<App>,
-    RequiredSession(_session): RequiredSession,
+    RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    Ok(json_response(&app.teams().await?))
+    let mut teams = app.teams().await?;
+    if !app.user(&session.user_id).await?.is_admin {
+        for team in &mut teams {
+            team.signup_token.clear();
+        }
+    }
+    Ok(json_response(&teams))
 }
 
 async fn handle_get_team(
@@ -35,8 +41,13 @@ async fn handle_get_team(
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
 ) -> ApiResult {
-    let team = app.team(&team_id).await?;
+    let mut team = app.team(&team_id).await?;
     require_team_access(&app, &session.user_id, &team_id, TEAM_DENIED).await?;
+    // The signup token lets anyone in who has it: it is for the administrators, who
+    // hand it on, and is left out for everybody else.
+    if !app.user(&session.user_id).await?.is_admin {
+        team.signup_token.clear();
+    }
     Ok(json_response(&team))
 }
 

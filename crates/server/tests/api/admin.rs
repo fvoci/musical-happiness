@@ -174,6 +174,30 @@ mod socket {
         th.teardown().await;
     }
 
+    /// The way back in when no administrator can sign in: whoever can open the socket
+    /// makes a user an administrator, by name.
+    #[tokio::test]
+    async fn the_socket_makes_a_user_an_administrator() {
+        let (th, socket) = start_with_admin_socket().await;
+        assert!(
+            !th.client2.me().await.is_admin,
+            "user2 is none to begin with"
+        );
+
+        let response = socket_request(&socket, "POST", "/api/v2/admin/users/USER2/admin", "").await;
+        response.check(200, "{}");
+        assert!(
+            th.client2.me().await.is_admin,
+            "user2 is one now, found by name in any letter case"
+        );
+        assert!(th.client.me().await.is_admin, "and user1 still is");
+
+        let response =
+            socket_request(&socket, "POST", "/api/v2/admin/users/nobody/admin", "").await;
+        assert_eq!(response.status, 404, "{}", response.body);
+        th.teardown().await;
+    }
+
     /// Not in the original, whose sessions outlive a password an administrator sets.
     /// Whoever asks for a new password may have lost the old one to someone else, so
     /// every session opened with it ends.

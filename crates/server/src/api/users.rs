@@ -5,8 +5,10 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::routing::{get, post, put};
 use fvoci_model::{User, UserPreferencesPatch};
+use fvoci_store::InstanceRole;
+use serde::Deserialize;
 
-use super::{ApiResult, RequiredSession, decode_json, decode_object, json_response};
+use super::{ApiResult, RequiredSession, decode_json, decode_object, json_response, require_admin};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -17,6 +19,7 @@ pub(super) fn routes() -> Router<App> {
         .route("/users/me/memberships", get(handle_get_my_memberships))
         .route("/users/me/config", get(handle_get_user_preferences))
         .route("/users/{user_id}", get(handle_get_user))
+        .route("/users/{user_id}/admin", put(handle_set_user_admin))
         .route("/users/{user_id}/config", put(handle_update_user_config))
 }
 
@@ -91,6 +94,43 @@ async fn handle_get_user(
         return Err(AppError::not_found(USER));
     }
     if user_id == session.user_id {
+        crate::app::sanitize(&mut user);
+    } else {
+        app.sanitize_profile(&mut user);
+    }
+    Ok(json_response(&user))
+}
+
+/// The body of `PUT /users/{user_id}/admin`.
+#[derive(Deserialize)]
+struct AdminFlag {
+    #[serde(rename = "isAdmin")]
+    is_admin: Option<bool>,
+}
+
+/// `PUT /users/{user_id}/admin`: makes a user an administrator of the instance, or ends
+/// that. For administrators. Handing the role over is two requests: make the other one
+/// an administrator, then stop being one.
+async fn handle_set_user_admin(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path(user_id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    require_admin(&app, &session.user_id).await?;
+    let flag: AdminFlag = decode_object(&body)?;
+    let role = match flag.is_admin {
+        Some(true) => InstanceRole::Administrator,
+        Some(false) => InstanceRole::User,
+        None => {
+            return Err(
+                AppError::bad_request("isAdmin must be true or false").with_field("isAdmin")
+            );
+        }
+    };
+
+    let mut user = app.set_user_admin(&user_id, role).await?;
+    if user.id == session.user_id {
         crate::app::sanitize(&mut user);
     } else {
         app.sanitize_profile(&mut user);

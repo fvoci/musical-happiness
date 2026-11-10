@@ -8,7 +8,7 @@ use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, Category, Session, SubscriberType,
     Subscription, User, UserPreferencesPatch, new_id,
 };
-use fvoci_store::{BlockFilter, DbType, Preference, Store, StoreError};
+use fvoci_store::{AdminChange, BlockFilter, DbType, InstanceRole, Preference, Store, StoreError};
 
 use crate::common::{self, TestStore};
 
@@ -1351,6 +1351,282 @@ async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
         .await
         .expect("the restored block is found");
     assert_eq!(stored, block, "stored as returned");
+
+    test.teardown().await;
+}
+
+// -- administrators of the instance -------------------------------------------------
+
+/// A user who is not stored yet.
+fn new_user(username: &str) -> User {
+    User {
+        id: new_id(),
+        username: username.to_owned(),
+        email: format!("{username}@example.com"),
+        ..User::default()
+    }
+}
+
+/// The first user stored is the administrator, whatever the caller says about it, and
+/// no user after that is. The instance counts as bootstrapped from then on.
+#[tokio::test]
+async fn the_first_user_is_the_administrator() {
+    let test = common::setup().await;
+    assert!(
+        !test.is_bootstrapped().await.expect("the flag is read"),
+        "a fresh instance has had no user"
+    );
+
+    let mut first = new_user("first");
+    test.create_user(&mut first)
+        .await
+        .expect("the first user is stored");
+    let mut second = User {
+        is_admin: true,
+        ..new_user("second")
+    };
+    test.create_user(&mut second)
+        .await
+        .expect("the second user is stored");
+
+    assert!(first.is_admin, "the first user comes back as administrator");
+    assert!(
+        !second.is_admin,
+        "the claim of the second is not taken over"
+    );
+    for (user, expected) in [(&first, true), (&second, false)] {
+        let stored = test
+            .get_user_by_id(&user.id)
+            .await
+            .expect("the user is stored");
+        assert_eq!(stored.is_admin, expected, "{}", user.username);
+    }
+    assert!(
+        test.is_bootstrapped().await.expect("the flag is read"),
+        "the instance has had its first user"
+    );
+
+    test.teardown().await;
+}
+
+/// A user whose registration fails is not the first user: the next one is.
+#[tokio::test]
+async fn a_user_who_was_not_stored_was_not_the_first() {
+    let test = common::setup().await;
+
+    let mut invalid = User {
+        id: "no identifier".to_owned(),
+        ..new_user("invalid")
+    };
+    let error = test
+        .create_user(&mut invalid)
+        .await
+        .expect_err("text that is no identifier is refused");
+    assert!(matches!(error, StoreError::InvalidId(_)), "{error:?}");
+    assert!(
+        !test.is_bootstrapped().await.expect("the flag is read"),
+        "nothing was stored, nothing is decided"
+    );
+
+    let mut first = new_user("first");
+    test.create_first_user(&mut first)
+        .await
+        .expect("the first user gets in without more");
+    assert!(first.is_admin, "and is the administrator");
+
+    let mut late = new_user("late");
+    let error = test
+        .create_first_user(&mut late)
+        .await
+        .expect_err("nobody else gets in as the first");
+    assert!(matches!(error, StoreError::NotFirstUser), "{error:?}");
+    let error = test
+        .get_user_by_id(&late.id)
+        .await
+        .expect_err("the late user is not stored");
+    assert!(error.is_not_found(), "{error:?}");
+
+    test.teardown().await;
+}
+
+/// Who is first is decided with the insertion. Of users stored at once into an empty
+/// instance, exactly one is the administrator; of those who come as "the first", exactly
+/// one gets in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn of_users_stored_at_once_one_is_the_first() {
+    const ROUNDS: usize = 12;
+    const RACERS: usize = 6;
+
+    for round in 0..ROUNDS {
+        let test = common::setup().await;
+        let as_first = round % 2 == 0;
+        let mut racers = tokio::task::JoinSet::new();
+        for index in 0..RACERS {
+            let store = test.store.clone();
+            racers.spawn(async move {
+                let mut user = new_user(&format!("racer{index}"));
+                let outcome = if as_first {
+                    store.create_first_user(&mut user).await
+                } else {
+                    store.create_user(&mut user).await
+                };
+                (user, outcome)
+            });
+        }
+        let outcomes = racers.join_all().await;
+
+        let stored = outcomes
+            .iter()
+            .filter(|(_, outcome)| outcome.is_ok())
+            .count();
+        let admins = outcomes
+            .iter()
+            .filter(|(user, outcome)| outcome.is_ok() && user.is_admin)
+            .count();
+        assert_eq!(admins, 1, "round {round}: one administrator");
+        if as_first {
+            assert_eq!(stored, 1, "round {round}: one gets in as the first");
+            for (_, outcome) in &outcomes {
+                assert!(
+                    matches!(outcome, Ok(()) | Err(StoreError::NotFirstUser)),
+                    "round {round}: {outcome:?}"
+                );
+            }
+        } else {
+            assert_eq!(stored, RACERS, "round {round}: all are stored");
+        }
+        let listed = test.get_users_by_team().await.expect("the users are read");
+        assert_eq!(
+            listed.iter().filter(|user| user.is_admin).count(),
+            1,
+            "round {round}: and one is stored as administrator"
+        );
+
+        test.teardown().await;
+    }
+}
+
+/// `set_user_admin` makes and unmakes administrators, says what it did, and refuses to
+/// take the role from the only one. A deactivated administrator does not count.
+#[tokio::test]
+async fn set_user_admin_keeps_one_administrator() {
+    let test = common::setup().await;
+    let admin_id = common::user(&test, "admin").await;
+    let other_id = common::user(&test, "other").await;
+    let is_admin = async |user_id: &str| {
+        test.get_user_by_id(user_id)
+            .await
+            .expect("the user is stored")
+            .is_admin
+    };
+
+    assert_eq!(
+        test.set_user_admin(&admin_id, InstanceRole::User)
+            .await
+            .expect("no failure"),
+        AdminChange::LastAdmin,
+        "the only administrator stays one"
+    );
+    assert!(is_admin(&admin_id).await, "nothing changed");
+    for nobody in [new_id(), "no identifier".to_owned()] {
+        assert_eq!(
+            test.set_user_admin(&nobody, InstanceRole::Administrator)
+                .await
+                .expect("no failure"),
+            AdminChange::NoSuchUser,
+            "{nobody}"
+        );
+    }
+
+    let AdminChange::Done(made) = test
+        .set_user_admin(&other_id, InstanceRole::Administrator)
+        .await
+        .expect("no failure")
+    else {
+        panic!("the other user is made an administrator");
+    };
+    assert_eq!(made.id, other_id, "the user is returned");
+    assert!(made.is_admin, "as stored: an administrator");
+    let AdminChange::Done(unmade) = test
+        .set_user_admin(&admin_id, InstanceRole::User)
+        .await
+        .expect("no failure")
+    else {
+        panic!("with another administrator, the first may step down");
+    };
+    assert!(!unmade.is_admin, "the first is none any more");
+
+    // The other one is the only administrator now. A deactivated administrator next to
+    // them would not change that.
+    test.set_user_admin(&admin_id, InstanceRole::Administrator)
+        .await
+        .expect("no failure");
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE users SET delete_at = 1 WHERE id = '{admin_id}'"),
+    )
+    .await;
+    assert_eq!(
+        test.set_user_admin(&other_id, InstanceRole::User)
+            .await
+            .expect("no failure"),
+        AdminChange::LastAdmin,
+        "a deactivated administrator is none to count on"
+    );
+    assert_eq!(
+        test.set_user_admin(&admin_id, InstanceRole::User)
+            .await
+            .expect("no failure"),
+        AdminChange::NoSuchUser,
+        "and is not there to change"
+    );
+
+    test.teardown().await;
+}
+
+/// The check for another administrator and the write are one step: of two
+/// administrators who step down at once, one is refused and stays.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn of_two_administrators_who_step_down_at_once_one_stays() {
+    const ROUNDS: usize = 40;
+    let test = common::setup().await;
+    let first_id = common::user(&test, "first").await;
+    let second_id = common::user(&test, "second").await;
+
+    for round in 0..ROUNDS {
+        for user_id in [&first_id, &second_id] {
+            test.set_user_admin(user_id, InstanceRole::Administrator)
+                .await
+                .expect("both are administrators before the round");
+        }
+
+        let mut racers = tokio::task::JoinSet::new();
+        for user_id in [&first_id, &second_id] {
+            let store = test.store.clone();
+            let user_id = user_id.clone();
+            racers.spawn(async move { store.set_user_admin(&user_id, InstanceRole::User).await });
+        }
+        let outcomes: Vec<AdminChange> = racers
+            .join_all()
+            .await
+            .into_iter()
+            .map(|outcome| outcome.expect("no failure"))
+            .collect();
+
+        let refused = outcomes
+            .iter()
+            .filter(|outcome| **outcome == AdminChange::LastAdmin)
+            .count();
+        assert_eq!(refused, 1, "round {round}: one is refused: {outcomes:?}");
+        let admins = test
+            .get_users_by_team()
+            .await
+            .expect("the users are read")
+            .iter()
+            .filter(|user| user.is_admin)
+            .count();
+        assert_eq!(admins, 1, "round {round}: and one administrator is left");
+    }
 
     test.teardown().await;
 }

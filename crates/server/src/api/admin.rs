@@ -1,5 +1,6 @@
 //! The administration API: setting a user's password without knowing the old one, which
-//! also ends every session of that user.
+//! also ends every session of that user, and making a user an administrator of the
+//! instance.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
 //! able to open the socket file is the credential. There is no session and no cross-site
@@ -23,6 +24,10 @@ pub(super) fn routes() -> Router<App> {
         .route(
             "/api/v2/admin/users/{username}/password",
             post(handle_admin_set_password),
+        )
+        .route(
+            "/api/v2/admin/users/{username}/admin",
+            post(handle_admin_make_admin),
         )
         .route_layer(middleware::from_fn(require_unix_connection))
         // The socket speaks the API's language for what it does not have as well.
@@ -68,6 +73,17 @@ async fn handle_admin_set_password(
 
     app.reset_user_password(&username, &password).await?;
     tracing::debug!(username, "AdminSetPassword");
+    Ok(empty_response())
+}
+
+/// Makes a user an administrator of the instance: the way back in when no
+/// administrator can sign in any more.
+async fn handle_admin_make_admin(
+    State(app): State<App>,
+    Path(username): Path<String>,
+) -> ApiResult {
+    let user = app.make_admin_by_username(&username).await?;
+    tracing::info!(user_id = %user.id, "made an administrator through the administration socket");
     Ok(empty_response())
 }
 

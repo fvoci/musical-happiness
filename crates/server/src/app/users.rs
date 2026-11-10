@@ -1,10 +1,10 @@
 //! Users and their preferences.
 
 use fvoci_model::{User, UserPreferencesPatch};
-use fvoci_store::Preference;
+use fvoci_store::{AdminChange, InstanceRole, Preference};
 
 use super::App;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 impl App {
     /// Returns the user with the given identifier.
@@ -20,6 +20,45 @@ impl App {
             .get_user_by_id(user_id)
             .await
             .map_err(|error| AppError::from(error).context("unable to find user"))
+    }
+
+    /// Makes a user an administrator of the instance, or ends that, and returns the
+    /// user as stored now.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if there is no such user, and a conflict (reason
+    /// `last_admin`) if the user is the only administrator and would stop being one.
+    pub async fn set_user_admin(
+        &self,
+        user_id: &str,
+        role: InstanceRole,
+    ) -> Result<User, AppError> {
+        match self.store().set_user_admin(user_id, role).await? {
+            AdminChange::Done(user) => Ok(*user),
+            AdminChange::NoSuchUser => Err(AppError::not_found("user")),
+            AdminChange::LastAdmin => Err(AppError::conflict(
+                "the instance must keep an administrator",
+            )
+            .with_reason(Reason::LastAdmin)),
+        }
+    }
+
+    /// Makes the user with the given name, in any letter case, an administrator of the
+    /// instance. For the administration socket: the way back in when no administrator
+    /// can sign in.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if no user has that name.
+    pub async fn make_admin_by_username(&self, username: &str) -> Result<User, AppError> {
+        let user = match self.store().get_user_by_username(username).await {
+            Ok(user) => user,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found("user")),
+            Err(error) => return Err(error.into()),
+        };
+        self.set_user_admin(&user.id, InstanceRole::Administrator)
+            .await
     }
 
     /// Returns the users with the given identifiers.

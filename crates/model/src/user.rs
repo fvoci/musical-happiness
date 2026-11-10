@@ -41,6 +41,10 @@ pub struct User {
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(rename = "delete_at")]
     pub delete_at: i64,
+    /// Whether the user is an administrator of the instance. Decided by the server;
+    /// nothing a request says about it is taken over.
+    #[serde(rename = "isAdmin")]
+    pub is_admin: bool,
     /// Whether the account is a bot.
     pub is_bot: bool,
     /// Whether the account is a guest.
@@ -68,6 +72,7 @@ impl fmt::Debug for User {
             .field("create_at", &self.create_at)
             .field("update_at", &self.update_at)
             .field("delete_at", &self.delete_at)
+            .field("is_admin", &self.is_admin)
             .field("is_bot", &self.is_bot)
             .field("is_guest", &self.is_guest)
             .field("permissions", &self.permissions)

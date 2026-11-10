@@ -3,8 +3,23 @@
 use fvoci_model::BoardType;
 
 use crate::app::App;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 use crate::permissions::{BoardPermission, TeamPermission};
+
+/// Checks that the user is an administrator of the instance.
+///
+/// Who is one is no secret, and neither is that these routes exist: anybody else is
+/// refused (403, reason `admin_required`), whatever the request names.
+pub(crate) async fn require_admin(app: &App, user_id: &str) -> Result<(), AppError> {
+    if app.user(user_id).await?.is_admin {
+        Ok(())
+    } else {
+        Err(
+            AppError::forbidden("only an administrator of the instance may do this")
+                .with_reason(Reason::AdminRequired),
+        )
+    }
+}
 
 /// Checks that the user has the permission on the board that the request names in its
 /// path.

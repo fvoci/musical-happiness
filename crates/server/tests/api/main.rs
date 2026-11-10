@@ -7,6 +7,7 @@
 mod common;
 
 mod admin;
+mod admins;
 mod blocks;
 mod boards;
 mod boards_and_blocks;

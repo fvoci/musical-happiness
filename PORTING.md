@@ -255,7 +255,8 @@ S6에서 새로 본 것:
 | `8cde3db3` | **UUIDv7과 비밀 값(3.2, 3.3).** 아래 | 382단계 가운데 221단계. 상태 코드는 2단계 |
 | `d4e10cb1` | **Argon2id와 세션 토큰 해시(3.4, 3.5).** 아래 "Argon2id와 세션 토큰에서 바뀐 것" | 382 → 385단계(새 3단계), 본문만 7단계 |
 | `909fb7eb` | **삭제와 복원(5.3), 외래 키.** 아래 "삭제와 복원에서 바뀐 것" | 385 → 426단계(새 시나리오 `trash` 41단계). 기존 385단계 가운데 26단계, 상태 코드는 1단계 |
-| (이 커밋) | **세션 수명(5.4).** 한가함 한도 14일(`session_idle_days`)과 절대 한도 90일(`session_max_days`, 세션의 `expires_at`). 마지막 사용 시각은 마지막 기록에서 10분이 지났을 때만 쓴다(전에는 요청마다). 정리는 한 시간마다 돌고 끝난 세션을 바로 지운다(31일 하한이 없다). 비활성화된 사용자의 세션은 조회에서 걸러진다. `session_expire_time`, `session_refresh_time`은 설정이 아니다(값이 있으면 시작 오류로 새 키를 알려 준다). 테스트 `users::a_session_ends_when_it_was_not_used_for_the_idle_limit`, `…_at_its_absolute_limit_however_much_it_is_used`, `the_use_of_a_session_is_recorded_at_most_every_ten_minutes`, 스토어 `sessions::a_session_of_a_deactivated_user_is_not_found`. 자기 비밀번호를 바꿀 때 다른 세션을 끝내는 것은 `d4e10cb1`에 들어갔고, 지금의 세션에 새 토큰을 주는 것은 쿠키를 다시 줄 수 있는 인증 전달 단계에서 한다 | 변화 없음 |
+| `cb3fd0ce` | **세션 수명(5.4).** 한가함 한도 14일(`session_idle_days`)과 절대 한도 90일(`session_max_days`, 세션의 `expires_at`). 마지막 사용 시각은 마지막 기록에서 10분이 지났을 때만 쓴다(전에는 요청마다). 정리는 한 시간마다 돌고 끝난 세션을 바로 지운다(31일 하한이 없다). 비활성화된 사용자의 세션은 조회에서 걸러진다. `session_expire_time`, `session_refresh_time`은 설정이 아니다(값이 있으면 시작 오류로 새 키를 알려 준다). 테스트 `users::a_session_ends_when_it_was_not_used_for_the_idle_limit`, `…_at_its_absolute_limit_however_much_it_is_used`, `the_use_of_a_session_is_recorded_at_most_every_ten_minutes`, 스토어 `sessions::a_session_of_a_deactivated_user_is_not_found`. 자기 비밀번호를 바꿀 때 다른 세션을 끝내는 것은 `d4e10cb1`에 들어갔고, 지금의 세션에 새 토큰을 주는 것은 쿠키를 다시 줄 수 있는 인증 전달 단계에서 한다 | 변화 없음 |
+| (이 커밋) | **관리자(3.6).** 아래 "관리자에서 바뀐 것" | 426 → 455단계(새 시나리오 `admins` 29단계). 기존 단계 가운데 8단계, 본문만 |
 
 **UUIDv7과 비밀 값에서 바뀐 것.**
 
@@ -298,6 +299,19 @@ S6에서 새로 본 것:
 | 가입·비밀번호 요청의 검증 오류가 `field`를 싣는다(`username`, `email`, `password`, `oldPassword`, `newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field` |
 
 스냅샷: `auth` 시나리오에 세 단계를 더했다(다른 기기에서 로그인, 비밀번호 변경 뒤 그 기기의 401, 바꾼 세션의 200). 본문이 바뀐 일곱 단계는 `field`가 붙은 여섯과 길이 한도의 문구 하나다. 아카이브 항목 이름의 정렬이 무작위 파일 이름에 흔들리지 않게 하네스의 정렬 기준을 고쳤다. 의존성: `argon2` 0.6, `sha2` 0.11을 더하고 `bcrypt`를 뺐다(`NOTICE` 다시 생성, `cargo deny` 통과). 검증: `cargo xtask check` 여섯 단계 PASS, `cargo xtask test` SQLite 790건·PostgreSQL 697건·S3 1건, 실패 0.
+
+**관리자에서 바뀐 것.** (2026-11-10 22:05 KST)
+
+| 바뀐 것 | 왜 | 어디 |
+|---|---|---|
+| **처음 가입한 사용자가 인스턴스 관리자다.** `users.is_admin`, 와이어 `isAdmin`(`GET /users/me`와 사용자를 답하는 모든 곳. 누가 관리자인지는 비밀이 아니다). 요청이 보낸 `isAdmin`은 쓰지 않는다 | 설계 3.6 | `fvoci_model::User::is_admin` |
+| "처음"은 저장과 같은 트랜잭션에서 정한다. 한 줄짜리 테이블 `instance`의 `bootstrapped`를 켠 쪽이 첫 사용자다. 빈 인스턴스에 동시에 온 가입 가운데 하나만 관리자가 된다 | 사용자 수를 세어 정하면 둘이 함께 0을 본다 | `Store::{create_user, create_first_user, is_bootstrapped}` |
+| **토큰 없는 가입은 첫 사용자만 된다.** 그 판정도 같은 트랜잭션이다. 전에는 "사용자가 0명인가"를 먼저 읽어서, 동시에 온 토큰 없는 가입이 모두 들어갈 수 있었다 | 가입 토큰의 뜻 | `Admission`, `StoreError::NotFirstUser` → 403 `signup_token_required` |
+| `PUT /users/{id}/admin` `{"isAdmin": bool}`: 관리자만(아니면 403 `admin_required`). 없는 사용자는 404. 마지막 관리자는 해제할 수 없다(409 `last_admin`). 확인과 쓰기가 한 트랜잭션이라 둘이 동시에 물러나면 하나는 거절된다. 비활성화된 관리자는 세지 않는다. 응답은 바뀐 사용자다 | 설계 3.6. 양도는 "상대를 지정하고 나를 해제"의 두 번이다 | `Store::set_user_admin`, `AdminChange`, `api/users.rs` |
+| **가입 토큰은 관리자의 것이다.** `GET /teams`, `GET /teams/{team}`의 `signupToken`은 관리자에게만 들어 있고 다른 사용자에게는 멤버 자체가 없다(전에는 로그인한 누구에게나 나갔다). `POST /teams/{team}/regenerate_signup_token`은 관리자만 하고(전에는 누구나) 응답이 새 토큰이 든 팀이다(전에는 빈 객체) | 설계 3.6. 토큰을 가진 사람은 누구든 가입한다 | `api/teams.rs`, `api/auth.rs`, `api::access::require_admin` |
+| 관리자 소켓에 `POST /api/v2/admin/users/{username}/admin`: 그 사용자를 관리자로 만든다. 관리자가 아무도 로그인할 수 없을 때의 복구 수단이다 | 설계 3.6 | `api/admin.rs` |
+
+**스냅샷.** 426 → 455단계. 새 시나리오 `admins`(29단계)가 첫 사용자, 가입 토큰의 조회와 재발급(역할별), 관리자 지정·해제의 거절과 순서를 고정한다. 기존 단계 가운데 8단계의 본문이 바뀌었다: 사용자 JSON에 `isAdmin`이 생겼고, 관리자가 아닌 사용자가 읽은 팀에서 `signupToken`이 빠졌다. 권한 표 636칸은 그대로다(가입 토큰 재발급은 표에 없는 라우트다). 테스트: API `admins::*` 6개와 소켓 1개, 스토어 `users::` 5개(경합 둘 포함: 동시에 저장한 사용자 가운데 관리자는 하나, 동시에 물러난 관리자 둘 가운데 하나는 남는다).
 
 **삭제와 복원에서 바뀐 것.** (2026-11-10 21:49 KST)
 

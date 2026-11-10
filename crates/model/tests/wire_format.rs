@@ -444,6 +444,7 @@ fn user_json_hides_credentials_and_empty_members() {
         create_at: 0,
         update_at: 5,
         delete_at: 0,
+        is_admin: true,
         is_bot: false,
         is_guest: true,
         permissions: vec![],
@@ -453,8 +454,8 @@ fn user_json_hides_credentials_and_empty_members() {
         to_json(&user),
         json!({
             "id": "u1", "username": "alice", "nickname": "al", "firstname": "Alice",
-            "lastname": "A", "update_at": 5, "delete_at": 0, "is_bot": false,
-            "is_guest": true, "roles": "system_user"
+            "lastname": "A", "update_at": 5, "delete_at": 0, "isAdmin": true,
+            "is_bot": false, "is_guest": true, "roles": "system_user"
         })
     );
 

@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use crate::common::ROOT_TEAM_ID;
+use crate::common::{ROOT_TEAM_ID, UNKNOWN_ID};
 use crate::harness::{API, Session};
 
 pub(crate) async fn system(s: &mut Session) {
@@ -286,4 +286,121 @@ pub(crate) async fn teams(s: &mut Session) {
     .json(json!([]))
     .user(&alice)
     .await;
+}
+
+/// Administrators of the instance. The harness's first user, `root`, is the one the
+/// instance starts with.
+pub(crate) async fn admins(s: &mut Session) {
+    let [alice, bob] = s.users("admins", ["alice", "bob"]).await;
+    let alice_id = s.user_id(&alice).await;
+    let bob_id = s.user_id(&bob).await;
+    let root_id = s.user_id("root").await;
+    let old_token = s.signup_token("root").await;
+    let team = format!("{API}/teams/{ROOT_TEAM_ID}");
+    let regenerate = format!("{team}/regenerate_signup_token");
+    let admin_of = |user_id: &str| format!("{API}/users/{user_id}/admin");
+
+    s.get("me: the first user", &format!("{API}/users/me"))
+        .user("root")
+        .await;
+    s.get("me: a later user", &format!("{API}/users/me"))
+        .user(&alice)
+        .await;
+    s.get(
+        "the first user, seen by another",
+        &format!("{API}/users/{root_id}"),
+    )
+    .user(&alice)
+    .await;
+
+    // -- the signup token is for administrators --------------------------------------
+    s.get("team: administrator", &team).user("root").await;
+    s.get("team: anybody else", &team).user(&alice).await;
+    s.get("teams: administrator", &format!("{API}/teams"))
+        .user("root")
+        .await;
+    s.get("teams: anybody else", &format!("{API}/teams"))
+        .user(&alice)
+        .await;
+    s.post("renew the token: not an administrator", &regenerate)
+        .user(&alice)
+        .await;
+    s.post("renew the token: no session", &regenerate).await;
+    s.post(
+        "renew the token: unknown team",
+        &format!("{API}/teams/{UNKNOWN_ID}/regenerate_signup_token"),
+    )
+    .user("root")
+    .await;
+    s.post("renew the token", &regenerate).user("root").await;
+    s.post("register with the old token", &format!("{API}/register"))
+        .json(json!({
+            "username": "admins-late", "email": "admins-late@example.com",
+            "password": "test-password", "token": old_token,
+        }))
+        .await;
+    s.post("register without a token", &format!("{API}/register"))
+        .json(json!({
+            "username": "admins-late", "email": "admins-late@example.com",
+            "password": "test-password",
+        }))
+        .await;
+
+    // -- making and unmaking administrators ------------------------------------------
+    s.put("make: not an administrator", &admin_of(&bob_id))
+        .json(json!({"isAdmin": true}))
+        .user(&alice)
+        .await;
+    s.put("make: oneself, not an administrator", &admin_of(&alice_id))
+        .json(json!({"isAdmin": true}))
+        .user(&alice)
+        .await;
+    s.put("make: no session", &admin_of(&bob_id))
+        .json(json!({"isAdmin": true}))
+        .await;
+    s.put("make: no body member", &admin_of(&bob_id))
+        .json(json!({}))
+        .user("root")
+        .await;
+    s.put("make: not a boolean", &admin_of(&bob_id))
+        .json(json!({"isAdmin": "yes"}))
+        .user("root")
+        .await;
+    s.put("make: unknown user", &admin_of(UNKNOWN_ID))
+        .json(json!({"isAdmin": true}))
+        .user("root")
+        .await;
+    s.put("make: no identifier", &admin_of("nobody"))
+        .json(json!({"isAdmin": true}))
+        .user("root")
+        .await;
+    s.put("step down: the only administrator", &admin_of(&root_id))
+        .json(json!({"isAdmin": false}))
+        .user("root")
+        .await;
+    s.put("make", &admin_of(&bob_id))
+        .json(json!({"isAdmin": true}))
+        .user("root")
+        .await;
+    s.put("make: again", &admin_of(&bob_id))
+        .json(json!({"isAdmin": true}))
+        .user("root")
+        .await;
+    s.get("team: the new administrator", &team).user(&bob).await;
+    s.put("step down", &admin_of(&root_id))
+        .json(json!({"isAdmin": false}))
+        .user("root")
+        .await;
+    s.put("make: after stepping down", &admin_of(&root_id))
+        .json(json!({"isAdmin": true}))
+        .user("root")
+        .await;
+    s.get("team: after stepping down", &team).user("root").await;
+    s.put("unmake: the new only administrator", &admin_of(&bob_id))
+        .json(json!({"isAdmin": false}))
+        .user(&bob)
+        .await;
+    s.post("renew the token: the new administrator", &regenerate)
+        .user(&bob)
+        .await;
 }

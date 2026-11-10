@@ -1,0 +1,426 @@
+[
+  {
+    "name": "me: the first user",
+    "request": "GET /api/v2/users/me as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "create_at": "<ts>",
+      "delete_at": 0,
+      "firstname": "",
+      "id": "<id:1>",
+      "isAdmin": true,
+      "is_bot": false,
+      "is_guest": false,
+      "lastname": "",
+      "nickname": "",
+      "roles": "",
+      "update_at": "<ts>",
+      "username": "root"
+    }
+  },
+  {
+    "name": "me: a later user",
+    "request": "GET /api/v2/users/me as admins-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "create_at": "<ts>",
+      "delete_at": 0,
+      "firstname": "",
+      "id": "<id:2>",
+      "isAdmin": false,
+      "is_bot": false,
+      "is_guest": false,
+      "lastname": "",
+      "nickname": "",
+      "roles": "",
+      "update_at": "<ts>",
+      "username": "admins-alice"
+    }
+  },
+  {
+    "name": "the first user, seen by another",
+    "request": "GET /api/v2/users/<id:1> as admins-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "create_at": "<ts>",
+      "delete_at": 0,
+      "firstname": "",
+      "id": "<id:1>",
+      "isAdmin": true,
+      "is_bot": false,
+      "is_guest": false,
+      "lastname": "",
+      "nickname": "",
+      "roles": "",
+      "update_at": "<ts>",
+      "username": "root"
+    }
+  },
+  {
+    "name": "team: administrator",
+    "request": "GET /api/v2/teams/<id:3> as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "id": "<id:3>",
+      "modifiedBy": "",
+      "settings": {},
+      "signupToken": "<secret>",
+      "title": "",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "team: anybody else",
+    "request": "GET /api/v2/teams/<id:3> as admins-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "id": "<id:3>",
+      "modifiedBy": "",
+      "settings": {},
+      "title": "",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "teams: administrator",
+    "request": "GET /api/v2/teams as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "id": "<id:3>",
+        "modifiedBy": "",
+        "settings": {},
+        "signupToken": "<secret>",
+        "title": "",
+        "updateAt": "<ts>"
+      },
+      {
+        "id": "<id:4>",
+        "modifiedBy": "",
+        "settings": {},
+        "signupToken": "<secret>",
+        "title": "",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "teams: anybody else",
+    "request": "GET /api/v2/teams as admins-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "id": "<id:3>",
+        "modifiedBy": "",
+        "settings": {},
+        "title": "",
+        "updateAt": "<ts>"
+      },
+      {
+        "id": "<id:4>",
+        "modifiedBy": "",
+        "settings": {},
+        "title": "",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "renew the token: not an administrator",
+    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as admins-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "only an administrator of the instance may do this",
+      "reason": "admin_required",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "renew the token: no session",
+    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "renew the token: unknown team",
+    "request": "POST /api/v2/teams/<id:5>/regenerate_signup_token as root",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "team not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "renew the token",
+    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "id": "<id:3>",
+      "modifiedBy": "<id:1>",
+      "settings": {},
+      "signupToken": "<secret>",
+      "title": "",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "register with the old token",
+    "request": "POST /api/v2/register as anonymous",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "field": "token",
+      "message": "the signup token is not valid",
+      "reason": "signup_token_invalid",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "register without a token",
+    "request": "POST /api/v2/register as anonymous",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "field": "token",
+      "message": "registration needs the signup token",
+      "reason": "signup_token_required",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make: not an administrator",
+    "request": "PUT /api/v2/users/<id:6>/admin as admins-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "only an administrator of the instance may do this",
+      "reason": "admin_required",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make: oneself, not an administrator",
+    "request": "PUT /api/v2/users/<id:2>/admin as admins-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "only an administrator of the instance may do this",
+      "reason": "admin_required",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make: no session",
+    "request": "PUT /api/v2/users/<id:6>/admin as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make: no body member",
+    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "isAdmin",
+      "message": "isAdmin must be true or false",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make: not a boolean",
+    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "invalid type: string \"yes\", expected a boolean",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make: unknown user",
+    "request": "PUT /api/v2/users/<id:5>/admin as root",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "user not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make: no identifier",
+    "request": "PUT /api/v2/users/nobody/admin as root",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "user not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "step down: the only administrator",
+    "request": "PUT /api/v2/users/<id:1>/admin as root",
+    "status": 409,
+    "content_type": "application/json",
+    "body": {
+      "error": "conflict",
+      "message": "the instance must keep an administrator",
+      "reason": "last_admin",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "make",
+    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "create_at": "<ts>",
+      "delete_at": 0,
+      "firstname": "",
+      "id": "<id:6>",
+      "isAdmin": true,
+      "is_bot": false,
+      "is_guest": false,
+      "lastname": "",
+      "nickname": "",
+      "roles": "",
+      "update_at": "<ts>",
+      "username": "admins-bob"
+    }
+  },
+  {
+    "name": "make: again",
+    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "create_at": "<ts>",
+      "delete_at": 0,
+      "firstname": "",
+      "id": "<id:6>",
+      "isAdmin": true,
+      "is_bot": false,
+      "is_guest": false,
+      "lastname": "",
+      "nickname": "",
+      "roles": "",
+      "update_at": "<ts>",
+      "username": "admins-bob"
+    }
+  },
+  {
+    "name": "team: the new administrator",
+    "request": "GET /api/v2/teams/<id:3> as admins-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "id": "<id:3>",
+      "modifiedBy": "<id:1>",
+      "settings": {},
+      "signupToken": "<secret>",
+      "title": "",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "step down",
+    "request": "PUT /api/v2/users/<id:1>/admin as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "create_at": "<ts>",
+      "delete_at": 0,
+      "firstname": "",
+      "id": "<id:1>",
+      "isAdmin": false,
+      "is_bot": false,
+      "is_guest": false,
+      "lastname": "",
+      "nickname": "",
+      "roles": "",
+      "update_at": "<ts>",
+      "username": "root"
+    }
+  },
+  {
+    "name": "make: after stepping down",
+    "request": "PUT /api/v2/users/<id:1>/admin as root",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "only an administrator of the instance may do this",
+      "reason": "admin_required",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "team: after stepping down",
+    "request": "GET /api/v2/teams/<id:3> as root",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "id": "<id:3>",
+      "modifiedBy": "<id:1>",
+      "settings": {},
+      "title": "",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "unmake: the new only administrator",
+    "request": "PUT /api/v2/users/<id:6>/admin as admins-bob",
+    "status": 409,
+    "content_type": "application/json",
+    "body": {
+      "error": "conflict",
+      "message": "the instance must keep an administrator",
+      "reason": "last_admin",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "renew the token: the new administrator",
+    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as admins-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "id": "<id:3>",
+      "modifiedBy": "<id:6>",
+      "settings": {},
+      "signupToken": "<secret>",
+      "title": "",
+      "updateAt": "<ts>"
+    }
+  }
+]

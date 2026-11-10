@@ -22,6 +22,7 @@ mod teams;
 mod templates;
 mod users;
 
+pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use content_blocks::MovePosition;

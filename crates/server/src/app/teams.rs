@@ -58,7 +58,8 @@ impl App {
         Ok(self.store().get_teams().await?)
     }
 
-    /// Replaces a team's signup token with a fresh one, on behalf of a user.
+    /// Replaces a team's signup token with a fresh one, on behalf of a user, and
+    /// returns the team with it. The old token lets nobody in any more.
     ///
     /// # Errors
     ///
@@ -67,13 +68,13 @@ impl App {
         &self,
         team_id: &str,
         user_id: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<Team, AppError> {
         match self
             .store()
             .set_team_signup_token(team_id, &new_secret(), user_id)
             .await
         {
-            Ok(()) => Ok(()),
+            Ok(()) => self.team(team_id).await,
             Err(error) if error.is_not_found() => Err(AppError::not_found("team")),
             Err(error) => Err(error.into()),
         }

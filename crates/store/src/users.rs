@@ -9,12 +9,43 @@ use fvoci_model::{User, UserPreferencesPatch};
 use serde::{Deserialize, Serialize};
 
 use crate::Store;
-use crate::db::{Id, Row, Scope, Sql, now_millis};
+use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
-const USER_COLUMNS: &str = "id, username, email, password_hash, create_at, update_at, delete_at";
+const USER_COLUMNS: &str =
+    "id, username, email, password_hash, create_at, update_at, delete_at, is_admin";
+
+/// How a new user gets in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Admission {
+    /// Whoever calls has checked that the user may register.
+    Checked,
+    /// As the first user only: the instance must not have one yet.
+    FirstOnly,
+}
+
+/// What a user is to the instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstanceRole {
+    /// An administrator of the instance.
+    Administrator,
+    /// A user like any other.
+    User,
+}
+
+/// What became of a change to who is an administrator of the instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdminChange {
+    /// The user is, or is no longer, an administrator: the user as stored now.
+    Done(Box<User>),
+    /// There is no such user, or the user is deactivated; nothing changed.
+    NoSuchUser,
+    /// The user is the only administrator and the change would have ended that;
+    /// nothing changed.
+    LastAdmin,
+}
 
 /// The category under which this server files its user preferences.
 ///
@@ -127,11 +158,16 @@ impl Store {
             .await
     }
 
-    /// Stores a new user.
+    /// Stores a new user. The first user of the instance becomes an administrator, and
+    /// nobody after that does by registering.
     ///
     /// `user` is updated to what was stored: the current time as creation and
-    /// modification time, and not deleted. Of its members, only the identifier, the
-    /// name, the email address and the password hash are stored.
+    /// modification time, not deleted, and whether an administrator, whatever the
+    /// caller put there. Of its other members, only the identifier, the name, the
+    /// email address and the password hash are stored.
+    ///
+    /// Who is first is decided with the insertion, in one transaction: of two users who
+    /// register at once into an empty instance, one is the administrator.
     ///
     /// # Errors
     ///
@@ -139,8 +175,88 @@ impl Store {
     /// the email address in any letter case, and [`StoreError::InvalidId`] if the
     /// identifier is not one.
     pub async fn create_user(&self, user: &mut User) -> Result<(), StoreError> {
-        self.with_conn(async |scope| create_user(scope, user).await)
+        self.transaction(async |scope| create_user(scope, user, Admission::Checked).await)
             .await
+    }
+
+    /// Stores a new user as [`Store::create_user`] does, but only as the first user of
+    /// the instance: for a registration that presents no signup token.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFirstUser`] if the instance has had its first user, and
+    /// otherwise the errors of [`Store::create_user`]. Nothing is stored in either case.
+    pub async fn create_first_user(&self, user: &mut User) -> Result<(), StoreError> {
+        self.transaction(async |scope| create_user(scope, user, Admission::FirstOnly).await)
+            .await
+    }
+
+    /// Whether the instance has had its first user.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn is_bootstrapped(&self) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql("SELECT bootstrapped FROM instance WHERE id = 1");
+            match scope.fetch_optional(sql).await? {
+                Some(row) => row.bool(0),
+                None => Ok(false),
+            }
+        })
+        .await
+    }
+
+    /// Makes a user an administrator of the instance, or ends that, unless it would
+    /// leave the instance without an administrator. Deactivated users do not count as
+    /// administrators.
+    ///
+    /// The check and the write are one step: of two administrators who give up the role
+    /// at once, one is refused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn set_user_admin(
+        &self,
+        user_id: &str,
+        role: InstanceRole,
+    ) -> Result<AdminChange, StoreError> {
+        let is_admin = role == InstanceRole::Administrator;
+        self.transaction(async |scope| {
+            // One change to who is an administrator at a time: the instance's row is
+            // held. On SQLite a transaction that writes holds the whole database.
+            let mut sql = scope.sql("SELECT id FROM instance WHERE id = 1");
+            if scope.dialect() == Dialect::Postgres {
+                sql.push(" FOR UPDATE");
+            }
+            scope.fetch_optional(sql).await?;
+
+            let mut sql = select_users(scope);
+            sql.push_bind(" AND id = ", Id(user_id));
+            let Some(current) = fetch_users(scope, sql).await?.into_iter().next() else {
+                return Ok(AdminChange::NoSuchUser);
+            };
+            if current.is_admin && !is_admin {
+                let mut sql = scope.sql("SELECT 1 FROM users WHERE delete_at = 0 AND is_admin = ");
+                sql.bind(true)
+                    .push_bind(" AND id <> ", Id(user_id))
+                    .push(" LIMIT 1");
+                if scope.fetch_optional(sql).await?.is_none() {
+                    return Ok(AdminChange::LastAdmin);
+                }
+            }
+            if current.is_admin != is_admin {
+                let mut sql = scope.sql("UPDATE users SET is_admin = ");
+                sql.bind(is_admin)
+                    .push_bind(", update_at = ", now_millis())
+                    .push_bind(" WHERE id = ", Id(user_id));
+                scope.execute(sql).await?;
+            }
+            let user = get_user_by_id(scope, user_id).await?;
+            Ok(AdminChange::Done(Box::new(user)))
+        })
+        .await
     }
 
     /// Sets the password hash of the user with the given name, in any letter case, and
@@ -310,6 +426,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         create_at: row.int(4)?,
         update_at: row.int(5)?,
         delete_at: row.int(6)?,
+        is_admin: row.bool(7)?,
         ..User::default()
     })
 }
@@ -371,11 +488,26 @@ pub(crate) async fn get_user_by_id(
     find_user(scope, Lookup::Id(user_id)).await
 }
 
-pub(crate) async fn create_user(scope: &mut Scope<'_>, user: &mut User) -> Result<(), StoreError> {
+async fn create_user(
+    scope: &mut Scope<'_>,
+    user: &mut User,
+    admission: Admission,
+) -> Result<(), StoreError> {
+    // Whoever turns the flag on is the first user. A second transaction that tries at
+    // the same moment waits for this one and then finds the flag on.
+    let mut sql = scope.sql("UPDATE instance SET bootstrapped = ");
+    sql.bind(true)
+        .push_bind(" WHERE id = 1 AND bootstrapped = ", false);
+    let is_first = scope.execute(sql).await? > 0;
+    if !is_first && admission == Admission::FirstOnly {
+        return Err(StoreError::NotFirstUser);
+    }
+
     let now = now_millis();
     user.create_at = now;
     user.update_at = now;
     user.delete_at = 0;
+    user.is_admin = is_first;
 
     let mut sql = scope.sql(&format!("INSERT INTO users ({USER_COLUMNS}) VALUES ("));
     sql.bind(Id(&user.id))
@@ -385,6 +517,7 @@ pub(crate) async fn create_user(scope: &mut Scope<'_>, user: &mut User) -> Resul
         .push_bind(", ", user.create_at)
         .push_bind(", ", user.update_at)
         .push_bind(", ", user.delete_at)
+        .push_bind(", ", user.is_admin)
         .push(")");
     match scope.execute(sql).await {
         Ok(_) => Ok(()),

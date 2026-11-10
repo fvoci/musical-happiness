@@ -20,6 +20,15 @@ const PASSWORD_WORK_AT_A_TIME: usize = 4;
 static PASSWORD_WORK: LazyLock<Semaphore> =
     LazyLock::new(|| Semaphore::new(PASSWORD_WORK_AT_A_TIME));
 
+/// What a registration came with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Admission {
+    /// The team's signup token, which the caller has checked.
+    WithToken,
+    /// Nothing: only the first user of the instance gets in so.
+    FirstUserOnly,
+}
+
 impl App {
     /// Checks a user's password and returns the token of a new session. The token is
     /// handed out here and nowhere else: the store keeps its digest only.
@@ -159,17 +168,22 @@ impl App {
         Ok(self.store().get_registered_user_count().await?)
     }
 
-    /// Creates a user. The caller has checked the request and the signup token.
+    /// Creates a user. The caller has checked the request and, if the registration
+    /// came with a signup token, the token. The first user of the instance becomes its
+    /// administrator.
     ///
     /// # Errors
     ///
     /// Returns a conflict error if the name or the email address is taken, in any letter
-    /// case, and the store's error if the user cannot be stored.
+    /// case; a permission error (reason `signup_token_required`) if the registration
+    /// came without a token and is not the first; and the store's error if the user
+    /// cannot be stored.
     pub async fn register_user(
         &self,
         username: &str,
         email: &str,
         password: &str,
+        admission: Admission,
     ) -> Result<(), AppError> {
         // Asked first so that a taken name costs no hash. Two registrations at once
         // both pass these, and then the unique indexes decide: the same conflict.
@@ -195,10 +209,21 @@ impl App {
             password_hash: hash(password).await?,
             ..User::default()
         };
-        match self.store().create_user(&mut user).await {
-            Ok(()) => Ok(()),
+        let stored = match admission {
+            Admission::WithToken => self.store().create_user(&mut user).await,
+            Admission::FirstUserOnly => self.store().create_first_user(&mut user).await,
+        };
+        match stored {
+            Ok(()) => {
+                if user.is_admin {
+                    tracing::info!(user_id = %user.id, "the first user is the administrator");
+                }
+                Ok(())
+            }
             Err(StoreError::Conflict(what)) if what.contains("email") => Err(email_taken()),
             Err(StoreError::Conflict(_)) => Err(username_taken()),
+            // Another registration without a token was first after all.
+            Err(error @ StoreError::NotFirstUser) => Err(error.into()),
             Err(error) => Err(AppError::from(error).context("Unable to create the new user")),
         }
     }
