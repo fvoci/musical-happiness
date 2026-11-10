@@ -111,13 +111,25 @@
 :root {
   /*
    * The family that draws Han characters depends on the language, because one
-   * code point has a different shape in each of the four. The stack always
-   * starts with the Latin family and then lists the four CJK families with the
-   * one of the current language first; the others still catch text in another
-   * language, and a family is only downloaded when a character needs it.
+   * code point has a different shape in each of the four. The stack lists the
+   * Latin family and the four CJK families, the one of the current language
+   * before the other three; those still catch text in another language, and a
+   * family is only downloaded when a character needs it.
+   *
+   * Which comes first depends on the language too. Korean and Japanese put
+   * their own family first: letters, digits and punctuation come out of the
+   * same file as the script (one request for a first screen), and the
+   * ellipsis sits mid-height the way those languages print it. Everywhere
+   * else the Latin family is first; in Chinese because the Chinese fonts draw
+   * quotation marks full width, which pulls a word like "it's" apart.
+   *
+   * Each language sets the whole stack, not a part of it: a custom property
+   * that refers to another is resolved where it is declared, so a part
+   * overridden further down the tree would not reach it.
    */
-  --font-cjk: 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC';
-  --font-sans-stack: 'Noto Sans', var(--font-cjk), system-ui, sans-serif;
+  --font-sans-stack:
+    'Noto Sans', 'Noto Sans KR', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC', system-ui,
+    sans-serif;
   --font-mono-stack: 'D2Coding', ui-monospace, 'Noto Sans Mono', monospace;
 
   /* Line height of one-line controls and labels, and of running text. */
@@ -125,18 +137,30 @@
   --line-body: 1.6;
 }
 
+:lang(ko) {
+  --font-sans-stack:
+    'Noto Sans KR', 'Noto Sans', 'Noto Sans JP', 'Noto Sans SC', 'Noto Sans TC', system-ui,
+    sans-serif;
+}
+
 :lang(ja) {
-  --font-cjk: 'Noto Sans JP', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC';
+  --font-sans-stack:
+    'Noto Sans JP', 'Noto Sans', 'Noto Sans KR', 'Noto Sans SC', 'Noto Sans TC', system-ui,
+    sans-serif;
 }
 
 :lang(zh) {
-  --font-cjk: 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', 'Noto Sans KR';
+  --font-sans-stack:
+    'Noto Sans', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP', 'Noto Sans KR', system-ui,
+    sans-serif;
 }
 
 :lang(zh-Hant),
 :lang(zh-TW),
 :lang(zh-HK) {
-  --font-cjk: 'Noto Sans TC', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR';
+  --font-sans-stack:
+    'Noto Sans', 'Noto Sans TC', 'Noto Sans SC', 'Noto Sans JP', 'Noto Sans KR', system-ui,
+    sans-serif;
 }
 
 /*

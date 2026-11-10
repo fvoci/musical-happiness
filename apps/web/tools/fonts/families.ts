@@ -7,7 +7,7 @@
  * Linux distributions and Android ship. A device that has one of them never
  * downloads the file.
  */
-import type { BlockName, CharsetSpec } from './charsets.ts';
+import { resolveCharset, type BlockName, type CharsetSpec } from './charsets.ts';
 
 export interface FaceWeight {
   /** The `font-weight` descriptor of the rule: one weight, or a range such as `100 599`. */
@@ -43,13 +43,63 @@ export interface Family {
   sources: readonly FaceSource[];
   /** Variation axes to fix at one value; the others stay variable. */
   pinAxes?: Readonly<Record<string, number>>;
+  /** The characters of the file almost every page in the language needs. */
   common: CharsetSpec;
   /**
-   * Source whose characters are left out of both files of this family. The
-   * Latin family comes first in the font stack, so a CJK family is never asked
-   * for a character the Latin one has.
+   * Files between the common one and the rest, in this order: characters
+   * that are neither everyday nor rare enough to hide among the thousands of
+   * the rest. A character goes into the first file that names it.
+   */
+  more?: readonly { name: string; charset: CharsetSpec }[];
+  /**
+   * Source whose characters are left out of the files of this family. Where
+   * the Latin family comes first in the font stack, a CJK family is never
+   * asked for a character the Latin one has.
    */
   excludeCoverageOf?: string;
+  /**
+   * The family comes first in the stack in its own language (styles/app.css),
+   * before the Latin family. Its common file then keeps everything it names,
+   * also what the Latin family has: letters, digits and punctuation are drawn
+   * with this family there. The other files still leave out what the Latin
+   * family covers, which follows it in the stack.
+   */
+  leads?: boolean;
+}
+
+/** One file of a family: its name and the characters in it. */
+export interface FamilyPart {
+  name: string;
+  codePoints: number[];
+}
+
+/**
+ * Cuts the characters a source has (`covered`) into the files of a family:
+ * `common`, the ones under `more`, and `rest` for what is left. `excluded` is
+ * the coverage of `excludeCoverageOf`. No character is in two files, and a
+ * file without characters is not made.
+ */
+export function partition(
+  family: Pick<Family, 'common' | 'more' | 'leads'>,
+  covered: readonly number[],
+  excluded: ReadonlySet<number>,
+): FamilyPart[] {
+  const assigned = new Set<number>();
+  const parts: FamilyPart[] = [];
+  const take = (name: string, wanted: ReadonlySet<number>, keepExcluded: boolean): void => {
+    const codePoints = covered.filter(
+      (code) => wanted.has(code) && !assigned.has(code) && (keepExcluded || !excluded.has(code)),
+    );
+    for (const code of codePoints) assigned.add(code);
+    parts.push({ name, codePoints });
+  };
+  take('common', resolveCharset(family.common), family.leads === true);
+  for (const part of family.more ?? []) take(part.name, resolveCharset(part.charset), false);
+  parts.push({
+    name: 'rest',
+    codePoints: covered.filter((code) => !assigned.has(code) && !excluded.has(code)),
+  });
+  return parts.filter((part) => part.codePoints.length > 0);
 }
 
 /**
@@ -102,14 +152,23 @@ const CJK_SHARED: readonly BlockName[] = ['cjkPunctuation', 'fullwidthForms'];
  * list, and the symbols of its national character set: the punctuation,
  * units, arrows and shapes that ordinary text in that language uses.
  */
+/**
+ * What a family that leads the stack in its language takes over from the
+ * Latin family: letters, digits and punctuation. The ellipsis and the dashes
+ * then sit where that language puts them.
+ */
+const LEADING_LATIN: readonly BlockName[] = ['basicLatin', 'latin1', 'generalPunctuation'];
+
 const KOREAN: CharsetSpec = {
-  // Every modern Hangul syllable, not only the 2,350 of KS X 1001: names and
-  // loanwords use the others, and a missing one would pull in the whole remainder.
-  blocks: [...CJK_SHARED, 'hangulSyllables', 'hangulCompatibilityJamo', 'enclosedCjk'],
-  lists: ['ks-x-1001-symbols'],
+  // The 2,350 syllables of KS X 1001 write almost all everyday Korean. The
+  // other 8,822 (names, loanwords, slang) are a file of their own, below, so
+  // that one of them costs that file and not the whole remainder.
+  blocks: [...LEADING_LATIN, ...CJK_SHARED, 'hangulCompatibilityJamo', 'enclosedCjk'],
+  lists: ['ks-x-1001-hangul', 'ks-x-1001-symbols'],
 };
+const KOREAN_MORE = [{ name: 'syllables', charset: { blocks: ['hangulSyllables'] } }] as const;
 const JAPANESE: CharsetSpec = {
-  blocks: [...CJK_SHARED, 'hiragana', 'katakana'],
+  blocks: [...LEADING_LATIN, ...CJK_SHARED, 'hiragana', 'katakana'],
   lists: ['joyo', 'jis-x-0208-symbols'],
 };
 const SIMPLIFIED_CHINESE: CharsetSpec = {
@@ -124,7 +183,11 @@ const TRADITIONAL_CHINESE: CharsetSpec = {
 function noto(style: 'Sans' | 'Serif', use: Family['use']): Family[] {
   const base = `Noto ${style}`;
   const id = `noto-${style.toLowerCase()}`;
-  const cjk = (region: string, common: CharsetSpec): Family => ({
+  const cjk = (
+    region: string,
+    common: CharsetSpec,
+    options: Pick<Family, 'more' | 'leads'> = {},
+  ): Family => ({
     id: `${id}-${region}`,
     family: `${base} ${region.toUpperCase()}`,
     use,
@@ -136,6 +199,7 @@ function noto(style: 'Sans' | 'Serif', use: Family['use']): Family[] {
     ],
     common,
     excludeCoverageOf: id,
+    ...options,
   });
   return [
     {
@@ -147,8 +211,11 @@ function noto(style: 'Sans' | 'Serif', use: Family['use']): Family[] {
       pinAxes: { wdth: 100 },
       common: LATIN_COMMON,
     },
-    cjk('kr', KOREAN),
-    cjk('jp', JAPANESE),
+    // Korean and Japanese pages put their own family first; Chinese pages keep
+    // the Latin family first, because the Chinese fonts draw the quotation
+    // marks full width and would pull English words apart.
+    cjk('kr', KOREAN, { more: KOREAN_MORE, leads: true }),
+    cjk('jp', JAPANESE, { leads: true }),
     cjk('sc', SIMPLIFIED_CHINESE),
     cjk('tc', TRADITIONAL_CHINESE),
   ];

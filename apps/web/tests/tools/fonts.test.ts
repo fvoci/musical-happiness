@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { readList, resolveCharset } from '../../tools/fonts/charsets.ts';
-import { FAMILIES } from '../../tools/fonts/families.ts';
+import { FAMILIES, partition } from '../../tools/fonts/families.ts';
 import { readCodePoints } from '../../tools/fonts/sfnt.ts';
 import sources from '../../tools/fonts/sources.json' with { type: 'json' };
 import { formatUnicodeRange, toRanges, toText } from '../../tools/fonts/unicode-range.ts';
@@ -52,14 +52,82 @@ describe('character lists', () => {
     expect(han.length).toBeLessThanOrEqual(12);
   });
 
-  it('the Korean common set is every modern syllable plus punctuation', () => {
+  it('ks-x-1001-hangul has the 2,350 syllables of the standard, all of them Hangul', () => {
+    const list = readList('ks-x-1001-hangul');
+    expect(list).toHaveLength(2350);
+    expect(new Set(list).size).toBe(2350);
+    for (const code of list) {
+      expect(code).toBeGreaterThanOrEqual(0xac00);
+      expect(code).toBeLessThanOrEqual(0xd7a3);
+    }
+    expect(list).toContain('가'.codePointAt(0));
+    expect(list).toContain('힝'.codePointAt(0));
+    // Syllables of names and loanwords that the standard does not have.
+    for (const rare of '똠쌰뷁') expect(list).not.toContain(rare.codePointAt(0));
+  });
+
+  it('the Korean common set is the everyday syllables, punctuation, symbols and Latin', () => {
     const korean = FAMILIES.find((family) => family.id === 'noto-sans-kr');
     const set = resolveCharset(korean?.common ?? { blocks: [] });
-    expect(set.has(0xac00)).toBe(true);
-    expect(set.has(0xd7a3)).toBe(true);
+    expect(set.has(0xac00)).toBe(true); // 가
+    expect(set.has('똠'.codePointAt(0) ?? 0)).toBe(false);
     expect(set.has(0x3001)).toBe(true);
     expect(set.has(0x203b)).toBe(true); // ※, from the symbols of KS X 1001
-    expect(set.has(0x41)).toBe(false);
+    // Korean puts its own family first, so the family draws Latin text too.
+    expect(set.has(0x41)).toBe(true);
+    expect(set.has(0x2026)).toBe(true); // the ellipsis
+    expect(korean?.leads).toBe(true);
+    expect(korean?.more?.map((part) => part.name)).toEqual(['syllables']);
+  });
+
+  it('only Korean and Japanese put their own family before the Latin one', () => {
+    const leading = FAMILIES.filter((family) => family.leads).map((family) => family.id);
+    expect(leading).toEqual(['noto-sans-kr', 'noto-sans-jp', 'noto-serif-kr', 'noto-serif-jp']);
+    const chinese = FAMILIES.find((family) => family.id === 'noto-sans-sc');
+    expect(resolveCharset(chinese?.common ?? { blocks: [] }).has(0x41)).toBe(false);
+  });
+});
+
+describe('the files of a family', () => {
+  const korean = FAMILIES.find((family) => family.id === 'noto-sans-kr');
+  if (!korean) throw new Error('no Korean family');
+  const code = (character: string): number => character.codePointAt(0) ?? 0;
+  // What a made-up source has, and what the Latin family covers of it.
+  const covered = Array.from('A1…※가힝똠뷁漢Жőé', code).sort((a, b) => a - b);
+  const latin = new Set(Array.from('A1…※Жőé', code));
+  const names = (codePoints: number[]): string => String.fromCodePoint(...codePoints);
+
+  it('cuts Korean into three: everyday, the other syllables, and the rest', () => {
+    const parts = partition(korean, covered, latin);
+    expect(parts.map((part) => part.name)).toEqual(['common', 'syllables', 'rest']);
+    const byName = Object.fromEntries(parts.map((part) => [part.name, names(part.codePoints)]));
+    // The family leads in Korean: its common file keeps what the Latin family has too.
+    // That goes for the Cyrillic among the symbols of KS X 1001 as well.
+    expect(byName.common).toBe('1AéЖ…※가힝');
+    expect(byName.syllables).toBe('똠뷁');
+    // What it does not name (ő) is left to the Latin family, which follows in the stack.
+    expect(byName.rest).toBe('漢');
+  });
+
+  it('puts no character into two files and loses none but the excluded', () => {
+    const parts = partition(korean, covered, latin);
+    const all = parts.flatMap((part) => part.codePoints);
+    expect(new Set(all).size).toBe(all.length);
+    expect(all.sort((a, b) => a - b)).toEqual(covered.filter((item) => item !== code('ő')));
+  });
+
+  it('leaves the coverage of the Latin family out of a family that follows it', () => {
+    const chinese = FAMILIES.find((family) => family.id === 'noto-sans-sc');
+    if (!chinese) throw new Error('no Chinese family');
+    const parts = partition(chinese, Array.from('A、一龘', code), new Set([code('A')]));
+    expect(parts.map((part) => [part.name, names(part.codePoints)])).toEqual([
+      ['common', '、一'],
+      ['rest', '龘'],
+    ]);
+  });
+
+  it('makes no file for a part without characters', () => {
+    expect(partition(korean, [code('가')], latin).map((part) => part.name)).toEqual(['common']);
   });
 });
 

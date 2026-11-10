@@ -4,7 +4,8 @@
  *   node tools/fonts/build.ts [--family <id>,<id>] [--force]
  *
  * For every family in families.ts the tool downloads the pinned source
- * (sources.json), cuts it into a "common" and a "rest" file in WOFF2, and
+ * (sources.json), cuts it into its files (a "common" one, a "rest", and for
+ * some families more in between) in WOFF2, and
  * writes the `@font-face` rules that tell a browser which characters are in
  * which file. Nothing it writes is committed: the output directory
  * src/styles/fonts is ignored by git, and the build runs this tool first.
@@ -18,8 +19,7 @@ import path from 'node:path';
 
 import subsetFont from 'subset-font';
 
-import { resolveCharset } from './charsets.ts';
-import { FAMILIES, type Family } from './families.ts';
+import { FAMILIES, partition, type Family } from './families.ts';
 import { fetchPinned } from './fetch.ts';
 import { readCodePoints, readName } from './sfnt.ts';
 import sources from './sources.json' with { type: 'json' };
@@ -33,7 +33,7 @@ type SourceId = keyof typeof sources.fonts;
 interface FileReport {
   file: string;
   family: string;
-  part: 'common' | 'rest';
+  part: string;
   characters: number;
   bytes: number;
 }
@@ -89,7 +89,6 @@ function fontFace(
 }
 
 async function buildFamily(family: Family): Promise<{ css: string; files: FileReport[] }> {
-  const wanted = resolveCharset(family.common);
   const excluded = new Set<number>();
   if (family.excludeCoverageOf) {
     const other = sources.fonts[family.excludeCoverageOf as SourceId];
@@ -102,14 +101,7 @@ async function buildFamily(family: Family): Promise<{ css: string; files: FileRe
   for (const { source, weights } of family.sources) {
     const pinned = sources.fonts[source as SourceId];
     const font = await fetchPinned(`${source}.ttf`, pinned.font);
-    const covered = readCodePoints(font).filter((code) => !excluded.has(code));
-    const parts = {
-      common: covered.filter((code) => wanted.has(code)),
-      rest: covered.filter((code) => !wanted.has(code)),
-    };
-    for (const part of ['common', 'rest'] as const) {
-      const codePoints = parts[part];
-      if (codePoints.length === 0) continue;
+    for (const { name: part, codePoints } of partition(family, readCodePoints(font), excluded)) {
       const file = `${source}-${part}.woff2`;
       const subset = await subsetFont(font, toText(codePoints), {
         targetFormat: 'woff2',

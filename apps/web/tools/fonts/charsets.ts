@@ -1,9 +1,11 @@
 /**
  * The characters that go into the "common" file of each font family.
  *
- * A family is cut into two files: one with the characters almost every page
- * in that language uses, and one with everything else the font has. The
- * second is only downloaded when a page shows a character from it.
+ * A family is cut into files: one with the characters almost every page in
+ * that language uses, and one with everything else the font has, which is
+ * only downloaded when a page shows a character from it. A family can name
+ * more files in between (see families.ts): Korean keeps the syllables beyond
+ * the everyday ones apart from the rest.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -46,6 +48,7 @@ export type ListName =
   | 'joyo'
   | 'tgh-level1'
   | 'big5-level1'
+  | 'ks-x-1001-hangul'
   | 'ks-x-1001-symbols'
   | 'jis-x-0208-symbols'
   | 'gb-2312-symbols'

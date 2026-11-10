@@ -18,6 +18,8 @@
  * read from the byte ranges of the set through the platform's decoder:
  *
  * - ks-x-1001-symbols: rows 1 to 12 of KS X 1001 (Korea)
+ * - ks-x-1001-hangul: rows 16 to 40 of KS X 1001, its 2,350 Hangul syllables:
+ *   the ones everyday Korean is written with
  * - jis-x-0208-symbols: rows 1 to 8 of JIS X 0208 (Japan)
  * - gb-2312-symbols: rows 1 to 9 of GB 2312 (mainland China)
  * - big5-symbols: the Big5 byte pairs A140 to A3FE (Taiwan)
@@ -91,6 +93,7 @@ const big5Level1 = [
 ];
 const big5Symbols = decodePairs('big5', range(0xa1, 0xa3), BIG5_TRAILS);
 const ksSymbols = decodePairs('euc-kr', range(0xa1, 0xac), HIGH);
+const ksHangul = decodePairs('euc-kr', range(0xb0, 0xc8), HIGH);
 const jisSymbols = decodePairs('euc-jp', range(0xa1, 0xa8), HIGH);
 const gbSymbols = decodePairs('gbk', range(0xa1, 0xa9), HIGH);
 
@@ -105,6 +108,11 @@ writeList(
   'ks-x-1001-symbols',
   'Symbols of KS X 1001, rows 1-12 (Korea). Source: EUC-KR A1A1-ACFE.',
   ksSymbols,
+);
+writeList(
+  'ks-x-1001-hangul',
+  'Hangul syllables of KS X 1001, rows 16-40 (Korea). Source: EUC-KR B0A1-C8FE.',
+  ksHangul,
 );
 writeList(
   'jis-x-0208-symbols',
