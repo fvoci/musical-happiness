@@ -45,6 +45,31 @@ fn requested_member(board_id: String, user_id: String, body: &BoardMember) -> Bo
     }
 }
 
+/// A membership with exactly the one role; none for [`BoardRole::None`].
+fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> BoardMember {
+    BoardMember {
+        board_id,
+        user_id,
+        scheme_admin: role == BoardRole::Admin,
+        scheme_editor: role == BoardRole::Editor,
+        scheme_commenter: role == BoardRole::Commenter,
+        scheme_viewer: role == BoardRole::Viewer,
+        ..BoardMember::default()
+    }
+}
+
+/// The role a member gets from somebody who may add members but does not manage the
+/// board's roles: the board's minimum role, and the least one if the board names none.
+///
+/// The minimum role is never admin here: on a board whose minimum role is admin every
+/// member manages the roles.
+fn role_given_without_managing_roles(minimum_role: BoardRole) -> BoardRole {
+    match minimum_role {
+        BoardRole::None => BoardRole::Viewer,
+        role => role,
+    }
+}
+
 /// `GET /boards/{board_id}/members`: the members of a board, for its members.
 async fn handle_get_members_for_board(
     State(app): State<App>,
@@ -64,7 +89,8 @@ async fn handle_get_members_for_board(
 }
 
 /// `POST /boards/{board_id}/members`: makes a user a member of a board. Admins add
-/// members to any board; on an open board editors do too.
+/// members to any board, with the roles the request names. On an open board editors add
+/// members too, with the board's minimum role, whatever the request names.
 async fn handle_add_member(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -104,8 +130,19 @@ async fn handle_add_member(
         return Err(AppError::forbidden(MODIFY_MEMBERS_DENIED));
     }
 
+    // Not in the original either, which stores the roles the request names whoever
+    // sends it: an editor of an open board could hand out any role below admin, or none.
+    // Choosing roles belongs to those who manage them.
+    let member = if manages_roles {
+        requested_member(board_id, request.user_id.clone(), &request)
+    } else {
+        member_with_role(
+            board_id,
+            request.user_id.clone(),
+            role_given_without_managing_roles(board.minimum_role),
+        )
+    };
     // Preserved quirk: the user is not looked up; a membership of nobody is stored.
-    let member = requested_member(board_id, request.user_id.clone(), &request);
     Ok(json_response(&app.add_member_to_board(&member).await?))
 }
 
@@ -129,16 +166,11 @@ async fn handle_join_board(
         return Err(AppError::forbidden("guests not allowed to join boards"));
     }
 
-    let role = board.minimum_role;
-    let member = BoardMember {
-        user_id: user_id.clone(),
-        board_id,
-        scheme_admin: role == BoardRole::Admin,
-        scheme_editor: matches!(role, BoardRole::None | BoardRole::Editor),
-        scheme_commenter: role == BoardRole::Commenter,
-        scheme_viewer: role == BoardRole::Viewer,
-        ..BoardMember::default()
+    let role = match board.minimum_role {
+        BoardRole::None => BoardRole::Editor,
+        role => role,
     };
+    let member = member_with_role(board_id, user_id.clone(), role);
     Ok(json_response(&app.add_member_to_board(&member).await?))
 }
 

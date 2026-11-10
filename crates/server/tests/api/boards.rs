@@ -119,6 +119,14 @@ fn view_block(board_id: &str) -> Block {
     }
 }
 
+fn card_block(board_id: &str) -> Block {
+    Block {
+        block_type: BlockType::Card,
+        title: "Card 1".to_owned(),
+        ..view_block(board_id)
+    }
+}
+
 async fn get_board(client: &Client, board_id: &str) -> ApiResponse {
     client.get(&format!("/boards/{board_id}")).await
 }
@@ -1984,9 +1992,8 @@ async fn add_member_as_admin_needs_the_permission_to_manage_roles() {
     th.teardown().await;
 }
 
-/// The counterpart of [`add_member_as_admin_needs_the_permission_to_manage_roles`]: what
-/// the web app does still works. An editor of an open board adds members with roles up
-/// to their own, and an admin adds admins.
+/// The counterpart of [`add_member_as_admin_needs_the_permission_to_manage_roles`]: an
+/// editor of an open board still adds members, and an admin still adds admins.
 #[tokio::test]
 async fn add_member_by_an_editor_of_an_open_board_and_as_admin_by_an_admin_still_work() {
     let th = Setup::native().start().await.init_basic().await;
@@ -2000,21 +2007,15 @@ async fn add_member_by_an_editor_of_an_open_board_and_as_admin_by_an_admin_still
     .await;
     join_board(&th.client2, &board.id).await.check_ok();
 
-    // The flags the web app sends for "editor".
-    let added: BoardMember = th
+    let response = th
         .client2
         .add_member(&BoardMember {
-            scheme_editor: true,
-            scheme_commenter: true,
             scheme_viewer: true,
             ..member(&board.id, &user3.id)
         })
-        .await
-        .ok_json();
-    assert!(
-        added.scheme_editor && !added.scheme_admin,
-        "added as an editor: {added:?}"
-    );
+        .await;
+    let added: BoardMember = response.ok_json();
+    assert_eq!(added.user_id, user3.id, "added: {added:?}");
 
     // An admin still adds admins.
     let client4 = th.add_user("user4").await;
@@ -2028,6 +2029,194 @@ async fn add_member_by_an_editor_of_an_open_board_and_as_admin_by_an_admin_still
         .await
         .ok_json();
     assert!(added.scheme_admin, "added as an admin: {added:?}");
+
+    th.teardown().await;
+}
+
+/// The role flags of a member, in the order admin, editor, commenter, viewer.
+fn role_flags(member: &BoardMember) -> [bool; 4] {
+    [
+        member.scheme_admin,
+        member.scheme_editor,
+        member.scheme_commenter,
+        member.scheme_viewer,
+    ]
+}
+
+const ONLY_EDITOR: [bool; 4] = [false, true, false, false];
+const ONLY_COMMENTER: [bool; 4] = [false, false, true, false];
+const ONLY_VIEWER: [bool; 4] = [false, false, false, true];
+const NO_ROLE: [bool; 4] = [false; 4];
+
+/// Not in the original, which stores whatever roles the request names: an editor of an
+/// open board, who may add members but not manage roles, could make anyone an editor or
+/// a member without any role. Such an adder now gives the board's minimum role, and
+/// viewer if the board names none. The answer and the stored membership say what was
+/// given.
+#[tokio::test]
+async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let editor_request = |board_id: &str, user_id: &str| BoardMember {
+        scheme_editor: true,
+        scheme_commenter: true,
+        scheme_viewer: true,
+        ..member(board_id, user_id)
+    };
+
+    let cases = [
+        ("", ONLY_VIEWER),
+        ("viewer", ONLY_VIEWER),
+        ("commenter", ONLY_COMMENTER),
+        ("editor", ONLY_EDITOR),
+    ];
+    for (index, (minimum_role, expected)) in cases.into_iter().enumerate() {
+        let board = board_with_admin(
+            &th,
+            new_board(TEST_TEAM_ID, BoardType::Open, "open"),
+            &user1.id,
+        )
+        .await;
+        // The adder is an editor of the board whatever its minimum role.
+        add_member(&th, &editor(&board.id, &th.client2.me().await.id)).await;
+        if !minimum_role.is_empty() {
+            th.client
+                .patch(
+                    &format!("/boards/{}", board.id),
+                    &json!({"minimumRole": minimum_role}),
+                )
+                .await
+                .check_ok();
+        }
+        let asked_for_editor = th.add_user(&format!("asked-editor-{index}")).await;
+        let asked_for_nothing = th.add_user(&format!("asked-nothing-{index}")).await;
+
+        for (client, request) in [
+            (
+                &asked_for_editor,
+                editor_request(&board.id, &asked_for_editor.me().await.id),
+            ),
+            (
+                &asked_for_nothing,
+                member(&board.id, &asked_for_nothing.me().await.id),
+            ),
+        ] {
+            let added: BoardMember = th.client2.add_member(&request).await.ok_json();
+            assert_eq!(
+                role_flags(&added),
+                expected,
+                "minimum role {minimum_role:?}, request {request:?}: the answer"
+            );
+            let stored = members_of(&th, &board.id)
+                .await
+                .into_iter()
+                .find(|member| member.user_id == request.user_id)
+                .expect("the membership is stored");
+            assert_eq!(
+                role_flags(&stored),
+                expected,
+                "minimum role {minimum_role:?}: the stored membership"
+            );
+            // The role is real: only an editor may insert a card.
+            let insert = client
+                .insert_blocks(&board.id, &[card_block(&board.id)])
+                .await;
+            if expected == ONLY_EDITOR {
+                insert.check_ok();
+            } else {
+                insert.check_forbidden();
+            }
+        }
+    }
+    th.teardown().await;
+}
+
+/// A board's minimum role is every member's least role. If it is admin, every member
+/// manages the roles, so there is nobody on that board who adds members without
+/// managing roles: the request of any member is stored as it is.
+#[tokio::test]
+async fn add_member_on_a_board_whose_minimum_role_is_admin_is_by_a_manager_of_roles() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let board = board_with_admin(
+        &th,
+        new_board(TEST_TEAM_ID, BoardType::Open, "open"),
+        &user1.id,
+    )
+    .await;
+    add_member(&th, &editor(&board.id, &th.client2.me().await.id)).await;
+    th.client
+        .patch(
+            &format!("/boards/{}", board.id),
+            &json!({"minimumRole": "admin"}),
+        )
+        .await
+        .check_ok();
+
+    let user3 = th.add_user("user3").await.me().await;
+    let added: BoardMember = th
+        .client2
+        .add_member(&BoardMember {
+            scheme_commenter: true,
+            ..member(&board.id, &user3.id)
+        })
+        .await
+        .ok_json();
+    assert_eq!(
+        role_flags(&added),
+        ONLY_COMMENTER,
+        "the role the request names, from a member whom the board makes an admin"
+    );
+    th.teardown().await;
+}
+
+/// Who manages the board's roles still chooses them: an admin's request is stored as it
+/// is, also on a board with a minimum role, and also when it names no role at all.
+#[tokio::test]
+async fn add_member_by_a_manager_of_roles_gives_the_roles_of_the_request() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let board = board_with_admin(
+        &th,
+        new_board(TEST_TEAM_ID, BoardType::Open, "open"),
+        &user1.id,
+    )
+    .await;
+    th.client
+        .patch(
+            &format!("/boards/{}", board.id),
+            &json!({"minimumRole": "commenter"}),
+        )
+        .await
+        .check_ok();
+
+    let user3 = th.add_user("user3").await.me().await;
+    let added: BoardMember = th
+        .client
+        .add_member(&editor(&board.id, &user3.id))
+        .await
+        .ok_json();
+    assert_eq!(role_flags(&added), ONLY_EDITOR, "above the minimum role");
+
+    let user4 = th.add_user("user4").await.me().await;
+    let added: BoardMember = th
+        .client
+        .add_member(&BoardMember {
+            scheme_viewer: true,
+            ..member(&board.id, &user4.id)
+        })
+        .await
+        .ok_json();
+    assert_eq!(role_flags(&added), ONLY_VIEWER, "below the minimum role");
+
+    // Preserved quirk: a request without a role makes a member without one.
+    let user5 = th.add_user("user5").await.me().await;
+    let added: BoardMember = th
+        .client
+        .add_member(&member(&board.id, &user5.id))
+        .await
+        .ok_json();
+    assert_eq!(role_flags(&added), NO_ROLE, "no role asked, none given");
 
     th.teardown().await;
 }
