@@ -504,7 +504,7 @@ pub(crate) async fn archive(s: &mut Session) {
     .user(&bob)
     .await;
 
-    // The original's older, line-based archive format.
+    // The original's older, line-based archive format, which is refused: it is no ZIP.
     let legacy_lines = [
         json!({"version": 1, "date": 1}),
         json!({"type": "block", "data": {

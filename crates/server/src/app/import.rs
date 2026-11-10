@@ -1,27 +1,24 @@
-//! Importing boards from the version 2 archive format and the older line-based format.
+//! Importing boards from the archive format of version 3 (`super::export`).
 //!
 //! Ports `server/app/import.go`. An import generates fresh identifiers for everything,
-//! fixes up references, converts a legacy board-as-block into a real board, stores the
-//! files and adds the importing user as an admin.
+//! fixes up references, stores the files, points the blocks at them and adds the
+//! importing user as an admin. The formats of the original (the line-based version 1
+//! and the ZIP of version 2) are refused (`docs/s6-design.md` 3.10).
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read as _};
 
 use bytes::Bytes;
 use fvoci_model::{
-    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardType, BoardsAndBlocks,
+    ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardsAndBlocks,
     BoardsAndBlocksError, JsonMap, renew_boards_and_blocks_ids,
 };
-use serde::Deserialize as _;
 use serde_json::Value;
 
 use super::App;
 use super::export::ARCHIVE_VERSION;
 use crate::auth::now_millis;
 use crate::error::AppError;
-
-/// The prefix of the older, line-based archive format.
-const LEGACY_FILE_BEGIN: &[u8] = b"{\"version\":1";
 
 /// The largest a single archive entry may decompress to. The original bounds only its
 /// `board.jsonl`; this bounds every entry, so that a small upload cannot unfold into an
@@ -87,24 +84,16 @@ impl App {
 
     /// Imports an archive of zero or more boards with their blocks and files.
     ///
-    /// A buffer that begins like the legacy line-based format is imported as a single
-    /// board; anything else is read as a ZIP.
-    ///
     /// # Errors
     ///
-    /// Returns a server error if the buffer is not a valid archive, if its version is
-    /// unsupported, or if a board cannot be stored.
+    /// Returns a bad request if the buffer is not a ZIP, has no `version.json` or one of
+    /// another version, or holds what does not fit together, and the store's error if a
+    /// board cannot be stored.
     pub(crate) async fn import_archive(
         &self,
         archive: Bytes,
         options: &ImportOptions,
     ) -> Result<(), AppError> {
-        if archive.starts_with(LEGACY_FILE_BEGIN) {
-            tracing::debug!("importing legacy archive");
-            self.import_board_jsonl(archive, options).await?;
-            return Ok(());
-        }
-
         let zip = zip::ZipArchive::new(Cursor::new(archive))
             .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
         // The original's streaming reader rejects a ZIP with no entries as invalid.
@@ -112,20 +101,29 @@ impl App {
             return Err(AppError::bad_request("zip: not a valid zip file"));
         }
 
-        // First pass: the version and the boards; a file entry needs its board already
-        // known.
+        // The version first: nothing of an archive of another version is stored.
+        let version = (0..zip.len())
+            .map(|index| entry_name(&zip, index).map(|name| (index, name)))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .find(|(_, (dir, filename))| dir == "." && filename == "version.json")
+            .map(|(index, _)| index)
+            .ok_or_else(|| {
+                AppError::bad_request(format_args!(
+                    "the archive has no version.json; this server reads version {ARCHIVE_VERSION}"
+                ))
+            })?;
+        check_version(&read_entry(&zip, version).await?)?;
+
+        // First pass: the boards; a file entry needs its board already known.
         let mut board_map: HashMap<String, Board> = HashMap::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
-            match filename.as_str() {
-                "version.json" => check_version(&read_entry(&zip, index).await?)?,
-                "board.jsonl" => {
-                    let bytes = read_entry(&zip, index).await?;
-                    let board = self.import_board_jsonl(bytes, options).await?;
-                    board_map.insert(dir, board);
-                }
-                // Files are read in the second pass only.
-                _ => {}
+            // Files are read in the second pass only.
+            if filename == "board.jsonl" {
+                let bytes = read_entry(&zip, index).await?;
+                let board = self.import_board_jsonl(bytes, options).await?;
+                board_map.insert(dir, board);
             }
         }
 
@@ -159,8 +157,11 @@ impl App {
         Ok(())
     }
 
-    /// Rewrites every image and attachment block of each imported board to point at the
-    /// newly stored file. Failures are logged, as in the original.
+    /// Points every block of each imported board that shows a file at the newly stored
+    /// one: the `fileId` or `attachmentId` of an image or attachment block, and the
+    /// images of a body. A name the archive brought no file for becomes the empty name
+    /// in a block's fields and stays as it is in a body. Failures are logged, as in the
+    /// original.
     async fn fix_images_attachments(
         &self,
         board_map: &HashMap<String, Board>,
@@ -178,23 +179,39 @@ impl App {
 
             let mut block_ids = Vec::new();
             let mut block_patches = Vec::new();
-            for block in &blocks {
-                if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment
-                {
-                    continue;
-                }
-                let old = block.fields.get("fileId").and_then(Value::as_str);
-                let new_name = old.and_then(|old| file_map.get(old)).cloned();
-                block_ids.push(block.id.clone());
-                let mut updated_fields = JsonMap::new();
-                updated_fields.insert(
-                    "fileId".to_owned(),
-                    Value::String(new_name.unwrap_or_default()),
-                );
-                block_patches.push(fvoci_model::BlockPatch {
-                    updated_fields,
-                    ..fvoci_model::BlockPatch::default()
-                });
+            for block in blocks {
+                let patch =
+                    if let Some(mut body) = block.body.filter(|body| !body.file_ids().is_empty()) {
+                        body.rename_files(|old| file_map.get(old).cloned());
+                        fvoci_model::BlockPatch {
+                            body: fvoci_model::BodyChange::Set(body),
+                            ..fvoci_model::BlockPatch::default()
+                        }
+                    } else if block.block_type == BlockType::Image
+                        || block.block_type == BlockType::Attachment
+                    {
+                        let mut updated_fields = JsonMap::new();
+                        for key in ["fileId", "attachmentId"] {
+                            if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
+                                let new_name = file_map.get(old).cloned().unwrap_or_default();
+                                updated_fields.insert(key.to_owned(), Value::String(new_name));
+                            }
+                        }
+                        if updated_fields.is_empty() {
+                            continue;
+                        }
+                        fvoci_model::BlockPatch {
+                            updated_fields,
+                            ..fvoci_model::BlockPatch::default()
+                        }
+                    } else {
+                        continue;
+                    };
+                block_ids.push(block.id);
+                block_patches.push(patch);
+            }
+            if block_ids.is_empty() {
+                continue;
             }
 
             let batch = fvoci_model::BlockPatchBatch {
@@ -248,7 +265,7 @@ impl App {
         }
 
         apply_modifiers(&mut boards_and_blocks, options);
-        rewrite_date_values(&mut boards_and_blocks);
+        clear_values_of_another_kind(&mut boards_and_blocks);
         let orphans = drop_orphans(&mut boards_and_blocks);
         if orphans > 0 {
             tracing::warn!(
@@ -356,7 +373,6 @@ fn parse_archive_lines(
     let mut boards_and_blocks = BoardsAndBlocks::default();
     let mut board_members: Vec<BoardMember> = Vec::new();
     let mut board_id = String::new();
-    let mut first_line = true;
 
     for (number, raw) in jsonl.split(|&byte| byte == b'\n').enumerate() {
         let line_number = number + 1;
@@ -364,49 +380,22 @@ fn parse_archive_lines(
         if line.is_empty() {
             continue;
         }
-        if first_line && line.starts_with(LEGACY_FILE_BEGIN) {
-            // An old archive's header tag; skip it without ending the first line.
-            continue;
-        }
-
         let archive_line: ArchiveLine = serde_json::from_slice(line).map_err(|error| {
             AppError::bad_request(format_args!(
                 "error parsing archive line {line_number}: {error}"
             ))
         })?;
-        let line_type = if first_line && archive_line.line_type == "block" {
-            // Legacy archives encode boards as blocks.
-            "board_block"
-        } else {
-            archive_line.line_type.as_str()
-        };
-
-        match line_type {
+        match archive_line.line_type.as_str() {
             "board" => {
-                let mut board: Board = serde_json::from_value(with_a_minimum_role(
-                    archive_line.data,
-                ))
-                .map_err(|error| {
-                    AppError::bad_request(format_args!(
-                        "invalid board in archive line {line_number}: {error}"
-                    ))
-                })?;
+                let mut board: Board =
+                    serde_json::from_value(archive_line.data).map_err(|error| {
+                        AppError::bad_request(format_args!(
+                            "invalid board in archive line {line_number}: {error}"
+                        ))
+                    })?;
                 modifier_user.clone_into(&mut board.modified_by);
                 board.update_at = now;
                 team_id.clone_into(&mut board.team_id);
-                board_id.clone_from(&board.id);
-                boards_and_blocks.boards.push(board);
-            }
-            "board_block" => {
-                let mut block: Block =
-                    serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::bad_request(format_args!(
-                            "invalid board block in archive line {line_number}: {error}"
-                        ))
-                    })?;
-                modifier_user.clone_into(&mut block.modified_by);
-                block.update_at = now;
-                let board = block_to_board(&block, team_id)?;
                 board_id.clone_from(&board.id);
                 boards_and_blocks.boards.push(board);
             }
@@ -437,7 +426,6 @@ fn parse_archive_lines(
                 )));
             }
         }
-        first_line = false;
     }
     Ok((boards_and_blocks, board_members))
 }
@@ -539,38 +527,6 @@ fn check_version(bytes: &[u8]) -> Result<(), AppError> {
     }
 }
 
-/// Converts a legacy board-as-block into a real board.
-///
-/// # Errors
-///
-/// Returns a bad request if the block is not a board block.
-fn block_to_board(block: &Block, team_id: &str) -> Result<Board, AppError> {
-    if block.block_type != BlockType::Board {
-        return Err(AppError::bad_request("block is not a board"));
-    }
-    let fields = &block.fields;
-    Ok(Board {
-        id: block.id.clone(),
-        team_id: team_id.to_owned(),
-        created_by: block.created_by.clone(),
-        modified_by: block.modified_by.clone(),
-        board_type: BoardType::Private,
-        title: block.title.clone(),
-        create_at: block.create_at,
-        update_at: block.update_at,
-        delete_at: block.delete_at,
-        icon: string_field(fields, "icon"),
-        description: string_field(fields, "description"),
-        show_description: bool_field(fields, "showDescription"),
-        is_template: bool_field(fields, "isTemplate"),
-        // The original reads `templateVer` with a Go type assertion that never succeeds
-        // on a JSON-decoded number, so the version is always left at zero here.
-        properties: map_field(fields, "properties"),
-        card_properties: array_of_maps_field(fields, "cardProperties"),
-        ..Board::default()
-    })
-}
-
 /// Applies the board and block modifiers, dropping the items they reject.
 fn apply_modifiers(boards_and_blocks: &mut BoardsAndBlocks, options: &ImportOptions) {
     if options.board_modifier.is_none() && options.block_modifier.is_none() {
@@ -589,44 +545,6 @@ fn apply_modifiers(boards_and_blocks: &mut BoardsAndBlocks, options: &ImportOpti
     }
 }
 
-/// The string value of a field, or the empty string.
-fn string_field(fields: &JsonMap, key: &str) -> String {
-    fields
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
-}
-
-/// The boolean value of a field, or false.
-fn bool_field(fields: &JsonMap, key: &str) -> bool {
-    fields.get(key).and_then(Value::as_bool).unwrap_or(false)
-}
-
-/// The object value of a field, or an empty map.
-fn map_field(fields: &JsonMap, key: &str) -> JsonMap {
-    match fields.get(key) {
-        Some(Value::Object(map)) => map.clone(),
-        _ => JsonMap::new(),
-    }
-}
-
-/// The array-of-objects value of a field, or an empty vector. A non-object element makes
-/// the whole value empty, as in the original.
-fn array_of_maps_field(fields: &JsonMap, key: &str) -> Vec<JsonMap> {
-    let Some(Value::Array(array)) = fields.get(key) else {
-        return Vec::new();
-    };
-    let mut maps = Vec::with_capacity(array.len());
-    for element in array {
-        match element {
-            Value::Object(map) => maps.push(map.clone()),
-            _ => return Vec::new(),
-        }
-    }
-    maps
-}
-
 /// Trims ASCII whitespace from both ends of a line, as `bytes.TrimSpace` does.
 fn trim(line: &[u8]) -> &[u8] {
     let start = line.iter().position(|byte| !byte.is_ascii_whitespace());
@@ -638,46 +556,21 @@ fn trim(line: &[u8]) -> &[u8] {
     &line[start..=end]
 }
 
-/// A board of an archive, with its `minimumRole` left out unless it is one a board can
-/// have here, so that the board gets the default. Archives written by the original say
-/// `""` for "none", which is not a minimum role any more, and may say `admin`, which
-/// is none either.
-fn with_a_minimum_role(mut board: Value) -> Value {
-    if let Some(members) = board.as_object_mut() {
-        let is_one = members
-            .get("minimumRole")
-            .is_some_and(|role| fvoci_model::MinimumRole::deserialize(role).is_ok());
-        if !is_one {
-            members.remove("minimumRole");
-        }
-    }
-    board
-}
-
-/// Turns the date values of an archive written before `docs/s6-design.md` 5.7 into the
-/// shape of 5.7, as migration 4 did with the stored ones, and clears the values that do
-/// not fit the kind of their property, as a copy of stored cards does.
-fn rewrite_date_values(boards_and_blocks: &mut BoardsAndBlocks) {
+/// Clears the card values that do not fit the kind of their property, as a copy of
+/// stored cards does: an archive holds what its board held, and a change of the
+/// definitions leaves such values behind (`docs/contract-pending.md` 2).
+fn clear_values_of_another_kind(boards_and_blocks: &mut BoardsAndBlocks) {
     let definitions: HashMap<&str, &[JsonMap]> = boards_and_blocks
         .boards
         .iter()
         .map(|board| (board.id.as_str(), board.card_properties.as_slice()))
         .collect();
     for block in &mut boards_and_blocks.blocks {
-        if block.block_type != BlockType::Card && block.block_type != BlockType::View {
-            continue;
-        }
         let Some(definitions) = definitions.get(block.board_id.as_str()) else {
             continue;
         };
-        let dates = fvoci_model::date_property_ids(definitions.iter());
-        let mut fields = Value::Object(std::mem::take(&mut block.fields));
-        let _ = fvoci_model::rewrite_previous_date_values(&mut fields, &dates);
-        if let Value::Object(mut fields) = fields {
-            if let Some(Value::Object(values)) = fields.get_mut("properties") {
-                fvoci_model::clear_values_of_another_kind(values, definitions);
-            }
-            block.fields = fields;
+        if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
+            fvoci_model::clear_values_of_another_kind(values, definitions);
         }
     }
 }

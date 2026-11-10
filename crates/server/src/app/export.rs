@@ -1,14 +1,17 @@
-//! Exporting boards to the version 2 archive format.
+//! Exporting boards to the archive format of version 3.
 //!
-//! Ports `server/app/export.go`. An archive is a ZIP holding `version.json` and, per
-//! board, a directory with a `board.jsonl` and the board's files.
+//! An archive is a ZIP holding `version.json` and, per board, a directory with a
+//! `board.jsonl` and the board's files. Each line of `board.jsonl` is a board, a block
+//! or a member as the contract has them (`contracts/openapi.json`), bodies included; the
+//! files are those the blocks show, the images of bodies among them
+//! (`docs/s6-design.md` 3.10). The container is the original's
+//! (`server/app/export.go`); version 2 was its own.
 
 use std::io::{Cursor, Write as _};
 
 use futures_util::StreamExt as _;
-use fvoci_model::{ArchiveHeader, ArchiveLine, Block, BlockType, Board};
+use fvoci_model::{ArchiveHeader, ArchiveLine, Board};
 use serde::Serialize;
-use serde_json::Value;
 use zip::write::{SimpleFileOptions, ZipWriter};
 
 use super::App;
@@ -16,19 +19,18 @@ use crate::auth::now_millis;
 use crate::error::AppError;
 
 /// The archive format version this server writes.
-pub(super) const ARCHIVE_VERSION: i64 = 2;
+pub(super) const ARCHIVE_VERSION: i64 = 3;
 
 impl App {
     /// Builds an archive of the given boards and returns its bytes.
     ///
-    /// Each board is written with its blocks and members; a file a block refers to is
-    /// added if it exists and left as an empty entry if it is missing, as the original
-    /// does.
+    /// Each board is written with its blocks and members; a file a block shows is added
+    /// if it exists and left as an empty entry if it is missing, as the original does.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if a board does not exist, or a server error if an image
-    /// or attachment block names no file or the archive cannot be written.
+    /// Returns a not-found error if a board does not exist, or a server error if the
+    /// archive cannot be written.
     pub async fn export_archive(
         &self,
         team_id: &str,
@@ -69,8 +71,7 @@ impl App {
         let mut files = Vec::new();
         for block in &blocks {
             write_line(writer, "block", block)?;
-            if block.block_type == BlockType::Image || block.block_type == BlockType::Attachment {
-                let filename = extract_filename(block)?;
+            for filename in block.shown_files() {
                 if !files.contains(&filename) {
                     files.push(filename);
                 }
@@ -159,15 +160,4 @@ fn write_line(
         .map_err(|error| AppError::internal(format_args!("cannot encode archive line: {error}")))?;
     bytes.push(b'\n');
     write_bytes(writer, &bytes)
-}
-
-/// The file an image or attachment block refers to: its `fileId`, or failing that its
-/// `attachmentId`. A block with neither is invalid.
-fn extract_filename(block: &Block) -> Result<String, AppError> {
-    for key in ["fileId", "attachmentId"] {
-        if let Some(Value::String(value)) = block.fields.get(key) {
-            return Ok(value.clone());
-        }
-    }
-    Err(AppError::internal("invalid image block"))
 }

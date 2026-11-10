@@ -468,7 +468,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
     th.teardown().await;
 }
 
-/// An archive of the previous version with one board and one card on it.
+/// An archive with one board and one card on it.
 fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
     let board = json!({"type": "board", "data": {
         "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Imported",
@@ -479,7 +479,7 @@ fn archive(card_properties: &Value, values: Value) -> Vec<u8> {
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":2,"date":1}"#)
+        .write_all(br#"{"version":3,"date":1}"#)
         .expect("write");
     writer.start_file("b1/board.jsonl", options).expect("start");
     writer
@@ -705,8 +705,9 @@ async fn values_left_behind_by_a_change_of_definitions_stay_until_written() {
     th.teardown().await;
 }
 
-/// The routes of block patches and the archive take date values as the card routes do,
-/// and an archive of the previous version has its date values rewritten.
+/// The routes of block patches take date values as the card routes do. An archive keeps
+/// a date value of a date property and clears a value of the other kind, as a copy of
+/// a card does: its board may have changed its definitions since.
 #[tokio::test]
 async fn date_values_on_the_patch_routes_and_in_an_archive() {
     let th = Setup::native().start().await.init_basic().await;
@@ -737,8 +738,11 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
         &th.client,
         TEST_TEAM_ID,
         &archive(
-            &json!([{"id": "due", "name": "Due", "type": "date"}]),
-            json!({"due": "{\"from\":1772679600000}"}),
+            &json!([
+                {"id": "due", "name": "Due", "type": "date"},
+                {"id": "note", "name": "Note", "type": "text"},
+            ]),
+            json!({"due": {"from": "2026-03-05"}, "note": {"from": "2026-03-06"}}),
         ),
     )
     .await
@@ -755,8 +759,8 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     let blocks = blocks_of(&th.client, &imported.id).await;
     assert_eq!(
         blocks[0].fields["properties"],
-        json!({"due": {"from": "2026-03-05"}}),
-        "the previous shape became the new one"
+        json!({"due": {"from": "2026-03-05"}, "note": null}),
+        "the date stays and the value of the other kind is cleared"
     );
 
     th.teardown().await;

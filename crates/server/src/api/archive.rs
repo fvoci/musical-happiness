@@ -38,7 +38,10 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 /// Export a board
 ///
 /// An archive of the board with its blocks, its files and its members, offered as a
-/// download. For the board's members.
+/// download. For the board's members. The archive is a ZIP of version 3: `version.json`,
+/// and per board a directory with `board.jsonl` (one `board`, `block` or `boardMember`
+/// per line, in the shapes of this contract, bodies included) and the files the blocks
+/// show, the images of bodies among them.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/archive/export",
@@ -73,7 +76,8 @@ async fn handle_export_board(
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download. A team that is not there is not refused: its archive has no boards.
+/// as a download, in the format of `exportBoardArchive`. A team that is not there is not
+/// refused: its archive has no boards.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/archive/export",
@@ -108,6 +112,12 @@ async fn handle_export_team(
 /// where they are users of this server. The request is a `multipart/form-data` form
 /// whose part `file` carries the archive; the part needs no file name. A request
 /// without that part, or with what is no archive, is 400.
+///
+/// The archive is of version 3, as the export routes write it. The formats of the
+/// original (the line-based version 1 and the ZIP of version 2) and a ZIP without
+/// `version.json` are 400, and nothing of them is stored. The blocks that show files
+/// are pointed at the board's new copies of them, the images of bodies included; a
+/// card value that does not fit its property's kind is cleared, as a copy does.
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
 /// those before it stay.

@@ -144,14 +144,14 @@ async fn export_has_the_download_headers() {
         "transfer encoding"
     );
 
-    // The body is a ZIP with version 2 and the board's directory.
+    // The body is a ZIP with version 3 and the board's directory.
     let mut zip = zip::ZipArchive::new(Cursor::new(response.body.clone())).expect("a zip");
     let mut version = String::new();
     zip.by_name("version.json")
         .expect("version.json")
         .read_to_string(&mut version)
         .expect("read");
-    assert!(version.contains("\"version\":2"), "version 2: {version}");
+    assert!(version.contains("\"version\":3"), "version 3: {version}");
     assert!(
         (0..zip.len()).any(|index| {
             zip.by_index(index)
@@ -269,7 +269,7 @@ async fn import_of_a_traversing_entry_is_harmless() {
     let options = zip::write::SimpleFileOptions::default();
     writer.start_file("version.json", options).expect("start");
     writer
-        .write_all(br#"{"version":2,"date":1}"#)
+        .write_all(br#"{"version":3,"date":1}"#)
         .expect("write");
     writer
         .start_file("board1/../../../evil.txt", options)
@@ -327,5 +327,139 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         .filter(|name| name.as_ref().is_ok_and(|name| name.ends_with(".png")))
         .count();
     assert_eq!(files, 1, "the shared file has one entry");
+    ts.teardown().await;
+}
+
+/// The boards of a team that the first client sees.
+async fn boards_of(ts: &TestServer) -> Vec<Board> {
+    ts.client
+        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .await
+        .ok_json()
+}
+
+/// The archives of the original, the line-based version 1 and the ZIP of version 2, and
+/// a ZIP without `version.json` are refused, and nothing of them is stored
+/// (`docs/s6-design.md` 3.10).
+#[tokio::test]
+async fn archives_of_the_former_formats_are_refused() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = serde_json::json!({"type": "board", "data": {
+        "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Former", "createAt": 1, "updateAt": 1,
+    }});
+    let zip_of = |entries: &[(&str, String)]| {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, content) in entries {
+            writer
+                .start_file(*name, zip::write::SimpleFileOptions::default())
+                .expect("start");
+            writer.write_all(content.as_bytes()).expect("write");
+        }
+        writer.finish().expect("finish").into_inner()
+    };
+    let version_two = zip_of(&[
+        ("version.json", r#"{"version":2,"date":1}"#.to_owned()),
+        ("b1/board.jsonl", format!("{board}\n")),
+    ]);
+    let without_version = zip_of(&[("b1/board.jsonl", format!("{board}\n"))]);
+    let legacy = format!(
+        "{{\"version\":1,\"date\":1}}\n{}\n",
+        serde_json::json!({"type": "block", "data": {
+            "id": "b1", "type": "board", "title": "Former", "createAt": 1, "updateAt": 1,
+        }})
+    );
+    let before = boards_of(&ts).await.len();
+    for (what, bytes) in [
+        ("version 2", version_two),
+        ("no version.json", without_version),
+        ("version 1", legacy.into_bytes()),
+    ] {
+        let response = import(&ts.client, TEST_TEAM_ID, &bytes).await;
+        response.check_bad_request();
+        assert_eq!(
+            response.error_code(),
+            "bad_request",
+            "{what}: {}",
+            response.text()
+        );
+    }
+    assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
+    ts.teardown().await;
+}
+
+/// An archive carries the files that the images of bodies show, and an import points
+/// the bodies at the board's new files. An image block without a file, which an export
+/// used to answer with 500, is exported as it is.
+#[tokio::test]
+async fn an_archive_carries_the_images_of_bodies() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
+    );
+    let body = serde_json::json!({"type": "doc", "content": [
+        {"type": "image", "attrs": {"fileId": file_id}},
+    ]});
+    ts.client
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &serde_json::json!({"title": "Card", "body": body}),
+        )
+        .await
+        .check_status(reqwest::StatusCode::CREATED);
+    let without_file = Block {
+        id: new_id(),
+        parent_id: board.id.clone(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Image,
+        create_at: 1,
+        update_at: 1,
+        ..Block::default()
+    };
+    ts.client
+        .insert_blocks(&board.id, std::slice::from_ref(&without_file))
+        .await
+        .check_created();
+
+    let exported = export_board(&ts.client, &board.id).await;
+    exported.check_ok();
+    let archive = zip::ZipArchive::new(Cursor::new(exported.body.clone())).expect("a zip");
+    let entry = format!("{}/{file_id}", board.id);
+    assert!(
+        archive
+            .file_names()
+            .any(|name| name.is_ok_and(|name| name == entry.as_str())),
+        "the body's image is in the archive: {:?}",
+        archive.file_names().collect::<Vec<_>>()
+    );
+
+    import(&ts.client, TEST_TEAM_ID, &exported.body)
+        .await
+        .check_no_content();
+    let imported = boards_of(&ts)
+        .await
+        .into_iter()
+        .find(|other| other.id != board.id)
+        .expect("the imported board");
+    let blocks: Vec<serde_json::Value> = ts
+        .client
+        .get(&format!("/boards/{}/blocks?type=card", imported.id))
+        .await
+        .ok_json();
+    let new_file = blocks[0]["body"]["content"][0]["attrs"]["fileId"]
+        .as_str()
+        .expect("the image names a file")
+        .to_owned();
+    assert_ne!(new_file, file_id, "a file of the new board");
+    let file = ts
+        .client
+        .get(&format!("/boards/{}/files/{new_file}", imported.id))
+        .await;
+    file.check_ok();
+    assert_eq!(
+        file.body.as_slice(),
+        b"png",
+        "with the content of the old one"
+    );
     ts.teardown().await;
 }

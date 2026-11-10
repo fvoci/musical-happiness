@@ -224,7 +224,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 | `TestGetFileReader` (5건) | `files::get_file_reader_moves_a_legacy_root_file` | 오류 주입 4건은 mock 전용 |
 | `TestCopyCard`, `TestCopyAndUpdateCardFiles`, `TestCopyCardFiles` | `files::duplicating_a_board_copies_its_files`, `files::duplicating_a_card_copies_its_files` | mock 호출 순서 케이스는 해당 없음 |
 | `integrationtests/export_test.go` `TestExportBoard` | `export::export_single_board_round_trips` | |
-| `app/import_test.go` `TestApp_ImportArchive` | `export::export_single_board_round_trips`, `export::import_of_*` | 원본 픽스처는 mock 호출 순서를 확인한다. 동작(v2 ZIP, 옛 JSONL, ID 재생성)은 왕복과 S5 시나리오로 확인 |
+| `app/import_test.go` `TestApp_ImportArchive` | `export::export_single_board_round_trips`, `export::import_of_*` | 원본 픽스처는 mock 호출 순서를 확인한다. 동작(ID 재생성)은 왕복과 S5 시나리오로 확인. S7에서 형식이 판 3이 되고 원본의 형식(v1 JSONL, v2 ZIP)은 거절한다(`export::archives_of_the_former_formats_are_refused`) |
 | `app/templates_test.go` `TestApp_initializeTemplates` (2건) | `templates::template_initialization_is_idempotent_and_measured` | |
 | `integrationtests/board_test.go` `TestGetTemplates` | `templates::get_templates_returns_the_built_in_templates` | |
 | `integrationtests/work_template_test.go` | `templates::get_templates_has_the_work_template_tracking_ids` | |
