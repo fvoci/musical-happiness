@@ -205,6 +205,31 @@ fn subscription_not_found(block_id: &str, subscriber_id: &str) -> StoreError {
     ))
 }
 
+/// Marks as deleted every subscription of a subscriber to a block of the board. Blocks
+/// that are deleted count too: they can be restored, and their subscriptions with them.
+pub(crate) async fn end_subscriptions_to_board(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    subscriber_id: &str,
+) -> Result<(), StoreError> {
+    let subscriptions = scope.table("subscriptions");
+    let mut sql = scope.sql(&format!("UPDATE {subscriptions} SET delete_at = "));
+    sql.bind(now_millis())
+        .push_bind(" WHERE delete_at = 0 AND subscriber_id = ", subscriber_id);
+    for (opening, blocks) in [(" AND (", "blocks"), (" OR ", "blocks_history")] {
+        sql.push(&format!(
+            "{opening}EXISTS (SELECT 1 FROM {blocks} WHERE {blocks}.id = {subscriptions}.block_id \
+             AND {blocks}.board_id = ",
+            blocks = scope.table(blocks)
+        ))
+        .bind(board_id)
+        .push(")");
+    }
+    sql.push(")");
+    scope.execute(sql).await?;
+    Ok(())
+}
+
 pub(crate) async fn create_subscription(
     scope: &mut Scope<'_>,
     subscription: Subscription,

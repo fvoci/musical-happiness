@@ -18,6 +18,7 @@ use crate::Store;
 use crate::blocks::{self, HistoryOrder, HistoryQuery};
 use crate::db::{Dialect, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
+use crate::subscriptions;
 
 /// The name of every board column, in the order rows are written.
 const BOARD_COLUMNS: &str = "id, team_id, channel_id, created_by, modified_by, type, \
@@ -204,8 +205,9 @@ impl Store {
             .await
     }
 
-    /// Removes a user from a board and records that in the membership history. Removing
-    /// a user who is not a member succeeds and records nothing.
+    /// Removes a user from a board, records that in the membership history, and ends the
+    /// user's subscriptions to the blocks of the board, deleted blocks included. Removing
+    /// a user who is not a member succeeds and changes nothing.
     ///
     /// # Errors
     ///
@@ -865,6 +867,8 @@ pub(crate) async fn delete_member(
     sql.bind(board_id).push_bind(" AND user_id = ", user_id);
     if scope.execute(sql).await? > 0 {
         record_membership(scope, board_id, user_id, "deleted").await?;
+        // Whoever may no longer see the board is no longer told what changes on it.
+        subscriptions::end_subscriptions_to_board(scope, board_id, user_id).await?;
     }
     Ok(())
 }

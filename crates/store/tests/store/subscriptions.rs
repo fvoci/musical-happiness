@@ -547,3 +547,113 @@ async fn subscribers_are_ordered_by_notification_time() {
 
     test.teardown().await;
 }
+
+/// Not in the original, where the subscriptions of a user outlive their membership of
+/// the board: removing a member ends that user's subscriptions to the board's blocks,
+/// deleted blocks included, and nobody else's and nothing on another board.
+#[tokio::test]
+async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that_board() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let users = create_test_users(store, 2).await;
+    let (leaver, other) = (&users[0], &users[1]);
+    // Each test block is on a board of its own; put two more on the first one's board.
+    let blocks = create_test_blocks(store, &leaver.id, 2).await;
+    let (on_board, elsewhere) = (&blocks[0], &blocks[1]);
+    let board_id = on_board.board_id.clone();
+    let mut more = Vec::new();
+    for _ in 0..2 {
+        let mut block = Block {
+            id: new_id(IdKind::Block),
+            board_id: board_id.clone(),
+            block_type: BlockType::Card,
+            created_by: leaver.id.clone(),
+            ..Block::default()
+        };
+        store.insert_block(&mut block, &leaver.id).await.unwrap();
+        more.push(block);
+    }
+    let (ended_before, deleted_block) = (&more[0], &more[1]);
+    for user in [leaver, other] {
+        let member = fvoci_model::BoardMember {
+            board_id: board_id.clone(),
+            user_id: user.id.clone(),
+            scheme_editor: true,
+            ..fvoci_model::BoardMember::default()
+        };
+        store.save_member(&member).await.unwrap();
+        for block in [on_board, elsewhere, ended_before, deleted_block] {
+            store
+                .create_subscription(subscription(block, user))
+                .await
+                .unwrap();
+        }
+    }
+    store
+        .delete_subscription(&ended_before.id, &leaver.id)
+        .await
+        .unwrap();
+    store
+        .delete_block(&deleted_block.id, &leaver.id)
+        .await
+        .unwrap();
+
+    let subscribed_blocks = async |user: &User| {
+        let mut ids: Vec<String> = store
+            .get_subscriptions(&user.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|subscription| subscription.block_id)
+            .collect();
+        ids.sort();
+        ids
+    };
+    let sorted = |blocks: &[&Block]| {
+        let mut ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();
+        ids.sort();
+        ids
+    };
+    assert_eq!(
+        subscribed_blocks(leaver).await,
+        sorted(&[on_board, elsewhere, deleted_block]),
+        "before leaving"
+    );
+
+    // Removing a user who is no member ends nothing.
+    store
+        .delete_member(&elsewhere.board_id, &leaver.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        subscribed_blocks(leaver).await,
+        sorted(&[on_board, elsewhere, deleted_block]),
+        "no membership, nothing ended"
+    );
+
+    store.delete_member(&board_id, &leaver.id).await.unwrap();
+
+    assert_eq!(
+        subscribed_blocks(leaver).await,
+        sorted(&[elsewhere]),
+        "only the subscription on another board is left"
+    );
+    assert_eq!(
+        subscribed_blocks(other).await,
+        sorted(&[on_board, elsewhere, ended_before, deleted_block]),
+        "the subscriptions of a user who stays"
+    );
+
+    // Subscribing again revives the subscription, as after unsubscribing.
+    store
+        .create_subscription(subscription(on_board, leaver))
+        .await
+        .unwrap();
+    assert_eq!(
+        subscribed_blocks(leaver).await,
+        sorted(&[on_board, elsewhere]),
+        "subscribed again"
+    );
+
+    test.teardown().await;
+}

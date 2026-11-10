@@ -10,8 +10,8 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardType, IdKind, SINGLE_USER_ID, SubscriberType, Subscription,
-    new_id,
+    Block, BlockType, Board, BoardMember, BoardType, IdKind, SINGLE_USER_ID, SubscriberType,
+    Subscription, new_id,
 };
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -620,8 +620,8 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
 }
 
 /// The check leaves alone what worked before: every member of a board, whatever their
-/// role, subscribes to its blocks, and a user who is no member any more can still end
-/// the subscription they have.
+/// role, subscribes to its blocks. A user who is removed from the board cannot subscribe
+/// any more, and has no subscription left to end.
 #[tokio::test]
 async fn subscription_by_every_member_of_the_board_still_works() {
     let th = Setup::native().start().await.init_basic().await;
@@ -652,8 +652,104 @@ async fn subscription_by_every_member_of_the_board_still_works() {
         .check_ok();
     let response = viewer.post(PATH, &request(&card.id, &viewer_id)).await;
     check_error(&response, StatusCode::FORBIDDEN, DENIED);
-    unsubscribe(&viewer, &card.id, &viewer_id).await.check_ok();
-    unsubscribe(&viewer, &text.id, &viewer_id).await.check_ok();
-    assert_eq!(subscriptions_of(&viewer, &viewer_id).await, [], "all ended");
+    assert_eq!(
+        subscriptions_of(&viewer, &viewer_id).await,
+        [],
+        "ended with the membership"
+    );
+    for block in [&card, &text] {
+        unsubscribe(&viewer, &block.id, &viewer_id)
+            .await
+            .check_not_found();
+    }
+    th.teardown().await;
+}
+
+/// Not in the original, where a subscription outlives the membership it was made with
+/// (the user keeps a standing request to be told about a board they can no longer see).
+/// A member who leaves or is removed loses the subscriptions to that board's blocks.
+/// Subscriptions on other boards, and those of members who stay, are untouched.
+#[tokio::test]
+async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blocks() {
+    let th = Setup::native().start().await.init_basic().await;
+    let admin_id = th.client.me().await.id;
+    let user2_id = th.client2.me().await.id;
+    let mut cards = Vec::new();
+    let mut boards = Vec::new();
+    for _ in 0..2 {
+        let board = th.create_board("0", BoardType::Private).await;
+        let member = BoardMember {
+            board_id: board.id.clone(),
+            user_id: user2_id.clone(),
+            scheme_editor: true,
+            ..BoardMember::default()
+        };
+        th.client.add_member(&member).await.check_ok();
+        cards.push(insert_card(&th.client, &board.id).await);
+        boards.push(board);
+    }
+    let on_first = subscribe(&th.client2, &cards[0].id, &user2_id).await;
+    let on_second = subscribe(&th.client2, &cards[1].id, &user2_id).await;
+    let admins = subscribe(&th.client, &cards[0].id, &admin_id).await;
+
+    // A removal that is refused ends nothing: an editor may not remove a member.
+    th.client2
+        .delete(&format!("/boards/{}/members/{admin_id}", boards[0].id))
+        .await
+        .check_forbidden();
+    assert_eq!(
+        subscriptions_of(&th.client, &admin_id).await,
+        std::slice::from_ref(&admins),
+        "the subscription of the member who was not removed"
+    );
+
+    // Removed by the admin.
+    th.client
+        .delete(&format!("/boards/{}/members/{user2_id}", boards[0].id))
+        .await
+        .check_ok();
+    assert_eq!(
+        subscriptions_of(&th.client2, &user2_id).await,
+        [on_second],
+        "only the subscription on the other board is left"
+    );
+    assert_eq!(
+        subscriptions_of(&th.client, &admin_id).await,
+        [admins],
+        "the subscription of a member who stays"
+    );
+    let _ = on_first;
+
+    // Leaving by oneself.
+    th.client2
+        .post_empty(&format!("/boards/{}/leave", boards[1].id))
+        .await
+        .check_ok();
+    assert_eq!(
+        subscriptions_of(&th.client2, &user2_id).await,
+        [],
+        "nothing is left after leaving the other board too"
+    );
+
+    // A member again, the user subscribes again.
+    let member = BoardMember {
+        board_id: boards[0].id.clone(),
+        user_id: user2_id.clone(),
+        scheme_viewer: true,
+        ..BoardMember::default()
+    };
+    th.client.add_member(&member).await.check_ok();
+    subscribe(&th.client2, &cards[0].id, &user2_id).await;
+    // The revived subscription keeps its first creation time, so compare the blocks.
+    let subscribed: Vec<String> = subscriptions_of(&th.client2, &user2_id)
+        .await
+        .into_iter()
+        .map(|subscription| subscription.block_id)
+        .collect();
+    assert_eq!(
+        subscribed,
+        [cards[0].id.clone()],
+        "subscribed again as a member"
+    );
     th.teardown().await;
 }
