@@ -814,11 +814,110 @@ async fn a_file_of_another_board_is_neither_copied_nor_exported() {
     ts.teardown().await;
 }
 
-/// Files in the original's layout name no board in their path and are served as the
-/// original serves them, through any board the requester may read. Recorded as an open
-/// question; this pins what happens.
+/// The private template that the first user made by duplicating a board with an image,
+/// the name of the template's copy of the image file, and a private board of the second
+/// user. The copy is stored in the template layout, `<team>/<board>/<name>`, with a
+/// record of its own.
+struct TemplateFile {
+    template: Board,
+    file_id: String,
+    other_board: Board,
+}
+
+async fn template_file(ts: &TestServer) -> TemplateFile {
+    let (board, _) = board_with_image(ts).await;
+    let duplicated: Value = ts
+        .client
+        .post_empty(&format!("/boards/{}/duplicate?asTemplate=true", board.id))
+        .await
+        .ok_json();
+    let template: Board =
+        serde_json::from_value(duplicated["boards"][0].clone()).expect("the template board");
+    let blocks: Vec<Block> = ts
+        .client
+        .get(&format!("/boards/{}/blocks?type=image", template.id))
+        .await
+        .ok_json();
+    let file_id = blocks[0].fields["fileId"]
+        .as_str()
+        .expect("the image block of the template names its file")
+        .to_owned();
+    assert_ne!(file_id, "", "the file was copied for the template");
+    let other_board: Board = ts
+        .client2
+        .create_board(&Board {
+            team_id: TEST_TEAM_ID.to_owned(),
+            board_type: BoardType::Private,
+            ..Board::default()
+        })
+        .await
+        .ok_json();
+    TemplateFile {
+        template,
+        file_id,
+        other_board,
+    }
+}
+
+/// Not in the original. A file stored in the template layout names its board in its path
+/// like any other, and is given out through that board only. Before, such a file was an
+/// exception: whoever knew its name fetched it through any board they could read.
 #[tokio::test]
-async fn a_file_in_the_originals_layout_is_served_as_the_original_does() {
+async fn a_template_file_is_not_given_out_through_another_board() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let fixture = template_file(&ts).await;
+    let through_other = format!(
+        "/files/teams/{TEST_TEAM_ID}/{}/{}",
+        fixture.other_board.id, fixture.file_id
+    );
+
+    let download = ts.client2.get(&through_other).await;
+    download.check_forbidden();
+    assert_eq!(
+        download.error_message(),
+        "file does not belong to the specified board",
+        "the download is refused"
+    );
+    let info = ts.client2.get(&format!("{through_other}/info")).await;
+    info.check_forbidden();
+    assert_eq!(
+        info.error_message(),
+        "access denied to file",
+        "so is the info"
+    );
+    ts.teardown().await;
+}
+
+/// The legitimate read of a template's file: through the template, by who may read it.
+#[tokio::test]
+async fn a_template_file_is_given_out_through_its_template() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let fixture = template_file(&ts).await;
+    let through_template = format!(
+        "/files/teams/{TEST_TEAM_ID}/{}/{}",
+        fixture.template.id, fixture.file_id
+    );
+
+    let download = ts.client.get(&through_template).await;
+    download.check_ok();
+    assert_eq!(
+        download.body, b"hello world, a file\n",
+        "the owner of the template reads its file"
+    );
+    ts.client
+        .get(&format!("{through_template}/info"))
+        .await
+        .check_ok();
+    let _ = &fixture.other_board;
+    ts.teardown().await;
+}
+
+/// A file whose stored path names no board, as the original's `boards/<date>/<name>`
+/// does, belongs to no board and is given out through none. Before, such a file was
+/// served through any board the requester could read. This server stores no file that
+/// way; the test plants one.
+#[tokio::test]
+async fn a_file_whose_path_names_no_board_is_given_out_through_no_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
     let other = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
@@ -845,12 +944,17 @@ async fn a_file_in_the_originals_layout_is_served_as_the_original_does() {
         .expect("the record is stored");
 
     for board_id in [&board.id, &other.id] {
-        let download = ts
-            .client
-            .get(&format!("/files/teams/{TEST_TEAM_ID}/{board_id}/{name}"))
-            .await;
-        download.check_ok();
-        assert_eq!(download.body, b"an old file", "through board {board_id}");
+        let route = format!("/files/teams/{TEST_TEAM_ID}/{board_id}/{name}");
+        let download = ts.client.get(&route).await;
+        download.check_forbidden();
+        assert_eq!(
+            download.error_message(),
+            "file does not belong to the specified board",
+            "through board {board_id}"
+        );
+        let info = ts.client.get(&format!("{route}/info")).await;
+        info.check_forbidden();
+        assert_eq!(info.error_message(), "access denied to file");
     }
     ts.teardown().await;
 }

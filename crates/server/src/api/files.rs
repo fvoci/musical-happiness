@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 
 use super::{ApiResult, OptionalSession, RequiredSession, has_valid_read_token, json_response};
 use crate::app::App;
-use crate::app::belongs_to_another_board;
+use crate::app::belongs_to_board;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
@@ -111,8 +111,8 @@ async fn handle_serve_file(
         .get_file_path(&board.team_id, &board_id, &filename)
         .await?;
     // Not in the original, which gives any file out through any board the requester may
-    // read. A file this server stored is tied to its board.
-    if belongs_to_another_board(info.as_ref(), &board_id) {
+    // read. A file is tied to the board its path names.
+    if !belongs_to_board(&path, &board_id) {
         return Err(AppError::forbidden(
             "file does not belong to the specified board",
         ));
@@ -139,12 +139,16 @@ async fn handle_get_file_info(
     check_read_access(&app, session.user_id(), &board_id, query.as_deref()).await?;
     // The members are serialized in the original's order, straight from the struct, so a
     // client sees the same JSON shape.
-    match app.get_file_info(&filename).await? {
-        Some(info) if belongs_to_another_board(Some(&info), &board_id) => {
+    let board = app.board(&board_id).await?;
+    match app
+        .get_file_path(&board.team_id, &board_id, &filename)
+        .await?
+    {
+        (Some(_), path) if !belongs_to_board(&path, &board_id) => {
             Err(AppError::forbidden("access denied to file"))
         }
-        Some(info) => Ok(json_response(&FileInfoResponse::from(info))),
-        None => Ok(json_response(&Value::Null)),
+        (Some(info), _) => Ok(json_response(&FileInfoResponse::from(info))),
+        (None, _) => Ok(json_response(&Value::Null)),
     }
 }
 

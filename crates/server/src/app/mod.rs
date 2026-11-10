@@ -25,7 +25,7 @@ mod users;
 pub use blocks::ChangeNotification;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use content_blocks::MovePosition;
-pub(crate) use files::belongs_to_another_board;
+pub(crate) use files::belongs_to_board;
 pub use users::sanitize;
 
 use std::sync::Arc;

@@ -10,9 +10,9 @@
 //!
 //! The board in the path is what ties a file to its board. The original does not tie
 //! them at all: whoever may read any board can fetch any file whose name they know
-//! through that board. Files stored by this server are given out, copied and exported
-//! only through the board they belong to; files in the original's layout are served as
-//! the original serves them.
+//! through that board. Here a file is given out, copied and exported only through the
+//! board its path names, in every layout; a path that names no board, such as the
+//! original's `boards/YYYYMMDD/<name>`, is given out through none.
 
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Board, FileInfo, IdKind, JsonMap, new_id,
@@ -150,8 +150,8 @@ impl App {
         board_id: &str,
         filename: &str,
     ) -> Result<Option<crate::storage::FileStream>, AppError> {
-        let (info, path) = self.get_file_path(team_id, board_id, filename).await?;
-        if belongs_to_another_board(info.as_ref(), board_id) {
+        let (_info, path) = self.get_file_path(team_id, board_id, filename).await?;
+        if !belongs_to_board(&path, board_id) {
             tracing::warn!(board_id, "not reading a file that belongs to another board");
             return Ok(None);
         }
@@ -286,7 +286,7 @@ impl App {
                 .await?;
             // A block can name any file. One that belongs to another board is not copied
             // into this one; the copied block ends up naming no file.
-            if belongs_to_another_board(info.as_ref(), &source_board.id) {
+            if !belongs_to_board(&source_path, &source_board.id) {
                 tracing::warn!(
                     source_board_id,
                     block_id = %block.id,
@@ -373,25 +373,25 @@ fn destination_path(
     }
 }
 
-/// The board a stored path belongs to, if the path says so: `boards/<date>/<board>/<name>`.
-/// Paths in the original's layouts name no board this way.
+/// The board a stored path belongs to. Every path this server stores a file at names its
+/// board: `boards/<date>/<board>/<name>` for an upload, `<team>/<board>/<name>` for a
+/// file of a template board and for a file without a record. Any other path belongs to
+/// no board, in particular the original's `boards/<date>/<name>`.
 fn board_of_path(path: &str) -> Option<&str> {
-    let mut parts = path.split('/');
-    if parts.next() != Some(UPLOADS_ROOT) {
-        return None;
+    let parts: Vec<&str> = path.split('/').collect();
+    match parts.as_slice() {
+        [UPLOADS_ROOT, _date, board, _name] => Some(board),
+        [UPLOADS_ROOT, ..] => None,
+        [_team, board, _name] => Some(board),
+        _ => None,
     }
-    let (_date, board) = (parts.next()?, parts.next()?);
-    // The original's layout ends after the date: `boards/<date>/<name>`.
-    parts.next().map(|_name| board)
 }
 
-/// Returns whether a file is recorded as belonging to another board than `board_id`.
-///
-/// Only a file stored by this server says which board it belongs to; for any other file
-/// the answer is `false`, and the file is treated as the original treats it.
-pub(crate) fn belongs_to_another_board(info: Option<&FileInfo>, board_id: &str) -> bool {
-    info.and_then(|info| board_of_path(&info.path))
-        .is_some_and(|owner| owner != board_id)
+/// Returns whether the file stored at `path` belongs to the board. A file is given out,
+/// copied and exported through its own board only, whatever layout it is stored in; a
+/// file whose path names no board is given out through none.
+pub(crate) fn belongs_to_board(path: &str, board_id: &str) -> bool {
+    board_of_path(path) == Some(board_id)
 }
 
 /// The directory new uploads go to: `boards/YYYYMMDD` for today (UTC).
@@ -530,6 +530,44 @@ mod tests {
             destination_path(DuplicateAs::Template, "0", "board1", "pic.png"),
             "0/board1/pic.png",
             "a template upload keeps its name under the board"
+        );
+    }
+
+    #[test]
+    fn a_stored_path_names_its_board_in_both_layouts_of_this_server() {
+        for (path, board) in [
+            ("boards/20261110/bboard/7file.png", Some("bboard")),
+            ("0/bboard/logo.png", Some("bboard")),
+            ("team-id/bboard/7file.png", Some("bboard")),
+            // The original's upload layout names no board.
+            ("boards/20230101/7file.png", None),
+            ("boards/7file.png", None),
+            ("boards/20261110/bboard/nested/7file.png", None),
+            ("7file.png", None),
+            ("0/bboard/../other/7file.png", None),
+            ("", None),
+        ] {
+            assert_eq!(board_of_path(path), board, "path {path:?}");
+        }
+    }
+
+    #[test]
+    fn a_file_belongs_to_the_board_of_its_path_and_to_no_other() {
+        assert!(
+            belongs_to_board("boards/20261110/bboard/7file.png", "bboard"),
+            "its own board"
+        );
+        assert!(
+            !belongs_to_board("boards/20261110/bboard/7file.png", "bother"),
+            "another board"
+        );
+        assert!(
+            !belongs_to_board("boards/20230101/7file.png", "20230101"),
+            "a path without a board belongs to none, whatever is asked"
+        );
+        assert!(
+            !belongs_to_board("boards/20230101/7file.png", ""),
+            "not to the empty board either"
         );
     }
 
