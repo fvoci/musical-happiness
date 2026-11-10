@@ -7,6 +7,7 @@
 //! (`docs/s6-design.md` 3.10). The container is the original's
 //! (`server/app/export.go`); version 2 was its own.
 
+use std::collections::HashSet;
 use std::io::{Cursor, Write as _};
 
 use futures_util::StreamExt as _;
@@ -69,10 +70,14 @@ impl App {
         // same name; this archive writer refuses a second entry of a name, and an
         // importer keeps one file per name anyway, so each file is written once.
         let mut files = Vec::new();
+        let mut seen = HashSet::new();
         for block in &blocks {
             write_line(writer, "block", block)?;
             for filename in block.shown_files() {
-                if !files.contains(&filename) {
+                // An image block names its file as a client wrote it. A name that cannot
+                // be a stored name would be read back as another entry of the archive,
+                // or clash with one.
+                if is_stored_name(&filename) && seen.insert(filename.clone()) {
                     files.push(filename);
                 }
             }
@@ -160,4 +165,12 @@ fn write_line(
         .map_err(|error| AppError::internal(format_args!("cannot encode archive line: {error}")))?;
     bytes.push(b'\n');
     write_bytes(writer, &bytes)
+}
+
+/// Whether a name a block shows can be the stored name of a file, and so an entry of the
+/// board's directory: one path segment, and not a name the archive itself uses.
+fn is_stored_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['/', '\\'])
+        && !matches!(name, "." | ".." | "board.jsonl" | "version.json")
 }

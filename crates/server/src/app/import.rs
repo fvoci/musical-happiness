@@ -25,45 +25,22 @@ use crate::error::AppError;
 /// arbitrarily large file. It is a bound per entry, not for the archive as a whole.
 const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
 
-/// The largest `board.jsonl`, or legacy archive, that is read: the original's
+/// The largest `board.jsonl` that is read: the original's
 /// `importMaxFileSize` (`server/app/import.go:24`).
 const MAX_JSONL_BYTES: usize = 70 * 1024 * 1024;
 
-/// A board or block modifier applied during import: it may change the item and returns
-/// whether to keep it. The set records the identifiers of skipped items.
-pub(crate) type BoardModifier = Box<dyn Fn(&mut Board, &mut HashSet<String>) -> bool + Send + Sync>;
-
-/// A block modifier; see [`BoardModifier`].
-pub(crate) type BlockModifier = Box<dyn Fn(&mut Block, &mut HashSet<String>) -> bool + Send + Sync>;
-
 /// How an archive is imported.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct ImportOptions {
     /// The team the boards are imported into.
     pub(crate) team_id: String,
     /// The user who imports, recorded as the modifier and added as an admin.
     pub(crate) modified_by: String,
-    /// An optional transform applied to each board, used when importing templates.
-    pub(crate) board_modifier: Option<BoardModifier>,
-    /// An optional transform applied to each block.
-    pub(crate) block_modifier: Option<BlockModifier>,
-}
-
-impl std::fmt::Debug for ImportOptions {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ImportOptions")
-            .field("team_id", &self.team_id)
-            .field("modified_by", &self.modified_by)
-            .field("board_modifier", &self.board_modifier.is_some())
-            .field("block_modifier", &self.block_modifier.is_some())
-            .finish()
-    }
 }
 
 impl App {
-    /// Imports an archive into a team on behalf of a user, with no modifiers. The entry
-    /// point for the import route.
+    /// Imports an archive into a team on behalf of a user. The entry point for the
+    /// import route.
     ///
     /// # Errors
     ///
@@ -77,7 +54,6 @@ impl App {
         let options = ImportOptions {
             team_id: team_id.to_owned(),
             modified_by: modified_by.to_owned(),
-            ..ImportOptions::default()
         };
         self.import_archive(archive, &options).await
     }
@@ -94,6 +70,11 @@ impl App {
         archive: Bytes,
         options: &ImportOptions,
     ) -> Result<(), AppError> {
+        if archive.starts_with(br#"{"version":1"#) {
+            return Err(AppError::bad_request(format_args!(
+                "an archive of version 1 is not read; this server reads version {ARCHIVE_VERSION}"
+            )));
+        }
         let zip = zip::ZipArchive::new(Cursor::new(archive))
             .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
         // The original's streaming reader rejects a ZIP with no entries as invalid.
@@ -114,6 +95,11 @@ impl App {
                 ))
             })?;
         check_version(&read_entry(&zip, version).await?)?;
+        // Every entry is read through once before anything is stored: an entry that is
+        // broken or too large refuses the archive while nothing of it is stored yet.
+        for index in 0..zip.len() {
+            check_entry(&zip, index).await?;
+        }
 
         // First pass: the boards; a file entry needs its board already known.
         let mut board_map: HashMap<String, Board> = HashMap::new();
@@ -128,7 +114,7 @@ impl App {
         }
 
         // Second pass: the files, placed under their board.
-        let mut file_map: HashMap<String, String> = HashMap::new();
+        let mut file_map: HashMap<(String, String), String> = HashMap::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
             // An entry without a file name is a directory of a re-packed archive.
@@ -148,7 +134,7 @@ impl App {
                         "cannot import file {filename} for board {dir}"
                     ))
                 })?;
-            file_map.insert(filename, new_name);
+            file_map.insert((board.id.clone(), filename), new_name);
         }
 
         self.fix_images_attachments(&board_map, &file_map, &options.modified_by)
@@ -165,15 +151,15 @@ impl App {
     async fn fix_images_attachments(
         &self,
         board_map: &HashMap<String, Board>,
-        file_map: &HashMap<String, String>,
+        file_map: &HashMap<(String, String), String>,
         user_id: &str,
     ) {
         for board in board_map.values() {
             let blocks = match self.store().get_blocks(&board_blocks(&board.id)).await {
                 Ok(blocks) => blocks,
                 Err(error) => {
-                    tracing::info!(%error, board_id = board.id, "cannot retrieve imported blocks for board");
-                    return;
+                    tracing::error!(%error, board_id = board.id, "cannot retrieve imported blocks for board");
+                    continue;
                 }
             };
 
@@ -182,7 +168,9 @@ impl App {
             for block in blocks {
                 let patch =
                     if let Some(mut body) = block.body.filter(|body| !body.file_ids().is_empty()) {
-                        body.rename_files(|old| file_map.get(old).cloned());
+                        body.rename_files(|old| {
+                            file_map.get(&(board.id.clone(), old.to_owned())).cloned()
+                        });
                         fvoci_model::BlockPatch {
                             body: fvoci_model::BodyChange::Set(body),
                             ..fvoci_model::BlockPatch::default()
@@ -193,7 +181,10 @@ impl App {
                         let mut updated_fields = JsonMap::new();
                         for key in ["fileId", "attachmentId"] {
                             if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
-                                let new_name = file_map.get(old).cloned().unwrap_or_default();
+                                let new_name = file_map
+                                    .get(&(board.id.clone(), old.to_owned()))
+                                    .cloned()
+                                    .unwrap_or_default();
                                 updated_fields.insert(key.to_owned(), Value::String(new_name));
                             }
                         }
@@ -227,7 +218,7 @@ impl App {
                 )
                 .await
             {
-                tracing::info!(%error, "Error patching blocks for image import");
+                tracing::error!(%error, board_id = board.id, "the imported blocks could not be pointed at their files");
             }
         }
     }
@@ -236,8 +227,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a server error if a line is malformed or of an unknown type, or if the
-    /// board cannot be stored.
+    /// Returns a bad request if a line is malformed or of an unknown type, or the store's
+    /// error if the board cannot be stored.
     async fn import_board_jsonl(
         &self,
         jsonl: Bytes,
@@ -264,7 +255,6 @@ impl App {
             }
         }
 
-        apply_modifiers(&mut boards_and_blocks, options);
         clear_values_of_another_kind(&mut boards_and_blocks);
         let orphans = drop_orphans(&mut boards_and_blocks);
         if orphans > 0 {
@@ -292,17 +282,13 @@ impl App {
             .map_err(|error| error.context("error inserting archive blocks"))?;
 
         for board in &created.boards {
-            // What is imported on behalf of no user, the built-in templates, has no
-            // administrator: nobody changes it.
-            if !options.modified_by.is_empty() {
-                let admin = BoardMember {
-                    board_id: board.id.clone(),
-                    user_id: options.modified_by.clone(),
-                    scheme_admin: true,
-                    ..BoardMember::default()
-                };
-                self.add_member_to_board(&admin).await?;
-            }
+            let admin = BoardMember {
+                board_id: board.id.clone(),
+                user_id: options.modified_by.clone(),
+                scheme_admin: true,
+                ..BoardMember::default()
+            };
+            self.add_member_to_board(&admin).await?;
             for member in &kept_members {
                 let member = BoardMember {
                     board_id: board.id.clone(),
@@ -316,7 +302,7 @@ impl App {
             .boards
             .into_iter()
             .next()
-            .ok_or_else(|| AppError::bad_request("missing board in archive: invalid board block"))
+            .ok_or_else(|| AppError::bad_request("missing board in archive"))
     }
 }
 
@@ -362,7 +348,7 @@ fn drop_orphans(boards_and_blocks: &mut BoardsAndBlocks) -> usize {
 ///
 /// # Errors
 ///
-/// Returns a server error if a line is malformed or of an unknown type.
+/// Returns a bad request if a line is malformed or of an unknown type.
 fn parse_archive_lines(
     jsonl: &[u8],
     team_id: &str,
@@ -455,26 +441,43 @@ fn entry_name(zip: &Archive, index: usize) -> Result<(String, String), AppError>
 async fn read_entry(zip: &Archive, index: usize) -> Result<Bytes, AppError> {
     let mut zip = zip.clone();
     tokio::task::spawn_blocking(move || {
-        let mut entry = zip
-            .by_index(index)
-            .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
         let mut bytes = Vec::new();
-        let read = entry
-            .by_ref()
-            .take(MAX_ENTRY_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| {
-                AppError::bad_request(format_args!("cannot read archive entry: {error}"))
-            })?;
-        if u64::try_from(read).unwrap_or(u64::MAX) > MAX_ENTRY_BYTES {
-            return Err(AppError::bad_request(
-                "archive entry exceeds the size limit",
-            ));
-        }
+        decompress(&mut zip, index, &mut bytes)?;
         Ok(Bytes::from(bytes))
     })
     .await
     .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
+}
+
+/// Reads an archive entry through without keeping it, as [`read_entry`] would read it:
+/// its checksum and its bound are checked.
+async fn check_entry(zip: &Archive, index: usize) -> Result<(), AppError> {
+    let mut zip = zip.clone();
+    tokio::task::spawn_blocking(move || decompress(&mut zip, index, &mut std::io::sink()))
+        .await
+        .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
+}
+
+/// Decompresses an archive entry into `out`, at most [`MAX_ENTRY_BYTES`] of it. The
+/// reader checks the entry's checksum when it reaches the end.
+fn decompress(
+    zip: &mut Archive,
+    index: usize,
+    out: &mut impl std::io::Write,
+) -> Result<(), AppError> {
+    let mut entry = zip
+        .by_index(index)
+        .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
+    let read =
+        std::io::copy(&mut entry.by_ref().take(MAX_ENTRY_BYTES + 1), out).map_err(|error| {
+            AppError::bad_request(format_args!("cannot read archive entry: {error}"))
+        })?;
+    if read > MAX_ENTRY_BYTES {
+        return Err(AppError::bad_request(
+            "archive entry exceeds the size limit",
+        ));
+    }
+    Ok(())
 }
 
 /// Splits an archive entry name into its cleaned directory and its base file name, as
@@ -524,24 +527,6 @@ fn check_version(bytes: &[u8]) -> Result<(), AppError> {
             "unsupported archive version; got {}, want {ARCHIVE_VERSION}",
             header.version
         )))
-    }
-}
-
-/// Applies the board and block modifiers, dropping the items they reject.
-fn apply_modifiers(boards_and_blocks: &mut BoardsAndBlocks, options: &ImportOptions) {
-    if options.board_modifier.is_none() && options.block_modifier.is_none() {
-        return;
-    }
-    let mut cache: HashSet<String> = HashSet::new();
-    if let Some(modifier) = &options.board_modifier {
-        boards_and_blocks
-            .boards
-            .retain_mut(|board| modifier(board, &mut cache));
-    }
-    if let Some(modifier) = &options.block_modifier {
-        boards_and_blocks
-            .blocks
-            .retain_mut(|block| modifier(block, &mut cache));
     }
 }
 

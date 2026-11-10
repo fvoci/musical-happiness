@@ -463,3 +463,83 @@ async fn an_archive_carries_the_images_of_bodies() {
     );
     ts.teardown().await;
 }
+
+/// An archive with an entry that cannot be read (here its checksum does not match) is
+/// refused before anything of it is stored.
+#[tokio::test]
+async fn an_archive_with_a_broken_entry_stores_nothing() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = serde_json::json!({"type": "board", "data": {
+        "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Broken", "createAt": 1, "updateAt": 1,
+    }});
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    writer.start_file("version.json", stored).expect("start");
+    writer
+        .write_all(br#"{"version":3,"date":1}"#)
+        .expect("write");
+    writer.start_file("b1/board.jsonl", stored).expect("start");
+    writer
+        .write_all(format!("{board}\n").as_bytes())
+        .expect("write");
+    writer.start_file("b1/picture.png", stored).expect("start");
+    writer.write_all(b"the bytes of a picture").expect("write");
+    let mut bytes = writer.finish().expect("finish").into_inner();
+    let at = bytes
+        .windows(5)
+        .position(|window| window == b"bytes")
+        .expect("the stored content");
+    bytes[at] = b'B';
+
+    let before = boards_of(&ts).await.len();
+    let response = import(&ts.client, TEST_TEAM_ID, &bytes).await;
+    response.check_bad_request();
+    assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
+    ts.teardown().await;
+}
+
+/// An image block may name its file as a client wrote it. A name that cannot be a
+/// stored name gets no entry, so the archive is exported and read back.
+#[tokio::test]
+async fn an_archive_reads_back_whatever_an_image_block_names() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = board_with_card(&ts, TEST_TEAM_ID).await;
+    let image = |file: &str| {
+        let mut fields = fvoci_model::JsonMap::new();
+        fields.insert(
+            "fileId".to_owned(),
+            serde_json::Value::String(file.to_owned()),
+        );
+        Block {
+            id: new_id(),
+            board_id: board.id.clone(),
+            parent_id: board.id.clone(),
+            block_type: BlockType::Image,
+            fields,
+            create_at: 1,
+            update_at: 1,
+            ..Block::default()
+        }
+    };
+    ts.client
+        .insert_blocks(
+            &board.id,
+            &[
+                image("board.jsonl"),
+                image("x/board.jsonl"),
+                image("version.json"),
+            ],
+        )
+        .await
+        .check_created();
+
+    let exported = export_board(&ts.client, &board.id).await;
+    exported.check_ok();
+    let before = boards_of(&ts).await.len();
+    import(&ts.client, TEST_TEAM_ID, &exported.body)
+        .await
+        .check_no_content();
+    assert_eq!(boards_of(&ts).await.len(), before + 1, "one board was made");
+    ts.teardown().await;
+}
