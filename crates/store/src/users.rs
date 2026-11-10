@@ -60,6 +60,10 @@ const SETTINGS_CATEGORY: &str = "settings";
 /// The most users a search returns.
 const SEARCH_LIMIT: i64 = 10;
 
+/// The order of a list of users: by when their accounts were made, and by identifier
+/// where that is the same.
+const OLDEST_FIRST: &str = " ORDER BY create_at, id";
+
 /// One stored preference of a user.
 ///
 /// The JSON form has the member names of the original's preference record.
@@ -106,7 +110,7 @@ impl Store {
             .await
     }
 
-    /// Returns the users with the given identifiers, in no particular order.
+    /// Returns the users with the given identifiers, oldest first.
     ///
     /// # Errors
     ///
@@ -117,7 +121,8 @@ impl Store {
             let mut sql = select_users(scope);
             sql.push(" AND id IN (")
                 .bind_list(user_ids.iter().map(|id| Id(id)))
-                .push(")");
+                .push(")")
+                .push(OLDEST_FIRST);
             let users = fetch_users(scope, sql).await?;
             if users.is_empty() {
                 return Err(user_not_found());
@@ -357,7 +362,7 @@ impl Store {
         .await
     }
 
-    /// Returns every user that is not deleted, in no particular order.
+    /// Returns every user that is not deleted, oldest first.
     ///
     /// # Errors
     ///
@@ -366,14 +371,14 @@ impl Store {
         self.with_conn(async |scope| {
             // Preserved quirk: asked for the users of a team, the original returns all
             // users whatever the team (`server/services/store/sqlstore/user.go:217-218`).
-            let sql = select_users(scope);
+            let mut sql = select_users(scope);
+            sql.push(OLDEST_FIRST);
             fetch_users(scope, sql).await
         })
         .await
     }
 
-    /// Returns up to ten users whose name contains `search_query`, in no particular
-    /// order.
+    /// Returns the ten oldest users, oldest first, whose name contains `search_query`.
     ///
     /// The match is the database's `LIKE`: SQLite ignores the case of ASCII letters and
     /// PostgreSQL does not, and `%` and `_` in the query are wildcards.
@@ -388,6 +393,7 @@ impl Store {
             // (`server/services/store/sqlstore/user.go:227`).
             let mut sql = select_users(scope);
             sql.push_bind(" AND username LIKE ", format!("%{search_query}%"))
+                .push(OLDEST_FIRST)
                 .push_bind(" LIMIT ", SEARCH_LIMIT);
             fetch_users(scope, sql).await
         })

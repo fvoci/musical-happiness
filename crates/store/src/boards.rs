@@ -20,6 +20,10 @@ use crate::error::StoreError;
 use crate::subscriptions;
 
 /// The name of every board column, in the order rows are written.
+/// The order of a list of boards read through the alias `b`: by when they were made,
+/// and by identifier where that is the same.
+const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
+
 const BOARD_COLUMNS: &str = "id, team_id, created_by, modified_by, type, minimum_role, title, \
                              description, icon, show_description, is_template, is_builtin, \
                              template_version, properties, card_properties, create_at, \
@@ -145,8 +149,8 @@ impl Store {
     }
 
     /// Returns the boards of a team that a user is a member of and, with
-    /// [`PublicBoards::Include`], the open boards of the team, in no particular order.
-    /// Templates are left out.
+    /// [`PublicBoards::Include`], the open boards of the team, oldest first. Templates
+    /// are left out.
     ///
     /// # Errors
     ///
@@ -163,7 +167,7 @@ impl Store {
         .await
     }
 
-    /// Returns the boards of a team with the given identifiers, in no particular order.
+    /// Returns the boards of a team with the given identifiers, oldest first.
     ///
     /// # Errors
     ///
@@ -370,7 +374,8 @@ impl Store {
             .await
     }
 
-    /// Returns the members of a board, in no particular order.
+    /// Returns the members of a board, by the identifier of the user: the users in the
+    /// order their accounts were made in.
     ///
     /// # Errors
     ///
@@ -383,7 +388,8 @@ impl Store {
             .await
     }
 
-    /// Returns a user's memberships, in no particular order.
+    /// Returns a user's memberships, by the identifier of the board: the boards in the
+    /// order they were made in.
     ///
     /// # Errors
     ///
@@ -397,8 +403,8 @@ impl Store {
     }
 
     /// Returns the boards, of any team, that match a search term and that a user is a
-    /// member of or, with [`PublicBoards::Include`], that are open, in no particular
-    /// order. Templates are left out.
+    /// member of or, with [`PublicBoards::Include`], that are open, oldest first.
+    /// Templates are left out.
     ///
     /// An empty `term` matches every board. Searching by title matches boards whose
     /// title contains every space-separated word of the term, ignoring case; searching
@@ -421,8 +427,7 @@ impl Store {
     }
 
     /// Returns the boards of a team whose title matches a search term and that are open
-    /// or private with the user as a member, in no particular order. Templates are left
-    /// out.
+    /// or private with the user as a member, oldest first. Templates are left out.
     ///
     /// An empty `term` matches every board; otherwise the title must contain every
     /// space-separated word of the term, ignoring case.
@@ -442,8 +447,8 @@ impl Store {
         .await
     }
 
-    /// Returns the templates of a team that are open or that the user is a member of, in
-    /// no particular order. The built-in templates are not among them.
+    /// Returns the templates of a team that are open or that the user is a member of,
+    /// oldest first. The built-in templates are not among them.
     ///
     /// # Errors
     ///
@@ -457,7 +462,7 @@ impl Store {
             .await
     }
 
-    /// Returns the templates the server ships with, in no particular order. They belong
+    /// Returns the templates the server ships with, oldest first. They belong
     /// to no team in particular: every team is offered them.
     ///
     /// # Errors
@@ -607,7 +612,8 @@ pub(crate) async fn get_boards_for_user_and_team(
     public_boards: PublicBoards,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards_of_user(scope, user_id, public_boards);
-    sql.push_bind(" AND b.team_id = ", Id(team_id));
+    sql.push_bind(" AND b.team_id = ", Id(team_id))
+        .push(OLDEST_BOARD_FIRST);
     fetch_boards(scope, sql).await
 }
 
@@ -620,7 +626,7 @@ pub(crate) async fn get_boards_in_team_by_ids(
     sql.push_bind(" WHERE team_id = ", Id(team_id))
         .push(" AND id IN (")
         .bind_list(board_ids.iter().map(|id| Id(id)))
-        .push(")");
+        .push(") ORDER BY create_at, id");
     let boards = fetch_boards(scope, sql).await?;
     if boards.len() == board_ids.len() {
         Ok(boards)
@@ -835,7 +841,8 @@ pub(crate) async fn get_members_for_user(
     user_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.user_id = ", Id(user_id));
+    sql.push_bind(" WHERE bm.user_id = ", Id(user_id))
+        .push(" ORDER BY bm.board_id");
     fetch_members(scope, sql).await
 }
 
@@ -844,7 +851,8 @@ pub(crate) async fn get_members_for_board(
     board_id: &str,
 ) -> Result<Vec<BoardMember>, StoreError> {
     let mut sql = select_members(scope);
-    sql.push_bind(" WHERE bm.board_id = ", Id(board_id));
+    sql.push_bind(" WHERE bm.board_id = ", Id(board_id))
+        .push(" ORDER BY bm.user_id");
     fetch_members(scope, sql).await
 }
 
@@ -999,6 +1007,7 @@ pub(crate) async fn search_boards_for_user(
             },
         }
     }
+    sql.push(OLDEST_BOARD_FIRST);
     fetch_boards(scope, sql).await
 }
 
@@ -1022,6 +1031,7 @@ pub(crate) async fn search_boards_for_user_in_team(
     if !term.is_empty() {
         push_title_words(&mut sql, term);
     }
+    sql.push(OLDEST_BOARD_FIRST);
     fetch_boards(scope, sql).await
 }
 
@@ -1044,13 +1054,15 @@ pub(crate) async fn get_template_boards(
             " AND ((bm.board_id IS NULL AND b.type = ",
             BoardType::Open.as_str(),
         )
-        .push(") OR bm.board_id IS NOT NULL)");
+        .push(") OR bm.board_id IS NOT NULL)")
+        .push(OLDEST_BOARD_FIRST);
     fetch_boards(scope, sql).await
 }
 
 pub(crate) async fn get_builtin_templates(scope: &mut Scope<'_>) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards(scope);
-    sql.push_bind(" WHERE is_builtin = ", true);
+    sql.push_bind(" WHERE is_builtin = ", true)
+        .push(" ORDER BY create_at, id");
     fetch_boards(scope, sql).await
 }
 

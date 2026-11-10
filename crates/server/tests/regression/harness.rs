@@ -12,8 +12,10 @@
 //! * millisecond timestamps become `<ts>`;
 //! * the seconds to wait of a 429 (`retry_after`, `Retry-After`) become `<seconds>`;
 //! * values of members named like secrets (`token`, `signupToken`) become `<secret>`, and
-//!   the identifier of the request in an error body becomes `<request-id>`;
-//! * lists of objects are sorted, because most list endpoints have no defined order.
+//!   the identifier of the request in an error body becomes `<request-id>`.
+//!
+//! Lists are recorded in the order they come in: every list the API answers with has a
+//! defined order, and the recording pins it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::future::{Future, IntoFuture};
@@ -749,19 +751,7 @@ impl Placeholders {
                 Value::Object(normalized)
             }
             Value::Array(items) => {
-                let mut ordered: Vec<&Value> = items.iter().collect();
-                if !ordered.is_empty() && ordered.iter().all(|item| item.is_object()) {
-                    // Sort by a rendering in which every identifier looks the same, so
-                    // that the order does not depend on the random identifiers
-                    // themselves; only then hand out the numbered placeholders.
-                    ordered.sort_by_cached_key(|item| blind_key(item));
-                }
-                Value::Array(
-                    ordered
-                        .into_iter()
-                        .map(|item| self.value(item, key))
-                        .collect(),
-                )
+                Value::Array(items.iter().map(|item| self.value(item, key)).collect())
             }
             Value::String(text) => {
                 if SECRET_KEYS.contains(&key) && !text.is_empty() {
@@ -784,46 +774,6 @@ fn is_timestamp(number: &serde_json::Number) -> bool {
     number
         .as_i64()
         .map_or_else(|| number.is_u64(), |n| n >= TIMESTAMP_FLOOR)
-}
-
-/// The sort key of a list item: the item with every run-specific value blinded.
-fn blind_key(value: &Value) -> String {
-    fn blind(value: &Value, key: &str) -> Value {
-        match value {
-            Value::Object(members) => {
-                let mut sorted: Vec<(&String, &Value)> = members.iter().collect();
-                sorted.sort_by(|a, b| a.0.cmp(b.0));
-                let mut blinded = Map::new();
-                for (name, member) in sorted {
-                    blinded.insert(name.clone(), blind(member, name));
-                }
-                Value::Object(blinded)
-            }
-            Value::Array(items) => {
-                let mut blinded: Vec<Value> = items.iter().map(|item| blind(item, key)).collect();
-                if !blinded.is_empty() && blinded.iter().all(Value::is_object) {
-                    blinded.sort_by_cached_key(Value::to_string);
-                }
-                Value::Array(blinded)
-            }
-            Value::String(text) => {
-                if SECRET_KEYS.contains(&key) && !text.is_empty() {
-                    json!("<secret>")
-                } else if key == REQUEST_ID_KEY {
-                    json!("<request-id>")
-                } else {
-                    json!(replace_run_specifics(text, |found| match found {
-                        Found::Id(_) => "<id>".to_owned(),
-                        Found::Secret(_) => "<secret>".to_owned(),
-                    }))
-                }
-            }
-            Value::Number(number) if is_timestamp(number) => json!("<ts>"),
-            other => other.clone(),
-        }
-    }
-
-    blind(value, "").to_string()
 }
 
 /// What differs from run to run inside a text.
@@ -951,7 +901,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_of_objects_are_sorted_blind_to_identifiers() {
+    fn lists_keep_their_order() {
         let mut placeholders = Placeholders::default();
         let value = json!([
             {"id": SECOND, "title": "b", "updateAt": 1_700_000_000_001_i64},
@@ -960,10 +910,10 @@ mod tests {
         assert_eq!(
             placeholders.value(&value, ""),
             json!([
-                {"id": "<id:1>", "title": "a", "token": "<secret>"},
-                {"id": "<id:2>", "title": "b", "updateAt": "<ts>"},
+                {"id": "<id:1>", "title": "b", "updateAt": "<ts>"},
+                {"id": "<id:2>", "title": "a", "token": "<secret>"},
             ]),
-            "sorted by title, numbered after sorting"
+            "as they came, numbered in that order"
         );
     }
 

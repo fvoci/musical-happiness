@@ -24,11 +24,10 @@ pub(crate) async fn templates(s: &mut Session) {
         .unrecorded()
         .await;
     let listing = listing.json().as_array().expect("the templates are a list");
-    let mut titles: Vec<&str> = listing
+    let titles: Vec<&str> = listing
         .iter()
         .filter_map(|board| board["title"].as_str())
         .collect();
-    titles.sort_unstable();
     s.note("template titles", &json!(titles));
     let mut versions: Vec<i64> = listing
         .iter()
@@ -541,13 +540,12 @@ pub(crate) async fn archive(s: &mut Session) {
         .user(&bob)
         .unrecorded()
         .await;
-    let mut titles: Vec<&str> = boards
-        .json()
+    let boards = boards.json();
+    let titles: Vec<&str> = boards
         .as_array()
         .expect("the boards are a list")
         .iter()
         .filter_map(|board| board["title"].as_str())
         .collect();
-    titles.sort_unstable();
     s.note("board titles after legacy import", &json!(titles));
 }

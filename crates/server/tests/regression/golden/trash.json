@@ -64,15 +64,13 @@
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
-        "fields": {
-          "viewType": "board"
-        },
+        "fields": {},
         "id": "<id:6>",
         "modifiedBy": "<id:1>",
         "parentId": "",
         "schema": 1,
-        "title": "View",
-        "type": "view",
+        "title": "Card",
+        "type": "card",
         "updateAt": "<ts>"
       },
       {
@@ -80,13 +78,15 @@
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
-        "fields": {},
+        "fields": {
+          "viewType": "board"
+        },
         "id": "<id:7>",
         "modifiedBy": "<id:1>",
         "parentId": "",
         "schema": 1,
-        "title": "Card",
-        "type": "card",
+        "title": "View",
+        "type": "view",
         "updateAt": "<ts>"
       }
     ]
@@ -105,7 +105,7 @@
         "fields": {},
         "id": "<id:8>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:7>",
+        "parentId": "<id:6>",
         "schema": 1,
         "title": "Comment",
         "type": "comment",
@@ -119,7 +119,7 @@
         "fields": {},
         "id": "<id:9>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:7>",
+        "parentId": "<id:6>",
         "schema": 1,
         "title": "Text",
         "type": "text",
@@ -155,7 +155,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "blockId": "<id:7>",
+      "blockId": "<id:6>",
       "blockType": "card",
       "createAt": "<ts>",
       "deleteAt": 0,
@@ -166,7 +166,7 @@
   },
   {
     "name": "delete the card",
-    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
@@ -185,7 +185,7 @@
         "fields": {
           "viewType": "board"
         },
-        "id": "<id:6>",
+        "id": "<id:7>",
         "modifiedBy": "<id:1>",
         "parentId": "",
         "schema": 1,
@@ -204,7 +204,7 @@
   },
   {
     "name": "undelete: viewer",
-    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-carol",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/undelete as trash-carol",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -215,7 +215,7 @@
   },
   {
     "name": "undelete: non-member",
-    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-dave",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/undelete as trash-dave",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -237,7 +237,7 @@
   },
   {
     "name": "undelete: a block that is not deleted",
-    "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -277,10 +277,24 @@
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
+        "fields": {},
+        "id": "<id:6>",
+        "modifiedBy": "<id:4>",
+        "parentId": "",
+        "schema": 1,
+        "title": "Card",
+        "type": "card",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
         "fields": {
           "viewType": "board"
         },
-        "id": "<id:6>",
+        "id": "<id:7>",
         "modifiedBy": "<id:1>",
         "parentId": "",
         "schema": 1,
@@ -294,12 +308,26 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:7>",
+        "id": "<id:8>",
         "modifiedBy": "<id:4>",
-        "parentId": "",
+        "parentId": "<id:6>",
         "schema": 1,
-        "title": "Card",
-        "type": "card",
+        "title": "Comment",
+        "type": "comment",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:9>",
+        "modifiedBy": "<id:4>",
+        "parentId": "<id:6>",
+        "schema": 1,
+        "title": "Text",
+        "type": "text",
         "updateAt": "<ts>"
       },
       {
@@ -315,40 +343,12 @@
         "title": "Below the comment",
         "type": "text",
         "updateAt": "<ts>"
-      },
-      {
-        "boardId": "<id:2>",
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "fields": {},
-        "id": "<id:8>",
-        "modifiedBy": "<id:4>",
-        "parentId": "<id:7>",
-        "schema": 1,
-        "title": "Comment",
-        "type": "comment",
-        "updateAt": "<ts>"
-      },
-      {
-        "boardId": "<id:2>",
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "fields": {},
-        "id": "<id:9>",
-        "modifiedBy": "<id:4>",
-        "parentId": "<id:7>",
-        "schema": 1,
-        "title": "Text",
-        "type": "text",
-        "updateAt": "<ts>"
       }
     ]
   },
   {
     "name": "undelete: again",
-    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -373,7 +373,7 @@
   },
   {
     "name": "delete the card again",
-    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
@@ -391,7 +391,7 @@
   },
   {
     "name": "undelete the card",
-    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/undelete as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -400,7 +400,7 @@
       "createdBy": "<id:1>",
       "deleteAt": 0,
       "fields": {},
-      "id": "<id:7>",
+      "id": "<id:6>",
       "modifiedBy": "<id:1>",
       "parentId": "",
       "schema": 1,
@@ -411,7 +411,7 @@
   },
   {
     "name": "blocks on the card: the text is still deleted",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:7> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:6> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -423,7 +423,7 @@
         "fields": {},
         "id": "<id:8>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:7>",
+        "parentId": "<id:6>",
         "schema": 1,
         "title": "Comment",
         "type": "comment",
@@ -444,7 +444,7 @@
       "fields": {},
       "id": "<id:9>",
       "modifiedBy": "<id:1>",
-      "parentId": "<id:7>",
+      "parentId": "<id:6>",
       "schema": 1,
       "title": "Text",
       "type": "text",
@@ -453,7 +453,7 @@
   },
   {
     "name": "blocks on the card: the text is back",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:7> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:6> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -465,7 +465,7 @@
         "fields": {},
         "id": "<id:8>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:7>",
+        "parentId": "<id:6>",
         "schema": 1,
         "title": "Comment",
         "type": "comment",
@@ -479,7 +479,7 @@
         "fields": {},
         "id": "<id:9>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:7>",
+        "parentId": "<id:6>",
         "schema": 1,
         "title": "Text",
         "type": "text",
@@ -489,7 +489,7 @@
   },
   {
     "name": "delete the view on its own",
-    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
@@ -539,7 +539,7 @@
   },
   {
     "name": "undelete a block of the deleted board",
-    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -633,11 +633,11 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "schemeAdmin": false,
+        "schemeAdmin": true,
         "schemeCommenter": false,
-        "schemeEditor": false,
-        "schemeViewer": true,
-        "userId": "<id:5>"
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "userId": "<id:1>"
       },
       {
         "boardId": "<id:2>",
@@ -649,11 +649,11 @@
       },
       {
         "boardId": "<id:2>",
-        "schemeAdmin": true,
+        "schemeAdmin": false,
         "schemeCommenter": false,
-        "schemeEditor": true,
-        "schemeViewer": false,
-        "userId": "<id:1>"
+        "schemeEditor": false,
+        "schemeViewer": true,
+        "userId": "<id:5>"
       }
     ]
   },
@@ -669,7 +669,7 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:7>",
+        "id": "<id:6>",
         "modifiedBy": "<id:1>",
         "parentId": "",
         "schema": 1,
@@ -683,23 +683,9 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
-        "id": "<id:10>",
-        "modifiedBy": "<id:1>",
-        "parentId": "<id:8>",
-        "schema": 1,
-        "title": "Below the comment",
-        "type": "text",
-        "updateAt": "<ts>"
-      },
-      {
-        "boardId": "<id:2>",
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "fields": {},
         "id": "<id:8>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:7>",
+        "parentId": "<id:6>",
         "schema": 1,
         "title": "Comment",
         "type": "comment",
@@ -713,9 +699,23 @@
         "fields": {},
         "id": "<id:9>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:7>",
+        "parentId": "<id:6>",
         "schema": 1,
         "title": "Text",
+        "type": "text",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:10>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:8>",
+        "schema": 1,
+        "title": "Below the comment",
         "type": "text",
         "updateAt": "<ts>"
       }

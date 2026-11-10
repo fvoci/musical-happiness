@@ -203,12 +203,12 @@
     "body": [
       {
         "boardMetadata": [],
-        "collapsed": false,
+        "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:8>",
-        "name": "Projects",
-        "sortOrder": 20,
+        "id": "<id:9>",
+        "name": "Archive",
+        "sortOrder": 10,
         "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
@@ -216,12 +216,12 @@
       },
       {
         "boardMetadata": [],
-        "collapsed": true,
+        "collapsed": false,
         "createAt": "<ts>",
         "deleteAt": 0,
-        "id": "<id:9>",
-        "name": "Archive",
-        "sortOrder": 10,
+        "id": "<id:8>",
+        "name": "Projects",
+        "sortOrder": 20,
         "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
@@ -343,19 +343,6 @@
     "body": [
       {
         "boardMetadata": [],
-        "collapsed": false,
-        "createAt": "<ts>",
-        "deleteAt": 0,
-        "id": "<id:5>",
-        "name": "Boards",
-        "sortOrder": 30,
-        "teamId": "<id:3>",
-        "type": "system",
-        "updateAt": "<ts>",
-        "userId": "<id:1>"
-      },
-      {
-        "boardMetadata": [],
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
@@ -386,6 +373,19 @@
         "sortOrder": 20,
         "teamId": "<id:3>",
         "type": "custom",
+        "updateAt": "<ts>",
+        "userId": "<id:1>"
+      },
+      {
+        "boardMetadata": [],
+        "collapsed": false,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:5>",
+        "name": "Boards",
+        "sortOrder": 30,
+        "teamId": "<id:3>",
+        "type": "system",
         "updateAt": "<ts>",
         "userId": "<id:1>"
       }
@@ -417,19 +417,6 @@
     "body": [
       {
         "boardMetadata": [],
-        "collapsed": false,
-        "createAt": "<ts>",
-        "deleteAt": 0,
-        "id": "<id:5>",
-        "name": "Boards",
-        "sortOrder": 30,
-        "teamId": "<id:3>",
-        "type": "system",
-        "updateAt": "<ts>",
-        "userId": "<id:1>"
-      },
-      {
-        "boardMetadata": [],
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
@@ -444,12 +431,12 @@
       {
         "boardMetadata": [
           {
-            "boardId": "<id:4>",
-            "hidden": false
-          },
-          {
             "boardId": "<id:2>",
             "hidden": true
+          },
+          {
+            "boardId": "<id:4>",
+            "hidden": false
           }
         ],
         "collapsed": true,
@@ -460,6 +447,19 @@
         "sortOrder": 20,
         "teamId": "<id:3>",
         "type": "custom",
+        "updateAt": "<ts>",
+        "userId": "<id:1>"
+      },
+      {
+        "boardMetadata": [],
+        "collapsed": false,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:5>",
+        "name": "Boards",
+        "sortOrder": 30,
+        "teamId": "<id:3>",
+        "type": "system",
         "updateAt": "<ts>",
         "userId": "<id:1>"
       }
@@ -578,19 +578,6 @@
     "body": [
       {
         "boardMetadata": [],
-        "collapsed": false,
-        "createAt": "<ts>",
-        "deleteAt": 0,
-        "id": "<id:5>",
-        "name": "Boards",
-        "sortOrder": 20,
-        "teamId": "<id:3>",
-        "type": "system",
-        "updateAt": "<ts>",
-        "userId": "<id:1>"
-      },
-      {
-        "boardMetadata": [],
         "collapsed": true,
         "createAt": "<ts>",
         "deleteAt": 0,
@@ -621,6 +608,19 @@
         "sortOrder": 10,
         "teamId": "<id:3>",
         "type": "custom",
+        "updateAt": "<ts>",
+        "userId": "<id:1>"
+      },
+      {
+        "boardMetadata": [],
+        "collapsed": false,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:5>",
+        "name": "Boards",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
+        "type": "system",
         "updateAt": "<ts>",
         "userId": "<id:1>"
       }

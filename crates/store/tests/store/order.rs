@@ -1,0 +1,483 @@
+//! The order of what the store returns as a list. Not in the original, whose lists come
+//! in whatever order the database reads them.
+//!
+//! The rule is the oldest first, and the identifier where the ages are the same. A list
+//! with an order of its own (the categories of a sidebar, the boards of a category)
+//! follows that order and falls back to the rule where the order ties. Memberships carry
+//! no time: they come by the identifier of what they name, which is the order that was
+//! made in.
+//!
+//! Each test stores its rows through the store and then, past the store, sets the
+//! times and sort orders so that the order asked for differs both from the order of
+//! the identifiers and from the order of the names.
+
+use fvoci_model::{
+    Block, BlockType, Board, BoardMember, BoardSearchField, BoardType, Category, SubscriberType,
+    Subscription, User, new_id,
+};
+use fvoci_store::{PublicBoards, Store};
+
+use crate::common::{self, TestStore};
+
+/// Sets the time each of the rows was made at.
+async fn set_create_at(test: &TestStore, table: &str, times: &[(&str, i64)]) {
+    for (id, create_at) in times {
+        common::execute_raw(
+            &test.dbconfig(),
+            &format!("UPDATE {table} SET create_at = {create_at} WHERE id = '{id}'"),
+        )
+        .await;
+    }
+}
+
+fn board_ids(boards: &[Board]) -> Vec<&str> {
+    boards.iter().map(|board| board.id.as_str()).collect()
+}
+
+fn user_ids(users: &[User]) -> Vec<&str> {
+    users.iter().map(|user| user.id.as_str()).collect()
+}
+
+/// Stores a board of the team and returns its identifier.
+async fn stored_board(store: &Store, team_id: &str, user_id: &str, board: Board) -> String {
+    let mut board = Board {
+        id: new_id(),
+        team_id: team_id.to_owned(),
+        ..board
+    };
+    store
+        .insert_board(&mut board, user_id)
+        .await
+        .expect("the board is inserted");
+    board.id
+}
+
+/// Lists of boards come oldest first, and by identifier where two are of an age.
+#[tokio::test]
+async fn boards_come_oldest_first() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
+    let open = |title: &str| Board {
+        board_type: BoardType::Open,
+        title: title.to_owned(),
+        ..Board::default()
+    };
+    let first = stored_board(store, &team_id, &user_id, open("board d")).await;
+    let second = stored_board(store, &team_id, &user_id, open("board a")).await;
+    let third = stored_board(store, &team_id, &user_id, open("board c")).await;
+    let fourth = stored_board(store, &team_id, &user_id, open("board b")).await;
+    set_create_at(
+        &test,
+        "boards",
+        &[(&fourth, 100), (&first, 200), (&second, 200), (&third, 300)],
+    )
+    .await;
+    let expected = [
+        fourth.as_str(),
+        first.as_str(),
+        second.as_str(),
+        third.as_str(),
+    ];
+
+    let of_team = store
+        .get_boards_for_user_and_team(&user_id, &team_id, PublicBoards::Include)
+        .await
+        .expect("the boards are read");
+    assert_eq!(board_ids(&of_team), expected, "the boards of a team");
+
+    let found = store
+        .search_boards_for_user(
+            "board",
+            BoardSearchField::Title,
+            &user_id,
+            PublicBoards::Include,
+        )
+        .await
+        .expect("the boards are searched");
+    assert_eq!(board_ids(&found), expected, "a search of every team");
+
+    let found_in_team = store
+        .search_boards_for_user_in_team(&team_id, "board", &user_id)
+        .await
+        .expect("the boards are searched");
+    assert_eq!(board_ids(&found_in_team), expected, "a search of one team");
+
+    let asked = [third.clone(), first.clone(), fourth.clone(), second.clone()];
+    let by_id = store
+        .get_boards_in_team_by_ids(&asked, &team_id)
+        .await
+        .expect("the boards are read");
+    assert_eq!(
+        board_ids(&by_id),
+        expected,
+        "boards by identifier, whatever order they are asked for in"
+    );
+
+    test.teardown().await;
+}
+
+/// The templates of a team and the built-in ones come oldest first too.
+#[tokio::test]
+async fn templates_come_oldest_first() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
+    let template = || Board {
+        board_type: BoardType::Open,
+        is_template: true,
+        ..Board::default()
+    };
+    let mut own = Vec::new();
+    let mut builtin = Vec::new();
+    for _ in 0..3 {
+        own.push(stored_board(store, &team_id, &user_id, template()).await);
+        // A template stored on behalf of no user is a built-in one.
+        builtin.push(stored_board(store, &team_id, "", template()).await);
+    }
+    for ids in [&own, &builtin] {
+        set_create_at(
+            &test,
+            "boards",
+            &[(&ids[2], 100), (&ids[0], 200), (&ids[1], 200)],
+        )
+        .await;
+    }
+
+    let of_team = store
+        .get_template_boards(&team_id, &user_id)
+        .await
+        .expect("the templates are read");
+    assert_eq!(
+        board_ids(&of_team),
+        [own[2].as_str(), own[0].as_str(), own[1].as_str()],
+        "the templates of a team"
+    );
+    let shipped = store
+        .get_builtin_templates()
+        .await
+        .expect("the templates are read");
+    assert_eq!(
+        board_ids(&shipped),
+        [
+            builtin[2].as_str(),
+            builtin[0].as_str(),
+            builtin[1].as_str()
+        ],
+        "the built-in templates"
+    );
+
+    test.teardown().await;
+}
+
+/// The members of a board come by the identifier of the user and the memberships of a
+/// user by the identifier of the board, whatever order they were added in.
+#[tokio::test]
+async fn memberships_come_by_identifier() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let team_id = common::team(store).await;
+    let users = [
+        common::user(store, "user c").await,
+        common::user(store, "user a").await,
+        common::user(store, "user b").await,
+    ];
+    let open = || Board {
+        board_type: BoardType::Open,
+        ..Board::default()
+    };
+    let boards = [
+        stored_board(store, &team_id, &users[0], open()).await,
+        stored_board(store, &team_id, &users[0], open()).await,
+        stored_board(store, &team_id, &users[0], open()).await,
+    ];
+    let join = async |board_id: &str, user_id: &str| {
+        let member = BoardMember {
+            board_id: board_id.to_owned(),
+            user_id: user_id.to_owned(),
+            scheme_editor: true,
+            ..BoardMember::default()
+        };
+        store
+            .save_member(&member)
+            .await
+            .expect("the member is saved");
+    };
+    for user in [2, 0, 1] {
+        join(&boards[0], &users[user]).await;
+    }
+    for board in [2, 1] {
+        join(&boards[board], &users[0]).await;
+    }
+
+    let members = store
+        .get_members_for_board(&boards[0])
+        .await
+        .expect("the members are read");
+    let member_ids: Vec<&str> = members
+        .iter()
+        .map(|member| member.user_id.as_str())
+        .collect();
+    assert_eq!(member_ids, users.each_ref().map(String::as_str));
+
+    let memberships = store
+        .get_members_for_user(&users[0])
+        .await
+        .expect("the memberships are read");
+    let membership_boards: Vec<&str> = memberships
+        .iter()
+        .map(|member| member.board_id.as_str())
+        .collect();
+    assert_eq!(membership_boards, boards.each_ref().map(String::as_str));
+
+    test.teardown().await;
+}
+
+/// Lists of users come oldest first, and a search that finds more users than it returns
+/// returns the oldest.
+#[tokio::test]
+async fn users_come_oldest_first() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let first = common::user(store, "order-c").await;
+    let second = common::user(store, "order-a").await;
+    let third = common::user(store, "order-b").await;
+    set_create_at(
+        &test,
+        "users",
+        &[(&third, 100), (&first, 200), (&second, 200)],
+    )
+    .await;
+    let expected = [third.as_str(), first.as_str(), second.as_str()];
+
+    let everybody = store.get_users_by_team().await.expect("the users are read");
+    assert_eq!(user_ids(&everybody), expected, "every user");
+
+    let asked = [second.clone(), third.clone(), first.clone()];
+    let by_id = store
+        .get_users_list(&asked)
+        .await
+        .expect("the users are read");
+    assert_eq!(
+        user_ids(&by_id),
+        expected,
+        "users by identifier, whatever order they are asked for in"
+    );
+
+    let found = store
+        .search_users_by_team("order-")
+        .await
+        .expect("the users are searched");
+    assert_eq!(user_ids(&found), expected, "a search");
+
+    let mut many = Vec::new();
+    for index in 0..12 {
+        many.push(common::user(store, &format!("many-{index:02}")).await);
+    }
+    // The two made last are the oldest.
+    set_create_at(&test, "users", &[(&many[11], 10), (&many[10], 20)]).await;
+    let found = store
+        .search_users_by_team("many-")
+        .await
+        .expect("the users are searched");
+    let mut oldest_ten = vec![many[11].as_str(), many[10].as_str()];
+    oldest_ten.extend(many[..8].iter().map(String::as_str));
+    assert_eq!(
+        user_ids(&found),
+        oldest_ten,
+        "the ten oldest of twelve matches"
+    );
+
+    test.teardown().await;
+}
+
+/// Categories with the same sort order come oldest first, not by name, and the boards
+/// of a category with the same sort order come by identifier.
+#[tokio::test]
+async fn sidebar_ties_fall_back_to_age() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
+    let mut categories = Vec::new();
+    for name in ["z", "y", "a"] {
+        let category = Category {
+            id: new_id(),
+            name: name.to_owned(),
+            user_id: user_id.clone(),
+            team_id: team_id.clone(),
+            create_at: 1,
+            update_at: 1,
+            ..Category::default()
+        };
+        store
+            .create_category(&category)
+            .await
+            .expect("the category is stored");
+        categories.push(category.id);
+    }
+    common::execute_raw(&test.dbconfig(), "UPDATE categories SET sort_order = 0").await;
+    set_create_at(
+        &test,
+        "categories",
+        &[
+            (&categories[2], 100),
+            (&categories[0], 200),
+            (&categories[1], 200),
+        ],
+    )
+    .await;
+
+    let listed = store
+        .get_user_categories(&user_id, &team_id)
+        .await
+        .expect("the categories are read");
+    let listed_ids: Vec<&str> = listed.iter().map(|category| category.id.as_str()).collect();
+    assert_eq!(
+        listed_ids,
+        [
+            categories[2].as_str(),
+            categories[0].as_str(),
+            categories[1].as_str()
+        ],
+        "categories of one sort order"
+    );
+
+    let boards = common::create_test_boards(store, &team_id, &user_id, 3).await;
+    let filed = [
+        boards[2].id.clone(),
+        boards[0].id.clone(),
+        boards[1].id.clone(),
+    ];
+    store
+        .add_update_category_board(&user_id, &categories[0], &filed)
+        .await
+        .expect("the boards are filed");
+    let boards_of = async |category_id: &str| -> Vec<String> {
+        store
+            .get_user_category_boards(&user_id, &team_id)
+            .await
+            .expect("the categories are read")
+            .into_iter()
+            .find(|listed| listed.category.id == category_id)
+            .expect("the category is listed")
+            .board_metadata
+            .into_iter()
+            .map(|metadata| metadata.board_id)
+            .collect()
+    };
+    assert_eq!(
+        boards_of(&categories[0]).await,
+        [
+            boards[0].id.as_str(),
+            boards[1].id.as_str(),
+            boards[2].id.as_str()
+        ],
+        "boards of one sort order"
+    );
+
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!(
+            "UPDATE category_boards SET sort_order = -10 WHERE board_id = '{}'",
+            boards[2].id
+        ),
+    )
+    .await;
+    assert_eq!(
+        boards_of(&categories[0]).await,
+        [
+            boards[2].id.as_str(),
+            boards[0].id.as_str(),
+            boards[1].id.as_str()
+        ],
+        "the sort order counts before the identifier"
+    );
+
+    test.teardown().await;
+}
+
+/// The subscribers of a block that were notified at the same time come by identifier,
+/// and the subscriptions of a subscriber made at the same time by the identifier of the
+/// block.
+#[tokio::test]
+async fn subscription_ties_fall_back_to_identifiers() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let team_id = common::team(store).await;
+    let users = [
+        common::user(store, "user b").await,
+        common::user(store, "user a").await,
+    ];
+    let board_id = stored_board(
+        store,
+        &team_id,
+        &users[0],
+        Board {
+            board_type: BoardType::Open,
+            ..Board::default()
+        },
+    )
+    .await;
+    let mut cards: Vec<Block> = (0..2)
+        .map(|_| Block {
+            id: new_id(),
+            board_id: board_id.clone(),
+            block_type: BlockType::Card,
+            create_at: 1,
+            update_at: 1,
+            ..Block::default()
+        })
+        .collect();
+    common::insert_blocks(store, &mut cards, &users[0]).await;
+    let subscribe = async |block: &Block, user_id: &str| {
+        let subscription = Subscription {
+            block_type: block.block_type.clone(),
+            block_id: block.id.clone(),
+            subscriber_type: SubscriberType::User,
+            subscriber_id: user_id.to_owned(),
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
+        };
+        store
+            .create_subscription(subscription)
+            .await
+            .expect("the subscription is stored");
+    };
+    subscribe(&cards[1], &users[1]).await;
+    subscribe(&cards[1], &users[0]).await;
+    subscribe(&cards[0], &users[1]).await;
+    common::execute_raw(
+        &test.dbconfig(),
+        "UPDATE subscriptions SET notified_at = 5, create_at = 5",
+    )
+    .await;
+
+    let subscribers = store
+        .get_subscribers_for_block(&cards[1].id)
+        .await
+        .expect("the subscribers are read");
+    let subscriber_ids: Vec<&str> = subscribers
+        .iter()
+        .map(|subscriber| subscriber.subscriber_id.as_str())
+        .collect();
+    assert_eq!(subscriber_ids, users.each_ref().map(String::as_str));
+
+    let subscriptions = store
+        .get_subscriptions(&users[1])
+        .await
+        .expect("the subscriptions are read");
+    let subscribed_blocks: Vec<&str> = subscriptions
+        .iter()
+        .map(|subscription| subscription.block_id.as_str())
+        .collect();
+    assert_eq!(
+        subscribed_blocks,
+        [cards[0].id.as_str(), cards[1].id.as_str()]
+    );
+
+    test.teardown().await;
+}

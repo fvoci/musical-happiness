@@ -44,25 +44,9 @@
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {
-          "fileId": "<secret:1>.png"
-        },
-        "id": "<id:4>",
-        "modifiedBy": "<id:1>",
-        "parentId": "<id:5>",
-        "schema": 1,
-        "title": "",
-        "type": "image",
-        "updateAt": "<ts>"
-      },
-      {
-        "boardId": "<id:2>",
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "fields": {
           "icon": "x"
         },
-        "id": "<id:5>",
+        "id": "<id:4>",
         "modifiedBy": "<id:1>",
         "parentId": "",
         "schema": 1,
@@ -75,15 +59,13 @@
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
-        "fields": {
-          "viewType": "table"
-        },
-        "id": "<id:6>",
+        "fields": {},
+        "id": "<id:5>",
         "modifiedBy": "<id:1>",
-        "parentId": "",
+        "parentId": "<id:4>",
         "schema": 1,
-        "title": "Exported view",
-        "type": "view",
+        "title": "Exported text",
+        "type": "text",
         "updateAt": "<ts>"
       },
       {
@@ -91,13 +73,31 @@
         "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
-        "fields": {},
+        "fields": {
+          "fileId": "<secret:1>.png"
+        },
+        "id": "<id:6>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:4>",
+        "schema": 1,
+        "title": "",
+        "type": "image",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "viewType": "table"
+        },
         "id": "<id:7>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:5>",
+        "parentId": "",
         "schema": 1,
-        "title": "Exported text",
-        "type": "text",
+        "title": "Exported view",
+        "type": "view",
         "updateAt": "<ts>"
       }
     ]
@@ -117,91 +117,6 @@
     "status": 0,
     "body": {
       "lines": [
-        {
-          "data": {
-            "boardId": "<id:2>",
-            "createAt": "<ts>",
-            "createdBy": "<id:1>",
-            "deleteAt": 0,
-            "fields": {
-              "fileId": "<secret:1>.png"
-            },
-            "id": "<id:4>",
-            "modifiedBy": "<id:1>",
-            "parentId": "<id:5>",
-            "schema": 1,
-            "title": "",
-            "type": "image",
-            "updateAt": "<ts>"
-          },
-          "type": "block"
-        },
-        {
-          "data": {
-            "boardId": "<id:2>",
-            "createAt": "<ts>",
-            "createdBy": "<id:1>",
-            "deleteAt": 0,
-            "fields": {
-              "icon": "x"
-            },
-            "id": "<id:5>",
-            "modifiedBy": "<id:1>",
-            "parentId": "",
-            "schema": 1,
-            "title": "Exported card",
-            "type": "card",
-            "updateAt": "<ts>"
-          },
-          "type": "block"
-        },
-        {
-          "data": {
-            "boardId": "<id:2>",
-            "createAt": "<ts>",
-            "createdBy": "<id:1>",
-            "deleteAt": 0,
-            "fields": {
-              "viewType": "table"
-            },
-            "id": "<id:6>",
-            "modifiedBy": "<id:1>",
-            "parentId": "",
-            "schema": 1,
-            "title": "Exported view",
-            "type": "view",
-            "updateAt": "<ts>"
-          },
-          "type": "block"
-        },
-        {
-          "data": {
-            "boardId": "<id:2>",
-            "createAt": "<ts>",
-            "createdBy": "<id:1>",
-            "deleteAt": 0,
-            "fields": {},
-            "id": "<id:7>",
-            "modifiedBy": "<id:1>",
-            "parentId": "<id:5>",
-            "schema": 1,
-            "title": "Exported text",
-            "type": "text",
-            "updateAt": "<ts>"
-          },
-          "type": "block"
-        },
-        {
-          "data": {
-            "boardId": "<id:2>",
-            "schemeAdmin": true,
-            "schemeCommenter": false,
-            "schemeEditor": true,
-            "schemeViewer": false,
-            "userId": "<id:1>"
-          },
-          "type": "boardMember"
-        },
         {
           "data": {
             "cardProperties": [
@@ -231,6 +146,91 @@
             "updateAt": "<ts>"
           },
           "type": "board"
+        },
+        {
+          "data": {
+            "boardId": "<id:2>",
+            "createAt": "<ts>",
+            "createdBy": "<id:1>",
+            "deleteAt": 0,
+            "fields": {
+              "icon": "x"
+            },
+            "id": "<id:4>",
+            "modifiedBy": "<id:1>",
+            "parentId": "",
+            "schema": 1,
+            "title": "Exported card",
+            "type": "card",
+            "updateAt": "<ts>"
+          },
+          "type": "block"
+        },
+        {
+          "data": {
+            "boardId": "<id:2>",
+            "createAt": "<ts>",
+            "createdBy": "<id:1>",
+            "deleteAt": 0,
+            "fields": {},
+            "id": "<id:5>",
+            "modifiedBy": "<id:1>",
+            "parentId": "<id:4>",
+            "schema": 1,
+            "title": "Exported text",
+            "type": "text",
+            "updateAt": "<ts>"
+          },
+          "type": "block"
+        },
+        {
+          "data": {
+            "boardId": "<id:2>",
+            "createAt": "<ts>",
+            "createdBy": "<id:1>",
+            "deleteAt": 0,
+            "fields": {
+              "fileId": "<secret:1>.png"
+            },
+            "id": "<id:6>",
+            "modifiedBy": "<id:1>",
+            "parentId": "<id:4>",
+            "schema": 1,
+            "title": "",
+            "type": "image",
+            "updateAt": "<ts>"
+          },
+          "type": "block"
+        },
+        {
+          "data": {
+            "boardId": "<id:2>",
+            "createAt": "<ts>",
+            "createdBy": "<id:1>",
+            "deleteAt": 0,
+            "fields": {
+              "viewType": "table"
+            },
+            "id": "<id:7>",
+            "modifiedBy": "<id:1>",
+            "parentId": "",
+            "schema": 1,
+            "title": "Exported view",
+            "type": "view",
+            "updateAt": "<ts>"
+          },
+          "type": "block"
+        },
+        {
+          "data": {
+            "boardId": "<id:2>",
+            "schemeAdmin": true,
+            "schemeCommenter": false,
+            "schemeEditor": true,
+            "schemeViewer": false,
+            "userId": "<id:1>"
+          },
+          "type": "boardMember"
         }
       ],
       "names": [
@@ -380,25 +380,9 @@
         "createdBy": "<id:8>",
         "deleteAt": 0,
         "fields": {
-          "fileId": "<secret:2>.png"
-        },
-        "id": "<id:10>",
-        "modifiedBy": "<id:8>",
-        "parentId": "<id:11>",
-        "schema": 1,
-        "title": "",
-        "type": "image",
-        "updateAt": "<ts>"
-      },
-      {
-        "boardId": "<id:9>",
-        "createAt": "<ts>",
-        "createdBy": "<id:8>",
-        "deleteAt": 0,
-        "fields": {
           "icon": "x"
         },
-        "id": "<id:11>",
+        "id": "<id:10>",
         "modifiedBy": "<id:8>",
         "parentId": "",
         "schema": 1,
@@ -411,15 +395,13 @@
         "createAt": "<ts>",
         "createdBy": "<id:8>",
         "deleteAt": 0,
-        "fields": {
-          "viewType": "table"
-        },
-        "id": "<id:12>",
+        "fields": {},
+        "id": "<id:11>",
         "modifiedBy": "<id:8>",
-        "parentId": "",
+        "parentId": "<id:10>",
         "schema": 1,
-        "title": "Exported view",
-        "type": "view",
+        "title": "Exported text",
+        "type": "text",
         "updateAt": "<ts>"
       },
       {
@@ -427,13 +409,31 @@
         "createAt": "<ts>",
         "createdBy": "<id:8>",
         "deleteAt": 0,
-        "fields": {},
+        "fields": {
+          "fileId": "<secret:2>.png"
+        },
+        "id": "<id:12>",
+        "modifiedBy": "<id:8>",
+        "parentId": "<id:10>",
+        "schema": 1,
+        "title": "",
+        "type": "image",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:9>",
+        "createAt": "<ts>",
+        "createdBy": "<id:8>",
+        "deleteAt": 0,
+        "fields": {
+          "viewType": "table"
+        },
         "id": "<id:13>",
         "modifiedBy": "<id:8>",
-        "parentId": "<id:11>",
+        "parentId": "",
         "schema": 1,
-        "title": "Exported text",
-        "type": "text",
+        "title": "Exported view",
+        "type": "view",
         "updateAt": "<ts>"
       }
     ]
@@ -448,17 +448,17 @@
         "boardId": "<id:9>",
         "schemeAdmin": true,
         "schemeCommenter": false,
-        "schemeEditor": false,
+        "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:8>"
+        "userId": "<id:1>"
       },
       {
         "boardId": "<id:9>",
         "schemeAdmin": true,
         "schemeCommenter": false,
-        "schemeEditor": true,
+        "schemeEditor": false,
         "schemeViewer": false,
-        "userId": "<id:1>"
+        "userId": "<id:8>"
       }
     ]
   },

@@ -399,7 +399,7 @@
         "modifiedBy": "<id:1>",
         "parentId": "<id:5>",
         "schema": 1,
-        "title": "three",
+        "title": "two",
         "type": "text",
         "updateAt": "<ts>"
       },
@@ -413,7 +413,7 @@
         "modifiedBy": "<id:1>",
         "parentId": "<id:5>",
         "schema": 1,
-        "title": "two",
+        "title": "three",
         "type": "text",
         "updateAt": "<ts>"
       }
@@ -428,8 +428,8 @@
       "boardId": "<id:2>",
       "contentOrder": [
         "<id:7>",
-        "<id:9>",
-        "<id:8>"
+        "<id:8>",
+        "<id:9>"
       ],
       "createAt": "<ts>",
       "createdBy": "<id:1>",
@@ -447,7 +447,7 @@
   },
   {
     "name": "move after",
-    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:8> as cards-alice",
+    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:9> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
@@ -460,8 +460,8 @@
     "body": {
       "boardId": "<id:2>",
       "contentOrder": [
-        "<id:9>",
         "<id:8>",
+        "<id:9>",
         "<id:7>"
       ],
       "createAt": "<ts>",
@@ -480,7 +480,7 @@
   },
   {
     "name": "move before",
-    "request": "POST /api/v1/content-blocks/<id:8>/moveto/before/<id:9> as cards-alice",
+    "request": "POST /api/v1/content-blocks/<id:9>/moveto/before/<id:8> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
@@ -493,8 +493,8 @@
     "body": {
       "boardId": "<id:2>",
       "contentOrder": [
-        "<id:8>",
         "<id:9>",
+        "<id:8>",
         "<id:7>"
       ],
       "createAt": "<ts>",
@@ -513,7 +513,7 @@
   },
   {
     "name": "move: bad direction",
-    "request": "POST /api/v1/content-blocks/<id:7>/moveto/sideways/<id:9> as cards-alice",
+    "request": "POST /api/v1/content-blocks/<id:7>/moveto/sideways/<id:8> as cards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -524,7 +524,7 @@
   },
   {
     "name": "move: unknown block",
-    "request": "POST /api/v1/content-blocks/unknown-block/moveto/after/<id:9> as cards-alice",
+    "request": "POST /api/v1/content-blocks/unknown-block/moveto/after/<id:8> as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -546,7 +546,7 @@
   },
   {
     "name": "move: viewer",
-    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:9> as cards-bob",
+    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:8> as cards-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {

@@ -146,7 +146,8 @@ pub(crate) async fn get_user_category_boards(
 }
 
 /// Returns the boards of a category by ascending sort order. Boards with equal sort
-/// orders, such as those never reordered, come in no particular order.
+/// orders, such as those never reordered, come by identifier: in the order they were
+/// made in.
 async fn category_board_metadata(
     scope: &mut Scope<'_>,
     category_id: &str,
@@ -155,7 +156,8 @@ async fn category_board_metadata(
     // Preserved quirk: the rows are not narrowed to the user the category belongs to, so
     // a board that another user put into this category is listed with it
     // (server/services/store/sqlstore/category_boards.go:42).
-    sql.bind(Id(category_id)).push(" ORDER BY sort_order");
+    sql.bind(Id(category_id))
+        .push(" ORDER BY sort_order, board_id");
     scope
         .fetch_all(sql)
         .await?

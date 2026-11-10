@@ -174,11 +174,11 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "schemeAdmin": false,
+        "schemeAdmin": true,
         "schemeCommenter": false,
-        "schemeEditor": false,
-        "schemeViewer": true,
-        "userId": "<id:6>"
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "userId": "<id:1>"
       },
       {
         "boardId": "<id:2>",
@@ -190,11 +190,11 @@
       },
       {
         "boardId": "<id:2>",
-        "schemeAdmin": true,
+        "schemeAdmin": false,
         "schemeCommenter": false,
-        "schemeEditor": true,
-        "schemeViewer": false,
-        "userId": "<id:1>"
+        "schemeEditor": false,
+        "schemeViewer": true,
+        "userId": "<id:6>"
       }
     ]
   },
@@ -387,19 +387,19 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "schemeAdmin": false,
-        "schemeCommenter": false,
-        "schemeEditor": true,
-        "schemeViewer": false,
-        "userId": "<id:5>"
-      },
-      {
-        "boardId": "<id:2>",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
         "userId": "<id:1>"
+      },
+      {
+        "boardId": "<id:2>",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "userId": "<id:5>"
       }
     ]
   },
@@ -605,11 +605,11 @@
     "body": [
       {
         "boardId": "<id:7>",
-        "schemeAdmin": false,
+        "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:6>"
+        "userId": "<id:1>"
       },
       {
         "boardId": "<id:7>",
@@ -621,11 +621,11 @@
       },
       {
         "boardId": "<id:7>",
-        "schemeAdmin": true,
+        "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "userId": "<id:1>"
+        "userId": "<id:6>"
       }
     ]
   }

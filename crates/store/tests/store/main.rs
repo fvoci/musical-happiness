@@ -13,6 +13,7 @@ mod categories;
 mod category_boards;
 mod common;
 mod file_info;
+mod order;
 mod sessions;
 mod setup;
 mod sharing;

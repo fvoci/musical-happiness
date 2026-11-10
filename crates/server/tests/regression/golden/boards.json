@@ -217,26 +217,6 @@
     "content_type": "application/json",
     "body": [
       {
-        "cardProperties": [],
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "description": "",
-        "icon": "",
-        "id": "<id:4>",
-        "isBuiltin": false,
-        "isTemplate": false,
-        "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
-        "properties": {},
-        "showDescription": false,
-        "teamId": "<id:3>",
-        "templateVersion": 0,
-        "title": "Open board",
-        "type": "O",
-        "updateAt": "<ts>"
-      },
-      {
         "cardProperties": [
           {
             "id": "prop1",
@@ -263,6 +243,26 @@
         "templateVersion": 0,
         "title": "Roadmap",
         "type": "P",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [],
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:4>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "minimumRole": "editor",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "<id:3>",
+        "templateVersion": 0,
+        "title": "Open board",
+        "type": "O",
         "updateAt": "<ts>"
       }
     ]
@@ -866,6 +866,35 @@
     "content_type": "application/json",
     "body": [
       {
+        "cardProperties": [
+          {
+            "id": "prop2",
+            "name": "Owner",
+            "options": [],
+            "type": "person"
+          }
+        ],
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "new plans",
+        "icon": "🚀",
+        "id": "<id:2>",
+        "isBuiltin": false,
+        "isTemplate": false,
+        "minimumRole": "editor",
+        "modifiedBy": "<id:1>",
+        "properties": {
+          "color": "red"
+        },
+        "showDescription": false,
+        "teamId": "<id:3>",
+        "templateVersion": 0,
+        "title": "Roadmap 2",
+        "type": "P",
+        "updateAt": "<ts>"
+      },
+      {
         "cardProperties": [],
         "createAt": "<ts>",
         "createdBy": "<id:1>",
@@ -911,35 +940,6 @@
         "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Roadmap 2 copy",
-        "type": "P",
-        "updateAt": "<ts>"
-      },
-      {
-        "cardProperties": [
-          {
-            "id": "prop2",
-            "name": "Owner",
-            "options": [],
-            "type": "person"
-          }
-        ],
-        "createAt": "<ts>",
-        "createdBy": "<id:1>",
-        "deleteAt": 0,
-        "description": "new plans",
-        "icon": "🚀",
-        "id": "<id:2>",
-        "isBuiltin": false,
-        "isTemplate": false,
-        "minimumRole": "editor",
-        "modifiedBy": "<id:1>",
-        "properties": {
-          "color": "red"
-        },
-        "showDescription": false,
-        "teamId": "<id:3>",
-        "templateVersion": 0,
-        "title": "Roadmap 2",
         "type": "P",
         "updateAt": "<ts>"
       }

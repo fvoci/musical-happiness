@@ -593,6 +593,33 @@ S6에서 새로 본 것:
 
 **남긴 불규칙.** 이번에 고치지 않았고 `docs/contract-pending.md`와 최종 보고의 남은 문제에 적는다: `/content-blocks/{block}/moveto/{where}/{dst}`(본문 저장 5.7과 함께 바뀐다), 아카이브 경로와 줄 형식(템플릿 변환 3.10), ID 목록을 받는 조회가 `POST`인 것(`POST /users`, `POST /teams/{team}/users`), `/subscriptions/{block}/{subscriber}`의 모양, 동작을 경로 끝에 붙인 라우트(`hide`, `unhide`, `join`, `leave`, `duplicate`, `undelete`, `onboard`), 구독자 종류 `channel`(서버는 `user`만 받는다), 늘 0인 `deleteAt`, 팀의 `title`·`settings`, `/ping`의 `db_type`.
 
+### M. 구현 7c단계: 목록의 순서 (2026-11-11 01:08 KST)
+
+설계 5.10의 결정이다. 기본은 만든 시각, 같으면 ID. 뜻에 맞는 순서가 따로 있는 목록은 그 순서를 쓰고 같을 때 이 기본으로 떨어진다. 순서는 스토어의 쿼리에 있다(핸들러가 다시 정렬하지 않는다). 계약(7d)의 라우트 설명에 같은 내용을 적는다.
+
+| 라우트 | 순서 | 전 |
+|---|---|---|
+| `GET /teams` | 만든 시각, ID | 같음 |
+| `GET /teams/{team}/boards` | 만든 시각, ID | 없음 |
+| `GET /teams/{team}/boards/search`, `GET /boards/search` | 만든 시각, ID | 없음 |
+| `GET /teams/{team}/templates` | 팀의 템플릿(만든 시각, ID) 다음에 내장 템플릿(만든 시각, ID) | 없음 |
+| `GET /boards/{board}/members` | 사용자 ID. ID가 UUIDv7이라 계정을 만든 순서다 | 없음 |
+| `GET /users/me/memberships` | 보드 ID. 보드를 만든 순서다 | 없음 |
+| `GET /boards/{board}/blocks`, `GET /boards/{board}/cards` | `createAt`, ID. 카드의 쪽은 이 순서를 자른다 | 같음 |
+| `GET /teams/{team}/users`, `POST /teams/{team}/users`, `POST /users` | 만든 시각, ID. ID 목록으로 물어도 물은 순서가 아니라 이 순서다. 검색은 맞는 사용자 가운데 가장 오래된 열 명이다 | 없음(검색의 열 명도 정해지지 않았다) |
+| `GET /teams/{team}/categories` | 카테고리는 `sortOrder`, 같으면 만든 시각, ID. 카테고리 안의 보드는 사용자가 정한 순서, 같으면 보드 ID | 카테고리는 `sortOrder`, 이름, ID. 보드는 같을 때 순서 없음 |
+| `GET /subscriptions/{subscriber}` | 만든 시각, 블록 ID | 같음 |
+
+- **멤버십에는 시각이 없다.** `board_members`에 참여한 시각의 열이 없어 "참여한 순서"로는 줄 수 없다. 그래서 ID 순서다. 참여 순서가 필요해지면 열을 더하는 마이그레이션이 든다(남은 문제).
+- **카테고리의 같을 때 기준을 이름에서 만든 시각으로 바꿨다(내 판단).** 이름의 순서는 DB의 정렬 규칙(collation)에 달려 SQLite와 PostgreSQL이 다를 수 있다. 같은 `sortOrder`는 스토어를 거치면 생기지 않는다(만들 때마다 다른 것들을 민다). 사용자 목록을 이름순으로 하지 않은 것도 같은 이유다.
+- 알림을 받을 구독자의 목록(라우트가 아니다)도 같을 때 구독자 ID로 정했다.
+
+**테스트.** `crates/store/tests/store/order.rs`(6개)가 규칙을 고정한다. 스토어로 넣은 뒤 스토어 밖에서 만든 시각과 정렬 값을 고쳐, 바라는 순서가 ID의 순서와도 이름의 순서와도 다르게 만든다. 스토어 테스트는 215 → 221개.
+
+**회귀 하네스의 정렬을 없앴다.** 하네스는 객체의 목록을 정렬해 기록했고 그래서 순서가 틀려도 통과했다(`docs/handoff.md`). 이제 온 순서대로 기록한다. 예외로 남긴 라우트는 없다. 정렬을 없앤 채 SQLite에서 세 번, PostgreSQL에서 두 번 기록한 스냅샷 다섯 벌이 모두 같았다(`diff -rq`). 순서를 정하기 전에 같은 실험을 했을 때는 SQLite만으로도 실행마다 달랐고 두 DB가 서로 달랐다(F절). 템플릿 제목과 옛 형식 가져오기 뒤의 보드 제목을 정렬해 적던 관찰 둘도 온 순서대로 적는다. 남긴 정렬은 객체의 멤버 이름(`ping`, 템플릿)과 아카이브 ZIP의 항목 이름(저장 파일 이름이 난수다)이다.
+
+**스냅샷.** 571단계 그대로. 56단계가 바뀌었고 바뀐 것은 목록 안의 순서와 그에 따라 매겨지는 `<id:N>` 번호뿐이다(전·후를 정렬하고 번호를 지워 비교하면 다른 단계가 0). 시나리오별로는 `trash` 19, `cards` 9, `blocks` 5, `archive` 4, `categories` 4, `search` 4, `files` 3, `members` 3, `boards` 2, `templates` 2, `boards_and_blocks` 1. 권한 표는 그대로다(636칸).
+
 ## 플러그인 저장소의 수정 사항 점검
 
 원본에서 갈라진 플러그인 저장소가 분리 뒤에 넣은 보안·검증 수정 15건(서버 쪽)을 원본 standalone 경로에 대해 하나씩 확인했다. 원본에 같은 결함이 있는지는 오라클에서 재현해 판단했고, 처리 결과는 `crates/server/PORTING.md`의 보안 수정 표, 의도적 차이, 보안 결정 대기 표에 PR 번호와 함께 적었다.

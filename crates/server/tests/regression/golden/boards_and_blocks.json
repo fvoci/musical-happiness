@@ -153,6 +153,20 @@
     "body": {
       "blocks": [
         {
+          "boardId": "<id:1>",
+          "createAt": "<ts>",
+          "createdBy": "<id:2>",
+          "deleteAt": 0,
+          "fields": {},
+          "id": "<id:3>",
+          "modifiedBy": "<id:2>",
+          "parentId": "",
+          "schema": 1,
+          "title": "Card A2",
+          "type": "card",
+          "updateAt": "<ts>"
+        },
+        {
           "boardId": "<id:4>",
           "createAt": "<ts>",
           "createdBy": "<id:2>",
@@ -165,20 +179,6 @@
           "parentId": "",
           "schema": 1,
           "title": "Card B",
-          "type": "card",
-          "updateAt": "<ts>"
-        },
-        {
-          "boardId": "<id:1>",
-          "createAt": "<ts>",
-          "createdBy": "<id:2>",
-          "deleteAt": 0,
-          "fields": {},
-          "id": "<id:3>",
-          "modifiedBy": "<id:2>",
-          "parentId": "",
-          "schema": 1,
-          "title": "Card A2",
           "type": "card",
           "updateAt": "<ts>"
         }

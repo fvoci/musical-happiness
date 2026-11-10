@@ -29,8 +29,8 @@ impl Store {
             .await
     }
 
-    /// Returns the categories of a user in a team, by ascending sort order, then by name,
-    /// then by identifier.
+    /// Returns the categories of a user in a team, by ascending sort order; those with
+    /// equal sort orders come oldest first, then by identifier.
     ///
     /// # Errors
     ///
@@ -194,7 +194,7 @@ pub(crate) async fn get_user_categories(
     ));
     sql.bind(Id(user_id))
         .push_bind(" AND team_id = ", Id(team_id))
-        .push(" ORDER BY sort_order, name, id");
+        .push(" ORDER BY sort_order, create_at, id");
     scope
         .fetch_all(sql)
         .await?

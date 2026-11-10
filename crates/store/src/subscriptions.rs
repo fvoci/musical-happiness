@@ -96,7 +96,8 @@ impl Store {
         .await
     }
 
-    /// Returns the subscribers of a block, the one notified longest ago first.
+    /// Returns the subscribers of a block, the one notified longest ago first; those
+    /// notified at the same time come by identifier.
     ///
     /// # Errors
     ///
@@ -110,7 +111,8 @@ impl Store {
                 "SELECT subscriber_type, subscriber_id, notified_at FROM subscriptions \
                  WHERE block_id = ",
             );
-            sql.bind(Id(block_id)).push(" ORDER BY notified_at");
+            sql.bind(Id(block_id))
+                .push(" ORDER BY notified_at, subscriber_id");
             scope
                 .fetch_all(sql)
                 .await?

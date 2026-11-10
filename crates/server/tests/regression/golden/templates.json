@@ -4,18 +4,18 @@
     "request": "(observation)",
     "status": 0,
     "body": [
-      "Company Goals & OKRs",
-      "Competitive Analysis",
-      "Content Calendar ",
       "Meeting Agenda ",
-      "Personal Goals ",
+      "Sales Pipeline CRM",
       "Personal Tasks ",
       "Project Tasks ",
-      "Roadmap ",
-      "Sales Pipeline CRM",
+      "Company Goals & OKRs",
+      "Personal Goals ",
       "Sprint Planner ",
-      "Team Retrospective",
       "User Research Sessions",
+      "Competitive Analysis",
+      "Content Calendar ",
+      "Team Retrospective",
+      "Roadmap ",
       "Welcome to Boards!"
     ]
   },
@@ -149,16 +149,6 @@
           "name": "Status",
           "options": [
             {
-              "color": "propColorGreen",
-              "id": "agkinkjy5983wsk6kppsujajxqw",
-              "value": "Completed 🙌"
-            },
-            {
-              "color": "propColorPurple",
-              "id": "ajurey3xkocs1nwx8di5zx6oe7o",
-              "value": "Later"
-            },
-            {
               "color": "propColorRed",
               "id": "amm6wfhnbuxojwssyftgs9dipqe",
               "value": "To do 🔥"
@@ -167,9 +157,65 @@
               "color": "propColorYellow",
               "id": "af3p8ztcyxgn8wd9z4az7o9tjeh",
               "value": "Next up"
+            },
+            {
+              "color": "propColorPurple",
+              "id": "ajurey3xkocs1nwx8di5zx6oe7o",
+              "value": "Later"
+            },
+            {
+              "color": "propColorGreen",
+              "id": "agkinkjy5983wsk6kppsujajxqw",
+              "value": "Completed 🙌"
             }
           ],
           "type": "select"
+        },
+        {
+          "id": "acypkejeb5yfujhj9te57p9kaxw",
+          "name": "Priority",
+          "options": [
+            {
+              "color": "propColorOrange",
+              "id": "aanaehcw3m13jytujsjk5hpf6ry",
+              "value": "1. High"
+            },
+            {
+              "color": "propColorBrown",
+              "id": "ascd7nm9r491ayot8i86g1gmgqw",
+              "value": "2. Medium"
+            },
+            {
+              "color": "propColorGray",
+              "id": "aq6ukoiciyfctgwyhwzpfss8ghe",
+              "value": "3. Low"
+            }
+          ],
+          "type": "select"
+        },
+        {
+          "id": "aqh13jabwexjkzr3jqsz1i1syew",
+          "name": "Assignee",
+          "options": [],
+          "type": "person"
+        },
+        {
+          "id": "acmg7mz1rr1eykfug4hcdpb1y1o",
+          "name": "Due Date",
+          "options": [],
+          "type": "date"
+        },
+        {
+          "id": "amewjwfjrtpu8ha73xsrdmxazxr",
+          "name": "Reviewed",
+          "options": [],
+          "type": "checkbox"
+        },
+        {
+          "id": "attzzboqaz6m1sdti5xa7gjnk1e",
+          "name": "Last updated time",
+          "options": [],
+          "type": "updatedTime"
         },
         {
           "id": "a4nfnb5xr3txr5xq7y9ho7kyz6c",
@@ -182,52 +228,6 @@
           "name": "Created by",
           "options": [],
           "type": "createdBy"
-        },
-        {
-          "id": "acmg7mz1rr1eykfug4hcdpb1y1o",
-          "name": "Due Date",
-          "options": [],
-          "type": "date"
-        },
-        {
-          "id": "acypkejeb5yfujhj9te57p9kaxw",
-          "name": "Priority",
-          "options": [
-            {
-              "color": "propColorBrown",
-              "id": "ascd7nm9r491ayot8i86g1gmgqw",
-              "value": "2. Medium"
-            },
-            {
-              "color": "propColorGray",
-              "id": "aq6ukoiciyfctgwyhwzpfss8ghe",
-              "value": "3. Low"
-            },
-            {
-              "color": "propColorOrange",
-              "id": "aanaehcw3m13jytujsjk5hpf6ry",
-              "value": "1. High"
-            }
-          ],
-          "type": "select"
-        },
-        {
-          "id": "amewjwfjrtpu8ha73xsrdmxazxr",
-          "name": "Reviewed",
-          "options": [],
-          "type": "checkbox"
-        },
-        {
-          "id": "aqh13jabwexjkzr3jqsz1i1syew",
-          "name": "Assignee",
-          "options": [],
-          "type": "person"
-        },
-        {
-          "id": "attzzboqaz6m1sdti5xa7gjnk1e",
-          "name": "Last updated time",
-          "options": [],
-          "type": "updatedTime"
         }
       ],
       "createAt": "<ts>",
