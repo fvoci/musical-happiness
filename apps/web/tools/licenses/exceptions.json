@@ -1,0 +1,44 @@
+{
+    "tooling": [
+        {
+            "name": "lightningcss",
+            "license": "MPL-2.0",
+            "reason": "CSS transformer used by Vite and Tailwind while building. It runs on the build machine and no part of it is in the output."
+        },
+        {
+            "name": "lightningcss-*",
+            "license": "MPL-2.0",
+            "reason": "Platform binary of lightningcss."
+        },
+        {
+            "name": "lru-cache",
+            "license": "BlueOak-1.0.0",
+            "reason": "Cache used inside build and test tools (jsdom, the message compiler). Not in the output."
+        },
+        {
+            "name": "minimatch",
+            "license": "BlueOak-1.0.0",
+            "reason": "Glob matcher used by ESLint and other tools. Not in the output."
+        },
+        {
+            "name": "tslib",
+            "license": "0BSD",
+            "reason": "Runtime helpers of the WebAssembly loaders inside Storybook and the message compiler. Not in the output."
+        },
+        {
+            "name": "argparse",
+            "license": "Python-2.0",
+            "reason": "Command-line parser of the WOFF2 encoder that the font tool uses. It runs on the build machine and is not in the output."
+        }
+    ],
+    "vendored": [
+        {
+            "name": "shadcn-svelte",
+            "reason": "Its CLI writes the components under src/lib/ui, which are compiled into the output."
+        },
+        {
+            "name": "@inlang/paraglide-js",
+            "reason": "Its compiler writes the message runtime under src/lib/i18n/paraglide, which is compiled into the output."
+        }
+    ]
+}

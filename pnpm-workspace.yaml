@@ -1,0 +1,19 @@
+# The JavaScript workspace of fvoci. Only the new web app is part of it; the
+# original `webapp/` tree keeps its own npm lockfile and is not a member.
+packages:
+  - apps/*
+
+engineStrict: true
+
+# Dependencies are written as exact versions, never as ranges.
+savePrefix: ''
+
+# A version must have been public for a day before it is installed. This is
+# pnpm's default; it is written out so that it also fails instead of falling back.
+minimumReleaseAge: 1440
+
+# Install scripts run only for packages listed here with `true`.
+# esbuild: its postinstall only verifies the platform binary, which arrives as
+# the optional dependency @esbuild/<platform>.
+allowBuilds:
+  esbuild: false

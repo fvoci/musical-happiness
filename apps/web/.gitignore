@@ -1,0 +1,8 @@
+# Output of the build, of Storybook and of Playwright
+dist/
+storybook-static/
+test-results/
+playwright-report/
+
+# Written by tools/fonts/build.ts; only the tool and the character sets are committed
+src/styles/fonts/

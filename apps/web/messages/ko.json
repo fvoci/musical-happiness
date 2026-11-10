@@ -1,0 +1,10 @@
+{
+    "app_name": "fvoci",
+    "app_loading": "불러오는 중…",
+    "ui_close": "닫기",
+    "ui_toggle_sidebar": "사이드바 열기/닫기",
+    "ui_sidebar_title": "사이드바",
+    "ui_sidebar_description": "보드 사이를 이동합니다.",
+    "ui_command_title": "검색",
+    "ui_command_description": "입력하면 목록이 걸러집니다."
+}

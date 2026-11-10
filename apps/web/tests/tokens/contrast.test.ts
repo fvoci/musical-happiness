@@ -1,0 +1,121 @@
+/**
+ * The colour tokens of styles/app.css, read from the file itself, against the
+ * contrast they have to keep on both themes:
+ *
+ * - text on its surface: 4.5 to 1
+ * - the outline of a form field and the focus indicator, on every surface
+ *   they can appear on: 3 to 1
+ */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+import { describe, expect, it } from 'vitest';
+
+import { contrast, over, parseOklch, type Color } from '../support/color.ts';
+
+const css = readFileSync(path.resolve(import.meta.dirname, '../../src/styles/app.css'), 'utf8');
+
+/** The colour declarations of the first rule with this selector. */
+function tokensOf(selector: string): Map<string, Color> {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const block = new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(css)?.[1];
+  if (block === undefined) throw new Error(`app.css has no rule for ${selector}`);
+  const tokens = new Map<string, Color>();
+  for (const match of block.matchAll(/--([\w-]+):\s*(oklch\([^)]*\))\s*;/g)) {
+    tokens.set(match[1] ?? '', parseOklch(match[2] ?? ''));
+  }
+  return tokens;
+}
+
+const themes = {
+  light: tokensOf(':root'),
+  dark: tokensOf('.dark'),
+};
+
+/** [text, surface]. The text is drawn on the surface, the surface on the page. */
+const TEXT_PAIRS: [string, string][] = [
+  ['foreground', 'background'],
+  ['card-foreground', 'card'],
+  ['popover-foreground', 'popover'],
+  ['primary-foreground', 'primary'],
+  ['secondary-foreground', 'secondary'],
+  ['accent-foreground', 'accent'],
+  ['muted-foreground', 'background'],
+  ['muted-foreground', 'card'],
+  ['muted-foreground', 'muted'],
+  ['destructive', 'background'],
+  ['destructive', 'card'],
+  ['sidebar-foreground', 'sidebar'],
+  ['sidebar-primary-foreground', 'sidebar-primary'],
+  ['sidebar-accent-foreground', 'sidebar-accent'],
+  ['muted-foreground', 'sidebar'],
+];
+
+/** [indicator, surface] */
+const INDICATOR_PAIRS: [string, string][] = [
+  ['input-border', 'background'],
+  ['input-border', 'card'],
+  ['input-border', 'popover'],
+  ['input-border', 'muted'],
+  ['input-border', 'sidebar'],
+  ['ring', 'background'],
+  ['ring', 'card'],
+  ['ring', 'popover'],
+  ['ring', 'muted'],
+  ['sidebar-ring', 'sidebar'],
+  ['sidebar-ring', 'sidebar-accent'],
+];
+
+describe.each(Object.entries(themes))('%s theme', (name, tokens) => {
+  const token = (name: string): Color => {
+    const value = tokens.get(name);
+    if (!value) throw new Error(`token --${name} is not defined`);
+    return value;
+  };
+  const page = token('background');
+  const ratio = (foreground: string, surface: string): number => {
+    const painted = over(token(surface), page);
+    return contrast(over(token(foreground), painted), painted);
+  };
+
+  it.each(TEXT_PAIRS)('text %s on %s is at least 4.5:1', (foreground, surface) => {
+    expect(ratio(foreground, surface)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(INDICATOR_PAIRS)('%s on %s is at least 3:1', (indicator, surface) => {
+    expect(ratio(indicator, surface)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('destructive text on the tinted destructive button is at least 4.5:1', () => {
+    // The button is `bg-destructive/10`, `/20` under the pointer; on the dark
+    // theme `/20` and `/30`. Its label is `text-destructive`.
+    const opacities = name === 'light' ? [0.1, 0.2] : [0.2, 0.3];
+    for (const opacity of opacities) {
+      const tinted = over(token('destructive'), page, opacity);
+      expect(contrast(token('destructive'), tinted)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('defines every token the other theme defines', () => {
+    expect([...tokens.keys()].sort()).toEqual([...themes.light.keys()].sort());
+  });
+});
+
+describe('colour arithmetic', () => {
+  it('gives black on white the maximum ratio', () => {
+    expect(contrast(parseOklch('oklch(0 0 0)'), parseOklch('oklch(1 0 0)'))).toBeCloseTo(21, 1);
+  });
+
+  it('matches a known pair: #767676 on white is 4.54:1', () => {
+    const grey = 0x76 / 255;
+    const linear = ((grey + 0.055) / 1.055) ** 2.4;
+    const color: Color = { r: linear, g: linear, b: linear, alpha: 1 };
+    expect(contrast(color, parseOklch('oklch(1 0 0)'))).toBeCloseTo(4.54, 2);
+  });
+
+  it('composites a translucent colour in encoded sRGB', () => {
+    // White at 50% over black is #808080 on screen, luminance 0.2159.
+    const half = over(parseOklch('oklch(1 0 0 / 50%)'), parseOklch('oklch(0 0 0)'));
+    expect(half.r).toBeCloseTo(0.214, 3);
+  });
+});
