@@ -476,16 +476,23 @@ async fn download_by_a_non_member_is_forbidden() {
 async fn download_with_a_valid_read_token() {
     let ts = Setup::local_mode().start().await.init_basic().await;
     let (board, file_id) = board_with_image(&ts).await;
-    let sharing = json!({"id": board.id, "enabled": true, "token": "sharetoken"});
-    ts.client
-        .post(&format!("/boards/{}/sharing", board.id), &sharing)
-        .await
-        .check_ok();
+    let shared = ts
+        .client
+        .post(
+            &format!("/boards/{}/sharing", board.id),
+            &json!({"enabled": true}),
+        )
+        .await;
+    shared.check_ok();
+    let read_token = shared.value()["token"]
+        .as_str()
+        .expect("sharing answers the read token")
+        .to_owned();
 
     let right = ts
         .anonymous()
         .get(&format!(
-            "/files/teams/{TEST_TEAM_ID}/{}/{file_id}?read_token=sharetoken",
+            "/files/teams/{TEST_TEAM_ID}/{}/{file_id}?read_token={read_token}",
             board.id
         ))
         .await;
@@ -726,16 +733,10 @@ async fn a_file_is_given_out_through_its_own_board() {
         .await
         .check_error(StatusCode::NOT_FOUND, "board not found");
 
-    ts.client
-        .post(
-            &format!("/boards/{}/sharing", fixture.owner_board.id),
-            &json!({"id": fixture.owner_board.id, "enabled": true, "token": "read-me"}),
-        )
-        .await
-        .check_ok();
+    let read_token = ts.share(&fixture.owner_board.id).await;
     let shared = ts
         .anonymous()
-        .get(&format!("{path}?read_token=read-me"))
+        .get(&format!("{path}?read_token={read_token}"))
         .await;
     shared.check_ok();
     assert_eq!(

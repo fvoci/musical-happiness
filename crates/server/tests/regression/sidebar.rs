@@ -218,29 +218,47 @@ pub(crate) async fn sharing(s: &mut Session) {
 
     s.get("get: none yet", &path).user(&alice).await;
     s.post("post: editor", &path)
-        .json(json!({"id": board, "enabled": true, "token": "tok-editor"}))
+        .json(json!({"enabled": true}))
         .user(&bob)
         .await;
-    s.post("post", &path)
-        .json(json!({"id": board, "enabled": true, "token": "share-token-1"}))
+    s.post("post: with a token of the request's", &path)
+        .json(json!({"enabled": true, "token": "share-token-1"}))
         .user(&alice)
         .await;
+    s.post("post: nothing said", &path)
+        .json(json!({}))
+        .user(&alice)
+        .await;
+    s.get("get: still none", &path).user(&alice).await;
+    let token = s
+        .post("post", &path)
+        .json(json!({"enabled": true}))
+        .user(&alice)
+        .await
+        .string("token");
     s.post("post: malformed body", &path)
         .raw(b"{")
         .user(&alice)
         .await;
-    s.get("get", &path).user(&alice).unrecorded().await;
-    s.get("get: editor", &path).user(&bob).unrecorded().await;
+    s.get("get", &path).user(&alice).await;
+    s.get("get: editor", &path).user(&bob).await;
     s.get(
         "get: unknown board",
         &format!("{API}/boards/unknown-board/sharing"),
     )
     .user(&alice)
     .await;
+    let again = s
+        .post("post: again", &path)
+        .json(json!({"enabled": true}))
+        .user(&alice)
+        .await
+        .string("token");
+    s.note("sharing again keeps the token", &json!(again == token));
 
     s.get(
         "board with the read token",
-        &format!("{board_path}?read_token=share-token-1"),
+        &format!("{board_path}?read_token={token}"),
     )
     .await;
     s.get(
@@ -250,7 +268,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     .await;
     s.get(
         "blocks with the read token",
-        &format!("{board_path}/blocks?read_token=share-token-1"),
+        &format!("{board_path}/blocks?read_token={token}"),
     )
     .await;
     s.get(
@@ -260,29 +278,66 @@ pub(crate) async fn sharing(s: &mut Session) {
     .await;
     s.get(
         "members with the read token",
-        &format!("{board_path}/members?read_token=share-token-1"),
+        &format!("{board_path}/members?read_token={token}"),
     )
     .await;
     s.post(
         "insert with the read token",
-        &format!("{board_path}/blocks?read_token=share-token-1"),
+        &format!("{board_path}/blocks?read_token={token}"),
     )
     .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
     .await;
     s.patch(
         "patch with the read token",
-        &format!("{board_path}/blocks/{card}?read_token=share-token-1"),
+        &format!("{board_path}/blocks/{card}?read_token={token}"),
     )
     .json(json!({"title": "hijack"}))
     .await;
 
+    let renewed = s
+        .post("regenerate", &path)
+        .json(json!({"enabled": true, "regenerate": true}))
+        .user(&alice)
+        .await
+        .string("token");
+    s.note(
+        "a regenerated token is another one",
+        &json!(renewed != token),
+    );
+    s.get(
+        "board with the token from before regenerating",
+        &format!("{board_path}?read_token={token}"),
+    )
+    .await;
+    s.get(
+        "board with the regenerated token",
+        &format!("{board_path}?read_token={renewed}"),
+    )
+    .await;
+
     s.post("disable", &path)
-        .json(json!({"id": board, "enabled": false, "token": "share-token-1"}))
+        .json(json!({"enabled": false}))
         .user(&alice)
         .await;
+    s.get("get: disabled", &path).user(&alice).await;
     s.get(
         "board with the token of a disabled share",
-        &format!("{board_path}?read_token=share-token-1"),
+        &format!("{board_path}?read_token={renewed}"),
+    )
+    .await;
+    let last = s
+        .post("enable again", &path)
+        .json(json!({"enabled": true}))
+        .user(&alice)
+        .await
+        .string("token");
+    s.note(
+        "sharing again after disabling makes a new token",
+        &json!(last != renewed && last != token),
+    );
+    s.get(
+        "board with the token from before disabling",
+        &format!("{board_path}?read_token={renewed}"),
     )
     .await;
 }

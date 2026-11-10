@@ -25,7 +25,7 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardType, BoardsAndBlocks,
-    Category, CategoryBoards, Sharing, Team, User, is_id, new_id,
+    Category, CategoryBoards, Team, User, is_id, new_id,
 };
 use fvoci_server::auth::secret::new_secret;
 use fvoci_store::{BlockFilter, DuplicateAs, PublicBoards};
@@ -229,23 +229,6 @@ async fn category_name_of(
                 .any(|metadata| metadata.board_id == board_id)
         })
         .map(|entry| entry.category.name)
-}
-
-/// Turns on public sharing of a board with the given read token; the counterpart of
-/// `th.Client.PostSharing(sharing)`.
-async fn share_board(th: &TestServer, board_id: &str, token: &str) {
-    let sharing = Sharing {
-        id: board_id.to_owned(),
-        enabled: true,
-        token: token.to_owned(),
-        update_at: 1,
-        ..Sharing::default()
-    };
-    th.app
-        .store()
-        .upsert_sharing(&sharing)
-        .await
-        .expect("the sharing record is stored");
 }
 
 fn sorted_ids(boards: &[Board]) -> Vec<String> {
@@ -929,7 +912,6 @@ async fn get_board_a_non_authenticated_user_should_be_rejected() {
 async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let sharing_token = new_secret();
     let board = board_with_admin(
         &th,
         new_board(
@@ -940,7 +922,7 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
         &user1.id,
     )
     .await;
-    share_board(&th, &board.id, &sharing_token).await;
+    let sharing_token = th.share(&board.id).await;
 
     // Without a session the board cannot be read...
     let anonymous = th.anonymous();

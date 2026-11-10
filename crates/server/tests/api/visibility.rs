@@ -113,7 +113,7 @@ impl Hidden {
         th.client
             .post(
                 &format!("/boards/{}/sharing", board.id),
-                &json!({"enabled": true, "token": "a-read-token"}),
+                &json!({"enabled": true}),
             )
             .await
             .check_ok();

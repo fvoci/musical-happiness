@@ -420,7 +420,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             fx.owner(
                 Method::POST,
                 &format!("{board_path}/sharing"),
-                Payload::Json(json!({"id": board, "enabled": true, "token": "t"})),
+                Payload::Json(json!({"enabled": true})),
             )
             .await;
             Request::new(Method::GET, format!("{board_path}/sharing"))
@@ -428,7 +428,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "sharing: post" => Request::json(
             Method::POST,
             format!("{board_path}/sharing"),
-            json!({"id": board, "enabled": true, "token": "t"}),
+            json!({"enabled": true}),
         ),
         "subscriptions: create" => Request::json(
             Method::POST,

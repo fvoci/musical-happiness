@@ -100,7 +100,13 @@ impl Authenticator {
         if !self.public_shared_boards {
             return Err(AppError::internal("public shared boards disabled"));
         }
-        Ok(sharing.id == board_id && sharing.enabled && tokens_match(&sharing.token, read_token))
+        // A board that is not shared has no token; nothing matches that, not even
+        // nothing.
+        Ok(
+            sharing.enabled
+                && !sharing.token.is_empty()
+                && tokens_match(&sharing.token, read_token),
+        )
     }
 }
 

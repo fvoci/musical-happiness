@@ -22,7 +22,7 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockPatch, BlockPatchBatch, BlockType,
-    Board, BoardMember, BoardType, Category, JsonMap, Sharing, new_id,
+    Board, BoardMember, BoardType, Category, JsonMap, new_id,
 };
 use fvoci_server::app::ChangeNotification;
 use fvoci_server::error::ErrorKind;
@@ -1072,21 +1072,9 @@ async fn get_blocks_with_a_read_token() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
     let content = card_with_content(&th, &boards).await;
-    let sharing = Sharing {
-        id: boards.board.id.clone(),
-        enabled: true,
-        token: "the-read-token".to_owned(),
-        modified_by: th.client.me().await.id,
-        update_at: 0,
-    };
-    th.app
-        .store()
-        .upsert_sharing(&sharing)
-        .await
-        .expect("the board is shared");
+    let read_token = th.share(&boards.board.id).await;
     let anonymous = th.anonymous();
-    let with_token =
-        |board: &Board| format!("{}?read_token=the-read-token", blocks_path(&board.id));
+    let with_token = |board: &Board| format!("{}?read_token={read_token}", blocks_path(&board.id));
 
     let blocks: Vec<Block> = anonymous.get(&with_token(&boards.board)).await.ok_json();
     assert_eq!(

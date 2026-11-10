@@ -38,6 +38,7 @@ pub use category_boards::BoardVisibility;
 pub use connect::DbType;
 pub use db::Dialect;
 pub use error::StoreError;
+pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard};
 pub use users::{AdminChange, InstanceRole, Preference};
 

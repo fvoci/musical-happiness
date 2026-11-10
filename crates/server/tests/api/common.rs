@@ -16,8 +16,8 @@ use fvoci_server::app::App;
 use fvoci_server::auth::secret::new_secret;
 use fvoci_server::config::Configuration;
 use fvoci_server::{Server, TlsFiles};
-use fvoci_store::Store;
 use fvoci_store::testing::TestDatabase;
+use fvoci_store::{SharingChange, Store};
 use reqwest::{Method, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -323,6 +323,16 @@ impl TestServer {
             &team.signup_token,
         )
         .await
+    }
+
+    /// Shares a board, past the route and on behalf of nobody, and returns the read
+    /// token the server made for it.
+    pub(crate) async fn share(&self, board_id: &str) -> String {
+        self.app
+            .set_sharing(board_id, SharingChange::On, "")
+            .await
+            .expect("the board is shared")
+            .token
     }
 
     /// `CreateBoard`: creates an empty board as the first client's user.

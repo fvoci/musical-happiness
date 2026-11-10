@@ -70,10 +70,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "enabled": false,
-      "id": "<id:2>",
-      "modifiedBy": "",
-      "token": ""
+      "enabled": false
     }
   },
   {
@@ -88,11 +85,48 @@
     }
   },
   {
+    "name": "post: with a token of the request's",
+    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "token",
+      "message": "the server makes the read token; a request cannot set it",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "post: nothing said",
+    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "enabled",
+      "message": "enabled must be true or false",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "get: still none",
+    "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "enabled": false
+    }
+  },
+  {
     "name": "post",
     "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": {}
+    "body": {
+      "enabled": true,
+      "token": "<secret>",
+      "updateAt": "<ts>"
+    }
   },
   {
     "name": "post: malformed body",
@@ -102,6 +136,28 @@
     "body": {
       "error": "bad_request",
       "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "get",
+    "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "enabled": true,
+      "token": "<secret>",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "get: editor",
+    "request": "GET /api/v2/boards/<id:2>/sharing as share-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "access denied to sharing the board",
       "request_id": "<request-id>"
     }
   },
@@ -117,8 +173,25 @@
     }
   },
   {
+    "name": "post: again",
+    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "enabled": true,
+      "token": "<secret>",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "sharing again keeps the token",
+    "request": "(observation)",
+    "status": 0,
+    "body": true
+  },
+  {
     "name": "board with the read token",
-    "request": "GET /api/v2/boards/<id:2>?read_token=share-token-1 as anonymous",
+    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -155,7 +228,7 @@
   },
   {
     "name": "blocks with the read token",
-    "request": "GET /api/v2/boards/<id:2>/blocks?read_token=share-token-1 as anonymous",
+    "request": "GET /api/v2/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -188,7 +261,7 @@
   },
   {
     "name": "members with the read token",
-    "request": "GET /api/v2/boards/<id:2>/members?read_token=share-token-1 as anonymous",
+    "request": "GET /api/v2/boards/<id:2>/members?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -199,7 +272,7 @@
   },
   {
     "name": "insert with the read token",
-    "request": "POST /api/v2/boards/<id:2>/blocks?read_token=share-token-1 as anonymous",
+    "request": "POST /api/v2/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -210,7 +283,7 @@
   },
   {
     "name": "patch with the read token",
-    "request": "PATCH /api/v2/boards/<id:2>/blocks/<id:5>?read_token=share-token-1 as anonymous",
+    "request": "PATCH /api/v2/boards/<id:2>/blocks/<id:5>?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -220,15 +293,110 @@
     }
   },
   {
+    "name": "regenerate",
+    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "enabled": true,
+      "token": "<secret>",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "a regenerated token is another one",
+    "request": "(observation)",
+    "status": 0,
+    "body": true
+  },
+  {
+    "name": "board with the token from before regenerating",
+    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:1> as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "board with the regenerated token",
+    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "createAt": "<ts>",
+      "createdBy": "",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "<id:3>",
+      "templateVersion": 0,
+      "title": "Shared board",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
     "name": "disable",
     "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": {}
+    "body": {
+      "enabled": false,
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "get: disabled",
+    "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "enabled": false,
+      "updateAt": "<ts>"
+    }
   },
   {
     "name": "board with the token of a disabled share",
-    "request": "GET /api/v2/boards/<id:2>?read_token=share-token-1 as anonymous",
+    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "enable again",
+    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "enabled": true,
+      "token": "<secret>",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "sharing again after disabling makes a new token",
+    "request": "(observation)",
+    "status": 0,
+    "body": true
+  },
+  {
+    "name": "board with the token from before disabling",
+    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:2> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {

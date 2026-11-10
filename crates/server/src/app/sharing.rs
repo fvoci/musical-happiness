@@ -1,33 +1,51 @@
 //! Public sharing of boards through read tokens.
 
 use fvoci_model::Sharing;
-use fvoci_store::StoreError;
+use fvoci_store::{SharingChange, StoreError};
 
 use super::App;
+use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
 impl App {
-    /// Returns the sharing state of a board.
+    /// Returns the sharing state of a board. A board that was never shared is not
+    /// shared.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if no sharing state was ever stored for the board, or
-    /// the store's error if it cannot be read.
+    /// Returns the store's error if the state cannot be read.
     pub async fn sharing(&self, board_id: &str) -> Result<Sharing, AppError> {
         match self.store().get_sharing(board_id).await {
             Ok(sharing) => Ok(sharing),
-            Err(StoreError::NoRows) => Err(AppError::not_found("sharing")),
+            Err(StoreError::NoRows) => Ok(Sharing {
+                board_id: board_id.to_owned(),
+                ..Sharing::default()
+            }),
             Err(error) => Err(error.into()),
         }
     }
 
-    /// Stores the sharing state of the board that `sharing` names, replacing any earlier
-    /// state. The modification time stored is the current time.
+    /// Changes whether a board is shared, on behalf of a user, and returns the sharing
+    /// state as stored. A board that becomes shared, or is shared anew, gets a read
+    /// token the server makes; one that stops being shared loses its token.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the state cannot be written.
-    pub async fn upsert_sharing(&self, sharing: &Sharing) -> Result<(), AppError> {
-        Ok(self.store().upsert_sharing(sharing).await?)
+    /// Returns a not-found error if there is no such board.
+    pub async fn set_sharing(
+        &self,
+        board_id: &str,
+        change: SharingChange,
+        user_id: &str,
+    ) -> Result<Sharing, AppError> {
+        match self
+            .store()
+            .set_sharing(board_id, change, &new_secret(), user_id)
+            .await
+        {
+            Ok(sharing) => Ok(sharing),
+            Err(error) if error.is_not_found() => Err(AppError::not_found("board")),
+            Err(error) => Err(error.into()),
+        }
     }
 }

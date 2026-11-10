@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, Board, BoardType, Category, Sharing, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardType, Category, new_id};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -309,18 +309,7 @@ async fn block_subscription_needs_the_read_token() {
         .insert_block(&mut block, &user1.id)
         .await
         .expect("the block is stored");
-    let sharing = Sharing {
-        id: board.id.clone(),
-        enabled: true,
-        token: "the-read-token".to_owned(),
-        modified_by: user1.id.clone(),
-        update_at: 0,
-    };
-    th.app
-        .store()
-        .upsert_sharing(&sharing)
-        .await
-        .expect("the board is shared");
+    let token = th.share(&board.id).await;
 
     let subscribe = |read_token: &str| {
         json!({
@@ -334,7 +323,7 @@ async fn block_subscription_needs_the_read_token() {
     let mut wrong = Socket::connect(&th).await;
     wrong.send(subscribe("not-the-read-token")).await;
     let mut reader = Socket::connect(&th).await;
-    reader.send(subscribe("the-read-token")).await;
+    reader.send(subscribe(&token)).await;
 
     // No acknowledgement: broadcast until the reader's subscription shows.
     let mut received = None;

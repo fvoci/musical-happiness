@@ -251,11 +251,15 @@
     "request": "POST /api/v2/boards/<id:2>/sharing as files-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": {}
+    "body": {
+      "enabled": true,
+      "token": "<secret>",
+      "updateAt": "<ts>"
+    }
   },
   {
     "name": "download with the read token",
-    "request": "GET /api/v2/files/teams/<id:3>/<id:2>/<secret:1>.png?read_token=file-token as anonymous",
+    "request": "GET /api/v2/files/teams/<id:3>/<id:2>/<secret:1>.png?read_token=<secret:4> as anonymous",
     "status": 200,
     "content_type": "application/octet-stream",
     "headers": {

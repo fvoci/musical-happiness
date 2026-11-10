@@ -16,9 +16,9 @@ use std::time::Duration;
 
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
-    Category, FileInfo, JsonMap, Sharing, SubscriberType, Subscription, new_id,
+    Category, FileInfo, JsonMap, SubscriberType, Subscription, new_id,
 };
-use fvoci_store::{BlockFilter, MemberChange, PublicBoards, Store, StoreError};
+use fvoci_store::{BlockFilter, MemberChange, PublicBoards, SharingChange, Store, StoreError};
 use serde_json::{Value, json};
 use tokio::task::JoinSet;
 
@@ -2017,15 +2017,8 @@ impl FullBoard {
             .await
             .expect("the file record is stored");
 
-        let sharing = Sharing {
-            id: board.id.clone(),
-            enabled: true,
-            token: "read-token".to_owned(),
-            modified_by: admin_id.clone(),
-            update_at: 0,
-        };
         store
-            .upsert_sharing(&sharing)
+            .set_sharing(&board.id, SharingChange::On, "read-token", &admin_id)
             .await
             .expect("the board is shared");
 

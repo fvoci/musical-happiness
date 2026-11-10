@@ -211,10 +211,11 @@ CREATE TABLE file_info (
 );
 
 CREATE TABLE sharing (
-    -- The identifier of the shared board.
-    id UUID NOT NULL PRIMARY KEY REFERENCES boards (id) ON DELETE CASCADE,
+    board_id UUID NOT NULL PRIMARY KEY REFERENCES boards (id) ON DELETE CASCADE,
     enabled BOOLEAN NOT NULL,
-    token TEXT NOT NULL,
+    -- The read token, which the server makes: a secret that opens one board. Absent
+    -- while the board is not shared; turning sharing off forgets the token.
+    token TEXT UNIQUE,
     modified_by UUID REFERENCES users (id) ON DELETE SET NULL,
     update_at BIGINT NOT NULL
 );

@@ -216,13 +216,15 @@ pub(crate) async fn files(s: &mut Session) {
     .await;
 
     // A shared board serves its files to holders of the read token.
-    s.post("share", &format!("{API}/boards/{board}/sharing"))
-        .json(json!({"id": board, "enabled": true, "token": "file-token"}))
+    let read_token = s
+        .post("share", &format!("{API}/boards/{board}/sharing"))
+        .json(json!({"enabled": true}))
         .user(&alice)
-        .await;
+        .await
+        .string("token");
     s.get(
         "download with the read token",
-        &format!("{download}?read_token=file-token"),
+        &format!("{download}?read_token={read_token}"),
     )
     .keep_headers(&["Content-Type"])
     .await;

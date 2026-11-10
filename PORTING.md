@@ -256,7 +256,8 @@ S6에서 새로 본 것:
 | `d4e10cb1` | **Argon2id와 세션 토큰 해시(3.4, 3.5).** 아래 "Argon2id와 세션 토큰에서 바뀐 것" | 382 → 385단계(새 3단계), 본문만 7단계 |
 | `909fb7eb` | **삭제와 복원(5.3), 외래 키.** 아래 "삭제와 복원에서 바뀐 것" | 385 → 426단계(새 시나리오 `trash` 41단계). 기존 385단계 가운데 26단계, 상태 코드는 1단계 |
 | `cb3fd0ce` | **세션 수명(5.4).** 한가함 한도 14일(`session_idle_days`)과 절대 한도 90일(`session_max_days`, 세션의 `expires_at`). 마지막 사용 시각은 마지막 기록에서 10분이 지났을 때만 쓴다(전에는 요청마다). 정리는 한 시간마다 돌고 끝난 세션을 바로 지운다(31일 하한이 없다). 비활성화된 사용자의 세션은 조회에서 걸러진다. `session_expire_time`, `session_refresh_time`은 설정이 아니다(값이 있으면 시작 오류로 새 키를 알려 준다). 테스트 `users::a_session_ends_when_it_was_not_used_for_the_idle_limit`, `…_at_its_absolute_limit_however_much_it_is_used`, `the_use_of_a_session_is_recorded_at_most_every_ten_minutes`, 스토어 `sessions::a_session_of_a_deactivated_user_is_not_found`. 자기 비밀번호를 바꿀 때 다른 세션을 끝내는 것은 `d4e10cb1`에 들어갔고, 지금의 세션에 새 토큰을 주는 것은 쿠키를 다시 줄 수 있는 인증 전달 단계에서 한다 | 변화 없음 |
-| (이 커밋) | **관리자(3.6).** 아래 "관리자에서 바뀐 것" | 426 → 455단계(새 시나리오 `admins` 29단계). 기존 단계 가운데 8단계, 본문만 |
+| `224ef584` | **관리자(3.6).** 아래 "관리자에서 바뀐 것" | 426 → 455단계(새 시나리오 `admins` 29단계). 기존 단계 가운데 8단계, 본문만 |
+| (이 커밋) | **서버가 만드는 공유 토큰(3.8).** 아래 "공유 토큰에서 바뀐 것" | 455 → 470단계(시나리오 `sharing`에 15단계). 기존 단계 가운데 11단계, 본문만 |
 
 **UUIDv7과 비밀 값에서 바뀐 것.**
 
@@ -299,6 +300,19 @@ S6에서 새로 본 것:
 | 가입·비밀번호 요청의 검증 오류가 `field`를 싣는다(`username`, `email`, `password`, `oldPassword`, `newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field` |
 
 스냅샷: `auth` 시나리오에 세 단계를 더했다(다른 기기에서 로그인, 비밀번호 변경 뒤 그 기기의 401, 바꾼 세션의 200). 본문이 바뀐 일곱 단계는 `field`가 붙은 여섯과 길이 한도의 문구 하나다. 아카이브 항목 이름의 정렬이 무작위 파일 이름에 흔들리지 않게 하네스의 정렬 기준을 고쳤다. 의존성: `argon2` 0.6, `sha2` 0.11을 더하고 `bcrypt`를 뺐다(`NOTICE` 다시 생성, `cargo deny` 통과). 검증: `cargo xtask check` 여섯 단계 PASS, `cargo xtask test` SQLite 790건·PostgreSQL 697건·S3 1건, 실패 0.
+
+**공유 토큰에서 바뀐 것.** (2026-11-10 22:20 KST)
+
+| 바뀐 것 | 왜 | 어디 |
+|---|---|---|
+| **읽기 토큰은 서버가 만든다.** `POST /boards/{id}/sharing`의 본문은 `{"enabled": bool}`과 선택으로 `"regenerate": bool`이다. `token`이 있으면 400(`field: token`). `enabled`가 없거나 불리언이 아니면 400(`field: enabled`). 그 밖의 멤버(`id`, `modifiedBy` 등)는 보지 않는다. `null`인 멤버는 없는 멤버다 | 설계 3.8. 전에는 클라이언트가 정한 한 글자 토큰, 여러 보드에 같은 토큰, 빈 토큰이 저장됐다(S8 보안 결정 대기가 닫혔다) | `api/sharing.rs`의 `sharing_change` |
+| 켤 때 토큰이 없으면 256비트 난수(43자)를 만든다. 이미 공유 중이면 토큰이 그대로다. `regenerate: true`면 새 토큰이고 옛 링크는 죽는다 | 설계 3.8 | `Store::set_sharing`, `SharingChange` |
+| **끄면 토큰을 지운다(안 A).** 다시 켜면 새 토큰이고 껐던 링크는 되살아나지 않는다 | 설계 3.8의 권고 | 같은 곳 |
+| 응답과 `GET`은 `{"enabled", "token", "updateAt"}`이다. `token`은 공유 중일 때만, `updateAt`은 한 번이라도 바뀐 적이 있을 때만 있다. 공유한 적 없는 보드는 `{"enabled": false}`. `POST`의 응답이 빈 객체에서 이 상태로 바뀌었다. `id`, `modifiedBy`, `update_at`(밑줄 표기)은 응답에 없다 | 설계 3.8. 토큰을 서버가 만드니 응답이 알려 줘야 한다 | `fvoci_model::Sharing` |
+| 읽고 쓰는 것이 한 트랜잭션이다(보드 줄 잠금). 동시에 켠 요청들은 모두 저장된 하나의 토큰을 답받는다 | 각자 만든 토큰으로 서로 덮어쓰면 먼저 답받은 링크가 죽는다 | `Store::set_sharing` |
+| 스키마: `sharing(board_id PK → boards CASCADE, enabled, token UNIQUE, modified_by, update_at)`. 토큰이 없는 것은 `NULL`이다 | 설계 3.8 | `crates/store/schema/` |
+
+**스냅샷.** 455 → 470단계. 시나리오 `sharing`이 17 → 32단계: 요청의 토큰 거절, `enabled` 누락, 다시 켰을 때 토큰 유지, `regenerate`와 옛 토큰의 무효, 끈 뒤의 상태와 다시 켰을 때의 새 토큰. 서로 다른 토큰인지는 값이 정규화돼 스냅샷에 보이지 않으므로 비교 결과를 note 단계로 기록한다. 기존 단계 가운데 11단계의 본문이 바뀌었다(공유 응답의 모양, 읽기 토큰이 든 요청 경로). 권한 표 636칸은 그대로다. 테스트: API `sharing::*` 12개(다시 썼다), 스토어 `sharing::*` 4개(경합 하나 포함).
 
 **관리자에서 바뀐 것.** (2026-11-10 22:05 KST)
 

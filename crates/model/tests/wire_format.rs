@@ -490,23 +490,26 @@ fn team_and_sharing_json_members() {
         })
     );
 
+    // What is answered about sharing: whether, the token while there is one, and when.
+    // Whose board it is and who changed it are not part of the answer.
     let sharing = Sharing {
-        id: "b".to_owned(),
+        board_id: "b".to_owned(),
         enabled: true,
         token: "tok".to_owned(),
         modified_by: "u".to_owned(),
-        update_at: 0,
+        update_at: 9,
     };
     assert_eq!(
         to_json(&sharing),
-        json!({ "id": "b", "enabled": true, "token": "tok", "modifiedBy": "u" })
+        json!({ "enabled": true, "token": "tok", "updateAt": 9 })
     );
     assert_eq!(
         to_json(&Sharing {
-            update_at: 9,
-            ..sharing
-        })["update_at"],
-        json!(9)
+            board_id: "b".to_owned(),
+            ..Sharing::default()
+        }),
+        json!({ "enabled": false }),
+        "a board that was never shared"
     );
 }
 
