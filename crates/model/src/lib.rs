@@ -7,6 +7,7 @@
 //! Unix epoch as an argument; the one place that reads a clock is [`new_id`], whose
 //! identifiers begin with the time they were made.
 
+mod allowlist;
 mod archive;
 mod auth;
 mod block;

@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use fvoci_model::{BODY_VERSION, Body, BodyError};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The kind of a refusal, as the vectors name it.
 fn reason(error: &BodyError) -> &'static str {
@@ -16,6 +16,40 @@ fn reason(error: &BodyError) -> &'static str {
         BodyError::TooManyNodes => "tooManyNodes",
         BodyError::InvalidNode { .. } => "invalidNode",
     }
+}
+
+/// The document a case's `build` stands for, as the description of the vectors says.
+fn build(recipe: &Value) -> Value {
+    let size = |name: &str| recipe[name].as_u64().and_then(|n| usize::try_from(n).ok());
+    if let Some(depth) = size("depth") {
+        let mut node = json!({"type": "paragraph"});
+        for _ in 0..depth - 2 {
+            node = json!({"type": "blockquote", "content": [node]});
+        }
+        return json!({"type": "doc", "content": [node]});
+    }
+    if let Some(nodes) = size("nodes") {
+        let breaks = vec![json!({"type": "hardBreak"}); nodes - 2];
+        return json!({"type": "doc", "content": [{"type": "paragraph", "content": breaks}]});
+    }
+    if let Some(bytes) = size("bytes") {
+        let with = |text: String| {
+            json!({"type": "doc", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": text}]},
+            ]})
+        };
+        let frame = serde_json::to_vec(&with(String::new()))
+            .expect("a document serializes")
+            .len();
+        let document = with("a".repeat(bytes - frame));
+        assert_eq!(
+            serde_json::to_vec(&document).expect("serializes").len(),
+            bytes,
+            "the built document has the size asked for"
+        );
+        return document;
+    }
+    panic!("an unknown build: {recipe}");
 }
 
 fn vectors() -> Value {
@@ -37,13 +71,20 @@ fn the_shared_vectors_hold() {
     assert!(!cases.is_empty(), "there are cases");
     for case in cases {
         let name = case["name"].as_str().expect("a case has a name");
-        let got = Body::parse(case["body"].clone());
+        let sent = match case.get("build") {
+            Some(recipe) => build(recipe),
+            None => case["body"].clone(),
+        };
+        let got = Body::parse(sent.clone());
         match case["expect"].as_str() {
             Some("accept") => {
                 let body = got
                     .unwrap_or_else(|error| panic!("{name}: refused ({error})"))
                     .unwrap_or_else(|| panic!("{name}: taken for no body"));
-                assert_eq!(body.document(), &case["body"], "{name}: stored as sent");
+                assert_eq!(body.document(), &sent, "{name}: stored as sent");
+                if let Some(text) = case.get("text") {
+                    assert_eq!(&Value::from(body.text()), text, "{name}: its plain text");
+                }
             }
             Some("empty") => {
                 assert!(matches!(got, Ok(None)), "{name}: no body, not {got:?}");

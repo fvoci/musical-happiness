@@ -1,6 +1,7 @@
 //! The body of a card or a comment: one document of the web app's editor, stored whole.
 //!
-//! A body is checked when it is read from a request, before it is stored: its shape, its
+//! A body is checked when it is read from a request, before it is stored, against the
+//! allowlist of `allowlist.rs`: its nodes and marks, how they nest, its
 //! size, how deep it nests and how many nodes it has. A document that is no more than an
 //! empty paragraph is no body at all, and is stored as none.
 
@@ -8,8 +9,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::allowlist;
+
 /// The version of the set of nodes and marks a stored body is written in.
-pub const BODY_VERSION: i64 = 1;
+pub const BODY_VERSION: i64 = 2;
 
 /// The largest body, as serialized JSON, in bytes.
 pub const BODY_MAX_BYTES: usize = 1024 * 1024;
@@ -19,10 +22,6 @@ pub const BODY_MAX_DEPTH: usize = 32;
 
 /// How many nodes a body may have, the document itself included.
 pub const BODY_MAX_NODES: usize = 20_000;
-
-/// The members a node may have. Anything else, and any member that is `null`, is
-/// refused.
-const NODE_MEMBERS: [&str; 5] = ["type", "attrs", "content", "marks", "text"];
 
 /// Why a body is refused.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -82,10 +81,14 @@ impl Body {
     ///
     /// Returns a [`BodyError`] if the value is a document that may not be stored.
     pub fn parse(value: Value) -> Result<Option<Self>, BodyError> {
-        if value.is_null() || is_empty_document(&value) {
+        if value.is_null() {
             return Ok(None);
         }
-        check_document(&value)?;
+        allowlist::check(&value)?;
+        if is_empty_document(&value) {
+            return Ok(None);
+        }
+        check_size(&value)?;
         Ok(Some(Self { document: value }))
     }
 
@@ -99,6 +102,13 @@ impl Body {
     #[must_use]
     pub fn document(&self) -> &Value {
         &self.document
+    }
+
+    /// The words of the body without its structure, for searching: a line per paragraph,
+    /// heading, code block and formula block. A mention gives nothing.
+    #[must_use]
+    pub fn text(&self) -> String {
+        allowlist::plain_text(&self.document)
     }
 
     /// What a list says about the body.
@@ -231,114 +241,30 @@ impl<'de> Deserialize<'de> for BodyChange {
     }
 }
 
-/// Whether the document is no more than one empty paragraph.
+/// Whether a document the allowlist accepted is no more than one empty paragraph, as
+/// the web app's `isEmptyDoc` judges it.
 fn is_empty_document(value: &Value) -> bool {
-    let Some(content) = value.get("content").and_then(Value::as_array) else {
-        return false;
-    };
-    let [only] = content.as_slice() else {
-        return false;
-    };
-    value.get("type").and_then(Value::as_str) == Some("doc")
-        && only.get("type").and_then(Value::as_str) == Some("paragraph")
-        && only.as_object().is_some_and(|node| {
-            node.keys().all(|key| key == "type" || key == "content")
-                && node
-                    .get("content")
-                    .is_none_or(|content| content.as_array().is_some_and(Vec::is_empty))
-        })
-}
-
-/// Checks a document that is to be stored.
-fn check_document(value: &Value) -> Result<(), BodyError> {
-    let has_content = value
+    let Some([only]) = value
         .get("content")
         .and_then(Value::as_array)
-        .is_some_and(|content| !content.is_empty());
-    if value.get("type").and_then(Value::as_str) != Some("doc") || !has_content {
-        return Err(BodyError::NotADocument);
-    }
-    let mut nodes = 0;
-    check_node(value, 1, "", &mut nodes)?;
+        .map(Vec::as_slice)
+    else {
+        return false;
+    };
+    only.get("type").and_then(Value::as_str) == Some("paragraph")
+        && only
+            .get("content")
+            .is_none_or(|content| content.as_array().is_some_and(Vec::is_empty))
+}
+
+/// Checks the size of a document that the allowlist accepted.
+fn check_size(value: &Value) -> Result<(), BodyError> {
     // Serializing a JSON value cannot fail.
     let bytes = serde_json::to_vec(value).map_or(usize::MAX, |json| json.len());
     if bytes > BODY_MAX_BYTES {
         return Err(BodyError::TooLarge);
     }
     Ok(())
-}
-
-/// Checks one node and what is below it; `nodes` counts the nodes seen so far.
-fn check_node(node: &Value, depth: usize, path: &str, nodes: &mut usize) -> Result<(), BodyError> {
-    if depth > BODY_MAX_DEPTH {
-        return Err(BodyError::TooDeep);
-    }
-    *nodes += 1;
-    if *nodes > BODY_MAX_NODES {
-        return Err(BodyError::TooManyNodes);
-    }
-    let invalid = |problem| BodyError::InvalidNode {
-        path: path.to_owned(),
-        problem,
-    };
-    let Some(members) = node.as_object() else {
-        return Err(invalid("a node is an object"));
-    };
-    for (name, member) in members {
-        if !NODE_MEMBERS.contains(&name.as_str()) {
-            return Err(invalid(
-                "a node has only type, attrs, content, marks and text",
-            ));
-        }
-        if member.is_null() {
-            return Err(invalid("a member of a node is not null"));
-        }
-        if name != "content" && holds_nul(member) {
-            return Err(invalid("no text holds the character U+0000"));
-        }
-    }
-    if !members.get("type").is_some_and(Value::is_string) {
-        return Err(invalid("a node has a type"));
-    }
-    if members.get("attrs").is_some_and(|attrs| !attrs.is_object()) {
-        return Err(invalid("attrs is an object"));
-    }
-    if members
-        .get("text")
-        .is_some_and(|text| text.as_str().is_none_or(str::is_empty))
-    {
-        return Err(invalid("text is a string that is not empty"));
-    }
-    if let Some(marks) = members.get("marks") {
-        let Some(marks) = marks.as_array() else {
-            return Err(invalid("marks is a list"));
-        };
-        if !marks.iter().all(Value::is_object) {
-            return Err(invalid("a mark is an object"));
-        }
-    }
-    if let Some(content) = members.get("content") {
-        let Some(children) = content.as_array() else {
-            return Err(invalid("content is a list"));
-        };
-        for (index, child) in children.iter().enumerate() {
-            check_node(child, depth + 1, &format!("{path}/content/{index}"), nodes)?;
-        }
-    }
-    Ok(())
-}
-
-/// Whether a string or a member name in the value holds U+0000, which PostgreSQL cannot
-/// store in `jsonb` (and the web app could not show).
-fn holds_nul(value: &Value) -> bool {
-    match value {
-        Value::String(text) => text.contains('\0'),
-        Value::Array(items) => items.iter().any(holds_nul),
-        Value::Object(members) => members
-            .iter()
-            .any(|(name, member)| name.contains('\0') || holds_nul(member)),
-        Value::Null | Value::Bool(_) | Value::Number(_) => false,
-    }
 }
 
 /// Calls `f` for every node of the document, the document first.

@@ -24,8 +24,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
-    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, BoardsAndBlocksError, FileInfo, JsonMap, SubscriberType, Subscription, new_id,
+    BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, BODY_VERSION, Block, BlockError, BlockPatch,
+    BlockPatchBatch, BlockType, BoardsAndBlocksError, Body, BodyChange, FileInfo, JsonMap,
+    SubscriberType, Subscription, new_id,
 };
 use fvoci_store::{BlockFilter, DbType, DeletedBlock, DuplicateAs, Paging, Store, StoreError};
 use serde_json::{Value, json};
@@ -820,6 +821,59 @@ async fn update_at_moves_on_with_every_change() {
         .expect("the block is patched again");
     let twice = existing_block(store, &block_id).await.update_at;
     assert_eq!(twice, once + 1, "a second patch moved it on again");
+
+    test.teardown().await;
+}
+
+/// The store keeps beside a body the version of the allowlist it was checked against
+/// and its words for searching, and clears both with the body.
+#[tokio::test]
+async fn a_body_is_stored_with_its_version_and_text() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture { board_id, .. } = fixture(store).await;
+    let [user_id] = users(store).await;
+    let document = json!({"type": "doc", "content": [
+        {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Plan"}]},
+        {"type": "paragraph", "content": [
+            {"type": "text", "text": "x is "}, {"type": "inlineMath", "attrs": {"latex": "a^2"}},
+        ]},
+        {"type": "blockMath", "attrs": {"latex": "b"}},
+    ]});
+    let block_id = new_id();
+    let mut card = Block {
+        block_type: BlockType::Card,
+        body: Body::parse(document).expect("the body is allowed"),
+        ..block(&block_id, &board_id)
+    };
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is inserted");
+
+    // What the store has no reading for, read through the title.
+    let derived = async || {
+        common::execute_raw(
+            &test.dbconfig(),
+            &format!(
+                "UPDATE blocks SET title = COALESCE(CAST(body_version AS TEXT), '-') || '|' || \
+                 COALESCE(body_text, '-') WHERE id = '{block_id}'"
+            ),
+        )
+        .await;
+        existing_block(store, &block_id).await.title
+    };
+    assert_eq!(derived().await, format!("{BODY_VERSION}|Plan\nx is a^2\nb"));
+
+    let clear = BlockPatch {
+        body: BodyChange::Clear,
+        ..BlockPatch::default()
+    };
+    store
+        .patch_block(&block_id, &clear, &user_id)
+        .await
+        .expect("the body is cleared");
+    assert_eq!(derived().await, "-|-");
 
     test.teardown().await;
 }

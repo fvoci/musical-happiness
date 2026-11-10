@@ -604,8 +604,7 @@ fn push_body(sql: &mut Sql, body: Option<&Body>, how: BodyColumns) -> Result<(),
     let values = [
         ("body", Param::opt_jsonb(body.map(Body::document))?),
         ("body_version", Param::OptInt(body.map(|_| BODY_VERSION))),
-        // The text for searching comes with the full allowlist.
-        ("body_text", Param::OptText(None)),
+        ("body_text", Param::OptText(body.map(Body::text))),
         ("body_tasks_total", Param::Int(i64::from(tasks.total))),
         ("body_tasks_done", Param::Int(i64::from(tasks.done))),
     ];
