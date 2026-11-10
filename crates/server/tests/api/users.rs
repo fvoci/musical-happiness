@@ -160,6 +160,19 @@ async fn login_cases() {
         "the type is the reason"
     );
 
+    // A body is a JSON object. The members in a list, in the order the server happens to
+    // declare them, are no login.
+    let response = th
+        .client
+        .send_raw_body(
+            reqwest::Method::POST,
+            "/login",
+            &format!(r#"["normal","{FAKE_USERNAME}","","testPassword",""]"#),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
+
     // A body that is not JSON is the sender's mistake.
     let response = th
         .client

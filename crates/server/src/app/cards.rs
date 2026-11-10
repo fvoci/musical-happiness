@@ -148,7 +148,7 @@ impl App {
         let block = self
             .patch_block(card_id, &block_patch, user_id, notification)
             .await
-            .map_err(|error| error.context(&format!("cannot patch card {card_id}")))?;
+            .map_err(|error| error.context(format_args!("cannot patch card {card_id}")))?;
         Ok(card_from_stored_block(&block, now_millis())?)
     }
 

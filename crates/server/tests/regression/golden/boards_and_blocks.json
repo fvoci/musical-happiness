@@ -256,7 +256,7 @@
     "content_type": "application/json",
     "body": {
       "error": "bad_request",
-      "message": "block <id:5> is no block of the boards of the request",
+      "message": "the request names a block that is not on its boards",
       "request_id": "<request-id>"
     }
   },
@@ -361,7 +361,7 @@
     "content_type": "application/json",
     "body": {
       "error": "bad_request",
-      "message": "block <id:5> is no block of the boards of the request",
+      "message": "the request names a block that is not on its boards",
       "request_id": "<request-id>"
     }
   },

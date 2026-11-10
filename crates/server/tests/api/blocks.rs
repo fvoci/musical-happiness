@@ -1610,8 +1610,9 @@ async fn patch_block_refusals() {
     // A block of another board answers as one that does not exist.
     response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
-    // A body that is no patch is a bad request. (The original answers 500.)
-    for body in ["not json", "null", "{\"title\":5}"] {
+    // A body that is no patch is a bad request. (The original answers 500.) A list is
+    // no patch either, not even an empty one.
+    for body in ["not json", "null", "{\"title\":5}", "[]", "[\"x\"]"] {
         let response = th
             .client
             .send_raw_body(Method::PATCH, &card_path, body)
@@ -1784,7 +1785,7 @@ async fn patch_blocks_batch_refusals() {
     );
 
     // A body that is no batch is a bad request. (The original answers 500.)
-    for body in ["not json", "null", "{\"block_ids\":5}"] {
+    for body in ["not json", "null", "{\"block_ids\":5}", "[]", "[[], []]"] {
         let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
         response.check_bad_request();
         assert_eq!(response.error_code(), "bad_request", "{body}");

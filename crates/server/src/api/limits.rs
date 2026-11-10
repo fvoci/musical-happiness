@@ -7,12 +7,13 @@ use std::time::Duration;
 
 use axum::body::{Body, BodyDataStream};
 use axum::extract::{Request, State};
-use axum::http::header::CONTENT_LENGTH;
+use axum::http::header::{CONTENT_LENGTH, EXPECT};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use bytes::BytesMut;
 use futures_util::StreamExt as _;
 
+use super::request_token;
 use crate::error::AppError;
 
 /// The largest body of a request to a route that needs no session: the login and the
@@ -42,7 +43,8 @@ const DISCARD_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) struct BodyLimit(pub(crate) u64);
 
 /// Reads the request body up to the limit and hands the request on with it, or answers
-/// 413 with the limit.
+/// 413 with the limit. The limit is the smaller one of the routes without a session if
+/// the request carries no session token.
 ///
 /// A body that declares more than the limit is refused without any of it being kept.
 /// One that declares nothing, or less than it sends, is refused as soon as it passes the
@@ -52,6 +54,14 @@ pub(crate) async fn limit_request_body(
     request: Request,
     next: Next,
 ) -> Response {
+    // A request that claims no session gets the room of the routes that need none:
+    // the body is read before anyone looks at who sends it, and "anyone" should not be
+    // able to make the server hold more than that.
+    let limit = if request_token(request.headers(), request.uri().query()).is_empty() {
+        limit.min(UNAUTHENTICATED_BODY_LIMIT.0)
+    } else {
+        limit
+    };
     let declared = request
         .headers()
         .get(CONTENT_LENGTH)
@@ -60,19 +70,22 @@ pub(crate) async fn limit_request_body(
     let (parts, body) = request.into_parts();
     let mut stream = body.into_data_stream();
     if declared.is_some_and(|length| length > limit) {
-        discard(stream, 0).await;
+        // A client that waits for `100 Continue` has sent nothing yet, and reading the
+        // body would invite it to. It gets its answer at once.
+        if !parts.headers.contains_key(EXPECT) {
+            discard(stream, 0).await;
+        }
         return AppError::payload_too_large(limit).into_response();
     }
 
-    let mut read = BytesMut::new();
+    let capacity = usize::try_from(declared.unwrap_or(0).min(limit)).unwrap_or(0);
+    let mut read = BytesMut::with_capacity(capacity);
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
             Ok(chunk) => chunk,
             Err(error) => {
-                return AppError::bad_request(format_args!(
-                    "the request body could not be read: {error}"
-                ))
-                .into_response();
+                tracing::debug!(%error, "a request body could not be read");
+                return AppError::bad_request("the request body could not be read").into_response();
             }
         };
         if byte_count(read.len()).saturating_add(byte_count(chunk.len())) > limit {
@@ -93,7 +106,9 @@ fn byte_count(length: usize) -> u64 {
 }
 
 /// Reads what is left of a refused body and throws it away, so that the client can
-/// finish sending and read the refusal. `discarded` is how much was thrown away already.
+/// finish sending and read the refusal. `discarded` is how much of it was thrown away
+/// already; what was read and kept before the body passed its limit does not count, so
+/// up to the limit plus [`DISCARD_LIMIT`] is read of one request.
 async fn discard(mut stream: BodyDataStream, mut discarded: u64) {
     let reading = async {
         while discarded <= DISCARD_LIMIT {
@@ -165,6 +180,62 @@ mod tests {
         let error: fvoci_model::ErrorBody = serde_json::from_str(&body).expect("an error body");
         assert_eq!(error.error, "payload_too_large");
         assert_eq!(error.limit, Some(16), "the answer names the limit");
+    }
+
+    /// The routes behind the limit take a session; a request that does not even claim
+    /// one gets no more room than the login.
+    #[tokio::test]
+    async fn a_request_without_a_session_token_gets_the_small_limit() {
+        let large = usize::try_from(UNAUTHENTICATED_BODY_LIMIT.0).expect("fits") + 1;
+        let request = |token: Option<&str>| {
+            let mut request = Request::post("/");
+            if let Some(token) = token {
+                request = request.header("Authorization", format!("Bearer {token}"));
+            }
+            request
+                .body(Body::from(vec![b'x'; large]))
+                .expect("a valid request")
+        };
+
+        let (status, body) = answer(limited(1_000_000), request(None)).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+        let error: fvoci_model::ErrorBody = serde_json::from_str(&body).expect("an error body");
+        assert_eq!(
+            error.limit,
+            Some(UNAUTHENTICATED_BODY_LIMIT.0),
+            "the limit that applied"
+        );
+
+        let (status, body) = answer(limited(1_000_000), request(Some("a-token"))).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "with a token the route's limit: {body}"
+        );
+    }
+
+    /// A client that asked first, with `Expect: 100-continue`, is answered without its
+    /// body being read: reading would tell it to send what is then thrown away.
+    #[tokio::test]
+    async fn a_client_that_waits_for_continue_is_refused_without_being_read() {
+        let polled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = std::sync::Arc::clone(&polled);
+        let chunks = futures_util::stream::poll_fn(move |_| {
+            seen.store(true, std::sync::atomic::Ordering::SeqCst);
+            std::task::Poll::Ready(None::<Result<Bytes, std::io::Error>>)
+        });
+        let request = Request::post("/")
+            .header(CONTENT_LENGTH, "1000")
+            .header(EXPECT, "100-continue")
+            .header("Authorization", "Bearer a-token")
+            .body(Body::from_stream(chunks))
+            .expect("a valid request");
+        let (status, body) = answer(limited(16), request).await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+        assert!(
+            !polled.load(std::sync::atomic::Ordering::SeqCst),
+            "the body was not asked for"
+        );
     }
 
     #[tokio::test]

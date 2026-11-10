@@ -157,7 +157,9 @@ impl App {
                 )
                 .await
                 .map_err(|error| {
-                    error.context(&format!("cannot import file {filename} for board {dir}"))
+                    error.context(format_args!(
+                        "cannot import file {filename} for board {dir}"
+                    ))
                 })?;
             file_map.insert(filename, new_name);
         }
@@ -508,7 +510,7 @@ fn check_version(bytes: &[u8]) -> Result<(), AppError> {
 ///
 /// # Errors
 ///
-/// Returns a server error if the block is not a board block.
+/// Returns a bad request if the block is not a board block.
 fn block_to_board(block: &Block, team_id: &str) -> Result<Board, AppError> {
     if block.block_type != BlockType::Board {
         return Err(AppError::bad_request("block is not a board"));

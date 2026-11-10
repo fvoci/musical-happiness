@@ -7,7 +7,7 @@ use fvoci_model::{JsonMap, SINGLE_USER_ID, Session};
 use super::request_token;
 use crate::app::App;
 use crate::auth::{now_millis, tokens_match};
-use crate::error::AppError;
+use crate::error::{AppError, ErrorKind};
 
 /// The session of a request to a route that needs one. Extraction fails with 401 if the
 /// request carries no valid session token.
@@ -80,7 +80,11 @@ impl FromRequestParts<App> for OptionalSession {
                 check_auth_service(&session, app)?;
                 Ok(Self(Some(session)))
             }
-            Err(_) => Ok(Self(None)),
+            // No session is an answer these routes can work with (a read token may do).
+            // A store that failed is not "no session": answered as one, it would make
+            // clients throw a valid session away.
+            Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(Self(None)),
+            Err(error) => Err(error),
         }
     }
 }

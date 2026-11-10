@@ -53,7 +53,6 @@ impl Authenticator {
                 return Err(AppError::unauthorized("invalid session token"));
             }
             Err(error) => {
-                tracing::error!(%error, "the session lookup failed");
                 return Err(AppError::from(error).context("looking up the session"));
             }
         };

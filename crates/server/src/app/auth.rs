@@ -40,7 +40,6 @@ impl App {
                 Ok(user) => Some(user),
                 Err(error) if error.is_not_found() => None,
                 Err(error) => {
-                    tracing::error!(%error, "looking up a user for login failed");
                     return Err(AppError::from(error).context("looking up a user for login"));
                 }
             };
@@ -50,7 +49,6 @@ impl App {
                 Ok(user) => Some(user),
                 Err(error) if error.is_not_found() => None,
                 Err(error) => {
-                    tracing::error!(%error, "looking up a user for login failed");
                     return Err(AppError::from(error).context("looking up a user for login"));
                 }
             };
@@ -67,7 +65,7 @@ impl App {
         let session = Session {
             id: new_id(IdKind::Session),
             token: new_id(IdKind::Token),
-            user_id: user.id,
+            user_id: user.id.clone(),
             auth_service: if user.auth_service.is_empty() {
                 "native".to_owned()
             } else {
@@ -80,10 +78,24 @@ impl App {
         self.store()
             .create_session(&session)
             .await
-            .map_err(|error| {
-                tracing::error!(%error, "unable to create session");
-                AppError::from(error).context("unable to create session")
-            })?;
+            .map_err(|error| AppError::from(error).context("unable to create session"))?;
+
+        // Checking a password takes a while. If the password was set anew in that time,
+        // the reset has ended the user's sessions before this one existed, and this one
+        // was opened with the old password: it must not outlive the reset. Whichever of
+        // the two wrote last, the session is gone: here, or by the reset.
+        let current = self
+            .store()
+            .get_user_by_id(&user.id)
+            .await
+            .map_err(|error| AppError::from(error).context("reading the user after login"))?;
+        if current.password != user.password {
+            self.store()
+                .delete_session(&session.id)
+                .await
+                .map_err(|error| AppError::from(error).context("ending a stale session"))?;
+            return Err(incorrect_login());
+        }
         Ok(session.token)
     }
 
@@ -96,10 +108,7 @@ impl App {
         self.store()
             .delete_session(session_id)
             .await
-            .map_err(|error| {
-                tracing::error!(%error, "unable to delete the session");
-                AppError::from(error).context("unable to delete the session")
-            })
+            .map_err(|error| AppError::from(error).context("unable to delete the session"))
     }
 
     /// Returns the number of registered users.

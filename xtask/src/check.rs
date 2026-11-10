@@ -1,6 +1,7 @@
 //! `cargo xtask check`: everything that needs no external service.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 
@@ -74,12 +75,21 @@ pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
         }),
         Step::new("names", || former_names_are_absent(root)),
     ];
-    if licenses == Licenses::Check {
-        checks.push(Step::new("licenses and advisories", || {
-            steps::run(root, tool(root, "cargo-deny"), &["check"], &[])
-                .context("cargo-deny is needed; install it with `cargo install cargo-deny --locked --root target/tools`")
-        }));
-    }
+    checks.push(match licenses {
+        Licenses::Check => Step::new("licenses and advisories", || {
+            let cargo_deny = tool(root, "cargo-deny");
+            // The hint is for a tool that is not there; a licence or an advisory that
+            // fails the check is reported as what it is.
+            if Command::new(&cargo_deny).arg("--version").output().is_err() {
+                bail!(
+                    "cargo-deny is needed; install it with \
+                     `cargo install cargo-deny --locked --root target/tools`"
+                );
+            }
+            steps::run(root, cargo_deny, &["check"], &[])
+        }),
+        Licenses::Skip => Step::skipped("licenses and advisories", "--skip-licenses"),
+    });
     steps::run_all("check", checks)
 }
 

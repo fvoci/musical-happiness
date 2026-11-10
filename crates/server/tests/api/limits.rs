@@ -159,6 +159,36 @@ async fn a_json_body_over_the_limit_is_refused_without_a_session_too() {
     th.teardown().await;
 }
 
+/// A request that claims no session at all gets no more room than the login, on any
+/// route: the body is read before anyone looks at who sends it.
+#[tokio::test]
+async fn a_request_without_a_session_token_gets_the_small_limit_on_every_route() {
+    let th = Setup::native().start().await.init_basic().await;
+    let anonymous = th.anonymous();
+
+    for (method, path) in [
+        (Method::POST, "/boards"),
+        (Method::POST, "/boards-and-blocks"),
+        (Method::PATCH, "/boards/no-such-board"),
+    ] {
+        let response = anonymous
+            .send_raw_body(
+                method.clone(),
+                path,
+                &json_of_length(UNAUTHENTICATED_LIMIT + 1),
+            )
+            .await;
+        check_too_large(&response, UNAUTHENTICATED_LIMIT);
+
+        // Up to that, the body is read and the missing session is what is answered.
+        anonymous
+            .send_raw_body(method, path, &json_of_length(UNAUTHENTICATED_LIMIT))
+            .await
+            .check_unauthorized();
+    }
+    th.teardown().await;
+}
+
 /// The login and the registration, which anyone can send, read 64 KiB and no more,
 /// whatever `max_request_bytes` says.
 #[tokio::test]

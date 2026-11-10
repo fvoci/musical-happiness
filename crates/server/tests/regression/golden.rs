@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::harness::Step;
 
-/// Set to a non-empty value to rewrite the golden files instead of comparing.
+/// Set to `1` to rewrite the golden files instead of comparing.
 const UPDATE_ENV: &str = "FVOCI_REGRESSION_UPDATE";
 
 /// How many differing places of one body are listed.
@@ -28,8 +28,27 @@ fn golden_path(file_name: &str) -> PathBuf {
         .join(file_name)
 }
 
+/// Whether this run records instead of compares: only if the variable is exactly `1`.
+///
+/// # Panics
+///
+/// Panics on any other non-empty value, and when recording is asked for under `CI`. A
+/// run that records passes whatever the server answers, so it must never be entered by
+/// a value that was meant as "off" (`0`, `false`) or in a place that is there to verify.
 fn updating() -> bool {
-    std::env::var(UPDATE_ENV).is_ok_and(|value| !value.is_empty())
+    match std::env::var(UPDATE_ENV).as_deref() {
+        Err(_) | Ok("") => false,
+        Ok("1") => {
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "{UPDATE_ENV}=1 under CI: a run that records verifies nothing"
+            );
+            true
+        }
+        Ok(other) => panic!(
+            "{UPDATE_ENV}={other:?} is neither unset nor 1; unset it to compare, set it to 1 to record"
+        ),
+    }
 }
 
 /// Compares `actual` with the golden file, or rewrites the file when updating.
@@ -42,8 +61,22 @@ fn check(file_name: &str, actual: &str, differences: impl FnOnce(&str) -> String
             .unwrap_or_else(|error| {
                 panic!("creating the directory of {}: {error}", path.display())
             });
+        let before = std::fs::read_to_string(&path).ok();
         std::fs::write(&path, actual)
             .unwrap_or_else(|error| panic!("writing {}: {error}", path.display()));
+        // Said out loud, so that a run that recorded does not read like one that passed.
+        let verdict = match before.as_deref() {
+            Some(before) if before == actual => "unchanged",
+            Some(_) => "CHANGED",
+            None => "NEW",
+        };
+        #[expect(
+            clippy::print_stderr,
+            reason = "the one line a recording run has to say; the test harness shows it"
+        )]
+        {
+            eprintln!("recorded {file_name}: {verdict} (not compared)");
+        }
         return;
     }
     let expected = std::fs::read_to_string(&path).unwrap_or_else(|error| {

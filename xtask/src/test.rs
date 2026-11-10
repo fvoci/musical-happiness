@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::Databases;
 use crate::containers;
@@ -15,6 +15,9 @@ use crate::steps::{self, Step};
 /// The variables the store's test support reads.
 const DB_TYPE_ENV: &str = "FVOCI_STORE_TEST_DB_TYPE";
 const CONN_STRING_ENV: &str = "FVOCI_STORE_TEST_CONN_STRING";
+
+/// The variable that makes the regression tests record instead of compare.
+const REGRESSION_UPDATE_ENV: &str = "FVOCI_REGRESSION_UPDATE";
 
 /// The variables the S3 storage test reads.
 const S3_ENDPOINT_ENV: &str = "FVOCI_S3_TEST_ENDPOINT";
@@ -32,9 +35,21 @@ fn env(variable: &str) -> Option<String> {
 ///
 /// Fails if a container cannot be prepared or a test run failed.
 pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
+    // With it set the regression tests rewrite their snapshots instead of comparing,
+    // and would do so once per database. This task verifies; it never records.
+    if env(REGRESSION_UPDATE_ENV).is_some() {
+        bail!(
+            "{REGRESSION_UPDATE_ENV} is set: the regression tests would rewrite their \
+             snapshots instead of checking them. Unset it; to record snapshots run \
+             `{REGRESSION_UPDATE_ENV}=1 cargo test -p fvoci-server --test regression`"
+        );
+    }
     let cargo = steps::cargo();
     let mut parts = Vec::new();
 
+    if databases == Databases::Postgres {
+        parts.push(Step::skipped("tests on SQLite", "--database postgres"));
+    }
     if matches!(databases, Databases::All | Databases::Sqlite) {
         parts.push(Step::new("tests on SQLite", || {
             // Whatever the caller's environment says, this run is the SQLite one.
@@ -72,6 +87,12 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
         }));
     }
 
+    if databases == Databases::Sqlite {
+        parts.push(Step::skipped("tests on PostgreSQL", "--database sqlite"));
+    }
+    if databases != Databases::All {
+        parts.push(Step::skipped("S3 storage test", "only with every database"));
+    }
     if databases == Databases::All {
         parts.push(Step::new("S3 storage test", || {
             let (endpoint, bucket) = if let (Some(endpoint), Some(bucket)) =

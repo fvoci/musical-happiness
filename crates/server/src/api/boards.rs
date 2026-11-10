@@ -197,7 +197,7 @@ async fn handle_get_board(
         if !sees
             && !app
                 .has_permission_to_board(user_id, &board_id, BoardPermission::ViewBoard)
-                .await
+                .await?
         {
             return Err(AppError::not_found("board"));
         }
@@ -281,14 +281,10 @@ async fn handle_duplicate_board(
     let duplicate_as = duplicate_as(query.as_deref());
     let mut to_team = query_param(query.as_deref(), "toTeam");
 
-    let board = app.board(&board_id).await?;
-    if to_team.is_empty() {
-        to_team.clone_from(&board.team_id);
-    }
-    // A board without a team, copied to no team, fails here too.
-    require_team_access(&app, user_id, &to_team, "access denied to team")?;
-
+    // Whether the board is there for the user comes first: a board that cannot be seen
+    // answers as one that does not exist, whatever else the request says.
     let denial = "access denied to board";
+    let board = app.board(&board_id).await?;
     if board.is_template && board.board_type == BoardType::Open {
         // An open template is for everybody in its team, and one of the global team for
         // everybody.
@@ -299,6 +295,11 @@ async fn handle_duplicate_board(
         require_board_permission(&app, user_id, &board_id, BoardPermission::ViewBoard, denial)
             .await?;
     }
+    if to_team.is_empty() {
+        to_team.clone_from(&board.team_id);
+    }
+    // A board without a team, copied to no team, fails here too.
+    require_team_access(&app, user_id, &to_team, "access denied to team")?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }

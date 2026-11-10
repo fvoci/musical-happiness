@@ -100,14 +100,14 @@ async fn handle_add_member(
     let user_id = &session.user_id;
     let manages_roles = app
         .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardRoles)
-        .await;
+        .await?;
     let edits_board = app
         .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardProperties)
-        .await;
+        .await?;
     // Memberships outlive a deleted board; only its members learn that it is gone.
     let board = match app.board(&board_id).await {
         Ok(board) => board,
-        Err(_) if !manages_roles && !edits_board => {
+        Err(error) if error.is_not_found() && !manages_roles && !edits_board => {
             return Err(board_refusal(&app, user_id, &board_id, MODIFY_MEMBERS_DENIED).await);
         }
         Err(error) => return Err(error),
@@ -123,11 +123,13 @@ async fn handle_add_member(
     }
     // The original stores a membership of nobody; the user must exist. Single-user mode
     // has no accounts to look up.
-    if user_is_guest(&app, &request.user_id)
-        .await
-        .is_err_and(|error| error.is_not_found())
-    {
-        return Err(AppError::bad_request("no such user").with_field("userId"));
+    match user_is_guest(&app, &request.user_id).await {
+        Ok(_) => {}
+        Err(error) if error.is_not_found() => {
+            return Err(AppError::bad_request("no such user").with_field("userId"));
+        }
+        // A lookup that failed is no answer to whether the user exists.
+        Err(error) => return Err(error),
     }
     require_team_access(
         &app,
@@ -174,6 +176,12 @@ async fn handle_join_board(
     if board.board_type != BoardType::Open {
         // A private board exists only for its members, who have nothing to join.
         return Err(board_refusal(&app, user_id, &board_id, "cannot join a non Open board").await);
+    }
+    // An open template is for everybody to copy, and for its members to change. Joining
+    // made anyone an editor of it, of the built-in templates too: of the board every new
+    // user's first board is copied from.
+    if board.is_template {
+        return Err(AppError::forbidden("a template cannot be joined"));
     }
     require_team_access(&app, user_id, &board.team_id, "access denied to team")?;
     if user_is_guest(&app, user_id).await? {

@@ -4,15 +4,18 @@
 //! created. Nothing is ever removed here: the containers outlive the test run.
 
 use std::io::{Read as _, Write as _};
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
 
-use crate::steps::{capture, say};
+use crate::steps::{Captured, capture, say};
 
 /// How long a container may take to accept requests after it was started.
 const READY_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// How long one connection attempt of a readiness probe may take.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The pause between two readiness probes.
 const PROBE_INTERVAL: Duration = Duration::from_millis(500);
@@ -128,19 +131,59 @@ impl Container {
                 ));
                 let arguments = self.run_arguments();
                 let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
-                docker(&arguments)?;
+                // A `docker run` that fails after creating the container (a port that
+                // is taken, say) leaves it behind in the state "created".
+                docker(&arguments).with_context(|| {
+                    format!(
+                        "creating {name}; if a container of that name was left behind, \
+                         look at it with `docker ps --all` and remove it with `docker rm {name}`",
+                        name = self.name
+                    )
+                })?;
             }
         }
-        Ok(())
+        self.check_published_port()
+    }
+
+    /// Checks that the container publishes its port where the tests will connect. A
+    /// container of the same name that was made with another mapping would pass every
+    /// probe inside it while the tests talk to whatever listens on the expected port.
+    fn check_published_port(&self) -> Result<()> {
+        let internal = format!("{}/tcp", self.internal_port);
+        let published = capture("docker", &["port", &self.name, &internal])?;
+        if !published.succeeded {
+            bail!(
+                "`docker port {} {internal}` failed: {}",
+                self.name,
+                published.error
+            );
+        }
+        let wanted = format!(":{}", self.host_port);
+        if published
+            .output
+            .lines()
+            .any(|line| line.trim().ends_with(&wanted))
+        {
+            return Ok(());
+        }
+        bail!(
+            "the container {} publishes port {internal} at {:?}, not at port {}; it is not \
+             the one this task makes. Name another container or port with the environment, \
+             or remove it",
+            self.name,
+            published.output,
+            self.host_port
+        )
     }
 
     fn state(&self) -> Result<State> {
-        let running = capture(
+        let inspected = capture(
             "docker",
             &["inspect", "--format", "{{.State.Running}}", &self.name],
         )
         .context("docker is needed to prepare the test containers")?;
-        Ok(State::from_inspect(running.as_deref()))
+        State::from_inspect(&inspected)
+            .with_context(|| format!("`docker inspect {}` failed", self.name))
     }
 }
 
@@ -153,37 +196,57 @@ enum State {
 }
 
 impl State {
-    /// `running` is the output of `docker inspect --format {{.State.Running}}`, or
-    /// `None` if the inspection failed because there is no such container.
-    fn from_inspect(running: Option<&str>) -> Self {
-        match running {
-            Some("true") => Self::Running,
-            Some(_) => Self::Stopped,
-            None => Self::Missing,
+    /// Reads the result of `docker inspect --format {{.State.Running}}`.
+    ///
+    /// # Errors
+    ///
+    /// Fails with docker's own words if the inspection failed for another reason than
+    /// that there is no such container: a daemon that is down or may not be reached is
+    /// not a missing container.
+    fn from_inspect(inspected: &Captured) -> Result<Self> {
+        if inspected.succeeded {
+            return Ok(if inspected.output == "true" {
+                Self::Running
+            } else {
+                Self::Stopped
+            });
         }
+        if inspected.error.to_lowercase().contains("no such") {
+            return Ok(Self::Missing);
+        }
+        bail!("{}", inspected.error)
     }
 }
 
 fn docker(arguments: &[&str]) -> Result<()> {
-    match capture("docker", arguments)? {
-        Some(_) => Ok(()),
-        None => bail!("`docker {}` failed", arguments.join(" ")),
+    let result = capture("docker", arguments)?;
+    if result.succeeded {
+        Ok(())
+    } else {
+        bail!("`docker {}` failed: {}", arguments.join(" "), result.error)
     }
 }
 
 fn name_from_env(variable: &str, default: &str) -> String {
     std::env::var(variable)
         .ok()
-        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| default.to_owned())
 }
 
 fn port_from_env(variable: &str, default: u16) -> Result<u16> {
     match std::env::var(variable) {
-        Ok(value) if !value.trim().is_empty() => value
-            .trim()
-            .parse()
-            .with_context(|| format!("{variable}={value:?} is no port number")),
+        Ok(value) if !value.trim().is_empty() => {
+            let port: u16 = value
+                .trim()
+                .parse()
+                .with_context(|| format!("{variable}={value:?} is no port number"))?;
+            if port == 0 {
+                bail!("{variable}=0 names no port to connect to");
+            }
+            Ok(port)
+        }
         _ => Ok(default),
     }
 }
@@ -258,7 +321,10 @@ pub(crate) fn prepare_object_store() -> Result<(String, &'static str)> {
 
 /// Creates a bucket with a plain `PUT /<bucket>`; an existing bucket is fine.
 fn create_bucket(port: u16, bucket: &str) -> Result<()> {
-    let mut stream = TcpStream::connect(("127.0.0.1", port))
+    // With a limit: on some machines a connection to a closed loopback port hangs
+    // instead of being refused, and one hanging probe would outlast the whole wait.
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+    let mut stream = TcpStream::connect_timeout(&address, CONNECT_TIMEOUT)
         .with_context(|| format!("connecting to port {port}"))?;
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     stream.set_write_timeout(Some(Duration::from_secs(10)))?;
@@ -324,11 +390,46 @@ mod tests {
         );
     }
 
+    fn succeeded(output: &str) -> Captured {
+        Captured {
+            succeeded: true,
+            output: output.to_owned(),
+            error: String::new(),
+        }
+    }
+
+    fn failed(error: &str) -> Captured {
+        Captured {
+            succeeded: false,
+            output: String::new(),
+            error: error.to_owned(),
+        }
+    }
+
     #[test]
     fn the_inspection_decides_between_running_stopped_and_missing() {
-        assert_eq!(State::from_inspect(Some("true")), State::Running, "true");
-        assert_eq!(State::from_inspect(Some("false")), State::Stopped, "false");
-        assert_eq!(State::from_inspect(None), State::Missing, "no such object");
+        let state = |captured: Captured| State::from_inspect(&captured).expect("a state");
+        assert_eq!(state(succeeded("true")), State::Running, "true");
+        assert_eq!(state(succeeded("false")), State::Stopped, "false");
+        assert_eq!(
+            state(failed("Error: No such object: hafgufa-pg")),
+            State::Missing,
+            "no such object"
+        );
+    }
+
+    /// A daemon that cannot be reached is not a missing container: creating one would
+    /// fail next, with the reason lost.
+    #[test]
+    fn an_inspection_that_failed_for_another_reason_is_an_error_with_dockers_words() {
+        let error = State::from_inspect(&failed(
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock.",
+        ))
+        .expect_err("not a state");
+        assert!(
+            error.to_string().contains("Cannot connect"),
+            "the reason is kept: {error}"
+        );
     }
 
     #[test]

@@ -71,7 +71,7 @@ impl App {
             // import carry the current version and would pass the check at the next
             // start, without their files; remove them so that the import is tried again.
             self.remove_partial_templates().await;
-            return Err(error.context(&format!(
+            return Err(error.context(format_args!(
                 "cannot initialize global templates for team {GLOBAL_TEAM_ID}"
             )));
         }

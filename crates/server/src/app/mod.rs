@@ -39,6 +39,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::auth::Authenticator;
 use crate::config::Configuration;
+use crate::error::AppError;
 use crate::permissions::{
     BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
 };
@@ -225,23 +226,27 @@ impl App {
     }
 
     /// Returns whether a user has a permission on a board, which follows from their
-    /// membership. A lookup failure counts as "no".
+    /// membership. No membership is "no".
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read. That is not a "no":
+    /// answered as one, a database failure would tell every member that their board
+    /// does not exist.
     pub async fn has_permission_to_board(
         &self,
         user_id: &str,
         board_id: &str,
         permission: BoardPermission,
-    ) -> bool {
+    ) -> Result<bool, AppError> {
         if user_id.is_empty() || board_id.is_empty() {
-            return false;
+            return Ok(false);
         }
         match self.store().get_member_for_board(board_id, user_id).await {
-            Ok(member) => member_has_permission(&member, permission),
-            Err(error) if error.is_not_found() => false,
-            Err(error) => {
-                tracing::error!(%error, board_id, user_id, "error getting member for board");
-                false
-            }
+            Ok(member) => Ok(member_has_permission(&member, permission)),
+            Err(error) if error.is_not_found() => Ok(false),
+            Err(error) => Err(AppError::from(anyhow::Error::from(error))
+                .context("reading the membership of a board")),
         }
     }
 

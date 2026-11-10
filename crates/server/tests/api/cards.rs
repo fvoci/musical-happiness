@@ -518,8 +518,10 @@ async fn app_create_card_error_scenario() {
         .expect_err("the title is too long");
     assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
     assert!(
-        error.to_string().starts_with("cannot create card: "),
-        "{error}"
+        error
+            .to_string()
+            .ends_with(": block title size limit exceeded"),
+        "what is wrong with the card, without the app layer's own words: {error}"
     );
 
     let error = th
@@ -659,8 +661,8 @@ async fn app_patch_card_error_scenario() {
     assert!(error.is_not_found(), "{error:?}");
     assert_eq!(
         error.to_string(),
-        "cannot patch card no-such-card: not found",
-        "the message names the card"
+        "not found",
+        "nothing but that it is not there"
     );
 
     let too_long = title_patch(&"a".repeat(BLOCK_TITLE_MAX_CHARS + 1));
@@ -939,7 +941,7 @@ async fn create_card_refusals() {
     response.check_bad_request();
     let message = response.error_message();
     assert!(
-        message.starts_with("cannot create card: error validating block c")
+        message.starts_with("error validating block c")
             && message.ends_with(": block title size limit exceeded"),
         "{message}"
     );
@@ -1236,7 +1238,7 @@ async fn patch_card_refusals() {
         &response,
         StatusCode::BAD_REQUEST,
         &format!(
-            "cannot patch card {0}: error validating block {0}: block title size limit exceeded",
+            "error validating block {0}: block title size limit exceeded",
             card.id
         ),
     );

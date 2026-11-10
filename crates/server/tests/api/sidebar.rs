@@ -1381,14 +1381,14 @@ async fn create_category_answers_the_stored_category() {
     assert_eq!(created.id.len(), 27, "a generated identifier");
     assert!(created.create_at > 0, "a creation time");
 
-    // What the client may choose: the identifier, the times, the collapsed state and the
-    // type. A negative sort order counts as zero and the sorting method is not stored.
+    // What the client may choose: the times, the collapsed state and the type. A
+    // negative sort order counts as zero and the sorting method is not stored. The
+    // identifier is the server's to make.
     let response = th
         .client
         .post(
             "/teams/0/categories",
             &json!({
-                "id": "myid1",
                 "name": "With id",
                 "userID": user.id,
                 "teamID": "0",
@@ -1400,10 +1400,13 @@ async fn create_category_answers_the_stored_category() {
             }),
         )
         .await;
+    let answered = response.ok_json::<Value>();
+    let made_id = answered["id"].as_str().expect("an identifier").to_owned();
+    assert_eq!(made_id.len(), 27, "a generated identifier");
     assert_eq!(
-        response.ok_json::<Value>(),
+        answered,
         json!({
-            "id": "myid1",
+            "id": made_id,
             "name": "With id",
             "userID": user.id,
             "teamID": "0",
@@ -1509,16 +1512,31 @@ async fn create_category_refuses_invalid_requests() {
         assert_eq!(response.error_code(), "bad_request", "{malformed}");
     }
 
-    // An identifier that is taken stands against the request. (The original answers
-    // 500.)
-    let taken = json!({"id": "taken", "name": "x", "userID": user.id, "teamID": "0"});
-    th.client.post(path, &taken).await.check_ok();
-    let response = th.client.post(path, &taken).await;
-    check_error(
-        &response,
-        StatusCode::CONFLICT,
-        "a category with this identifier exists already",
-    );
+    // The server makes the identifier. A request that names one is refused whether or
+    // not somebody has a category of that identifier: the answer must not tell. (The
+    // original stores the client's identifier, and answers 500 for one that is taken.)
+    let others = create_category(&th.client2, &category("0", &other.id, "Theirs")).await;
+    for id in ["fresh", others.id.as_str()] {
+        let named = json!({"id": id, "name": "x", "userID": user.id, "teamID": "0"});
+        let response = th.client.post(path, &named).await;
+        check_error(
+            &response,
+            StatusCode::BAD_REQUEST,
+            "a new category cannot have an ID",
+        );
+        assert_eq!(
+            response.value()["field"],
+            json!("id"),
+            "the member at fault"
+        );
+    }
+    th.client
+        .post(
+            path,
+            &json!({"name": "x", "userID": user.id, "teamID": "0"}),
+        )
+        .await
+        .check_ok();
 
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(
@@ -2029,49 +2047,36 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     th.teardown().await;
 }
 
-/// Preserved quirk: the word `reorder` is not reserved. With another method than the
-/// reorder routes', a path that ends in it addresses the category or the board that has
-/// the word as its identifier.
+/// The word `reorder` is reserved where other routes have an identifier: with another
+/// method than the reorder routes' the path is a known one asked the wrong way. (In the
+/// original it addresses the category or the board that has the word as its
+/// identifier, which a client could choose.)
 #[tokio::test]
-async fn the_word_reorder_can_be_an_identifier() {
+async fn the_word_reorder_is_reserved() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     category_boards(&th.client, "0").await;
     let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
 
-    // As a category: there is none with that identifier yet.
     let response = th.client.delete("/teams/0/categories/reorder").await;
-    check_error(&response, StatusCode::NOT_FOUND, "category not found");
-    let named = Category {
-        id: "reorder".to_owned(),
-        ..category("0", &user.id, "Named reorder")
-    };
-    create_category(&th.client, &named).await;
-    let deleted: Category = th
-        .client
-        .delete("/teams/0/categories/reorder")
-        .await
-        .ok_json();
-    assert_eq!(deleted.id, "reorder", "the category with that identifier");
-    assert!(deleted.delete_at > 0, "is deleted");
+    check_error(
+        &response,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "method not allowed",
+    );
+    assert_eq!(response.header("allow"), "PUT", "what the path takes");
 
-    // As a board: filed, and hidden, like any other identifier.
-    open_board(&th, "0", "reorder").await;
-    file_board(&th.client, "0", &created.id, "reorder").await;
-    put_empty(
-        &th.client,
-        &format!("/teams/0/categories/{}/boards/reorder/hide", created.id),
-    )
-    .await
-    .check_ok();
-    let listed = category_boards(&th.client, "0").await;
-    assert_eq!(
-        entry(&listed, &created.id).board_metadata,
-        [CategoryBoardMetadata {
-            board_id: "reorder".to_owned(),
-            hidden: true,
-        }],
-        "the board named reorder is filed and hidden"
+    let response = th
+        .client
+        .post_empty(&format!(
+            "/teams/0/categories/{}/boards/reorder",
+            created.id
+        ))
+        .await;
+    check_error(
+        &response,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "method not allowed",
     );
 
     th.teardown().await;
@@ -2299,11 +2304,12 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
             id: hostile_id.to_owned(),
             ..category("0", &user.id, "hostile")
         };
-        assert_eq!(
-            create_category(&th.client, &hostile).await.id,
-            hostile_id,
-            "the identifier is the client's to choose"
-        );
+        // The API makes its own identifiers; a hostile one comes in through the store,
+        // as one could through an import or an older database.
+        th.app
+            .create_category(hostile)
+            .await
+            .expect("the store takes any identifier as data");
     }
     let plain = create_category(&th.client, &category("0", &user.id, "plain")).await;
     let path = "/teams/0/categories/reorder";

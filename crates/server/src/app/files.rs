@@ -223,7 +223,7 @@ impl App {
                 .patch_blocks(&batch, user_id)
                 .await
                 .map_err(|error| {
-                    AppError::from(error).context(&format!(
+                    AppError::from(error).context(format_args!(
                         "could not patch file IDs while duplicating board {board_id}"
                     ))
                 })?;

@@ -211,7 +211,19 @@ async fn base_path_prefixes_every_route() {
 /// second would let every request without a token in.
 #[tokio::test]
 async fn startup_refuses_a_malformed_base_path_and_an_empty_single_user_token() {
-    for base_path in ["boards", "/boards/{team}", "/boards/*rest"] {
+    for base_path in [
+        "boards",
+        "/boards/{team}",
+        "/boards/*rest",
+        // The router would read these as patterns, or never match them.
+        "/:boards",
+        "/boards/:team",
+        "/boards?x=1",
+        "/boards#top",
+        "/a//b",
+        "/my boards",
+        "/boards\\x",
+    ] {
         let error = Setup::native()
             .base_path(base_path)
             .try_start()

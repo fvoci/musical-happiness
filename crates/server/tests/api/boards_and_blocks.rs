@@ -669,10 +669,7 @@ async fn patch_boards_and_blocks_block_that_doesnt_belong_to_any_board() {
 
     expect_bad_request(
         &response,
-        &format!(
-            "block {} is no block of the boards of the request",
-            boards.block2.id
-        ),
+        "the request names a block that is not on its boards",
     );
     assert_titles_unchanged(&th, &boards).await;
     th.teardown().await;
@@ -904,7 +901,7 @@ async fn patch_boards_and_blocks_checks() {
     .await;
     expect_bad_request(
         &response,
-        "block nonexistent is no block of the boards of the request",
+        "the request names a block that is not on its boards",
     );
 
     // An editor patches board properties and blocks, but not the board type.
@@ -1292,7 +1289,7 @@ async fn delete_boards_and_blocks_checks() {
             &json!({"boards": [first_id], "blocks": ["nonexistent"]}),
         )
         .await,
-        "block nonexistent is no block of the boards of the request",
+        "the request names a block that is not on its boards",
     );
 
     // A block of a board that is not listed.
@@ -1302,10 +1299,7 @@ async fn delete_boards_and_blocks_checks() {
             &json!({"boards": [first_id], "blocks": [boards.block2.id]}),
         )
         .await,
-        &format!(
-            "block {} is no block of the boards of the request",
-            boards.block2.id
-        ),
+        "the request names a block that is not on its boards",
     );
 
     // Somebody who is not a member.

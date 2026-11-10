@@ -20,6 +20,9 @@ const ACCESS_DENIED_TO_TEAM: &str = "access denied to team";
 /// The refusal of the routes that reorder or hide, whatever was denied.
 const ACCESS_DENIED_TO_CATEGORY: &str = "access denied to category";
 
+// The word `reorder` is reserved where other routes have an identifier: the server
+// makes the identifiers of categories and boards, and never makes that one. With
+// another method than the reorder routes' the path answers 405.
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route(
@@ -28,7 +31,7 @@ pub(super) fn routes() -> Router<App> {
         )
         .route(
             "/teams/{team_id}/categories/reorder",
-            put(handle_reorder_categories).delete(handle_delete_category_named_reorder),
+            put(handle_reorder_categories),
         )
         .route(
             "/teams/{team_id}/categories/{category_id}",
@@ -36,7 +39,7 @@ pub(super) fn routes() -> Router<App> {
         )
         .route(
             "/teams/{team_id}/categories/{category_id}/boards/reorder",
-            put(handle_reorder_category_boards).post(handle_update_category_board_named_reorder),
+            put(handle_reorder_category_boards),
         )
         .route(
             "/teams/{team_id}/categories/{category_id}/boards/{board_id}",
@@ -56,30 +59,6 @@ pub(super) fn routes() -> Router<App> {
 /// category and the board.
 type BoardPlace = (String, String, String);
 
-/// The word that names the reorder routes where other routes have an identifier.
-///
-/// Preserved quirk: the original does not reserve it. With another method than the
-/// reorder routes', a path that ends in it addresses the category or the board that has
-/// the word as its identifier (`server/api/categories.go:17-23`).
-const REORDER: &str = "reorder";
-
-async fn handle_delete_category_named_reorder(
-    app: State<App>,
-    session: RequiredSession,
-    Path(team_id): Path<String>,
-) -> ApiResult {
-    handle_delete_category(app, session, Path((team_id, REORDER.to_owned()))).await
-}
-
-async fn handle_update_category_board_named_reorder(
-    app: State<App>,
-    session: RequiredSession,
-    Path((team_id, category_id)): Path<(String, String)>,
-) -> ApiResult {
-    let place = (team_id, category_id, REORDER.to_owned());
-    handle_update_category_board(app, session, Path(place)).await
-}
-
 /// A category as a request body carries it.
 struct CategoryRequest {
     category: Category,
@@ -89,9 +68,9 @@ struct CategoryRequest {
 }
 
 impl CategoryRequest {
-    /// Decodes a category the way the original does: `null`, as the body or as a
-    /// member, leaves the default, and so does a blank `type`. Any other malformed body
-    /// is a server error, because the original does not classify the decoding error.
+    /// Decodes a category: a member that is `null` or missing leaves the default, and so
+    /// does a blank `type`. A body that is no JSON object, `null` included, or whose
+    /// members have the wrong types is a bad request.
     fn decode(body: &[u8]) -> Result<Self, AppError> {
         let mut members = decode_object_members(body)?;
         let unknown_type_is_blank = match members.get("type") {
@@ -150,6 +129,12 @@ async fn handle_create_category(
         return Err(
             AppError::forbidden("a user makes categories for themselves only").with_field("userID"),
         );
+    }
+    // The server makes the identifier. One chosen by the client would have to be
+    // checked against everybody's categories, and the answer to that check would say
+    // whether somebody has a category of that identifier.
+    if !category.id.is_empty() {
+        return Err(AppError::bad_request("a new category cannot have an ID").with_field("id"));
     }
     if category.team_id != team_id {
         return Err(AppError::bad_request("teamID mismatch"));

@@ -81,6 +81,10 @@ async fn ask_owned(origin: &str, method: Method, address: String) -> Answer {
 
 /// Checks every row of the path rules on the server at `origin` whose routes are under
 /// `base`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one block per row of the table of path rules"
+)]
 async fn check_path_rules(origin: &str, base: &str) {
     // A known API path with its method reaches the handler. No session is needed for
     // the client configuration, and no header for a route outside the API.
@@ -135,9 +139,20 @@ async fn check_path_rules(origin: &str, base: &str) {
         }
     }
 
-    // The websocket endpoint is for GET.
+    // The websocket endpoint is for a handshake over GET; anything else is refused in
+    // the API's format.
     let answer = ask(origin, Method::POST, &format!("{base}/ws")).await;
     assert_eq!(answer.status, StatusCode::METHOD_NOT_ALLOWED, "POST /ws");
+    assert_eq!(answer.error_code(), "method_not_allowed", "POST /ws");
+    let answer = ask(origin, Method::GET, &format!("{base}/ws")).await;
+    assert_eq!(
+        answer.status,
+        StatusCode::BAD_REQUEST,
+        "GET /ws without a handshake: {}",
+        answer.body
+    );
+    assert_eq!(answer.error_code(), "bad_request", "GET /ws");
+    assert_eq!(answer.content_type, "application/json", "GET /ws");
 
     // Static files: the file, or 404; no listing of the directory.
     let file = ask(origin, Method::GET, &format!("{base}/static/main.js")).await;
@@ -241,7 +256,14 @@ async fn path_rules_under_a_base_path_configured_with_a_trailing_slash() {
 async fn a_trailing_slash_redirect_does_not_lead_to_another_host() {
     let th = Setup::native().start().await;
     let origin = origin_of(&th, "");
-    for path in ["//evil.example/", "//evil.example/x/", "/a//b/"] {
+    for path in [
+        "//evil.example/",
+        "//evil.example/x/",
+        "/a//b/",
+        // A browser reads a backslash as a slash: `/\host` is `//host` to it.
+        "/\\evil.example/",
+        "/x/\\evil.example/",
+    ] {
         let answer = ask(&origin, Method::GET, path).await;
         assert_ne!(
             answer.status,

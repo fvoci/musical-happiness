@@ -66,8 +66,8 @@ pub(crate) type ApiResult = Result<Response, AppError>;
 ///
 /// Every route checks the cross-site request forgery header, and responses are marked as
 /// not cacheable unless a handler set its own policy. Request bodies are limited: to
-/// `max_request_bytes` where a route takes JSON, to less where no session is needed. The
-/// routes that take files have limits of their own.
+/// `max_request_bytes` where a route takes JSON, to less where no session is needed or
+/// none is claimed. The routes that take files are outside these limits.
 pub fn router(max_request_bytes: u64) -> Router<App> {
     let json = Router::new()
         .merge(archive::routes())
@@ -96,7 +96,9 @@ pub fn router(max_request_bytes: u64) -> Router<App> {
         UNAUTHENTICATED_BODY_LIMIT,
         limit_request_body,
     ));
-    // Uploads are bounded by the `maxfilesize` setting where they are read.
+    // Not behind the limits above. A file upload is bounded by `maxfilesize` where it
+    // is read, which is "no limit" at its default of 0; an archive import has no limit
+    // on the request yet. Both get limits with the chunked upload (design 5.6).
     let uploads = Router::new()
         .merge(files::upload_routes())
         .merge(archive::upload_routes());
@@ -123,7 +125,14 @@ pub fn system_router() -> Router<App> {
 /// They are to be served on the local Unix socket only, and refuse every request that
 /// arrives another way. Whatever else is asked on that socket gets a 404.
 pub fn admin_router() -> Router<App> {
+    // The one body this socket takes is a password; it gets the small limit, and the
+    // refusal in the API's own format.
     admin::routes()
+        .layer(middleware::from_fn_with_state(
+            UNAUTHENTICATED_BODY_LIMIT,
+            limit_request_body,
+        ))
+        .layer(DefaultBodyLimit::disable())
 }
 
 async fn require_csrf_header(request: Request, next: Next) -> Response {

@@ -158,13 +158,15 @@ impl<'a> Fixture<'a> {
                 &json!({"boardId": board, "userId": users.ids[role]}),
                 role_flags(role),
             );
-            http.api(
-                Method::POST,
-                &format!("{API}/boards/{board}/members"),
-                Payload::Json(member),
-                &owner,
-            )
-            .await;
+            let added = http
+                .api(
+                    Method::POST,
+                    &format!("{API}/boards/{board}/members"),
+                    Payload::Json(member),
+                    &owner,
+                )
+                .await;
+            assert_eq!(added.status, 200, "adding the {role} to the board");
         }
         let blocks = format!("{API}/boards/{board}/blocks");
         let created = http
@@ -216,11 +218,20 @@ impl<'a> Fixture<'a> {
         }
     }
 
-    /// A request as the board's owner, to arrange what the route under test needs.
+    /// A request as the board's owner, to arrange what the route under test needs. It
+    /// must succeed: a cell recorded after a failed arrangement would pin a status that
+    /// has another reason than the one the table is about.
     async fn owner(&self, method: Method, path: &str, payload: Payload) -> crate::harness::Reply {
-        self.http
-            .api(method, path, payload, &self.users.caller("owner"))
-            .await
+        let reply = self
+            .http
+            .api(method.clone(), path, payload, &self.users.caller("owner"))
+            .await;
+        assert!(
+            (200..300).contains(&reply.status),
+            "arranging with {method} {path} as the owner answered {}",
+            reply.status
+        );
+        reply
     }
 
     /// Uploads a file to the board as its owner and returns the file's name.
@@ -426,14 +437,15 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "subscriptions: delete" => {
             let subscriber = if me.is_empty() { "nobody" } else { me };
             if !me.is_empty() {
-                let token = fx
+                let (name, _) = fx
                     .users
                     .ids
                     .iter()
                     .find(|(_, id)| id.as_str() == me)
-                    .map(|(name, _)| fx.users.caller(name))
                     .expect("the caller is a registered user");
-                fx.http
+                let token = fx.users.caller(name);
+                let reply = fx
+                    .http
                     .api(
                         Method::POST,
                         &format!("{API}/subscriptions"),
@@ -441,6 +453,18 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
                         &token,
                     )
                     .await;
+                // A member has a subscription to end. Who is no member cannot subscribe,
+                // and their cell says what ending a subscription one does not have
+                // answers.
+                let wanted = if MEMBER_ROLES.contains(name) {
+                    200
+                } else {
+                    404
+                };
+                assert_eq!(
+                    reply.status, wanted,
+                    "subscribing as {name} before the subscription is ended"
+                );
             }
             Request::new(
                 Method::DELETE,

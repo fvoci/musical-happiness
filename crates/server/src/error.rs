@@ -214,12 +214,15 @@ impl AppError {
         self
     }
 
-    /// Puts `context` before the message, as `context: message`, keeping the kind.
+    /// Says where the error came up, for the log. A server error carries it in its
+    /// cause. What a client is told does not change: the words of the app layer about
+    /// its own steps are not for clients.
     #[must_use]
-    pub fn context(mut self, context: &str) -> Self {
-        match self.cause.take() {
-            Some(cause) => self.cause = Some(cause.context(context.to_owned())),
-            None => self.message = format!("{context}: {}", self.message),
+    pub fn context(mut self, context: impl std::fmt::Display) -> Self {
+        if let Some(cause) = self.cause.take() {
+            self.cause = Some(cause.context(context.to_string()));
+        } else {
+            tracing::debug!(%context, error = %self.message, "API error");
         }
         self
     }
@@ -476,11 +479,23 @@ mod tests {
         assert_eq!(body.message, "internal server error", "the client does not");
     }
 
-    #[test]
-    fn context_wraps_the_message_and_keeps_the_kind() {
+    /// Where an error came up is for the log. What a client is told stays as it is.
+    #[tokio::test]
+    async fn context_does_not_change_what_a_client_is_told() {
         let error = AppError::bad_request("no admins").context("removing a member");
         assert_eq!(error.kind(), ErrorKind::BadRequest);
-        assert_eq!(error.to_string(), "removing a member: no admins");
+        let (status, body) = reported(error).await;
+        assert_eq!(status, 400);
+        assert_eq!(
+            body.message, "no admins",
+            "the app layer's words are not sent"
+        );
+
+        let error = AppError::internal("disk full").context("writing a file");
+        assert!(
+            error.to_string().contains("writing a file"),
+            "a server error carries it for the log: {error}"
+        );
     }
 
     #[tokio::test]

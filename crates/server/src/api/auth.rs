@@ -6,7 +6,7 @@ use axum::extract::{Path, State};
 use axum::routing::post;
 use fvoci_model::{ChangePasswordRequest, LoginRequest, LoginResponse, RegisterRequest};
 
-use super::{ApiResult, RequiredSession, decode_json, empty_response, json_response};
+use super::{ApiResult, RequiredSession, decode_object, empty_response, json_response};
 use crate::app::App;
 use crate::auth::tokens_match;
 use crate::error::{AppError, Reason};
@@ -43,7 +43,7 @@ fn reject_in_single_user_mode(app: &App) -> Result<(), AppError> {
 
 async fn handle_login(State(app): State<App>, body: Bytes) -> ApiResult {
     reject_in_single_user_mode(&app)?;
-    let login: LoginRequest = decode_json(&body)?;
+    let login: LoginRequest = decode_object(&body)?;
     if login.login_type != "normal" {
         return Err(AppError::bad_request("invalid login type").with_field("type"));
     }
@@ -64,7 +64,7 @@ async fn handle_logout(
 
 async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
     reject_in_single_user_mode(&app)?;
-    let mut register: RegisterRequest = decode_json(&body)?;
+    let mut register: RegisterRequest = decode_object(&body)?;
     register.email = register.email.trim().to_owned();
     register.username = register.username.trim().to_owned();
 
@@ -112,7 +112,7 @@ async fn handle_change_password(
             "access denied to change another user's password",
         ));
     }
-    let request: ChangePasswordRequest = decode_json(&body)?;
+    let request: ChangePasswordRequest = decode_object(&body)?;
     request.validate()?;
 
     app.change_password(&user_id, &request.old_password, &request.new_password)

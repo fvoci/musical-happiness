@@ -25,9 +25,19 @@ struct Hidden {
     owner: [String; 2],
     /// The second user, who sees none of it.
     outsider: String,
+    /// What the second user has of their own: a private board with a card and a text
+    /// in it, and a category.
+    own_board: String,
+    own_card: String,
+    own_text: String,
+    own_category: String,
 }
 
 impl Hidden {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one fixture: everything of two users that the tables ask about"
+    )]
     async fn start() -> Self {
         let th = Setup::local_mode().start().await.init_basic().await;
         let owner = th.client.me().await;
@@ -103,7 +113,55 @@ impl Hidden {
             .await
             .check_ok();
 
+        // What the outsider has of their own, to ask about hidden things through.
+        let own_board = th
+            .client2
+            .create_board(&fvoci_model::Board {
+                team_id: TEST_TEAM_ID.to_owned(),
+                board_type: BoardType::Private,
+                ..fvoci_model::Board::default()
+            })
+            .await
+            .ok_json::<fvoci_model::Board>();
+        let own_block = |block_type: BlockType, parent_id: &str| Block {
+            id: new_id(IdKind::Block),
+            board_id: own_board.id.clone(),
+            parent_id: parent_id.to_owned(),
+            block_type,
+            create_at: 1,
+            update_at: 1,
+            ..Block::default()
+        };
+        let mut created: Vec<Block> = th
+            .client2
+            .insert_blocks(&own_board.id, &[own_block(BlockType::Card, &own_board.id)])
+            .await
+            .ok_json();
+        let own_card = created.pop().expect("the card is created");
+        let mut created: Vec<Block> = th
+            .client2
+            .insert_blocks(&own_board.id, &[own_block(BlockType::Text, &own_card.id)])
+            .await
+            .ok_json();
+        let own_text = created.pop().expect("the text is created");
+        th.client2
+            .get(&format!("/teams/{TEST_TEAM_ID}/categories"))
+            .await
+            .check_ok();
+        let own_category: Category = th
+            .client2
+            .post(
+                &format!("/teams/{TEST_TEAM_ID}/categories"),
+                &json!({"name": "Own", "userID": outsider, "teamID": TEST_TEAM_ID}),
+            )
+            .await
+            .ok_json();
+
         Self {
+            own_board: own_board.id,
+            own_card: own_card.id,
+            own_text: own_text.id,
+            own_category: own_category.id,
             board: [board.id, new_id(IdKind::Board)],
             card: [card.id, new_id(IdKind::Card)],
             text: [text.id, new_id(IdKind::Block)],
@@ -392,6 +450,168 @@ fn cases() -> Vec<Case> {
     ]
 }
 
+/// Requests that name something of the asker's own together with something hidden: the
+/// places where one part of a request passes every check and the other part must not
+/// be given away by the answer.
+#[expect(
+    clippy::too_many_lines,
+    reason = "a table with one entry per route, not logic"
+)]
+fn mixed_cases() -> Vec<Case> {
+    let case = |method: Method,
+                path: fn(&Hidden, usize) -> String,
+                body: fn(&Hidden, usize) -> Value| Case { method, path, body };
+    vec![
+        // A hidden block through the asker's own board.
+        case(
+            Method::GET,
+            |h, i| format!("/boards/{}/blocks?block_id={}", h.own_board, h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::PATCH,
+            |h, i| format!("/boards/{}/blocks/{}", h.own_board, h.card[i]),
+            title,
+        ),
+        case(
+            Method::DELETE,
+            |h, i| format!("/boards/{}/blocks/{}", h.own_board, h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| format!("/boards/{}/blocks/{}/undelete", h.own_board, h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| format!("/boards/{}/blocks/{}/duplicate", h.own_board, h.card[i]),
+            no_body,
+        ),
+        case(
+            Method::PATCH,
+            |h, _| format!("/boards/{}/blocks", h.own_board),
+            |h, i| {
+                json!({
+                    "block_ids": [h.own_card, h.card[i]],
+                    "block_patches": [{"title": "x"}, {"title": "y"}],
+                })
+            },
+        ),
+        // The asker's own board together with a hidden block, or a hidden board.
+        case(
+            Method::PATCH,
+            |_, _| "/boards-and-blocks".to_owned(),
+            |h, i| {
+                json!({
+                    "boardIDs": [h.own_board], "boardPatches": [{"title": "x"}],
+                    "blockIDs": [h.card[i]], "blockPatches": [{"title": "y"}],
+                })
+            },
+        ),
+        case(
+            Method::PATCH,
+            |_, _| "/boards-and-blocks".to_owned(),
+            |h, i| {
+                json!({
+                    "boardIDs": [h.own_board, h.board[i]],
+                    "boardPatches": [{"title": "x"}, {"title": "y"}],
+                })
+            },
+        ),
+        case(
+            Method::DELETE,
+            |_, _| "/boards-and-blocks".to_owned(),
+            |h, i| json!({"boards": [h.own_board], "blocks": [h.card[i]]}),
+        ),
+        // The asker's own content block next to a hidden one, both ways round.
+        case(
+            Method::POST,
+            |h, i| format!("/content-blocks/{}/moveto/after/{}", h.own_text, h.text[i]),
+            no_body,
+        ),
+        case(
+            Method::POST,
+            |h, i| format!("/content-blocks/{}/moveto/after/{}", h.text[i], h.own_text),
+            no_body,
+        ),
+        // Blocks for the asker's own board, with files to copy from a hidden board.
+        case(
+            Method::POST,
+            |h, i| {
+                format!(
+                    "/boards/{}/blocks?sourceBoardID={}",
+                    h.own_board, h.board[i]
+                )
+            },
+            |h, i| {
+                json!([{
+                    "boardId": h.own_board, "type": "image", "createAt": 1, "updateAt": 1,
+                    "fields": {"fileId": h.file[i]},
+                }])
+            },
+        ),
+        // A hidden board in the asker's own category.
+        case(
+            Method::POST,
+            |h, i| {
+                format!(
+                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}",
+                    h.own_category, h.board[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::PUT,
+            |h, i| {
+                format!(
+                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}/hide",
+                    h.own_category, h.board[i]
+                )
+            },
+            no_body,
+        ),
+        case(
+            Method::PUT,
+            |h, i| {
+                format!(
+                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}/unhide",
+                    h.own_category, h.board[i]
+                )
+            },
+            no_body,
+        ),
+        // A new category that names the identifier of somebody's category.
+        case(
+            Method::POST,
+            |_, _| format!("/teams/{TEST_TEAM_ID}/categories"),
+            |h, i| {
+                json!({
+                    "id": h.category[i], "name": "x",
+                    "userID": h.outsider, "teamID": TEST_TEAM_ID,
+                })
+            },
+        ),
+        // A file of the hidden board through the asker's own board.
+        case(
+            Method::GET,
+            |h, i| format!("/files/teams/{TEST_TEAM_ID}/{}/{}", h.own_board, h.file[i]),
+            no_body,
+        ),
+        case(
+            Method::GET,
+            |h, i| {
+                format!(
+                    "/files/teams/{TEST_TEAM_ID}/{}/{}/info",
+                    h.own_board, h.file[i]
+                )
+            },
+            no_body,
+        ),
+    ]
+}
+
 /// The parts of an answer a client could tell two requests apart by.
 fn told(response: &ApiResponse) -> (StatusCode, Value) {
     let mut body = response.value();
@@ -464,6 +684,53 @@ async fn what_a_user_cannot_see_answers_as_what_does_not_exist() {
         .await
         .ok_json();
     assert_eq!(subscriptions.len(), 1, "the owner's subscription");
+    hidden.th.teardown().await;
+}
+
+/// The same where a request names something of the asker's own next to something
+/// hidden: the request is refused, and the same way as for an identifier nobody has.
+#[tokio::test]
+async fn a_hidden_thing_next_to_an_own_one_answers_as_one_that_does_not_exist() {
+    let hidden = Hidden::start().await;
+    let outsider = &hidden.th.client2;
+
+    for case in mixed_cases() {
+        let path = (case.path)(&hidden, 0);
+        let existing = ask(outsider, &hidden, &case, 0).await;
+        let missing = ask(outsider, &hidden, &case, 1).await;
+
+        assert!(
+            existing.status.is_client_error(),
+            "{} {path} is refused: {} {}",
+            case.method,
+            existing.status,
+            existing.text()
+        );
+        assert_eq!(
+            told(&existing),
+            told(&missing),
+            "{} {path}: what is hidden and what is missing answer alike",
+            case.method
+        );
+    }
+
+    // The outsider's own things are as they were, and so are the owner's.
+    let own: Vec<Block> = outsider
+        .get(&format!("/boards/{}/blocks", hidden.own_board))
+        .await
+        .ok_json();
+    assert_eq!(own.len(), 2, "the outsider's card and text, nothing added");
+    assert!(
+        own.iter().all(|block| block.title.is_empty()),
+        "and nothing patched: {own:?}"
+    );
+    let blocks: Vec<Block> = hidden
+        .th
+        .client
+        .get(&format!("/boards/{}/blocks", hidden.board[0]))
+        .await
+        .ok_json();
+    assert_eq!(blocks.len(), 2, "the owner's card and text");
     hidden.th.teardown().await;
 }
 

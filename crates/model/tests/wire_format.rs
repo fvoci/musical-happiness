@@ -268,10 +268,10 @@ fn board_patch_without_card_property_changes_keeps_them_untouched() {
     assert_eq!(to_json(&board.card_properties), card_properties);
 }
 
-/// Preserved quirk of the original merge: a property that the same patch deletes and
-/// updates comes out twice.
+/// A property that the same patch deletes and updates comes out once, updated, at its
+/// place. (In the original's merge it comes out twice.)
 #[test]
-fn board_patch_deleting_and_updating_a_card_property_duplicates_it() {
+fn board_patch_deleting_and_updating_a_card_property_keeps_one() {
     let mut board = Board {
         card_properties: serde_json::from_value(json!([{ "id": "a", "v": 1 }, { "id": "b" }]))
             .expect("list"),
@@ -287,7 +287,8 @@ fn board_patch_deleting_and_updating_a_card_property_duplicates_it() {
 
     assert_eq!(
         to_json(&board.card_properties),
-        json!([{ "id": "a", "v": 2 }, { "id": "b" }, { "id": "a", "v": 2 }])
+        json!([{ "id": "a", "v": 2 }, { "id": "b" }]),
+        "one definition per identifier"
     );
 }
 

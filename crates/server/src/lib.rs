@@ -21,9 +21,10 @@ use anyhow::{Context as _, bail};
 use axum::Router;
 use axum::body::Body;
 use axum::extract::ws::WebSocketUpgrade;
+use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::{OriginalUri, Request, State};
 use axum::http::header::ALLOW;
-use axum::http::{HeaderValue, Method, Uri};
+use axum::http::{HeaderValue, Method, StatusCode, Uri};
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
@@ -90,9 +91,15 @@ impl Server {
             bail!("the single-user token must not be empty");
         }
         let base_path = base_path.trim_end_matches('/');
-        if !base_path.is_empty()
-            && (!base_path.starts_with('/') || base_path.contains(['{', '}', '*']))
-        {
+        // What the router would read as a pattern or could never match is refused here,
+        // with words, and not by a panic of the router or by a server that answers 404
+        // to everything.
+        let is_malformed = !base_path.starts_with('/')
+            || base_path.contains(['{', '}', '*', '?', '#', '\\'])
+            || base_path.contains("//")
+            || base_path.contains("/:")
+            || base_path.chars().any(char::is_whitespace);
+        if !base_path.is_empty() && is_malformed {
             bail!(
                 "{BASE_PATH_ENV} must be empty or an absolute path such as /boards, not {base_path:?}"
             );
@@ -369,7 +376,29 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
     })
 }
 
-async fn handle_websocket(State(app): State<App>, upgrade: WebSocketUpgrade) -> Response {
+async fn handle_websocket(
+    State(app): State<App>,
+    upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
+) -> Response {
+    let upgrade = match upgrade {
+        Ok(upgrade) => upgrade,
+        // The endpoint is for a websocket handshake and nothing else; what is none is
+        // refused in the API's own format.
+        Err(rejection) => {
+            let error = if rejection.status() == StatusCode::METHOD_NOT_ALLOWED {
+                AppError::method_not_allowed()
+            } else {
+                AppError::bad_request("this endpoint takes a websocket handshake only")
+            };
+            let mut response = error.into_response();
+            if response.status() == StatusCode::METHOD_NOT_ALLOWED {
+                response
+                    .headers_mut()
+                    .insert(ALLOW, HeaderValue::from_static("GET"));
+            }
+            return response;
+        }
+    };
     // The commands a connection sends are small; a larger message is a mistake or an
     // attempt to make the server buffer it, and closes the connection.
     upgrade
@@ -445,11 +474,12 @@ async fn handle_fallback(
 /// The address a path with a trailing slash is redirected to: the same path without
 /// the slash, with its query.
 ///
-/// `None` for a path with an empty segment, such as `//host/`: without its last slash
-/// it would read as an address on another host.
+/// `None` for a path with an empty segment or a backslash, such as `//host/` and
+/// `/\host/`: without its last slash it would read as an address on another host.
 fn without_trailing_slash(uri: &Uri) -> Option<String> {
     let path = uri.path().trim_end_matches('/');
-    if path.is_empty() || path.contains("//") {
+    // Browsers read a backslash as a slash, so `/\host` is `//host` to them.
+    if path.is_empty() || path.contains("//") || path.contains('\\') {
         return None;
     }
     Some(match uri.query() {

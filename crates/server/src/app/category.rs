@@ -28,17 +28,11 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a bad request if the category is not valid, a conflict if its identifier
-    /// is taken, or the store's error if it cannot be written or read back.
+    /// Returns a bad request if the category is not valid, or the store's error if it
+    /// cannot be written or read back.
     pub async fn create_category(&self, mut category: Category) -> Result<Category, AppError> {
         category.hydrate(now_millis());
         category.validate()?;
-        // A request may name the identifier; one that is taken stands against it.
-        if self.store().get_category(&category.id).await.is_ok() {
-            return Err(AppError::conflict(
-                "a category with this identifier exists already",
-            ));
-        }
         self.store().create_category(&category).await?;
         let created = self.store().get_category(&category.id).await?;
         self.ws().broadcast_category_change(&created);

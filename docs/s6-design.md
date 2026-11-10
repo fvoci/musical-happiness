@@ -672,7 +672,7 @@ JSON 한도의 다른 안:
 3. 옛 형식(v1 JSONL, v2 ZIP)의 가져오기 코드와 `server/assets/templates.boardarchive`의 내장은 그때 걷어 낸다(결정 14 그대로).
 4. ID는 산출물에 두지 않거나 서버가 넣을 때 새로 만든다(지금도 가져올 때 새 ID를 준다).
 
-**아카이브 자체의 문제.** 스파이크 문서 3절이 적은 수를 아카이브(`server/assets/templates.boardarchive`)에서 직접 다시 셌고 같았다(2026-11-10 18:58 KST).
+**아카이브 자체의 문제.** 스파이크 문서 3절이 적은 수를 아카이브(`server/assets/templates.boardarchive`)에서 직접 다시 셌고 같았다(2026-11-10 18:52–19:00 KST 사이).
 
 | 문제 | 수 | 어디 |
 |---|---|---|
@@ -748,7 +748,7 @@ JSON 한도의 다른 안:
 | `sqlx-sqlite` 0.9.0의 외래 키 기본값, `object_store` 0.14.2의 멀티파트 API, `axum`·`axum-core`·`tower-http`의 본문 한도와 WebSocket 크기 | 크레이트 소스를 직접 읽었다 |
 | GroundZero의 OpenAPI 도구와 쿠키 이름 | `gh api`로 `Cargo.toml`, `Cargo.lock`, `xtask/src/openapi.rs`, `package.json`, `contracts/openapi.json`을 직접 읽었다 |
 | 편집기 스파이크의 결과, 날짜 값의 와이어 안 | 웹앱 워크트리(kokanee, 브랜치 `fvoci/web`, 커밋 `fa7625b1`)의 `apps/web/docs/spike-editor.md`와 `apps/web/PORTING.md`를 직접 읽었다. 읽기만 했다 |
-| 템플릿 아카이브의 주인 없는 블록과 끊어진 참조, 이미지 블록과 파일의 수 | `server/assets/templates.boardarchive`를 풀어 직접 셌다(2026-11-10 18:58 KST). 원본 웹앱의 동작은 `webapp/src/store/contents.ts`를 읽었다 |
+| 템플릿 아카이브의 주인 없는 블록과 끊어진 참조, 이미지 블록과 파일의 수 | `server/assets/templates.boardarchive`를 풀어 직접 셌다(2026-11-10 18:52–19:00 KST 사이). 원본 웹앱의 동작은 `webapp/src/store/contents.ts`를 읽었다 |
 | 413을 바로 답했을 때의 broken pipe(9번 중 1번)와 본문을 버린 뒤의 결과(54번 모두 413) | `tests/api/limits.rs`를 돌린 결과(2026-11-10) |
 
 확인하지 못한 것: 새 웹앱이 보낼 요청의 크기는 스파이크가 쟀다(카드 본문 하나 0.4–2.1 KB, 5.7). Argon2id 해시 한 번이 이 기기에서 걸리는 시간(구현할 때 잰다). 5절에서 확인하지 못한 것은 5.8에 있다.

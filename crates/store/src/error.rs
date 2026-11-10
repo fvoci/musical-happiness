@@ -13,16 +13,14 @@ pub enum StoreError {
 
     /// A lookup of a single session, team or sharing record matched no row.
     ///
-    /// The original reports these with its database layer's message instead of naming the
-    /// record, and that message reaches HTTP clients, so it is kept.
+    /// The message is the original's database layer's. It stays in the log: the HTTP
+    /// layer answers "not found" without it.
     #[error("sql: no rows in result set")]
     NoRows,
 
     /// An update addressed a user that does not exist, by identifier or by name.
     ///
-    /// Unlike [`StoreError::NotFound`] this is not a "not found" for the HTTP layer: the
-    /// original reports it as a server error, or as part of a "bad request" message when
-    /// a user changes their own password.
+    /// The HTTP layer answers it as "user not found" (404).
     #[error("user not found ({0})")]
     UserNotFound(String),
 

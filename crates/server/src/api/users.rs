@@ -6,7 +6,7 @@ use axum::extract::{Path, State};
 use axum::routing::{get, post, put};
 use fvoci_model::{SINGLE_USER_ID, User, UserPreferencesPatch};
 
-use super::{ApiResult, RequiredSession, decode_json, json_response};
+use super::{ApiResult, RequiredSession, decode_json, decode_object, json_response};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -21,7 +21,6 @@ pub(super) fn routes() -> Router<App> {
         .route("/users/{user_id}/config", put(handle_update_user_config))
 }
 
-/// The user record that stands for the one user of single-user mode.
 /// What a request misses that names a user who is not there.
 const USER: &str = "user";
 
@@ -34,6 +33,7 @@ fn user_not_found(error: AppError) -> AppError {
     }
 }
 
+/// The user record that stands for the one user of single-user mode.
 pub(super) async fn single_user(app: &App) -> User {
     // The root team's last change stands in for the user's creation time.
     let create_at = app
@@ -143,7 +143,7 @@ async fn handle_update_user_config(
     if user_id != session.user_id {
         return Err(AppError::not_found(USER));
     }
-    let patch: UserPreferencesPatch = decode_json(&body)?;
+    let patch: UserPreferencesPatch = decode_object(&body)?;
     Ok(json_response(
         &app.update_user_config(&user_id, &patch).await?,
     ))

@@ -146,7 +146,7 @@ impl App {
             ))
             .await
             .map_err(|error| {
-                error.context(&format!(
+                error.context(format_args!(
                     "createBoardsCategory failed to add category-less board to the default \
                          category, defaultCategoryID: {}, error",
                     created.id
@@ -282,8 +282,8 @@ impl App {
     /// Hides a board in one of a user's categories, or shows it again, and tells the
     /// user's connection about it.
     ///
-    /// The route has checked that the category is the user's and that the user sees the
-    /// board. Preserved quirk: if the user does not have the board in the category,
+    /// The category must be the user's (checked here), and the route has checked that
+    /// the user sees the board. Preserved quirk: if the user does not have the board in the category,
     /// nothing changes, and the user's connection is told of the change all the same
     /// (server/app/category_boards.go:265-279).
     ///

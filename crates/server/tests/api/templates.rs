@@ -240,3 +240,75 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     ts.client.post_empty("/teams/0/onboard").await.check_ok();
     ts.teardown().await;
 }
+
+/// Security fix. The built-in templates are open boards of the team every user is in,
+/// so in the original anyone could join one, become its editor, and change what every
+/// new user's first board is copied from. A template is not joined, and so nobody
+/// becomes a member of a built-in one.
+#[tokio::test]
+async fn a_built_in_template_cannot_be_joined_or_changed() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let templates = ts
+        .client
+        .get("/teams/0/templates")
+        .await
+        .ok_json::<Vec<Board>>();
+    let welcome = templates
+        .iter()
+        .find(|board| board.title.starts_with("Welcome"))
+        .expect("the welcome template is built in");
+
+    let response = ts
+        .client
+        .post_empty(&format!("/boards/{}/join", welcome.id))
+        .await;
+    response.check_error(
+        reqwest::StatusCode::FORBIDDEN,
+        "a template cannot be joined",
+    );
+
+    // Without a membership there is no way to write to it.
+    ts.client
+        .patch(
+            &format!("/boards/{}", welcome.id),
+            &serde_json::json!({"title": "taken over"}),
+        )
+        .await
+        .check_forbidden();
+    ts.client
+        .delete(&format!("/boards/{}", welcome.id))
+        .await
+        .check_forbidden();
+    let blocks = ts
+        .client
+        .get(&format!("/boards/{}/blocks", welcome.id))
+        .await
+        .ok_json::<Vec<fvoci_model::Block>>();
+    let card = blocks
+        .iter()
+        .find(|block| block.block_type == fvoci_model::BlockType::Card)
+        .expect("the template has cards");
+    ts.client
+        .patch(
+            &format!("/boards/{}/blocks/{}", welcome.id, card.id),
+            &serde_json::json!({"title": "taken over"}),
+        )
+        .await
+        .check_forbidden();
+    ts.client
+        .post_empty(&format!("/boards/{}/members", welcome.id))
+        .await
+        .check_forbidden();
+
+    // Reading and copying it is what it is for.
+    ts.client
+        .post_empty(&format!("/boards/{}/duplicate", welcome.id))
+        .await
+        .check_ok();
+    ts.teardown().await;
+}

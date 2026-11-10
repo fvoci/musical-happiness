@@ -200,12 +200,10 @@ async fn handle_patch_boards_and_blocks(
     Ok(json_response(&result))
 }
 
-/// Checks that every block exists, belongs to one of the boards and may be changed by
-/// the user.
-fn not_a_block_of_the_boards(block_id: &str) -> AppError {
-    AppError::bad_request(format_args!(
-        "block {block_id} is no block of the boards of the request"
-    ))
+/// The one answer for a block that does not exist and for one of a board the request
+/// does not list.
+fn not_a_block_of_the_boards() -> AppError {
+    AppError::bad_request("the request names a block that is not on its boards")
 }
 
 async fn require_blocks_of_boards(
@@ -219,9 +217,9 @@ async fn require_blocks_of_boards(
         // does not list, so that nothing is said about blocks of other boards.
         let block = match app.block(block_id).await {
             Ok(block) if board_ids.contains(block.board_id.as_str()) => block,
-            Ok(_) => return Err(not_a_block_of_the_boards(block_id)),
+            Ok(_) => return Err(not_a_block_of_the_boards()),
             Err(error) if error.is_not_found() => {
-                return Err(not_a_block_of_the_boards(block_id));
+                return Err(not_a_block_of_the_boards());
             }
             Err(error) => return Err(error),
         };

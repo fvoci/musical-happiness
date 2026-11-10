@@ -391,15 +391,17 @@ impl Hub {
                 .ok()
                 .map(|session| session.user_id),
         };
-        match user_id.filter(|user_id| !user_id.is_empty()) {
-            Some(user_id) => {
-                if let Some(listener) = self.listeners().by_id.get_mut(&id) {
-                    listener.user_id = user_id;
-                }
-                true
-            }
-            None => false,
+        let Some(user_id) = user_id.filter(|user_id| !user_id.is_empty()) else {
+            return false;
+        };
+        if let Some(listener) = self.listeners().by_id.get_mut(&id) {
+            listener.user_id = user_id;
         }
+        // The sessions of a user can be ended between the lookup above and the line that
+        // made this a connection of that user; the closing of the user's connections
+        // would then have passed this one by. Looked up once more, now that it is
+        // closable, the session is either still there or the connection ends.
+        self.inner.single_user_token.is_some() || self.inner.auth.get_session(token).await.is_ok()
     }
 
     /// A block subscription needs a team, blocks that all belong to one board, and that

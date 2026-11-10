@@ -37,7 +37,7 @@ async fn handle_get_templates(
         let visible = board.board_type == BoardType::Open
             || app
                 .has_permission_to_board(user_id, &board.id, BoardPermission::ViewBoard)
-                .await;
+                .await?;
         if visible {
             results.push(board);
         }

@@ -100,7 +100,7 @@ async fn check_read_access(
     if !has_read_token
         && !app
             .has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
-            .await
+            .await?
     {
         return Err(board_refusal(app, user_id, board_id, "access denied to board").await);
     }

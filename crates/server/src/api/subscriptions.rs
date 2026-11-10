@@ -40,9 +40,9 @@ pub(super) fn routes() -> Router<App> {
 /// A subscription as a request body carries it.
 ///
 /// The model's subscription holds a subscriber type that exists, so decoding into it
-/// would refuse an unknown one as malformed JSON, which is a server error on this
-/// route. The original decodes any string and refuses it as the last step of its
-/// validation, as a bad request; so does [`SubscriptionRequest::into_subscription`].
+/// would refuse an unknown one as malformed JSON, before the other members are looked
+/// at. Any string is decoded here and refused as the last step of the validation, in
+/// [`SubscriptionRequest::into_subscription`].
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct SubscriptionRequest {
@@ -56,9 +56,9 @@ struct SubscriptionRequest {
 }
 
 impl SubscriptionRequest {
-    /// Decodes the body the way the original does: `null`, as the body or as a member,
-    /// leaves the default. Any other malformed body is a server error, because the
-    /// original does not classify the decoding error (server/api/subscriptions.go:60-63).
+    /// Decodes the body: a member that is `null` or missing leaves the default. A body
+    /// that is no JSON object, `null` included, or whose members have the wrong types is
+    /// a bad request.
     fn decode(body: &[u8]) -> Result<Self, AppError> {
         let members = decode_object_members(body)?;
         serde_json::from_value(Value::Object(members)).map_err(AppError::bad_request)

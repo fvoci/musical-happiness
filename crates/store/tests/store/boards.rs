@@ -1785,7 +1785,7 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
         .expect_err("a definition without an identifier");
     assert_eq!(
         error.to_string(),
-        "a card property definition needs a non-empty string as id"
+        "card property definition 1 needs a non-empty string as id"
     );
     assert!(
         test.get_board(&board_id).await.unwrap_err().is_not_found(),

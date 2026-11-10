@@ -30,8 +30,17 @@ pub enum CardPropertyError {
         id: String,
     },
     /// A property definition has no `id`, or one that is not a non-empty string.
-    #[error("a card property definition needs a non-empty string as id")]
-    MissingId,
+    #[error("card property definition {position} needs a non-empty string as id")]
+    MissingId {
+        /// Which definition of the list it is, counted from 1.
+        position: usize,
+    },
+    /// Two property definitions have the same `id`.
+    #[error("two card property definitions have the id {id:?}")]
+    DuplicateId {
+        /// The identifier that is there twice.
+        id: String,
+    },
     /// A member of a property definition that must be a string is something else.
     #[error("{member} of card property {id:?} must be a string")]
     MemberNotString {
@@ -91,17 +100,27 @@ pub fn validate_block_properties(fields: &JsonMap) -> Result<(), CardPropertyErr
 ///
 /// # Errors
 ///
-/// Returns the [`CardPropertyError`] of the first definition that is malformed.
+/// Returns the [`CardPropertyError`] of the first definition that is malformed or has
+/// the identifier of an earlier one: a card's value could not say which of the two it
+/// belongs to.
 pub fn validate_card_property_definitions(
     definitions: &[JsonMap],
 ) -> Result<(), CardPropertyError> {
-    definitions.iter().try_for_each(validate_definition)
+    let mut seen = std::collections::HashSet::new();
+    for (index, definition) in definitions.iter().enumerate() {
+        let id = validate_definition(definition, index + 1)?;
+        if !seen.insert(id) {
+            return Err(CardPropertyError::DuplicateId { id: id.to_owned() });
+        }
+    }
+    Ok(())
 }
 
-fn validate_definition(definition: &JsonMap) -> Result<(), CardPropertyError> {
+/// Checks one definition, the `position`th of its list, and returns its identifier.
+fn validate_definition(definition: &JsonMap, position: usize) -> Result<&str, CardPropertyError> {
     let id = match definition.get("id") {
         Some(Value::String(id)) if !id.is_empty() => id,
-        _ => return Err(CardPropertyError::MissingId),
+        _ => return Err(CardPropertyError::MissingId { position }),
     };
     for member in DEFINITION_STRING_MEMBERS {
         if definition
@@ -120,7 +139,7 @@ fn validate_definition(definition: &JsonMap) -> Result<(), CardPropertyError> {
         Some(_) => false,
     };
     if options_are_valid {
-        Ok(())
+        Ok(id)
     } else {
         Err(CardPropertyError::InvalidOptions { id: id.clone() })
     }
@@ -234,10 +253,22 @@ mod tests {
     fn malformed_definitions_are_named_by_what_is_wrong() {
         let p1 = || "p1".to_owned();
         let cases = [
-            (json!({"name": "x"}), CardPropertyError::MissingId),
-            (json!({"id": ""}), CardPropertyError::MissingId),
-            (json!({"id": 7}), CardPropertyError::MissingId),
-            (json!({"id": null}), CardPropertyError::MissingId),
+            (
+                json!({"name": "x"}),
+                CardPropertyError::MissingId { position: 1 },
+            ),
+            (
+                json!({"id": ""}),
+                CardPropertyError::MissingId { position: 1 },
+            ),
+            (
+                json!({"id": 7}),
+                CardPropertyError::MissingId { position: 1 },
+            ),
+            (
+                json!({"id": null}),
+                CardPropertyError::MissingId { position: 1 },
+            ),
             (
                 json!({"id": "p1", "name": 7}),
                 CardPropertyError::MemberNotString {
@@ -293,8 +324,24 @@ mod tests {
         ];
         assert_eq!(
             validate_card_property_definitions(&definitions),
-            Err(CardPropertyError::MissingId),
-            "the second definition"
+            Err(CardPropertyError::MissingId { position: 2 }),
+            "the second definition, named by its place"
+        );
+    }
+
+    #[test]
+    fn two_definitions_with_one_id_are_refused() {
+        let definitions = [
+            object(json!({"id": "p1", "name": "first"})),
+            object(json!({"id": "p2"})),
+            object(json!({"id": "p1", "name": "again"})),
+        ];
+        assert_eq!(
+            validate_card_property_definitions(&definitions),
+            Err(CardPropertyError::DuplicateId {
+                id: "p1".to_owned()
+            }),
+            "a value could not say which of the two it belongs to"
         );
     }
 }

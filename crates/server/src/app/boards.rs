@@ -370,7 +370,7 @@ impl App {
                     "Cannot delete board after duplication error when updating block's file info"
                 );
             }
-            return Err(error.context(&format!(
+            return Err(error.context(format_args!(
                 "could not patch file IDs while duplicating board {board_id}"
             )));
         }

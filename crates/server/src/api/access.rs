@@ -22,7 +22,7 @@ pub(crate) async fn require_board_permission(
 ) -> Result<(), AppError> {
     if app
         .has_permission_to_board(user_id, board_id, permission)
-        .await
+        .await?
     {
         Ok(())
     } else {
@@ -32,17 +32,18 @@ pub(crate) async fn require_board_permission(
 
 /// What a user is told who may not do what they ask on the board named in the path:
 /// refused (403, `denial`) if they can see the board, not found (404) if they cannot.
-/// For handlers whose rule is more than one permission.
+/// For handlers whose rule is more than one permission. If the store fails while this
+/// is found out, the answer is that failure.
 pub(crate) async fn board_refusal(
     app: &App,
     user_id: &str,
     board_id: &str,
     denial: &str,
 ) -> AppError {
-    if reads_board(app, user_id, board_id).await || sees_open_board(app, user_id, board_id).await {
-        AppError::forbidden(denial)
-    } else {
-        AppError::not_found("board")
+    match sees_board(app, user_id, board_id).await {
+        Ok(true) => AppError::forbidden(denial),
+        Ok(false) => AppError::not_found("board"),
+        Err(error) => error,
     }
 }
 
@@ -62,10 +63,10 @@ pub(crate) async fn require_permission_through(
 ) -> Result<(), AppError> {
     if app
         .has_permission_to_board(user_id, board_id, permission)
-        .await
+        .await?
     {
         Ok(())
-    } else if reads_board(app, user_id, board_id).await {
+    } else if reads_board(app, user_id, board_id).await? {
         Err(AppError::forbidden(denial))
     } else {
         Err(AppError::not_found(what))
@@ -79,31 +80,38 @@ pub(crate) async fn require_board_visible(
     user_id: &str,
     board_id: &str,
 ) -> Result<(), AppError> {
-    if reads_board(app, user_id, board_id).await || sees_open_board(app, user_id, board_id).await {
+    if sees_board(app, user_id, board_id).await? {
         Ok(())
     } else {
         Err(AppError::not_found("board"))
     }
 }
 
+/// Whether the user can see the board at all: as a member, or because it is an open
+/// board of their team.
+async fn sees_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
+    Ok(reads_board(app, user_id, board_id).await?
+        || sees_open_board(app, user_id, board_id).await?)
+}
+
 /// Whether the user may read what is on the board: its members may.
-async fn reads_board(app: &App, user_id: &str, board_id: &str) -> bool {
+async fn reads_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
     app.has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
         .await
 }
 
 /// Whether the board is an open board of a team the user may see. Such a board is no
-/// secret to the user, though its contents are until they join.
-async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> bool {
+/// secret to the user, though its contents are until they join. A board that is not
+/// there is seen by nobody; a store that fails is an error, not a "no".
+async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
     if user_id.is_empty() {
-        return false;
+        return Ok(false);
     }
     match app.board(board_id).await {
-        Ok(board) => {
-            board.board_type == BoardType::Open
-                && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
-        }
-        Err(_) => false,
+        Ok(board) => Ok(board.board_type == BoardType::Open
+            && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)),
+        Err(error) if error.is_not_found() => Ok(false),
+        Err(error) => Err(error),
     }
 }
 

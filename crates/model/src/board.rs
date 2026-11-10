@@ -1,6 +1,6 @@
 //! Boards and board membership.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
@@ -292,11 +292,13 @@ impl BoardPatch {
                 by_id.insert(id, property.clone());
             }
         }
-        // Preserved quirk: an identifier can be in `order` twice (it was already duplicated
-        // on the board, or the patch deletes it and adds it back), and the original then
-        // emits the definition once per occurrence.
+        // An identifier can be in `order` twice: the patch deletes it and adds it back.
+        // The definition is emitted once, at its first place. (The original emits it once
+        // per occurrence, which leaves a board with two definitions of one identifier.)
+        let mut emitted = HashSet::new();
         board.card_properties = order
             .iter()
+            .filter(|id| emitted.insert(id.as_str()))
             .filter_map(|id| by_id.get(id).cloned())
             .collect();
     }

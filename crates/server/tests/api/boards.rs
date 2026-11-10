@@ -3164,6 +3164,36 @@ async fn join_board_should_match_editor_role_when_minimum_role_is_empty() {
     th.teardown().await;
 }
 
+/// A template is not joined. An open template is there for every user of its team to
+/// copy; joining made anyone its editor, and the built-in templates are open boards of
+/// the team every user is in. (The original lets anyone join them.)
+#[tokio::test]
+async fn join_board_refuses_a_template() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let template = board_with_admin(
+        &th,
+        Board {
+            is_template: true,
+            ..new_board(TEST_TEAM_ID, BoardType::Open, "an open template")
+        },
+        &user1.id,
+    )
+    .await;
+
+    let response = join_board(&th.client2, &template.id).await;
+    response.check_error(StatusCode::FORBIDDEN, "a template cannot be joined");
+    assert_eq!(
+        members_of(&th, &template.id).await.len(),
+        1,
+        "nobody joined"
+    );
+    // It can still be read and copied by who is no member.
+    get_board(&th.client2, &template.id).await.check_ok();
+
+    th.teardown().await;
+}
+
 /// `TestJoinBoard/"create and join private board (should not succeed)"`
 #[tokio::test]
 async fn join_board_create_and_join_private_board_should_not_succeed() {

@@ -171,8 +171,9 @@ pub struct Configuration {
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
     /// The largest body, in bytes, of a request to an API route that takes JSON. A
-    /// larger one is refused with 413. File uploads and archive imports have their own
-    /// limits.
+    /// larger one is refused with 413. It does not apply to file uploads, which are
+    /// bounded by `maxfilesize` (and not at all at its default of 0), nor to archive
+    /// imports, which have no limit on the request yet.
     pub max_request_bytes: u64,
     /// Whether to take the client address for logs from `X-Forwarded-For`. Turn on only
     /// behind a proxy that sets the header.
