@@ -48,6 +48,15 @@ pub(crate) async fn system(s: &mut Session) {
         &format!("{API}/clientConfig"),
     )
     .await;
+    // The prefix of the original server's API names nothing: a client written for it
+    // is told so, with or without a session, and is not handed the web app's page.
+    s.get("old prefix: client config", "/api/v2/clientConfig")
+        .await;
+    s.post("old prefix: login", "/api/v2/login")
+        .json(json!({"type": "normal", "username": "nobody", "password": "nothing"}))
+        .await;
+    s.get("old prefix: the prefix itself", "/api/v2").await;
+    s.get("the api root", "/api").await;
     s.get("index for an app route", "/board/abc")
         .without_csrf_header()
         .keep_headers(&["Content-Type"])

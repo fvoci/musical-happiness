@@ -1,7 +1,7 @@
 [
   {
     "name": "create board Subscribed board",
-    "request": "POST /api/v2/boards as subs-alice",
+    "request": "POST /api/v1/boards as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -27,7 +27,7 @@
   },
   {
     "name": "insert blocks",
-    "request": "POST /api/v2/boards/<id:2>/blocks as subs-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -49,14 +49,14 @@
   },
   {
     "name": "list: none",
-    "request": "GET /api/v2/subscriptions/<id:1> as subs-alice",
+    "request": "GET /api/v1/subscriptions/<id:1> as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "create",
-    "request": "POST /api/v2/subscriptions as subs-alice",
+    "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -71,7 +71,7 @@
   },
   {
     "name": "create: again",
-    "request": "POST /api/v2/subscriptions as subs-alice",
+    "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -86,7 +86,7 @@
   },
   {
     "name": "create: for another user",
-    "request": "POST /api/v2/subscriptions as subs-alice",
+    "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -98,7 +98,7 @@
   },
   {
     "name": "create: no block",
-    "request": "POST /api/v2/subscriptions as subs-alice",
+    "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -109,7 +109,7 @@
   },
   {
     "name": "create: bad subscriber type",
-    "request": "POST /api/v2/subscriptions as subs-alice",
+    "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -121,7 +121,7 @@
   },
   {
     "name": "create: malformed body",
-    "request": "POST /api/v2/subscriptions as subs-alice",
+    "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -132,7 +132,7 @@
   },
   {
     "name": "list",
-    "request": "GET /api/v2/subscriptions/<id:1> as subs-alice",
+    "request": "GET /api/v1/subscriptions/<id:1> as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -149,7 +149,7 @@
   },
   {
     "name": "list: another user's",
-    "request": "GET /api/v2/subscriptions/<id:1> as subs-bob",
+    "request": "GET /api/v1/subscriptions/<id:1> as subs-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -160,7 +160,7 @@
   },
   {
     "name": "delete: another user's",
-    "request": "DELETE /api/v2/subscriptions/<id:4>/<id:1> as subs-bob",
+    "request": "DELETE /api/v1/subscriptions/<id:4>/<id:1> as subs-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -171,14 +171,14 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v2/subscriptions/<id:4>/<id:1> as subs-alice",
+    "request": "DELETE /api/v1/subscriptions/<id:4>/<id:1> as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "delete: again",
-    "request": "DELETE /api/v2/subscriptions/<id:4>/<id:1> as subs-alice",
+    "request": "DELETE /api/v1/subscriptions/<id:4>/<id:1> as subs-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -189,7 +189,7 @@
   },
   {
     "name": "list at the end",
-    "request": "GET /api/v2/subscriptions/<id:1> as subs-alice",
+    "request": "GET /api/v1/subscriptions/<id:1> as subs-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []

@@ -1,6 +1,6 @@
 //! The fvoci board server.
 //!
-//! A port of the original server's standalone mode: the `/api/v2` REST API, the `/ws`
+//! A port of the original server's standalone mode: the `/api/v1` REST API, the `/ws`
 //! websocket, and the static web app, on SQLite or PostgreSQL.
 
 pub mod api;
@@ -142,7 +142,7 @@ impl Server {
             .fallback(api_not_found)
             .method_not_allowed_fallback(method_not_allowed);
         let routes = Router::new()
-            .nest("/api/v2", api)
+            .nest("/api/v1", api)
             .merge(api::system_router())
             .route("/ws", get(handle_websocket))
             .route("/static/{*path}", get(handle_static))

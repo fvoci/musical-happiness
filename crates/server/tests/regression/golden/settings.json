@@ -1,7 +1,7 @@
 [
   {
     "name": "get: defaults",
-    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "request": "GET /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -16,7 +16,7 @@
   },
   {
     "name": "get: no session",
-    "request": "GET /api/v2/users/me/settings as anonymous",
+    "request": "GET /api/v1/users/me/settings as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -27,7 +27,7 @@
   },
   {
     "name": "patch: every setting",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -42,7 +42,7 @@
   },
   {
     "name": "get: as set",
-    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "request": "GET /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -57,7 +57,7 @@
   },
   {
     "name": "get: another user",
-    "request": "GET /api/v2/users/me/settings as settings-bob",
+    "request": "GET /api/v1/users/me/settings as settings-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -72,7 +72,7 @@
   },
   {
     "name": "patch: one setting, two back to their defaults",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -87,7 +87,7 @@
   },
   {
     "name": "patch: nothing",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -102,7 +102,7 @@
   },
   {
     "name": "patch: an old name of a time zone",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -117,7 +117,7 @@
   },
   {
     "name": "patch: no such time zone",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -129,7 +129,7 @@
   },
   {
     "name": "patch: a time zone in other letters",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -141,7 +141,7 @@
   },
   {
     "name": "patch: no such week start",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -153,7 +153,7 @@
   },
   {
     "name": "patch: no such hour cycle",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -165,7 +165,7 @@
   },
   {
     "name": "patch: no such theme",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -177,7 +177,7 @@
   },
   {
     "name": "patch: no such way to open a card",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -189,7 +189,7 @@
   },
   {
     "name": "patch: no such density",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -201,7 +201,7 @@
   },
   {
     "name": "patch: haptics as a word",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -213,7 +213,7 @@
   },
   {
     "name": "patch: a number",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -225,7 +225,7 @@
   },
   {
     "name": "patch: no such setting",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -237,7 +237,7 @@
   },
   {
     "name": "patch: one valid, one not",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -249,7 +249,7 @@
   },
   {
     "name": "patch: not an object",
-    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "request": "PATCH /api/v1/users/me/settings as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -260,7 +260,7 @@
   },
   {
     "name": "patch: no session",
-    "request": "PATCH /api/v2/users/me/settings as anonymous",
+    "request": "PATCH /api/v1/users/me/settings as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -271,7 +271,7 @@
   },
   {
     "name": "get: after the refusals",
-    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "request": "GET /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -286,7 +286,7 @@
   },
   {
     "name": "client state: set",
-    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -306,7 +306,7 @@
   },
   {
     "name": "client state: get",
-    "request": "GET /api/v2/users/me/config as settings-alice",
+    "request": "GET /api/v1/users/me/config as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -326,7 +326,7 @@
   },
   {
     "name": "get: untouched by the client state",
-    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "request": "GET /api/v1/users/me/settings as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -341,7 +341,7 @@
   },
   {
     "name": "client state: a name with a space",
-    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -353,7 +353,7 @@
   },
   {
     "name": "client state: a name that is too long",
-    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -365,7 +365,7 @@
   },
   {
     "name": "client state: a value that is too long",
-    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -377,7 +377,7 @@
   },
   {
     "name": "client state: more entries than the bag holds",
-    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -390,7 +390,7 @@
   },
   {
     "name": "client state: remove",
-    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [

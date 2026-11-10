@@ -94,9 +94,9 @@ async fn check_path_rules(origin: &str, base: &str) {
 
     // A known API path with another method: 405, with the methods the path has.
     for (method, path, allowed) in [
-        (Method::DELETE, "/api/v2/clientConfig", "GET"),
-        (Method::GET, "/api/v2/login", "POST"),
-        (Method::PUT, "/api/v2/boards", "POST"),
+        (Method::DELETE, "/api/v1/clientConfig", "GET"),
+        (Method::GET, "/api/v1/login", "POST"),
+        (Method::PUT, "/api/v1/boards", "POST"),
     ] {
         let answer = ask_owned(origin, method.clone(), format!("{base}{path}")).await;
         assert_eq!(
@@ -116,15 +116,19 @@ async fn check_path_rules(origin: &str, base: &str) {
 
     // Everything else under the API prefix: a JSON 404, never the web app's page.
     for path in [
-        "/api/v2/no-such-route",
-        "/api/v2/clientConfig/",
-        "/api/v2/boards/",
-        "/api/v2",
-        "/api/v2/",
+        "/api/v1/no-such-route",
+        "/api/v1/clientConfig/",
+        "/api/v1/boards/",
+        "/api/v1",
+        "/api/v1/",
         "/api",
         "/api/",
-        "/api/v1/boards",
-        &format!("/api/v2/teams/{ROOT_TEAM_ID}/channels"),
+        // The prefix of the original server's API.
+        "/api/v2",
+        "/api/v2/boards",
+        "/api/v2/clientConfig",
+        "/api/v2/login",
+        &format!("/api/v1/teams/{ROOT_TEAM_ID}/channels"),
     ] {
         for method in [Method::GET, Method::POST] {
             let answer = ask_owned(origin, method.clone(), format!("{base}{path}")).await;
@@ -231,7 +235,7 @@ async fn path_rules_under_a_base_path() {
     for path in [
         "/",
         "/hello",
-        "/api/v2/clientConfig",
+        "/api/v1/clientConfig",
         "/board/abc",
         "/boardsx",
     ] {

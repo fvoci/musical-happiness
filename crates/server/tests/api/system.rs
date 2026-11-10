@@ -108,7 +108,7 @@ async fn get_client_config() {
 async fn reading_needs_no_requested_with_header() {
     let th = Setup::native().start().await.init_basic().await;
 
-    for path in ["/api/v2/clientConfig", "/api/v2/users/me", "/api/v2/teams"] {
+    for path in ["/api/v1/clientConfig", "/api/v1/users/me", "/api/v1/teams"] {
         let request = th
             .client
             .raw_request(Method::GET, path)
@@ -160,7 +160,7 @@ async fn base_path_prefixes_every_route() {
         .init_basic()
         .await;
 
-    // The clients already talk to `/boards/api/v2`.
+    // The clients already talk to `/boards/api/v1`.
     th.client.get("/users/me").await.check_ok();
     let index = Client::send(th.client.raw_request(Method::GET, "/board/x")).await;
     index.check_ok();
@@ -172,7 +172,7 @@ async fn base_path_prefixes_every_route() {
 
     // Outside the prefix there is nothing.
     let root = th.base_url.trim_end_matches("/boards");
-    let outside = reqwest::get(format!("{root}/api/v2/clientConfig"))
+    let outside = reqwest::get(format!("{root}/api/v1/clientConfig"))
         .await
         .expect("the server answers");
     assert_eq!(
@@ -234,7 +234,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
         let title = format!("abandoned {round}");
         let body = json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": title}).to_string();
         let request = format!(
-            "POST /api/v2/boards HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\n\
+            "POST /api/v1/boards HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {}\r\n\
              X-Requested-With: XMLHttpRequest\r\nContent-Type: application/json\r\n\
              Content-Length: {}\r\n\r\n{body}",
             th.client.token,

@@ -1,7 +1,7 @@
 [
   {
     "name": "create board Cards",
-    "request": "POST /api/v2/boards as cards-alice",
+    "request": "POST /api/v1/boards as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -27,7 +27,7 @@
   },
   {
     "name": "add viewer",
-    "request": "POST /api/v2/boards/<id:2>/members as cards-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -43,7 +43,7 @@
   },
   {
     "name": "create",
-    "request": "POST /api/v2/boards/<id:2>/cards as cards-alice",
+    "request": "POST /api/v1/boards/<id:2>/cards as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -68,7 +68,7 @@
   },
   {
     "name": "create: quiet",
-    "request": "POST /api/v2/boards/<id:2>/cards?disable_notify=true as cards-alice",
+    "request": "POST /api/v1/boards/<id:2>/cards?disable_notify=true as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -88,7 +88,7 @@
   },
   {
     "name": "create: viewer",
-    "request": "POST /api/v2/boards/<id:2>/cards as cards-bob",
+    "request": "POST /api/v1/boards/<id:2>/cards as cards-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -99,7 +99,7 @@
   },
   {
     "name": "create: malformed body",
-    "request": "POST /api/v2/boards/<id:2>/cards as cards-alice",
+    "request": "POST /api/v1/boards/<id:2>/cards as cards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -110,7 +110,7 @@
   },
   {
     "name": "create: unknown board",
-    "request": "POST /api/v2/boards/unknown-board/cards as cards-alice",
+    "request": "POST /api/v1/boards/unknown-board/cards as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -121,7 +121,7 @@
   },
   {
     "name": "list",
-    "request": "GET /api/v2/boards/<id:2>/cards as cards-alice",
+    "request": "GET /api/v1/boards/<id:2>/cards as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -162,7 +162,7 @@
   },
   {
     "name": "list: viewer",
-    "request": "GET /api/v2/boards/<id:2>/cards as cards-bob",
+    "request": "GET /api/v1/boards/<id:2>/cards as cards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -218,7 +218,7 @@
   },
   {
     "name": "list: unknown board",
-    "request": "GET /api/v2/boards/unknown-board/cards as cards-alice",
+    "request": "GET /api/v1/boards/unknown-board/cards as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -229,7 +229,7 @@
   },
   {
     "name": "get",
-    "request": "GET /api/v2/cards/<id:5> as cards-alice",
+    "request": "GET /api/v1/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -254,7 +254,7 @@
   },
   {
     "name": "get: viewer",
-    "request": "GET /api/v2/cards/<id:5> as cards-bob",
+    "request": "GET /api/v1/cards/<id:5> as cards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -279,7 +279,7 @@
   },
   {
     "name": "get: unknown card",
-    "request": "GET /api/v2/cards/unknown-card as cards-alice",
+    "request": "GET /api/v1/cards/unknown-card as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -290,7 +290,7 @@
   },
   {
     "name": "patch",
-    "request": "PATCH /api/v2/cards/<id:5> as cards-alice",
+    "request": "PATCH /api/v1/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -315,7 +315,7 @@
   },
   {
     "name": "patch: viewer",
-    "request": "PATCH /api/v2/cards/<id:5> as cards-bob",
+    "request": "PATCH /api/v1/cards/<id:5> as cards-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -326,7 +326,7 @@
   },
   {
     "name": "patch: unknown card",
-    "request": "PATCH /api/v2/cards/unknown-card as cards-alice",
+    "request": "PATCH /api/v1/cards/unknown-card as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -337,7 +337,7 @@
   },
   {
     "name": "patch: malformed body",
-    "request": "PATCH /api/v2/cards/<id:5> as cards-alice",
+    "request": "PATCH /api/v1/cards/<id:5> as cards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -348,7 +348,7 @@
   },
   {
     "name": "get after patch",
-    "request": "GET /api/v2/cards/<id:5> as cards-alice",
+    "request": "GET /api/v1/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -373,7 +373,7 @@
   },
   {
     "name": "insert content",
-    "request": "POST /api/v2/boards/<id:2>/blocks as cards-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -423,7 +423,7 @@
   },
   {
     "name": "set content order",
-    "request": "PATCH /api/v2/cards/<id:5> as cards-alice",
+    "request": "PATCH /api/v1/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -449,14 +449,14 @@
   },
   {
     "name": "move after",
-    "request": "POST /api/v2/content-blocks/<id:7>/moveto/after/<id:8> as cards-alice",
+    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:8> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "card after move",
-    "request": "GET /api/v2/cards/<id:5> as cards-alice",
+    "request": "GET /api/v1/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -482,14 +482,14 @@
   },
   {
     "name": "move before",
-    "request": "POST /api/v2/content-blocks/<id:8>/moveto/before/<id:9> as cards-alice",
+    "request": "POST /api/v1/content-blocks/<id:8>/moveto/before/<id:9> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "card after second move",
-    "request": "GET /api/v2/cards/<id:5> as cards-alice",
+    "request": "GET /api/v1/cards/<id:5> as cards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -515,7 +515,7 @@
   },
   {
     "name": "move: bad direction",
-    "request": "POST /api/v2/content-blocks/<id:7>/moveto/sideways/<id:9> as cards-alice",
+    "request": "POST /api/v1/content-blocks/<id:7>/moveto/sideways/<id:9> as cards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -526,7 +526,7 @@
   },
   {
     "name": "move: unknown block",
-    "request": "POST /api/v2/content-blocks/unknown-block/moveto/after/<id:9> as cards-alice",
+    "request": "POST /api/v1/content-blocks/unknown-block/moveto/after/<id:9> as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -537,7 +537,7 @@
   },
   {
     "name": "move: unknown target",
-    "request": "POST /api/v2/content-blocks/<id:7>/moveto/after/unknown-block as cards-alice",
+    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/unknown-block as cards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -548,7 +548,7 @@
   },
   {
     "name": "move: viewer",
-    "request": "POST /api/v2/content-blocks/<id:7>/moveto/after/<id:9> as cards-bob",
+    "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:9> as cards-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {

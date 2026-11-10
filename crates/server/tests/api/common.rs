@@ -508,7 +508,7 @@ impl Client {
     pub(crate) fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         let mut request = self
             .http
-            .request(method, format!("{}/api/v2{path}", self.base_url))
+            .request(method, format!("{}/api/v1{path}", self.base_url))
             .header("X-Requested-With", "XMLHttpRequest");
         request = self.authorized(request);
         request
@@ -519,7 +519,7 @@ impl Client {
     pub(crate) fn bare_request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         self.authorized(
             self.http
-                .request(method, format!("{}/api/v2{path}", self.base_url)),
+                .request(method, format!("{}/api/v1{path}", self.base_url)),
         )
     }
 

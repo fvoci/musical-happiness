@@ -1,4 +1,4 @@
-//! `/hello` and `/ping`, which sit outside `/api/v2` and need neither a session nor the
+//! `/hello` and `/ping`, which sit outside `/api/v1` and need neither a session nor the
 //! cross-site request forgery header.
 
 use axum::Router;

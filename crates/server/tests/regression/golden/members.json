@@ -1,7 +1,7 @@
 [
   {
     "name": "create board Team board",
-    "request": "POST /api/v2/boards as members-alice",
+    "request": "POST /api/v1/boards as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -27,7 +27,7 @@
   },
   {
     "name": "create board Open board",
-    "request": "POST /api/v2/boards as members-alice",
+    "request": "POST /api/v1/boards as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -53,7 +53,7 @@
   },
   {
     "name": "list",
-    "request": "GET /api/v2/boards/<id:2>/members as members-alice",
+    "request": "GET /api/v1/boards/<id:2>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -71,7 +71,7 @@
   },
   {
     "name": "list: non-member",
-    "request": "GET /api/v2/boards/<id:2>/members as members-bob",
+    "request": "GET /api/v1/boards/<id:2>/members as members-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -82,7 +82,7 @@
   },
   {
     "name": "add: non-member adds",
-    "request": "POST /api/v2/boards/<id:2>/members as members-bob",
+    "request": "POST /api/v1/boards/<id:2>/members as members-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -93,7 +93,7 @@
   },
   {
     "name": "add editor",
-    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -109,7 +109,7 @@
   },
   {
     "name": "add: no user",
-    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -121,7 +121,7 @@
   },
   {
     "name": "add: unknown user",
-    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -133,7 +133,7 @@
   },
   {
     "name": "add: editor adds",
-    "request": "POST /api/v2/boards/<id:2>/members as members-bob",
+    "request": "POST /api/v1/boards/<id:2>/members as members-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -144,7 +144,7 @@
   },
   {
     "name": "add viewer",
-    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -160,7 +160,7 @@
   },
   {
     "name": "add: already a member",
-    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -176,7 +176,7 @@
   },
   {
     "name": "list after adding",
-    "request": "GET /api/v2/boards/<id:2>/members as members-bob",
+    "request": "GET /api/v1/boards/<id:2>/members as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -214,7 +214,7 @@
   },
   {
     "name": "memberships of the editor",
-    "request": "GET /api/v2/users/me/memberships as members-bob",
+    "request": "GET /api/v1/users/me/memberships as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -232,7 +232,7 @@
   },
   {
     "name": "update: to commenter",
-    "request": "PUT /api/v2/boards/<id:2>/members/<id:6> as members-alice",
+    "request": "PUT /api/v1/boards/<id:2>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -248,7 +248,7 @@
   },
   {
     "name": "update: by editor",
-    "request": "PUT /api/v2/boards/<id:2>/members/<id:6> as members-bob",
+    "request": "PUT /api/v1/boards/<id:2>/members/<id:6> as members-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -259,7 +259,7 @@
   },
   {
     "name": "update: demote the last admin",
-    "request": "PUT /api/v2/boards/<id:2>/members/<id:1> as members-alice",
+    "request": "PUT /api/v1/boards/<id:2>/members/<id:1> as members-alice",
     "status": 409,
     "content_type": "application/json",
     "body": {
@@ -271,7 +271,7 @@
   },
   {
     "name": "update: unknown member",
-    "request": "PUT /api/v2/boards/<id:2>/members/unknown-user as members-alice",
+    "request": "PUT /api/v1/boards/<id:2>/members/unknown-user as members-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -282,7 +282,7 @@
   },
   {
     "name": "delete: by editor",
-    "request": "DELETE /api/v2/boards/<id:2>/members/<id:6> as members-bob",
+    "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -293,7 +293,7 @@
   },
   {
     "name": "delete: the last admin",
-    "request": "DELETE /api/v2/boards/<id:2>/members/<id:1> as members-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/members/<id:1> as members-alice",
     "status": 409,
     "content_type": "application/json",
     "body": {
@@ -305,21 +305,21 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v2/boards/<id:2>/members/<id:6> as members-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "delete: not a member",
-    "request": "DELETE /api/v2/boards/<id:2>/members/<id:6> as members-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "join: private board",
-    "request": "POST /api/v2/boards/<id:2>/join as members-carol",
+    "request": "POST /api/v1/boards/<id:2>/join as members-carol",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -330,7 +330,7 @@
   },
   {
     "name": "join: open board",
-    "request": "POST /api/v2/boards/<id:4>/join as members-carol",
+    "request": "POST /api/v1/boards/<id:4>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -346,7 +346,7 @@
   },
   {
     "name": "join: again",
-    "request": "POST /api/v2/boards/<id:4>/join as members-carol",
+    "request": "POST /api/v1/boards/<id:4>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -362,7 +362,7 @@
   },
   {
     "name": "join: unknown board",
-    "request": "POST /api/v2/boards/unknown-board/join as members-carol",
+    "request": "POST /api/v1/boards/unknown-board/join as members-carol",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -373,14 +373,14 @@
   },
   {
     "name": "leave",
-    "request": "POST /api/v2/boards/<id:4>/leave as members-carol",
+    "request": "POST /api/v1/boards/<id:4>/leave as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "leave: not a member",
-    "request": "POST /api/v2/boards/<id:4>/leave as members-carol",
+    "request": "POST /api/v1/boards/<id:4>/leave as members-carol",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -391,7 +391,7 @@
   },
   {
     "name": "leave: the last admin",
-    "request": "POST /api/v2/boards/<id:4>/leave as members-alice",
+    "request": "POST /api/v1/boards/<id:4>/leave as members-alice",
     "status": 409,
     "content_type": "application/json",
     "body": {
@@ -403,7 +403,7 @@
   },
   {
     "name": "members at the end",
-    "request": "GET /api/v2/boards/<id:2>/members as members-alice",
+    "request": "GET /api/v1/boards/<id:2>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -431,7 +431,7 @@
   },
   {
     "name": "create board Role board",
-    "request": "POST /api/v2/boards as members-alice",
+    "request": "POST /api/v1/boards as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -457,7 +457,7 @@
   },
   {
     "name": "minimum role: none",
-    "request": "PATCH /api/v2/boards/<id:7> as members-alice",
+    "request": "PATCH /api/v1/boards/<id:7> as members-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -468,7 +468,7 @@
   },
   {
     "name": "minimum role: admin",
-    "request": "PATCH /api/v2/boards/<id:7> as members-alice",
+    "request": "PATCH /api/v1/boards/<id:7> as members-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -479,7 +479,7 @@
   },
   {
     "name": "create a board with no minimum role",
-    "request": "POST /api/v2/boards as members-alice",
+    "request": "POST /api/v1/boards as members-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -490,7 +490,7 @@
   },
   {
     "name": "minimum role: commenter",
-    "request": "PATCH /api/v2/boards/<id:7> as members-alice",
+    "request": "PATCH /api/v1/boards/<id:7> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -516,7 +516,7 @@
   },
   {
     "name": "add below the minimum role: admin adds a viewer",
-    "request": "POST /api/v2/boards/<id:7>/members as members-alice",
+    "request": "POST /api/v1/boards/<id:7>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -532,7 +532,7 @@
   },
   {
     "name": "a viewer on the board cannot comment",
-    "request": "POST /api/v2/boards/<id:7>/blocks as members-bob",
+    "request": "POST /api/v1/boards/<id:7>/blocks as members-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -543,7 +543,7 @@
   },
   {
     "name": "join again: raised to the minimum role",
-    "request": "POST /api/v2/boards/<id:7>/join as members-bob",
+    "request": "POST /api/v1/boards/<id:7>/join as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -559,7 +559,7 @@
   },
   {
     "name": "join once more: nothing changes",
-    "request": "POST /api/v2/boards/<id:7>/join as members-bob",
+    "request": "POST /api/v1/boards/<id:7>/join as members-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -575,7 +575,7 @@
   },
   {
     "name": "join: a new member gets the minimum role",
-    "request": "POST /api/v2/boards/<id:7>/join as members-carol",
+    "request": "POST /api/v1/boards/<id:7>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -591,7 +591,7 @@
   },
   {
     "name": "make an editor",
-    "request": "PUT /api/v2/boards/<id:7>/members/<id:6> as members-alice",
+    "request": "PUT /api/v1/boards/<id:7>/members/<id:6> as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -607,7 +607,7 @@
   },
   {
     "name": "join above the minimum role: not lowered",
-    "request": "POST /api/v2/boards/<id:7>/join as members-carol",
+    "request": "POST /api/v1/boards/<id:7>/join as members-carol",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -623,7 +623,7 @@
   },
   {
     "name": "join: the admin stays the admin",
-    "request": "POST /api/v2/boards/<id:7>/join as members-alice",
+    "request": "POST /api/v1/boards/<id:7>/join as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -639,7 +639,7 @@
   },
   {
     "name": "members of the role board",
-    "request": "GET /api/v2/boards/<id:7>/members as members-alice",
+    "request": "GET /api/v1/boards/<id:7>/members as members-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [

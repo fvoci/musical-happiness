@@ -1,7 +1,7 @@
 [
   {
     "name": "me: the first user",
-    "request": "GET /api/v2/users/me as root",
+    "request": "GET /api/v1/users/me as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -21,7 +21,7 @@
   },
   {
     "name": "me: a later user",
-    "request": "GET /api/v2/users/me as admins-alice",
+    "request": "GET /api/v1/users/me as admins-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -41,7 +41,7 @@
   },
   {
     "name": "the first user, seen by another",
-    "request": "GET /api/v2/users/<id:1> as admins-alice",
+    "request": "GET /api/v1/users/<id:1> as admins-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -61,7 +61,7 @@
   },
   {
     "name": "team: administrator",
-    "request": "GET /api/v2/teams/<id:3> as root",
+    "request": "GET /api/v1/teams/<id:3> as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -75,7 +75,7 @@
   },
   {
     "name": "team: anybody else",
-    "request": "GET /api/v2/teams/<id:3> as admins-alice",
+    "request": "GET /api/v1/teams/<id:3> as admins-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -88,7 +88,7 @@
   },
   {
     "name": "teams: administrator",
-    "request": "GET /api/v2/teams as root",
+    "request": "GET /api/v1/teams as root",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -112,7 +112,7 @@
   },
   {
     "name": "teams: anybody else",
-    "request": "GET /api/v2/teams as admins-alice",
+    "request": "GET /api/v1/teams as admins-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -134,7 +134,7 @@
   },
   {
     "name": "renew the token: not an administrator",
-    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as admins-alice",
+    "request": "POST /api/v1/teams/<id:3>/regenerate_signup_token as admins-alice",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -146,7 +146,7 @@
   },
   {
     "name": "renew the token: no session",
-    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as anonymous",
+    "request": "POST /api/v1/teams/<id:3>/regenerate_signup_token as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -157,7 +157,7 @@
   },
   {
     "name": "renew the token: unknown team",
-    "request": "POST /api/v2/teams/<id:5>/regenerate_signup_token as root",
+    "request": "POST /api/v1/teams/<id:5>/regenerate_signup_token as root",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -168,7 +168,7 @@
   },
   {
     "name": "renew the token",
-    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as root",
+    "request": "POST /api/v1/teams/<id:3>/regenerate_signup_token as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -182,7 +182,7 @@
   },
   {
     "name": "register with the old token",
-    "request": "POST /api/v2/register as anonymous",
+    "request": "POST /api/v1/register as anonymous",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -195,7 +195,7 @@
   },
   {
     "name": "register without a token",
-    "request": "POST /api/v2/register as anonymous",
+    "request": "POST /api/v1/register as anonymous",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -208,7 +208,7 @@
   },
   {
     "name": "make: not an administrator",
-    "request": "PUT /api/v2/users/<id:6>/admin as admins-alice",
+    "request": "PUT /api/v1/users/<id:6>/admin as admins-alice",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -220,7 +220,7 @@
   },
   {
     "name": "make: oneself, not an administrator",
-    "request": "PUT /api/v2/users/<id:2>/admin as admins-alice",
+    "request": "PUT /api/v1/users/<id:2>/admin as admins-alice",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -232,7 +232,7 @@
   },
   {
     "name": "make: no session",
-    "request": "PUT /api/v2/users/<id:6>/admin as anonymous",
+    "request": "PUT /api/v1/users/<id:6>/admin as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -243,7 +243,7 @@
   },
   {
     "name": "make: no body member",
-    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:6>/admin as root",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -255,7 +255,7 @@
   },
   {
     "name": "make: not a boolean",
-    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:6>/admin as root",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -266,7 +266,7 @@
   },
   {
     "name": "make: unknown user",
-    "request": "PUT /api/v2/users/<id:5>/admin as root",
+    "request": "PUT /api/v1/users/<id:5>/admin as root",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -277,7 +277,7 @@
   },
   {
     "name": "make: no identifier",
-    "request": "PUT /api/v2/users/nobody/admin as root",
+    "request": "PUT /api/v1/users/nobody/admin as root",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -288,7 +288,7 @@
   },
   {
     "name": "step down: the only administrator",
-    "request": "PUT /api/v2/users/<id:1>/admin as root",
+    "request": "PUT /api/v1/users/<id:1>/admin as root",
     "status": 409,
     "content_type": "application/json",
     "body": {
@@ -300,7 +300,7 @@
   },
   {
     "name": "make",
-    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:6>/admin as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -320,7 +320,7 @@
   },
   {
     "name": "make: again",
-    "request": "PUT /api/v2/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:6>/admin as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -340,7 +340,7 @@
   },
   {
     "name": "team: the new administrator",
-    "request": "GET /api/v2/teams/<id:3> as admins-bob",
+    "request": "GET /api/v1/teams/<id:3> as admins-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -354,7 +354,7 @@
   },
   {
     "name": "step down",
-    "request": "PUT /api/v2/users/<id:1>/admin as root",
+    "request": "PUT /api/v1/users/<id:1>/admin as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -374,7 +374,7 @@
   },
   {
     "name": "make: after stepping down",
-    "request": "PUT /api/v2/users/<id:1>/admin as root",
+    "request": "PUT /api/v1/users/<id:1>/admin as root",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -386,7 +386,7 @@
   },
   {
     "name": "team: after stepping down",
-    "request": "GET /api/v2/teams/<id:3> as root",
+    "request": "GET /api/v1/teams/<id:3> as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -399,7 +399,7 @@
   },
   {
     "name": "unmake: the new only administrator",
-    "request": "PUT /api/v2/users/<id:6>/admin as admins-bob",
+    "request": "PUT /api/v1/users/<id:6>/admin as admins-bob",
     "status": 409,
     "content_type": "application/json",
     "body": {
@@ -411,7 +411,7 @@
   },
   {
     "name": "renew the token: the new administrator",
-    "request": "POST /api/v2/teams/<id:3>/regenerate_signup_token as admins-bob",
+    "request": "POST /api/v1/teams/<id:3>/regenerate_signup_token as admins-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {

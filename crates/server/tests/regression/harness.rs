@@ -28,7 +28,7 @@ use crate::common::{ROOT_TEAM_ID, Setup, TestServer};
 use crate::golden;
 
 /// The prefix of every API route.
-pub(crate) const API: &str = "/api/v2";
+pub(crate) const API: &str = "/api/v1";
 
 /// The password of every user the scenarios register.
 const PASSWORD: &str = "test-password";
@@ -229,7 +229,7 @@ impl Http {
         }
     }
 
-    /// Sends a request. `path` is relative to the server root, e.g. `/api/v2/boards`.
+    /// Sends a request. `path` is relative to the server root, e.g. `/api/v1/boards`.
     /// `csrf` adds the header of the API's request-forgery check.
     pub(crate) async fn send(
         &self,

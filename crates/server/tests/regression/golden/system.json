@@ -35,7 +35,7 @@
   },
   {
     "name": "client config",
-    "request": "GET /api/v2/clientConfig as anonymous",
+    "request": "GET /api/v1/clientConfig as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -49,7 +49,7 @@
   },
   {
     "name": "client config without csrf header",
-    "request": "GET /api/v2/clientConfig as anonymous",
+    "request": "GET /api/v1/clientConfig as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -63,7 +63,7 @@
   },
   {
     "name": "unknown api path",
-    "request": "GET /api/v2/no-such-route as anonymous",
+    "request": "GET /api/v1/no-such-route as anonymous",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -74,12 +74,56 @@
   },
   {
     "name": "wrong method on a known path",
-    "request": "DELETE /api/v2/clientConfig as anonymous",
+    "request": "DELETE /api/v1/clientConfig as anonymous",
     "status": 405,
     "content_type": "application/json",
     "body": {
       "error": "method_not_allowed",
       "message": "method not allowed",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old prefix: client config",
+    "request": "GET /api/v2/clientConfig as anonymous",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old prefix: login",
+    "request": "POST /api/v2/login as anonymous",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old prefix: the prefix itself",
+    "request": "GET /api/v2 as anonymous",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "the api root",
+    "request": "GET /api as anonymous",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
       "request_id": "<request-id>"
     }
   },

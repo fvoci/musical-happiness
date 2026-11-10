@@ -22,11 +22,11 @@ use crate::error::AppError;
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route(
-            "/api/v2/admin/users/{username}/password",
+            "/api/v1/admin/users/{username}/password",
             post(handle_admin_set_password),
         )
         .route(
-            "/api/v2/admin/users/{username}/admin",
+            "/api/v1/admin/users/{username}/admin",
             post(handle_admin_make_admin),
         )
         .route_layer(middleware::from_fn(require_unix_connection))

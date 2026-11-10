@@ -1,7 +1,7 @@
 [
   {
     "name": "create board Shared board",
-    "request": "POST /api/v2/boards as share-alice",
+    "request": "POST /api/v1/boards as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -27,7 +27,7 @@
   },
   {
     "name": "add editor",
-    "request": "POST /api/v2/boards/<id:2>/members as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -43,7 +43,7 @@
   },
   {
     "name": "insert blocks",
-    "request": "POST /api/v2/boards/<id:2>/blocks as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -65,7 +65,7 @@
   },
   {
     "name": "get: none yet",
-    "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "GET /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -74,7 +74,7 @@
   },
   {
     "name": "post: editor",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-bob",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -85,7 +85,7 @@
   },
   {
     "name": "post: with a token of the request's",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -97,7 +97,7 @@
   },
   {
     "name": "post: nothing said",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -109,7 +109,7 @@
   },
   {
     "name": "get: still none",
-    "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "GET /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -118,7 +118,7 @@
   },
   {
     "name": "post",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -129,7 +129,7 @@
   },
   {
     "name": "post: malformed body",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -140,7 +140,7 @@
   },
   {
     "name": "get",
-    "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "GET /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -151,7 +151,7 @@
   },
   {
     "name": "get: editor",
-    "request": "GET /api/v2/boards/<id:2>/sharing as share-bob",
+    "request": "GET /api/v1/boards/<id:2>/sharing as share-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -162,7 +162,7 @@
   },
   {
     "name": "get: unknown board",
-    "request": "GET /api/v2/boards/unknown-board/sharing as share-alice",
+    "request": "GET /api/v1/boards/unknown-board/sharing as share-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -173,7 +173,7 @@
   },
   {
     "name": "post: again",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -190,7 +190,7 @@
   },
   {
     "name": "board with the read token",
-    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -216,7 +216,7 @@
   },
   {
     "name": "board with a wrong read token",
-    "request": "GET /api/v2/boards/<id:2>?read_token=wrong as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?read_token=wrong as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -227,7 +227,7 @@
   },
   {
     "name": "blocks with the read token",
-    "request": "GET /api/v2/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -249,7 +249,7 @@
   },
   {
     "name": "blocks with a wrong read token",
-    "request": "GET /api/v2/boards/<id:2>/blocks?read_token=wrong as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/blocks?read_token=wrong as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -260,7 +260,7 @@
   },
   {
     "name": "members with the read token",
-    "request": "GET /api/v2/boards/<id:2>/members?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/members?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -271,7 +271,7 @@
   },
   {
     "name": "insert with the read token",
-    "request": "POST /api/v2/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
+    "request": "POST /api/v1/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -282,7 +282,7 @@
   },
   {
     "name": "patch with the read token",
-    "request": "PATCH /api/v2/boards/<id:2>/blocks/<id:5>?read_token=<secret:1> as anonymous",
+    "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:5>?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -293,7 +293,7 @@
   },
   {
     "name": "regenerate",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -310,7 +310,7 @@
   },
   {
     "name": "board with the token from before regenerating",
-    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -321,7 +321,7 @@
   },
   {
     "name": "board with the regenerated token",
-    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:2> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -347,7 +347,7 @@
   },
   {
     "name": "disable",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -357,7 +357,7 @@
   },
   {
     "name": "get: disabled",
-    "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "GET /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -367,7 +367,7 @@
   },
   {
     "name": "board with the token of a disabled share",
-    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:2> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -378,7 +378,7 @@
   },
   {
     "name": "enable again",
-    "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
+    "request": "POST /api/v1/boards/<id:2>/sharing as share-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -395,7 +395,7 @@
   },
   {
     "name": "board with the token from before disabling",
-    "request": "GET /api/v2/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:2> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {

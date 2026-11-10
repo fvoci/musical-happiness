@@ -1,7 +1,7 @@
 [
   {
     "name": "teams",
-    "request": "GET /api/v2/teams as teams-alice",
+    "request": "GET /api/v1/teams as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -23,7 +23,7 @@
   },
   {
     "name": "team 0",
-    "request": "GET /api/v2/teams/<id:1> as teams-alice",
+    "request": "GET /api/v1/teams/<id:1> as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -36,7 +36,7 @@
   },
   {
     "name": "some other team id",
-    "request": "GET /api/v2/teams/anything as teams-alice",
+    "request": "GET /api/v1/teams/anything as teams-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -47,7 +47,7 @@
   },
   {
     "name": "team without session",
-    "request": "GET /api/v2/teams/<id:1> as anonymous",
+    "request": "GET /api/v1/teams/<id:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -64,7 +64,7 @@
   },
   {
     "name": "team users search",
-    "request": "GET /api/v2/teams/<id:1>/users?search=teams-ali as teams-alice",
+    "request": "GET /api/v1/teams/<id:1>/users?search=teams-ali as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -86,14 +86,14 @@
   },
   {
     "name": "team users search without match",
-    "request": "GET /api/v2/teams/<id:1>/users?search=zzzz-no-such as teams-alice",
+    "request": "GET /api/v1/teams/<id:1>/users?search=zzzz-no-such as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "team users by id",
-    "request": "POST /api/v2/teams/<id:1>/users as teams-alice",
+    "request": "POST /api/v1/teams/<id:1>/users as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -115,7 +115,7 @@
   },
   {
     "name": "team users by id: empty",
-    "request": "POST /api/v2/teams/<id:1>/users as teams-alice",
+    "request": "POST /api/v1/teams/<id:1>/users as teams-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {

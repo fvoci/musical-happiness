@@ -1,7 +1,7 @@
 [
   {
     "name": "login: the cookie and an empty body",
-    "request": "POST /api/v2/login as anonymous",
+    "request": "POST /api/v1/login as anonymous",
     "status": 200,
     "content_type": "application/json",
     "headers": {
@@ -11,7 +11,7 @@
   },
   {
     "name": "login: wrong password sets no cookie",
-    "request": "POST /api/v2/login as anonymous",
+    "request": "POST /api/v1/login as anonymous",
     "status": 401,
     "content_type": "application/json",
     "headers": {
@@ -26,7 +26,7 @@
   },
   {
     "name": "login: without the header",
-    "request": "POST /api/v2/login as anonymous",
+    "request": "POST /api/v1/login as anonymous",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -38,7 +38,7 @@
   },
   {
     "name": "login: from another origin",
-    "request": "POST /api/v2/login as anonymous",
+    "request": "POST /api/v1/login as anonymous",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -50,7 +50,7 @@
   },
   {
     "name": "read: cookie, no header",
-    "request": "GET /api/v2/users/me as token (cookie)",
+    "request": "GET /api/v1/users/me as token (cookie)",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -70,7 +70,7 @@
   },
   {
     "name": "read: bearer, no header",
-    "request": "GET /api/v2/users/me as token",
+    "request": "GET /api/v1/users/me as token",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -90,7 +90,7 @@
   },
   {
     "name": "read: cookie, another origin named",
-    "request": "GET /api/v2/users/me as token (cookie)",
+    "request": "GET /api/v1/users/me as token (cookie)",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -110,7 +110,7 @@
   },
   {
     "name": "read: the token in the address",
-    "request": "GET /api/v2/users/me?access_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/users/me?access_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -121,7 +121,7 @@
   },
   {
     "name": "read: a cookie that is no session's",
-    "request": "GET /api/v2/users/me as token (cookie)",
+    "request": "GET /api/v1/users/me as token (cookie)",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -132,7 +132,7 @@
   },
   {
     "name": "read: the cookie of another name",
-    "request": "GET /api/v2/users/me as anonymous",
+    "request": "GET /api/v1/users/me as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -143,7 +143,7 @@
   },
   {
     "name": "change: cookie, no header",
-    "request": "POST /api/v2/boards as token (cookie)",
+    "request": "POST /api/v1/boards as token (cookie)",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -155,7 +155,7 @@
   },
   {
     "name": "change: cookie and header",
-    "request": "POST /api/v2/boards as token (cookie)",
+    "request": "POST /api/v1/boards as token (cookie)",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -181,7 +181,7 @@
   },
   {
     "name": "change: bearer, no header",
-    "request": "POST /api/v2/boards as token",
+    "request": "POST /api/v1/boards as token",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -207,7 +207,7 @@
   },
   {
     "name": "change: cookie and header, the own origin",
-    "request": "POST /api/v2/boards as token (cookie)",
+    "request": "POST /api/v1/boards as token (cookie)",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -233,7 +233,7 @@
   },
   {
     "name": "change: cookie and header, another origin",
-    "request": "POST /api/v2/boards as token (cookie)",
+    "request": "POST /api/v1/boards as token (cookie)",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -245,7 +245,7 @@
   },
   {
     "name": "change: bearer, another origin",
-    "request": "POST /api/v2/boards as token",
+    "request": "POST /api/v1/boards as token",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -257,7 +257,7 @@
   },
   {
     "name": "change: cookie and header, no origin to speak of",
-    "request": "POST /api/v2/boards as token (cookie)",
+    "request": "POST /api/v1/boards as token (cookie)",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -269,7 +269,7 @@
   },
   {
     "name": "change: bearer and cookie, the bearer is no session's",
-    "request": "POST /api/v2/boards as token",
+    "request": "POST /api/v1/boards as token",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -280,7 +280,7 @@
   },
   {
     "name": "logout: cookie, no header",
-    "request": "POST /api/v2/logout as token (cookie)",
+    "request": "POST /api/v1/logout as token (cookie)",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -292,7 +292,7 @@
   },
   {
     "name": "logout: clears the cookie",
-    "request": "POST /api/v2/logout as token (cookie)",
+    "request": "POST /api/v1/logout as token (cookie)",
     "status": 200,
     "content_type": "application/json",
     "headers": {
@@ -302,7 +302,7 @@
   },
   {
     "name": "read: after the logout",
-    "request": "GET /api/v2/users/me as token (cookie)",
+    "request": "GET /api/v1/users/me as token (cookie)",
     "status": 401,
     "content_type": "application/json",
     "body": {

@@ -1,7 +1,7 @@
 [
   {
     "name": "create: no type",
-    "request": "POST /api/v2/boards as boards-alice",
+    "request": "POST /api/v1/boards as boards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -12,7 +12,7 @@
   },
   {
     "name": "create: bad type",
-    "request": "POST /api/v2/boards as boards-alice",
+    "request": "POST /api/v1/boards as boards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -23,7 +23,7 @@
   },
   {
     "name": "create: no team",
-    "request": "POST /api/v2/boards as boards-alice",
+    "request": "POST /api/v1/boards as boards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -35,7 +35,7 @@
   },
   {
     "name": "create: without session",
-    "request": "POST /api/v2/boards as anonymous",
+    "request": "POST /api/v1/boards as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -46,7 +46,7 @@
   },
   {
     "name": "create: malformed body",
-    "request": "POST /api/v2/boards as boards-alice",
+    "request": "POST /api/v1/boards as boards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -57,7 +57,7 @@
   },
   {
     "name": "create board Roadmap",
-    "request": "POST /api/v2/boards as boards-alice",
+    "request": "POST /api/v1/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -92,7 +92,7 @@
   },
   {
     "name": "create board Open board",
-    "request": "POST /api/v2/boards as boards-alice",
+    "request": "POST /api/v1/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -118,7 +118,7 @@
   },
   {
     "name": "get",
-    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -153,7 +153,7 @@
   },
   {
     "name": "get: non-member, private",
-    "request": "GET /api/v2/boards/<id:2> as boards-bob",
+    "request": "GET /api/v1/boards/<id:2> as boards-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -164,7 +164,7 @@
   },
   {
     "name": "get: non-member, open",
-    "request": "GET /api/v2/boards/<id:4> as boards-bob",
+    "request": "GET /api/v1/boards/<id:4> as boards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -190,7 +190,7 @@
   },
   {
     "name": "get: anonymous",
-    "request": "GET /api/v2/boards/<id:2> as anonymous",
+    "request": "GET /api/v1/boards/<id:2> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -201,7 +201,7 @@
   },
   {
     "name": "get: unknown board",
-    "request": "GET /api/v2/boards/unknown-board as boards-alice",
+    "request": "GET /api/v1/boards/unknown-board as boards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -212,7 +212,7 @@
   },
   {
     "name": "list: member",
-    "request": "GET /api/v2/teams/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/teams/<id:3>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -269,7 +269,7 @@
   },
   {
     "name": "list: other user",
-    "request": "GET /api/v2/teams/<id:3>/boards as boards-bob",
+    "request": "GET /api/v1/teams/<id:3>/boards as boards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -297,7 +297,7 @@
   },
   {
     "name": "metadata",
-    "request": "GET /api/v2/boards/<id:2>/metadata as boards-alice",
+    "request": "GET /api/v1/boards/<id:2>/metadata as boards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -308,7 +308,7 @@
   },
   {
     "name": "patch",
-    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -350,7 +350,7 @@
   },
   {
     "name": "patch: delete properties",
-    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -385,7 +385,7 @@
   },
   {
     "name": "patch: non-member",
-    "request": "PATCH /api/v2/boards/<id:2> as boards-bob",
+    "request": "PATCH /api/v1/boards/<id:2> as boards-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -396,7 +396,7 @@
   },
   {
     "name": "patch: bad type",
-    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -407,7 +407,7 @@
   },
   {
     "name": "patch: to open",
-    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -442,7 +442,7 @@
   },
   {
     "name": "patch: back to private",
-    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -477,7 +477,7 @@
   },
   {
     "name": "patch: minimum role",
-    "request": "PATCH /api/v2/boards/<id:4> as boards-alice",
+    "request": "PATCH /api/v1/boards/<id:4> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -503,7 +503,7 @@
   },
   {
     "name": "patch: unknown board",
-    "request": "PATCH /api/v2/boards/unknown-board as boards-alice",
+    "request": "PATCH /api/v1/boards/unknown-board as boards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -514,7 +514,7 @@
   },
   {
     "name": "patch: malformed body",
-    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "request": "PATCH /api/v1/boards/<id:2> as boards-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -525,7 +525,7 @@
   },
   {
     "name": "get after patches",
-    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -560,7 +560,7 @@
   },
   {
     "name": "insert a card",
-    "request": "POST /api/v2/boards/<id:2>/blocks as boards-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -584,7 +584,7 @@
   },
   {
     "name": "duplicate",
-    "request": "POST /api/v2/boards/<id:2>/duplicate as boards-alice",
+    "request": "POST /api/v1/boards/<id:2>/duplicate as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -641,7 +641,7 @@
   },
   {
     "name": "duplicate as template",
-    "request": "POST /api/v2/boards/<id:2>/duplicate?asTemplate=true as boards-alice",
+    "request": "POST /api/v1/boards/<id:2>/duplicate?asTemplate=true as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -698,7 +698,7 @@
   },
   {
     "name": "duplicate: non-member",
-    "request": "POST /api/v2/boards/<id:2>/duplicate as boards-bob",
+    "request": "POST /api/v1/boards/<id:2>/duplicate as boards-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -709,7 +709,7 @@
   },
   {
     "name": "duplicate: unknown board",
-    "request": "POST /api/v2/boards/unknown-board/duplicate as boards-alice",
+    "request": "POST /api/v1/boards/unknown-board/duplicate as boards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -720,7 +720,7 @@
   },
   {
     "name": "blocks of the copy",
-    "request": "GET /api/v2/boards/<id:6>/blocks as boards-alice",
+    "request": "GET /api/v1/boards/<id:6>/blocks as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -744,7 +744,7 @@
   },
   {
     "name": "delete: non-member",
-    "request": "DELETE /api/v2/boards/<id:2> as boards-bob",
+    "request": "DELETE /api/v1/boards/<id:2> as boards-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -755,14 +755,14 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v2/boards/<id:2> as boards-alice",
+    "request": "DELETE /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "get deleted",
-    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/boards/<id:2> as boards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -773,7 +773,7 @@
   },
   {
     "name": "delete again",
-    "request": "DELETE /api/v2/boards/<id:2> as boards-alice",
+    "request": "DELETE /api/v1/boards/<id:2> as boards-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -784,7 +784,7 @@
   },
   {
     "name": "undelete: other user",
-    "request": "POST /api/v2/boards/<id:2>/undelete as boards-bob",
+    "request": "POST /api/v1/boards/<id:2>/undelete as boards-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -795,14 +795,14 @@
   },
   {
     "name": "undelete",
-    "request": "POST /api/v2/boards/<id:2>/undelete as boards-alice",
+    "request": "POST /api/v1/boards/<id:2>/undelete as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "get undeleted",
-    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "request": "GET /api/v1/boards/<id:2> as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -837,7 +837,7 @@
   },
   {
     "name": "blocks after undelete",
-    "request": "GET /api/v2/boards/<id:2>/blocks as boards-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -861,7 +861,7 @@
   },
   {
     "name": "list at the end",
-    "request": "GET /api/v2/teams/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/teams/<id:3>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [

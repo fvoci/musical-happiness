@@ -31,7 +31,7 @@ mod socket {
     use crate::common::{Client, PASSWORD, Setup, TestServer, USER1_USERNAME};
 
     const NEW_PASSWORD: &str = "N3w-Pa$$word";
-    const ADMIN_PASSWORD_ROUTE: &str = "/api/v2/admin/users/user1/password";
+    const ADMIN_PASSWORD_ROUTE: &str = "/api/v1/admin/users/user1/password";
 
     /// A path for a socket. The build directory is too long for a socket address, so the
     /// sockets of these tests live in the system's directory for temporary files.
@@ -132,7 +132,7 @@ mod socket {
     }
 
     async fn set_password(socket: &Path, username: &str, body: &str) -> SocketResponse {
-        let target = format!("/api/v2/admin/users/{username}/password");
+        let target = format!("/api/v1/admin/users/{username}/password");
         socket_request(socket, "POST", &target, body).await
     }
 
@@ -184,7 +184,7 @@ mod socket {
             "user2 is none to begin with"
         );
 
-        let response = socket_request(&socket, "POST", "/api/v2/admin/users/USER2/admin", "").await;
+        let response = socket_request(&socket, "POST", "/api/v1/admin/users/USER2/admin", "").await;
         response.check(200, "{}");
         assert!(
             th.client2.me().await.is_admin,
@@ -193,7 +193,7 @@ mod socket {
         assert!(th.client.me().await.is_admin, "and user1 still is");
 
         let response =
-            socket_request(&socket, "POST", "/api/v2/admin/users/nobody/admin", "").await;
+            socket_request(&socket, "POST", "/api/v1/admin/users/nobody/admin", "").await;
         assert_eq!(response.status, 404, "{}", response.body);
         th.teardown().await;
     }
@@ -389,9 +389,9 @@ mod socket {
             "/",
             "/hello",
             "/ping",
-            "/api/v2/users/me",
-            "/api/v2/admin/users/user1/password/",
-            "/api/v2/admin/boards",
+            "/api/v1/users/me",
+            "/api/v1/admin/users/user1/password/",
+            "/api/v1/admin/boards",
         ] {
             let response = socket_request(&socket, "GET", target, "").await;
             response.check_error(404, "not_found", "route not found");
@@ -542,7 +542,7 @@ async fn use_ssl_serves_over_tls() {
 
     // The API works as over plain HTTP, here with a body in each direction.
     let register = https
-        .post(format!("https://localhost:{port}/api/v2/register"))
+        .post(format!("https://localhost:{port}/api/v1/register"))
         .header("X-Requested-With", "XMLHttpRequest")
         .json(&json!({"username": "user1", "email": "user1@sample.com", "password": PASSWORD}))
         .send()

@@ -1,7 +1,7 @@
 [
   {
     "name": "create board Trash",
-    "request": "POST /api/v2/boards as trash-alice",
+    "request": "POST /api/v1/boards as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -27,7 +27,7 @@
   },
   {
     "name": "add editor",
-    "request": "POST /api/v2/boards/<id:2>/members as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -43,7 +43,7 @@
   },
   {
     "name": "add viewer",
-    "request": "POST /api/v2/boards/<id:2>/members as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/members as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -59,7 +59,7 @@
   },
   {
     "name": "insert a card and a view",
-    "request": "POST /api/v2/boards/<id:2>/blocks as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -97,7 +97,7 @@
   },
   {
     "name": "insert a comment and a text on the card",
-    "request": "POST /api/v2/boards/<id:2>/blocks as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -133,7 +133,7 @@
   },
   {
     "name": "insert a block below the comment",
-    "request": "POST /api/v2/boards/<id:2>/blocks as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -155,7 +155,7 @@
   },
   {
     "name": "subscribe to the card",
-    "request": "POST /api/v2/subscriptions as trash-alice",
+    "request": "POST /api/v1/subscriptions as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -170,14 +170,14 @@
   },
   {
     "name": "delete the card",
-    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:7> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "blocks: the card took everything below it",
-    "request": "GET /api/v2/boards/<id:2>/blocks as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -201,14 +201,14 @@
   },
   {
     "name": "subscriptions: ended with the card",
-    "request": "GET /api/v2/subscriptions/<id:1> as trash-alice",
+    "request": "GET /api/v1/subscriptions/<id:1> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "undelete: viewer",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-carol",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-carol",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -219,7 +219,7 @@
   },
   {
     "name": "undelete: non-member",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-dave",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-dave",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -230,7 +230,7 @@
   },
   {
     "name": "undelete: unknown block",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:11>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:11>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -241,7 +241,7 @@
   },
   {
     "name": "undelete: a block that is not deleted",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:6>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -252,7 +252,7 @@
   },
   {
     "name": "undelete: a child brings back the whole deletion",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:10>/undelete as trash-bob",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:10>/undelete as trash-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -272,7 +272,7 @@
   },
   {
     "name": "blocks: all back, with their parents",
-    "request": "GET /api/v2/boards/<id:2>/blocks as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -352,7 +352,7 @@
   },
   {
     "name": "undelete: again",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -363,28 +363,28 @@
   },
   {
     "name": "subscriptions: not back with the card",
-    "request": "GET /api/v2/subscriptions/<id:1> as trash-alice",
+    "request": "GET /api/v1/subscriptions/<id:1> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "delete the text",
-    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:9> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:9> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "delete the card again",
-    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:7> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "undelete the text: its card is in the trash",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:9>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:9>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -395,7 +395,7 @@
   },
   {
     "name": "undelete the card",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -415,7 +415,7 @@
   },
   {
     "name": "blocks on the card: the text is still deleted",
-    "request": "GET /api/v2/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -437,7 +437,7 @@
   },
   {
     "name": "undelete the text",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:9>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:9>/undelete as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -457,7 +457,7 @@
   },
   {
     "name": "blocks on the card: the text is back",
-    "request": "GET /api/v2/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -493,21 +493,21 @@
   },
   {
     "name": "delete the view on its own",
-    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:6> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "delete the board",
-    "request": "DELETE /api/v2/boards/<id:2> as trash-alice",
+    "request": "DELETE /api/v1/boards/<id:2> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "board: gone",
-    "request": "GET /api/v2/boards/<id:2> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2> as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -518,7 +518,7 @@
   },
   {
     "name": "members: gone with the board",
-    "request": "GET /api/v2/boards/<id:2>/members as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/members as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -529,21 +529,21 @@
   },
   {
     "name": "memberships of a member: none of the board",
-    "request": "GET /api/v2/users/me/memberships as trash-bob",
+    "request": "GET /api/v1/users/me/memberships as trash-bob",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "boards of the team: not listed",
-    "request": "GET /api/v2/teams/<id:3>/boards as trash-alice",
+    "request": "GET /api/v1/teams/<id:3>/boards as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "undelete a block of the deleted board",
-    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -554,7 +554,7 @@
   },
   {
     "name": "undelete the board: viewer",
-    "request": "POST /api/v2/boards/<id:2>/undelete as trash-carol",
+    "request": "POST /api/v1/boards/<id:2>/undelete as trash-carol",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -565,7 +565,7 @@
   },
   {
     "name": "undelete the board: editor",
-    "request": "POST /api/v2/boards/<id:2>/undelete as trash-bob",
+    "request": "POST /api/v1/boards/<id:2>/undelete as trash-bob",
     "status": 403,
     "content_type": "application/json",
     "body": {
@@ -576,7 +576,7 @@
   },
   {
     "name": "undelete the board: never a member",
-    "request": "POST /api/v2/boards/<id:2>/undelete as trash-dave",
+    "request": "POST /api/v1/boards/<id:2>/undelete as trash-dave",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -587,7 +587,7 @@
   },
   {
     "name": "undelete: unknown board",
-    "request": "POST /api/v2/boards/<id:11>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:11>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -598,14 +598,14 @@
   },
   {
     "name": "undelete the board",
-    "request": "POST /api/v2/boards/<id:2>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/undelete as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "board: back",
-    "request": "GET /api/v2/boards/<id:2> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -631,7 +631,7 @@
   },
   {
     "name": "members: back with their roles",
-    "request": "GET /api/v2/boards/<id:2>/members as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/members as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -669,7 +669,7 @@
   },
   {
     "name": "blocks: back, but for the view deleted before",
-    "request": "GET /api/v2/boards/<id:2>/blocks as trash-bob",
+    "request": "GET /api/v1/boards/<id:2>/blocks as trash-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -733,7 +733,7 @@
   },
   {
     "name": "undelete the board: again",
-    "request": "POST /api/v2/boards/<id:2>/undelete as trash-alice",
+    "request": "POST /api/v1/boards/<id:2>/undelete as trash-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {

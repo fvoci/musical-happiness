@@ -1,4 +1,4 @@
-//! The HTTP API under `/api/v2`, plus `/hello` and `/ping`.
+//! The HTTP API under `/api/v1`, plus `/hello` and `/ping`.
 //!
 //! One module per area, mirroring the original's `server/api` package. Each module has a
 //! `routes()` function, and [`router`] puts them together.
@@ -67,7 +67,7 @@ const HEADER_REQUESTED_WITH_XML: &str = "XMLHttpRequest";
 /// The result of an API handler.
 pub(crate) type ApiResult = Result<Response, AppError>;
 
-/// The routes under `/api/v2`.
+/// The routes under `/api/v1`.
 ///
 /// Every request that changes something is checked for cross-site request forgery, and
 /// responses are marked as not cacheable unless a handler set its own policy. Request bodies are limited: to
@@ -132,12 +132,12 @@ pub fn router(app: &App) -> Router<App> {
         .route_layer(middleware::from_fn(mark_not_cacheable))
 }
 
-/// The routes outside `/api/v2`: `/hello` and `/ping`.
+/// The routes outside `/api/v1`: `/hello` and `/ping`.
 pub fn system_router() -> Router<App> {
     system::routes()
 }
 
-/// The administration routes, with their full paths (`/api/v2/admin/...`).
+/// The administration routes, with their full paths (`/api/v1/admin/...`).
 ///
 /// They are to be served on the local Unix socket only, and refuse every request that
 /// arrives another way. Whatever else is asked on that socket gets a 404.

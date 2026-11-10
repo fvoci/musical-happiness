@@ -10,8 +10,8 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | --- | --- | --- | --- |
 | `/static/*`, 이름에 콘텐츠 해시가 있는 파일 | `Cache-Control: public, max-age=31536000, immutable` | 캐시한다. TTL은 오리진 헤더를 따른다. | 메서드 `GET`, `HEAD`. 헤더 `Accept-Encoding`. 쿼리 문자열과 쿠키는 필요 없다. |
 | `/static/*`, 그 밖의 파일 | `Cache-Control: no-cache`, `ETag`, `Last-Modified` | 저장하더라도 매번 오리진에 재검증한다. | 위와 같고, 조건부 요청 헤더(`If-None-Match`, `If-Modified-Since`). |
-| `/api/v2/*` | `Cache-Control: no-store` | 캐시하지 않는다. | 메서드 `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE`. 뷰어 헤더 전부(최소 `Authorization`, `X-Requested-With`, `Content-Type`). 쿼리 문자열 전부(`access_token`, `read_token` 포함). 쿠키 `FVOCIAUTHTOKEN`. |
-| `/api/v2/files/teams/{team}/{board}/{filename}` | `Cache-Control: private, no-cache`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
+| `/api/v1/*` | `Cache-Control: no-store` | 캐시하지 않는다. | 메서드 `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE`. 뷰어 헤더 전부(최소 `Authorization`, `X-Requested-With`, `Content-Type`). 쿼리 문자열 전부(`access_token`, `read_token` 포함). 쿠키 `FVOCIAUTHTOKEN`. |
+| `/api/v1/files/teams/{team}/{board}/{filename}` | `Cache-Control: private, no-cache`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
 | `/ws` | WebSocket(`101 Switching Protocols`) | 캐시하지 않는다. | 메서드 `GET`. 헤더 `Upgrade`, `Connection`, `Sec-WebSocket-*`. 인증은 소켓 안의 메시지로 하므로 인증 헤더는 필요 없다. |
 | 그 밖의 모든 경로 | 웹 앱의 `index.html`, 상태 200, `Cache-Control: no-cache` | 캐시하지 않거나 매번 재검증한다. | 메서드 `GET`, `HEAD`. 그 외에는 필요 없다. |
 
@@ -33,7 +33,7 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | `websocket_ping_seconds` | 기본값 30. 서버가 이 간격으로 ping 프레임을 보낸다. 0이면 끈다. |
 | `maxfilesize` | 서버 자체의 업로드 한도(바이트). 0이면 제한이 없다. CDN의 한도와 별개로 적용된다. |
 
-- 서버에는 로그인 시도 제한이 없다(원본에도 없다). `POST /api/v2/login`과 `POST /api/v2/register`는 CDN이나 WAF에서 제한해야 한다(3.5, 4.4).
+- 서버에는 로그인 시도 제한이 없다(원본에도 없다). `POST /api/v1/login`과 `POST /api/v1/register`는 CDN이나 WAF에서 제한해야 한다(3.5, 4.4).
 - `trust_forwarded_for`를 켜도 로그의 주소는 클라이언트가 바꿀 수 있다. 클라이언트가 `X-Forwarded-For`를 직접 보내면 CloudFront는 뷰어 주소를 그 값의 끝에 덧붙이고([출처](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html), 2026-11-10 확인), Cloudflare도 기존 값에 덧붙인다([출처](https://developers.cloudflare.com/fundamentals/reference/http-headers/), 2026-11-10 확인). 따라서 첫 번째 주소는 클라이언트가 보낸 값일 수 있다. 이 주소를 접근 제어의 근거로 쓰지 않는다.
 - 오리진에는 CDN만 접근할 수 있게 막는다. 오리진이 직접 열려 있으면 CDN의 WAF 규칙을 우회할 수 있다.
 
@@ -100,7 +100,7 @@ Allowed HTTP methods에서 고를 수 있는 조합은 `GET, HEAD` / `GET, HEAD,
 | 요청 길이(경로, 쿼리 문자열, 헤더 포함, 본문 제외) | 32,768바이트. URL은 8,192바이트 | [Quotas](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html) |
 
 - Response timeout은 CloudFront가 요청을 오리진에 넘긴 뒤 응답을 기다리는 시간이자, 응답 패킷 사이의 최대 간격이다. `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` 요청은 시간이 지나면 연결을 끊고 재시도하지 않는다.
-- 아카이브 가져오기(`POST /api/v2/teams/{team}/archive/import`)처럼 서버가 본문을 다 받은 뒤 응답하기까지 30초를 넘길 수 있는 요청은 response timeout을 늘려야 한다. 넘기면 CloudFront가 504로 답한다.
+- 아카이브 가져오기(`POST /api/v1/teams/{team}/archive/import`)처럼 서버가 본문을 다 받은 뒤 응답하기까지 30초를 넘길 수 있는 요청은 response timeout을 늘려야 한다. 넘기면 CloudFront가 504로 답한다.
 - 업로드 본문을 전송하는 시간이 response timeout에 포함되는지는 문서에서 확인하지 못했다. 큰 파일로 직접 시험해야 한다.
 - Keep-alive timeout이 효과를 내려면 오리진이 지속 연결을 허용해야 한다.
 - CloudFront의 본문 한도는 크므로, 실제 한도는 서버의 `maxfilesize`와 중간 프록시 설정이 정한다.
@@ -124,9 +124,9 @@ Allowed HTTP methods에서 고를 수 있는 조합은 `GET, HEAD` / `GET, HEAD,
           "SearchString": "POST", "TextTransformations": [ { "Type": "NONE", "Priority": 0 } ] } },
       { "OrStatement": { "Statements": [
         { "ByteMatchStatement": { "FieldToMatch": { "UriPath": {} }, "PositionalConstraint": "EXACTLY",
-            "SearchString": "/api/v2/login", "TextTransformations": [ { "Type": "NONE", "Priority": 0 } ] } },
+            "SearchString": "/api/v1/login", "TextTransformations": [ { "Type": "NONE", "Priority": 0 } ] } },
         { "ByteMatchStatement": { "FieldToMatch": { "UriPath": {} }, "PositionalConstraint": "EXACTLY",
-            "SearchString": "/api/v2/register", "TextTransformations": [ { "Type": "NONE", "Priority": 0 } ] } }
+            "SearchString": "/api/v1/register", "TextTransformations": [ { "Type": "NONE", "Priority": 0 } ] } }
       ] } }
     ] } }
   } }
@@ -185,7 +185,7 @@ Cloudflare의 기본 동작([출처](https://developers.cloudflare.com/cache/con
 
 | 항목 | 값 |
 | --- | --- |
-| When incoming requests match | `(http.request.uri.path in {"/api/v2/login" "/api/v2/register"} and http.request.method eq "POST")` |
+| When incoming requests match | `(http.request.uri.path in {"/api/v1/login" "/api/v1/register"} and http.request.method eq "POST")` |
 | With the same characteristics | IP |
 | When rate exceeds | Free: 5 requests / 10 seconds. Pro 이상 예: 10 requests / 1 minute |
 | Then take action | Block |
@@ -227,16 +227,16 @@ curl -sI "$BASE/any/client/route"
 #    200, Content-Type: text/html, Cache-Control: no-cache. 캐시 적중 표시가 없어야 한다.
 
 # 4. API
-curl -si -H 'X-Requested-With: XMLHttpRequest' -H "Authorization: Bearer $TOKEN" "$BASE/api/v2/users/me"
+curl -si -H 'X-Requested-With: XMLHttpRequest' -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/users/me"
 #    200, JSON, Cache-Control: no-store
 
 # 5. X-Requested-With가 없는 API 요청
-curl -si -H "Authorization: Bearer $TOKEN" "$BASE/api/v2/users/me"
+curl -si -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/users/me"
 #    400. 4번이 400이면 CDN이 헤더를 떼고 있다. 4번이 401이면 Authorization이 전달되지 않는다.
 
 # 6. 파일의 Range 요청
 curl -s -o /dev/null -D - -H 'X-Requested-With: XMLHttpRequest' -H "Authorization: Bearer $TOKEN" \
-  -H 'Range: bytes=0-99' "$BASE/api/v2/files/teams/<team>/<board>/<filename>"
+  -H 'Range: bytes=0-99' "$BASE/api/v1/files/teams/<team>/<board>/<filename>"
 #    206, Content-Range: bytes 0-99/<전체 크기>, Cache-Control: private, no-cache
 
 # 7. WebSocket 핸드셰이크. 101 뒤에는 연결이 열린 채로 있으므로 --max-time으로 끊는다.
@@ -249,7 +249,7 @@ curl -si --http1.1 --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket'
 
 - 웹 앱을 열어 둔 채 CDN의 유휴 타임아웃보다 오래 기다린 뒤, 다른 브라우저에서 보드를 고쳐 변경이 실시간으로 보이는지 본다.
 - 한도에 가까운 크기의 파일을 UI에서 올려 본다. 실패하면 응답 헤더로 CDN이 답했는지 서버가 답했는지 구분한다.
-- `POST /api/v2/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다.
+- `POST /api/v1/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다.
 
 ## 6. 자주 생기는 문제
 

@@ -1,7 +1,7 @@
 [
   {
     "name": "create board Exported board",
-    "request": "POST /api/v2/boards as arch-alice",
+    "request": "POST /api/v1/boards as arch-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -34,7 +34,7 @@
   },
   {
     "name": "insert content",
-    "request": "POST /api/v2/boards/<id:2>/blocks as arch-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks as arch-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -248,7 +248,7 @@
   },
   {
     "name": "export: non-member",
-    "request": "GET /api/v2/boards/<id:2>/archive/export as arch-bob",
+    "request": "GET /api/v1/boards/<id:2>/archive/export as arch-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -259,7 +259,7 @@
   },
   {
     "name": "export: anonymous",
-    "request": "GET /api/v2/boards/<id:2>/archive/export as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/archive/export as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -270,7 +270,7 @@
   },
   {
     "name": "export: unknown board",
-    "request": "GET /api/v2/boards/unknown-board/archive/export as arch-alice",
+    "request": "GET /api/v1/boards/unknown-board/archive/export as arch-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -296,14 +296,14 @@
   },
   {
     "name": "import",
-    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {}
   },
   {
     "name": "import: anonymous",
-    "request": "POST /api/v2/teams/<id:3>/archive/import as anonymous",
+    "request": "POST /api/v1/teams/<id:3>/archive/import as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -314,7 +314,7 @@
   },
   {
     "name": "import: not an archive",
-    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -325,7 +325,7 @@
   },
   {
     "name": "import: wrong field",
-    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -337,7 +337,7 @@
   },
   {
     "name": "boards after import",
-    "request": "GET /api/v2/teams/<id:3>/boards as arch-bob",
+    "request": "GET /api/v1/teams/<id:3>/boards as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -372,7 +372,7 @@
   },
   {
     "name": "imported blocks",
-    "request": "GET /api/v2/boards/<id:9>/blocks as arch-bob",
+    "request": "GET /api/v1/boards/<id:9>/blocks as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -442,7 +442,7 @@
   },
   {
     "name": "imported members",
-    "request": "GET /api/v2/boards/<id:9>/members as arch-bob",
+    "request": "GET /api/v1/boards/<id:9>/members as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -470,14 +470,14 @@
   },
   {
     "name": "imported file",
-    "request": "GET /api/v2/files/teams/<id:3>/<id:9>/<secret:2>.png as arch-bob",
+    "request": "GET /api/v1/files/teams/<id:3>/<id:9>/<secret:2>.png as arch-bob",
     "status": 200,
     "content_type": "application/octet-stream",
     "body": "<67 bytes>"
   },
   {
     "name": "import: legacy format",
-    "request": "POST /api/v2/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/json",
     "body": {

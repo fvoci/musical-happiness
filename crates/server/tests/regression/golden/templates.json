@@ -66,7 +66,7 @@
   },
   {
     "name": "templates: anonymous",
-    "request": "GET /api/v2/teams/<id:1>/templates as anonymous",
+    "request": "GET /api/v1/teams/<id:1>/templates as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -77,7 +77,7 @@
   },
   {
     "name": "create board My template",
-    "request": "POST /api/v2/boards as tpl-alice",
+    "request": "POST /api/v1/boards as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -103,7 +103,7 @@
   },
   {
     "name": "my template",
-    "request": "GET /api/v2/boards/<id:3> as tpl-alice",
+    "request": "GET /api/v1/boards/<id:3> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -129,7 +129,7 @@
   },
   {
     "name": "onboard",
-    "request": "POST /api/v2/teams/<id:1>/onboard as tpl-alice",
+    "request": "POST /api/v1/teams/<id:1>/onboard as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -139,7 +139,7 @@
   },
   {
     "name": "onboarding board",
-    "request": "GET /api/v2/boards/<id:4> as tpl-alice",
+    "request": "GET /api/v1/boards/<id:4> as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -259,7 +259,7 @@
   },
   {
     "name": "categories after onboarding",
-    "request": "GET /api/v2/teams/<id:1>/categories as tpl-alice",
+    "request": "GET /api/v1/teams/<id:1>/categories as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -290,7 +290,7 @@
   },
   {
     "name": "config after onboarding",
-    "request": "GET /api/v2/users/me/config as tpl-alice",
+    "request": "GET /api/v1/users/me/config as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [

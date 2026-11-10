@@ -258,8 +258,8 @@ mod tests {
         let _guard = tracing::subscriber::set_default(subscriber);
 
         let router = Router::new()
-            .route("/api/v2/boards/{board_id}", get(|| async { "fine" }))
-            .route("/api/v2/boom", get(boom))
+            .route("/api/v1/boards/{board_id}", get(|| async { "fine" }))
+            .route("/api/v1/boom", get(boom))
             .layer(middleware::from_fn(contain_panics))
             .layer(middleware::from_fn_with_state(
                 Arc::new(proxies),
@@ -283,7 +283,7 @@ mod tests {
     #[tokio::test]
     async fn request_log_has_no_query_string_and_no_credentials() {
         let mut request =
-            Request::get("/api/v2/boards/b1?read_token=SECRET-READ&access_token=SECRET-ACCESS")
+            Request::get("/api/v1/boards/b1?read_token=SECRET-READ&access_token=SECRET-ACCESS")
                 .header("Authorization", "Bearer SECRET-BEARER")
                 .header("Cookie", "FVOCIAUTHTOKEN=SECRET-COOKIE")
                 .header(X_FORWARDED_FOR, "203.0.113.7")
@@ -297,7 +297,7 @@ mod tests {
         for expected in [
             "request",
             "method=GET",
-            "path=\"/api/v2/boards/b1\"",
+            "path=\"/api/v1/boards/b1\"",
             "status=200",
             "duration_ms=",
             "client=\"192.0.2.1\"",
@@ -311,7 +311,7 @@ mod tests {
 
     #[tokio::test]
     async fn request_log_names_the_forwarded_client_behind_trusted_proxies() {
-        let mut request = Request::get("/api/v2/boards/b1")
+        let mut request = Request::get("/api/v1/boards/b1")
             .header(X_FORWARDED_FOR, "203.0.113.7, 10.0.0.1")
             .body(Body::empty())
             .expect("a valid request");
@@ -326,7 +326,7 @@ mod tests {
     /// the request is still logged.
     #[tokio::test]
     async fn handler_panic_becomes_the_internal_server_error_response() {
-        let request = Request::get("/api/v2/boom?access_token=SECRET-ACCESS")
+        let request = Request::get("/api/v1/boom?access_token=SECRET-ACCESS")
             .body(Body::empty())
             .expect("a valid request");
 
