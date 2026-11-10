@@ -90,8 +90,8 @@
 
   const THEME_LABELS: Record<ThemeSetting, () => string> = {
     auto: m.shell_settings_auto,
-    light: m.shell_settings_brightness_light,
-    dark: m.shell_settings_brightness_dark,
+    light: m.shell_settings_theme_light,
+    dark: m.shell_settings_theme_dark,
   };
   const CARD_OPEN_LABELS: Record<CardOpenSetting, () => string> = {
     center: m.shell_settings_card_open_center,
@@ -182,7 +182,7 @@
     <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
       <SettingChoice
         name="theme"
-        label={m.shell_settings_brightness()}
+        label={m.shell_settings_theme()}
         value={settings.theme}
         options={THEME_SETTINGS.map((value) => ({ value, label: THEME_LABELS[value]() }))}
         onChange={(theme: ThemeSetting) => void workspace.changeSettings({ theme })}
@@ -211,8 +211,8 @@
       />
       <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="haptics">
         <span class="grid min-w-0 flex-1 gap-0.5">
-          <span class="font-medium">{m.shell_settings_vibration()}</span>
-          <span class="text-xs text-muted-foreground">{m.shell_settings_vibration_hint()}</span>
+          <span class="font-medium">{m.shell_settings_haptics()}</span>
+          <span class="text-xs text-muted-foreground">{m.shell_settings_haptics_hint()}</span>
         </span>
         <Switch
           checked={settings.haptics}

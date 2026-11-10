@@ -365,6 +365,9 @@ describe('the settings on the server', () => {
     expect(await backend.settings()).toMatchObject({ theme: 'dark', haptics: false });
     const sent = serve({ ...stored, theme: 'light' });
     await backend.patchSettings({ theme: 'light', haptics: true });
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'PATCH /api/v1/users/me/settings',
+    ]);
     expect(sent[0]?.body).toEqual({ theme: 'light', haptics: true });
   });
 });

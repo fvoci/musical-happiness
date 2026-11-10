@@ -218,5 +218,5 @@ export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
 }
 
 export function settingsChangeOf(patch: AccountSettingsPatch): Schemas['SettingsChange'] {
-  return { ...patch };
+  return patch;
 }

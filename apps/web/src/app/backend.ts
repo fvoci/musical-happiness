@@ -11,6 +11,8 @@
 import type { Account, Backend } from '$lib/state/index.ts';
 
 import { readBasePath } from './router.svelte.ts';
+import { readDisplaySettings } from '$lib/logic/display.ts';
+import { readRegionalSettings } from '$lib/logic/regional.ts';
 
 export interface StartedBackend {
   backend: Backend;
@@ -44,8 +46,15 @@ const SETTINGS_KEY = 'fvoci:memory-settings';
  */
 async function keepSettings(backend: Backend): Promise<void> {
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null') as object | null;
-    if (saved) await backend.patchSettings(saved);
+    const saved: unknown = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    // Only the settings this version knows, each read as it would be from
+    // the server: a name it no longer has (one saved by an older version) is
+    // left out, not refused with all the others.
+    if (saved)
+      await backend.patchSettings({
+        ...readRegionalSettings(saved),
+        ...readDisplaySettings(saved),
+      });
   } catch {
     // Nothing kept, or something the backend refuses now: the defaults then.
   }
