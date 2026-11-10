@@ -1,6 +1,7 @@
 //! Subscriptions of users to the changes of a block.
 //!
-//! Unsubscribing marks the subscription as deleted; subscribing again revives it.
+//! A subscription is a row while it lasts. It ends when the subscriber ends it, when the
+//! block is deleted, and when the subscriber leaves the block's board.
 
 use fvoci_model::{BlockType, Subscriber, SubscriberType, Subscription};
 
@@ -10,16 +11,15 @@ use crate::error::StoreError;
 
 /// The columns of a subscription, in the order [`subscription_from_row`] reads them.
 const SUBSCRIPTION_COLUMNS: &str =
-    "block_type, block_id, subscriber_type, subscriber_id, notified_at, create_at, delete_at";
+    "block_type, block_id, subscriber_type, subscriber_id, notified_at, create_at";
 
 impl Store {
-    /// Subscribes a subscriber to a block and returns the subscription with the current
-    /// time as creation and notification time, and not deleted.
+    /// Subscribes a subscriber to a block and returns the subscription as it is stored:
+    /// created and notified now.
     ///
-    /// If the subscriber already has a subscription to the block, deleted or not, that
-    /// one is revived and marked as notified now instead. It keeps its stored creation
-    /// time and types, although the returned subscription carries the given types and
-    /// the current time.
+    /// If the subscriber is subscribed to the block already, that subscription stays as
+    /// it is, creation time and types included, and is marked as notified now; that one
+    /// is returned.
     ///
     /// # Errors
     ///
@@ -29,27 +29,23 @@ impl Store {
         &self,
         subscription: Subscription,
     ) -> Result<Subscription, StoreError> {
-        self.with_conn(async |scope| create_subscription(scope, subscription).await)
+        self.transaction(async |scope| create_subscription(scope, subscription).await)
             .await
     }
 
-    /// Marks the subscription of a subscriber to a block as deleted.
+    /// Ends the subscription of a subscriber to a block.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if the subscriber never subscribed to the block.
+    /// Returns [`StoreError::NotFound`] if the subscriber is not subscribed to the block.
     pub async fn delete_subscription(
         &self,
         block_id: &str,
         subscriber_id: &str,
     ) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
-            // Preserved quirk: a subscription that is already deleted matches too, so
-            // deleting it again succeeds and moves its deletion time
-            // (`server/services/store/sqlstore/subscriptions.go:100-104`).
-            let mut sql = scope.sql("UPDATE subscriptions SET delete_at = ");
-            sql.bind(now_millis())
-                .push_bind(" WHERE block_id = ", Id(block_id))
+            let mut sql = scope.sql("DELETE FROM subscriptions WHERE block_id = ");
+            sql.bind(Id(block_id))
                 .push_bind(" AND subscriber_id = ", Id(subscriber_id));
             if scope.execute(sql).await? == 0 {
                 return Err(subscription_not_found(block_id, subscriber_id));
@@ -59,7 +55,7 @@ impl Store {
         .await
     }
 
-    /// Returns the subscription of a subscriber to a block, unless deleted.
+    /// Returns the subscription of a subscriber to a block.
     ///
     /// # Errors
     ///
@@ -82,8 +78,7 @@ impl Store {
         .await
     }
 
-    /// Returns the subscriptions of a subscriber that are not deleted, in no particular
-    /// order.
+    /// Returns the subscriptions of a subscriber, oldest first.
     ///
     /// # Errors
     ///
@@ -94,7 +89,8 @@ impl Store {
     ) -> Result<Vec<Subscription>, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = select_subscriptions(scope);
-            sql.push_bind(" AND subscriber_id = ", Id(subscriber_id));
+            sql.push_bind(" AND subscriber_id = ", Id(subscriber_id))
+                .push(" ORDER BY create_at, block_id");
             fetch_subscriptions(scope, sql).await
         })
         .await
@@ -112,7 +108,7 @@ impl Store {
         self.with_conn(async |scope| {
             let mut sql = scope.sql(
                 "SELECT subscriber_type, subscriber_id, notified_at FROM subscriptions \
-                 WHERE delete_at = 0 AND block_id = ",
+                 WHERE block_id = ",
             );
             sql.bind(Id(block_id)).push(" ORDER BY notified_at");
             scope
@@ -138,9 +134,8 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_subscribers_count_for_block(&self, block_id: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(
-                "SELECT COUNT(subscriber_id) FROM subscriptions WHERE delete_at = 0 AND block_id = ",
-            );
+            let mut sql =
+                scope.sql("SELECT COUNT(subscriber_id) FROM subscriptions WHERE block_id = ");
             sql.bind(Id(block_id));
             match scope.fetch_optional(sql).await? {
                 Some(row) => row.int(0),
@@ -151,11 +146,10 @@ impl Store {
     }
 }
 
-/// Starts the query for the subscriptions that are not deleted; conditions follow with
-/// `AND`.
+/// Starts the query for subscriptions; conditions follow with `AND`.
 fn select_subscriptions(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!(
-        "SELECT {SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE delete_at = 0"
+        "SELECT {SUBSCRIPTION_COLUMNS} FROM subscriptions WHERE 1 = 1"
     ))
 }
 
@@ -179,7 +173,8 @@ fn subscription_from_row(row: &Row) -> Result<Subscription, StoreError> {
         subscriber_id: row.id(3)?,
         notified_at: row.int(4)?,
         create_at: row.int(5)?,
-        delete_at: row.int(6)?,
+        // A subscription that exists is not ended.
+        delete_at: 0,
     })
 }
 
@@ -199,27 +194,19 @@ fn subscription_not_found(block_id: &str, subscriber_id: &str) -> StoreError {
     ))
 }
 
-/// Marks as deleted every subscription of a subscriber to a block of the board. Blocks
-/// that are deleted count too: they can be restored, and their subscriptions with them.
+/// Ends every subscription of a subscriber to a block of the board.
 pub(crate) async fn end_subscriptions_to_board(
     scope: &mut Scope<'_>,
     board_id: &str,
     subscriber_id: &str,
 ) -> Result<(), StoreError> {
-    let mut sql = scope.sql("UPDATE subscriptions SET delete_at = ");
-    sql.bind(now_millis()).push_bind(
-        " WHERE delete_at = 0 AND subscriber_id = ",
-        Id(subscriber_id),
-    );
-    for (opening, blocks) in [(" AND (", "blocks"), (" OR ", "blocks_history")] {
-        sql.push(&format!(
-            "{opening}EXISTS (SELECT 1 FROM {blocks} WHERE {blocks}.id = subscriptions.block_id \
-             AND {blocks}.board_id = "
-        ))
-        .bind(Id(board_id))
+    let mut sql = scope.sql("DELETE FROM subscriptions WHERE subscriber_id = ");
+    sql.bind(Id(subscriber_id))
+        .push_bind(
+            " AND block_id IN (SELECT id FROM blocks WHERE board_id = ",
+            Id(board_id),
+        )
         .push(")");
-    }
-    sql.push(")");
     scope.execute(sql).await?;
     Ok(())
 }
@@ -240,10 +227,8 @@ pub(crate) async fn create_subscription(
         ..subscription
     };
 
-    // Preserved quirk: on a conflict only the deletion and notification times are
-    // written. The stored creation time and types stay, while the caller gets back the
-    // given types and the current time
-    // (`server/services/store/sqlstore/subscriptions.go:82`).
+    // Subscribing again to what one is subscribed to keeps the subscription as it is,
+    // creation time and types included, and marks it as notified now.
     let mut sql = scope.sql(&format!(
         "INSERT INTO subscriptions ({SUBSCRIPTION_COLUMNS}) VALUES ("
     ));
@@ -253,11 +238,18 @@ pub(crate) async fn create_subscription(
         .push_bind(", ", Id(&subscription.subscriber_id))
         .push_bind(", ", subscription.notified_at)
         .push_bind(", ", subscription.create_at)
-        .push_bind(", ", subscription.delete_at)
         .push(
-            ") ON CONFLICT (block_id, subscriber_id) DO UPDATE SET delete_at = 0, \
+            ") ON CONFLICT (block_id, subscriber_id) DO UPDATE SET \
              notified_at = EXCLUDED.notified_at",
         );
     scope.execute(sql).await?;
-    Ok(subscription)
+
+    let mut sql = select_subscriptions(scope);
+    sql.push_bind(" AND block_id = ", Id(&subscription.block_id))
+        .push_bind(" AND subscriber_id = ", Id(&subscription.subscriber_id));
+    fetch_subscriptions(scope, sql)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| subscription_not_found(&subscription.block_id, &subscription.subscriber_id))
 }

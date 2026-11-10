@@ -1,5 +1,7 @@
 //! Boards and blocks created, patched and deleted together.
 
+use std::collections::HashMap;
+
 use fvoci_model::{BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks};
 
 use super::App;
@@ -157,8 +159,13 @@ impl App {
         };
         let team_id = self.store().get_board(first_board_id).await?.team_id;
 
-        // The blocks are gone afterwards, so what the notifications need of them is read
-        // first.
+        // The memberships go with the boards, so who is told is who was a member; and
+        // the blocks are gone afterwards, so which board each was on is read first.
+        let mut former_members = HashMap::with_capacity(request.boards.len());
+        for board_id in &request.boards {
+            let members = self.store().get_members_for_board(board_id).await?;
+            former_members.insert(board_id.as_str(), members);
+        }
         let mut deleted_blocks = Vec::with_capacity(request.blocks.len());
         for block_id in &request.blocks {
             let block = self.store().get_block(block_id).await?;
@@ -169,18 +176,21 @@ impl App {
             .delete_boards_and_blocks(request, user_id)
             .await?;
 
-        let app = self.clone();
-        let board_ids = request.boards.clone();
-        self.spawn_background(async move {
-            for (block_id, board_id) in &deleted_blocks {
-                app.ws()
-                    .broadcast_block_delete(&team_id, block_id, board_id)
-                    .await;
-            }
-            for board_id in &board_ids {
-                app.ws().broadcast_board_delete(&team_id, board_id).await;
-            }
-        });
+        for (block_id, board_id) in &deleted_blocks {
+            // A block of a board the request does not list was refused by the store.
+            let members = former_members
+                .get(board_id.as_str())
+                .map_or(&[][..], Vec::as_slice);
+            self.ws()
+                .broadcast_block_delete_with_board(&team_id, block_id, board_id, members);
+        }
+        for board_id in &request.boards {
+            let members = former_members
+                .get(board_id.as_str())
+                .map_or(&[][..], Vec::as_slice);
+            self.ws()
+                .broadcast_board_delete(&team_id, board_id, members);
+        }
         Ok(())
     }
 }

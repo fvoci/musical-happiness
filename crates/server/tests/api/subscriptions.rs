@@ -371,28 +371,29 @@ async fn create_subscription_answer_and_subscribing_again() {
         std::slice::from_ref(&first)
     );
 
-    // Subscribing again is answered like a new subscription, but the stored one keeps
-    // its creation time and is only marked as notified now.
+    // Subscribing again answers the subscription there is: it keeps its creation time
+    // and is marked as notified now.
     tokio::time::sleep(Duration::from_millis(5)).await;
     let second = subscribe(&th.client, &card.id, &me).await;
-    assert!(second.create_at > first.create_at, "answered as new");
-    assert_eq!(second.notified_at, second.create_at, "notified now");
-    let stored = Subscription {
-        notified_at: second.notified_at,
-        ..first.clone()
-    };
-    assert_eq!(subscriptions_of(&th.client, &me).await, [stored]);
+    assert_eq!(second.create_at, first.create_at, "the same subscription");
+    assert!(second.notified_at > first.notified_at, "notified now");
+    assert_eq!(
+        subscriptions_of(&th.client, &me).await,
+        std::slice::from_ref(&second),
+        "what is stored is what was answered"
+    );
 
-    // The same after unsubscribing.
+    // Unsubscribing ends the subscription; subscribing after that starts a new one.
     unsubscribe(&th.client, &card.id, &me).await.check_ok();
     assert_eq!(subscriptions_of(&th.client, &me).await, [], "unsubscribed");
     tokio::time::sleep(Duration::from_millis(5)).await;
     let third = subscribe(&th.client, &card.id, &me).await;
-    let stored = Subscription {
-        notified_at: third.notified_at,
-        ..first
-    };
-    assert_eq!(subscriptions_of(&th.client, &me).await, [stored]);
+    assert!(third.create_at > first.create_at, "created anew");
+    assert_eq!(
+        subscriptions_of(&th.client, &me).await,
+        std::slice::from_ref(&third),
+        "what is stored is what was answered"
+    );
 
     // The block type is whatever the client says, also another one than the block's.
     for (block_type, subscriber_type) in [("text", "user"), ("whatever", "user")] {
@@ -470,34 +471,37 @@ async fn delete_subscription_twice() {
     th.teardown().await;
 }
 
-/// A subscription outlives its block and can still be ended then. The original ends
-/// it too, but crashes afterwards, looking for the block's board to name a team for a
-/// broadcast it does not send, and answers with a server error
-/// (server/app/subscriptions.go:43-51).
+/// A subscription ends with its block: it is not listed any more and there is nothing
+/// left to end. Restoring the block does not bring the subscription back.
 #[tokio::test]
-async fn delete_subscription_to_a_deleted_block() {
+async fn a_subscription_ends_with_its_block() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
-    let subscription = subscribe(&th.client, &card.id, &me).await;
-    th.client
-        .delete(&format!("/boards/{}/blocks/{}", board.id, card.id))
-        .await
-        .check_ok();
+    subscribe(&th.client, &card.id, &me).await;
+    let block_path = format!("/boards/{}/blocks/{}", board.id, card.id);
+    th.client.delete(&block_path).await.check_ok();
 
     assert_eq!(
         subscriptions_of(&th.client, &me).await,
-        [subscription],
-        "the subscription is still listed"
+        [],
+        "the subscription went with the block"
     );
     let response = th.client.post(PATH, &request(&card.id, &me)).await;
     check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
-
     let response = unsubscribe(&th.client, &card.id, &me).await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "the empty object");
-    assert_eq!(subscriptions_of(&th.client, &me).await, [], "it is gone");
+    check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
+
+    th.client
+        .post_empty(&format!("{block_path}/undelete"))
+        .await
+        .check_ok();
+    assert_eq!(
+        subscriptions_of(&th.client, &me).await,
+        [],
+        "and does not come back with it"
+    );
     th.teardown().await;
 }
 

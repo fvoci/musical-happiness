@@ -23,6 +23,7 @@ mod subscriptions;
 mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
+mod trash;
 mod users;
 
 use std::sync::Arc;
@@ -31,15 +32,16 @@ use std::time::Duration;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
-pub use blocks::{BlockFilter, DuplicateAs, HistoryOrder, HistoryQuery, Paging, SubtreeQuery};
-pub use boards::PublicBoards;
+pub use blocks::{BlockFilter, DuplicateAs, Paging};
+pub use boards::{MemberChange, PublicBoards};
 pub use category_boards::BoardVisibility;
 pub use connect::DbType;
 pub use db::Dialect;
 pub use error::StoreError;
+pub use trash::{DeletedBlock, DeletedBoard};
 pub use users::Preference;
 
-use db::{ConnRef, Scope, Shared};
+use db::{ConnRef, Scope};
 
 /// How many connections a store keeps to a file or server database.
 const MAX_CONNECTIONS: u32 = 10;
@@ -55,7 +57,6 @@ pub struct Store {
 #[derive(Debug)]
 struct Inner {
     pool: Pool,
-    shared: Shared,
 }
 
 #[derive(Debug)]
@@ -107,10 +108,7 @@ impl Store {
         };
 
         let store = Self {
-            inner: Arc::new(Inner {
-                pool,
-                shared: Shared::new(),
-            }),
+            inner: Arc::new(Inner { pool }),
         };
         schema::migrate(&store).await?;
         Ok(store)
@@ -165,15 +163,14 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let shared = &self.inner.shared;
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(ConnRef::Sqlite(&mut conn), shared)).await
+                operation(&mut Scope::new(ConnRef::Sqlite(&mut conn))).await
             }
             Pool::Postgres(pool) => {
                 let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(ConnRef::Postgres(&mut conn), shared)).await
+                operation(&mut Scope::new(ConnRef::Postgres(&mut conn))).await
             }
         }
     }
@@ -184,19 +181,18 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let shared = &self.inner.shared;
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
                 // Take the write lock up front. A transaction that starts by reading and
                 // then tries to write fails with SQLITE_BUSY as soon as another one does
                 // the same, and no busy timeout can resolve that.
                 let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
-                let result = operation(&mut Scope::new(ConnRef::Sqlite(&mut tx), shared)).await;
+                let result = operation(&mut Scope::new(ConnRef::Sqlite(&mut tx))).await;
                 finish(result, tx).await
             }
             Pool::Postgres(pool) => {
                 let mut tx = pool.begin().await?;
-                let result = operation(&mut Scope::new(ConnRef::Postgres(&mut tx), shared)).await;
+                let result = operation(&mut Scope::new(ConnRef::Postgres(&mut tx))).await;
                 finish(result, tx).await
             }
         }

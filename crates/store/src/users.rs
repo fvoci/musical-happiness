@@ -353,6 +353,17 @@ async fn find_user(scope: &mut Scope<'_>, lookup: Lookup<'_>) -> Result<User, St
         .ok_or_else(user_not_found)
 }
 
+/// Whether there is a user row with the identifier, deactivated or not: whether a row
+/// that refers to the user can be stored.
+pub(crate) async fn user_row_exists(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM users WHERE id = ");
+    sql.bind(Id(user_id));
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
 pub(crate) async fn get_user_by_id(
     scope: &mut Scope<'_>,
     user_id: &str,

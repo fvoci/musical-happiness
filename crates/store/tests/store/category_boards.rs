@@ -543,3 +543,182 @@ async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
 
     test.teardown().await;
 }
+
+/// Not in the original, where a deleted category stays as a row and keeps its boards.
+/// Deleting a category removes it, and the boards filed under it are filed under
+/// nothing: no category lists them until they are filed again, which files them as new.
+#[tokio::test]
+async fn deleting_a_category_files_its_boards_under_nothing() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let sidebar = Sidebar::create(store).await;
+    let user_id = &sidebar.user_id;
+    let doomed = sidebar.create_category(store, "doomed").await;
+    let kept = sidebar.create_category(store, "kept").await;
+    let [one, two, three] = create_boards(store, &sidebar.team_id, user_id).await;
+
+    store
+        .add_update_category_board(user_id, &doomed, &ids(&[&one, &two]))
+        .await
+        .expect("two boards are filed under the category to delete");
+    store
+        .add_update_category_board(user_id, &kept, std::slice::from_ref(&three))
+        .await
+        .expect("a board is filed under the category that stays");
+    store
+        .set_board_visibility(user_id, &doomed, &one, BoardVisibility::Hidden)
+        .await
+        .expect("the board is hidden");
+
+    store
+        .delete_category(&doomed, user_id, &sidebar.team_id)
+        .await
+        .expect("the category is deleted");
+
+    let error = store
+        .get_category(&doomed)
+        .await
+        .expect_err("a deleted category is not found");
+    assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
+    let listed = sidebar.category_boards(store).await;
+    assert_eq!(
+        listed.len(),
+        1,
+        "only the category that stays is listed: {listed:?}"
+    );
+    assert_eq!(listed[0].category.id, kept, "the category that stays");
+    assert_eq!(
+        listed[0].board_metadata,
+        [visible(&three)],
+        "its board, and none of the deleted category's"
+    );
+    for board_id in [&one, &two] {
+        store
+            .get_board(board_id)
+            .await
+            .expect("a board outlives the category it was filed under");
+    }
+
+    // A board that moves between categories keeps its hidden flag. This one comes back
+    // visible: it was filed under nothing, and is filed as new.
+    store
+        .add_update_category_board(user_id, &kept, std::slice::from_ref(&one))
+        .await
+        .expect("a board of the deleted category is filed again");
+    let mut boards = sidebar.boards_of(store, &kept).await;
+    boards.sort_by(|left, right| left.board_id.cmp(&right.board_id));
+    let mut expected = [visible(&one), visible(&three)];
+    expected.sort_by(|left, right| left.board_id.cmp(&right.board_id));
+    assert_eq!(boards, expected, "the board is filed as new, visible");
+
+    test.teardown().await;
+}
+
+/// Not in the original. Deleting a category that is another user's, or in another team,
+/// or that does not exist succeeds and changes nothing: the category stays, with its
+/// boards filed as they were.
+#[tokio::test]
+async fn deleting_a_category_of_another_user_or_team_changes_nothing() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let sidebar = Sidebar::create(store).await;
+    let user_id = &sidebar.user_id;
+    let someone_else = common::user(store, "someone-else").await;
+    let another_team = common::team(store).await;
+    let category_id = sidebar.create_category(store, "Category").await;
+    let [one, two] = create_boards(store, &sidebar.team_id, user_id).await;
+
+    store
+        .add_update_category_board(user_id, &category_id, &ids(&[&one, &two]))
+        .await
+        .expect("the boards are filed");
+    // Sort orders of their own, so that the listing has one order.
+    store
+        .reorder_category_boards(&category_id, ids(&[&two, &one]))
+        .await
+        .expect("the boards are ordered");
+    store
+        .set_board_visibility(user_id, &category_id, &two, BoardVisibility::Hidden)
+        .await
+        .expect("a board is hidden");
+    let before = sidebar.category_boards(store).await;
+    assert_eq!(
+        before[0].board_metadata,
+        [
+            CategoryBoardMetadata {
+                board_id: two.clone(),
+                hidden: true,
+            },
+            visible(&one),
+        ],
+        "the boards as they were filed"
+    );
+
+    for (id, deleter, team, what) in [
+        (
+            &category_id,
+            &someone_else,
+            &sidebar.team_id,
+            "another user",
+        ),
+        (&category_id, user_id, &another_team, "another team"),
+        (&new_id(), user_id, &sidebar.team_id, "no such category"),
+    ] {
+        store
+            .delete_category(id, deleter, team)
+            .await
+            .expect("deleting nothing succeeds");
+        assert_eq!(
+            sidebar.category_boards(store).await,
+            before,
+            "{what}: the category and its boards are as they were"
+        );
+    }
+
+    test.teardown().await;
+}
+
+/// Not in the original, which files boards that were never created under categories
+/// that were never created. A filing is a user's, of a board, under a category: without
+/// any of the three it is not stored, and neither is anything else of the same call.
+#[tokio::test]
+async fn a_filing_needs_its_user_its_category_and_its_board() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let sidebar = Sidebar::create(store).await;
+    let user_id = &sidebar.user_id;
+    let category_id = sidebar.create_category(store, "Category").await;
+    let [filed, board] = create_boards(store, &sidebar.team_id, user_id).await;
+    store
+        .add_update_category_board(user_id, &category_id, std::slice::from_ref(&filed))
+        .await
+        .expect("a board of the user is filed under the category");
+
+    let [nobody, no_category, no_board] = [new_id(), new_id(), new_id()];
+    for (user, category, boards, what) in [
+        (&nobody, &category_id, ids(&[&board]), "no such user"),
+        (user_id, &no_category, ids(&[&board]), "no such category"),
+        (
+            user_id,
+            &category_id,
+            ids(&[&board, &no_board]),
+            "no such board",
+        ),
+    ] {
+        let error = store
+            .add_update_category_board(user, category, &boards)
+            .await
+            .expect_err("a filing that refers to nothing is refused");
+        assert!(
+            common::refused_over_a_foreign_key(&error),
+            "{what}: got {error:?}"
+        );
+        assert_eq!(
+            sidebar.boards_of(store, &category_id).await,
+            [visible(&filed)],
+            "{what}: nothing of the refused call is filed"
+        );
+    }
+
+    test.teardown().await;
+}

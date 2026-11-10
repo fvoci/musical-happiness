@@ -56,6 +56,9 @@ const BACKGROUND_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 /// (`server/server/server.go:41`).
 const CLEAN_UP_SESSIONS_INTERVAL: Duration = Duration::from_mins(10);
 
+/// How often the trash is looked through for what has been in it for too long.
+const PURGE_TRASH_INTERVAL: Duration = Duration::from_hours(1);
+
 /// The shortest time a session stays in the database after its last use, in seconds: 31
 /// days (`server/server/server.go:44`).
 const MINIMUM_SESSION_CLEAN_UP_AGE: i64 = 60 * 60 * 24 * 31;
@@ -221,6 +224,7 @@ impl Server {
             .context("reading the listener's address")?;
         let admin_socket = self.start_admin_socket()?;
         let clean_up = start_session_clean_up(&self.app);
+        let purge = start_trash_purge(&self.app);
 
         let service = self.router().into_make_service_with_connect_info::<Peer>();
         let stop = CancellationToken::new();
@@ -259,6 +263,7 @@ impl Server {
             admin_socket.stop().await;
         }
         clean_up.cancel().await;
+        purge.cancel().await;
         served.context("serving HTTP")
     }
 
@@ -365,6 +370,27 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
             let idle_since = now.saturating_sub(age.saturating_mul(1000));
             if let Err(error) = store.clean_up_sessions(now, idle_since).await {
                 tracing::error!(%error, "unable to clean up the sessions");
+            }
+        }
+    })
+}
+
+/// Starts the task that removes for good what has been in the trash for longer than
+/// `trash_retention_days`. The first run is one interval after the start.
+fn start_trash_purge(app: &App) -> RecurringTask {
+    let store = app.store().clone();
+    let retention_millis =
+        i64::from(app.config().trash_retention_days).saturating_mul(24 * 60 * 60 * 1000);
+    RecurringTask::spawn("purgeTrash", PURGE_TRASH_INTERVAL, move || {
+        let store = store.clone();
+        async move {
+            let deleted_before = auth::now_millis().saturating_sub(retention_millis);
+            match store.purge_trash(deleted_before).await {
+                Ok(0) => {}
+                Ok(purged) => {
+                    tracing::info!(purged, "removed old boards and blocks from the trash");
+                }
+                Err(error) => tracing::error!(%error, "unable to purge the trash"),
             }
         }
     })

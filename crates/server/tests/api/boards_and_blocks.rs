@@ -1173,8 +1173,8 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
         assert!(error.is_not_found(), "{error:?}");
     }
 
-    // The members are told about every deleted block and board. Memberships outlive
-    // their boards, so the messages still find them.
+    // Those who were members are told about every deleted block and board, although
+    // the memberships went with the boards.
     for block_id in &block_ids {
         let message = socket.expect("UPDATE_BLOCK", "/block/id", block_id).await;
         assert!(

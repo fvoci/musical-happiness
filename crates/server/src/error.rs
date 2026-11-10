@@ -288,6 +288,12 @@ impl From<StoreError> for AppError {
             | StoreError::BlockNotInDeletedBoards { .. }
             | StoreError::InvalidCategory(_)
             | StoreError::InvalidSubscription(_) => Self::bad_request(error),
+            // A parent that is no block of the board, whether it is none at all or
+            // another board's: the answer does not tell the two apart.
+            StoreError::InvalidBlock {
+                source: source @ (BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock),
+                ..
+            } => Self::from(source),
             // What a request names by something that is no identifier does not exist.
             // The text is not echoed: it is the client's own, and it may be long.
             StoreError::InvalidId(_) => {
@@ -319,6 +325,9 @@ impl From<BlockError> for AppError {
             BlockError::TitleSizeLimitExceeded
             | BlockError::FieldsSizeLimitExceeded
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
+            BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock => {
+                Self::bad_request(error).with_field("parentId")
+            }
             BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),
         }
     }

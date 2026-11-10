@@ -1,25 +1,26 @@
 //! Port of `server/services/store/storetests/boards.go`.
 //!
 //! One test per test function of the original; its subtests are the commented sections,
-//! in the original order, on one store. The original sleeps between writes of one board
-//! so that two history rows do not collide; the port does not need that and sleeps only
-//! where an assertion compares timestamps.
+//! in the original order, on one store.
 //!
 //! The original names users, teams and boards by whatever text is at hand. Here each of
 //! them is a stored row with an identifier of its own, and text that is no identifier
-//! names nothing. The original's tests of the membership history and of the board count
-//! went with those functions.
+//! names nothing. The original's tests of the board history, the membership history and
+//! the board count went with those functions.
 //!
-//! The tests after [`get_board_history`] have no counterpart in the original, which does
-//! not test templates, the template tracking identifier or `CanSeeUser`.
+//! The tests after [`search_boards_for_user_in_team`] have no counterpart in the
+//! original, which does not test templates, the template tracking identifier, the trash
+//! or the membership changes that keep a board its administrator.
 
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, Board, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType, JsonMap, new_id,
+    Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
+    Category, FileInfo, JsonMap, Sharing, SubscriberType, Subscription, new_id,
 };
-use fvoci_store::{BlockFilter, HistoryOrder, HistoryQuery, PublicBoards, Store, StoreError};
+use fvoci_store::{BlockFilter, MemberChange, PublicBoards, Store, StoreError};
 use serde_json::{Value, json};
+use tokio::task::JoinSet;
 
 use crate::common;
 
@@ -739,20 +740,26 @@ async fn undelete_board() {
 
         test.get_board(&board_id).await.expect("the board is back");
 
-        test.undelete_board(&board_id, &user_id)
+        // The original restores a board that is not deleted once more, without effect.
+        // Here only what is in the trash is restored.
+        let error = test
+            .undelete_board(&board_id, &user_id)
             .await
-            .expect("undeleting a board that is not deleted succeeds");
+            .expect_err("the board is not in the trash any more");
+        assert!(error.is_not_found(), "got {error:?}");
 
         test.get_board(&board_id)
             .await
             .expect("the board is still there");
     }
 
-    // "from not existing id"
+    // "from not existing id": the original succeeds and restores nothing.
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
-        test.undelete_board(&board_id, &user_id)
+        let error = test
+            .undelete_board(&board_id, &user_id)
             .await
-            .expect("undeleting a board that never existed succeeds");
+            .expect_err("no such board is in the trash");
+        assert!(error.is_not_found(), "board {board_id}: got {error:?}");
 
         test.get_board(&board_id)
             .await
@@ -1210,155 +1217,6 @@ async fn search_boards_for_user_in_team() {
     test.teardown().await;
 }
 
-#[tokio::test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one test per test function of the original, whose subtests share a store"
-)]
-async fn get_board_history() {
-    let test = common::setup().await;
-    let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-
-    // "testGetBoardHistory: create board"
-    {
-        let original_title = "Board: original title";
-        let board_id = new_id();
-        let mut board = Board {
-            title: original_title.to_owned(),
-            ..new_board(&board_id, &team_id, BoardType::Open)
-        };
-        test.insert_board(&mut board, &user_id)
-            .await
-            .expect("the board is inserted");
-        let r_board1 = board;
-
-        let ascending = HistoryQuery::default();
-
-        let boards = test
-            .get_board_history(&board_id, &ascending)
-            .await
-            .expect("the history is read");
-        assert_eq!(boards.len(), 1, "got {boards:?}");
-
-        let user_id_2 = common::user(&test, "user2").await;
-        let new_title = "Board: A new title";
-        let new_description = "A new description";
-        let patch = BoardPatch {
-            title: Some(new_title.to_owned()),
-            description: Some(new_description.to_owned()),
-            ..BoardPatch::default()
-        };
-        let patched_board = test
-            .patch_board(&board_id, &patch, &user_id_2)
-            .await
-            .expect("the patch is applied");
-
-        // Updated history
-        let boards = test
-            .get_board_history(&board_id, &ascending)
-            .await
-            .expect("the history is read");
-        assert_eq!(boards.len(), 2, "got {boards:?}");
-        assert_eq!(boards[0].title, original_title, "the oldest state");
-        assert_eq!(boards[1].title, new_title, "the patched title");
-        assert_eq!(
-            boards[1].description, new_description,
-            "the patched description"
-        );
-
-        // Check history against latest board
-        let r_board2 = test.get_board(&board_id).await.expect("the board exists");
-        assert_eq!(r_board2.title, new_title, "the stored title");
-        assert_eq!(r_board2.title, boards[1].title, "the newest state's title");
-        assert_ne!(r_board2.update_at, 0, "the modification time is set");
-        assert_eq!(
-            r_board1.update_at, boards[0].update_at,
-            "the oldest state's time"
-        );
-        assert_eq!(
-            r_board2.update_at, patched_board.update_at,
-            "the patched board's time"
-        );
-        assert_eq!(
-            r_board2.update_at, boards[1].update_at,
-            "the newest state's time"
-        );
-        assert_eq!(
-            r_board1, boards[0],
-            "the oldest state is the inserted board"
-        );
-        assert_eq!(r_board2, boards[1], "the newest state is the stored board");
-
-        let new_title_2 = "Board: A new title 2";
-        let patch2 = BoardPatch {
-            title: Some(new_title_2.to_owned()),
-            ..BoardPatch::default()
-        };
-        let patch_board2 = test
-            .patch_board(&board_id, &patch2, &user_id_2)
-            .await
-            .expect("the patch is applied");
-
-        // Updated history
-        let newest = HistoryQuery {
-            limit: Some(1),
-            order: HistoryOrder::Descending,
-            ..HistoryQuery::default()
-        };
-        let boards = test
-            .get_board_history(&board_id, &newest)
-            .await
-            .expect("the history is read");
-        assert_eq!(boards.len(), 1, "got {boards:?}");
-        assert_eq!(boards[0].title, new_title_2, "the newest title");
-        assert_eq!(boards[0], patch_board2, "the newest state");
-
-        // Delete board. The assertions below need the deletion to be stamped later than
-        // the last patch.
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        test.delete_board(&board_id, &user_id)
-            .await
-            .expect("the board is deleted");
-
-        // Updated history after delete
-        let descending = HistoryQuery {
-            order: HistoryOrder::Descending,
-            ..HistoryQuery::default()
-        };
-        let boards = test
-            .get_board_history(&board_id, &descending)
-            .await
-            .expect("the history is read");
-        assert_eq!(boards.len(), 4, "got {boards:?}");
-        assert_ne!(boards[0].update_at, 0, "the deletion is stamped");
-        assert!(
-            boards[0].update_at > patch_board2.update_at,
-            "{} > {}",
-            boards[0].update_at,
-            patch_board2.update_at
-        );
-        assert_ne!(boards[0].delete_at, 0, "the newest state is a deleted one");
-        assert!(
-            boards[0].delete_at > patch_board2.update_at,
-            "{} > {}",
-            boards[0].delete_at,
-            patch_board2.update_at
-        );
-    }
-
-    // "testGetBoardHistory: nonexisting board"
-    for board_id in [new_id(), NOT_AN_ID.to_owned()] {
-        let boards = test
-            .get_board_history(&board_id, &HistoryQuery::default())
-            .await
-            .expect("the history is read");
-        assert_eq!(boards.len(), 0, "board {board_id}: got {boards:?}");
-    }
-
-    test.teardown().await;
-}
-
 // Characterization tests: behavior of the original that its test suite does not cover,
 // or what this server does in its place.
 
@@ -1444,8 +1302,9 @@ async fn insert_board_stamps_templates_of_the_global_team_with_a_tracking_id() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/board.go:360-399`: what an update leaves alone, and
-/// what it nevertheless writes to the history.
+/// `server/services/store/sqlstore/board.go:360-399`: what an update leaves alone. The
+/// original leaves the caller's board as the caller filled it in; here it comes back as
+/// it is stored.
 #[tokio::test]
 async fn insert_board_update_keeps_team_creator_and_creation_time() {
     let test = common::setup().await;
@@ -1460,39 +1319,52 @@ async fn insert_board_update_keeps_team_creator_and_creation_time() {
         .await
         .expect("the board is inserted");
 
-    let mut update = Board {
-        title: "Updated".to_owned(),
-        ..new_board(&board_id, &another_team_id, BoardType::Private)
-    };
-    test.insert_board(&mut update, &editor_id)
-        .await
-        .expect("the board is updated");
-    // The caller's board is only stamped with the modifier and the modification time.
-    assert_eq!(update.created_by, "", "the creator is not copied");
-    assert_eq!(update.create_at, 0, "the creation time is not copied");
-    assert_eq!(update.modified_by, editor_id, "the modifier");
+    // Whatever the caller says about the team, the creator and the creation time: none
+    // of it, another of each, and the same again.
+    let claims = [
+        (another_team_id.as_str(), "", 0),
+        (another_team_id.as_str(), editor_id.as_str(), 12_345),
+        (team_id.as_str(), creator_id.as_str(), board.create_at),
+    ];
+    for (claimed_team, claimed_creator, claimed_create_at) in claims {
+        let mut update = Board {
+            title: format!("Updated by a caller who claims {claimed_create_at}"),
+            created_by: claimed_creator.to_owned(),
+            create_at: claimed_create_at,
+            ..new_board(&board_id, claimed_team, BoardType::Private)
+        };
+        test.insert_board(&mut update, &editor_id)
+            .await
+            .expect("the board is updated");
+        assert_eq!(update.team_id, team_id, "the stored team comes back");
+        assert_eq!(
+            update.created_by, creator_id,
+            "the stored creator comes back, not {claimed_creator:?}"
+        );
+        assert_eq!(
+            update.create_at, board.create_at,
+            "the stored creation time comes back, not {claimed_create_at}"
+        );
+        assert_eq!(update.modified_by, editor_id, "the modifier");
 
-    let stored = test.get_board(&board_id).await.expect("the board exists");
-    assert_eq!(stored.team_id, team_id, "the team stays");
-    assert_eq!(stored.created_by, creator_id, "the creator stays");
-    assert_eq!(stored.create_at, board.create_at, "the creation time stays");
-    assert_eq!(stored.modified_by, editor_id, "the modifier");
-    assert_eq!(stored.title, "Updated", "the title is the new one");
-    assert_eq!(stored.board_type, BoardType::Private, "so is the type");
-
-    // The history row is the caller's board, not the stored one.
-    let history = test
-        .get_board_history(&board_id, &HistoryQuery::default())
-        .await
-        .expect("the history is read");
-    assert_eq!(history.len(), 2, "got {history:?}");
-    assert_eq!(history[1], update, "the newest state");
+        let stored = test.get_board(&board_id).await.expect("the board exists");
+        assert_eq!(stored.team_id, team_id, "the team stays");
+        assert_eq!(stored.created_by, creator_id, "the creator stays");
+        assert_eq!(stored.create_at, board.create_at, "the creation time stays");
+        assert_eq!(
+            stored.board_type,
+            BoardType::Private,
+            "the type is the new one"
+        );
+        assert_eq!(update, stored, "the caller's board is the stored board");
+    }
 
     test.teardown().await;
 }
 
 /// `server/services/store/sqlstore/board.go:414-479` and `:789-874`: a board takes its
-/// blocks with it, both ways.
+/// blocks with it, both ways. The original marks them deleted where they are; here they
+/// move to the trash and back.
 #[tokio::test]
 async fn delete_and_undelete_board_take_the_blocks_along() {
     let test = common::setup().await;
@@ -1541,28 +1413,32 @@ async fn delete_and_undelete_board_take_the_blocks_along() {
         .await
         .expect("the blocks are read");
     assert!(left.is_empty(), "got {left:?}");
+    // The original keeps the memberships of a deleted board. Here they go to the trash
+    // with it.
     let members = test
         .get_members_for_board(&board_id)
         .await
         .expect("the members are read");
-    assert_eq!(members.len(), 1, "memberships outlive the board");
-    assert_eq!(
-        members[0].minimum_role, "",
-        "a membership of a deleted board reads with an empty minimum role"
-    );
-    let newest = HistoryQuery {
-        limit: Some(1),
-        order: HistoryOrder::Descending,
-        ..HistoryQuery::default()
-    };
-    let history = test
-        .get_board_history(&board_id, &newest)
+    assert!(members.is_empty(), "got {members:?}");
+    // The original marks the board's last history row as deleted, with the deleter as
+    // its modifier. Here the board is in the trash as it was, and the trash says who
+    // deleted it.
+    let deleted = test
+        .get_deleted_board(&board_id)
         .await
-        .expect("the history is read");
-    assert_eq!(history[0].modified_by, deleter_id, "who deleted the board");
+        .expect("the board is in the trash");
+    assert_eq!(deleted.deleted_by, deleter_id, "who deleted the board");
+    assert_eq!(deleted.board.modified_by, user_id, "the board as it was");
+    assert!(
+        deleted.board.delete_at >= board.update_at,
+        "deleted at {} after the last modification at {}",
+        deleted.board.delete_at,
+        board.update_at
+    );
     assert_eq!(
-        history[0].delete_at, history[0].update_at,
-        "the deletion is the last modification"
+        sorted_user_ids(&deleted.members),
+        [user_id.as_str()],
+        "the membership is kept with the board"
     );
 
     test.undelete_board(&board_id, &restorer_id)
@@ -1806,9 +1682,10 @@ async fn get_template_boards_returns_open_templates_and_templates_the_user_is_me
 /// The original's `RemoveDefaultTemplates`
 /// (`server/services/store/sqlstore/templates.go:17-55`) removes the templates its system
 /// user made. Here the templates the server ships with are the boards stored on behalf of
-/// no user, and `remove_builtin_templates` removes those.
+/// no user, and `remove_builtin_templates` removes those. The original leaves their
+/// history rows; here nothing of them is left, in the trash or elsewhere.
 #[tokio::test]
-async fn remove_default_templates_removes_system_templates_and_their_blocks_without_history() {
+async fn remove_default_templates_removes_system_templates_and_their_blocks_past_the_trash() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let team_id = common::team(&test).await;
@@ -1893,18 +1770,22 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_with
         .expect("the built-in templates are read");
     assert!(builtin.is_empty(), "got {builtin:?}");
 
-    // Nothing is recorded: the history still ends with the insertion.
-    let history = test
-        .get_board_history(&builtin_template.id, &HistoryQuery::default())
+    // Nothing is kept: neither the template nor its block is in the trash.
+    let error = test
+        .get_deleted_board(&builtin_template.id)
         .await
-        .expect("the history is read");
-    assert_eq!(history.len(), 1, "got {history:?}");
-    assert_eq!(history[0].delete_at, 0, "the insertion, not a deletion");
-    let block_history = test
-        .get_block_history(&blocks[0].id, &HistoryQuery::default())
+        .expect_err("the built-in template is not in the trash");
+    assert!(error.is_not_found(), "got {error:?}");
+    let error = test
+        .get_deleted_block(&blocks[0].id)
         .await
-        .expect("the history is read");
-    assert_eq!(block_history.len(), 1, "got {block_history:?}");
+        .expect_err("the block of the built-in template is not in the trash");
+    assert!(error.is_not_found(), "got {error:?}");
+    let error = test
+        .undelete_board(&builtin_template.id, &user_id)
+        .await
+        .expect_err("there is nothing to restore");
+    assert!(error.is_not_found(), "got {error:?}");
 
     test.teardown().await;
 }
@@ -1968,6 +1849,1581 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
         "the definitions are unchanged"
     );
     assert_ne!(stored.title, "renamed", "and so is the rest of the board");
+
+    test.teardown().await;
+}
+
+// The trash. None of this is in the original, which marks what is deleted where it is.
+
+/// A membership that administers the board.
+fn admin_of(board_id: &str, user_id: &str) -> BoardMember {
+    BoardMember {
+        board_id: board_id.to_owned(),
+        user_id: user_id.to_owned(),
+        scheme_admin: true,
+        scheme_editor: true,
+        ..BoardMember::default()
+    }
+}
+
+/// A membership that may edit the board and does not administer it.
+fn editor_of(board_id: &str, user_id: &str) -> BoardMember {
+    BoardMember {
+        board_id: board_id.to_owned(),
+        user_id: user_id.to_owned(),
+        scheme_editor: true,
+        ..BoardMember::default()
+    }
+}
+
+/// A block of a board: on the block `parent_id`, or directly on the board if that is
+/// empty.
+fn new_block(board_id: &str, parent_id: &str, block_type: BlockType) -> Block {
+    Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        parent_id: parent_id.to_owned(),
+        title: format!("a {}", block_type.as_str()),
+        block_type,
+        ..Block::default()
+    }
+}
+
+fn sorted_blocks(mut blocks: Vec<Block>) -> Vec<Block> {
+    blocks.sort_by(|a, b| a.id.cmp(&b.id));
+    blocks
+}
+
+fn sorted_members(mut members: Vec<BoardMember>) -> Vec<BoardMember> {
+    members.sort_by(|a, b| a.user_id.cmp(&b.user_id));
+    members
+}
+
+/// The blocks of a board that exist, sorted by identifier.
+async fn blocks_of(store: &Store, board_id: &str) -> Vec<Block> {
+    let blocks = store
+        .get_blocks(&BlockFilter::board(board_id))
+        .await
+        .expect("the blocks are read");
+    sorted_blocks(blocks)
+}
+
+/// The memberships of a board, sorted by user.
+async fn members_of(store: &Store, board_id: &str) -> Vec<BoardMember> {
+    let members = store
+        .get_members_for_board(board_id)
+        .await
+        .expect("the members are read");
+    sorted_members(members)
+}
+
+/// Subscribes a user to a card.
+async fn subscribe(store: &Store, card_id: &str, user_id: &str) {
+    let subscription = Subscription {
+        block_type: BlockType::Card,
+        block_id: card_id.to_owned(),
+        subscriber_type: SubscriberType::User,
+        subscriber_id: user_id.to_owned(),
+        notified_at: 0,
+        create_at: 0,
+        delete_at: 0,
+    };
+    store
+        .create_subscription(subscription)
+        .await
+        .expect("the subscription is stored");
+}
+
+/// The identifiers of the blocks a user subscribes to, sorted.
+async fn subscribed_block_ids(store: &Store, user_id: &str) -> Vec<String> {
+    let mut block_ids: Vec<String> = store
+        .get_subscriptions(user_id)
+        .await
+        .expect("the subscriptions are read")
+        .into_iter()
+        .map(|subscription| subscription.block_id)
+        .collect();
+    block_ids.sort();
+    block_ids
+}
+
+/// A board with everything that hangs on one.
+struct FullBoard {
+    team_id: String,
+    /// Made the board and administers it.
+    admin_id: String,
+    /// May edit the board, has it in a sidebar category and subscribes to its card.
+    editor_id: String,
+    board: Board,
+    /// A view and a card on the board, a text on the card and a checkbox on the text,
+    /// sorted by identifier.
+    blocks: Vec<Block>,
+    /// The identifier of the card.
+    card_id: String,
+    /// The memberships as they read while the board exists, sorted by user.
+    members: Vec<BoardMember>,
+    file: FileInfo,
+}
+
+impl FullBoard {
+    async fn store(store: &Store) -> Self {
+        let team_id = common::team(store).await;
+        let admin_id = common::user(store, "admin").await;
+        let editor_id = common::user(store, "editor").await;
+
+        let mut board = Board {
+            title: "Roadmap".to_owned(),
+            description: "What comes when".to_owned(),
+            icon: "🗺".to_owned(),
+            show_description: true,
+            minimum_role: BoardRole::Commenter,
+            properties: object(json!({ "color": "blue" })),
+            card_properties: vec![object(json!({ "id": "status", "name": "Status" }))],
+            ..new_board(&new_id(), &team_id, BoardType::Private)
+        };
+        store
+            .insert_board_with_admin(&mut board, &admin_id)
+            .await
+            .expect("the board and its administrator are stored");
+        store
+            .save_member(&editor_of(&board.id, &editor_id))
+            .await
+            .expect("the editor is stored");
+        let members = members_of(store, &board.id).await;
+
+        let view = new_block(&board.id, "", BlockType::View);
+        let card = new_block(&board.id, "", BlockType::Card);
+        let text = new_block(&board.id, &card.id, BlockType::Text);
+        let checkbox = new_block(&board.id, &text.id, BlockType::Checkbox);
+        let card_id = card.id.clone();
+        let mut blocks = vec![view, card, text, checkbox];
+        store
+            .insert_blocks(&mut blocks, &admin_id)
+            .await
+            .expect("the blocks are stored");
+
+        let file = FileInfo {
+            id: new_id(),
+            board_id: board.id.clone(),
+            stored_name: "7f3a9c.png".to_owned(),
+            name: "diagram.png".to_owned(),
+            extension: ".png".to_owned(),
+            size: 2048,
+            path: format!("boards/{}/7f3a9c.png", board.id),
+            create_at: board.create_at,
+        };
+        store
+            .save_file_info(&file)
+            .await
+            .expect("the file record is stored");
+
+        let sharing = Sharing {
+            id: board.id.clone(),
+            enabled: true,
+            token: "read-token".to_owned(),
+            modified_by: admin_id.clone(),
+            update_at: 0,
+        };
+        store
+            .upsert_sharing(&sharing)
+            .await
+            .expect("the board is shared");
+
+        let category = Category {
+            id: new_id(),
+            name: "Plans".to_owned(),
+            user_id: editor_id.clone(),
+            team_id: team_id.clone(),
+            create_at: board.create_at,
+            update_at: board.create_at,
+            ..Category::default()
+        };
+        store
+            .create_category(&category)
+            .await
+            .expect("the category is stored");
+        store
+            .add_update_category_board(&editor_id, &category.id, std::slice::from_ref(&board.id))
+            .await
+            .expect("the board is filed under the category");
+
+        subscribe(store, &card_id, &editor_id).await;
+
+        Self {
+            team_id,
+            admin_id,
+            editor_id,
+            board,
+            blocks: sorted_blocks(blocks),
+            card_id,
+            members,
+            file,
+        }
+    }
+
+    /// The board is not shared, no user has it in a category and nobody subscribes to
+    /// its blocks.
+    async fn assert_sharing_filing_and_subscriptions_are_gone(&self, store: &Store) {
+        let error = store
+            .get_sharing(&self.board.id)
+            .await
+            .expect_err("the board is not shared");
+        assert!(error.is_not_found(), "got {error:?}");
+
+        let categories = store
+            .get_user_category_boards(&self.editor_id, &self.team_id)
+            .await
+            .expect("the categories are read");
+        assert_eq!(categories.len(), 1, "the category stays: {categories:?}");
+        assert!(
+            categories[0].board_metadata.is_empty(),
+            "the board is filed nowhere: {:?}",
+            categories[0].board_metadata
+        );
+
+        let subscribed = subscribed_block_ids(store, &self.editor_id).await;
+        assert!(subscribed.is_empty(), "got {subscribed:?}");
+        let subscribers = store
+            .get_subscribers_count_for_block(&self.card_id)
+            .await
+            .expect("the subscribers are counted");
+        assert_eq!(subscribers, 0, "nobody subscribes to the card");
+    }
+}
+
+/// What a board is made of is not found once the board is deleted, and is in the trash.
+#[tokio::test]
+async fn delete_board_moves_the_board_and_what_is_its_own_to_the_trash() {
+    let test = common::setup().await;
+    let full = FullBoard::store(&test).await;
+    let deleter_id = common::user(&test, "deleter").await;
+    let board_id = full.board.id.as_str();
+
+    test.delete_board(board_id, &deleter_id)
+        .await
+        .expect("the board is deleted");
+
+    let error = test
+        .get_board(board_id)
+        .await
+        .expect_err("the board is gone");
+    assert!(error.is_not_found(), "got {error:?}");
+    let left = blocks_of(&test, board_id).await;
+    assert!(left.is_empty(), "blocks are left: {left:?}");
+    let members = members_of(&test, board_id).await;
+    assert!(members.is_empty(), "memberships are left: {members:?}");
+    let of_admin = test
+        .get_members_for_user(&full.admin_id)
+        .await
+        .expect("the memberships are read");
+    assert!(
+        of_admin.is_empty(),
+        "the user is left a member: {of_admin:?}"
+    );
+    let error = test
+        .get_file_info(board_id, &full.file.stored_name)
+        .await
+        .expect_err("the file record is gone");
+    assert!(error.is_not_found(), "got {error:?}");
+
+    let deleted = test
+        .get_deleted_board(board_id)
+        .await
+        .expect("the board is in the trash");
+    let deleted_at = deleted.board.delete_at;
+    assert!(
+        deleted_at >= full.board.update_at,
+        "deleted at {deleted_at}, after the board was stored at {}",
+        full.board.update_at
+    );
+    assert_eq!(
+        deleted.board,
+        Board {
+            delete_at: deleted_at,
+            ..full.board.clone()
+        },
+        "the board as it was, marked as deleted"
+    );
+    assert_eq!(deleted.deleted_by, deleter_id, "who deleted the board");
+    assert_eq!(
+        sorted_members(deleted.members),
+        full.members,
+        "the memberships as they were"
+    );
+
+    for block in &full.blocks {
+        let error = test
+            .get_block(&block.id)
+            .await
+            .expect_err("the block is gone");
+        assert!(error.is_not_found(), "block {}: got {error:?}", block.title);
+        let in_trash = test
+            .get_deleted_block(&block.id)
+            .await
+            .expect("the block is in the trash");
+        assert_eq!(
+            in_trash.block,
+            Block {
+                delete_at: deleted_at,
+                ..block.clone()
+            },
+            "{} as it was, deleted when its board was",
+            block.title
+        );
+        assert_eq!(
+            in_trash.deleted_by, deleter_id,
+            "who deleted {}",
+            block.title
+        );
+    }
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn delete_board_ends_sharing_category_filing_and_subscriptions() {
+    let test = common::setup().await;
+    let full = FullBoard::store(&test).await;
+
+    // Before: the board is shared, filed and subscribed to.
+    test.get_sharing(&full.board.id)
+        .await
+        .expect("the board is shared");
+    let categories = test
+        .get_user_category_boards(&full.editor_id, &full.team_id)
+        .await
+        .expect("the categories are read");
+    assert_eq!(
+        categories[0].board_metadata.len(),
+        1,
+        "the board is filed under the category: {categories:?}"
+    );
+    assert_eq!(
+        subscribed_block_ids(&test, &full.editor_id).await,
+        [full.card_id.as_str()],
+        "the editor subscribes to the card"
+    );
+
+    test.delete_board(&full.board.id, &full.admin_id)
+        .await
+        .expect("the board is deleted");
+
+    full.assert_sharing_filing_and_subscriptions_are_gone(&test)
+        .await;
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn undelete_board_brings_back_the_board_its_blocks_files_and_members() {
+    let test = common::setup().await;
+    let full = FullBoard::store(&test).await;
+    let restorer_id = common::user(&test, "restorer").await;
+    let board_id = full.board.id.as_str();
+
+    test.delete_board(board_id, &full.admin_id)
+        .await
+        .expect("the board is deleted");
+    let returned = test
+        .undelete_board(board_id, &restorer_id)
+        .await
+        .expect("the board is restored");
+
+    let restored = test.get_board(board_id).await.expect("the board is back");
+    assert_eq!(returned, restored, "what is returned is what is stored");
+    assert!(
+        restored.update_at >= full.board.update_at,
+        "restoring is a modification: {} after {}",
+        restored.update_at,
+        full.board.update_at
+    );
+    assert_eq!(
+        restored,
+        Board {
+            modified_by: restorer_id.clone(),
+            update_at: restored.update_at,
+            ..full.board.clone()
+        },
+        "the board as it was, modified by whoever restored it"
+    );
+
+    // Each block is back where it was: on its board, on its parent.
+    let expected: Vec<Block> = full
+        .blocks
+        .iter()
+        .map(|block| Block {
+            modified_by: restorer_id.clone(),
+            update_at: restored.update_at,
+            ..block.clone()
+        })
+        .collect();
+    assert_eq!(
+        blocks_of(&test, board_id).await,
+        expected,
+        "the blocks as they were, modified by whoever restored them"
+    );
+
+    let file = test
+        .get_file_info(board_id, &full.file.stored_name)
+        .await
+        .expect("the file record is back");
+    assert_eq!(file, full.file, "the file record as it was, path included");
+    assert_eq!(
+        members_of(&test, board_id).await,
+        full.members,
+        "the memberships as they were"
+    );
+
+    // Nothing of the board stays in the trash.
+    let error = test
+        .get_deleted_board(board_id)
+        .await
+        .expect_err("the board is out of the trash");
+    assert!(error.is_not_found(), "got {error:?}");
+    for block in &full.blocks {
+        let error = test
+            .get_deleted_block(&block.id)
+            .await
+            .expect_err("the block is out of the trash");
+        assert!(error.is_not_found(), "block {}: got {error:?}", block.title);
+    }
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn undelete_board_does_not_bring_back_sharing_category_filing_or_subscriptions() {
+    let test = common::setup().await;
+    let full = FullBoard::store(&test).await;
+
+    test.delete_board(&full.board.id, &full.admin_id)
+        .await
+        .expect("the board is deleted");
+    test.undelete_board(&full.board.id, &full.admin_id)
+        .await
+        .expect("the board is restored");
+
+    test.get_block(&full.card_id)
+        .await
+        .expect("the card is back");
+    full.assert_sharing_filing_and_subscriptions_are_gone(&test)
+        .await;
+
+    test.teardown().await;
+}
+
+/// The row of a user may be gone by the time a board comes back: their membership stays
+/// behind.
+#[tokio::test]
+async fn undelete_board_leaves_out_the_membership_of_a_user_who_is_gone() {
+    let test = common::setup().await;
+    let full = FullBoard::store(&test).await;
+    let board_id = full.board.id.as_str();
+    // A member who made and changed nothing: the row of a user whom a board or a block
+    // names cannot be deleted.
+    let leaver_id = common::user(&test, "leaver").await;
+    test.save_member(&editor_of(board_id, &leaver_id))
+        .await
+        .expect("the member is stored");
+
+    test.delete_board(board_id, &full.admin_id)
+        .await
+        .expect("the board is deleted");
+    let deleted = test
+        .get_deleted_board(board_id)
+        .await
+        .expect("the board is in the trash");
+    assert_eq!(
+        sorted_user_ids(&deleted.members),
+        sorted([&full.admin_id, &full.editor_id, &leaver_id]),
+        "all three memberships are in the trash"
+    );
+
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("DELETE FROM users WHERE id = '{leaver_id}'"),
+    )
+    .await;
+    test.get_user_by_id(&leaver_id)
+        .await
+        .expect_err("the user is gone");
+
+    test.undelete_board(board_id, &full.admin_id)
+        .await
+        .expect("the board is restored");
+    assert_eq!(
+        members_of(&test, board_id).await,
+        full.members,
+        "the memberships of the users who still exist"
+    );
+
+    test.teardown().await;
+}
+
+/// A user who is only deactivated still has a row, and a membership can refer to it:
+/// it comes back with the board.
+#[tokio::test]
+async fn undelete_board_brings_back_the_membership_of_a_user_who_was_deactivated() {
+    let test = common::setup().await;
+    let full = FullBoard::store(&test).await;
+    let board_id = full.board.id.as_str();
+    let deactivated_id = common::user(&test, "deactivated").await;
+    let membership = editor_of(board_id, &deactivated_id);
+    test.save_member(&membership)
+        .await
+        .expect("the member is stored");
+    let members_before = members_of(&test, board_id).await;
+    assert_eq!(members_before.len(), 3, "got {members_before:?}");
+
+    test.delete_board(board_id, &full.admin_id)
+        .await
+        .expect("the board is deleted");
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE users SET delete_at = 1700000000000 WHERE id = '{deactivated_id}'"),
+    )
+    .await;
+    test.get_user_by_id(&deactivated_id)
+        .await
+        .expect_err("a deactivated user is not found");
+
+    test.undelete_board(board_id, &full.admin_id)
+        .await
+        .expect("the board is restored");
+    assert_eq!(
+        members_of(&test, board_id).await,
+        members_before,
+        "all three memberships are back, the deactivated user's among them"
+    );
+
+    test.teardown().await;
+}
+
+/// What is in the trash refers to nothing, so the row of the user who made a board can
+/// go while the board is there. The board comes back all the same, as made by nobody.
+#[tokio::test]
+async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody() {
+    let test = common::setup().await;
+    let creator_id = common::user(&test, "creator").await;
+    let editor_id = common::user(&test, "editor").await;
+    let team_id = common::team(&test).await;
+
+    let mut board = new_board(&new_id(), &team_id, BoardType::Open);
+    test.insert_board_with_admin(&mut board, &creator_id)
+        .await
+        .expect("the board and its administrator are stored");
+    test.save_member(&editor_of(&board.id, &editor_id))
+        .await
+        .expect("the editor is stored");
+    let mut card = new_block(&board.id, "", BlockType::Card);
+    test.insert_block(&mut card, &creator_id)
+        .await
+        .expect("the creator's card is stored");
+    let mut paragraph = new_block(&board.id, &card.id, BlockType::Text);
+    test.insert_block(&mut paragraph, &editor_id)
+        .await
+        .expect("the editor's text is stored");
+
+    test.delete_board(&board.id, &editor_id)
+        .await
+        .expect("the board is deleted");
+    // Nothing that exists names the creator any more.
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("DELETE FROM users WHERE id = '{creator_id}'"),
+    )
+    .await;
+
+    let returned = test
+        .undelete_board(&board.id, &editor_id)
+        .await
+        .expect("the board is restored though its creator is gone");
+    assert_eq!(returned.created_by, "", "the board was made by nobody");
+    let restored = test.get_board(&board.id).await.expect("the board is back");
+    assert_eq!(returned, restored, "what is returned is what is stored");
+    assert_eq!(
+        restored,
+        Board {
+            created_by: String::new(),
+            modified_by: editor_id.clone(),
+            update_at: restored.update_at,
+            ..board.clone()
+        },
+        "the board as it was, but for its creator"
+    );
+
+    let restored_card = test.get_block(&card.id).await.expect("the card is back");
+    assert_eq!(
+        restored_card.created_by, "",
+        "the card of the user who is gone was made by nobody"
+    );
+    let restored_paragraph = test
+        .get_block(&paragraph.id)
+        .await
+        .expect("the text is back");
+    assert_eq!(
+        restored_paragraph.created_by, editor_id,
+        "the text keeps its creator, who still exists"
+    );
+    assert_eq!(
+        restored_paragraph.parent_id, card.id,
+        "the text is on the card"
+    );
+
+    assert_eq!(
+        members_of(&test, &board.id).await,
+        [BoardMember {
+            minimum_role: board.minimum_role.as_str().to_owned(),
+            ..editor_of(&board.id, &editor_id)
+        }],
+        "the editor is a member again; the creator, who is gone, is not"
+    );
+
+    test.teardown().await;
+}
+
+/// As for a board: a block whose creator's row went while the block was in the trash
+/// comes back as made by nobody.
+#[tokio::test]
+async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody() {
+    let test = common::setup().await;
+    let owner_id = common::user(&test, "owner").await;
+    let author_id = common::user(&test, "author").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &owner_id).await;
+
+    let mut card = new_block(&board_id, "", BlockType::Card);
+    test.insert_block(&mut card, &author_id)
+        .await
+        .expect("the author's card is stored");
+    let mut paragraph = new_block(&board_id, &card.id, BlockType::Text);
+    test.insert_block(&mut paragraph, &owner_id)
+        .await
+        .expect("the owner's text is stored");
+
+    // The card goes with the text on it. Nothing that exists names the author then.
+    test.delete_block(&card.id, &owner_id)
+        .await
+        .expect("the card is deleted");
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("DELETE FROM users WHERE id = '{author_id}'"),
+    )
+    .await;
+    let in_trash = test
+        .get_deleted_block(&card.id)
+        .await
+        .expect("the card is in the trash");
+    assert_eq!(
+        in_trash.block.created_by, author_id,
+        "the trash describes what was"
+    );
+
+    let returned = test
+        .undelete_block(&card.id, &owner_id)
+        .await
+        .expect("the card is restored though its creator is gone");
+    assert_eq!(returned.created_by, "", "the card was made by nobody");
+    let restored = test.get_block(&card.id).await.expect("the card is back");
+    assert_eq!(returned, restored, "what is returned is what is stored");
+    assert_eq!(
+        restored,
+        Block {
+            created_by: String::new(),
+            modified_by: owner_id.clone(),
+            update_at: restored.update_at,
+            ..card.clone()
+        },
+        "the card as it was, but for its creator"
+    );
+    let restored_paragraph = test
+        .get_block(&paragraph.id)
+        .await
+        .expect("the text is back with its card");
+    assert_eq!(
+        restored_paragraph.created_by, owner_id,
+        "the text keeps its creator, who still exists"
+    );
+
+    test.teardown().await;
+}
+
+/// A block that was deleted on its own is a deletion of its own: it does not come back
+/// with the board, and it can be restored once the board is back.
+#[tokio::test]
+async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_restored() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &user_id).await;
+
+    let card = new_block(&board_id, "", BlockType::Card);
+    let paragraph = new_block(&board_id, &card.id, BlockType::Text);
+    let checkbox = new_block(&board_id, &paragraph.id, BlockType::Checkbox);
+    let (card_id, text_id, checkbox_id) =
+        (card.id.clone(), paragraph.id.clone(), checkbox.id.clone());
+    let mut blocks = [card, paragraph, checkbox];
+    test.insert_blocks(&mut blocks, &user_id)
+        .await
+        .expect("the blocks are stored");
+
+    // The text goes, with the checkbox on it; then the board, with the card.
+    test.delete_block(&text_id, &user_id)
+        .await
+        .expect("the text is deleted");
+    test.delete_board(&board_id, &user_id)
+        .await
+        .expect("the board is deleted");
+
+    // While its board is in the trash a block has nothing to come back to.
+    let error = test
+        .undelete_block(&text_id, &user_id)
+        .await
+        .expect_err("the board of the text does not exist");
+    assert!(error.is_not_found(), "got {error:?}");
+
+    test.undelete_board(&board_id, &user_id)
+        .await
+        .expect("the board is restored");
+    assert_eq!(
+        common::sorted_ids(&blocks_of(&test, &board_id).await),
+        [card_id.as_str()],
+        "only the card went with the board, and only the card is back"
+    );
+    for block_id in [&text_id, &checkbox_id] {
+        test.get_deleted_block(block_id)
+            .await
+            .expect("what was deleted on its own is still in the trash");
+    }
+
+    let restored = test
+        .undelete_block(&text_id, &user_id)
+        .await
+        .expect("the text is restored");
+    assert_eq!(restored.parent_id, card_id, "the text is back on its card");
+    let back = blocks_of(&test, &board_id).await;
+    assert_eq!(
+        common::sorted_ids(&back),
+        sorted([&card_id, &text_id, &checkbox_id]),
+        "the text and the checkbox on it are back"
+    );
+    let checkbox = back
+        .iter()
+        .find(|block| block.id == checkbox_id)
+        .expect("the checkbox is among the blocks");
+    assert_eq!(checkbox.parent_id, text_id, "the checkbox is on the text");
+
+    test.teardown().await;
+}
+
+/// Only what is in the trash is restored: a board that exists, an identifier no board
+/// has had and text that is no identifier are not found, and nothing is written.
+#[tokio::test]
+async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_nothing() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let other_user_id = common::user(&test, "other-user").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let mut card = new_block(&board_id, "", BlockType::Card);
+    test.insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is stored");
+    let board_before = test.get_board(&board_id).await.expect("the board exists");
+    let blocks_before = blocks_of(&test, &board_id).await;
+
+    // A later modification time would show.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let error = test
+        .undelete_board(&board_id, &other_user_id)
+        .await
+        .expect_err("a board that exists is not in the trash");
+    assert!(error.is_not_found(), "got {error:?}");
+    let board_after = test.get_board(&board_id).await.expect("the board exists");
+    assert_eq!(board_after, board_before, "the board is as it was");
+    assert_eq!(
+        blocks_of(&test, &board_id).await,
+        blocks_before,
+        "its blocks are as they were"
+    );
+
+    for unknown_id in [new_id(), NOT_AN_ID.to_owned()] {
+        let error = test
+            .undelete_board(&unknown_id, &user_id)
+            .await
+            .expect_err("no such board is in the trash");
+        assert!(error.is_not_found(), "board {unknown_id}: got {error:?}");
+        let error = test
+            .get_board(&unknown_id)
+            .await
+            .expect_err("no board was made");
+        assert!(error.is_not_found(), "board {unknown_id}: got {error:?}");
+        let error = test
+            .get_deleted_board(&unknown_id)
+            .await
+            .expect_err("nothing was put in the trash");
+        assert!(error.is_not_found(), "board {unknown_id}: got {error:?}");
+    }
+    let boards = test
+        .get_boards_for_user_and_team(&user_id, &team_id, PublicBoards::Include)
+        .await
+        .expect("the boards are read");
+    assert_eq!(
+        sorted_board_ids(&boards),
+        [board_id.as_str()],
+        "the one board of the team"
+    );
+
+    test.teardown().await;
+}
+
+/// Stores a board with a card and a text on the card, and returns the identifiers of
+/// the board, the card and the text.
+async fn board_with_card_and_text(
+    store: &Store,
+    team_id: &str,
+    user_id: &str,
+) -> (String, String, String) {
+    let board_id = stored_board(store, team_id, user_id).await;
+    let card = new_block(&board_id, "", BlockType::Card);
+    let text = new_block(&board_id, &card.id, BlockType::Text);
+    let (card_id, text_id) = (card.id.clone(), text.id.clone());
+    store
+        .insert_blocks(&mut [card, text], user_id)
+        .await
+        .expect("the blocks are stored");
+    (board_id, card_id, text_id)
+}
+
+/// When a board in the trash was deleted, in milliseconds since the Unix epoch.
+async fn deleted_at(store: &Store, board_id: &str) -> i64 {
+    store
+        .get_deleted_board(board_id)
+        .await
+        .expect("the board is in the trash")
+        .board
+        .delete_at
+}
+
+#[tokio::test]
+async fn purge_trash_removes_an_old_deleted_board_with_its_blocks_and_keeps_newer_trash() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let (old_id, old_card_id, old_text_id) =
+        board_with_card_and_text(&test, &team_id, &user_id).await;
+    let (newer_id, newer_card_id, newer_text_id) =
+        board_with_card_and_text(&test, &team_id, &user_id).await;
+
+    test.delete_board(&old_id, &user_id)
+        .await
+        .expect("the old board is deleted");
+    let cutoff = deleted_at(&test, &old_id).await + 1;
+    // What follows is deleted at the cutoff or later.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    test.delete_board(&newer_id, &user_id)
+        .await
+        .expect("the newer board is deleted");
+
+    let purged = test.purge_trash(cutoff).await.expect("the trash is purged");
+    assert_eq!(purged, 3, "the old board and its two blocks");
+
+    let error = test
+        .get_deleted_board(&old_id)
+        .await
+        .expect_err("the old board is gone for good");
+    assert!(error.is_not_found(), "got {error:?}");
+    for block_id in [&old_card_id, &old_text_id] {
+        let error = test
+            .get_deleted_block(block_id)
+            .await
+            .expect_err("the blocks of the old board are gone for good");
+        assert!(error.is_not_found(), "block {block_id}: got {error:?}");
+    }
+    let error = test
+        .undelete_board(&old_id, &user_id)
+        .await
+        .expect_err("there is nothing to restore");
+    assert!(error.is_not_found(), "got {error:?}");
+
+    test.undelete_board(&newer_id, &user_id)
+        .await
+        .expect("what is newer than the cutoff is restored");
+    assert_eq!(
+        common::sorted_ids(&blocks_of(&test, &newer_id).await),
+        sorted([&newer_card_id, &newer_text_id]),
+        "the blocks of the newer board are back"
+    );
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn purge_trash_removes_a_block_deleted_on_its_own_with_its_purged_board() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let (board_id, card_id, text_id) = board_with_card_and_text(&test, &team_id, &user_id).await;
+
+    test.delete_block(&text_id, &user_id)
+        .await
+        .expect("the text is deleted on its own");
+    test.delete_board(&board_id, &user_id)
+        .await
+        .expect("the board is deleted");
+    let cutoff = deleted_at(&test, &board_id).await + 1;
+
+    let purged = test.purge_trash(cutoff).await.expect("the trash is purged");
+    assert_eq!(purged, 3, "the board, its card and the text deleted before");
+    for block_id in [&card_id, &text_id] {
+        let error = test
+            .get_deleted_block(block_id)
+            .await
+            .expect_err("the block is gone for good");
+        assert!(error.is_not_found(), "block {block_id}: got {error:?}");
+    }
+    let again = test
+        .purge_trash(cutoff)
+        .await
+        .expect("the trash is purged again");
+    assert_eq!(again, 0, "nothing is left to purge");
+
+    test.teardown().await;
+}
+
+/// The cutoff itself is not old: what was deleted at that very millisecond stays.
+#[tokio::test]
+async fn purge_trash_keeps_what_was_deleted_at_the_cutoff_or_later() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let (kept_board_id, kept_card_id, lone_text_id) =
+        board_with_card_and_text(&test, &team_id, &user_id).await;
+    let (board_id, card_id, text_id) = board_with_card_and_text(&test, &team_id, &user_id).await;
+
+    // A block deleted on its own on a board that stays, and a board deleted whole.
+    test.delete_block(&lone_text_id, &user_id)
+        .await
+        .expect("the text is deleted");
+    let lone_deleted_at = test
+        .get_deleted_block(&lone_text_id)
+        .await
+        .expect("the text is in the trash")
+        .block
+        .delete_at;
+    test.delete_board(&board_id, &user_id)
+        .await
+        .expect("the board is deleted");
+    let cutoff = lone_deleted_at.min(deleted_at(&test, &board_id).await);
+
+    let purged = test.purge_trash(cutoff).await.expect("the trash is purged");
+    assert_eq!(purged, 0, "nothing was deleted before the cutoff {cutoff}");
+
+    let restored = test
+        .undelete_block(&lone_text_id, &user_id)
+        .await
+        .expect("the text is restored");
+    assert_eq!(
+        restored.parent_id, kept_card_id,
+        "the text is back on its card"
+    );
+    assert_eq!(
+        common::sorted_ids(&blocks_of(&test, &kept_board_id).await),
+        sorted([&kept_card_id, &lone_text_id]),
+        "the board that stayed has both blocks again"
+    );
+    test.undelete_board(&board_id, &user_id)
+        .await
+        .expect("the board is restored");
+    assert_eq!(
+        common::sorted_ids(&blocks_of(&test, &board_id).await),
+        sorted([&card_id, &text_id]),
+        "the blocks of the deleted board are back"
+    );
+
+    test.teardown().await;
+}
+
+/// A built-in template is removed past the trash. A block of it that was deleted before
+/// has nothing to come back to, and goes with the next purge however new it is.
+#[tokio::test]
+async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+
+    let mut template = Board {
+        is_template: true,
+        ..new_board(&new_id(), &team_id, BoardType::Open)
+    };
+    test.insert_board(&mut template, "")
+        .await
+        .expect("the built-in template is stored");
+    let mut orphan = new_block(&template.id, "", BlockType::Card);
+    test.insert_block(&mut orphan, "")
+        .await
+        .expect("the card of the template is stored");
+    let (_, _, kept_text_id) = board_with_card_and_text(&test, &team_id, &user_id).await;
+
+    test.delete_block(&orphan.id, &user_id)
+        .await
+        .expect("the card of the template is deleted");
+    test.delete_block(&kept_text_id, &user_id)
+        .await
+        .expect("the text of the other board is deleted");
+    test.remove_builtin_templates()
+        .await
+        .expect("the built-in templates are removed");
+    test.get_deleted_block(&orphan.id)
+        .await
+        .expect("the card is still in the trash");
+
+    // Nothing is older than the beginning of time.
+    let purged = test.purge_trash(0).await.expect("the trash is purged");
+    assert_eq!(purged, 1, "the card whose board is gone for good");
+    let error = test
+        .get_deleted_block(&orphan.id)
+        .await
+        .expect_err("the card is gone for good");
+    assert!(error.is_not_found(), "got {error:?}");
+    test.undelete_block(&kept_text_id, &user_id)
+        .await
+        .expect("a deleted block of a board that exists stays, and is restored");
+
+    test.teardown().await;
+}
+
+// Membership changes that say what they did, and that keep a board its administrator.
+// The original checks for the last administrator outside the store, without holding
+// anything, and does not test the store's part.
+
+#[tokio::test]
+async fn add_member_stores_a_new_membership_and_returns_none() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &user_id).await;
+
+    let member = BoardMember {
+        scheme_commenter: true,
+        scheme_viewer: true,
+        ..editor_of(&board_id, &user_id)
+    };
+    let existing = test.add_member(&member).await.expect("the member is added");
+    assert_eq!(existing, None, "there was no membership before");
+
+    assert_eq!(
+        members_of(&test, &board_id).await,
+        [member],
+        "the membership as it was given"
+    );
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn add_member_returns_the_existing_membership_and_changes_nothing() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let stored = editor_of(&board_id, &user_id);
+    test.save_member(&stored)
+        .await
+        .expect("the member is stored");
+
+    // The same flags again, and others: more rights and fewer.
+    let offers = [
+        editor_of(&board_id, &user_id),
+        admin_of(&board_id, &user_id),
+        BoardMember {
+            scheme_editor: false,
+            scheme_viewer: true,
+            ..editor_of(&board_id, &user_id)
+        },
+    ];
+    for offer in offers {
+        let existing = test
+            .add_member(&offer)
+            .await
+            .expect("adding a member again succeeds");
+        assert_eq!(
+            existing.as_ref(),
+            Some(&stored),
+            "the membership as it stands, whatever was offered: {offer:?}"
+        );
+        assert_eq!(
+            members_of(&test, &board_id).await,
+            std::slice::from_ref(&stored),
+            "the stored membership is unchanged by the offer {offer:?}"
+        );
+    }
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn add_member_to_a_board_or_of_a_user_that_does_not_exist_is_an_error() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &user_id).await;
+
+    // An identifier nothing has is refused by the database.
+    for member in [
+        editor_of(&new_id(), &user_id),
+        editor_of(&board_id, &new_id()),
+    ] {
+        let error = test
+            .add_member(&member)
+            .await
+            .expect_err("a membership needs its board and its user");
+        assert!(
+            common::refused_over_a_foreign_key(&error),
+            "{member:?}: got {error:?}"
+        );
+    }
+    // Text that is no identifier is refused before it gets there.
+    for member in [
+        editor_of(NOT_AN_ID, &user_id),
+        editor_of(&board_id, NOT_AN_ID),
+    ] {
+        let error = test
+            .add_member(&member)
+            .await
+            .expect_err("text that is no identifier names nothing");
+        assert!(
+            matches!(&error, StoreError::InvalidId(invalid) if invalid == NOT_AN_ID),
+            "{member:?}: got {error:?}"
+        );
+    }
+
+    let members = members_of(&test, &board_id).await;
+    assert!(members.is_empty(), "the board got a member: {members:?}");
+    let memberships = test
+        .get_members_for_user(&user_id)
+        .await
+        .expect("the memberships are read");
+    assert!(
+        memberships.is_empty(),
+        "the user got a membership: {memberships:?}"
+    );
+
+    test.teardown().await;
+}
+
+/// How many boards the tests of races go through.
+const RACE_ROUNDS: usize = 25;
+
+/// How many requests add the same user to the same board at once.
+const RACING_ADDERS: u8 = 8;
+
+/// Two requests that add the same user at once end in one membership, the one that was
+/// stored first; every other request is told of it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_add_member_calls_end_in_one_membership_and_one_of_them_added_it() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+
+    for round in 0..RACE_ROUNDS {
+        let board_id = stored_board(&test, &team_id, &user_id).await;
+        let mut adders = JoinSet::new();
+        for number in 1..=RACING_ADDERS {
+            // No two requests offer the same flags.
+            let offer = BoardMember {
+                board_id: board_id.clone(),
+                user_id: user_id.clone(),
+                scheme_admin: number & 1 != 0,
+                scheme_editor: number & 2 != 0,
+                scheme_commenter: number & 4 != 0,
+                scheme_viewer: number & 8 != 0,
+                ..BoardMember::default()
+            };
+            let store = test.store.clone();
+            adders.spawn(async move {
+                let existing = store
+                    .add_member(&offer)
+                    .await
+                    .expect("adding a member succeeds");
+                (offer, existing)
+            });
+        }
+        let outcomes = adders.join_all().await;
+
+        let members = members_of(&test, &board_id).await;
+        assert_eq!(
+            members.len(),
+            1,
+            "round {round}: one membership: {members:?}"
+        );
+        let stored = &members[0];
+        let added: Vec<&BoardMember> = outcomes
+            .iter()
+            .filter(|(_, existing)| existing.is_none())
+            .map(|(offer, _)| offer)
+            .collect();
+        assert_eq!(
+            added,
+            [stored],
+            "round {round}: exactly one request added the membership, and it is the stored one"
+        );
+        for (offer, existing) in &outcomes {
+            if let Some(existing) = existing {
+                assert_eq!(
+                    existing, stored,
+                    "round {round}: the request offering {offer:?} was told of the stored one"
+                );
+            }
+        }
+    }
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn change_member_replaces_the_flags_of_a_membership_and_of_no_one_else() {
+    let test = common::setup().await;
+    let admin_id = common::user(&test, "admin").await;
+    let member_id = common::user(&test, "member").await;
+    let stranger_id = common::user(&test, "stranger").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    for member in [
+        admin_of(&board_id, &admin_id),
+        editor_of(&board_id, &member_id),
+    ] {
+        test.save_member(&member)
+            .await
+            .expect("the member is stored");
+    }
+
+    // Up to administrator and down again: there is another one.
+    let viewer = BoardMember {
+        scheme_editor: false,
+        scheme_viewer: true,
+        ..editor_of(&board_id, &member_id)
+    };
+    for change in [admin_of(&board_id, &member_id), viewer] {
+        let outcome = test
+            .change_member(&change)
+            .await
+            .expect("the membership is changed");
+        assert_eq!(outcome, MemberChange::Done, "the change to {change:?}");
+        let stored = test
+            .get_member_for_board(&board_id, &member_id)
+            .await
+            .expect("the membership exists");
+        assert_eq!(stored, change, "the flags are the given ones");
+    }
+
+    // Who is no member is not made one: on this board, on a board that does not exist
+    // and on text that is no identifier.
+    for change in [
+        admin_of(&board_id, &stranger_id),
+        admin_of(&new_id(), &member_id),
+        admin_of(NOT_AN_ID, &member_id),
+    ] {
+        let outcome = test
+            .change_member(&change)
+            .await
+            .expect("changing no membership succeeds");
+        assert_eq!(
+            outcome,
+            MemberChange::NotAMember,
+            "the change to {change:?}"
+        );
+    }
+    assert_eq!(
+        sorted_user_ids(&members_of(&test, &board_id).await),
+        sorted([&admin_id, &member_id]),
+        "the board has the members it had"
+    );
+    let of_stranger = test
+        .get_members_for_user(&stranger_id)
+        .await
+        .expect("the memberships are read");
+    assert!(of_stranger.is_empty(), "got {of_stranger:?}");
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn change_member_refuses_to_take_the_role_from_the_only_administrator() {
+    let test = common::setup().await;
+    let admin_id = common::user(&test, "admin").await;
+    let editor_id = common::user(&test, "editor").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    // Other members do not count, only other administrators.
+    for member in [
+        admin_of(&board_id, &admin_id),
+        editor_of(&board_id, &editor_id),
+    ] {
+        test.save_member(&member)
+            .await
+            .expect("the member is stored");
+    }
+
+    let outcome = test
+        .change_member(&editor_of(&board_id, &admin_id))
+        .await
+        .expect("the change is answered");
+    assert_eq!(outcome, MemberChange::LastAdmin, "stepping down is refused");
+    let stored = test
+        .get_member_for_board(&board_id, &admin_id)
+        .await
+        .expect("the membership exists");
+    assert_eq!(stored, admin_of(&board_id, &admin_id), "nothing changed");
+
+    // A change that leaves the role alone is made.
+    let also_viewer = BoardMember {
+        scheme_viewer: true,
+        ..admin_of(&board_id, &admin_id)
+    };
+    let outcome = test
+        .change_member(&also_viewer)
+        .await
+        .expect("the membership is changed");
+    assert_eq!(outcome, MemberChange::Done, "the administrator stays one");
+    let stored = test
+        .get_member_for_board(&board_id, &admin_id)
+        .await
+        .expect("the membership exists");
+    assert_eq!(stored, also_viewer, "the flags are the given ones");
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn remove_member_removes_a_member_and_refuses_the_only_administrator() {
+    let test = common::setup().await;
+    let admin_id = common::user(&test, "admin").await;
+    let editor_id = common::user(&test, "editor").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    for member in [
+        admin_of(&board_id, &admin_id),
+        editor_of(&board_id, &editor_id),
+    ] {
+        test.save_member(&member)
+            .await
+            .expect("the member is stored");
+    }
+
+    let outcome = test
+        .remove_member(&board_id, &admin_id)
+        .await
+        .expect("the removal is answered");
+    assert_eq!(outcome, MemberChange::LastAdmin, "leaving is refused");
+    assert_eq!(
+        sorted_user_ids(&members_of(&test, &board_id).await),
+        sorted([&admin_id, &editor_id]),
+        "nobody left"
+    );
+
+    let outcome = test
+        .remove_member(&board_id, &editor_id)
+        .await
+        .expect("the member is removed");
+    assert_eq!(outcome, MemberChange::Done, "an editor may leave");
+    assert_eq!(
+        members_of(&test, &board_id).await,
+        [admin_of(&board_id, &admin_id)],
+        "the administrator is left"
+    );
+
+    // Who is no member (any more) is not removed: from this board, from a board that
+    // does not exist and from text that is no identifier.
+    for board in [board_id.clone(), new_id(), NOT_AN_ID.to_owned()] {
+        let outcome = test
+            .remove_member(&board, &editor_id)
+            .await
+            .expect("removing no member succeeds");
+        assert_eq!(outcome, MemberChange::NotAMember, "board {board}");
+    }
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn an_administrator_may_step_down_or_leave_while_another_one_exists() {
+    let test = common::setup().await;
+    let first_id = common::user(&test, "first").await;
+    let second_id = common::user(&test, "second").await;
+    let third_id = common::user(&test, "third").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &first_id).await;
+    for user_id in [&first_id, &second_id, &third_id] {
+        test.save_member(&admin_of(&board_id, user_id))
+            .await
+            .expect("the administrator is stored");
+    }
+
+    let outcome = test
+        .change_member(&editor_of(&board_id, &first_id))
+        .await
+        .expect("the membership is changed");
+    assert_eq!(outcome, MemberChange::Done, "two administrators are left");
+    let outcome = test
+        .remove_member(&board_id, &second_id)
+        .await
+        .expect("the member is removed");
+    assert_eq!(outcome, MemberChange::Done, "one administrator is left");
+    assert_eq!(
+        members_of(&test, &board_id).await,
+        sorted_members(vec![
+            editor_of(&board_id, &first_id),
+            admin_of(&board_id, &third_id)
+        ]),
+        "an editor and the administrator who stayed"
+    );
+
+    // The one who stayed is the last, and is held to it either way.
+    let outcome = test
+        .change_member(&editor_of(&board_id, &third_id))
+        .await
+        .expect("the change is answered");
+    assert_eq!(outcome, MemberChange::LastAdmin, "stepping down is refused");
+    let outcome = test
+        .remove_member(&board_id, &third_id)
+        .await
+        .expect("the removal is answered");
+    assert_eq!(outcome, MemberChange::LastAdmin, "leaving is refused");
+
+    test.teardown().await;
+}
+
+#[tokio::test]
+async fn remove_member_ends_the_subscriptions_of_the_user_to_the_blocks_of_the_board() {
+    let test = common::setup().await;
+    let admin_id = common::user(&test, "admin").await;
+    let member_id = common::user(&test, "member").await;
+    let team_id = common::team(&test).await;
+    let (left_board_id, left_card_id, _) =
+        board_with_card_and_text(&test, &team_id, &admin_id).await;
+    let (other_board_id, other_card_id, _) =
+        board_with_card_and_text(&test, &team_id, &admin_id).await;
+    for board_id in [&left_board_id, &other_board_id] {
+        test.save_member(&admin_of(board_id, &admin_id))
+            .await
+            .expect("the administrator is stored");
+        test.save_member(&editor_of(board_id, &member_id))
+            .await
+            .expect("the member is stored");
+    }
+    for card_id in [&left_card_id, &other_card_id] {
+        subscribe(&test, card_id, &member_id).await;
+        subscribe(&test, card_id, &admin_id).await;
+    }
+
+    let outcome = test
+        .remove_member(&left_board_id, &member_id)
+        .await
+        .expect("the member is removed");
+    assert_eq!(outcome, MemberChange::Done, "the member left the board");
+
+    assert_eq!(
+        subscribed_block_ids(&test, &member_id).await,
+        [other_card_id.as_str()],
+        "the subscription to the card of the board the user is still on"
+    );
+    assert_eq!(
+        subscribed_block_ids(&test, &admin_id).await,
+        sorted([&left_card_id, &other_card_id]),
+        "the subscriptions of who stayed are untouched"
+    );
+
+    test.teardown().await;
+}
+
+/// How an administrator gives up the role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GiveUp {
+    /// Stays a member, as an editor.
+    StepDown,
+    /// Leaves the board.
+    Leave,
+}
+
+impl GiveUp {
+    async fn run(self, store: &Store, board_id: &str, user_id: &str) -> MemberChange {
+        let outcome = match self {
+            Self::StepDown => store.change_member(&editor_of(board_id, user_id)).await,
+            Self::Leave => store.remove_member(board_id, user_id).await,
+        };
+        outcome.expect("giving up the role is answered")
+    }
+}
+
+/// The check for another administrator and the write are one step: of the two
+/// administrators of a board who give up the role at once, however each does it, one is
+/// refused and stays the administrator.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
+    let test = common::setup().await;
+    let first_id = common::user(&test, "first").await;
+    let second_id = common::user(&test, "second").await;
+    let editor_id = common::user(&test, "editor").await;
+    let team_id = common::team(&test).await;
+
+    let pairs = [
+        (GiveUp::StepDown, GiveUp::StepDown),
+        (GiveUp::Leave, GiveUp::Leave),
+        (GiveUp::StepDown, GiveUp::Leave),
+    ];
+    for (round, (first_way, second_way)) in
+        pairs.into_iter().cycle().take(3 * RACE_ROUNDS).enumerate()
+    {
+        let board_id = stored_board(&test, &team_id, &first_id).await;
+        for member in [
+            admin_of(&board_id, &first_id),
+            admin_of(&board_id, &second_id),
+            editor_of(&board_id, &editor_id),
+        ] {
+            test.save_member(&member)
+                .await
+                .expect("the member is stored");
+        }
+
+        let mut racers = JoinSet::new();
+        for (way, user_id) in [(first_way, &first_id), (second_way, &second_id)] {
+            let store = test.store.clone();
+            let board_id = board_id.clone();
+            let user_id = user_id.clone();
+            racers.spawn(async move {
+                let outcome = way.run(&store, &board_id, &user_id).await;
+                (user_id, outcome)
+            });
+        }
+        let outcomes = racers.join_all().await;
+
+        let what = format!("round {round}, {first_way:?} against {second_way:?}");
+        let refused: Vec<&str> = outcomes
+            .iter()
+            .filter(|(_, outcome)| *outcome == MemberChange::LastAdmin)
+            .map(|(user_id, _)| user_id.as_str())
+            .collect();
+        let done = outcomes
+            .iter()
+            .filter(|(_, outcome)| *outcome == MemberChange::Done)
+            .count();
+        assert_eq!(
+            (done, refused.len()),
+            (1, 1),
+            "{what}: one gave up the role and one was refused: {outcomes:?}"
+        );
+        let members = members_of(&test, &board_id).await;
+        let admins: Vec<&str> = members
+            .iter()
+            .filter(|member| member.scheme_admin)
+            .map(|member| member.user_id.as_str())
+            .collect();
+        assert_eq!(
+            admins, refused,
+            "{what}: the one who was refused is the administrator: {members:?}"
+        );
+    }
 
     test.teardown().await;
 }

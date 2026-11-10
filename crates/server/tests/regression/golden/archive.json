@@ -40,7 +40,7 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {
@@ -56,7 +56,7 @@
       },
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {
@@ -64,7 +64,7 @@
         },
         "id": "<id:5>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:2>",
+        "parentId": "",
         "schema": 1,
         "title": "Exported card",
         "type": "card",
@@ -72,7 +72,7 @@
       },
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {
@@ -80,7 +80,7 @@
         },
         "id": "<id:6>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:2>",
+        "parentId": "",
         "schema": 1,
         "title": "Exported view",
         "type": "view",
@@ -88,7 +88,7 @@
       },
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
@@ -147,7 +147,7 @@
             },
             "id": "<id:5>",
             "modifiedBy": "<id:1>",
-            "parentId": "<id:2>",
+            "parentId": "",
             "schema": 1,
             "title": "Exported card",
             "type": "card",
@@ -166,7 +166,7 @@
             },
             "id": "<id:6>",
             "modifiedBy": "<id:1>",
-            "parentId": "<id:2>",
+            "parentId": "",
             "schema": 1,
             "title": "Exported view",
             "type": "view",

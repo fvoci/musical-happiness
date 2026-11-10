@@ -467,6 +467,34 @@ impl Hub {
         self.broadcast_block_change(team_id, &block).await;
     }
 
+    /// Tells those who were the members of a board that is deleted by now that one of
+    /// its blocks was deleted, with the message of [`Self::broadcast_block_delete`].
+    ///
+    /// The memberships went with the board, so the caller says who the members were.
+    pub fn broadcast_block_delete_with_board(
+        &self,
+        team_id: &str,
+        block_id: &str,
+        board_id: &str,
+        former_members: &[BoardMember],
+    ) {
+        let now = now_millis();
+        let block = Block {
+            id: block_id.to_owned(),
+            board_id: board_id.to_owned(),
+            update_at: now,
+            delete_at: now,
+            ..Block::default()
+        };
+        let message = UpdateBlockMessage {
+            action: "UPDATE_BLOCK",
+            team_id,
+            block: &block,
+        };
+        let recipients = self.listeners_among(team_id, former_members, None);
+        self.send(&recipients, &message);
+    }
+
     /// Tells the board's members in the team that the board changed.
     pub async fn broadcast_board_change(&self, team_id: &str, board: &Board) {
         let message = UpdateBoardMessage {
@@ -480,9 +508,16 @@ impl Hub {
         self.send(&recipients, &message);
     }
 
-    /// Tells the board's members in the team that the board was deleted. The message is a
-    /// board change whose board has only its identifiers and the deletion time.
-    pub async fn broadcast_board_delete(&self, team_id: &str, board_id: &str) {
+    /// Tells those who were the board's members that the board was deleted. The message
+    /// is a board change whose board has only its identifiers and the deletion time.
+    ///
+    /// The memberships went with the board, so the caller says who the members were.
+    pub fn broadcast_board_delete(
+        &self,
+        team_id: &str,
+        board_id: &str,
+        former_members: &[BoardMember],
+    ) {
         let now = now_millis();
         let board = Board {
             id: board_id.to_owned(),
@@ -491,7 +526,13 @@ impl Hub {
             delete_at: now,
             ..Board::default()
         };
-        self.broadcast_board_change(team_id, &board).await;
+        let message = UpdateBoardMessage {
+            action: "UPDATE_BOARD",
+            team_id,
+            board: &board,
+        };
+        let recipients = self.listeners_among(team_id, former_members, None);
+        self.send(&recipients, &message);
     }
 
     /// Tells the board's members in the team that a membership changed.
@@ -618,6 +659,16 @@ impl Hub {
                 return Vec::new();
             }
         };
+        self.listeners_among(team_id, &members, also_user)
+    }
+
+    /// The team's listeners whose user is one of `members`, or is `also_user`.
+    fn listeners_among(
+        &self,
+        team_id: &str,
+        members: &[BoardMember],
+        also_user: Option<&str>,
+    ) -> Vec<ListenerId> {
         let listeners = self.listeners();
         let Some(team_listeners) = listeners.by_team.get(team_id) else {
             return Vec::new();

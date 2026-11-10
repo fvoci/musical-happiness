@@ -217,9 +217,7 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "archived": false,
       "create_at": "<ts>",
-      "delete_at": 0,
       "extension": ".png",
       "id": "<id:4>",
       "name": "pixel.png",
@@ -284,7 +282,7 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {
@@ -300,13 +298,13 @@
       },
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
         "id": "<id:6>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:2>",
+        "parentId": "",
         "schema": 1,
         "title": "Card with image",
         "type": "card",
@@ -335,7 +333,7 @@
         "fields": {},
         "id": "<id:6>",
         "modifiedBy": "<id:1>",
-        "parentId": "<id:2>",
+        "parentId": "",
         "schema": 1,
         "title": "Card with image",
         "type": "card",

@@ -12,6 +12,7 @@ use crate::blocks::{self, BlockFilter, DuplicateAs};
 use crate::boards;
 use crate::db::Scope;
 use crate::error::StoreError;
+use crate::trash;
 
 impl Store {
     /// Inserts or updates every board and then every block, as [`Store::insert_board`]
@@ -70,8 +71,8 @@ impl Store {
             .await
     }
 
-    /// Deletes the listed blocks, each with its direct children, and then the listed
-    /// boards, each with all its blocks.
+    /// Deletes the listed boards, each with all its blocks, into the trash. The listed
+    /// blocks must be blocks of those boards, and go with them.
     ///
     /// # Errors
     ///
@@ -121,10 +122,9 @@ pub(crate) async fn create_boards_and_blocks(
     for board in &mut boards_and_blocks.boards {
         boards::insert_board(scope, board, user_id).await?;
     }
-    for block in &mut boards_and_blocks.blocks {
-        blocks::insert_block(scope, block, user_id).await?;
-    }
-    Ok(())
+    // Parents first, wherever in the list they are: a copied board hands its blocks
+    // over oldest first, and a block may be older than the block it is on.
+    blocks::insert_blocks(scope, &mut boards_and_blocks.blocks, user_id).await
 }
 
 pub(crate) async fn create_boards_and_blocks_with_admin(
@@ -136,9 +136,8 @@ pub(crate) async fn create_boards_and_blocks_with_admin(
 
     let mut members = Vec::with_capacity(boards_and_blocks.boards.len());
     for board in &boards_and_blocks.boards {
-        // Preserved quirk: as in `insert_board_with_admin`, the administrator is the
-        // creator the board names, which for a board that already existed is whatever
-        // the caller put there (`server/services/store/sqlstore/boards_and_blocks.go:25-31`).
+        // As in `insert_board_with_admin`, the administrator is the board's creator:
+        // `user_id` for a new board, the stored creator for one that existed.
         let member = BoardMember {
             board_id: board.id.clone(),
             user_id: board.created_by.clone(),
@@ -159,6 +158,18 @@ pub(crate) async fn patch_boards_and_blocks(
 ) -> Result<BoardsAndBlocks, StoreError> {
     // The original indexes the patches by the position of the identifier and crashes when
     // there are fewer patches than identifiers; that is an error here.
+    // The boards that are patched and the boards of the blocks that are patched are
+    // locked in one order, before any of them is written. A block that does not exist
+    // is reported where it is patched, below.
+    let mut block_boards = Vec::with_capacity(patches.block_ids.len());
+    for block_id in &patches.block_ids {
+        if let Some(block) = blocks::find_block(scope, block_id).await? {
+            block_boards.push(block.board_id);
+        }
+    }
+    let to_lock = patches.board_ids.iter().chain(&block_boards);
+    boards::lock_boards(scope, to_lock.map(String::as_str)).await?;
+
     let mut result = BoardsAndBlocks::default();
     for (index, board_id) in patches.board_ids.iter().enumerate() {
         let patch = patches
@@ -187,13 +198,11 @@ pub(crate) async fn delete_boards_and_blocks(
     user_id: &str,
 ) -> Result<(), StoreError> {
     let board_ids: HashSet<&str> = request.boards.iter().map(String::as_str).collect();
+    boards::lock_boards(scope, board_ids.iter().copied()).await?;
 
-    // The blocks go first: deleting a board removes its blocks, and the blocks listed
-    // here would then no longer be found.
-    //
-    // Preserved quirk: the same happens within the list. Deleting a block removes its
-    // direct children, so a request that lists a block after its parent fails with "not
-    // found" (`server/services/store/sqlstore/boards_and_blocks.go:110-123`).
+    // Every listed block must be a block of one of the listed boards. That is all
+    // there is to do about the blocks: a board takes all its blocks into the trash, as
+    // one deletion, and they come back with it.
     for block_id in &request.blocks {
         let block = blocks::get_block(scope, block_id).await?;
         if !board_ids.contains(block.board_id.as_str()) {
@@ -201,10 +210,9 @@ pub(crate) async fn delete_boards_and_blocks(
                 block_id: block_id.clone(),
             });
         }
-        blocks::delete_block(scope, block_id, user_id).await?;
     }
     for board_id in &request.boards {
-        boards::delete_board(scope, board_id, user_id).await?;
+        trash::delete_board(scope, board_id, user_id).await?;
     }
     Ok(())
 }

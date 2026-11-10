@@ -21,9 +21,6 @@ pub struct FileInfo {
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
     pub create_at: i64,
-    /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    #[serde(deserialize_with = "null_as_default")]
-    pub delete_at: i64,
     /// Where the file lives in the file storage. Never sent to clients.
     #[serde(skip)]
     pub path: String,
@@ -36,9 +33,6 @@ pub struct FileInfo {
     /// The size of the file in bytes.
     #[serde(deserialize_with = "null_as_default")]
     pub size: i64,
-    /// Whether the file has been archived.
-    #[serde(deserialize_with = "null_as_default")]
-    pub archived: bool,
 }
 
 #[cfg(test)]
@@ -54,12 +48,10 @@ mod tests {
             board_id: "board".to_owned(),
             stored_name: "random.png".to_owned(),
             create_at: 1,
-            delete_at: 3,
             path: "boards/20240101/board/random.png".to_owned(),
             name: "picture.png".to_owned(),
             extension: ".png".to_owned(),
             size: 4,
-            archived: true,
         };
         let encoded = serde_json::to_value(&file_info).expect("a file info serializes");
         assert_eq!(
@@ -67,11 +59,9 @@ mod tests {
             json!({
                 "id": "abc",
                 "create_at": 1,
-                "delete_at": 3,
                 "name": "picture.png",
                 "extension": ".png",
                 "size": 4,
-                "archived": true,
             }),
             "neither the path, nor the board, nor the stored name"
         );

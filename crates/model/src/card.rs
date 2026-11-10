@@ -187,7 +187,8 @@ impl Card {
 }
 
 impl From<Card> for Block {
-    /// Converts the card to a block of type `card` whose parent is the card's board.
+    /// Converts the card to a block of type `card` directly on the card's board: a block
+    /// without a parent.
     fn from(card: Card) -> Self {
         let mut fields = JsonMap::new();
         fields.insert("contentOrder".to_owned(), Value::from(card.content_order));
@@ -197,7 +198,7 @@ impl From<Card> for Block {
 
         Self {
             id: card.id,
-            parent_id: card.board_id.clone(),
+            parent_id: String::new(),
             created_by: card.created_by,
             modified_by: card.modified_by,
             schema: 1,

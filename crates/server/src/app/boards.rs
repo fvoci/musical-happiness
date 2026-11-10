@@ -3,7 +3,7 @@
 use fvoci_model::{
     Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, DeleteBoardsAndBlocks, new_id,
 };
-use fvoci_store::{DuplicateAs, HistoryOrder, HistoryQuery, PublicBoards};
+use fvoci_store::{DeletedBoard, DuplicateAs, MemberChange, PublicBoards};
 
 use super::{App, DEFAULT_CATEGORY_BOARDS};
 use crate::error::{AppError, Reason};
@@ -245,41 +245,42 @@ impl App {
             Err(error) if error.is_not_found() => return Ok(()),
             Err(error) => return Err(error.into()),
         };
+        // The memberships go with the board; who is told is who was a member.
+        let members = self.store().get_members_for_board(board_id).await?;
         self.store().delete_board(board_id, user_id).await?;
 
-        let app = self.clone();
-        self.spawn_background(async move {
-            app.ws()
-                .broadcast_board_delete(&board.team_id, &board.id)
-                .await;
-        });
+        self.ws()
+            .broadcast_board_delete(&board.team_id, &board.id, &members);
         Ok(())
     }
 
-    /// Restores a deleted board with its blocks and tells the board's members.
-    /// Undeleting a board that never existed succeeds.
+    /// Returns a board that is in the trash with the memberships it had, or `None` if
+    /// no board of that identifier is there.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the board's history cannot be read or the board
-    /// cannot be restored.
-    pub async fn undelete_board(&self, board_id: &str, modified_by: &str) -> Result<(), AppError> {
-        let newest = HistoryQuery {
-            limit: Some(1),
-            order: HistoryOrder::Descending,
-            ..HistoryQuery::default()
-        };
-        if self
-            .store()
-            .get_board_history(board_id, &newest)
-            .await?
-            .is_empty()
-        {
-            return Ok(());
+    /// Returns the store's error if the trash cannot be read.
+    pub async fn deleted_board(&self, board_id: &str) -> Result<Option<DeletedBoard>, AppError> {
+        match self.store().get_deleted_board(board_id).await {
+            Ok(deleted) => Ok(Some(deleted)),
+            Err(error) if error.is_not_found() => Ok(None),
+            Err(error) => Err(error.into()),
         }
+    }
 
-        self.store().undelete_board(board_id, modified_by).await?;
-        let board = self.store().get_board(board_id).await?;
+    /// Restores a board from the trash, with its blocks, its file records and the
+    /// memberships of the users who still exist, and tells the board's members.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if the board is not in the trash, and the store's
+    /// error if it cannot be restored.
+    pub async fn undelete_board(&self, board_id: &str, modified_by: &str) -> Result<(), AppError> {
+        let board = match self.store().undelete_board(board_id, modified_by).await {
+            Ok(board) => board,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
+            Err(error) => return Err(error.into()),
+        };
 
         let app = self.clone();
         self.spawn_background(async move {
@@ -436,14 +437,11 @@ impl App {
             Err(error) => return Err(error.into()),
         };
 
-        let existing = self
-            .find_member_for_board(&member.board_id, &member.user_id)
-            .await?;
-        if let Some(existing) = existing.filter(|existing| !existing.synthetic) {
+        // Added unless already there, in one step: of two requests that add the same
+        // user at once, the second finds the membership the first made.
+        if let Some(existing) = self.store().add_member(member).await? {
             return Ok(Some(existing));
         }
-
-        self.store().save_member(member).await?;
 
         if !board.is_template {
             self.add_boards_to_default_category(
@@ -476,24 +474,16 @@ impl App {
             Err(error) if error.is_not_found() => return Ok(None),
             Err(error) => return Err(error.into()),
         };
-        let Some(old_member) = self
-            .find_member_for_board(&member.board_id, &member.user_id)
-            .await?
-        else {
-            return Ok(None);
-        };
-
-        // A board keeps at least one admin.
-        if old_member.scheme_admin
-            && !member.scheme_admin
-            && self
-                .is_last_admin(&member.user_id, &member.board_id)
-                .await?
-        {
-            return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
+        // A board keeps at least one admin. Whether this change would take the last one
+        // away is decided where the change is written, so that two admins who step down
+        // at once do not both pass.
+        match self.store().change_member(member).await? {
+            MemberChange::Done => {}
+            MemberChange::NotAMember => return Ok(None),
+            MemberChange::LastAdmin => {
+                return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
+            }
         }
-
-        self.store().save_member(member).await?;
 
         self.broadcast_member_change_in_background(board.team_id, member.clone());
         Ok(Some(member.clone()))
@@ -506,14 +496,6 @@ impl App {
                 .broadcast_member_change(&team_id, &member.board_id, &member)
                 .await;
         });
-    }
-
-    /// Returns whether no other member than `user_id` is an admin of the board.
-    async fn is_last_admin(&self, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-        let members = self.store().get_members_for_board(board_id).await?;
-        Ok(!members
-            .iter()
-            .any(|member| member.scheme_admin && member.user_id != user_id))
     }
 
     /// Removes a user from a board and tells the board's members and the user. Nothing
@@ -529,16 +511,14 @@ impl App {
             Err(error) if error.is_not_found() => return Ok(()),
             Err(error) => return Err(error.into()),
         };
-        let Some(old_member) = self.find_member_for_board(board_id, user_id).await? else {
-            return Ok(());
-        };
-
-        // A board keeps at least one admin.
-        if old_member.scheme_admin && self.is_last_admin(user_id, board_id).await? {
-            return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
+        // A board keeps at least one admin; decided where the membership is removed.
+        match self.store().remove_member(board_id, user_id).await? {
+            MemberChange::Done => {}
+            MemberChange::NotAMember => return Ok(()),
+            MemberChange::LastAdmin => {
+                return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
+            }
         }
-
-        self.store().delete_member(board_id, user_id).await?;
 
         // The original announces a membership through a channel in place of the removed
         // one, if the user has one; a standalone server has no such memberships.

@@ -117,7 +117,9 @@ pub(crate) fn sqlite_settings(dbconfig: &str) -> Result<SqliteSettings, StoreErr
             .create_if_missing(create)
             .read_only(read_only)
     };
-    options = options.busy_timeout(busy_timeout);
+    // SQLite enforces foreign keys only where a connection asks for it. The schema
+    // relies on them: said here, and not left to the driver's default.
+    options = options.foreign_keys(true).busy_timeout(busy_timeout);
     if let Some(journal_mode) = journal_mode {
         options = options.journal_mode(journal_mode);
     }

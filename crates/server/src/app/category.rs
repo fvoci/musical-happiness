@@ -92,7 +92,12 @@ impl App {
             .delete_category(category_id, user_id, team_id)
             .await?;
 
-        let deleted = self.store().get_category(category_id).await?;
+        // The category is gone from the store. What is answered and sent to the user's
+        // connections is the category as it was, marked as deleted now.
+        let deleted = Category {
+            delete_at: now_millis(),
+            ..existing
+        };
         self.ws().broadcast_category_change(&deleted);
         Ok(deleted)
     }
@@ -101,8 +106,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if there is no such category, it is deleted, or it is
-    /// another user's or in another team: the categories of a user are nobody else's
+    /// Returns a not-found error if there is no such category, or it is another user's or
+    /// in another team: the categories of a user are nobody else's
     /// business, so for everyone else they do not exist.
     pub(crate) async fn user_category(
         &self,
@@ -115,7 +120,7 @@ impl App {
             Err(error) if error.is_not_found() => return Err(AppError::not_found(CATEGORY)),
             Err(error) => return Err(error.into()),
         };
-        if category.user_id != user_id || category.team_id != team_id || category.delete_at != 0 {
+        if category.user_id != user_id || category.team_id != team_id {
             return Err(AppError::not_found(CATEGORY));
         }
         Ok(category)

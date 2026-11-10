@@ -278,15 +278,7 @@ async fn file_info_has_the_members_of_the_record() {
     members.sort_unstable();
     assert_eq!(
         members,
-        [
-            "archived",
-            "create_at",
-            "delete_at",
-            "extension",
-            "id",
-            "name",
-            "size"
-        ],
+        ["create_at", "extension", "id", "name", "size"],
         "{info}"
     );
     assert!(

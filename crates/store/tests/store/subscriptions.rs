@@ -4,9 +4,9 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, SubscriberType, Subscription, SubscriptionError, User, new_id,
+    Block, BlockType, BoardMember, SubscriberType, Subscription, SubscriptionError, User, new_id,
 };
-use fvoci_store::{Store, StoreError};
+use fvoci_store::{BlockFilter, DbType, MemberChange, Store, StoreError};
 
 use crate::common;
 
@@ -38,22 +38,36 @@ async fn create_test_users(store: &Store, num: usize) -> Vec<User> {
 async fn create_test_blocks(store: &Store, user_id: &str, num: usize) -> Vec<Block> {
     let team_id = common::team(store).await;
     let boards = common::create_test_boards(store, &team_id, user_id, num).await;
-    let mut blocks = Vec::with_capacity(num);
-    for board in boards {
-        let mut block = Block {
-            id: new_id(),
-            board_id: board.id,
-            block_type: BlockType::Card,
-            created_by: user_id.to_owned(),
-            ..Block::default()
-        };
-        store
-            .insert_block(&mut block, user_id)
-            .await
-            .expect("the block is inserted");
-        blocks.push(block);
-    }
+    let mut blocks: Vec<Block> = boards
+        .into_iter()
+        .map(|board| card_on(&board.id, user_id))
+        .collect();
+    common::insert_blocks(store, &mut blocks, user_id).await;
     blocks
+}
+
+/// A card directly on the board, not stored yet.
+fn card_on(board_id: &str, user_id: &str) -> Block {
+    Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        created_by: user_id.to_owned(),
+        ..Block::default()
+    }
+}
+
+/// The identifiers of the blocks the user is subscribed to, sorted.
+async fn subscribed_blocks(store: &Store, user: &User) -> Vec<String> {
+    let mut ids: Vec<String> = store
+        .get_subscriptions(&user.id)
+        .await
+        .expect("the subscriptions of a user are listed")
+        .into_iter()
+        .map(|subscription| subscription.block_id)
+        .collect();
+    ids.sort();
+    ids
 }
 
 /// The subscription of `user` to `block` as the original suite builds it.
@@ -489,11 +503,14 @@ async fn get_subscribers_for_block() {
     test.teardown().await;
 }
 
-// The tests below are not in the original suite. They pin behavior of the original's
-// standalone store that its suite leaves untested.
+// The tests below are not in the original suite. They pin what its suite leaves
+// untested, and what this store does on purpose where the original does otherwise: a
+// subscription is a row while it lasts, and it lasts no longer than its block, its
+// subscriber and the subscriber's membership of the block's board.
 
-/// Subscribing again after unsubscribing revives the stored row: its creation time stays,
-/// although the returned subscription carries the current time.
+/// Subscribing to what one is subscribed to keeps the subscription: its creation time
+/// and its types stay, whatever the second request gives, and the notification time is
+/// renewed. What comes back is the subscription as it is stored.
 #[tokio::test]
 async fn resubscribing_keeps_the_stored_creation_time() {
     let test = common::setup().await;
@@ -503,46 +520,468 @@ async fn resubscribing_keeps_the_stored_creation_time() {
     let block = first_block(store, &user.id).await;
     let sub = subscription(&block, &user);
 
-    let first = store.create_subscription(sub.clone()).await.unwrap();
-    assert_eq!(first.notified_at, first.create_at);
-    assert_ne!(first.create_at, 0, "stamped with the current time");
-
-    tokio::time::sleep(Duration::from_millis(5)).await;
-    store
-        .delete_subscription(&block.id, &user.id)
+    let first = store
+        .create_subscription(sub.clone())
         .await
-        .unwrap();
-    let missing = store
+        .expect("the user subscribes");
+    assert_eq!(
+        first.notified_at, first.create_at,
+        "a new subscription counts as notified when it was made"
+    );
+    assert_ne!(first.create_at, 0, "stamped with the current time");
+    assert_eq!(
+        first.delete_at, 0,
+        "a subscription that exists is not ended"
+    );
+    let stored = store
         .get_subscription(&block.id, &user.id)
         .await
-        .unwrap_err();
-    assert_eq!(
-        missing.to_string(),
-        format!(
-            "{{subscription BlockID={} SubscriberID={}}} not found",
-            block.id, user.id
-        )
-    );
-    // The deleted row still matches, so deleting it again succeeds.
-    store
-        .delete_subscription(&block.id, &user.id)
-        .await
-        .unwrap();
+        .expect("the subscription is found");
+    assert_eq!(stored, first, "returned as stored");
 
-    let second = store.create_subscription(sub).await.unwrap();
-    assert!(second.create_at > first.create_at, "returned: the new time");
-    let stored = store.get_subscription(&block.id, &user.id).await.unwrap();
-    assert_eq!(stored.create_at, first.create_at, "stored: the old time");
-    assert_eq!(stored.notified_at, second.notified_at);
-    assert_eq!(stored.delete_at, 0);
-    assert_eq!(stored.block_type, BlockType::Card);
-    assert_eq!(stored.subscriber_type, SubscriberType::User);
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let second = store
+        .create_subscription(Subscription {
+            block_type: BlockType::Text,
+            subscriber_type: SubscriberType::Channel,
+            ..sub
+        })
+        .await
+        .expect("subscribing twice is accepted");
+    assert!(
+        second.notified_at > first.notified_at,
+        "the notification time is renewed: {} after {}",
+        second.notified_at,
+        first.notified_at
+    );
+    assert_eq!(
+        second,
+        Subscription {
+            notified_at: second.notified_at,
+            ..first.clone()
+        },
+        "the creation time and the types of the first subscription stay"
+    );
+    let stored = store
+        .get_subscription(&block.id, &user.id)
+        .await
+        .expect("the subscription is found");
+    assert_eq!(stored, second, "returned as stored");
+
+    assert_eq!(
+        subscribed_blocks(store, &user).await,
+        std::slice::from_ref(&block.id),
+        "one subscription, not two"
+    );
+    let count = store
+        .get_subscribers_count_for_block(&block.id)
+        .await
+        .expect("the subscribers are counted");
+    assert_eq!(count, 1, "one subscriber, not two");
 
     test.teardown().await;
 }
 
-/// Subscribers come back ordered by the time they were last notified, and deleted
-/// subscriptions are not counted.
+/// The subscriptions of a subscriber are listed oldest first, and those made at the
+/// same time by the identifier of their block. Subscribing again does not move a
+/// subscription: it keeps its creation time.
+#[tokio::test]
+async fn subscriptions_of_a_subscriber_are_listed_oldest_first() {
+    let test = common::setup().await;
+    let store = &test.store;
+
+    let user = first_user(store).await;
+    let blocks = create_test_blocks(store, &user.id, 4).await;
+    // Subscribed to in an order that is not the order of the identifiers.
+    let in_order = [&blocks[2], &blocks[0], &blocks[3], &blocks[1]];
+    for block in in_order {
+        store
+            .create_subscription(subscription(block, &user))
+            .await
+            .expect("the user subscribes");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let listed_blocks = async || -> Vec<String> {
+        store
+            .get_subscriptions(&user.id)
+            .await
+            .expect("the subscriptions of the user are listed")
+            .into_iter()
+            .map(|subscription| subscription.block_id)
+            .collect()
+    };
+    let expected: Vec<String> = in_order.iter().map(|block| block.id.clone()).collect();
+    assert_eq!(listed_blocks().await, expected, "oldest first");
+
+    store
+        .create_subscription(subscription(in_order[0], &user))
+        .await
+        .expect("subscribing twice is accepted");
+    assert_eq!(
+        listed_blocks().await,
+        expected,
+        "the subscription that was renewed is still the oldest"
+    );
+
+    // Made at the same time, as far as the store knows: listed by block.
+    common::execute_raw(&test.dbconfig(), "UPDATE subscriptions SET create_at = 1").await;
+    assert_eq!(
+        listed_blocks().await,
+        common::sorted_ids(&blocks),
+        "subscriptions of one time come by the identifier of their block"
+    );
+
+    test.teardown().await;
+}
+
+/// Unsubscribing deletes the subscription: it is not found, not listed with its
+/// subscriber or its block and not counted, and there is nothing to unsubscribe from a
+/// second time. The original keeps the row, marked, and unsubscribes again without
+/// complaint.
+#[tokio::test]
+async fn unsubscribing_deletes_the_subscription() {
+    let test = common::setup().await;
+    let store = &test.store;
+
+    let users = create_test_users(store, 2).await;
+    let (leaver, stayer) = (&users[0], &users[1]);
+    let block = first_block(store, &leaver.id).await;
+    for user in [leaver, stayer] {
+        store
+            .create_subscription(subscription(&block, user))
+            .await
+            .expect("the user subscribes");
+    }
+
+    store
+        .delete_subscription(&block.id, &leaver.id)
+        .await
+        .expect("the user unsubscribes");
+
+    let missing = store
+        .get_subscription(&block.id, &leaver.id)
+        .await
+        .expect_err("the subscription is gone");
+    assert!(
+        matches!(missing, StoreError::NotFound(_)),
+        "got {missing:?}"
+    );
+    assert_eq!(
+        missing.to_string(),
+        format!(
+            "{{subscription BlockID={} SubscriberID={}}} not found",
+            block.id, leaver.id
+        ),
+        "the error names the subscription"
+    );
+    let again = store
+        .delete_subscription(&block.id, &leaver.id)
+        .await
+        .expect_err("there is nothing to unsubscribe from a second time");
+    assert!(matches!(again, StoreError::NotFound(_)), "got {again:?}");
+    assert_eq!(
+        again.to_string(),
+        missing.to_string(),
+        "the second unsubscription fails as the lookup does"
+    );
+
+    assert!(
+        subscribed_blocks(store, leaver).await.is_empty(),
+        "the user has no subscription left"
+    );
+    let subscribers = store
+        .get_subscribers_for_block(&block.id)
+        .await
+        .expect("the subscribers of the block are listed");
+    let subscriber_ids: Vec<&str> = subscribers
+        .iter()
+        .map(|subscriber| subscriber.subscriber_id.as_str())
+        .collect();
+    assert_eq!(
+        subscriber_ids,
+        [stayer.id.as_str()],
+        "the block lists the subscriber who stays, and only them"
+    );
+    let count = store
+        .get_subscribers_count_for_block(&block.id)
+        .await
+        .expect("the subscribers are counted");
+    assert_eq!(count, 1, "the count is without the one who left");
+
+    test.teardown().await;
+}
+
+/// Subscribing again after unsubscribing starts a new subscription: nothing of the old
+/// one is left to keep, so the creation time and the types are the new ones. The
+/// original revives the old row and keeps both.
+#[tokio::test]
+async fn subscribing_again_after_unsubscribing_starts_a_new_subscription() {
+    let test = common::setup().await;
+    let store = &test.store;
+
+    let user = first_user(store).await;
+    let block = first_block(store, &user.id).await;
+    let sub = subscription(&block, &user);
+
+    let first = store
+        .create_subscription(sub.clone())
+        .await
+        .expect("the user subscribes");
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    store
+        .delete_subscription(&block.id, &user.id)
+        .await
+        .expect("the user unsubscribes");
+
+    let second = store
+        .create_subscription(Subscription {
+            subscriber_type: SubscriberType::Channel,
+            ..sub
+        })
+        .await
+        .expect("the user subscribes again");
+    let stored = store
+        .get_subscription(&block.id, &user.id)
+        .await
+        .expect("the new subscription is found");
+    assert_eq!(stored, second, "stored as the second subscription returned");
+    assert!(
+        stored.create_at > first.create_at,
+        "the creation time is the new one: {} after {}",
+        stored.create_at,
+        first.create_at
+    );
+    assert_eq!(
+        stored.notified_at, stored.create_at,
+        "a new subscription counts as notified when it was made"
+    );
+    assert_eq!(
+        stored.subscriber_type,
+        SubscriberType::Channel,
+        "the type is the new one"
+    );
+    assert_eq!(
+        subscribed_blocks(store, &user).await,
+        std::slice::from_ref(&block.id),
+        "one subscription"
+    );
+
+    test.teardown().await;
+}
+
+/// A subscription is to a block that exists, by a user who exists. Either missing, the
+/// database refuses the row over its foreign key, on SQLite as on PostgreSQL, and
+/// nothing is stored. The original stores both.
+#[tokio::test]
+async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
+    let test = common::setup().await;
+    let store = &test.store;
+
+    let user = first_user(store).await;
+    let block = first_block(store, &user.id).await;
+    let (no_block, nobody) = (new_id(), new_id());
+
+    // What each database calls the refusal.
+    let foreign_key_code = match common::db_type() {
+        DbType::Sqlite => "787",
+        DbType::Postgres => "23503",
+    };
+    for (block_id, subscriber_id, what) in [
+        (&no_block, &user.id, "no such block"),
+        (&block.id, &nobody, "no such user"),
+        (&no_block, &nobody, "neither"),
+    ] {
+        let error = store
+            .create_subscription(Subscription {
+                block_id: block_id.clone(),
+                subscriber_id: subscriber_id.clone(),
+                ..subscription(&block, &user)
+            })
+            .await
+            .expect_err("a subscription that refers to nothing is refused");
+        assert!(
+            common::refused_over_a_foreign_key(&error),
+            "{what}: got {error:?}"
+        );
+        let StoreError::Database(sqlx::Error::Database(refusal)) = &error else {
+            panic!("{what}: the refusal is the database's: got {error:?}");
+        };
+        assert_eq!(
+            refusal.code().as_deref(),
+            Some(foreign_key_code),
+            "{what}: the database's code for a foreign key violation: {refusal:?}"
+        );
+
+        let missing = store
+            .get_subscription(block_id, subscriber_id)
+            .await
+            .expect_err("the refused subscription is not stored");
+        assert!(missing.is_not_found(), "{what}: got {missing:?}");
+    }
+    assert!(
+        subscribed_blocks(store, &user).await.is_empty(),
+        "the user is subscribed to nothing"
+    );
+    let count = store
+        .get_subscribers_count_for_block(&block.id)
+        .await
+        .expect("the subscribers are counted");
+    assert_eq!(count, 0, "the block has no subscriber");
+
+    test.teardown().await;
+}
+
+/// The subscriptions to a block end when the block is deleted, alone or below what is
+/// deleted, and do not come back when it is restored. Subscriptions to other blocks
+/// stay.
+#[tokio::test]
+async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
+    let test = common::setup().await;
+    let store = &test.store;
+
+    let users = create_test_users(store, 2).await;
+    let (author, reader) = (&users[0], &users[1]);
+    let card = first_block(store, &author.id).await;
+    let mut below = vec![Block {
+        parent_id: card.id.clone(),
+        block_type: BlockType::Text,
+        ..card_on(&card.board_id, &author.id)
+    }];
+    common::insert_blocks(store, &mut below, &author.id).await;
+    let paragraph = &below[0];
+    let mut others = vec![card_on(&card.board_id, &author.id)];
+    common::insert_blocks(store, &mut others, &author.id).await;
+    let other_card = &others[0];
+
+    for user in [author, reader] {
+        for block in [&card, paragraph, other_card] {
+            store
+                .create_subscription(subscription(block, user))
+                .await
+                .expect("the user subscribes");
+        }
+    }
+
+    // The card goes, and the text on it with it.
+    common::delete_blocks(store, std::slice::from_ref(&card), &author.id).await;
+
+    for user in [author, reader] {
+        assert_eq!(
+            subscribed_blocks(store, user).await,
+            std::slice::from_ref(&other_card.id),
+            "only the subscription to the block that exists is left"
+        );
+    }
+    for gone in [&card, paragraph] {
+        let count = store
+            .get_subscribers_count_for_block(&gone.id)
+            .await
+            .expect("the subscribers are counted");
+        assert_eq!(count, 0, "a deleted block has no subscribers");
+    }
+
+    let restored = store
+        .undelete_block(&card.id, &author.id)
+        .await
+        .expect("the card is restored");
+    assert_eq!(restored.id, card.id, "the restored card");
+    let on_the_board = store
+        .get_blocks(&BlockFilter::board(&card.board_id))
+        .await
+        .expect("the blocks of the board are listed");
+    assert!(
+        common::contains_block_with_id(&on_the_board, &paragraph.id),
+        "the text came back with its card: {on_the_board:?}"
+    );
+    for user in [author, reader] {
+        assert_eq!(
+            subscribed_blocks(store, user).await,
+            std::slice::from_ref(&other_card.id),
+            "the restored blocks come back without their subscriptions"
+        );
+    }
+
+    // What is restored can be subscribed to as anything else.
+    store
+        .create_subscription(subscription(&card, reader))
+        .await
+        .expect("the user subscribes to the restored card");
+    let mut expected = vec![card.id.clone(), other_card.id.clone()];
+    expected.sort();
+    assert_eq!(
+        subscribed_blocks(store, reader).await,
+        expected,
+        "subscribed again"
+    );
+
+    test.teardown().await;
+}
+
+/// The subscriptions to the blocks of a board end when the board is deleted, and do not
+/// come back when it is restored with its blocks. Subscriptions to the blocks of other
+/// boards stay.
+#[tokio::test]
+async fn deleting_a_board_ends_the_subscriptions_to_its_blocks_for_good() {
+    let test = common::setup().await;
+    let store = &test.store;
+
+    let users = create_test_users(store, 2).await;
+    let (author, reader) = (&users[0], &users[1]);
+    // Each test block is on a board of its own.
+    let blocks = create_test_blocks(store, &author.id, 2).await;
+    let (doomed, elsewhere) = (&blocks[0], &blocks[1]);
+    for user in [author, reader] {
+        for block in [doomed, elsewhere] {
+            store
+                .create_subscription(subscription(block, user))
+                .await
+                .expect("the user subscribes");
+        }
+    }
+
+    store
+        .delete_board(&doomed.board_id, &author.id)
+        .await
+        .expect("the board is deleted");
+    for user in [author, reader] {
+        assert_eq!(
+            subscribed_blocks(store, user).await,
+            std::slice::from_ref(&elsewhere.id),
+            "only the subscription on the other board is left"
+        );
+    }
+
+    store
+        .undelete_board(&doomed.board_id, &author.id)
+        .await
+        .expect("the board is restored");
+    let back = store
+        .get_blocks(&BlockFilter::board(&doomed.board_id))
+        .await
+        .expect("the blocks of the restored board are listed");
+    assert_eq!(
+        common::sorted_ids(&back),
+        std::slice::from_ref(&doomed.id),
+        "the block came back with its board"
+    );
+    for user in [author, reader] {
+        assert_eq!(
+            subscribed_blocks(store, user).await,
+            std::slice::from_ref(&elsewhere.id),
+            "the restored board's blocks come back without their subscriptions"
+        );
+    }
+    let count = store
+        .get_subscribers_count_for_block(&doomed.id)
+        .await
+        .expect("the subscribers are counted");
+    assert_eq!(count, 0, "the restored block has no subscribers");
+
+    test.teardown().await;
+}
+
+/// Subscribers come back ordered by the time they were last notified, and a
+/// subscription that was ended is not among them.
 #[tokio::test]
 async fn subscribers_are_ordered_by_notification_time() {
     let test = common::setup().await;
@@ -601,7 +1040,7 @@ async fn subscribers_are_ordered_by_notification_time() {
 
 /// Not in the original, where the subscriptions of a user outlive their membership of
 /// the board: removing a member ends that user's subscriptions to the board's blocks,
-/// deleted blocks included, and nobody else's and nothing on another board.
+/// and nobody else's and nothing on another board.
 #[tokio::test]
 async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that_board() {
     let test = common::setup().await;
@@ -612,62 +1051,43 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
     let blocks = create_test_blocks(store, &leaver.id, 2).await;
     let (on_board, elsewhere) = (&blocks[0], &blocks[1]);
     let board_id = on_board.board_id.clone();
-    let mut more = Vec::new();
-    for _ in 0..2 {
-        let mut block = Block {
-            id: new_id(),
-            board_id: board_id.clone(),
-            block_type: BlockType::Card,
-            created_by: leaver.id.clone(),
-            ..Block::default()
-        };
-        store.insert_block(&mut block, &leaver.id).await.unwrap();
-        more.push(block);
-    }
-    let (ended_before, deleted_block) = (&more[0], &more[1]);
+    let mut more = vec![
+        card_on(&board_id, &leaver.id),
+        card_on(&board_id, &leaver.id),
+    ];
+    common::insert_blocks(store, &mut more, &leaver.id).await;
+    let (ended_before, also_on_board) = (&more[0], &more[1]);
     for user in [leaver, other] {
-        let member = fvoci_model::BoardMember {
+        let member = BoardMember {
             board_id: board_id.clone(),
             user_id: user.id.clone(),
             scheme_editor: true,
-            ..fvoci_model::BoardMember::default()
+            ..BoardMember::default()
         };
-        store.save_member(&member).await.unwrap();
-        for block in [on_board, elsewhere, ended_before, deleted_block] {
+        store
+            .save_member(&member)
+            .await
+            .expect("the user becomes a member");
+        for block in [on_board, elsewhere, ended_before, also_on_board] {
             store
                 .create_subscription(subscription(block, user))
                 .await
-                .unwrap();
+                .expect("the user subscribes");
         }
     }
     store
         .delete_subscription(&ended_before.id, &leaver.id)
         .await
-        .unwrap();
-    store
-        .delete_block(&deleted_block.id, &leaver.id)
-        .await
-        .unwrap();
+        .expect("the user unsubscribes from one block");
 
-    let subscribed_blocks = async |user: &User| {
-        let mut ids: Vec<String> = store
-            .get_subscriptions(&user.id)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|subscription| subscription.block_id)
-            .collect();
-        ids.sort();
-        ids
-    };
     let sorted = |blocks: &[&Block]| {
         let mut ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();
         ids.sort();
         ids
     };
     assert_eq!(
-        subscribed_blocks(leaver).await,
-        sorted(&[on_board, elsewhere, deleted_block]),
+        subscribed_blocks(store, leaver).await,
+        sorted(&[on_board, elsewhere, also_on_board]),
         "before leaving"
     );
 
@@ -675,35 +1095,120 @@ async fn delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that
     store
         .delete_member(&elsewhere.board_id, &leaver.id)
         .await
-        .unwrap();
+        .expect("removing a user who is no member succeeds");
     assert_eq!(
-        subscribed_blocks(leaver).await,
-        sorted(&[on_board, elsewhere, deleted_block]),
+        subscribed_blocks(store, leaver).await,
+        sorted(&[on_board, elsewhere, also_on_board]),
         "no membership, nothing ended"
     );
 
-    store.delete_member(&board_id, &leaver.id).await.unwrap();
+    store
+        .delete_member(&board_id, &leaver.id)
+        .await
+        .expect("the member is removed");
 
     assert_eq!(
-        subscribed_blocks(leaver).await,
+        subscribed_blocks(store, leaver).await,
         sorted(&[elsewhere]),
         "only the subscription on another board is left"
     );
     assert_eq!(
-        subscribed_blocks(other).await,
-        sorted(&[on_board, elsewhere, ended_before, deleted_block]),
+        subscribed_blocks(store, other).await,
+        sorted(&[on_board, elsewhere, ended_before, also_on_board]),
         "the subscriptions of a user who stays"
     );
 
-    // Subscribing again revives the subscription, as after unsubscribing.
+    // Subscribing again starts a new subscription, as after unsubscribing.
     store
         .create_subscription(subscription(on_board, leaver))
         .await
-        .unwrap();
+        .expect("the user subscribes again");
     assert_eq!(
-        subscribed_blocks(leaver).await,
+        subscribed_blocks(store, leaver).await,
         sorted(&[on_board, elsewhere]),
         "subscribed again"
+    );
+
+    test.teardown().await;
+}
+
+/// Not in the original. A member who is removed with the check for the last
+/// administrator loses their subscriptions to the board's blocks as with
+/// `delete_member`; a removal that is refused, or of a user who is no member, ends
+/// nothing.
+#[tokio::test]
+async fn remove_member_ends_subscriptions_only_when_it_removes() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let users = create_test_users(store, 3).await;
+    let (admin, editor, stranger) = (&users[0], &users[1], &users[2]);
+    // Each test block is on a board of its own.
+    let blocks = create_test_blocks(store, &admin.id, 2).await;
+    let (on_board, elsewhere) = (&blocks[0], &blocks[1]);
+    let board_id = &on_board.board_id;
+    for (user, scheme_admin) in [(admin, true), (editor, false)] {
+        let member = BoardMember {
+            board_id: board_id.clone(),
+            user_id: user.id.clone(),
+            scheme_admin,
+            scheme_editor: true,
+            ..BoardMember::default()
+        };
+        store
+            .save_member(&member)
+            .await
+            .expect("the user becomes a member");
+    }
+    for user in [admin, editor, stranger] {
+        for block in [on_board, elsewhere] {
+            store
+                .create_subscription(subscription(block, user))
+                .await
+                .expect("the user subscribes");
+        }
+    }
+    let both = common::sorted_ids(&blocks);
+
+    let refused = store
+        .remove_member(board_id, &admin.id)
+        .await
+        .expect("the removal is answered");
+    assert_eq!(
+        refused,
+        MemberChange::LastAdmin,
+        "the only administrator stays"
+    );
+    assert_eq!(
+        subscribed_blocks(store, admin).await,
+        both,
+        "a refused removal ends no subscription"
+    );
+
+    let no_member = store
+        .remove_member(board_id, &stranger.id)
+        .await
+        .expect("the removal is answered");
+    assert_eq!(no_member, MemberChange::NotAMember, "never a member");
+    assert_eq!(
+        subscribed_blocks(store, stranger).await,
+        both,
+        "removing a user who is no member ends no subscription"
+    );
+
+    let removed = store
+        .remove_member(board_id, &editor.id)
+        .await
+        .expect("the removal is answered");
+    assert_eq!(removed, MemberChange::Done, "the editor is removed");
+    assert_eq!(
+        subscribed_blocks(store, editor).await,
+        std::slice::from_ref(&elsewhere.id),
+        "only the subscription on another board is left"
+    );
+    assert_eq!(
+        subscribed_blocks(store, admin).await,
+        both,
+        "the subscriptions of the member who stays"
     );
 
     test.teardown().await;

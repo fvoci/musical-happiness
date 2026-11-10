@@ -19,7 +19,7 @@ use super::{
 };
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::{BoardPermission, TeamPermission};
+use crate::permissions::{BoardPermission, TeamPermission, member_has_permission};
 
 pub(super) fn routes() -> Router<App> {
     Router::new()
@@ -315,15 +315,21 @@ async fn handle_undelete_board(
     RequiredSession(session): RequiredSession,
     Path(board_id): Path<String>,
 ) -> ApiResult {
-    // Memberships outlive a deleted board, which is how its admins are still known.
-    require_board_permission(
-        &app,
-        &session.user_id,
-        &board_id,
-        BoardPermission::DeleteBoard,
-        "access denied to undelete board",
-    )
-    .await?;
+    // The trash keeps the memberships a board had, which is how it is known who may
+    // bring it back. To anybody who was no member, and for a board that is not in the
+    // trash, there is no such board.
+    let deleted = app
+        .deleted_board(&board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let member = deleted
+        .members
+        .iter()
+        .find(|member| member.user_id == session.user_id)
+        .ok_or_else(|| AppError::not_found("board"))?;
+    if !member_has_permission(member, BoardPermission::DeleteBoard) {
+        return Err(AppError::forbidden("access denied to undelete board"));
+    }
 
     app.undelete_board(&board_id, &session.user_id).await?;
     Ok(empty_response())

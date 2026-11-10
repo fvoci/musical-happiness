@@ -25,9 +25,9 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardType, BoardsAndBlocks,
-    Category, CategoryBoards, Session, Sharing, Team, User, is_id, new_id,
+    Category, CategoryBoards, Sharing, Team, User, is_id, new_id,
 };
-use fvoci_server::auth::secret::{new_secret, token_digest};
+use fvoci_server::auth::secret::new_secret;
 use fvoci_store::{BlockFilter, DuplicateAs, PublicBoards};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -1480,8 +1480,10 @@ async fn undelete_board_an_existing_deleted_board_should_be_correctly_undeleted(
     )
     .await;
 
-    // Verified on the original: undeleting a board that is not deleted succeeds.
-    undelete_board(&th.client, &board.id).await.check_ok();
+    // A board that is not deleted is not in the trash: there is nothing to restore.
+    undelete_board(&th.client, &board.id)
+        .await
+        .check_error(StatusCode::NOT_FOUND, "board not found");
 
     th.app
         .delete_board(&board.id, &th.stranger().await)
@@ -1625,7 +1627,7 @@ async fn get_members_for_board_should_correctly_return_board_members_for_a_valid
 
 /// The "-base case" and "-team check false" cases of `TestGetMembersForUser` in
 /// `server/app/boards_test.go`, through `GET /users/me/memberships`: memberships are
-/// answered as stored, also of a board that was deleted.
+/// answered as stored. They go to the trash with their board and come back with it.
 #[tokio::test]
 async fn get_members_for_user_returns_the_memberships_as_stored() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1644,8 +1646,18 @@ async fn get_members_for_user_returns_the_memberships_as_stored() {
         .await
         .expect("the board is deleted");
     let memberships: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
-    assert_eq!(memberships.len(), 1, "the membership outlives the board");
-    assert!(!memberships[0].scheme_admin, "still not an admin");
+    assert_eq!(memberships, [], "a deleted board has no members");
+
+    th.app
+        .undelete_board(&board.id, &user2.id)
+        .await
+        .expect("the board is restored");
+    let memberships: Vec<BoardMember> = th.client2.get("/users/me/memberships").await.ok_json();
+    assert_eq!(
+        memberships,
+        vec![editor(&board.id, &user2.id)],
+        "the membership is back with the board, as it was"
+    );
 
     th.teardown().await;
 }
@@ -3331,110 +3343,6 @@ async fn leave_board_cases() {
         .await
         .check_ok();
     leave_board(&th.client2, &board.id).await.check_not_found();
-
-    th.teardown().await;
-}
-
-// -- users that do not exist ----------------------------------------------------------
-
-/// A client whose session belongs to a user that has no record, as after the user was
-/// removed from the database.
-///
-/// This helper and its test go with the next step: sessions get a foreign key to users,
-/// and then there is no session of a user without a record.
-async fn client_of_missing_user(th: &TestServer, user_id: &str) -> Client {
-    let token = new_secret();
-    let session = Session {
-        id: new_id(),
-        user_id: user_id.to_owned(),
-        created_at: fvoci_server::auth::now_millis(),
-        expires_at: i64::MAX,
-        ..Session::default()
-    };
-    th.app
-        .store()
-        .create_session(&session, &token_digest(&token))
-        .await
-        .expect("the session is stored");
-    th.client_with_token(&token)
-}
-
-/// There are no guests on a standalone server, but where the original asks whether the
-/// user is one, a user without a record is a 404. Verified on the original by deleting
-/// the record of a signed-in user: these are its answers, in the order of its checks.
-///
-/// The user is a well-formed identifier that no user has. To be removed in the next
-/// step, when a session cannot be stored for a user without a record.
-#[tokio::test]
-async fn a_session_whose_user_is_gone_gets_not_found_where_the_user_is_looked_up() {
-    let th = Setup::native().start().await.init_basic().await;
-    let user1 = th.client.me().await;
-    let ghost_id = UNKNOWN_ID;
-    let ghost = client_of_missing_user(&th, ghost_id).await;
-    let open = board_with_admin(
-        &th,
-        new_board(TEST_TEAM_ID, BoardType::Open, "open"),
-        &user1.id,
-    )
-    .await;
-    let private = board_with_admin(
-        &th,
-        new_board(TEST_TEAM_ID, BoardType::Private, "private"),
-        &user1.id,
-    )
-    .await;
-    add_member(&th, &editor(&open.id, ghost_id)).await;
-    let card = json!({"id": "b1", "boardId": "bd", "type": "card", "createAt": 1, "updateAt": 1});
-
-    let not_found = [
-        ghost.get(&format!("/teams/{TEST_TEAM_ID}/boards")).await,
-        ghost
-            .post("/boards", &json!({"teamId": TEST_TEAM_ID, "type": "O"}))
-            .await,
-        // The user is looked up before the board is validated...
-        ghost
-            .post("/boards", &json!({"teamId": TEST_TEAM_ID, "type": "X"}))
-            .await,
-        get_board(&ghost, &open.id).await,
-        // ...and before the board is found to have no blocks to copy.
-        duplicate_board(&ghost, &open.id, "").await,
-        join_board(&ghost, &open.id).await,
-        ghost
-            .post(
-                "/boards-and-blocks",
-                &json!({
-                    "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "O"}],
-                    "blocks": [card],
-                }),
-            )
-            .await,
-    ];
-    for response in &not_found {
-        response.check_not_found();
-        assert_eq!(response.error_code(), "not_found", "the user");
-    }
-
-    // A membership is changed without looking the member up as a user.
-    update_member(&th.client, &editor(&open.id, ghost_id))
-        .await
-        .check_ok();
-
-    // The checks that come before the lookup still come first.
-    let response = ghost.post("/boards", &json!({"type": "O"})).await;
-    response.check_error(StatusCode::BAD_REQUEST, "no such team");
-    get_board(&ghost, &private.id).await.check_not_found();
-    join_board(&ghost, &private.id).await.check_not_found();
-
-    // Where the original does not ask, the membership is all that counts.
-    get_members(&ghost, &open.id).await.check_ok();
-    let patched: Board = patch_board(&ghost, &open.id, &title_patch("by a ghost"))
-        .await
-        .ok_json();
-    assert_eq!(patched.modified_by, ghost_id, "the editor without a record");
-    delete_member(&th.client, &member(&open.id, ghost_id))
-        .await
-        .check_ok();
-    leave_board(&ghost, &open.id).await.check_forbidden();
 
     th.teardown().await;
 }

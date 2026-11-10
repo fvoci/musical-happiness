@@ -315,12 +315,12 @@ async fn handle_undelete_block(
     )
     .await?;
     let board = app.board(&board_id).await?;
-    let block = app
-        .last_block_history_entry(&block_id)
+    // What is restored is what the trash has of this board. A block that exists, one
+    // that never did and one of another board are all not there to restore.
+    app.deleted_block(&block_id)
         .await?
-        .filter(|block| block.board_id == board.id)
+        .filter(|deleted| deleted.block.board_id == board.id)
         .ok_or_else(|| AppError::not_found("block"))?;
-    tracing::debug!(block_id = %block.id, "undeleting");
 
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");

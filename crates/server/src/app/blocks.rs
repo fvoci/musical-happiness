@@ -1,7 +1,7 @@
 //! Blocks: reading and changing them, and telling websocket listeners and webhooks.
 
 use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType};
-use fvoci_store::{BlockFilter, DuplicateAs, HistoryOrder, HistoryQuery};
+use fvoci_store::{BlockFilter, DeletedBlock, DuplicateAs};
 
 use super::App;
 use crate::error::AppError;
@@ -274,58 +274,40 @@ impl App {
         Ok(())
     }
 
-    /// Returns the newest recorded state of a block, deleted or not, or `None` if no
-    /// block with this identifier was ever stored.
+    /// Returns a block that is in the trash, or `None` if no block of that identifier
+    /// is there.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the query fails.
-    pub async fn last_block_history_entry(
-        &self,
-        block_id: &str,
-    ) -> Result<Option<Block>, AppError> {
-        let newest = HistoryQuery {
-            limit: Some(1),
-            order: HistoryOrder::Descending,
-            ..HistoryQuery::default()
-        };
-        let entries = self.store().get_block_history(block_id, &newest).await?;
-        Ok(entries.into_iter().next())
+    /// Returns the store's error if the trash cannot be read.
+    pub async fn deleted_block(&self, block_id: &str) -> Result<Option<DeletedBlock>, AppError> {
+        match self.store().get_deleted_block(block_id).await {
+            Ok(deleted) => Ok(Some(deleted)),
+            Err(error) if error.is_not_found() => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 
-    /// Restores a deleted block and its deleted direct children and returns the block;
-    /// websocket listeners and webhooks are told in the background. A block that is not
-    /// deleted is returned and announced as it is. Returns `None`, and does nothing, if
-    /// no block with this identifier was ever stored.
+    /// Restores a block from the trash, with everything that was deleted along with
+    /// it, and returns the block; websocket listeners and webhooks are told in the
+    /// background.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if the block or its board cannot be read after
-    /// the block was restored.
+    /// Returns a not-found error if the block is not in the trash or has nothing to
+    /// come back to: its board, or the block it was on, does not exist.
     pub async fn undelete_block(
         &self,
         block_id: &str,
         modified_by: &str,
-    ) -> Result<Option<Block>, AppError> {
-        if self.last_block_history_entry(block_id).await?.is_none() {
-            return Ok(None);
-        }
-        self.store().undelete_block(block_id, modified_by).await?;
-        let block = self
-            .store()
-            .get_block(block_id)
-            .await
-            .inspect_err(|error| {
-                if error.is_not_found() {
-                    tracing::error!(
-                        block_id,
-                        "Error loading the block after a successful undelete, not propagating \
-                     through websockets or notifications"
-                    );
-                }
-            })?;
+    ) -> Result<Block, AppError> {
+        let block = match self.store().undelete_block(block_id, modified_by).await {
+            Ok(block) => block,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found("block")),
+            Err(error) => return Err(error.into()),
+        };
         let board = self.store().get_board(&block.board_id).await?;
-        // An undeletion is always reported; the original has no flag for it.
+        // An undeletion is always reported; there is no flag for it.
         log_notification(ChangeNotification::Send, ChangeAction::Add, block_id);
 
         let app = self.clone();
@@ -336,7 +318,7 @@ impl App {
                 .await;
             app.webhook().notify_update(&restored).await;
         });
-        Ok(Some(block))
+        Ok(block)
     }
 
     /// Copies a block of a board and its direct children, except comments, under new

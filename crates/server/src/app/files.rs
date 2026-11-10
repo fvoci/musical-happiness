@@ -64,7 +64,6 @@ impl App {
             name: base.to_owned(),
             extension,
             create_at: now_millis(),
-            ..FileInfo::default()
         };
         self.store().save_file_info(&info).await?;
         Ok(stored_name)
@@ -228,8 +227,6 @@ impl App {
                 stored_name: stored_name.clone(),
                 path: destination_path(&destination_board.id, &stored_name),
                 create_at: now_millis(),
-                delete_at: 0,
-                archived: false,
                 ..source.clone()
             };
             self.store().save_file_info(&copy).await?;

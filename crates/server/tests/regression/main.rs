@@ -5,7 +5,7 @@
 //! from its recording. To change an answer on purpose, rerun with
 //! `FVOCI_REGRESSION_UPDATE=1` and commit the rewritten golden files with the change.
 //!
-//! * One test per scenario: 15 scenarios, 382 steps (`golden/<scenario>.json`).
+//! * One test per scenario: 16 scenarios, 426 steps (`golden/<scenario>.json`).
 //! * The permission table: 53 routes × 6 kinds of caller × 2 board types = 636 cells
 //!   (`golden/permissions_private.txt`, `golden/permissions_open.txt`).
 //!
@@ -24,6 +24,7 @@ mod golden;
 mod harness;
 mod permissions;
 mod sidebar;
+mod trash;
 
 /// One test per scenario; the test's name is the name of its golden file.
 macro_rules! scenarios {
@@ -53,6 +54,7 @@ scenarios![
     content::templates,
     content::files,
     content::archive,
+    trash::trash,
 ];
 
 #[tokio::test]

@@ -23,7 +23,7 @@ pub enum BoardVisibility {
 }
 
 impl Store {
-    /// Returns the categories of a user in a team that are not deleted, in the order of
+    /// Returns the categories of a user in a team, in the order of
     /// [`Store::get_user_categories`], each with its boards by ascending sort order.
     ///
     /// # Errors
@@ -44,7 +44,7 @@ impl Store {
     /// A board the user has in no category yet is added visible and with sort order zero,
     /// which places it before boards that were reordered. A board the user has in another
     /// category moves to this one and keeps its sort order and its hidden flag. The
-    /// category is not checked to exist or to belong to the user.
+    /// category is not checked to belong to the user.
     ///
     /// # Errors
     ///

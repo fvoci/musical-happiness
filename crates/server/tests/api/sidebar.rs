@@ -755,11 +755,16 @@ async fn delete_category_trying_to_delete_already_deleted_category() {
         .await
         .expect_err("there is no such category any more");
     assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
-    let stored = th.app.category(&created.id).await.expect("it is stored");
-    assert_eq!(
-        stored.delete_at, deleted.delete_at,
-        "the time of the deletion is not overwritten"
+    assert_ne!(
+        deleted.delete_at, 0,
+        "the first answer said when it was deleted"
     );
+    let error = th
+        .app
+        .category(&created.id)
+        .await
+        .expect_err("it is not stored any more");
+    assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
 
     th.teardown().await;
 }

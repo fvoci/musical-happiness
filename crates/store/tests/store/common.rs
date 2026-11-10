@@ -196,3 +196,54 @@ pub(crate) async fn create_test_boards(
     }
     boards
 }
+
+/// Whether the database refused a statement over a foreign key: a row that refers to
+/// what does not exist, or the removal of a row that another one still refers to.
+pub(crate) fn is_foreign_key_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .is_some_and(sqlx::error::DatabaseError::is_foreign_key_violation)
+}
+
+/// Whether a store operation failed because the database refused it over a foreign key.
+pub(crate) fn refused_over_a_foreign_key(error: &fvoci_store::StoreError) -> bool {
+    matches!(error, fvoci_store::StoreError::Database(error) if is_foreign_key_violation(error))
+}
+
+/// Runs statements on a connection of its own, past the store, as [`execute_raw`] does,
+/// and returns the database's answer where `execute_raw` expects success: how many rows
+/// the statements changed, or the refusal.
+pub(crate) async fn try_execute_raw(dbconfig: &str, sql: &str) -> Result<u64, sqlx::Error> {
+    let sql = sqlx::AssertSqlSafe(sql.to_owned());
+    match db_type() {
+        DbType::Sqlite => {
+            // Foreign keys are enforced per connection on SQLite: this one asks for
+            // them, as the store's connections do.
+            let options = SqliteConnectOptions::new()
+                .filename(dbconfig)
+                .foreign_keys(true);
+            let mut conn = options
+                .connect()
+                .await
+                .expect("the test database file opens");
+            let result = sqlx::raw_sql(sql).execute(&mut conn).await;
+            conn.close().await.expect("the connection closes");
+            result.map(|done| done.rows_affected())
+        }
+        DbType::Postgres => {
+            let (url, schema) = dbconfig
+                .rsplit_once("search_path=")
+                .expect("the test dbconfig names its schema");
+            let mut conn = PgConnection::connect(url.trim_end_matches(['?', '&']))
+                .await
+                .expect("the test PostgreSQL server accepts connections");
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
+                .execute(&mut conn)
+                .await
+                .expect("the schema is selected");
+            let result = sqlx::raw_sql(sql).execute(&mut conn).await;
+            conn.close().await.expect("the connection closes");
+            result.map(|done| done.rows_affected())
+        }
+    }
+}

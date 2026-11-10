@@ -145,6 +145,12 @@ pub enum BlockError {
     /// The block names no board.
     #[error("boardID is empty")]
     EmptyBoardId,
+    /// The block's parent is not a block of the block's board.
+    #[error("the parent is not a block of the board")]
+    ParentNotOnBoard,
+    /// The block's new parent is the block itself or a block below it.
+    #[error("the parent is the block itself or below it")]
+    ParentBelowBlock,
     /// The title is longer than [`BLOCK_TITLE_MAX_CHARS`].
     #[error("block title size limit exceeded")]
     TitleSizeLimitExceeded,

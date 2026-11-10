@@ -1,10 +1,10 @@
-//! Boards, their history, board membership and board templates.
+//! The boards that exist, board membership and board templates.
 //!
-//! Every write of a board also appends a row to the board history. Deleting a board
-//! removes it and its blocks from the main tables and appends history rows with
-//! `delete_at` set; undeleting restores the newest history rows. Memberships are kept in
-//! a table of their own.
+//! Deleting a board moves it to the trash and restoring brings it back; both are in
+//! [`crate::trash`]. Memberships are kept in a table of their own and go with their
+//! board.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use fvoci_model::{
@@ -14,7 +14,6 @@ use md5::{Digest as _, Md5};
 use serde_json::Value;
 
 use crate::Store;
-use crate::blocks::{self, HistoryOrder, HistoryQuery};
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::subscriptions;
@@ -23,7 +22,7 @@ use crate::subscriptions;
 const BOARD_COLUMNS: &str = "id, team_id, created_by, modified_by, type, minimum_role, title, \
                              description, icon, show_description, is_template, is_builtin, \
                              template_version, properties, card_properties, create_at, \
-                             update_at, delete_at";
+                             update_at";
 
 /// Whether a board query also returns the open boards the user is not a member of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,14 +33,25 @@ pub enum PublicBoards {
     Exclude,
 }
 
+/// What became of a change to a membership that must leave its board an administrator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberChange {
+    /// The change was made.
+    Done,
+    /// The user is no member of the board; nothing changed.
+    NotAMember,
+    /// The user is the board's only administrator and the change would have ended
+    /// that; nothing changed.
+    LastAdmin,
+}
+
 impl Store {
-    /// Inserts `board`, or updates the board that already has its identifier, and records
-    /// the new state in the history.
+    /// Inserts `board`, or updates the board that already has its identifier.
     ///
     /// `board` is updated to what was stored: `user_id` as modifier and the current time
     /// as modification time and, for a new board, `user_id` as creator and the current
     /// time as creation time. An update leaves the stored team, creator and creation time
-    /// alone, and does not copy them into `board`.
+    /// alone, and `board` comes back with those.
     ///
     /// A template stored on behalf of no user (the empty `user_id`) is a built-in
     /// template: `is_builtin` is set, whatever `board` says, and it gets a
@@ -132,46 +142,6 @@ impl Store {
             .await
     }
 
-    /// Deletes a board and all its blocks, recording the deletions in the history.
-    /// Memberships of the board are kept.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFound`] if there is no such board.
-    pub async fn delete_board(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
-        self.transaction(async |scope| delete_board(scope, board_id, user_id).await)
-            .await
-    }
-
-    /// Restores a deleted board and its deleted blocks from the history. Undeleting a
-    /// board that never existed, or that is not deleted, succeeds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn undelete_board(
-        &self,
-        board_id: &str,
-        modified_by: &str,
-    ) -> Result<(), StoreError> {
-        self.transaction(async |scope| undelete_board(scope, board_id, modified_by).await)
-            .await
-    }
-
-    /// Returns the recorded states of a board.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_board_history(
-        &self,
-        board_id: &str,
-        query: &HistoryQuery,
-    ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| get_board_history(scope, board_id, query).await)
-            .await
-    }
-
     /// Makes a user a member of a board with the scheme flags of `member`, or replaces
     /// the scheme flags of an existing membership.
     ///
@@ -186,7 +156,7 @@ impl Store {
             .await
     }
 
-    /// Removes a user from a board and ends the user's subscriptions to the blocks of the board, deleted blocks included. Removing
+    /// Removes a user from a board and ends the user's subscriptions to the blocks of the board. Removing
     /// a user who is not a member succeeds and changes nothing.
     ///
     /// # Errors
@@ -195,6 +165,98 @@ impl Store {
     pub async fn delete_member(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
         self.transaction(async |scope| delete_member(scope, board_id, user_id).await)
             .await
+    }
+
+    /// Makes a user a member of a board unless they are one already, and says which it
+    /// was: `None` if the membership is new, the membership as it stands if there was
+    /// one. Two requests that add the same user at once end in one membership, the one
+    /// that was stored first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails, as it does when the board
+    /// or the user does not exist.
+    pub async fn add_member(
+        &self,
+        member: &BoardMember,
+    ) -> Result<Option<BoardMember>, StoreError> {
+        self.transaction(async |scope| {
+            let mut sql = scope.sql(
+                "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
+                 scheme_commenter, scheme_viewer) VALUES (",
+            );
+            sql.bind(Id(&member.board_id))
+                .push_bind(", ", Id(&member.user_id))
+                .push_bind(", ", member.scheme_admin)
+                .push_bind(", ", member.scheme_editor)
+                .push_bind(", ", member.scheme_commenter)
+                .push_bind(", ", member.scheme_viewer)
+                .push(") ON CONFLICT (board_id, user_id) DO NOTHING");
+            if scope.execute(sql).await? > 0 {
+                return Ok(None);
+            }
+            find_member(scope, &member.board_id, &member.user_id).await
+        })
+        .await
+    }
+
+    /// Replaces the scheme flags of a membership, unless that would leave the board
+    /// without an administrator.
+    ///
+    /// The check and the write are one step: of two administrators who give up the role
+    /// at once, one is refused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn change_member(&self, member: &BoardMember) -> Result<MemberChange, StoreError> {
+        self.transaction(async |scope| {
+            if !lock_board(scope, &member.board_id).await? {
+                return Ok(MemberChange::NotAMember);
+            }
+            let Some(current) = find_member(scope, &member.board_id, &member.user_id).await? else {
+                return Ok(MemberChange::NotAMember);
+            };
+            if current.scheme_admin
+                && !member.scheme_admin
+                && is_only_admin(scope, &member.board_id, &member.user_id).await?
+            {
+                return Ok(MemberChange::LastAdmin);
+            }
+            save_member(scope, member).await?;
+            Ok(MemberChange::Done)
+        })
+        .await
+    }
+
+    /// Removes a user from a board as [`Store::delete_member`] does, unless that would
+    /// leave the board without an administrator.
+    ///
+    /// The check and the removal are one step: of two administrators who leave at once,
+    /// one is refused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn remove_member(
+        &self,
+        board_id: &str,
+        user_id: &str,
+    ) -> Result<MemberChange, StoreError> {
+        self.transaction(async |scope| {
+            if !lock_board(scope, board_id).await? {
+                return Ok(MemberChange::NotAMember);
+            }
+            let Some(current) = find_member(scope, board_id, user_id).await? else {
+                return Ok(MemberChange::NotAMember);
+            };
+            if current.scheme_admin && is_only_admin(scope, board_id, user_id).await? {
+                return Ok(MemberChange::LastAdmin);
+            }
+            delete_member(scope, board_id, user_id).await?;
+            Ok(MemberChange::Done)
+        })
+        .await
     }
 
     /// Returns a user's membership of a board.
@@ -308,8 +370,8 @@ impl Store {
         self.with_conn(get_builtin_templates).await
     }
 
-    /// Removes the built-in templates together with their blocks, without recording
-    /// anything in the history.
+    /// Removes the built-in templates together with their blocks, for good: they do not
+    /// go to the trash.
     ///
     /// # Errors
     ///
@@ -327,13 +389,13 @@ fn board_select_list(alias: &str) -> String {
          {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
          {alias}show_description, {alias}is_template, {alias}is_builtin, \
          {alias}template_version, {alias}properties, {alias}card_properties, \
-         {alias}create_at, {alias}update_at, {alias}delete_at"
+         {alias}create_at, {alias}update_at"
     )
 }
 
 /// Starts `SELECT <board columns> FROM <table>`.
-fn select_boards(scope: &Scope<'_>, table: &str) -> Sql {
-    scope.sql(&format!("SELECT {} FROM {table}", board_select_list("")))
+fn select_boards(scope: &Scope<'_>) -> Sql {
+    scope.sql(&format!("SELECT {} FROM boards", board_select_list("")))
 }
 
 async fn fetch_boards(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<Board>, StoreError> {
@@ -364,7 +426,8 @@ fn board_from_row(row: &Row) -> Result<Board, StoreError> {
         card_properties: card_properties_from_json(row.json(14, "card_properties")?)?,
         create_at: row.int(15)?,
         update_at: row.int(16)?,
-        delete_at: row.int(17)?,
+        // A board that exists is not deleted.
+        delete_at: 0,
     })
 }
 
@@ -409,8 +472,11 @@ fn card_properties_from_json(value: Value) -> Result<Vec<JsonMap>, StoreError> {
         .collect())
 }
 
-async fn find_board(scope: &mut Scope<'_>, board_id: &str) -> Result<Option<Board>, StoreError> {
-    let mut sql = select_boards(scope, "boards");
+pub(crate) async fn find_board(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+) -> Result<Option<Board>, StoreError> {
+    let mut sql = select_boards(scope);
     sql.push_bind(" WHERE id = ", Id(board_id));
     Ok(fetch_boards(scope, sql).await?.into_iter().next())
 }
@@ -459,7 +525,7 @@ pub(crate) async fn get_boards_in_team_by_ids(
     board_ids: &[String],
     team_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
-    let mut sql = select_boards(scope, "boards");
+    let mut sql = select_boards(scope);
     sql.push_bind(" WHERE team_id = ", Id(team_id))
         .push(" AND id IN (")
         .bind_list(board_ids.iter().map(|id| Id(id)))
@@ -502,16 +568,17 @@ pub(crate) async fn insert_board(
             Value::String(md5_hex(&board.title)),
         );
     }
-    let exists = existing.is_some();
-
     let now = now_millis();
     user_id.clone_into(&mut board.modified_by);
     board.update_at = now;
+    board.delete_at = 0;
 
-    if exists {
-        // Preserved quirk: an update does not touch the stored team, creator and creation
-        // time, yet `board` keeps whatever the caller put there, and that is what the
-        // history row below records (`server/services/store/sqlstore/board.go:339-399`).
+    if let Some(existing) = existing {
+        // A board stays in its team, and who made it and when does not change: `board`
+        // comes back with what is stored, whatever the caller put there.
+        board.team_id = existing.team_id;
+        board.created_by = existing.created_by;
+        board.create_at = existing.create_at;
         let mut sql = scope.sql("UPDATE boards SET ");
         sql.push_bind("modified_by = ", OptId(&board.modified_by))
             .push_bind(", type = ", board.board_type.as_str())
@@ -528,15 +595,14 @@ pub(crate) async fn insert_board(
                 Param::jsonb(&board.card_properties)?,
             )
             .push_bind(", update_at = ", board.update_at)
-            .push_bind(", delete_at = ", board.delete_at)
             .push_bind(" WHERE id = ", Id(&board.id));
         scope.execute(sql).await?;
+        Ok(())
     } else {
         user_id.clone_into(&mut board.created_by);
         board.create_at = now;
-        insert_board_row(scope, BoardTable::Boards, board).await?;
+        insert_board_row(scope, board).await
     }
-    insert_board_row(scope, BoardTable::History, board).await
 }
 
 /// The lowercase hexadecimal MD5 digest of `text`.
@@ -550,29 +616,13 @@ fn md5_hex(text: &str) -> String {
     hex
 }
 
-/// One of the two tables that hold board rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BoardTable {
-    /// The current state of every board.
-    Boards,
-    /// Every recorded state of every board.
-    History,
-}
-
-/// Inserts `board` as it is into one of the board tables.
-async fn insert_board_row(
+/// Inserts a board row with every column as `board` has it. For a new board, and for
+/// one that comes back from the trash.
+pub(crate) async fn insert_board_row(
     scope: &mut Scope<'_>,
-    table: BoardTable,
     board: &Board,
 ) -> Result<(), StoreError> {
-    let (name, stamp) = match table {
-        BoardTable::Boards => ("boards", None),
-        BoardTable::History => ("boards_history", Some(scope.history_stamp())),
-    };
-    let mut sql = scope.sql(&format!(
-        "INSERT INTO {name} ({BOARD_COLUMNS}{}) VALUES (",
-        if stamp.is_some() { ", insert_at" } else { "" }
-    ));
+    let mut sql = scope.sql(&format!("INSERT INTO boards ({BOARD_COLUMNS}) VALUES ("));
     sql.bind(Id(&board.id))
         .push_bind(", ", Id(&board.team_id))
         .push_bind(", ", OptId(&board.created_by))
@@ -590,11 +640,7 @@ async fn insert_board_row(
         .push_bind(", ", Param::jsonb(&board.card_properties)?)
         .push_bind(", ", board.create_at)
         .push_bind(", ", board.update_at)
-        .push_bind(", ", board.delete_at);
-    if let Some(stamp) = stamp {
-        sql.push(", ").bind_history_stamp(stamp);
-    }
-    sql.push(")");
+        .push(")");
     scope.execute(sql).await?;
     Ok(())
 }
@@ -605,9 +651,8 @@ pub(crate) async fn insert_board_with_admin(
     user_id: &str,
 ) -> Result<BoardMember, StoreError> {
     insert_board(scope, board, user_id).await?;
-    // Preserved quirk: the administrator is the board's creator as `board` names it. For
-    // a new board that is `user_id`; for an update it is whatever the caller put there
-    // (`server/services/store/sqlstore/board.go:487-492`).
+    // The administrator is the board's creator: `user_id` for a new board, the stored
+    // creator for one that existed.
     let member = BoardMember {
         board_id: board.id.clone(),
         user_id: board.created_by.clone(),
@@ -632,73 +677,6 @@ pub(crate) async fn patch_board(
     patch.apply(&mut board);
     insert_board(scope, &mut board, user_id).await?;
     Ok(board)
-}
-
-pub(crate) async fn delete_board(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    user_id: &str,
-) -> Result<(), StoreError> {
-    let mut board = get_board(scope, board_id).await?;
-
-    let now = now_millis();
-    user_id.clone_into(&mut board.modified_by);
-    board.update_at = now;
-    board.delete_at = now;
-    insert_board_row(scope, BoardTable::History, &board).await?;
-
-    let mut sql = scope.sql("DELETE FROM boards WHERE id = ");
-    sql.bind(Id(board_id));
-    scope.execute(sql).await?;
-
-    blocks::delete_block_children(scope, board_id, None, user_id).await
-}
-
-pub(crate) async fn undelete_board(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    modified_by: &str,
-) -> Result<(), StoreError> {
-    let newest = get_board_history(scope, board_id, &HistoryQuery::NEWEST).await?;
-    let Some(mut board) = newest.into_iter().next() else {
-        tracing::warn!(board_id, "undelete_board: board not found");
-        return Ok(());
-    };
-    if board.delete_at == 0 {
-        tracing::warn!(board_id, "undelete_board: board not deleted");
-        return Ok(());
-    }
-
-    modified_by.clone_into(&mut board.modified_by);
-    board.update_at = now_millis();
-    board.delete_at = 0;
-    insert_board_row(scope, BoardTable::History, &board).await?;
-    insert_board_row(scope, BoardTable::Boards, &board).await?;
-
-    blocks::undelete_block_children(scope, &board.id, None, modified_by).await
-}
-
-pub(crate) async fn get_board_history(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    query: &HistoryQuery,
-) -> Result<Vec<Board>, StoreError> {
-    let mut sql = select_boards(scope, "boards_history");
-    sql.push_bind(" WHERE id = ", Id(board_id));
-    if let Some(before) = query.before_update_at {
-        sql.push_bind(" AND update_at < ", before);
-    }
-    if let Some(after) = query.after_update_at {
-        sql.push_bind(" AND update_at > ", after);
-    }
-    sql.push(match query.order {
-        HistoryOrder::Ascending => " ORDER BY insert_at, update_at",
-        HistoryOrder::Descending => " ORDER BY insert_at DESC, update_at DESC",
-    });
-    if let Some(limit) = query.limit {
-        sql.push_bind(" LIMIT ", i64::from(limit));
-    }
-    fetch_boards(scope, sql).await
 }
 
 /// Starts the query for memberships, each with the minimum role of its board.
@@ -795,6 +773,56 @@ pub(crate) async fn save_member(
         );
     scope.execute(sql).await?;
     Ok(())
+}
+
+/// Makes the transaction the only one that changes what is on the board, and who is
+/// on it, until it ends; says whether the board exists.
+///
+/// What a write to a board decides on, it reads first: that a block's parent is there,
+/// what is below a block that is deleted, whether there is another administrator. This
+/// keeps what was read true until the write that relied on it. Every such write takes
+/// the lock before it reads, so they queue up per board and read what the one before
+/// them left.
+///
+/// On SQLite a transaction that writes holds the whole database from its start. On
+/// PostgreSQL the board's row is locked, in the mode that leaves alone rows of other
+/// tables that are stored for the board at the same time.
+pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
+    sql.bind(Id(board_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR NO KEY UPDATE");
+    }
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Takes the lock of [`lock_board`] on several boards, in the order of their
+/// identifiers whatever order they are given in: two writes that span the same boards
+/// then queue up instead of each holding what the other waits for. For a write that
+/// touches more than one board, before it touches any.
+pub(crate) async fn lock_boards<'a>(
+    scope: &mut Scope<'_>,
+    board_ids: impl IntoIterator<Item = &'a str>,
+) -> Result<(), StoreError> {
+    let ordered: BTreeSet<&str> = board_ids.into_iter().collect();
+    for board_id in ordered {
+        lock_board(scope, board_id).await?;
+    }
+    Ok(())
+}
+
+/// Whether no other member of the board than the user is an administrator.
+async fn is_only_admin(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+    user_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM board_members WHERE board_id = ");
+    sql.bind(Id(board_id))
+        .push_bind(" AND user_id <> ", Id(user_id))
+        .push_bind(" AND scheme_admin = ", true)
+        .push(" LIMIT 1");
+    Ok(scope.fetch_optional(sql).await?.is_none())
 }
 
 pub(crate) async fn delete_member(
@@ -904,13 +932,13 @@ pub(crate) async fn get_template_boards(
 }
 
 pub(crate) async fn get_builtin_templates(scope: &mut Scope<'_>) -> Result<Vec<Board>, StoreError> {
-    let mut sql = select_boards(scope, "boards");
+    let mut sql = select_boards(scope);
     sql.push_bind(" WHERE is_builtin = ", true);
     fetch_boards(scope, sql).await
 }
 
 pub(crate) async fn remove_builtin_templates(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    // The built-in templates are removed without a trace in the history tables.
+    // The built-in templates are removed for good, past the trash.
     let mut sql = scope
         .sql("DELETE FROM blocks WHERE board_id IN (SELECT id FROM boards WHERE is_builtin = ");
     sql.bind(true).push(")");

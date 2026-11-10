@@ -1,22 +1,26 @@
-//! Blocks and their history.
+//! The blocks that exist: cards, views, comments and what is on a card.
 //!
-//! Every write of a block also appends a row to the history table. Deleting a block
-//! removes it from the main table and appends a history row with `delete_at` set;
-//! undeleting restores the newest history row.
+//! A block is its board's, and below the top level its parent's, which is a block of the
+//! same board. Deleting moves a block to the trash and restoring brings it back; both
+//! are in [`crate::trash`]. Lists come oldest first, by creation time and then by
+//! identifier.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use fvoci_model::{Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, generate_block_ids};
 use serde_json::Value;
 
 use crate::Store;
+use crate::boards;
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::file_info::mark_files_deleted;
 
-/// The columns of a block, in the order [`block_from_row`] reads them.
-const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
-                             fields, create_at, update_at, delete_at, board_id";
+/// The name of every block column, in the order rows are read and written.
+pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
+                             fields, create_at, update_at, board_id";
+
+/// The order of every list of blocks.
+const OLDEST_FIRST: &str = " ORDER BY create_at, id";
 
 /// The type string the original gives to a type name it does not recognize
 /// (`TypeUnknown`, server/model/blocktype.go:17).
@@ -69,50 +73,6 @@ pub struct Paging {
     pub per_page: u32,
 }
 
-/// Bounds for [`Store::get_subtree`]. Unset members do not filter.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SubtreeQuery {
-    /// Only blocks last updated at or before this time, in milliseconds since the epoch.
-    pub before_update_at: Option<i64>,
-    /// Only blocks last updated at or after this time.
-    pub after_update_at: Option<i64>,
-    /// At most this many blocks.
-    pub limit: Option<u32>,
-}
-
-/// The order of history records.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum HistoryOrder {
-    /// Oldest first.
-    #[default]
-    Ascending,
-    /// Newest first.
-    Descending,
-}
-
-/// Bounds for history queries. Unset members do not filter.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct HistoryQuery {
-    /// Only records updated strictly before this time, in milliseconds since the epoch.
-    pub before_update_at: Option<i64>,
-    /// Only records updated strictly after this time.
-    pub after_update_at: Option<i64>,
-    /// At most this many records.
-    pub limit: Option<u32>,
-    /// Whether the oldest or the newest record comes first.
-    pub order: HistoryOrder,
-}
-
-impl HistoryQuery {
-    /// The newest record only.
-    pub(crate) const NEWEST: Self = Self {
-        before_update_at: None,
-        after_update_at: None,
-        limit: Some(1),
-        order: HistoryOrder::Descending,
-    };
-}
-
 /// Whether a duplicate is an ordinary copy or a template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DuplicateAs {
@@ -123,7 +83,7 @@ pub enum DuplicateAs {
 }
 
 impl Store {
-    /// Returns the blocks matching `filter`, in no particular order.
+    /// Returns the blocks matching `filter`, oldest first.
     ///
     /// # Errors
     ///
@@ -133,7 +93,7 @@ impl Store {
             .await
     }
 
-    /// Returns the blocks with the given identifiers, in no particular order.
+    /// Returns the blocks with the given identifiers, oldest first.
     ///
     /// # Errors
     ///
@@ -141,10 +101,11 @@ impl Store {
     /// identifier.
     pub async fn get_blocks_by_ids(&self, ids: &[String]) -> Result<Vec<Block>, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = select_blocks(scope, "blocks");
+            let mut sql = select_blocks(scope);
             sql.push(" WHERE id IN (")
                 .bind_list(ids.iter().map(|id| Id(id)))
-                .push(")");
+                .push(")")
+                .push(OLDEST_FIRST);
             let blocks = fetch_blocks(scope, sql).await?;
             if blocks.len() == ids.len() {
                 Ok(blocks)
@@ -158,48 +119,41 @@ impl Store {
         .await
     }
 
-    /// Returns a block of a board together with its direct children, oldest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_subtree(
-        &self,
-        board_id: &str,
-        block_id: &str,
-        query: &SubtreeQuery,
-    ) -> Result<Vec<Block>, StoreError> {
-        self.with_conn(async |scope| get_subtree(scope, board_id, block_id, query).await)
-            .await
-    }
-
     /// Returns the block with the given identifier.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if there is no such block.
+    /// Returns [`StoreError::NotFound`] if there is no such block. A deleted block is
+    /// not found.
     pub async fn get_block(&self, block_id: &str) -> Result<Block, StoreError> {
         self.with_conn(async |scope| get_block(scope, block_id).await)
             .await
     }
 
-    /// Inserts `block`, or updates the block that already has its identifier, and records
-    /// the new state in the history.
+    /// Inserts `block`, or updates the block that already has its identifier.
     ///
-    /// `block` is updated to what was stored: `user_id` as modifier and, for a new block,
-    /// as creator, and the current time as modification time. Its `create_at` is left as
-    /// given, although a new block is stored with the current time as creation time.
+    /// `block` is updated to what was stored: `user_id` as modifier and the current time
+    /// as modification time and, for a new block, `user_id` as creator and the current
+    /// time as creation time, whatever the caller put there: a block is created when it
+    /// is stored, also one that is imported or copied. A block that names its board as its parent is stored, and
+    /// comes back, without a parent: a block directly on its board has none. An update
+    /// leaves the stored board, creator and creation time alone.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidBlock`] if the block fails
-    /// [`Block::validate`](fvoci_model::Block::validate).
+    /// [`Block::validate`](fvoci_model::Block::validate), its parent is not a block of
+    /// its board, or the update would put it below itself; and [`StoreError::NotFound`]
+    /// if its board does not exist or a block with the identifier exists on another
+    /// board.
     pub async fn insert_block(&self, block: &mut Block, user_id: &str) -> Result<(), StoreError> {
         self.transaction(async |scope| insert_block(scope, block, user_id).await)
             .await
     }
 
-    /// Inserts or updates every block as [`Store::insert_block`] does, all or none.
+    /// Inserts or updates every block as [`Store::insert_block`] does, all or none. A
+    /// block may name another block of the same call as its parent, wherever in the
+    /// list the two are.
     ///
     /// # Errors
     ///
@@ -242,6 +196,16 @@ impl Store {
         user_id: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
+            // Which boards the blocks are on is read first, so that the boards are
+            // locked in one order whatever the order of the blocks.
+            // A block that does not exist is reported where it is patched, below.
+            let mut board_ids = Vec::with_capacity(batch.block_ids.len());
+            for block_id in &batch.block_ids {
+                if let Some(block) = find_block(scope, block_id).await? {
+                    board_ids.push(block.board_id);
+                }
+            }
+            boards::lock_boards(scope, board_ids.iter().map(String::as_str)).await?;
             for (index, block_id) in batch.block_ids.iter().enumerate() {
                 let patch = batch
                     .block_patches
@@ -254,34 +218,7 @@ impl Store {
         .await
     }
 
-    /// Deletes a block and its direct children, recording the deletions in the history
-    /// and marking the files they hold as deleted. Deleting a block that does not exist
-    /// succeeds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn delete_block(&self, block_id: &str, modified_by: &str) -> Result<(), StoreError> {
-        self.transaction(async |scope| delete_block(scope, block_id, modified_by).await)
-            .await
-    }
-
-    /// Restores a deleted block and its deleted direct children from the history.
-    /// Undeleting a block that never existed, or that is not deleted, succeeds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if a statement fails.
-    pub async fn undelete_block(
-        &self,
-        block_id: &str,
-        modified_by: &str,
-    ) -> Result<(), StoreError> {
-        self.transaction(async |scope| undelete_block(scope, block_id, modified_by).await)
-            .await
-    }
-
-    /// Returns the number of blocks of each type.
+    /// Returns how many blocks of each type exist.
     ///
     /// # Errors
     ///
@@ -297,34 +234,6 @@ impl Store {
                 .collect()
         })
         .await
-    }
-
-    /// Returns the recorded states of a block.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_block_history(
-        &self,
-        block_id: &str,
-        query: &HistoryQuery,
-    ) -> Result<Vec<Block>, StoreError> {
-        self.with_conn(async |scope| get_block_history(scope, "id", block_id, query).await)
-            .await
-    }
-
-    /// Returns the recorded states of every block of a board.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_block_history_descendants(
-        &self,
-        board_id: &str,
-        query: &HistoryQuery,
-    ) -> Result<Vec<Block>, StoreError> {
-        self.with_conn(async |scope| get_block_history(scope, "board_id", board_id, query).await)
-            .await
     }
 
     /// Copies a block of a board and its direct children, except comments, under new
@@ -343,17 +252,19 @@ impl Store {
         duplicate_as: DuplicateAs,
     ) -> Result<Vec<Block>, StoreError> {
         self.transaction(async |scope| {
-            let subtree = get_subtree(scope, board_id, block_id, &SubtreeQuery::default()).await?;
+            let mut sql = select_blocks(scope);
+            sql.push_bind(" WHERE (id = ", Id(block_id))
+                .push_bind(" OR parent_id = ", Id(block_id))
+                .push_bind(") AND board_id = ", Id(board_id))
+                .push(OLDEST_FIRST);
+            let family = fetch_blocks(scope, sql).await?;
             let not_found = || {
                 StoreError::not_found(format_args!(
                     "block subtree BoardID={board_id} BlockID={block_id}"
                 ))
             };
-            if subtree.is_empty() {
-                return Err(not_found());
-            }
 
-            let (roots, children): (Vec<Block>, Vec<Block>) = subtree
+            let (roots, children): (Vec<Block>, Vec<Block>) = family
                 .into_iter()
                 .filter(|block| block.block_type != BlockType::Comment)
                 .partition(|block| block.id == block_id);
@@ -374,12 +285,15 @@ impl Store {
     }
 }
 
-/// Starts `SELECT <block columns> FROM <table>`.
-fn select_blocks(scope: &Scope<'_>, table: &str) -> Sql {
-    scope.sql(&format!("SELECT {BLOCK_COLUMNS} FROM {table}"))
+/// Starts `SELECT <block columns> FROM blocks`.
+pub(crate) fn select_blocks(scope: &Scope<'_>) -> Sql {
+    scope.sql(&format!("SELECT {BLOCK_COLUMNS} FROM blocks"))
 }
 
-async fn fetch_blocks(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<Block>, StoreError> {
+pub(crate) async fn fetch_blocks(
+    scope: &mut Scope<'_>,
+    sql: Sql,
+) -> Result<Vec<Block>, StoreError> {
     scope
         .fetch_all(sql)
         .await?
@@ -400,8 +314,9 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
         fields: row.json_map(7, "fields")?,
         create_at: row.int(8)?,
         update_at: row.int(9)?,
-        delete_at: row.int(10)?,
-        board_id: row.id(11)?,
+        // A block that exists is not deleted.
+        delete_at: 0,
+        board_id: row.id(10)?,
     })
 }
 
@@ -409,7 +324,7 @@ pub(crate) async fn get_blocks(
     scope: &mut Scope<'_>,
     filter: &BlockFilter,
 ) -> Result<Vec<Block>, StoreError> {
-    let mut sql = select_blocks(scope, "blocks");
+    let mut sql = select_blocks(scope);
     sql.push(" WHERE 1 = 1");
     if let Some(board_id) = &filter.board_id {
         sql.push_bind(" AND board_id = ", Id(board_id));
@@ -417,8 +332,8 @@ pub(crate) async fn get_blocks(
     if let Some(parent_id) = &filter.parent_id {
         sql.push_bind(" AND parent_id = ", Id(parent_id));
     }
-    // Preserved quirk: the empty type and the type `unknown` do not filter, so the blocks
-    // of type `unknown` cannot be asked for (server/services/store/sqlstore/blocks.go:69).
+    // The empty type and the type `unknown` do not filter, so the blocks of type
+    // `unknown` cannot be asked for.
     let block_type = filter
         .block_type
         .as_ref()
@@ -427,8 +342,8 @@ pub(crate) async fn get_blocks(
     if let Some(block_type) = block_type {
         sql.push_bind(" AND type = ", block_type);
     }
-    // A page size of zero does not limit, and the offset of any page is then zero
-    // (server/services/store/sqlstore/blocks.go:73-79).
+    sql.push(OLDEST_FIRST);
+    // A page size of zero does not limit, and the offset of any page is then zero.
     if let Some(paging) = filter.paging.filter(|paging| paging.per_page > 0) {
         let offset = i64::from(paging.page) * i64::from(paging.per_page);
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
@@ -437,31 +352,11 @@ pub(crate) async fn get_blocks(
     fetch_blocks(scope, sql).await
 }
 
-async fn get_subtree(
+pub(crate) async fn find_block(
     scope: &mut Scope<'_>,
-    board_id: &str,
     block_id: &str,
-    query: &SubtreeQuery,
-) -> Result<Vec<Block>, StoreError> {
-    let mut sql = select_blocks(scope, "blocks");
-    sql.push_bind(" WHERE (id = ", Id(block_id))
-        .push_bind(" OR parent_id = ", Id(block_id))
-        .push_bind(") AND board_id = ", Id(board_id));
-    if let Some(before) = query.before_update_at {
-        sql.push_bind(" AND update_at <= ", before);
-    }
-    if let Some(after) = query.after_update_at {
-        sql.push_bind(" AND update_at >= ", after);
-    }
-    sql.push(" ORDER BY insert_at, update_at");
-    if let Some(limit) = query.limit {
-        sql.push_bind(" LIMIT ", i64::from(limit));
-    }
-    fetch_blocks(scope, sql).await
-}
-
-async fn find_block(scope: &mut Scope<'_>, block_id: &str) -> Result<Option<Block>, StoreError> {
-    let mut sql = select_blocks(scope, "blocks");
+) -> Result<Option<Block>, StoreError> {
+    let mut sql = select_blocks(scope);
     sql.push_bind(" WHERE id = ", Id(block_id));
     Ok(fetch_blocks(scope, sql).await?.into_iter().next())
 }
@@ -472,31 +367,34 @@ pub(crate) async fn get_block(scope: &mut Scope<'_>, block_id: &str) -> Result<B
         .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))
 }
 
-/// Returns the history of the blocks whose `key_column` equals `key`.
-async fn get_block_history(
+/// Whether the board has a block with the identifier.
+async fn is_block_of_board(
     scope: &mut Scope<'_>,
-    key_column: &str,
-    key: &str,
-    query: &HistoryQuery,
-) -> Result<Vec<Block>, StoreError> {
-    let mut sql = select_blocks(scope, "blocks_history");
-    sql.push(" WHERE ")
-        .push(key_column)
-        .push_bind(" = ", Id(key));
-    if let Some(before) = query.before_update_at {
-        sql.push_bind(" AND update_at < ", before);
-    }
-    if let Some(after) = query.after_update_at {
-        sql.push_bind(" AND update_at > ", after);
-    }
-    sql.push(match query.order {
-        HistoryOrder::Ascending => " ORDER BY insert_at, update_at",
-        HistoryOrder::Descending => " ORDER BY insert_at DESC, update_at DESC",
-    });
-    if let Some(limit) = query.limit {
-        sql.push_bind(" LIMIT ", i64::from(limit));
-    }
-    fetch_blocks(scope, sql).await
+    block_id: &str,
+    board_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT 1 FROM blocks WHERE id = ");
+    sql.bind(Id(block_id))
+        .push_bind(" AND board_id = ", Id(board_id));
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Whether the block `block_id` is `ancestor_id` or below it, at any depth.
+async fn is_below(
+    scope: &mut Scope<'_>,
+    block_id: &str,
+    ancestor_id: &str,
+) -> Result<bool, StoreError> {
+    // `UNION` and not `UNION ALL`: it also ends the walk if parents ever form a cycle.
+    let mut sql = scope
+        .sql("WITH RECURSIVE up(id, parent_id) AS (SELECT id, parent_id FROM blocks WHERE id = ");
+    sql.bind(Id(block_id))
+        .push(
+            " UNION SELECT b.id, b.parent_id FROM blocks AS b JOIN up ON b.id = up.parent_id) \
+             SELECT 1 FROM up WHERE id = ",
+        )
+        .bind(Id(ancestor_id));
+    Ok(scope.fetch_optional(sql).await?.is_some())
 }
 
 pub(crate) async fn insert_block(
@@ -504,73 +402,94 @@ pub(crate) async fn insert_block(
     block: &mut Block,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    block
-        .validate()
-        .map_err(|source| StoreError::InvalidBlock {
-            id: block.id.clone(),
-            source,
-        })?;
-    let exists = find_block(scope, &block.id).await?.is_some();
+    let invalid = |block: &Block, source| StoreError::InvalidBlock {
+        id: block.id.clone(),
+        source,
+    };
+    block.validate().map_err(|source| invalid(block, source))?;
+    // A block directly on its board has no parent. Clients of the original name the
+    // board there.
+    if block.parent_id == block.board_id {
+        block.parent_id.clear();
+    }
+    // One writer per board at a time, from before anything is read: the parent that is
+    // found below is still there when the block is stored.
+    if !boards::lock_board(scope, &block.board_id).await? {
+        return Err(StoreError::not_found(format_args!(
+            "board ID={} of block {}",
+            block.board_id, block.id
+        )));
+    }
+    // Asked here so that a parent that is none, or another board's, is the request's
+    // mistake and not a constraint the database reports.
+    if !block.parent_id.is_empty()
+        && (block.parent_id == block.id
+            || !is_block_of_board(scope, &block.parent_id, &block.board_id).await?)
+    {
+        return Err(invalid(block, BlockError::ParentNotOnBoard));
+    }
 
     let now = now_millis();
     block.update_at = now;
+    block.delete_at = 0;
     user_id.clone_into(&mut block.modified_by);
-    let fields = Param::json(&block.fields)?;
 
-    if exists {
-        // Preserved quirk: a block that exists under another board is left untouched,
-        // because the update is keyed by board too, yet its history row is still written.
+    if let Some(existing) = find_block(scope, &block.id).await? {
+        // A block that moves must not end up below itself: nothing would lead to it
+        // from its board any more.
+        if !block.parent_id.is_empty()
+            && block.parent_id != existing.parent_id
+            && is_below(scope, &block.parent_id, &block.id).await?
+        {
+            return Err(invalid(block, BlockError::ParentBelowBlock));
+        }
+        // A block stays on its board: the update is keyed by the board too, and a block
+        // of that identifier on another board is not this block.
         let mut sql = scope.sql("UPDATE blocks SET ");
         sql.push_bind("parent_id = ", OptId(&block.parent_id))
             .push_bind(", modified_by = ", OptId(&block.modified_by))
             .push_bind(", \"schema\" = ", block.schema)
             .push_bind(", type = ", block.block_type.as_str())
             .push_bind(", title = ", &block.title)
-            .push_bind(", fields = ", fields.clone())
+            .push_bind(", fields = ", Param::json(&block.fields)?)
             .push_bind(", update_at = ", block.update_at)
-            .push_bind(", delete_at = ", block.delete_at)
             .push_bind(" WHERE id = ", Id(&block.id))
             .push_bind(" AND board_id = ", Id(&block.board_id));
-        scope.execute(sql).await?;
+        if scope.execute(sql).await? == 0 {
+            return Err(StoreError::not_found(format_args!(
+                "block ID={} on board {}",
+                block.id, block.board_id
+            )));
+        }
+        Ok(())
     } else {
         user_id.clone_into(&mut block.created_by);
-        let mut sql = scope.sql(
-            "INSERT INTO blocks (id, parent_id, created_by, modified_by, \"schema\", type, title, \
-             fields, create_at, update_at, delete_at, board_id) VALUES (",
-        );
-        bind_block_values(&mut sql, block, user_id, &fields, now);
-        sql.push(")");
-        scope.execute(sql).await?;
+        block.create_at = now;
+        insert_block_row(scope, block).await
     }
-
-    // Preserved quirk: the history row of an update carries the modifier as creator and
-    // the modification time as creation time, like the row of an insert.
-    let stamp = scope.history_stamp();
-    let mut sql = scope.sql(
-        "INSERT INTO blocks_history (id, parent_id, created_by, modified_by, \"schema\", type, \
-         title, fields, create_at, update_at, delete_at, board_id, insert_at) VALUES (",
-    );
-    bind_block_values(&mut sql, block, user_id, &fields, now);
-    sql.push(", ").bind_history_stamp(stamp).push(")");
-    scope.execute(sql).await?;
-    Ok(())
 }
 
-/// Binds the values of a block row, with `user_id` as creator and
-/// `now` as creation time.
-fn bind_block_values(sql: &mut Sql, block: &Block, user_id: &str, fields: &Param, now: i64) {
+/// Inserts a block row with every column as `block` has it. For a new block, and for
+/// one that comes back from the trash.
+pub(crate) async fn insert_block_row(
+    scope: &mut Scope<'_>,
+    block: &Block,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(&format!("INSERT INTO blocks ({BLOCK_COLUMNS}) VALUES ("));
     sql.bind(Id(&block.id))
         .push_bind(", ", OptId(&block.parent_id))
-        .push_bind(", ", OptId(user_id))
+        .push_bind(", ", OptId(&block.created_by))
         .push_bind(", ", OptId(&block.modified_by))
         .push_bind(", ", block.schema)
         .push_bind(", ", block.block_type.as_str())
         .push_bind(", ", &block.title)
-        .push_bind(", ", fields.clone())
-        .push_bind(", ", now)
+        .push_bind(", ", Param::json(&block.fields)?)
+        .push_bind(", ", block.create_at)
         .push_bind(", ", block.update_at)
-        .push_bind(", ", block.delete_at)
-        .push_bind(", ", Id(&block.board_id));
+        .push_bind(", ", Id(&block.board_id))
+        .push(")");
+    scope.execute(sql).await?;
+    Ok(())
 }
 
 pub(crate) async fn insert_blocks(
@@ -586,10 +505,46 @@ pub(crate) async fn insert_blocks(
                 source,
             })?;
     }
-    for block in blocks {
-        insert_block(scope, block, user_id).await?;
+    boards::lock_boards(scope, blocks.iter().map(|block| block.board_id.as_str())).await?;
+    for index in parents_first(blocks) {
+        insert_block(scope, &mut blocks[index], user_id).await?;
     }
     Ok(())
+}
+
+/// The positions of the blocks in an order in which every block comes after its parent,
+/// if the parent is among them. Blocks that are in a cycle of parents come last, in the
+/// order they were given; they have no order that would work.
+pub(crate) fn parents_first(blocks: &[Block]) -> Vec<usize> {
+    let position: std::collections::HashMap<&str, usize> = blocks
+        .iter()
+        .enumerate()
+        .map(|(index, block)| (block.id.as_str(), index))
+        .collect();
+    let mut placed: HashSet<usize> = HashSet::with_capacity(blocks.len());
+    let mut order = Vec::with_capacity(blocks.len());
+    loop {
+        let before = order.len();
+        for (index, block) in blocks.iter().enumerate() {
+            if placed.contains(&index) {
+                continue;
+            }
+            let waits_for_parent = position
+                .get(block.parent_id.as_str())
+                .is_some_and(|parent| *parent != index && !placed.contains(parent));
+            if !waits_for_parent {
+                placed.insert(index);
+                order.push(index);
+            }
+        }
+        if order.len() == blocks.len() {
+            return order;
+        }
+        if order.len() == before {
+            order.extend((0..blocks.len()).filter(|index| !placed.contains(index)));
+            return order;
+        }
+    }
 }
 
 pub(crate) async fn patch_block(
@@ -603,192 +558,49 @@ pub(crate) async fn patch_block(
     insert_block(scope, &mut block, user_id).await
 }
 
-/// Deletes a block and its direct children; see [`Store::delete_block`].
-pub(crate) async fn delete_block(
-    scope: &mut Scope<'_>,
-    block_id: &str,
-    modified_by: &str,
-) -> Result<(), StoreError> {
-    let Some(block) = find_block(scope, block_id).await? else {
-        tracing::warn!(block_id, "delete_block: block not found");
-        return Ok(());
-    };
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let now = now_millis();
-    let stamp = scope.history_stamp();
-    let mut sql = scope.sql("INSERT INTO blocks_history (board_id, id, parent_id, \"schema\", type, title, fields, modified_by, \
-         create_at, update_at, delete_at, created_by, insert_at) VALUES (");
-    sql.bind(Id(&block.board_id))
-        .push_bind(", ", Id(&block.id))
-        .push_bind(", ", OptId(&block.parent_id))
-        .push_bind(", ", block.schema)
-        .push_bind(", ", block.block_type.as_str())
-        .push_bind(", ", &block.title)
-        .push_bind(", ", Param::json(&block.fields)?)
-        .push_bind(", ", OptId(modified_by))
-        .push_bind(", ", block.create_at)
-        .push_bind(", ", now)
-        .push_bind(", ", now)
-        .push_bind(", ", OptId(&block.created_by))
-        .push(", ")
-        .bind_history_stamp(stamp)
-        .push(")");
-    scope.execute(sql).await?;
-
-    mark_files_deleted(scope, &block.board_id, &stored_file_names(&block)).await?;
-
-    let mut sql = scope.sql("DELETE FROM blocks WHERE id = ");
-    sql.bind(Id(block_id));
-    scope.execute(sql).await?;
-
-    delete_block_children(scope, &block.board_id, Some(&block.id), modified_by).await
-}
-
-/// Deletes the blocks of a board that have the given parent, or every block of the board
-/// if no parent is given, recording the deletions in the history.
-pub(crate) async fn delete_block_children(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    parent_id: Option<&str>,
-    modified_by: &str,
-) -> Result<(), StoreError> {
-    let now = now_millis();
-    let children_filter = |sql: &mut Sql| {
-        sql.push_bind(" WHERE board_id = ", Id(board_id));
-        if let Some(parent_id) = parent_id {
-            sql.push_bind(" AND parent_id = ", Id(parent_id));
+    fn block(id: &str, parent_id: &str) -> Block {
+        Block {
+            id: id.to_owned(),
+            parent_id: parent_id.to_owned(),
+            ..Block::default()
         }
-    };
-
-    let stamp = scope.history_stamp();
-    let mut sql = scope.sql("INSERT INTO blocks_history (board_id, id, parent_id, \"schema\", type, title, fields, modified_by, \
-         create_at, update_at, delete_at, created_by, insert_at) \
-         SELECT board_id, id, parent_id, \"schema\", type, title, fields, ");
-    sql.bind(OptId(modified_by))
-        .push_bind(", create_at, ", now)
-        .push_bind(", ", now)
-        .push(", created_by, ")
-        .bind_history_stamp(stamp)
-        .push(" FROM blocks");
-    children_filter(&mut sql);
-    scope.execute(sql).await?;
-
-    let mut sql = select_blocks(scope, "blocks");
-    children_filter(&mut sql);
-    let file_names: Vec<String> = fetch_blocks(scope, sql)
-        .await?
-        .iter()
-        .flat_map(stored_file_names)
-        .collect();
-    mark_files_deleted(scope, board_id, &file_names).await?;
-
-    let mut sql = scope.sql("DELETE FROM blocks");
-    children_filter(&mut sql);
-    scope.execute(sql).await?;
-    Ok(())
-}
-
-/// The stored names of the files a block refers to: an image's `fileId`, an
-/// attachment's `attachmentId`.
-fn stored_file_names(block: &Block) -> Vec<String> {
-    ["fileId", "attachmentId"]
-        .into_iter()
-        .filter_map(|field| block.fields.get(field)?.as_str())
-        .filter(|name| !name.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
-pub(crate) async fn undelete_block(
-    scope: &mut Scope<'_>,
-    block_id: &str,
-    modified_by: &str,
-) -> Result<(), StoreError> {
-    let newest = get_block_history(scope, "id", block_id, &HistoryQuery::NEWEST).await?;
-    let Some(block) = newest.into_iter().next() else {
-        tracing::warn!(block_id, "undelete_block: block not found");
-        return Ok(());
-    };
-    if block.delete_at == 0 {
-        tracing::warn!(block_id, "undelete_block: block not deleted");
-        return Ok(());
     }
 
-    let now = now_millis();
-    let fields = Param::json(&block.fields)?;
-    let stamp = scope.history_stamp();
-    for (table, stamp) in [("blocks_history", Some(stamp)), ("blocks", None)] {
-        let mut sql = scope.sql(&format!(
-            "INSERT INTO {table} (board_id, id, parent_id, \"schema\", type, title, fields, \
-             modified_by, create_at, update_at, delete_at, created_by{}) VALUES (",
-            if stamp.is_some() { ", insert_at" } else { "" }
-        ));
-        sql.bind(Id(&block.board_id))
-            .push_bind(", ", Id(&block.id))
-            .push_bind(", ", OptId(&block.parent_id))
-            .push_bind(", ", block.schema)
-            .push_bind(", ", block.block_type.as_str())
-            .push_bind(", ", &block.title)
-            .push_bind(", ", fields.clone())
-            .push_bind(", ", OptId(modified_by))
-            .push_bind(", ", block.create_at)
-            .push_bind(", ", now)
-            .push_bind(", 0, ", OptId(&block.created_by));
-        if let Some(stamp) = stamp {
-            sql.push(", ").bind_history_stamp(stamp);
-        }
-        sql.push(")");
-        scope.execute(sql).await?;
+    fn ids(blocks: &[Block]) -> Vec<&str> {
+        parents_first(blocks)
+            .into_iter()
+            .map(|index| blocks[index].id.as_str())
+            .collect()
     }
 
-    undelete_block_children(scope, &block.board_id, Some(&block.id), modified_by).await
-}
-
-/// Restores the deleted blocks of a board that have the given parent, or every deleted
-/// block of the board if no parent is given, from their newest history rows.
-pub(crate) async fn undelete_block_children(
-    scope: &mut Scope<'_>,
-    board_id: &str,
-    parent_id: Option<&str>,
-    modified_by: &str,
-) -> Result<(), StoreError> {
-    if board_id.is_empty() {
-        return Err(BlockError::EmptyBoardId.into());
-    }
-    let now = now_millis();
-    let history = "blocks_history";
-
-    // The main table first: the second statement adds history rows, after which the
-    // newest history row of each block is no longer a deleted one.
-    for (table, stamp) in [
-        ("blocks", None),
-        ("blocks_history", Some(scope.history_stamp())),
-    ] {
-        let mut sql = scope.sql(&format!(
-            "INSERT INTO {table} (board_id, id, parent_id, \"schema\", type, title, fields, \
-             modified_by, create_at, update_at, delete_at, created_by{}) \
-             SELECT bh.board_id, bh.id, bh.parent_id, bh.\"schema\", bh.type, bh.title, \
-             bh.fields, ",
-            if stamp.is_some() { ", insert_at" } else { "" }
-        ));
-        sql.bind(OptId(modified_by))
-            .push_bind(", bh.create_at, ", now)
-            .push(", 0, bh.created_by");
-        if let Some(stamp) = stamp {
-            sql.push(", ").bind_history_stamp(stamp);
-        }
-        sql.push(&format!(
-            " FROM {history} AS bh, (SELECT id, MAX(insert_at) AS max_insert_at FROM {history}"
-        ))
-        .push_bind(" WHERE board_id = ", Id(board_id));
-        if let Some(parent_id) = parent_id {
-            sql.push_bind(" AND parent_id = ", Id(parent_id));
-        }
-        sql.push(
-            " GROUP BY id) AS sub \
-             WHERE bh.id = sub.id AND bh.insert_at = sub.max_insert_at AND bh.delete_at != 0",
+    #[test]
+    fn parents_come_before_their_children_whatever_the_given_order() {
+        let blocks = [
+            block("text", "card"),
+            block("reply", "comment"),
+            block("comment", "card"),
+            block("card", ""),
+            block("view", "elsewhere"),
+        ];
+        assert_eq!(
+            ids(&blocks),
+            ["card", "view", "text", "comment", "reply"],
+            "what waits for nothing keeps its place; children follow their parents"
         );
-        scope.execute(sql).await?;
     }
-    Ok(())
+
+    #[test]
+    fn blocks_in_a_cycle_of_parents_come_last_as_given() {
+        let blocks = [
+            block("a", "b"),
+            block("b", "a"),
+            block("own", "own"),
+            block("top", ""),
+        ];
+        assert_eq!(ids(&blocks), ["own", "top", "a", "b"]);
+    }
 }

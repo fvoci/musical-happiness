@@ -380,7 +380,7 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
@@ -394,7 +394,7 @@
       },
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},
@@ -408,7 +408,7 @@
       },
       {
         "boardId": "<id:2>",
-        "createAt": 1,
+        "createAt": "<ts>",
         "createdBy": "<id:1>",
         "deleteAt": 0,
         "fields": {},

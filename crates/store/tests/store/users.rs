@@ -4,10 +4,13 @@
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use fvoci_model::{User, UserPreferencesPatch, new_id};
-use fvoci_store::{DbType, Preference, Store, StoreError};
+use fvoci_model::{
+    Block, BlockType, Board, BoardMember, BoardPatch, Category, Session, SubscriberType,
+    Subscription, User, UserPreferencesPatch, new_id,
+};
+use fvoci_store::{BlockFilter, DbType, Preference, Store, StoreError};
 
-use crate::common;
+use crate::common::{self, TestStore};
 
 /// The count the original derives from the clock: `time.Now().Unix() % 10`.
 fn clock_count() -> usize {
@@ -879,6 +882,475 @@ async fn user_preferences_are_per_user_and_ordered() {
         matches!(&error, StoreError::InvalidId(refused) if refused == "not-a-user"),
         "got {error:?}"
     );
+
+    test.teardown().await;
+}
+
+// The store never deletes a user: an account that is closed is marked, and its row
+// stays for what the user made to point at. The two tests below delete the row past
+// the store, to pin what the schema makes of that: what is the user's alone goes with
+// the row, and the row does not go while a board or a block names the user.
+
+/// Deletes the row of a user on a connection of the test's own and returns how many
+/// rows the statement deleted, or the database's refusal.
+async fn delete_user_row(test: &TestStore, user_id: &str) -> Result<u64, sqlx::Error> {
+    common::try_execute_raw(
+        &test.dbconfig(),
+        &format!("DELETE FROM users WHERE id = '{user_id}'"),
+    )
+    .await
+}
+
+/// A card directly on the board, not stored yet.
+fn card_on(board_id: &str) -> Block {
+    Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    }
+}
+
+/// The identifiers of the users who are members of the board.
+async fn member_ids(store: &Store, board_id: &str) -> Vec<String> {
+    store
+        .get_members_for_board(board_id)
+        .await
+        .expect("the members of the board are listed")
+        .into_iter()
+        .map(|member| member.user_id)
+        .collect()
+}
+
+/// A time in milliseconds for the sessions of the tests below, and one at which they
+/// are valid.
+const SESSION_MADE: i64 = 1_800_000_000_000;
+const SESSION_VALID: i64 = SESSION_MADE + 1;
+
+/// Stores a session of the user under a digest that is the user's identifier.
+async fn open_session(store: &Store, user_id: &str) {
+    let session = Session {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        created_at: SESSION_MADE,
+        last_used_at: SESSION_MADE,
+        expires_at: SESSION_MADE + 1000,
+        user_agent: "a browser".to_owned(),
+    };
+    store
+        .create_session(&session, user_id)
+        .await
+        .expect("the session is stored");
+}
+
+/// Whether the session [`open_session`] stored for the user is still there.
+async fn has_session(store: &Store, user_id: &str) -> bool {
+    match store
+        .get_session(user_id, SESSION_VALID, SESSION_MADE - 1)
+        .await
+    {
+        Ok(_) => true,
+        Err(StoreError::NoRows) => false,
+        Err(other) => panic!("looking a session up failed: {other:?}"),
+    }
+}
+
+/// Gives the user everything that is theirs alone: a session, a preference, a category
+/// in the team with the board filed under it, a membership of the board and a
+/// subscription to the block. Returns the identifier of the category.
+async fn give_belongings(store: &Store, user_id: &str, team_id: &str, block: &Block) -> String {
+    open_session(store, user_id).await;
+    let preference = UserPreferencesPatch {
+        updated_fields: BTreeMap::from([("theme".to_owned(), "dark".to_owned())]),
+        deleted_fields: Vec::new(),
+    };
+    store
+        .patch_user_preferences(user_id, &preference)
+        .await
+        .expect("the preference is stored");
+    let category = Category {
+        id: new_id(),
+        name: "Mine".to_owned(),
+        user_id: user_id.to_owned(),
+        team_id: team_id.to_owned(),
+        ..Category::default()
+    };
+    store
+        .create_category(&category)
+        .await
+        .expect("the category is created");
+    store
+        .add_update_category_board(user_id, &category.id, std::slice::from_ref(&block.board_id))
+        .await
+        .expect("the board is filed under the category");
+    let member = BoardMember {
+        board_id: block.board_id.clone(),
+        user_id: user_id.to_owned(),
+        scheme_editor: true,
+        ..BoardMember::default()
+    };
+    store
+        .save_member(&member)
+        .await
+        .expect("the user becomes a member of the board");
+    store
+        .create_subscription(Subscription {
+            block_type: block.block_type.clone(),
+            block_id: block.id.clone(),
+            subscriber_type: SubscriberType::User,
+            subscriber_id: user_id.to_owned(),
+            notified_at: 0,
+            create_at: 0,
+            delete_at: 0,
+        })
+        .await
+        .expect("the user subscribes to the block");
+    category.id
+}
+
+/// How many of the five kinds of belongings [`give_belongings`] gave the user are
+/// there: the session, the preference, the category (found, and listed with the board
+/// under it), the membership and the subscription.
+async fn belongings_left(
+    store: &Store,
+    user_id: &str,
+    team_id: &str,
+    category_id: &str,
+    block: &Block,
+) -> Vec<&'static str> {
+    let mut left = Vec::new();
+    if has_session(store, user_id).await {
+        left.push("session");
+    }
+    let preferences = store
+        .get_user_preferences(user_id)
+        .await
+        .expect("the preferences are read");
+    if !preferences.is_empty() {
+        left.push("preference");
+    }
+    let listed = store
+        .get_user_category_boards(user_id, team_id)
+        .await
+        .expect("the categories are listed");
+    let category = store.get_category(category_id).await;
+    match (&category, listed.as_slice()) {
+        (Ok(_), [only])
+            if only.category.id == category_id
+                && only.board_metadata.len() == 1
+                && only.board_metadata[0].board_id == block.board_id =>
+        {
+            left.push("category");
+        }
+        (Err(error), []) if error.is_not_found() => {}
+        _ => panic!("a category half there: found {category:?}, listed {listed:?}"),
+    }
+    let membership = store.get_member_for_board(&block.board_id, user_id).await;
+    let memberships = store
+        .get_members_for_user(user_id)
+        .await
+        .expect("the memberships are listed");
+    match (&membership, memberships.len()) {
+        (Ok(_), 1) => left.push("membership"),
+        (Err(error), 0) if error.is_not_found() => {}
+        _ => panic!("a membership half there: found {membership:?}, listed {memberships:?}"),
+    }
+    let subscriptions = store
+        .get_subscriptions(user_id)
+        .await
+        .expect("the subscriptions are listed");
+    let subscribers = store
+        .get_subscribers_for_block(&block.id)
+        .await
+        .expect("the subscribers are listed");
+    let is_subscriber = subscribers
+        .iter()
+        .any(|subscriber| subscriber.subscriber_id == user_id);
+    match (subscriptions.len(), is_subscriber) {
+        (1, true) => left.push("subscription"),
+        (0, false) => {}
+        _ => panic!("a subscription half there: {subscriptions:?}, subscribers {subscribers:?}"),
+    }
+    left
+}
+
+const ALL_BELONGINGS: [&str; 5] = [
+    "session",
+    "preference",
+    "category",
+    "membership",
+    "subscription",
+];
+
+/// Deleting the row of a user takes what is theirs alone with it: their sessions,
+/// preferences, categories with what is filed under them, memberships and
+/// subscriptions. What is another user's stays, and so do the board and the block.
+#[tokio::test]
+async fn deleting_a_user_row_takes_what_is_theirs_alone_with_it() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let owner = common::user(store, "owner").await;
+    let leaver = common::user(store, "leaver").await;
+    let team_id = common::team(store).await;
+    let boards = common::create_test_boards(store, &team_id, &owner, 1).await;
+    let mut blocks = vec![card_on(&boards[0].id)];
+    common::insert_blocks(store, &mut blocks, &owner).await;
+    let block = &blocks[0];
+
+    let of_owner = give_belongings(store, &owner, &team_id, block).await;
+    let of_leaver = give_belongings(store, &leaver, &team_id, block).await;
+    for (user_id, category_id) in [(&owner, &of_owner), (&leaver, &of_leaver)] {
+        assert_eq!(
+            belongings_left(store, user_id, &team_id, category_id, block).await,
+            ALL_BELONGINGS,
+            "before the deletion each user has everything"
+        );
+    }
+
+    let deleted = delete_user_row(&test, &leaver)
+        .await
+        .expect("nothing that stays names the user: the row is deleted");
+    assert_eq!(deleted, 1, "the one row of the user");
+
+    let error = store
+        .get_user_by_id(&leaver)
+        .await
+        .expect_err("the user is gone");
+    assert!(error.is_not_found(), "got {error:?}");
+    assert_eq!(
+        belongings_left(store, &leaver, &team_id, &of_leaver, block).await,
+        [""; 0],
+        "everything that was the deleted user's alone went with the row"
+    );
+    assert_eq!(
+        belongings_left(store, &owner, &team_id, &of_owner, block).await,
+        ALL_BELONGINGS,
+        "everything of the user who stays is there"
+    );
+    assert_eq!(
+        member_ids(store, &block.board_id).await,
+        std::slice::from_ref(&owner),
+        "the board's other member stays"
+    );
+    let on_the_board = store
+        .get_blocks(&BlockFilter::board(&block.board_id))
+        .await
+        .expect("the blocks of the board are listed");
+    assert_eq!(
+        common::sorted_ids(&on_the_board),
+        std::slice::from_ref(&block.id),
+        "the block the deleted user was subscribed to stays"
+    );
+
+    test.teardown().await;
+}
+
+/// The row of a user is not deleted while a board or a block names the user as its
+/// creator or as the one who last changed it: the database refuses over the foreign
+/// key, and the refused deletion takes nothing of the user's with it. A user whom
+/// nothing names goes.
+#[tokio::test]
+async fn a_user_row_stays_while_a_board_or_a_block_names_the_user() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let board_creator = common::user(store, "board-creator").await;
+    let board_modifier = common::user(store, "board-modifier").await;
+    let block_creator = common::user(store, "block-creator").await;
+    let block_modifier = common::user(store, "block-modifier").await;
+    let bystander = common::user(store, "bystander").await;
+    let team_id = common::team(store).await;
+
+    let board = common::create_test_boards(store, &team_id, &board_creator, 1)
+        .await
+        .pop()
+        .expect("one board was created");
+    let retitled = BoardPatch {
+        title: Some("retitled".to_owned()),
+        ..BoardPatch::default()
+    };
+    let board: Board = store
+        .patch_board(&board.id, &retitled, &board_modifier)
+        .await
+        .expect("the board is changed by another user");
+    let mut block = card_on(&board.id);
+    store
+        .insert_block(&mut block, &block_creator)
+        .await
+        .expect("the block is created");
+    block.title = "retitled".to_owned();
+    store
+        .insert_block(&mut block, &block_modifier)
+        .await
+        .expect("the block is changed by another user");
+    assert_eq!(
+        (
+            board.created_by.as_str(),
+            board.modified_by.as_str(),
+            block.created_by.as_str(),
+            block.modified_by.as_str(),
+        ),
+        (
+            board_creator.as_str(),
+            board_modifier.as_str(),
+            block_creator.as_str(),
+            block_modifier.as_str(),
+        ),
+        "each of the four users is named once"
+    );
+    let named = [
+        (&board_creator, "the creator of a board"),
+        (&board_modifier, "the last modifier of a board"),
+        (&block_creator, "the creator of a block"),
+        (&block_modifier, "the last modifier of a block"),
+    ];
+    for (user_id, _) in named {
+        open_session(store, user_id).await;
+    }
+    open_session(store, &bystander).await;
+
+    for (user_id, role) in named {
+        let error = delete_user_row(&test, user_id)
+            .await
+            .expect_err("a user whom a board or a block names is not deleted");
+        assert!(
+            common::is_foreign_key_violation(&error),
+            "{role}: refused over the foreign key: got {error:?}"
+        );
+        store
+            .get_user_by_id(user_id)
+            .await
+            .unwrap_or_else(|error| panic!("{role} is still a user: {error:?}"));
+        assert!(
+            has_session(store, user_id).await,
+            "{role}: the refused deletion did not take the user's session"
+        );
+    }
+
+    let deleted = delete_user_row(&test, &bystander)
+        .await
+        .expect("a user whom nothing names is deleted");
+    assert_eq!(deleted, 1, "the one row of the user");
+    assert!(
+        !has_session(store, &bystander).await,
+        "the session went with its user"
+    );
+
+    // The board and the block are as they were, with the names of their users.
+    let stored_board = store
+        .get_board(&board.id)
+        .await
+        .expect("the board is found");
+    assert_eq!(stored_board, board, "the board is unchanged");
+    let stored_block = store
+        .get_block(&block.id)
+        .await
+        .expect("the block is found");
+    assert_eq!(stored_block, block, "the block is unchanged");
+
+    test.teardown().await;
+}
+
+/// What is in the trash names its users without holding them: the row of a user goes
+/// while a board or a block they made is there. What then comes back from the trash is
+/// made by nobody, and the membership of the user who is gone does not come back.
+#[tokio::test]
+async fn what_comes_back_from_the_trash_forgets_a_creator_whose_row_is_gone() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let gone = common::user(store, "gone").await;
+    let stays = common::user(store, "stays").await;
+    let team_id = common::team(store).await;
+
+    // A board the user made, with a block they made and both users as members; and a
+    // block they made on a board of the user who stays.
+    let board_of_gone = common::create_test_boards(store, &team_id, &gone, 1)
+        .await
+        .pop()
+        .expect("one board was created");
+    let board_of_stays = common::create_test_boards(store, &team_id, &stays, 1)
+        .await
+        .pop()
+        .expect("one board was created");
+    let mut blocks = vec![card_on(&board_of_gone.id), card_on(&board_of_stays.id)];
+    common::insert_blocks(store, &mut blocks, &gone).await;
+    let (with_its_board, on_its_own) = (&blocks[0], &blocks[1]);
+    for user_id in [&gone, &stays] {
+        let member = BoardMember {
+            board_id: board_of_gone.id.clone(),
+            user_id: user_id.clone(),
+            scheme_admin: true,
+            ..BoardMember::default()
+        };
+        store
+            .save_member(&member)
+            .await
+            .expect("the user becomes a member");
+    }
+
+    let refused = delete_user_row(&test, &gone)
+        .await
+        .expect_err("the board and the blocks hold the row of their creator");
+    assert!(
+        common::is_foreign_key_violation(&refused),
+        "got {refused:?}"
+    );
+
+    store
+        .delete_board(&board_of_gone.id, &stays)
+        .await
+        .expect("the board goes to the trash with its block");
+    common::delete_blocks(store, std::slice::from_ref(on_its_own), &stays).await;
+    let deleted = delete_user_row(&test, &gone)
+        .await
+        .expect("nothing that exists names the user: the row is deleted");
+    assert_eq!(deleted, 1, "the one row of the user");
+
+    let board = store
+        .undelete_board(&board_of_gone.id, &stays)
+        .await
+        .expect("the board comes back although its creator is gone");
+    assert_eq!(
+        (board.created_by.as_str(), board.modified_by.as_str()),
+        ("", stays.as_str()),
+        "the board is made by nobody and restored by the user who stays"
+    );
+    let stored = store
+        .get_board(&board.id)
+        .await
+        .expect("the restored board is found");
+    assert_eq!(stored, board, "stored as returned");
+    assert_eq!(
+        member_ids(store, &board.id).await,
+        std::slice::from_ref(&stays),
+        "the membership of the user who is gone does not come back"
+    );
+    let came_with_it = store
+        .get_block(&with_its_board.id)
+        .await
+        .expect("the block came back with its board");
+    assert_eq!(
+        (
+            came_with_it.created_by.as_str(),
+            came_with_it.modified_by.as_str()
+        ),
+        ("", stays.as_str()),
+        "the block of the board is made by nobody"
+    );
+
+    let block = store
+        .undelete_block(&on_its_own.id, &stays)
+        .await
+        .expect("the block comes back although its creator is gone");
+    assert_eq!(
+        (block.created_by.as_str(), block.modified_by.as_str()),
+        ("", stays.as_str()),
+        "the block is made by nobody and restored by the user who stays"
+    );
+    let stored = store
+        .get_block(&block.id)
+        .await
+        .expect("the restored block is found");
+    assert_eq!(stored, block, "stored as returned");
 
     test.teardown().await;
 }

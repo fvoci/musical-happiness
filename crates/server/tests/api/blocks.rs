@@ -32,7 +32,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{Client, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
 
 /// How long to wait for a websocket message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -821,14 +821,14 @@ async fn app_delete_block_success_scenario() {
         .await
         .expect_err("the block is gone");
     assert!(error.is_not_found(), "{error:?}");
-    let last = th
+    let deleted = th
         .app
-        .last_block_history_entry(&block.id)
+        .deleted_block(&block.id)
         .await
-        .expect("the history is read")
-        .expect("the block has a history");
-    assert_ne!(last.delete_at, 0, "the history records the deletion");
-    assert_eq!(last.modified_by, th.stranger().await, "and who deleted");
+        .expect("the trash is read")
+        .expect("the block is in the trash");
+    assert_ne!(deleted.block.delete_at, 0, "the trash records the deletion");
+    assert_eq!(deleted.deleted_by, th.stranger().await, "and who deleted");
 
     th.teardown().await;
 }
@@ -869,8 +869,7 @@ async fn app_undelete_block_success_scenario() {
         .app
         .undelete_block(&block.id, &th.stranger().await)
         .await
-        .expect("the block is undeleted")
-        .expect("the block has a history");
+        .expect("the block is undeleted");
     assert_eq!(undeleted.id, block.id, "the restored block is returned");
     assert_eq!(undeleted.title, "back", "with its content");
 
@@ -880,18 +879,24 @@ async fn app_undelete_block_success_scenario() {
     th.teardown().await;
 }
 
-/// Not in the original's tests: `UndeleteBlock` does nothing for a block that never
-/// existed ("undeleting non-existing block not considered an error").
+/// What is not in the trash is not there to restore: a block that never existed, by a
+/// well-formed identifier or by text that is none, and a block that exists.
 #[tokio::test]
-async fn app_undelete_block_that_never_existed() {
+async fn app_undelete_block_that_is_not_in_the_trash() {
     let th = Setup::one_user().start().await;
+    let board = create_board_in_store(&th, BoardType::Open).await;
+    let block = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "here")).await;
 
-    let undeleted = th
-        .app
-        .undelete_block("no-such-block", &th.stranger().await)
-        .await
-        .expect("no error");
-    assert_eq!(undeleted, None, "and no block");
+    for block_id in [UNKNOWN_ID, "no-such-block", block.id.as_str()] {
+        let error = th
+            .app
+            .undelete_block(block_id, &th.stranger().await)
+            .await
+            .expect_err("nothing to restore");
+        assert!(error.is_not_found(), "{block_id}: {error:?}");
+    }
+    let stored = th.app.block(&block.id).await.expect("the block is stored");
+    assert_eq!(stored.modified_by, block.modified_by, "and untouched");
 
     th.teardown().await;
 }
@@ -1288,9 +1293,9 @@ async fn post_blocks_answer_and_stored_block() {
     for block in &answered {
         assert_eq!(block.created_by, user.id, "created by the user");
         assert_eq!(block.modified_by, user.id, "modified by the user");
-        assert_eq!(
-            block.create_at, 1,
-            "the request's creation time is answered"
+        assert!(
+            block.create_at >= before,
+            "created now, whatever the request says"
         );
         assert!(block.update_at >= before, "the modification time is now");
     }
@@ -1298,13 +1303,7 @@ async fn post_blocks_answer_and_stored_block() {
     assert_eq!(response.value()[0]["fields"], json!({}), "no null fields");
 
     let stored = blocks_of(&th.client, &board.id).await;
-    assert_eq!(stored.len(), 2, "both are stored");
-    for block in &stored {
-        assert!(
-            block.create_at >= before,
-            "the stored creation time is the current time, not the request's"
-        );
-    }
+    assert_eq!(stored, answered, "both are stored as answered");
 
     th.teardown().await;
 }
@@ -2037,17 +2036,15 @@ async fn undelete_block_refusals_and_children() {
         "the children are back too"
     );
 
-    // Undeleting a block that is not deleted answers with the block as it is.
-    let again: Block = th
-        .client
+    // A block that is not deleted is not in the trash: there is nothing to restore.
+    th.client
         .post_empty(&undelete_path(board_id, &card.id))
         .await
-        .ok_json();
-    assert_eq!(again.id, card.id, "the card again");
+        .check_error(StatusCode::NOT_FOUND, "block not found");
     assert_eq!(
         blocks_of(&th.client, board_id).await.len(),
         3,
-        "and changes nothing"
+        "and nothing changes"
     );
 
     th.teardown().await;

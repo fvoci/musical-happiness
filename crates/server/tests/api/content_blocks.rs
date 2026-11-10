@@ -696,11 +696,18 @@ async fn move_content_block_next_to_a_block_of_a_board_without_permission_is_ref
             "the parent of the foreign block is not told"
         );
     }
-    // A block of their own that claims the foreign card as its parent gets them
-    // nowhere either.
-    let claimed = insert_block(intruder, &text_block(&own_board.id, &foreign_card.id)).await;
-    let response = move_block(intruder, &claimed.id, "after", &foreign_texts[0].id).await;
-    check_error(&response, StatusCode::NOT_FOUND, "block not found");
+    // A block of their own cannot claim the foreign card as its parent: a parent is a
+    // block of the same board. The refusal is the one for a parent that does not exist.
+    for parent_id in [foreign_card.id.as_str(), UNKNOWN_ID] {
+        let response = intruder
+            .insert_blocks(&own_board.id, &[text_block(&own_board.id, parent_id)])
+            .await;
+        check_error(
+            &response,
+            StatusCode::BAD_REQUEST,
+            "the parent is not a block of the board",
+        );
+    }
 
     assert_eq!(
         content_order(&th, &foreign_card.id).await,

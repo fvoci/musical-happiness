@@ -45,7 +45,8 @@ fn sample_block() -> Block {
     let user_id = new_id();
     Block {
         id: new_id(),
-        parent_id: board_id.clone(),
+        // A card is directly on its board: it has no parent.
+        parent_id: String::new(),
         created_by: user_id.clone(),
         modified_by: user_id,
         schema: 1,

@@ -279,14 +279,13 @@ async fn delete_category() {
         .await
         .expect("the category is deleted");
 
-    let deleted_category = store
+    // The original finds the deleted category again, marked as deleted. Here a deleted
+    // category is gone.
+    let error = store
         .get_category(&category.id)
         .await
-        .expect("a deleted category is still found");
-    assert_eq!(deleted_category.id, category.id, "the same category");
-    assert_eq!(deleted_category.name, "Category 1", "the name stays");
-    assert!(!deleted_category.collapsed, "got {deleted_category:?}");
-    assert!(deleted_category.delete_at > 0, "got {deleted_category:?}");
+        .expect_err("a deleted category is not found");
+    assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
 
     test.teardown().await;
 }
@@ -569,7 +568,7 @@ async fn sort_orders_of_created_and_reordered_categories() {
         "another user's categories stay where they are"
     );
 
-    // A deleted category keeps its place when others are created, yet is reordered.
+    // A deleted category is gone. An order that still names it leaves its place empty.
     store
         .delete_category(&a, &user_id, &team_id)
         .await
@@ -578,7 +577,6 @@ async fn sort_orders_of_created_and_reordered_categories() {
         .create_category(&category(&c, &user_id, 0))
         .await
         .expect("c is created");
-    assert_eq!(sort_order(&a).await, 20, "a is deleted and stays");
     assert_eq!(sort_order(&b).await, 90, "b moves down for c");
     assert_eq!(sort_order(&c).await, 10, "c moves down with itself");
 
@@ -589,8 +587,16 @@ async fn sort_orders_of_created_and_reordered_categories() {
         .expect("the categories are reordered");
     assert_eq!(echoed, order, "the order comes back as it was given");
     assert_eq!(sort_order(&b).await, 0, "b is first");
-    assert_eq!(sort_order(&a).await, 10, "a is second, deleted or not");
-    assert_eq!(sort_order(&c).await, 20, "c is third");
+    assert_eq!(
+        sort_order(&c).await,
+        20,
+        "c is third: the deleted category is named second"
+    );
+    let error = store
+        .get_category(&a)
+        .await
+        .expect_err("an order that names a deleted category does not bring it back");
+    assert!(error.is_not_found(), "got {error:?}");
     assert_eq!(
         sort_order(&other).await,
         10,
@@ -679,7 +685,7 @@ async fn reorder_categories_treats_identifiers_as_data() {
     test.teardown().await;
 }
 
-/// A system category of the user in the team, for the two tests below.
+/// A system category of the user in the team, for the tests below.
 fn boards_category(user_id: &str, team_id: &str) -> Category {
     Category {
         id: new_id(),
@@ -759,8 +765,9 @@ async fn update_category_leaves_other_members_and_rows_alone() {
     test.teardown().await;
 }
 
-/// Not in the original. A deletion needs the owner and the team to match, and a deleted
-/// category is out of reach of further updates and deletions.
+/// Not in the original. A deletion needs the owner and the team to match. A deleted
+/// category is gone: it is not found and not listed, and updating or deleting it again
+/// succeeds and brings nothing back.
 #[tokio::test]
 async fn delete_category_matches_owner_and_team_and_happens_once() {
     let test = common::setup().await;
@@ -775,6 +782,10 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .create_category(&category)
         .await
         .expect("the category is created");
+    let created = store
+        .get_category(&category.id)
+        .await
+        .expect("the category is found");
 
     store
         .delete_category(&category.id, &someone_else, &team_id)
@@ -788,27 +799,33 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .get_category(&category.id)
         .await
         .expect("the category is found");
-    assert_eq!(stored.delete_at, 0, "got {stored:?}");
-
-    store
-        .delete_category(&category.id, &user_id, &team_id)
-        .await
-        .expect("the category is deleted");
-    let deleted = store
-        .get_category(&category.id)
-        .await
-        .expect("a deleted category is still found");
-    assert!(deleted.delete_at > 0, "got {deleted:?}");
     assert_eq!(
-        deleted.category_type,
-        CategoryType::System,
-        "the type stays"
+        stored, created,
+        "neither another user nor another team deletes the category"
     );
     let listed = store
         .get_user_categories(&user_id, &team_id)
         .await
         .expect("the categories are listed");
-    assert!(listed.is_empty(), "a deleted category is not listed");
+    assert_eq!(category_ids(&listed), [&category.id], "still listed");
+
+    store
+        .delete_category(&category.id, &user_id, &team_id)
+        .await
+        .expect("the category is deleted");
+    let error = store
+        .get_category(&category.id)
+        .await
+        .expect_err("a deleted category is not found");
+    assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
+    let listed = store
+        .get_user_categories(&user_id, &team_id)
+        .await
+        .expect("the categories are listed");
+    assert!(
+        listed.is_empty(),
+        "a deleted category is not listed: {listed:?}"
+    );
 
     store
         .update_category(&Category {
@@ -821,11 +838,62 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .delete_category(&category.id, &user_id, &team_id)
         .await
         .expect("deleting a deleted category succeeds");
-    let unchanged = store
+    let error = store
         .get_category(&category.id)
         .await
-        .expect("a deleted category is still found");
-    assert_eq!(unchanged, deleted, "neither changed the deleted category");
+        .expect_err("neither brings the deleted category back");
+    assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
+    let listed = store
+        .get_user_category_boards(&user_id, &team_id)
+        .await
+        .expect("the categories are listed");
+    assert!(listed.is_empty(), "still not listed: {listed:?}");
+
+    test.teardown().await;
+}
+
+/// Not in the original, whose categories name users and teams that need not exist. A
+/// category is its user's in its team: without either, it is not stored.
+#[tokio::test]
+async fn a_category_of_a_user_or_a_team_that_does_not_exist_is_refused() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let team_id = common::team(store).await;
+
+    let existing = boards_category(&user_id, &team_id);
+    store
+        .create_category(&existing)
+        .await
+        .expect("a category of a user in a team is created");
+    let before = store
+        .get_user_categories(&user_id, &team_id)
+        .await
+        .expect("the categories are listed");
+
+    let of_nobody = boards_category(&new_id(), &team_id);
+    let in_no_team = boards_category(&user_id, &new_id());
+    for (category, what) in [(&of_nobody, "no such user"), (&in_no_team, "no such team")] {
+        let error = store
+            .create_category(category)
+            .await
+            .expect_err("a category that refers to nothing is refused");
+        assert!(
+            common::refused_over_a_foreign_key(&error),
+            "{what}: got {error:?}"
+        );
+        let error = store
+            .get_category(&category.id)
+            .await
+            .expect_err("the refused category is not stored");
+        assert!(error.is_not_found(), "{what}: got {error:?}");
+    }
+
+    let after = store
+        .get_user_categories(&user_id, &team_id)
+        .await
+        .expect("the categories are listed");
+    assert_eq!(after, before, "the refused categories changed nothing");
 
     test.teardown().await;
 }

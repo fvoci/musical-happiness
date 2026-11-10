@@ -172,6 +172,9 @@ pub struct Configuration {
     /// bounded by `maxfilesize` (and not at all at its default of 0), nor to archive
     /// imports, which have no limit on the request yet.
     pub max_request_bytes: u64,
+    /// How many days a deleted board or block stays in the trash, where it can be
+    /// restored from, before it is removed for good.
+    pub trash_retention_days: u32,
     /// Whether to take the client address for logs from `X-Forwarded-For`. Turn on only
     /// behind a proxy that sets the header.
     pub trust_forwarded_for: bool,
@@ -216,6 +219,7 @@ impl Default for Configuration {
             audit_cfg_json: String::new(),
             websocket_ping_seconds: 30,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
+            trash_retention_days: 30,
             trust_forwarded_for: false,
             skip_template_init: false,
         }
@@ -255,6 +259,7 @@ impl std::fmt::Debug for Configuration {
             .field("auth_mode", &self.auth_mode)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
             .field("max_request_bytes", &self.max_request_bytes)
+            .field("trash_retention_days", &self.trash_retention_days)
             .field("trust_forwarded_for", &self.trust_forwarded_for)
             .finish_non_exhaustive()
     }
@@ -272,7 +277,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_EXPIRE_TIME`.
-const ENV_KEYS: [(&str, EnvKind); 30] = [
+const ENV_KEYS: [(&str, EnvKind); 31] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -302,6 +307,7 @@ const ENV_KEYS: [(&str, EnvKind); 30] = [
     ("audit_cfg_json", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
     ("max_request_bytes", EnvKind::Number),
+    ("trash_retention_days", EnvKind::Number),
     ("trust_forwarded_for", EnvKind::Flag),
 ];
 
@@ -398,6 +404,10 @@ impl Configuration {
         // something to end up with by leaving a number out.
         if self.max_request_bytes == 0 {
             bail!("max_request_bytes must be a positive number of bytes, not 0");
+        }
+        // Zero would empty the trash as it fills: deleting could not be undone.
+        if self.trash_retention_days == 0 {
+            bail!("trash_retention_days must be at least 1");
         }
         if !self.prometheus_address.is_empty() {
             bail!("prometheusaddress is set, but this server has no metrics endpoint");
@@ -608,6 +618,7 @@ mod tests {
         assert!(error(r#"{"filesdriver": "ftp"}"#).contains("filesdriver"));
         // Zero would not mean "no limit" to anyone who reads it as "nothing".
         assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
+        assert!(error(r#"{"trash_retention_days": 0}"#).contains("trash_retention_days"));
         assert!(
             error(r#"{"filesdriver": "amazons3", "filess3config": {"SignV2": true}}"#)
                 .contains("SignV2")

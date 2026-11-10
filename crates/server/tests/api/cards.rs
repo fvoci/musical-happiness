@@ -95,23 +95,11 @@ fn card_path(card_id: &str) -> String {
     format!("/cards/{card_id}")
 }
 
-/// `CreateCard`, expecting success. Returns the card as it is read afterwards.
-///
-/// Preserved quirk: the answer to the creation is not quite that. Its creation time is
-/// the moment the request was handled, while the stored one, which every later read
-/// returns, is the moment the block was written, which may be milliseconds later
-/// (server/app/cards.go:15-22, server/services/store/sqlstore/blocks.go:245, :276).
+/// `CreateCard`, expecting success. Returns the card, which is stored as answered.
 async fn create_card(client: &Client, board_id: &str, card: &impl serde::Serialize) -> Card {
     let created: Card = client.post(&cards_path(board_id), card).await.ok_json();
-    let stored = Card {
-        create_at: created.update_at,
-        ..created
-    };
-    let read: Card = client.get(&card_path(&stored.id)).await.ok_json();
-    assert_eq!(
-        read, stored,
-        "the card is stored as answered, but for its creation time"
-    );
+    let read: Card = client.get(&card_path(&created.id)).await.ok_json();
+    assert_eq!(read, created, "the card is stored as answered");
     read
 }
 
@@ -152,11 +140,7 @@ async fn create_board_and_cards(th: &TestServer, count: usize) -> (Board, Vec<Ca
             )
             .await
             .ok_json();
-        // The stored creation time is that of the write, see [`create_card`].
-        cards.push(Card {
-            create_at: created.update_at,
-            ..created
-        });
+        cards.push(created);
     }
     (board, cards)
 }
@@ -828,7 +812,7 @@ async fn create_card_answer_and_stored_block() {
         serde_json::to_value(&block).expect("a block is JSON"),
         json!({
             "id": card.id,
-            "parentId": board.id,
+            "parentId": "",
             "createdBy": me.id,
             "modifiedBy": me.id,
             "schema": 1,
@@ -840,12 +824,12 @@ async fn create_card_answer_and_stored_block() {
                 "isTemplate": true,
                 "properties": {"p": "v", "q": ["1", "2"]},
             },
-            "createAt": card.update_at,
+            "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
             "boardId": board.id,
         }),
-        "a card block whose parent is the board, created when it was written"
+        "a card block directly on its board, with the times that were answered"
     );
 
     th.teardown().await;

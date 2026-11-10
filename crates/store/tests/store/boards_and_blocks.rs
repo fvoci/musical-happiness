@@ -625,6 +625,23 @@ async fn delete_boards_and_blocks() {
                 .expect_err("the block is gone");
             assert!(error.is_not_found(), "block {block_id}: {error:?}");
         }
+
+        // Added: what was deleted is in the trash, the original's place for it being
+        // its history.
+        for board_id in &entities.board_ids {
+            let deleted = test
+                .get_deleted_board(board_id)
+                .await
+                .expect("the board is in the trash");
+            assert_eq!(deleted.deleted_by, user_id, "who deleted board {board_id}");
+        }
+        for block_id in &entities.block_ids {
+            let deleted = test
+                .get_deleted_block(block_id)
+                .await
+                .expect("the block is in the trash");
+            assert_eq!(deleted.deleted_by, user_id, "who deleted block {block_id}");
+        }
     }
 
     test.teardown().await;
@@ -954,47 +971,258 @@ async fn patch_boards_and_blocks_rejects_fewer_patches_than_ids() {
     test.teardown().await;
 }
 
-/// `server/services/store/sqlstore/boards_and_blocks.go:110-123`: deleting a block
-/// removes its direct children, and a child listed after it is then not found.
+/// The original deletes the listed blocks one by one, each with its direct children, so
+/// that a block listed after its parent is no longer found and the request fails
+/// (`server/services/store/sqlstore/boards_and_blocks.go:110-123`). Here the listed
+/// blocks are only checked, before anything is deleted: the order does not matter.
 #[tokio::test]
-async fn delete_boards_and_blocks_fails_when_a_block_is_listed_after_its_parent() {
+async fn delete_boards_and_blocks_accepts_a_block_listed_after_its_parent() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let user_id = common::user(&test, "user").await;
+
+    for (order, child_first) in [("the parent first", false), ("the child first", true)] {
+        let board_id = insert_new_board(&test, &team_id, &user_id).await;
+        let card_id = insert_new_block(&test, &board_id, &user_id).await;
+        let mut child = Block {
+            id: new_id(),
+            board_id: board_id.clone(),
+            parent_id: card_id.clone(),
+            ..Block::default()
+        };
+        test.insert_block(&mut child, &user_id)
+            .await
+            .expect("the child is inserted");
+
+        let mut blocks = vec![card_id.clone(), child.id.clone()];
+        if child_first {
+            blocks.reverse();
+        }
+        let request = DeleteBoardsAndBlocks {
+            boards: vec![board_id.clone()],
+            blocks,
+        };
+        test.delete_boards_and_blocks(&request, &user_id)
+            .await
+            .unwrap_or_else(|error| panic!("{order}: the request is refused: {error:?}"));
+
+        let error = test
+            .get_board(&board_id)
+            .await
+            .expect_err("the board is gone");
+        assert!(error.is_not_found(), "{order}: got {error:?}");
+        for block_id in [&card_id, &child.id] {
+            let error = test
+                .get_block(block_id)
+                .await
+                .expect_err("the block is gone");
+            assert!(
+                error.is_not_found(),
+                "{order}, block {block_id}: got {error:?}"
+            );
+        }
+    }
+
+    test.teardown().await;
+}
+
+/// A board goes to the trash with all its blocks, listed or not, as one deletion: they
+/// come back together when the board is restored.
+#[tokio::test]
+async fn delete_boards_and_blocks_takes_every_block_of_the_boards_to_the_trash() {
     let test = common::setup().await;
     let team_id = common::team(&test).await;
     let user_id = common::user(&test, "user").await;
 
     let board_id = insert_new_board(&test, &team_id, &user_id).await;
-    let card_id = insert_new_block(&test, &board_id, &user_id).await;
-    let mut child = Block {
+    let listed_id = insert_new_block(&test, &board_id, &user_id).await;
+    let unlisted_id = insert_new_block(&test, &board_id, &user_id).await;
+    let mut child_of_unlisted = Block {
         id: new_id(),
         board_id: board_id.clone(),
-        parent_id: card_id.clone(),
+        parent_id: unlisted_id.clone(),
         ..Block::default()
     };
-    test.insert_block(&mut child, &user_id)
+    test.insert_block(&mut child_of_unlisted, &user_id)
         .await
         .expect("the child is inserted");
+    let all_block_ids = sorted(&[&listed_id, &unlisted_id, &child_of_unlisted.id]);
 
-    let parent_first = DeleteBoardsAndBlocks {
+    let request = DeleteBoardsAndBlocks {
         boards: vec![board_id.clone()],
-        blocks: vec![card_id.clone(), child.id.clone()],
+        blocks: vec![listed_id.clone()],
+    };
+    test.delete_boards_and_blocks(&request, &user_id)
+        .await
+        .expect("the board and its blocks are deleted");
+
+    let left = test
+        .get_blocks(&BlockFilter::board(&board_id))
+        .await
+        .expect("the blocks are read");
+    assert!(left.is_empty(), "blocks are left: {left:?}");
+    for block_id in &all_block_ids {
+        test.get_deleted_block(block_id)
+            .await
+            .unwrap_or_else(|error| panic!("block {block_id} is not in the trash: {error:?}"));
+    }
+
+    test.undelete_board(&board_id, &user_id)
+        .await
+        .expect("the board is restored");
+    let back = test
+        .get_blocks(&BlockFilter::board(&board_id))
+        .await
+        .expect("the blocks are read");
+    assert_eq!(
+        common::sorted_ids(&back),
+        all_block_ids,
+        "every block is back with the board"
+    );
+    let child = back
+        .iter()
+        .find(|block| block.id == child_of_unlisted.id)
+        .expect("the child is among the blocks");
+    assert_eq!(child.parent_id, unlisted_id, "the child is on its parent");
+
+    test.teardown().await;
+}
+
+/// A block in the trash is no block of the board: a request that lists one is refused,
+/// and nothing is deleted.
+#[tokio::test]
+async fn delete_boards_and_blocks_refuses_a_block_that_is_in_the_trash() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let user_id = common::user(&test, "user").await;
+
+    let board_id = insert_new_board(&test, &team_id, &user_id).await;
+    let kept_id = insert_new_block(&test, &board_id, &user_id).await;
+    let deleted_id = insert_new_block(&test, &board_id, &user_id).await;
+    test.delete_block(&deleted_id, &user_id)
+        .await
+        .expect("the block is deleted");
+
+    let request = DeleteBoardsAndBlocks {
+        boards: vec![board_id.clone()],
+        blocks: vec![kept_id.clone(), deleted_id],
     };
     let error = test
-        .delete_boards_and_blocks(&parent_first, &user_id)
+        .delete_boards_and_blocks(&request, &user_id)
         .await
-        .expect_err("the child is gone by the time its turn comes");
+        .expect_err("the second block does not exist");
     assert!(error.is_not_found(), "got {error:?}");
-    test.get_block(&card_id).await.expect("nothing was deleted");
+    test.get_board(&board_id).await.expect("the board stays");
+    test.get_block(&kept_id).await.expect("its block stays");
 
-    let child_first = DeleteBoardsAndBlocks {
-        boards: vec![board_id.clone()],
-        blocks: vec![child.id, card_id],
+    test.teardown().await;
+}
+
+/// The blocks of one request are stored parents first, wherever in the list each is.
+/// The original stores them in the order given, and a database that checked the parent
+/// would refuse a child listed first.
+#[tokio::test]
+async fn create_boards_and_blocks_accepts_a_block_listed_before_its_parent() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let user_id = common::user(&test, "user").await;
+
+    let [board_id, card_id, text_id, checkbox_id] = new_ids();
+    let mut new_bab = BoardsAndBlocks {
+        boards: vec![new_board(&board_id, &team_id, BoardType::Open)],
+        blocks: vec![
+            Block {
+                parent_id: text_id.clone(),
+                block_type: BlockType::Checkbox,
+                ..new_card(&checkbox_id, &board_id)
+            },
+            Block {
+                parent_id: card_id.clone(),
+                block_type: BlockType::Text,
+                ..new_card(&text_id, &board_id)
+            },
+            new_card(&card_id, &board_id),
+        ],
     };
-    test.delete_boards_and_blocks(&child_first, &user_id)
+    test.create_boards_and_blocks(&mut new_bab, &user_id)
         .await
-        .expect("children before parents works");
-    test.get_board(&board_id)
+        .expect("children listed before their parents are accepted");
+    assert_eq!(
+        new_bab
+            .blocks
+            .iter()
+            .map(|block| block.id.as_str())
+            .collect::<Vec<_>>(),
+        [&checkbox_id, &text_id, &card_id],
+        "the request keeps its order"
+    );
+
+    let stored = test
+        .get_blocks(&BlockFilter::board(&board_id))
         .await
-        .expect_err("the board is gone");
+        .expect("the blocks are read");
+    let mut parents: Vec<(&str, &str)> = stored
+        .iter()
+        .map(|block| (block.id.as_str(), block.parent_id.as_str()))
+        .collect();
+    parents.sort_unstable();
+    let mut expected = [
+        (card_id.as_str(), ""),
+        (text_id.as_str(), card_id.as_str()),
+        (checkbox_id.as_str(), text_id.as_str()),
+    ];
+    expected.sort_unstable();
+    assert_eq!(parents, expected, "each block is on its parent");
+
+    test.teardown().await;
+}
+
+/// A block may be older than the block it is on: one that was moved there. The copies
+/// must be stored parent first all the same.
+#[tokio::test]
+async fn duplicate_board_copies_a_block_that_is_older_than_its_parent() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let user_id = common::user(&test, "user").await;
+
+    let board_id = insert_new_board(&test, &team_id, &user_id).await;
+    let text_id = insert_new_block(&test, &board_id, &user_id).await;
+    let card_id = insert_new_block(&test, &board_id, &user_id).await;
+    let onto_the_card = BlockPatch {
+        parent_id: Some(card_id.clone()),
+        ..BlockPatch::default()
+    };
+    test.patch_block(&text_id, &onto_the_card, &user_id)
+        .await
+        .expect("the text is moved onto the card");
+    let source = test
+        .get_blocks(&BlockFilter::board(&board_id))
+        .await
+        .expect("the blocks are read");
+    assert_eq!(
+        source.iter().map(|block| &block.id).collect::<Vec<_>>(),
+        [&text_id, &card_id],
+        "the board lists the text before the card it is on"
+    );
+
+    let (copy, _) = test
+        .duplicate_board(&board_id, &user_id, None, DuplicateAs::Copy)
+        .await
+        .expect("the board is duplicated");
+    let stored = test
+        .get_blocks(&BlockFilter::board(&copy.boards[0].id))
+        .await
+        .expect("the blocks of the copy are read");
+    assert_eq!(stored.len(), 2, "both blocks are copied: {stored:?}");
+    let card = stored
+        .iter()
+        .find(|block| block.parent_id.is_empty())
+        .expect("the copy of the card is directly on the board");
+    let paragraph = stored
+        .iter()
+        .find(|block| !block.parent_id.is_empty())
+        .expect("the copy of the text is on a block");
+    assert_eq!(paragraph.parent_id, card.id, "the text follows its card");
 
     test.teardown().await;
 }

@@ -6,7 +6,6 @@
 //! differ go through [`Dialect`].
 
 use std::fmt::Write as _;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fvoci_model::is_id;
@@ -33,43 +32,6 @@ pub(crate) fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     i64::try_from(since_epoch.as_millis()).unwrap_or(i64::MAX)
-}
-
-/// State shared by every operation of one store.
-#[derive(Debug)]
-pub(crate) struct Shared {
-    /// The last millisecond handed out by [`Shared::next_history_millis`].
-    last_history_millis: AtomicI64,
-}
-
-impl Shared {
-    pub(crate) fn new() -> Self {
-        Self {
-            last_history_millis: AtomicI64::new(0),
-        }
-    }
-
-    /// Returns a millisecond timestamp that is later than every one returned before.
-    ///
-    /// History tables are keyed by `(id, insert_at)` and SQLite's clock has millisecond
-    /// resolution, so two history rows for one record written within a millisecond would
-    /// collide. Handing out strictly increasing values rules that out within a process.
-    fn next_history_millis(&self) -> i64 {
-        let now = now_millis();
-        let mut last = self.last_history_millis.load(Ordering::Relaxed);
-        loop {
-            let next = now.max(last + 1);
-            match self.last_history_millis.compare_exchange_weak(
-                last,
-                next,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return next,
-                Err(current) => last = current,
-            }
-        }
-    }
 }
 
 /// A query parameter.
@@ -266,28 +228,6 @@ impl Sql {
         }
         self
     }
-
-    /// Appends the expression for the `insert_at` of a new history row.
-    pub(crate) fn bind_history_stamp(&mut self, stamp: HistoryStamp) -> &mut Self {
-        match stamp {
-            HistoryStamp::Millis(millis) => self
-                .push("STRFTIME('%Y-%m-%d %H:%M:%f', ")
-                .bind(millis)
-                .push(" / 1000.0, 'unixepoch')"),
-            HistoryStamp::DatabaseClock => self.push("clock_timestamp()"),
-        }
-    }
-}
-
-/// How the `insert_at` of a history row is produced; see [`Scope::history_stamp`].
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum HistoryStamp {
-    /// SQLite: a process-wide strictly increasing millisecond, formatted like the
-    /// column's default.
-    Millis(i64),
-    /// PostgreSQL: the wall clock at statement time, which has microsecond resolution and
-    /// unlike `now()` advances within a transaction.
-    DatabaseClock,
 }
 
 /// A borrowed connection to either database.
@@ -297,12 +237,11 @@ pub(crate) enum ConnRef<'c> {
     Postgres(&'c mut PgConnection),
 }
 
-/// One connection, or one transaction, together with the store-wide context that queries
-/// need. Every query of an operation runs through the same scope.
+/// One connection, or one transaction. Every query of an operation runs through the same
+/// scope.
 #[derive(Debug)]
 pub(crate) struct Scope<'c> {
     conn: ConnRef<'c>,
-    shared: &'c Shared,
 }
 
 /// Binds every parameter of `$sql` to `$query` for one database. `$id` turns an
@@ -333,8 +272,8 @@ fn postgres_id(uuid: Uuid) -> Uuid {
 }
 
 impl<'c> Scope<'c> {
-    pub(crate) fn new(conn: ConnRef<'c>, shared: &'c Shared) -> Self {
-        Self { conn, shared }
+    pub(crate) fn new(conn: ConnRef<'c>) -> Self {
+        Self { conn }
     }
 
     /// The dialect of the connected database.
@@ -352,14 +291,6 @@ impl<'c> Scope<'c> {
             text: text.to_owned(),
             params: Vec::new(),
             invalid_id: None,
-        }
-    }
-
-    /// Returns the `insert_at` source for one new history row.
-    pub(crate) fn history_stamp(&self) -> HistoryStamp {
-        match self.dialect() {
-            Dialect::Sqlite => HistoryStamp::Millis(self.shared.next_history_millis()),
-            Dialect::Postgres => HistoryStamp::DatabaseClock,
         }
     }
 

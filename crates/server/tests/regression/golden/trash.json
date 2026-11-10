@@ -1,0 +1,750 @@
+[
+  {
+    "name": "create board Trash",
+    "request": "POST /api/v2/boards as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "<id:3>",
+      "templateVersion": 0,
+      "title": "Trash",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "add editor",
+    "request": "POST /api/v2/boards/<id:2>/members as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": true,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:4>"
+    }
+  },
+  {
+    "name": "add viewer",
+    "request": "POST /api/v2/boards/<id:2>/members as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": false,
+      "schemeViewer": true,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "insert a card and a view",
+    "request": "POST /api/v2/boards/<id:2>/blocks as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "viewType": "board"
+        },
+        "id": "<id:6>",
+        "modifiedBy": "<id:1>",
+        "parentId": "",
+        "schema": 1,
+        "title": "View",
+        "type": "view",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:7>",
+        "modifiedBy": "<id:1>",
+        "parentId": "",
+        "schema": 1,
+        "title": "Card",
+        "type": "card",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "insert a comment and a text on the card",
+    "request": "POST /api/v2/boards/<id:2>/blocks as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Comment",
+        "type": "comment",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:9>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Text",
+        "type": "text",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "insert a block below the comment",
+    "request": "POST /api/v2/boards/<id:2>/blocks as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:10>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:8>",
+        "schema": 1,
+        "title": "Below the comment",
+        "type": "text",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "subscribe to the card",
+    "request": "POST /api/v2/subscriptions as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "blockId": "<id:7>",
+      "blockType": "card",
+      "createAt": "<ts>",
+      "deleteAt": 0,
+      "notifiedAt": "<ts>",
+      "subscriberId": "<id:1>",
+      "subscriberType": "user"
+    }
+  },
+  {
+    "name": "delete the card",
+    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:7> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "blocks: the card took everything below it",
+    "request": "GET /api/v2/boards/<id:2>/blocks as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "viewType": "board"
+        },
+        "id": "<id:6>",
+        "modifiedBy": "<id:1>",
+        "parentId": "",
+        "schema": 1,
+        "title": "View",
+        "type": "view",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "subscriptions: ended with the card",
+    "request": "GET /api/v2/subscriptions/<id:1> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "undelete: viewer",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-carol",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "access denied to make board changes",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete: non-member",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-dave",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete: unknown block",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:11>/undelete as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete: a block that is not deleted",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:6>/undelete as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete: a child brings back the whole deletion",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:10>/undelete as trash-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "fields": {},
+      "id": "<id:10>",
+      "modifiedBy": "<id:4>",
+      "parentId": "<id:8>",
+      "schema": 1,
+      "title": "Below the comment",
+      "type": "text",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "blocks: all back, with their parents",
+    "request": "GET /api/v2/boards/<id:2>/blocks as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "viewType": "board"
+        },
+        "id": "<id:6>",
+        "modifiedBy": "<id:1>",
+        "parentId": "",
+        "schema": 1,
+        "title": "View",
+        "type": "view",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:7>",
+        "modifiedBy": "<id:4>",
+        "parentId": "",
+        "schema": 1,
+        "title": "Card",
+        "type": "card",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:10>",
+        "modifiedBy": "<id:4>",
+        "parentId": "<id:8>",
+        "schema": 1,
+        "title": "Below the comment",
+        "type": "text",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:4>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Comment",
+        "type": "comment",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:9>",
+        "modifiedBy": "<id:4>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Text",
+        "type": "text",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "undelete: again",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "subscriptions: not back with the card",
+    "request": "GET /api/v2/subscriptions/<id:1> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "delete the text",
+    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:9> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "delete the card again",
+    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:7> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "undelete the text: its card is in the trash",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:9>/undelete as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete the card",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "fields": {},
+      "id": "<id:7>",
+      "modifiedBy": "<id:1>",
+      "parentId": "",
+      "schema": 1,
+      "title": "Card",
+      "type": "card",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "blocks on the card: the text is still deleted",
+    "request": "GET /api/v2/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Comment",
+        "type": "comment",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "undelete the text",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:9>/undelete as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "fields": {},
+      "id": "<id:9>",
+      "modifiedBy": "<id:1>",
+      "parentId": "<id:7>",
+      "schema": 1,
+      "title": "Text",
+      "type": "text",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "blocks on the card: the text is back",
+    "request": "GET /api/v2/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Comment",
+        "type": "comment",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:9>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Text",
+        "type": "text",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "delete the view on its own",
+    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:6> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "delete the board",
+    "request": "DELETE /api/v2/boards/<id:2> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "board: gone",
+    "request": "GET /api/v2/boards/<id:2> as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "members: gone with the board",
+    "request": "GET /api/v2/boards/<id:2>/members as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "memberships of a member: none of the board",
+    "request": "GET /api/v2/users/me/memberships as trash-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "boards of the team: not listed",
+    "request": "GET /api/v2/teams/<id:3>/boards as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "undelete a block of the deleted board",
+    "request": "POST /api/v2/boards/<id:2>/blocks/<id:7>/undelete as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete the board: viewer",
+    "request": "POST /api/v2/boards/<id:2>/undelete as trash-carol",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "access denied to undelete board",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete the board: editor",
+    "request": "POST /api/v2/boards/<id:2>/undelete as trash-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "access denied to undelete board",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete the board: never a member",
+    "request": "POST /api/v2/boards/<id:2>/undelete as trash-dave",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete: unknown board",
+    "request": "POST /api/v2/boards/<id:11>/undelete as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "undelete the board",
+    "request": "POST /api/v2/boards/<id:2>/undelete as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "board: back",
+    "request": "GET /api/v2/boards/<id:2> as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "<id:3>",
+      "templateVersion": 0,
+      "title": "Trash",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "members: back with their roles",
+    "request": "GET /api/v2/boards/<id:2>/members as trash-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": false,
+        "schemeViewer": true,
+        "synthetic": false,
+        "userId": "<id:5>"
+      },
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:4>"
+      },
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": true,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:1>"
+      }
+    ]
+  },
+  {
+    "name": "blocks: back, but for the view deleted before",
+    "request": "GET /api/v2/boards/<id:2>/blocks as trash-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:7>",
+        "modifiedBy": "<id:1>",
+        "parentId": "",
+        "schema": 1,
+        "title": "Card",
+        "type": "card",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:10>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:8>",
+        "schema": 1,
+        "title": "Below the comment",
+        "type": "text",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Comment",
+        "type": "comment",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:9>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:7>",
+        "schema": 1,
+        "title": "Text",
+        "type": "text",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "undelete the board: again",
+    "request": "POST /api/v2/boards/<id:2>/undelete as trash-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
+    }
+  }
+]

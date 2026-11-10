@@ -8,7 +8,7 @@
       "blocks": [
         {
           "boardId": "<id:1>",
-          "createAt": 1,
+          "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
           "fields": {},
@@ -22,7 +22,7 @@
         },
         {
           "boardId": "<id:4>",
-          "createAt": 1,
+          "createAt": "<ts>",
           "createdBy": "<id:2>",
           "deleteAt": 0,
           "fields": {},
