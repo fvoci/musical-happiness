@@ -1,0 +1,62 @@
+{
+  "cloud-limits": {
+    "why": "Card and view limits of the hosted plans and the prompts to upgrade: not ported.",
+    "ids": [
+      "CardDetail.limited-body",
+      "CardDetail.limited-button",
+      "CardDetail.limited-title",
+      "CardDetial.limited-link",
+      "ViewLimitDialog.notifyAdmin.Success",
+      "limitedCard.title",
+      "notification-box-card-limit-reached.close-tooltip",
+      "notification-box-card-limit-reached.contact-link",
+      "notification-box-card-limit-reached.link",
+      "notification-box-card-limit-reached.title",
+      "notification-box-cards-hidden.title",
+      "notification-box.card-limit-reached.not-admin.text",
+      "notification-box.card-limit-reached.text"
+    ]
+  },
+  "channel-link": {
+    "why": "Linking a board to a chat channel, a remnant of the plugin mode: not ported.",
+    "ids": [
+      "shareBoard.confirm-link-channel",
+      "shareBoard.confirm-link-channel-button",
+      "shareBoard.confirm-link-channel-button-with-other-channel",
+      "shareBoard.confirm-link-channel-subtext",
+      "shareBoard.confirm-link-channel-subtext-with-other-channel"
+    ]
+  },
+  "welcome-page": {
+    "why": "The welcome page, which no route of the original leads to: not ported.",
+    "ids": [
+      "WelcomePage.Description",
+      "WelcomePage.Explore.Button",
+      "WelcomePage.Heading",
+      "WelcomePage.NoThanks.Text",
+      "WelcomePage.StartUsingIt.Text"
+    ]
+  },
+  "outside-link": {
+    "why": "The label of something that only opens a page of an outside site.",
+    "ids": [
+      "Sidebar.about",
+      "SidebarTour.SidebarCategories.Link",
+      "TopBar.give-feedback",
+      "VersionMessage.help",
+      "VersionMessage.learn-more"
+    ]
+  },
+  "guest-accounts": {
+    "why": "Guest accounts, an account kind of the old company's product that the server design does not mention. Left out by the product owner's decision.",
+    "ids": ["badge.guest", "guest-no-board.subtitle", "guest-no-board.title"]
+  },
+  "old-notice": {
+    "why": "A notice about the state of the old product (mobile web in early beta). Left out by the product owner's decision.",
+    "ids": ["Error.mobileweb"]
+  },
+  "upgrade-tour-step": {
+    "why": "The tour step that explains what the 7.2 upgrade of the old product did to the sidebar and its workspaces. Left out by the product owner's decision.",
+    "ids": ["SidebarTour.SidebarCategories.Body", "SidebarTour.SidebarCategories.Title"]
+  }
+}

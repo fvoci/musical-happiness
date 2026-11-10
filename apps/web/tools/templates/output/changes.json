@@ -1,0 +1,597 @@
+{
+  "changes": [
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Horizontal scroll issue",
+      "field": "body",
+      "rule": "old-name",
+      "before": "Edition: [e.g. Personal Desktop / Personal Server / {old company name} plugin]",
+      "after": "Edition: [e.g. Personal Desktop / Personal Server / fvoci plugin]"
+    },
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Login screen not loading",
+      "field": "body",
+      "rule": "old-name",
+      "before": "Edition: [e.g. Personal Desktop / Personal Server / {old company name} plugin]",
+      "after": "Edition: [e.g. Personal Desktop / Personal Server / fvoci plugin]"
+    },
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Move cards across boards",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Cross-team collaboration",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Bug",
+      "field": "body",
+      "rule": "old-name",
+      "before": "Edition: [e.g. Personal Desktop / Personal Server / {old company name} plugin]",
+      "after": "Edition: [e.g. Personal Desktop / Personal Server / fvoci plugin]"
+    },
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Standard properties",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Epic",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "sprint-planner",
+      "part": "card",
+      "title": "Global templates",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "user-research-sessions",
+      "part": "card",
+      "title": "Frank Nash",
+      "field": "value of \"Recording URL\"",
+      "rule": "example-link-value",
+      "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
+    },
+    {
+      "template": "user-research-sessions",
+      "part": "card",
+      "title": "Richard Parsons",
+      "field": "value of \"Recording URL\"",
+      "rule": "example-link-value",
+      "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
+    },
+    {
+      "template": "user-research-sessions",
+      "part": "card",
+      "title": "Claire Hart",
+      "field": "value of \"Recording URL\"",
+      "rule": "example-link-value",
+      "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
+    },
+    {
+      "template": "user-research-sessions",
+      "part": "card",
+      "title": "Olivia Alsop",
+      "field": "value of \"Recording URL\"",
+      "rule": "example-link-value",
+      "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
+    },
+    {
+      "template": "competitive-analysis",
+      "part": "card",
+      "title": "Liminary Corp.",
+      "field": "value of \"Website\"",
+      "rule": "example-link-value",
+      "before": "liminarycorp.com",
+      "after": "https://liminarycorp.example.com"
+    },
+    {
+      "template": "competitive-analysis",
+      "part": "card",
+      "title": "Helx Industries",
+      "field": "value of \"Website\"",
+      "rule": "example-link-value",
+      "before": "helxindustries.com",
+      "after": "https://helxindustries.example.com"
+    },
+    {
+      "template": "competitive-analysis",
+      "part": "card",
+      "title": "Kadera Global",
+      "field": "value of \"Website\"",
+      "rule": "example-link-value",
+      "before": "kaderaglobal.com",
+      "after": "https://kaderaglobal.example.com"
+    },
+    {
+      "template": "competitive-analysis",
+      "part": "card",
+      "title": "Ositions Inc.",
+      "field": "value of \"Website\"",
+      "rule": "example-link-value",
+      "before": "ositionsinc.com",
+      "after": "https://ositionsinc.example.com"
+    },
+    {
+      "template": "competitive-analysis",
+      "part": "card",
+      "title": "Afformance Ltd.",
+      "field": "value of \"Website\"",
+      "rule": "example-link-value",
+      "before": "afformanceltd.com",
+      "after": "https://afformanceltd.example.com"
+    },
+    {
+      "template": "content-calendar",
+      "part": "card",
+      "title": "New Project and Workflow Management Solutions for Developers",
+      "field": "value of \"Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/newsroom/press-releases/{old company name}-launches-new-project-and-workflow-management-solutions-for-developers/",
+      "after": ""
+    },
+    {
+      "template": "content-calendar",
+      "part": "card",
+      "title": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci",
+      "field": "title",
+      "rule": "old-name",
+      "before": "[Tweet] {old company name} v6.1 includes card @-mention notifications in Boards",
+      "after": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci"
+    },
+    {
+      "template": "content-calendar",
+      "part": "card",
+      "title": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci",
+      "field": "title",
+      "rule": "product-word",
+      "before": "[Tweet] {old company name} v6.1 includes card @-mention notifications in Boards",
+      "after": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci"
+    },
+    {
+      "template": "content-calendar",
+      "part": "card",
+      "title": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci",
+      "field": "value of \"Link\"",
+      "rule": "outside-link-value",
+      "before": "https://twitter.com/{old company name}/status/1463145633162969097?s=20",
+      "after": ""
+    },
+    {
+      "template": "content-calendar",
+      "part": "card",
+      "title": "Top 10 Must-Have DevOps Tools in 2021",
+      "field": "value of \"Link\"",
+      "rule": "example-link-value",
+      "before": "https://www.toolbox.com/tech/devops/articles/best-devops-tools/",
+      "after": "https://toolbox.example.com/tech/devops/articles/best-devops-tools/"
+    },
+    {
+      "template": "content-calendar",
+      "part": "card",
+      "title": "Unblocking Workflows: The Guide to Developer Productivity",
+      "field": "value of \"Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/newsroom/press-releases/{old company name}-unveils-definitive-report-on-the-state-of-developer-productivity-unblocking-workflows-the-guide-to-developer-productivity-2022-edition/",
+      "after": ""
+    },
+    {
+      "template": "roadmap",
+      "part": "card",
+      "title": "App crashing",
+      "field": "body",
+      "rule": "old-name",
+      "before": "Edition: [e.g. Personal Desktop / Personal Server / {old company name} plugin]",
+      "after": "Edition: [e.g. Personal Desktop / Personal Server / fvoci plugin]"
+    },
+    {
+      "template": "roadmap",
+      "part": "card",
+      "title": "Calendar view",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "roadmap",
+      "part": "card",
+      "title": "Standard templates",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "roadmap",
+      "part": "card",
+      "title": "Import / Export",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "roadmap",
+      "part": "card",
+      "title": "Review API design",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "roadmap",
+      "part": "card",
+      "title": "Icons don't display",
+      "field": "value of \"Design Link\"",
+      "rule": "outside-link-value",
+      "before": "https://{old company name}.com/boards/",
+      "after": ""
+    },
+    {
+      "template": "roadmap",
+      "part": "card",
+      "title": "Icons don't display",
+      "field": "body",
+      "rule": "old-name",
+      "before": "Edition: [e.g. Personal Desktop / Personal Server / {old company name} plugin]",
+      "after": "Edition: [e.g. Personal Desktop / Personal Server / fvoci plugin]"
+    },
+    {
+      "template": "welcome",
+      "part": "board",
+      "title": "Welcome to fvoci!",
+      "field": "title",
+      "rule": "product-word",
+      "before": "Welcome to Boards!",
+      "after": "Welcome to fvoci!"
+    },
+    {
+      "template": "welcome",
+      "part": "board",
+      "title": "Welcome to fvoci!",
+      "field": "description",
+      "rule": "old-name",
+      "before": "{old company name} Boards is an open source project management tool that helps you organize, track, and manage work across teams. Select a card to learn more.",
+      "after": "fvoci is an open source project management tool that helps you organize, track, and manage work across teams. Select a card to learn more."
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Drag cards",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/working-with-boards.html#dragging-cards",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Drag cards",
+      "field": "body",
+      "rule": "old-name",
+      "before": "{old company name} Boards makes it easy for you to update certain properties on cards through our drag and drop functionality. Simply drag this card from the Later column to the Completed column to automatically update the status and mark this task as complete.",
+      "after": "fvoci makes it easy for you to update certain properties on cards through our drag and drop functionality. Simply drag this card from the Later column to the Completed column to automatically update the status and mark this task as complete."
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Manage tasks with cards",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/work-with-cards.html",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Create your own board",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/working-with-boards.html#adding-new-boards",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Share a board",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/sharing-boards.html",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Create a new card",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/working-with-boards.html#adding-cards",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Create a new card",
+      "field": "body",
+      "rule": "old-name",
+      "before": "{old company name} Boards helps you manage and track all your project tasks with Cards.",
+      "after": "fvoci helps you manage and track all your project tasks with Cards."
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Share cards on Channels",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/work-with-cards.html#share-card-previews",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Share cards on Channels",
+      "field": "body",
+      "rule": "product-word",
+      "before": "Cards can be linked and shared with teammates directly on Channels. Card previews are displayed when shared on Channels, so your team can discuss work items and get the relevant context without having to switch over to Boards.",
+      "after": "Cards can be linked and shared with teammates directly on Channels. Card previews are displayed when shared on Channels, so your team can discuss work items and get the relevant context without having to switch over to fvoci."
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Share cards on Channels",
+      "field": "body",
+      "rule": "product-word",
+      "before": "After you've copied the link, paste it into any channel or Direct Message to share the card. A preview of the card will display within the channel with a link back to the card on Boards.",
+      "after": "After you've copied the link, paste it into any channel or Direct Message to share the card. A preview of the card will display within the channel with a link back to the card on fvoci."
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Create a new view",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/working-with-boards.html#adding-new-views",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Add new properties",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/work-with-cards.html#add-and-manage-properties",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "Add new properties",
+      "field": "body",
+      "rule": "product-word",
+      "before": "Customize cards to fit your needs and track the information most important to you. Boards supports a wide range of fully customizable property types. For example, you can:",
+      "after": "Customize cards to fit your needs and track the information most important to you. fvoci supports a wide range of fully customizable property types. For example, you can:"
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "@mention teammates",
+      "field": "value of \"Reference\"",
+      "rule": "outside-link-value",
+      "before": "https://docs.{old company name}.com/boards/work-with-cards.html#mention-people",
+      "after": ""
+    },
+    {
+      "template": "welcome",
+      "part": "card",
+      "title": "@mention teammates",
+      "field": "body",
+      "rule": "outside-link",
+      "before": "To mention a teammate use the @ symbol with their username in the comments or description section. They'll get a Direct Message notification via Channels and also be added as a [follower](https://docs.{old company name}.com/boards/work-with-cards.html#receive-updates) to the card. ",
+      "after": "To mention a teammate use the @ symbol with their username in the comments or description section."
+    }
+  ],
+  "reviewNotes": [
+    {
+      "template": "sales-pipeline-crm",
+      "kind": "example-email",
+      "where": "Jonathan Frazier / value of \"Email\"",
+      "text": "jonathan.frazier@email.com"
+    },
+    {
+      "template": "sales-pipeline-crm",
+      "kind": "example-email",
+      "where": "Richard Guzman / value of \"Email\"",
+      "text": "richard.guzman@email.com"
+    },
+    {
+      "template": "sales-pipeline-crm",
+      "kind": "example-email",
+      "where": "Byron Cole / value of \"Email\"",
+      "text": "byron.cole@email.com"
+    },
+    {
+      "template": "sales-pipeline-crm",
+      "kind": "example-email",
+      "where": "Caitlyn Russel / value of \"Email\"",
+      "text": "caitlyn.russel@email.com"
+    },
+    {
+      "template": "sales-pipeline-crm",
+      "kind": "example-email",
+      "where": "Shelby Olson / value of \"Email\"",
+      "text": "shelby.olson@email.com"
+    },
+    {
+      "template": "personal-tasks",
+      "kind": "image",
+      "where": "Go for a walk / body",
+      "text": "76fwrj36hptg6dywka4k5mt3sph.png"
+    },
+    {
+      "template": "sprint-planner",
+      "kind": "image",
+      "where": "Horizontal scroll issue / body",
+      "text": "7tmfu5iqju3n1mdfwi5gru89qmw.png"
+    },
+    {
+      "template": "sprint-planner",
+      "kind": "image",
+      "where": "Login screen not loading / body",
+      "text": "7b9xk9boj3fbqfm3umeaaizp8qr.png"
+    },
+    {
+      "template": "sprint-planner",
+      "kind": "image",
+      "where": "Bug / body",
+      "text": "7tmfu5iqju3n1mdfwi5gru89qmw.png"
+    },
+    {
+      "template": "user-research-sessions",
+      "kind": "example-email",
+      "where": "Frank Nash / value of \"Email\"",
+      "text": "frank.nash@email.com"
+    },
+    {
+      "template": "user-research-sessions",
+      "kind": "example-email",
+      "where": "Richard Parsons / value of \"Email\"",
+      "text": "richard.parsons@email.com"
+    },
+    {
+      "template": "user-research-sessions",
+      "kind": "example-email",
+      "where": "Claire Hart / value of \"Email\"",
+      "text": "claire.hart@email.com"
+    },
+    {
+      "template": "user-research-sessions",
+      "kind": "example-email",
+      "where": "Olivia Alsop / value of \"Email\"",
+      "text": "olivia.alsop@email.com"
+    },
+    {
+      "template": "user-research-sessions",
+      "kind": "example-email",
+      "where": "Bernadette Powell / value of \"Email\"",
+      "text": "bernadette.powell@email.com"
+    },
+    {
+      "template": "content-calendar",
+      "kind": "image",
+      "where": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci / body",
+      "text": "7y5kr8x8ybpnwdykjfuz57rggrh.png"
+    },
+    {
+      "template": "roadmap",
+      "kind": "image",
+      "where": "App crashing / body",
+      "text": "77pe9r4ckbin438ph3f18bpatua.png"
+    },
+    {
+      "template": "roadmap",
+      "kind": "image",
+      "where": "Icons don't display / body",
+      "text": "7pbp4qg415pbstc6enzeicnu3qh.png"
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "Create your own board / body",
+      "text": "74uia99m9btr8peydw7oexn37tw.gif"
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "Share a board / body",
+      "text": "7knxbyuiedtdafcgmropgkrtybr.gif"
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "Create a new card / body",
+      "text": "7iw4rxx7jj7bypmdotd9z469cyh.png"
+    },
+    {
+      "template": "welcome",
+      "kind": "other-product",
+      "where": "Share cards on Channels / body",
+      "text": "Cards can be linked and shared with teammates directly on Channels. Card previews are displayed when shared on Channels, so your team can discuss work items and get the relevant context without having to switch over to fvoci."
+    },
+    {
+      "template": "welcome",
+      "kind": "other-product",
+      "where": "Share cards on Channels / body",
+      "text": "After you've copied the link, paste it into any channel or Direct Message to share the card. A preview of the card will display within the channel with a link back to the card on fvoci."
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "Share cards on Channels / body",
+      "text": "7ek6wbpp19jfoujs1goh6kttbby.gif"
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "Filter and sort cards / body",
+      "text": "7dybb6t8fj3nrdft7nerhuf784y.png"
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "Create a new view / body",
+      "text": "78jws5m1myf8pufewzkaa6i11sc.gif"
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "Add new properties / body",
+      "text": "7d6hrtig3zt8f9cnbo1um5oxx3y.gif"
+    },
+    {
+      "template": "welcome",
+      "kind": "other-product",
+      "where": "@mention teammates / body",
+      "text": "Whenever any changes are made to the card, they'll automatically get notified on Channels."
+    },
+    {
+      "template": "welcome",
+      "kind": "image",
+      "where": "@mention teammates / body",
+      "text": "74nt9eqzea3ydjjpgjtsxcjgrxc.gif"
+    }
+  ]
+}

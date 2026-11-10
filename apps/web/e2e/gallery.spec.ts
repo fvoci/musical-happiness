@@ -1,0 +1,137 @@
+/**
+ * The gallery view on the in-memory backend: the cards of the view as a
+ * grid whose number of columns follows the width it has, opening and making
+ * cards, and the menu of a card.
+ */
+import { expect, test, type Page } from '@playwright/test';
+
+import { boardPage, card, choose, dialog, fitPane, openView, undo } from './kanban.support.ts';
+
+const WELCOME = ['Welcome to fvoci!', 'Preview: Gallery View'] as const;
+
+const cards = (page: Page) => page.getByTestId('gallery-grid').locator('[data-card]');
+
+/** The titles of the cards, in the order of the document. */
+async function titles(page: Page): Promise<string[]> {
+  return page
+    .getByTestId('gallery-grid')
+    .locator('[data-slot="card-title-text"]')
+    .evaluateAll((all) => all.map((element) => element.textContent.trim()));
+}
+
+/** How many cards stand side by side: the number of different left edges. */
+async function columns(page: Page): Promise<number> {
+  const lefts = await cards(page).evaluateAll((all) =>
+    all.map((element) => Math.round(element.getBoundingClientRect().left)),
+  );
+  return new Set(lefts).size;
+}
+
+test('the cards of the view stand in a grid, in the order of the view', async ({ page }, info) => {
+  await openView(page, info, ...WELCOME);
+  await expect(cards(page)).toHaveCount(10);
+  const expected = await page.evaluate(() => {
+    const { workspace } = (
+      window as unknown as {
+        fvociDev: {
+          workspace: {
+            board: { view(id: string): object; cardsOf(view: object): { title: string }[] };
+          };
+        };
+      }
+    ).fvociDev;
+    const id = location.pathname.split('/')[3] ?? '';
+    return workspace.board.cardsOf(workspace.board.view(id)).map((shown) => shown.title);
+  });
+  expect(await titles(page)).toEqual(expected);
+  // Every card of the seed has a body, and the face says so.
+  await expect(cards(page).first().locator('[data-slot="card-has-body"]')).toBeAttached();
+  // No card is wider than the grid, and none is cut off.
+  const widths = await page.getByTestId('gallery').evaluate((element) => ({
+    scroll: element.scrollWidth,
+    client: element.clientWidth,
+  }));
+  expect(widths.scroll).toBe(widths.client);
+});
+
+test('the number of columns follows the width of the gallery', async ({ page }, info) => {
+  await openView(page, info, ...WELCOME);
+  // A card is at least 224 pixels wide; 12 between cards and at the sides.
+  await fitPane(page, 300);
+  expect(await columns(page)).toBe(1);
+  await fitPane(page, 412);
+  expect(await columns(page)).toBe(1);
+  await fitPane(page, 520);
+  expect(await columns(page)).toBe(2);
+  await fitPane(page, 760);
+  expect(await columns(page)).toBe(3);
+  // Narrower than a card: the card takes the width there is.
+  await fitPane(page, 200);
+  expect(await columns(page)).toBe(1);
+  const box = await cards(page).first().boundingBox();
+  expect(box?.width).toBe(200 - 24);
+});
+
+test('a press on a card opens it, and so does Enter', async ({ page }, info) => {
+  await openView(page, info, ...WELCOME);
+  await card(page, 'Drag cards').click();
+  await expect(dialog(page)).toContainText('Drag cards');
+  await expect(page).toHaveURL(/\/board\/[^/]+\/[^/]+\/[^/]+$/);
+  await page.goBack();
+  await expect(dialog(page)).toBeHidden();
+  await card(page, 'Share a board').focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog(page)).toContainText('Share a board');
+});
+
+test('"+ New" makes a card and opens it', async ({ page }, info) => {
+  await openView(page, info, ...WELCOME);
+  await page.getByTestId('gallery-new').click();
+  await expect(dialog(page)).toBeVisible();
+  await page.goBack();
+  await expect(dialog(page)).toBeHidden();
+  await expect(cards(page)).toHaveCount(11);
+  await undo(page);
+  await expect(cards(page)).toHaveCount(10);
+});
+
+test('the menu of a card duplicates and deletes it, and has nothing about columns', async ({
+  page,
+}, info) => {
+  await openView(page, info, ...WELCOME);
+  await page.getByRole('button', { name: 'Card menu: Drag cards' }).click();
+  await expect(page.locator('[data-action]')).toHaveCount(3);
+  await expect(page.locator('[data-action="move"]')).toHaveCount(0);
+  await expect(page.locator('[data-action="select"]')).toHaveCount(0);
+  await choose(page, 'duplicate');
+  await expect(card(page, 'Drag cards')).toHaveCount(2);
+  await expect(cards(page)).toHaveCount(11);
+
+  await page.getByRole('button', { name: 'Card menu: Share a board' }).click();
+  await choose(page, 'delete');
+  await expect(card(page, 'Share a board')).toHaveCount(0);
+  await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
+  await undo(page);
+  await expect(card(page, 'Share a board')).toHaveCount(1);
+});
+
+test.describe('screens', () => {
+  test.skip(!process.env.FVOCI_SCREENS, 'pictures are taken only when asked for');
+
+  const STAGE: Record<string, string> = {
+    mobile: 'compact',
+    middle: 'medium',
+    desktop: 'expanded',
+  };
+
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`the gallery, ${scheme}`, async ({ page }, info) => {
+      const stage = STAGE[info.project.name] ?? 'expanded';
+      await page.emulateMedia({ colorScheme: scheme });
+      await openView(page, info, ...WELCOME);
+      await expect(boardPage(page)).toBeVisible();
+      await expect(cards(page)).toHaveCount(10);
+      await page.screenshot({ path: `docs/screens/gallery/gallery-${stage}-${scheme}.png` });
+    });
+  }
+});

@@ -1,0 +1,105 @@
+/*
+ * The app's style sheet, plus the classes this spike uses. The app's style
+ * sheet leaves the spikes folder out; naming the files brings these back in
+ * (naming the folder does not).
+ */
+@import '../../src/styles/app.css';
+@source './*.svelte';
+
+/*
+ * Where the layout changes. This is the only place the four widths are
+ * written; the classes use them as container variants (`@medium/app:`,
+ * `@columns/pane:`) and layout.svelte.ts reads the same variables for the
+ * few decisions a class cannot make.
+ *
+ * They are widths of a box, not of the screen. `app` is the page less the
+ * room the device keeps at its left and right edges; `pane` is what is left
+ * of that for the board once the sidebar and an open card have taken theirs.
+ *
+ * In rem, so that a reader who has set a larger text size moves to the
+ * roomier layout later: the same number of characters fits.
+ */
+@theme static {
+  /* app: 600px. From here a strip of the sidebar stays, a card is a panel, a menu a popover. */
+  --container-medium: 37.5rem;
+  /* app: 840px. From here the sidebar is fixed and a card is a dialog or a pane beside the board. */
+  --container-expanded: 52.5rem;
+  /* pane: 544px, two columns of 16rem and what is between them. */
+  --container-columns: 34rem;
+  /* pane: 992px, the whole header of a view in one row. */
+  --container-header: 62rem;
+  /* card: 576px. From here the names of the properties get a wider column. */
+  --container-card-roomy: 36rem;
+}
+
+/* The device can point without pressing: what appears on hover may wait for it. */
+@custom-variant can-hover (@media (hover: hover));
+
+:root {
+  /*
+   * Room the device takes at each edge of the screen (notch, home indicator,
+   * a camera or a hinge at one side) and the height of the on-screen
+   * keyboard. Everything pinned to an edge of the screen is placed with
+   * these. Left and right are two values: they differ on some devices, and
+   * neither ever stands in for the other.
+   */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --keyboard: 0px;
+
+  /* Fill of a select option or an avatar. Text on it is the foreground colour. */
+  --chip-gray: oklch(0.93 0 0);
+  --chip-blue: oklch(0.92 0.045 250);
+  --chip-green: oklch(0.92 0.06 155);
+  --chip-yellow: oklch(0.93 0.08 95);
+  --chip-orange: oklch(0.92 0.06 60);
+  --chip-red: oklch(0.91 0.055 20);
+  --chip-purple: oklch(0.92 0.05 305);
+}
+
+.dark {
+  --chip-gray: oklch(0.34 0 0);
+  --chip-blue: oklch(0.36 0.07 250);
+  --chip-green: oklch(0.36 0.06 155);
+  --chip-yellow: oklch(0.38 0.06 95);
+  --chip-orange: oklch(0.38 0.07 60);
+  --chip-red: oklch(0.37 0.08 20);
+  --chip-purple: oklch(0.36 0.08 305);
+}
+
+/*
+ * The page itself stays clear of the top, left and right; `app` is measured
+ * inside this. What is pinned to the bottom edge adds `--safe-bottom` itself,
+ * and what is drawn outside of this box (sheets, dialogs) uses the four
+ * values on its own.
+ */
+#app {
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+}
+
+/*
+ * A headless browser has neither a notch nor a keyboard. These stand in for
+ * them in a screenshot: `?safe=1` (a phone held upright), `?safe=right` (84
+ * pixels kept at the right edge only, as reported of the outer screen of one
+ * folding phone) and `?keyboard=1`.
+ */
+:root[data-fake-safe='notch'] {
+  --safe-top: 2.9375rem;
+  --safe-bottom: 2.125rem;
+}
+
+:root[data-fake-safe='right'] {
+  --safe-right: 84px;
+}
+
+:root[data-fake-keyboard] {
+  --keyboard: 18.5rem;
+  --safe-bottom: 0px;
+}
+
+/* A long press on a card starts a drag, not the callout of iOS. */
+[data-card] {
+  -webkit-touch-callout: none;
+}

@@ -1,0 +1,39 @@
+/**
+ * What screens use of the state: the stores, the model, and the errors.
+ *
+ * The implementations of the backend (`memory/`, later the one that calls
+ * the server) are not exported from here. Only `src/app/backend.ts` chooses
+ * one; a lint rule keeps every other file from importing them.
+ */
+export {
+  BackendError,
+  isBackendError,
+  isConflict,
+  type AccountSettings,
+  type AccountSettingsPatch,
+  type Attachment,
+  type Backend,
+  type BoardDraft,
+  type CardDetail,
+  type CardDraft,
+  type CardPatch,
+  type CardSummary,
+  type Category,
+  type Change,
+  type Comment,
+  type ErrorKind,
+  type Team,
+  type UploadedFile,
+  type User,
+  type ViewDraft,
+} from './backend.ts';
+export { BoardStore, newUndoGroup, type CardDrop } from './board.svelte.ts';
+export { CardStore, type BodyConflict, type Upload } from './card.svelte.ts';
+export { byCreation, byTitle, type SidebarCategory } from './order.ts';
+export {
+  Workspace,
+  type LoadStatus,
+  type Problem,
+  type ProblemAction,
+  type WorkspaceOptions,
+} from './workspace.svelte.ts';

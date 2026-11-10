@@ -1,0 +1,509 @@
+/*
+ * How a document body looks, in the editor and wherever a body is shown.
+ * Everything hangs on the `doc-body` class and uses the design tokens.
+ */
+.doc-body {
+  font-size: var(--text-base);
+  line-height: var(--line-body);
+  outline: none;
+  /*
+   * What the editor's own style sheet (below) sets on its root, said here
+   * too so that a body that is only shown gets it as well: spaces and line
+   * feeds stay as they were typed, and letters are not joined into ligatures
+   * (the editor needs that to place the cursor; the view needs it to break
+   * its lines where the editor does).
+   */
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
+}
+
+/*
+ * The editing library (Tiptap) can put a style sheet of its own into the
+ * page when an editor is made. The app's editor (BodyEditor.svelte) turns
+ * that off (`injectCSS: false`): a strict content security policy would
+ * block a style sheet added by script, and this file has to be the whole
+ * truth about how a body looks. What that sheet held is the next block,
+ * with the app's colours in place of its black.
+ *
+ * An editor made without that option (some tests make one) still injects
+ * the sheet, after this one. The doubled classes further down outrank its
+ * `.ProseMirror` and `.ProseMirror [contenteditable]` where the two would
+ * disagree, so a body looks the same either way.
+ */
+.ProseMirror {
+  position: relative;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
+}
+.ProseMirror [contenteditable='false'] {
+  white-space: normal;
+}
+.ProseMirror [contenteditable='false'] [contenteditable='true'] {
+  white-space: pre-wrap;
+}
+.ProseMirror pre {
+  white-space: pre-wrap;
+}
+/* An image without size that gives the cursor somewhere to be next to a node that is not text. */
+img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+/* The cursor between two blocks that take no text, such as two images. */
+.ProseMirror-gapcursor {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+  margin: 0;
+}
+.ProseMirror-gapcursor::after {
+  content: '';
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 1px solid var(--foreground);
+  animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
+}
+@keyframes ProseMirror-cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+.ProseMirror-focused .ProseMirror-gapcursor {
+  display: block;
+}
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+.ProseMirror-hideselection * {
+  caret-color: transparent;
+}
+
+.doc-body.doc-body {
+  overflow-wrap: anywhere;
+}
+
+.doc-body > * + * {
+  margin-top: 0.75em;
+}
+
+.doc-body h1,
+.doc-body h2,
+.doc-body h3 {
+  font-weight: 600;
+  line-height: 1.35;
+}
+.doc-body h1 {
+  font-size: var(--text-2xl);
+}
+.doc-body h2 {
+  font-size: var(--text-xl);
+}
+.doc-body h3 {
+  font-size: var(--text-lg);
+}
+
+.doc-body ul:not([data-type='taskList']) {
+  list-style: disc;
+  padding-inline-start: 1.5em;
+}
+.doc-body ol {
+  list-style: decimal;
+  padding-inline-start: 1.5em;
+}
+.doc-body li > * + * {
+  margin-top: 0.25em;
+}
+
+.doc-body ul[data-type='taskList'] {
+  list-style: none;
+  padding: 0;
+}
+.doc-body ul[data-type='taskList'] > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.doc-body ul[data-type='taskList'] > li > label {
+  /* Line the box up with the first line of text. */
+  margin-top: calc((var(--line-body) * 1em - 1em) / 2);
+  flex: none;
+}
+.doc-body ul[data-type='taskList'] > li > label input {
+  width: 1em;
+  height: 1em;
+  accent-color: var(--primary);
+}
+.doc-body ul[data-type='taskList'] > li > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-body blockquote {
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 1em;
+  color: var(--muted-foreground);
+}
+
+.doc-body code {
+  font-family: var(--font-mono-stack);
+  font-size: 0.9em;
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+}
+.doc-body pre {
+  font-family: var(--font-mono-stack);
+  background: var(--muted);
+  border-radius: var(--radius-md);
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  /* Long lines of code wrap, in the editor (its own style sheet says so) and here. */
+  white-space: pre-wrap;
+}
+.doc-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.doc-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin-block: 1.25em;
+}
+
+.doc-body a {
+  color: var(--ring);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.doc-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+/*
+ * An image whose file could not be resolved still takes up room and says so.
+ * Only an image of the document: the editor also places empty images without
+ * size next to mentions and line breaks, for its cursor.
+ */
+.doc-body img[data-file-id]:not([src]) {
+  display: block;
+  min-height: 4em;
+  background: var(--muted);
+  outline: 1px dashed var(--input-border);
+}
+.doc-body img.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+}
+
+.doc-body .mention {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.3em;
+  font-weight: 500;
+}
+/* A name stays on one line. Doubled to outrank the editor's own style sheet; see the top. */
+.doc-body .mention.mention {
+  white-space: nowrap;
+}
+
+.doc-body p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/*
+ * A formula. Until it is drawn, and when it cannot be, the element holds the
+ * LaTeX source, shown as code. Once drawn (`data-state='drawn'`) it holds what
+ * the formula library built, which takes the colour of the text around it.
+ */
+.doc-body .doc-math.doc-math {
+  /* The library's own layout does not expect the body's kept spaces. */
+  white-space: normal;
+}
+.doc-body .doc-math:not([data-state='drawn']) {
+  font-family: var(--font-mono-stack);
+  font-size: 0.9em;
+  background: var(--muted);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.3em;
+  white-space: pre-wrap;
+}
+.doc-body div.doc-math {
+  /* A wide formula scrolls inside its own line instead of widening the page. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.25em;
+}
+.doc-body div.doc-math[data-state='drawn'] {
+  text-align: center;
+}
+.doc-body .doc-math .katex-display {
+  margin: 0;
+}
+/*
+ * A formula in a line that is wider than the line (embeds.ts marks it): it
+ * scrolls inside itself, so that the page does not grow sideways. It then
+ * sits on the bottom of the line instead of the baseline, which is why this
+ * is not the rule for every formula.
+ */
+.doc-body span.doc-math[data-wide] {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: bottom;
+}
+.doc-body .doc-math.ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.ProseMirror[contenteditable='true'] .doc-math {
+  cursor: pointer;
+}
+
+/* What went wrong with a formula or a diagram, next to its source. */
+.doc-embed-problem {
+  color: var(--destructive);
+  font-family: var(--font-sans-stack);
+  font-size: var(--text-sm);
+}
+span.doc-embed-problem {
+  margin-inline-start: 0.5em;
+}
+.doc-embed-detail {
+  margin-top: 0.5em;
+  font-family: var(--font-mono-stack);
+  font-size: var(--text-xs);
+  color: var(--muted-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * A diagram: the picture drawn from a code block, right behind that block.
+ * Read-only, the block itself is hidden once the picture is there.
+ */
+.doc-body .doc-diagram {
+  overflow-x: auto;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75em;
+}
+.doc-body .doc-diagram:empty {
+  display: none;
+}
+.doc-body .doc-diagram svg {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+}
+.doc-body .doc-diagram[data-state='error'] {
+  text-align: start;
+}
+/* In the editor the picture belongs to the source above it. */
+.doc-body pre + .doc-diagram {
+  margin-top: 0.25em;
+}
+/*
+ * Where the diagram library draws before the picture is taken over: it has to
+ * be in the page to measure text, and must be neither seen nor in the way.
+ */
+.doc-diagram-stage {
+  position: fixed;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+  font-family: var(--font-sans-stack);
+  font-size: var(--text-base);
+}
+/*
+ * Nothing in it moves by a transition. The library places a node and measures
+ * the picture in the same breath. For a reader who asked for less motion the
+ * page shortens every transition to a moment instead of removing it
+ * (app.css), and for that moment a node just placed is still where it was:
+ * the picture was measured without it and came out cut off.
+ */
+.doc-diagram-stage,
+.doc-diagram-stage * {
+  transition: none !important;
+}
+
+/* Where an image that is still being uploaded will go. */
+.doc-body .doc-upload {
+  display: inline-block;
+  width: 6em;
+  height: 4em;
+  vertical-align: bottom;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+  outline: 1px dashed var(--input-border);
+  animation: doc-upload-pulse 1.2s ease-in-out infinite alternate;
+}
+@keyframes doc-upload-pulse {
+  to {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .doc-body .doc-upload {
+    animation: none;
+  }
+}
+
+/* The editor's frame: the caller's toolbar, the text, a line of status. */
+.doc-editor {
+  position: relative;
+}
+.doc-editor-status {
+  margin: 0;
+  padding: 0.25em 0.75em;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+/* Nothing to say: still in the page, for a screen reader to hear the next change. */
+.doc-editor-status:not([data-shown]) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.doc-editor[data-unreadable] .doc-editor-status {
+  color: var(--destructive);
+}
+
+/*
+ * The list of an autocomplete, under the cursor. In the page's top layer of
+ * ordinary content; the app's popovers use the same colours.
+ */
+.doc-suggestions {
+  position: fixed;
+  z-index: 50;
+  min-width: 10rem;
+  max-width: min(24rem, calc(100vw - 0.5rem));
+  max-height: min(18rem, 50vh);
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-size: var(--text-sm);
+  line-height: var(--line-ui);
+  box-shadow: 0 4px 12px color-mix(in oklab, var(--foreground) 15%, transparent);
+}
+.doc-suggestions [role='option'] {
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-suggestions [role='option'][aria-selected='true'] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* The box in which the source of a formula is written. */
+.doc-math-editing {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  gap: 0.5rem;
+  width: min(28rem, calc(100vw - 1rem));
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-size: var(--text-sm);
+  line-height: var(--line-ui);
+  box-shadow: 0 4px 12px color-mix(in oklab, var(--foreground) 15%, transparent);
+}
+.doc-math-editing textarea {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono-stack);
+  /* No smaller than this, or a phone zooms in when the field takes the focus. */
+  font-size: var(--text-base);
+  resize: vertical;
+}
+.doc-math-editing textarea:focus-visible,
+.doc-math-editing button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.doc-math-preview {
+  min-height: 1.5em;
+  max-height: 12rem;
+  overflow: auto;
+}
+.doc-math-preview:empty {
+  display: none;
+}
+.doc-math-hint {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+.doc-math-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.doc-math-buttons button {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.doc-math-buttons button[data-action='apply'] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+/* A finger needs more to press than a mouse pointer. */
+@media (pointer: coarse) {
+  .doc-math-buttons button,
+  .doc-suggestions [role='option'] {
+    min-height: var(--spacing-touch);
+  }
+  .doc-suggestions [role='option'] {
+    display: flex;
+    align-items: center;
+  }
+  .doc-math-editing textarea {
+    min-height: var(--spacing-touch);
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "BoardPage.newVersion": {
+    "was": "Er is een nieuwe versie van Boards, klik hier om te herladen.",
+    "now": "Er is een nieuwe versie van fvoci, klik hier om te herladen.",
+    "kind": ["name"]
+  },
+  "OnboardingTour.AddComments.Body": {
+    "was": "Je kunt commentaar geven op onderwerpen, en zelfs je medefvocigebruikers @vermelden om hun aandacht te trekken.",
+    "now": "Je kunt commentaar geven op onderwerpen, en zelfs andere fvoci-gebruikers @vermelden om hun aandacht te trekken.",
+    "kind": ["name"]
+  },
+  "OnboardingTour.OpenACard.Body": {
+    "was": "Open een kaart om de krachtige manieren te ontdekken waarop Boards je kunnen helpen je werk te organiseren.",
+    "now": "Open een kaart om de krachtige manieren te ontdekken waarop fvoci je kan helpen je werk te organiseren.",
+    "kind": ["name"]
+  },
+  "error.invalid-read-only-board": {
+    "was": "Je hebt geen toegang tot dit board. Meld je aan om toegang te krijgen tot Boards.",
+    "now": "Je hebt geen toegang tot dit board. Meld je aan om toegang te krijgen tot fvoci.",
+    "kind": ["name"]
+  },
+  "error.not-logged-in": {
+    "was": "Jouw sessie is misschien verlopen of je bent niet ingelogd. Meldt je opnieuw aan om toegang te krijgen tot Boards.",
+    "now": "Jouw sessie is misschien verlopen of je bent niet ingelogd. Meldt je opnieuw aan om toegang te krijgen tot fvoci.",
+    "kind": ["name"]
+  }
+}

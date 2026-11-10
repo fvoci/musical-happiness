@@ -1,0 +1,124 @@
+/**
+ * What the sidebar works out from the reader's categories: which boards a
+ * search leaves, the order of the categories after one moved a step, and
+ * where in a category a dropped board is filed.
+ */
+import type { Destination, ListOrder } from '$lib/logic/drop-target.ts';
+import { foldCase } from '$lib/logic/text.ts';
+import type { Category, SidebarCategory } from '$lib/state/index.ts';
+
+/**
+ * The sidebar with only the boards whose title has `query` in it, whatever
+ * the case. A category that is left without a board is left out. An empty
+ * query (or one of spaces) changes nothing.
+ */
+export function filterSidebar(
+  sidebar: readonly SidebarCategory[],
+  query: string,
+): readonly SidebarCategory[] {
+  const wanted = foldCase(query.trim());
+  if (wanted === '') return sidebar;
+  return sidebar
+    .map((entry) => ({
+      category: entry.category,
+      boards: entry.boards.filter((board) => foldCase(board.title).includes(wanted)),
+    }))
+    .filter((entry) => entry.boards.length > 0);
+}
+
+/**
+ * The order of the categories after `categoryId` moved one place up (`-1`)
+ * or down (`1`). Undefined when it is already at that end, or is not one of
+ * them.
+ */
+export function categoryOrderAfterStep(
+  categoryIds: readonly string[],
+  categoryId: string,
+  step: -1 | 1,
+): string[] | undefined {
+  const from = categoryIds.indexOf(categoryId);
+  const to = from + step;
+  if (from === -1 || to < 0 || to >= categoryIds.length) return undefined;
+  const next = [...categoryIds];
+  next.splice(from, 1);
+  next.splice(to, 0, categoryId);
+  return next;
+}
+
+/** The lists a board can be dragged within and between: the categories that are open. */
+export function dragOrder(sidebar: readonly SidebarCategory[]): ListOrder[] {
+  return sidebar
+    .filter((entry) => !entry.category.collapsed)
+    .map((entry) => ({ id: entry.category.id, items: entry.boards.map((board) => board.id) }));
+}
+
+/** The categories a board can only be dropped onto, not placed in: the folded ones. */
+export function dragZones(sidebar: readonly SidebarCategory[]): string[] {
+  return sidebar.filter((entry) => entry.category.collapsed).map((entry) => entry.category.id);
+}
+
+/**
+ * Where a board goes in the list a category keeps (`boardIds`) when it is
+ * put at `index` among the boards the category shows, both counted without
+ * the board itself.
+ *
+ * The two lists are not the same: a category may name boards that are not
+ * shown (deleted, hidden, no longer shared with the reader), and the default
+ * category also shows boards that nobody filed. So the place is given by the
+ * board that will follow: the dropped board goes right before it. Before a
+ * board the category does not name, or after the last one, it goes to the end.
+ */
+export function filedIndex(
+  category: Pick<Category, 'boardIds'>,
+  shown: readonly string[],
+  boardId: string,
+  index: number,
+): number {
+  const filed = category.boardIds.filter((id) => id !== boardId);
+  const following = shown.filter((id) => id !== boardId)[index];
+  const at = following === undefined ? -1 : filed.indexOf(following);
+  return at === -1 ? filed.length : at;
+}
+
+export interface BoardMove {
+  boardId: string;
+  categoryId: string;
+  /** The place in the category's own list, as `Workspace.moveBoard` takes it. */
+  index: number;
+}
+
+/**
+ * What a drop of a board means: into an open category at a place, or onto a
+ * folded one, where it goes last. Undefined for a category that is gone.
+ */
+export function boardMoveOf(
+  to: Destination,
+  boardId: string,
+  sidebar: readonly SidebarCategory[],
+): BoardMove | undefined {
+  if (to.kind === 'zone') return moveToEnd(to.zoneId, boardId, sidebar);
+  if (to.kind === 'list') return moveToEnd(to.listId, boardId, sidebar);
+  const entry = sidebar.find((candidate) => candidate.category.id === to.listId);
+  if (!entry) return undefined;
+  const shown = entry.boards.map((board) => board.id);
+  return {
+    boardId,
+    categoryId: to.listId,
+    index: filedIndex(entry.category, shown, boardId, to.index),
+  };
+}
+
+/** Files a board last in a category: what the menu's "Move to" and a drop on a folded category do. */
+export function moveToEnd(
+  categoryId: string,
+  boardId: string,
+  sidebar: readonly SidebarCategory[],
+): BoardMove | undefined {
+  const entry = sidebar.find((candidate) => candidate.category.id === categoryId);
+  if (!entry) return undefined;
+  return {
+    boardId,
+    categoryId,
+    index: entry.category.boardIds.filter((id) => id !== boardId).length,
+  };
+}

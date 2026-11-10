@@ -1,0 +1,12 @@
+{
+  "BoardPage.newVersion": {
+    "was": "Eine neue Version von Boards ist verfügbar, klicke hier, um neu zu laden.",
+    "now": "Eine neue Version von fvoci ist verfügbar, klicke hier, um neu zu laden.",
+    "kind": ["name"]
+  },
+  "OnboardingTour.OpenACard.Body": {
+    "was": "Öffne eine Karte und entdecke die Möglichkeiten, die Boards bei der Organisation deiner Arbeit bietet.",
+    "now": "Öffne eine Karte und entdecke die Möglichkeiten, die fvoci bei der Organisation deiner Arbeit bietet.",
+    "kind": ["name"]
+  }
+}

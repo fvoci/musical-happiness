@@ -1,0 +1,955 @@
+{
+  "key": "content-calendar",
+  "onboarding": false,
+  "board": {
+    "id": "brs9cdimfw7fodyi7erqt747rhc",
+    "title": "Content Calendar",
+    "description": "Use this template to plan and organize your editorial content.",
+    "icon": "📅",
+    "showDescription": true,
+    "cardProperties": [
+      {
+        "id": "ae9ar615xoknd8hw8py7mbyr7zo",
+        "name": "Status",
+        "type": "select",
+        "options": [
+          {
+            "id": "awna1nuarjca99m9s4uiy9kwj5h",
+            "value": "Idea 💡",
+            "color": "propColorGray"
+          },
+          {
+            "id": "a9ana1e9w673o5cp8md4xjjwfto",
+            "value": "Draft",
+            "color": "propColorOrange"
+          },
+          {
+            "id": "apy9dcd7zmand615p3h53zjqxjh",
+            "value": "In Review",
+            "color": "propColorPurple"
+          },
+          {
+            "id": "acri4cm3bmay55f7ksztphmtnga",
+            "value": "Ready to Publish",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "amsowcd9a8e1kid317r7ttw6uzh",
+            "value": "Published 🎉",
+            "color": "propColorGreen"
+          }
+        ]
+      },
+      {
+        "id": "aysx3atqexotgwp5kx6h5i5ancw",
+        "name": "Type",
+        "type": "select",
+        "options": [
+          {
+            "id": "aywiofmmtd3ofgzj95ysky4pjga",
+            "value": "Press Release",
+            "color": "propColorOrange"
+          },
+          {
+            "id": "apqdgjrmsmx8ngmp7zst51647de",
+            "value": "Sponsored Post",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "a3woynbjnb7j16e74uw3pubrytw",
+            "value": "Customer Story",
+            "color": "propColorPurple"
+          },
+          {
+            "id": "aq36k5pkpfcypqb3idw36xdi1fh",
+            "value": "Product Release",
+            "color": "propColorRed"
+          },
+          {
+            "id": "azn66pmk34adygnizjqhgiac4ia",
+            "value": "Partnership",
+            "color": "propColorGray"
+          },
+          {
+            "id": "aj8y675weso8kpb6eceqbpj4ruw",
+            "value": "Feature Announcement",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "a3xky7ygn14osr1mokerbfah5cy",
+            "value": "Article",
+            "color": "propColorYellow"
+          }
+        ]
+      },
+      {
+        "id": "ab6mbock6styfe6htf815ph1mhw",
+        "name": "Channel",
+        "type": "multiSelect",
+        "options": [
+          {
+            "id": "a8xceonxiu4n3c43szhskqizicr",
+            "value": "Website",
+            "color": "propColorBrown"
+          },
+          {
+            "id": "a3pdzi53kpbd4okzdkz6khi87zo",
+            "value": "Blog",
+            "color": "propColorGreen"
+          },
+          {
+            "id": "a3d9ux4fmi3anyd11kyipfbhwde",
+            "value": "Email",
+            "color": "propColorOrange"
+          },
+          {
+            "id": "a8cbbfdwocx73zn3787cx6gacsh",
+            "value": "Podcast",
+            "color": "propColorRed"
+          },
+          {
+            "id": "aigjtpcaxdp7d6kmctrwo1ztaia",
+            "value": "Print",
+            "color": "propColorPink"
+          },
+          {
+            "id": "af1wsn13muho59e7ghwaogxy5ey",
+            "value": "Facebook",
+            "color": "propColorBlue"
+          },
+          {
+            "id": "a47zajfxwhsg6q8m7ppbiqs7jge",
+            "value": "LinkedIn",
+            "color": "propColorGray"
+          },
+          {
+            "id": "az8o8pfe9hq6s7xaehoqyc3wpyc",
+            "value": "Twitter",
+            "color": "propColorYellow"
+          }
+        ]
+      },
+      {
+        "id": "ao44fz8nf6z6tuj1x31t9yyehcc",
+        "name": "Assignee",
+        "type": "person",
+        "options": []
+      },
+      {
+        "id": "a39x5cybshwrbjpc3juaakcyj6e",
+        "name": "Due Date",
+        "type": "date",
+        "options": []
+      },
+      {
+        "id": "agqsoiipowmnu9rdwxm57zrehtr",
+        "name": "Publication Date",
+        "type": "date",
+        "options": []
+      },
+      {
+        "id": "ap4e7kdg7eip7j3c3oyiz39eaoc",
+        "name": "Link",
+        "type": "url",
+        "options": []
+      }
+    ]
+  },
+  "views": [
+    {
+      "id": "vaiuu5bg4ofdn8j4whttdgtus4w",
+      "type": "view",
+      "title": "By Status",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "board",
+        "visibleOptionIds": [
+          "awna1nuarjca99m9s4uiy9kwj5h",
+          "a9ana1e9w673o5cp8md4xjjwfto",
+          "apy9dcd7zmand615p3h53zjqxjh",
+          "acri4cm3bmay55f7ksztphmtnga",
+          "amsowcd9a8e1kid317r7ttw6uzh",
+          ""
+        ],
+        "visiblePropertyIds": [
+          "ab6mbock6styfe6htf815ph1mhw"
+        ]
+      }
+    },
+    {
+      "id": "vgbzazskupjrq7gnrwqqk51adsh",
+      "type": "view",
+      "title": "Due Date Calendar",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "dateDisplayPropertyId": "a39x5cybshwrbjpc3juaakcyj6e",
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "calendar",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "__title"
+        ]
+      }
+    },
+    {
+      "id": "vkk4dm1tnzb8fbmr5gxhibr63te",
+      "type": "view",
+      "title": "Publication Calendar",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {},
+        "dateDisplayPropertyId": "agqsoiipowmnu9rdwxm57zrehtr",
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [],
+        "viewType": "calendar",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "__title"
+        ]
+      }
+    },
+    {
+      "id": "vpsefkithi7gq3rfyignqxa9cze",
+      "type": "view",
+      "title": "Content List",
+      "fields": {
+        "cardOrder": [],
+        "collapsedOptionIds": [],
+        "columnCalculations": {},
+        "columnWidths": {
+          "__title": 322,
+          "ab6mbock6styfe6htf815ph1mhw": 229,
+          "aysx3atqexotgwp5kx6h5i5ancw": 208
+        },
+        "defaultTemplateId": "",
+        "filter": {
+          "filters": [],
+          "operation": "and"
+        },
+        "hiddenOptionIds": [],
+        "kanbanCalculations": {},
+        "sortOptions": [
+          {
+            "propertyId": "a39x5cybshwrbjpc3juaakcyj6e",
+            "reversed": false
+          }
+        ],
+        "viewType": "table",
+        "visibleOptionIds": [],
+        "visiblePropertyIds": [
+          "ae9ar615xoknd8hw8py7mbyr7zo",
+          "aysx3atqexotgwp5kx6h5i5ancw",
+          "ab6mbock6styfe6htf815ph1mhw",
+          "ao44fz8nf6z6tuj1x31t9yyehcc",
+          "a39x5cybshwrbjpc3juaakcyj6e",
+          "agqsoiipowmnu9rdwxm57zrehtr",
+          "ap4e7kdg7eip7j3c3oyiz39eaoc"
+        ]
+      }
+    }
+  ],
+  "cards": [
+    {
+      "id": "c3pxiqf156fnhjfazwwpo79rt6w",
+      "type": "card",
+      "title": "New Project and Workflow Management Solutions for Developers",
+      "fields": {
+        "icon": "🎯",
+        "isTemplate": false,
+        "properties": {
+          "a39x5cybshwrbjpc3juaakcyj6e": {
+            "from": "2022-02-25"
+          },
+          "ab6mbock6styfe6htf815ph1mhw": [
+            "a8xceonxiu4n3c43szhskqizicr",
+            "a3pdzi53kpbd4okzdkz6khi87zo",
+            "a3d9ux4fmi3anyd11kyipfbhwde"
+          ],
+          "ae9ar615xoknd8hw8py7mbyr7zo": "awna1nuarjca99m9s4uiy9kwj5h",
+          "aysx3atqexotgwp5kx6h5i5ancw": "aywiofmmtd3ofgzj95ysky4pjga"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Research"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Plan"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "cemyj9s9nwtgzieowpufrd1oo5h",
+      "type": "card",
+      "title": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci",
+      "fields": {
+        "icon": "🐤",
+        "isTemplate": false,
+        "properties": {
+          "a39x5cybshwrbjpc3juaakcyj6e": {
+            "from": "2021-12-09"
+          },
+          "ab6mbock6styfe6htf815ph1mhw": [
+            "az8o8pfe9hq6s7xaehoqyc3wpyc"
+          ],
+          "ae9ar615xoknd8hw8py7mbyr7zo": "a9ana1e9w673o5cp8md4xjjwfto",
+          "agqsoiipowmnu9rdwxm57zrehtr": {
+            "from": "2021-11-23"
+          },
+          "aysx3atqexotgwp5kx6h5i5ancw": "aj8y675weso8kpb6eceqbpj4ruw"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Research"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Plan"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Media"
+              }
+            ]
+          },
+          {
+            "type": "image",
+            "attrs": {
+              "fileId": "7y5kr8x8ybpnwdykjfuz57rggrh.png"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "cp963ioyx63rz98q8gs19nxxm7w",
+      "type": "card",
+      "title": "Top 10 Must-Have DevOps Tools in 2021",
+      "fields": {
+        "icon": "🛠️",
+        "isTemplate": false,
+        "properties": {
+          "a39x5cybshwrbjpc3juaakcyj6e": {
+            "from": "2021-11-05"
+          },
+          "ab6mbock6styfe6htf815ph1mhw": [
+            "a8xceonxiu4n3c43szhskqizicr"
+          ],
+          "ae9ar615xoknd8hw8py7mbyr7zo": "a9ana1e9w673o5cp8md4xjjwfto",
+          "agqsoiipowmnu9rdwxm57zrehtr": {
+            "from": "2021-11-19"
+          },
+          "ap4e7kdg7eip7j3c3oyiz39eaoc": "https://toolbox.example.com/tech/devops/articles/best-devops-tools/",
+          "aysx3atqexotgwp5kx6h5i5ancw": "a3xky7ygn14osr1mokerbfah5cy"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Research"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Plan"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "crrwzx9z4dfbsiki6suzwj3mqfw",
+      "type": "card",
+      "title": "Unblocking Workflows: The Guide to Developer Productivity",
+      "fields": {
+        "icon": "💻",
+        "isTemplate": false,
+        "properties": {
+          "a39x5cybshwrbjpc3juaakcyj6e": {
+            "from": "2021-12-03"
+          },
+          "ab6mbock6styfe6htf815ph1mhw": [
+            "a3pdzi53kpbd4okzdkz6khi87zo"
+          ],
+          "ae9ar615xoknd8hw8py7mbyr7zo": "apy9dcd7zmand615p3h53zjqxjh",
+          "agqsoiipowmnu9rdwxm57zrehtr": {
+            "from": "2021-12-14"
+          },
+          "aysx3atqexotgwp5kx6h5i5ancw": "a3xky7ygn14osr1mokerbfah5cy"
+        }
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Research"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Plan"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 2
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "Notes"
+              }
+            ]
+          },
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "..."
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "files": [
+    {
+      "fileId": "7y5kr8x8ybpnwdykjfuz57rggrh.png",
+      "archiveMember": "brs9cdimfw7fodyi7erqt747rhc/7y5kr8x8ybpnwdykjfuz57rggrh.png",
+      "bytes": 58043
+    }
+  ]
+}

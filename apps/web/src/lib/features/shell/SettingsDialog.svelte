@@ -1,0 +1,263 @@
+<!--
+  The reader's settings. Every change is saved at once
+  (`workspace.changeSettings`): it shows immediately and goes back, with a
+  line telling so, if the server refuses it.
+
+  - Brightness, density, vibration: how the app looks and feels here.
+  - How a card opens: only the dialog in the middle is built. The other two
+    answers are shown, so that the place is known, and cannot be chosen.
+  - Time zone, first day of the week, way of writing hours: `Automatic`
+    follows the device and the language.
+  - Language: kept on the device, not in the account; the page loads again in
+    the chosen one. The list and the function that changes it come from the
+    app (a feature cannot import them).
+  - The layout readout: for whoever works on the layout (dev.svelte.ts).
+
+  A dialog in the middle of the page; on a compact page it fills the screen,
+  clear of the edges the device keeps. The back button closes it.
+-->
+<script lang="ts">
+  import XIcon from '@lucide/svelte/icons/x';
+
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
+  import { page } from '$lib/layout/room.svelte.ts';
+  import {
+    BRIGHTNESS_SETTINGS,
+    CARD_OPEN_BUILT,
+    CARD_OPEN_SETTINGS,
+    DENSITY_SETTINGS,
+    type BrightnessSetting,
+    type CardOpenSetting,
+    type DensitySetting,
+  } from '$lib/logic/display.ts';
+  import {
+    HOUR_CYCLE_SETTINGS,
+    WEEK_START_SETTINGS,
+    type HourCycleSetting,
+    type WeekStartSetting,
+  } from '$lib/logic/regional.ts';
+  import { browserTimeZone } from '$lib/regional.ts';
+  import type { Workspace } from '$lib/state/index.ts';
+  import * as Dialog from '$lib/ui/dialog/index.js';
+  import { Switch } from '$lib/ui/switch/index.js';
+
+  import { devReadout } from './dev.svelte.ts';
+  import SettingChoice from './SettingChoice.svelte';
+  import SettingPicker from './SettingPicker.svelte';
+  import {
+    AUTO,
+    languageName,
+    supportedTimeZones,
+    timeZoneChoices,
+    timeZoneLabel,
+  } from './settings-logic.ts';
+
+  interface Props {
+    open: boolean;
+    workspace: Workspace;
+    /** The languages the app has, as tags. Without them the language is not offered. */
+    locales?: readonly string[];
+    /** The language the app is shown in. */
+    locale?: string;
+    /** Changes the language; the page is loaded again in it. */
+    onChooseLocale?: (locale: string) => void;
+  }
+
+  let { open = $bindable(), workspace, locales = [], locale, onChooseLocale }: Props = $props();
+
+  closeOnBack(
+    () => open,
+    () => {
+      open = false;
+    },
+  );
+
+  const settings = $derived(workspace.settings);
+  const compact = $derived(page.stage === 'compact');
+
+  const BRIGHTNESS_LABELS: Record<BrightnessSetting, () => string> = {
+    auto: m.shell_settings_auto,
+    light: m.shell_settings_brightness_light,
+    dark: m.shell_settings_brightness_dark,
+  };
+  const CARD_OPEN_LABELS: Record<CardOpenSetting, () => string> = {
+    center: m.shell_settings_card_open_center,
+    side: m.shell_settings_card_open_side,
+    full: m.shell_settings_card_open_full,
+  };
+  const DENSITY_LABELS: Record<DensitySetting, () => string> = {
+    auto: m.shell_settings_auto,
+    compact: m.shell_settings_density_compact,
+    comfortable: m.shell_settings_density_comfortable,
+  };
+  const WEEK_START_LABELS: Record<WeekStartSetting, () => string> = {
+    auto: m.shell_settings_auto,
+    sunday: m.shell_settings_week_start_sunday,
+    monday: m.shell_settings_week_start_monday,
+    saturday: m.shell_settings_week_start_saturday,
+  };
+  const HOUR_CYCLE_LABELS: Record<HourCycleSetting, () => string> = {
+    auto: m.shell_settings_auto,
+    h12: m.shell_settings_hour_cycle_h12,
+    h23: m.shell_settings_hour_cycle_h23,
+  };
+
+  const timeZones = $derived([
+    { id: AUTO, label: m.shell_settings_time_zone_auto({ timeZone: browserTimeZone() }) },
+    ...timeZoneChoices(supportedTimeZones(), settings.timeZone).map((zone) => ({
+      id: zone,
+      label: timeZoneLabel(zone),
+      also: [zone],
+    })),
+  ]);
+
+  const languages = $derived(
+    locales.map((tag) => ({ id: tag, label: languageName(tag), also: [tag] })),
+  );
+
+  /** How long the change of language waits for the history at most, in milliseconds. */
+  const GIVE_BACK_LIMIT = 2000;
+
+  /**
+   * Changes the language once the dialog (and the list over it) have given
+   * their entries of the history back: the page is loaded again right after,
+   * and entries left behind would make "back" do nothing a few times.
+   */
+  function chooseLocale(tag: string): void {
+    open = false;
+    const started = performance.now();
+    const whenGivenBack = (): void => {
+      // An entry of a layer is still the current one: the steps back are on their way.
+      if (isOverlayEntry(history.state) && performance.now() - started < GIVE_BACK_LIMIT) {
+        requestAnimationFrame(whenGivenBack);
+      } else {
+        onChooseLocale?.(tag);
+      }
+    };
+    requestAnimationFrame(whenGivenBack);
+  }
+</script>
+
+<Dialog.Root bind:open>
+  <Dialog.Content
+    data-testid="settings-dialog"
+    data-frame={compact ? 'full' : 'dialog'}
+    showCloseButton={false}
+    class={[
+      'flex flex-col gap-0 p-0',
+      compact
+        ? 'top-0 left-0 h-dvh max-w-none translate-x-0 translate-y-0 rounded-none pt-(--safe-top) pr-(--safe-right) pb-(--safe-bottom) pl-(--safe-left) ring-0 sm:max-w-none'
+        : 'left-[calc(50%+(var(--safe-left)-var(--safe-right))/2)] max-h-[calc(100dvh-2rem-var(--safe-top)-var(--safe-bottom))] w-[min(28rem,calc(100%-2rem-var(--safe-left)-var(--safe-right)))] max-w-none sm:max-w-none',
+    ]}
+  >
+    <Dialog.Header class="shrink-0 flex-row items-start gap-2 border-b py-2 pr-2 pl-4">
+      <div class="min-w-0 flex-1 py-1">
+        <Dialog.Title class="pr-0 text-base font-semibold">{m['Sidebar.settings']()}</Dialog.Title>
+        <Dialog.Description class="text-muted-foreground">
+          {m.shell_settings_description()}
+        </Dialog.Description>
+      </div>
+      <Dialog.Close>
+        {#snippet child({ props }: { props: Record<string, unknown> })}
+          <IconButton {...props} label={m.ui_close()} data-testid="close-settings">
+            <XIcon />
+          </IconButton>
+        {/snippet}
+      </Dialog.Close>
+    </Dialog.Header>
+
+    <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
+      <SettingChoice
+        name="brightness"
+        label={m.shell_settings_brightness()}
+        value={settings.brightness}
+        options={BRIGHTNESS_SETTINGS.map((value) => ({ value, label: BRIGHTNESS_LABELS[value]() }))}
+        onChange={(brightness: BrightnessSetting) => void workspace.changeSettings({ brightness })}
+      />
+      <SettingChoice
+        name="density"
+        label={m.shell_settings_density()}
+        value={settings.density}
+        options={DENSITY_SETTINGS.map((value) => ({ value, label: DENSITY_LABELS[value]() }))}
+        onChange={(density: DensitySetting) => void workspace.changeSettings({ density })}
+      />
+      <SettingChoice
+        name="cardOpen"
+        label={m.shell_settings_card_open()}
+        value={settings.cardOpen}
+        options={CARD_OPEN_SETTINGS.map((value) => {
+          const built = CARD_OPEN_BUILT.includes(value);
+          return {
+            value,
+            label: CARD_OPEN_LABELS[value](),
+            disabled: !built,
+            note: built ? undefined : m.shell_settings_coming(),
+          };
+        })}
+        onChange={(cardOpen: CardOpenSetting) => void workspace.changeSettings({ cardOpen })}
+      />
+      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="vibration">
+        <span class="grid min-w-0 flex-1 gap-0.5">
+          <span class="font-medium">{m.shell_settings_vibration()}</span>
+          <span class="text-xs text-muted-foreground">{m.shell_settings_vibration_hint()}</span>
+        </span>
+        <Switch
+          checked={settings.vibration}
+          onCheckedChange={(vibration: boolean) => void workspace.changeSettings({ vibration })}
+        />
+      </label>
+
+      <SettingPicker
+        name="timeZone"
+        label={m.shell_settings_time_zone()}
+        searchLabel={m.shell_settings_time_zone_search()}
+        items={timeZones}
+        value={settings.timeZone}
+        onPick={(timeZone: string) => void workspace.changeSettings({ timeZone })}
+      />
+      <SettingChoice
+        name="weekStart"
+        label={m.shell_settings_week_start()}
+        value={settings.weekStart}
+        options={WEEK_START_SETTINGS.map((value) => ({ value, label: WEEK_START_LABELS[value]() }))}
+        onChange={(weekStart: WeekStartSetting) => void workspace.changeSettings({ weekStart })}
+      />
+      <SettingChoice
+        name="hourCycle"
+        label={m.shell_settings_hour_cycle()}
+        value={settings.hourCycle}
+        options={HOUR_CYCLE_SETTINGS.map((value) => ({ value, label: HOUR_CYCLE_LABELS[value]() }))}
+        onChange={(hourCycle: HourCycleSetting) => void workspace.changeSettings({ hourCycle })}
+      />
+
+      {#if languages.length > 0 && locale !== undefined && onChooseLocale}
+        <SettingPicker
+          name="language"
+          label={m.shell_settings_language()}
+          searchLabel={m.shell_settings_language_search()}
+          items={languages}
+          value={locale}
+          onPick={chooseLocale}
+        />
+      {/if}
+
+      <label
+        class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch"
+        data-setting="dev"
+      >
+        <span class="grid min-w-0 flex-1 gap-0.5">
+          <span class="font-medium">{m.shell_settings_dev()}</span>
+          <span class="text-xs text-muted-foreground">{m.shell_settings_dev_hint()}</span>
+        </span>
+        <Switch
+          checked={devReadout.shown}
+          onCheckedChange={(shown: boolean) => {
+            devReadout.set(shown);
+          }}
+        />
+      </label>
+    </div>
+  </Dialog.Content>
+</Dialog.Root>

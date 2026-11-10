@@ -1,0 +1,20 @@
+{
+  "AdminBadge.SystemAdmin": "관리자",
+  "AdminBadge.TeamAdmin": "팀 관리자",
+  "ConfirmPerson.empty": "비어 있음",
+  "ConfirmPerson.search": "검색...",
+  "ContentBlock.errorText": "이 콘텐츠의 크기 제한을 초과했습니다. 데이터가 손실되지 않도록 내용을 줄여 주세요.",
+  "DateFilter.empty": "비어 있음",
+  "Filter.is-after": "~이후",
+  "Filter.is-before": "~이전",
+  "Filter.isafter": "~이후",
+  "Filter.isbefore": "~이전",
+  "FilterValue.empty": "(비어 있음)",
+  "PersonProperty.me": "나",
+  "TableRow.DuplicateCard": "카드 복제",
+  "boardPage.confirm-join-button": "참여",
+  "boardPage.confirm-join-text": "보드 관리자가 직접 추가하지 않은 비공개 보드에 참여하려고 합니다. 이 비공개 보드에 참여하시겠습니까?",
+  "boardPage.confirm-join-title": "비공개 보드 참여",
+  "centerPanel.undefined": "{propertyName} 속성 없음",
+  "centerPanel.unknown-user": "알 수 없는 사용자"
+}
