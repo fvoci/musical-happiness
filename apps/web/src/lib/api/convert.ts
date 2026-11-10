@@ -151,30 +151,40 @@ export function newCardOf(draft: CardDraft): Schemas['NewCard'] {
 /**
  * A comment as the server keeps it today: a block whose title is its text.
  * The screens' comment is a document (`contract-assumptions.md`, B1); until
- * the server keeps one, the text is one paragraph of plain text.
+ * the server keeps one, each line of the text is a paragraph of plain text.
  */
 export function commentOf(block: Schemas['Block']): Comment {
-  const text = block.title.trim();
+  const lines = block.title.trim().split(/\r?\n/);
   return {
     ...blockOf(block),
     type: 'comment',
-    body: text
-      ? { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }
-      : null,
+    body:
+      lines.join('') === ''
+        ? null
+        : {
+            type: 'doc',
+            content: lines.map((text) =>
+              text
+                ? { type: 'paragraph', content: [{ type: 'text', text }] }
+                : { type: 'paragraph' },
+            ),
+          },
   };
 }
 
 /**
- * An attachment block. Its file is `fields.fileId` and its name the title;
- * size and type are read from the fields when they are there
- * (`contract-assumptions.md`, B2).
+ * An attachment block. Its file is `fields.fileId` (older blocks name it
+ * `attachmentId`, which the server takes too) and its name the title. The
+ * block carries no size or type (`contract-assumptions.md`, B2): they are 0
+ * and empty, and the screen leaves an unknown size out.
  */
 export function attachmentOf(block: Schemas['Block']): Attachment {
   const fields = block.fields;
+  const file = fields.fileId ?? fields.attachmentId;
   return {
     ...blockOf(block),
     type: 'attachment',
-    fileId: typeof fields.fileId === 'string' ? fields.fileId : '',
+    fileId: typeof file === 'string' ? file : '',
     name: block.title,
     size: typeof fields.size === 'number' ? fields.size : 0,
     contentType: typeof fields.contentType === 'string' ? fields.contentType : '',

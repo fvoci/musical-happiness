@@ -1,6 +1,6 @@
 /**
- * Cards on the real server: making, changing and moving them on a board's
- * kanban. Each test makes its own board through the API as its owner, who
+ * Cards on the real server, on a board's kanban: making them (and, as the
+ * work goes on, changing and moving them). Each test makes its own board through the API as its owner, who
  * then works on the page.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -44,6 +44,13 @@ test('a card made in a column is the server’s, with the value of that column',
   // The card opens whole: its comments and attachments are read too.
   await expect(dialog.getByTestId('card-comments')).toBeVisible();
   await expect(page.locator('[data-problem]')).toHaveCount(0);
+
+  // The body is not the server's yet: writing one says so, as that.
+  await expect(page.getByTestId('card-body')).toHaveAttribute('data-editor', 'ready');
+  await page.getByTestId('card-body').locator('[contenteditable]').first().click();
+  await page.keyboard.type('Bring a list');
+  await expect(page.locator('[data-problem]')).toHaveText(/not saved to the server yet/);
+  await page.locator('[data-problem]').getByRole('button').click();
   await page.goBack();
   await expect(dialog).toBeHidden();
   await expect(column(page, 'Doing').locator('[data-card]')).toHaveCount(1);

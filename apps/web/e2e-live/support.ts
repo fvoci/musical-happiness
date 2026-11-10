@@ -101,7 +101,7 @@ export async function signInOnPage(page: Page, who: Person): Promise<void> {
 /** Fails the test on anything the page throws. Call before the page loads. */
 export function watchErrors(page: Page): string[] {
   const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('pageerror', (error) => errors.push(error.stack ?? error.message));
   return errors;
 }
 

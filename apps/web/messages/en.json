@@ -76,6 +76,7 @@
   "app_problem_upload_too_large": "The file is larger than {limit}.",
   "app_problem_conflict": "Someone else changed this card while you were writing. Choose which text to keep.",
   "app_problem_network": "The server did not answer. Check the connection.",
+  "app_problem_not_wired": "This is not saved to the server yet: card text, comments and files come in a later version.",
   "app_problem_forbidden": "You are not allowed to do that on this board.",
   "app_problem_dismiss": "Dismiss",
   "card_menu": "Card menu",

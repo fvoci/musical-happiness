@@ -1368,7 +1368,7 @@
 - **연결 2.** 서버 구현은 `src/lib/api/`(높이 3)에 둔다. 타입은 계약에서 만든 `contract.ts`이고(`pnpm run api:types`), `check`가 계약과 어긋나면 실패한다(`--check`).
   - 왜: 린트(`fvoci/no-direct-server`)가 이미 `api/`를 경계의 구현으로 보고 있었다. `state/`의 인터페이스를 가져와야 하므로 `state`보다 높다.
   - 바꾸려면: `tools/lint/layers.ts`의 `LAYERS`, `src/lib/README.md`.
-- **연결 3.** 아직 서버에 붙이지 않은 조작은 `BackendError`(405, `reason: 'not_wired'`)로 거절한다(`api/backend.ts`의 `notWired`). **본문 쓰기도 그렇다**: 화면에서 막지 않고, 쓰면 "변경이 저장되지 않아 되돌렸습니다"가 뜬다.
+- **연결 3.** 아직 서버에 붙이지 않은 조작은 `BackendError`(405, `reason: 'not_wired'`)로 거절한다(`api/backend.ts`의 `notWired`). **본문 쓰기도 그렇다**(댓글 달기, 파일 올리기도): 화면에서 막지 않고, 쓰면 알림 줄에 "아직 서버에 저장되지 않는 것입니다. 카드의 본문, 댓글, 파일은 다음 판에서 저장됩니다."가 뜬다(`app/Problems.svelte`가 `not_wired`를 따로 말한다). 쓴 글은 화면에 남는다.
   - 왜: 화면에서 막으려면 "이 구현은 무엇을 못 하는가"를 인터페이스에 더해야 한다. 서버의 본문 저장이 곧 들어오므로 그 장치는 금방 쓸모가 없어진다. 조용히 아무것도 안 하는 것보다 오류가 낫다.
   - 다른 안: 화면에서 편집기를 읽기 전용으로 / 새 상태 코드(501).
   - 바꾸려면: 붙일 때마다 그 메서드를 채운다.
@@ -1398,14 +1398,16 @@
   - 실패하면 알리지 않는다(401만 로그인 화면으로). 서버는 한 사람이라도 없거나 비활성이면 묶음 전체를 404로 거절하므로, 그때는 이름을 모두 모른다. 사용자를 비활성으로 만드는 조작이 아직 없어 그대로 뒀다.
   - 메모리 구현도 서버만큼 엄격하다: 빈 목록은 400, 같은 식별자 둘은 404.
   - 바꾸려면: `state/backend.ts`의 `usersById`, `workspace.svelte.ts`의 `learnUsers`와 `load`, `board.svelte.ts`의 `load`와 `#apply`.
-- **연결 11.** 카드는 `createCard`로 만든다. 본문이 든 초안(본문이 있는 카드의 복제)은 보내기 전에 `not_wired`로 거절한다: 본문 없이 만들어 조용히 잃지 않게. 서버에서 읽은 카드는 본문이 늘 `null`이라 지금 복제는 지나간다.
-  - 카드를 열면 댓글과 첨부도 읽는다(보드의 블록을 `parentId`와 종류로 거른다). 댓글은 제목을 글자만 든 문단 하나로, 첨부는 `fields`의 `fileId`, `size`, `contentType`과 제목(이름)으로 읽는다. 쓰기(댓글 달기, 첨부 올리기)는 그대로 `not_wired`다.
-  - 왜: 카드 상세는 셋을 함께 읽고, 하나라도 실패하면 열리지 않는다. 만든 카드가 곧장 열린다.
-  - 바꾸려면: `lib/api/backend.ts`의 `createCard`, `comments`, `attachments`, `lib/api/convert.ts`의 `newCardOf`, `commentOf`, `attachmentOf`.
 - **연결 10.** 보드의 카드는 한 번에 다 읽는다(`getCards`의 `perPage` 0). 카드 상세는 `getCard`이고 본문은 없다(`body: null`): 서버가 본문을 아직 두지 않는다. 본문 쓰기는 연결 3대로 `not_wired`다.
   - 왜: 화면의 저장소가 보드의 카드를 모두 들고 거르고 묶는다. 쪽을 나눠 읽으면 그 가정이 깨진다.
   - 카드 하나를 읽는 라우트(`GET /cards/{cardId}`)는 읽을 수 있는 어느 보드의 카드든 준다. 다른 보드의 카드면 404로 바꾼다(메모리 구현과 같다): 주소에 남의 보드의 카드가 있어도 이 보드에 섞이지 않게.
   - 바꾸려면: `lib/api/backend.ts`의 `cards`, `card`.
+
+- **연결 11.** 카드는 `createCard`로 만든다. 본문이 든 초안(본문이 있는 카드의 복제)은 보내기 전에 `not_wired`로 거절한다: 본문 없이 만들어 조용히 잃지 않게. 서버에서 읽은 카드는 본문이 늘 `null`이라 지금 복제는 지나간다.
+  - 카드를 열면 댓글과 첨부도 읽는다(보드의 블록을 `parentId`와 종류로 거른다). 댓글은 제목을 글자만 든 문단 하나로, 첨부는 `fields`의 `fileId`, `size`, `contentType`과 제목(이름)으로 읽는다. 쓰기(댓글 달기, 첨부 올리기)는 그대로 `not_wired`다.
+  - 만든 카드를 실행 취소하면 지금은 `deleteBlock`이 `not_wired`라 "아직 서버에 저장되지 않는 것" 알림이 뜬다. tracer-bullet 7에서 붙인다.
+  - 왜: 카드 상세는 셋을 함께 읽고, 하나라도 실패하면 열리지 않는다. 만든 카드가 곧장 열린다.
+  - 바꾸려면: `lib/api/backend.ts`의 `createCard`, `comments`, `attachments`, `lib/api/convert.ts`의 `newCardOf`, `commentOf`, `attachmentOf`.
 
 ## 검토에서 나온 것과 처리
 

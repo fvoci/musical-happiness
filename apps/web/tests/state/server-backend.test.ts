@@ -96,13 +96,16 @@ describe('the server backend', () => {
   });
 
   it("reads a card's comments and attachments as blocks under it", async () => {
-    const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: 'Looks good' }]);
+    const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: 'Looks good\nShip it' }]);
     const backend = new ServerBackend('');
     const [comment] = await backend.comments('b', 'c');
     expect(sent[0]?.url).toBe('/api/v1/boards/b/blocks?parentId=c&type=comment');
     expect(comment?.body).toEqual({
       type: 'doc',
-      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Looks good' }] }],
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Looks good' }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Ship it' }] },
+      ],
     });
 
     serve([
@@ -116,6 +119,13 @@ describe('the server backend', () => {
     ]);
     expect(await backend.attachments('b', 'c')).toMatchObject([
       { id: 'a', fileId: 'f1', name: 'plan.pdf', size: 120, contentType: 'application/pdf' },
+    ]);
+    // An older block names its file `attachmentId`, and says no size.
+    serve([
+      { ...BLOCK, id: 'o', type: 'attachment', title: 'old.png', fields: { attachmentId: 'f0' } },
+    ]);
+    expect(await backend.attachments('b', 'c')).toMatchObject([
+      { id: 'o', fileId: 'f0', name: 'old.png', size: 0, contentType: '' },
     ]);
   });
 });
