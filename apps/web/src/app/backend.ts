@@ -8,6 +8,7 @@
  * carry it. When the server's contract is published, the implementation that
  * calls the server is chosen here instead.
  */
+import { display } from '$lib/display.svelte.ts';
 import type { Backend } from '$lib/state/index.ts';
 
 export interface StartedBackend {
@@ -52,6 +53,11 @@ export async function startBackend(): Promise<StartedBackend> {
     import('$lib/state/memory/seed.ts'),
   ]);
   const { world, readerId } = seedWorld(await loadTemplates());
+  // A server keeps the reader's settings; this world is made anew on every
+  // load. What the device remembers of them (the display settings) is put
+  // back, so that a reload looks the way it will with a server.
+  const seeded = world.settings.get(readerId);
+  if (seeded) world.settings.set(readerId, { ...seeded, ...display.settings });
   const backend = new MemoryBackend(world, readerId);
   // Long enough to see that a change shows before it is answered.
   backend.latency = 40;

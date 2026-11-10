@@ -14,7 +14,7 @@
 
   import { startBackend } from './backend.ts';
   import BoardPage from './BoardPage.svelte';
-  import { currentLocale } from './locale.ts';
+  import { chooseLocale, currentLocale, locales } from './locale.ts';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
 
@@ -68,6 +68,12 @@
     boardHref={(boardId: string) => router.href({ boardId })}
     onOpenBoard={(boardId: string) => {
       router.openBoard(boardId);
+    }}
+    {locales}
+    locale={currentLocale()}
+    onChooseLocale={(tag: string) => {
+      const known = locales.find((locale) => locale === tag);
+      if (known) chooseLocale(known);
     }}
   >
     {#if router.route.unknown}
