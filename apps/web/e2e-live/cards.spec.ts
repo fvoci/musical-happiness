@@ -68,3 +68,54 @@ test('a card made in a column is the server’s, with the value of that column',
   await api.dispose();
   expect(errors).toEqual([]);
 });
+
+test('a card’s title and values are changed on the server, the last value taken away too', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('editor');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'House',
+    cards: [{ title: 'Paint the shed', status: 'To do' }],
+  });
+  const cardId = board.cards['Paint the shed'] ?? '';
+  const stored = async (): Promise<Schemas['Card']> =>
+    (await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card'];
+
+  const errors = watchErrors(page);
+  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await signInOnPage(page, owner);
+  await column(page, 'To do').getByText('Paint the shed').click();
+  const dialog = page.getByTestId('card-dialog');
+  await expect(dialog).toBeVisible();
+
+  await page.getByTestId('card-title').fill('Paint the whole shed');
+  await expect.poll(async () => (await stored()).title).toBe('Paint the whole shed');
+
+  const status = dialog
+    .locator('[data-property]')
+    .filter({ has: page.locator('dt', { hasText: /^\s*Status\s*$/ }) });
+  await status.locator('[data-slot="property-select"]').click();
+  await page.getByRole('option', { name: 'Done' }).click();
+  await expect
+    .poll(async () => (await stored()).properties)
+    .toEqual({ status: board.options.Done });
+
+  // The last value of the card: the server's card patch cannot take it away.
+  await status.locator('[data-slot="property-select"]').click();
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await expect.poll(async () => (await stored()).properties).toEqual({});
+  expect((await stored()).title).toBe('Paint the whole shed');
+
+  await page.goBack();
+  await page.reload();
+  await expect(page.getByText('Paint the whole shed')).toBeVisible();
+  await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(0);
+  await expect(column(page, 'Done').locator('[data-card]')).toHaveCount(0);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+  await api.dispose();
+  expect(errors).toEqual([]);
+});

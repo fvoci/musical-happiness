@@ -129,3 +129,94 @@ describe('the server backend', () => {
     ]);
   });
 });
+
+describe('changing a card on the server', () => {
+  const CARD = {
+    ...BLOCK,
+    id: 'c1',
+    parentId: 'b',
+    title: 'Card',
+    icon: '',
+    isTemplate: false,
+    contentOrder: [],
+  };
+
+  /** A server of one card whose values are `values`; it keeps what it is sent. */
+  function oneCard(values: Record<string, unknown>): {
+    sent: Sent[];
+    card: () => typeof CARD & { properties: Record<string, unknown> };
+  } {
+    let card = { ...CARD, properties: values };
+    const sent: Sent[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      const body =
+        typeof init.body === 'string'
+          ? (JSON.parse(init.body) as Record<string, unknown>)
+          : undefined;
+      sent.push({
+        url,
+        method: init.method ?? 'GET',
+        headers: init.headers as Record<string, string>,
+        body,
+      });
+      // A little wait, as a network has: two changes could pass each other.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      if (init.method === 'PATCH' && url.endsWith('/cards/c1')) {
+        const patch = body as { title?: string; updatedProperties?: Record<string, unknown> };
+        const replaced = patch.updatedProperties && Object.keys(patch.updatedProperties).length > 0;
+        card = {
+          ...card,
+          title: patch.title ?? card.title,
+          properties: replaced ? (patch.updatedProperties ?? {}) : card.properties,
+        };
+      }
+      if (init.method === 'PATCH' && url.endsWith('/blocks/c1')) {
+        const fields = (body as { updatedFields: { properties?: Record<string, unknown> } })
+          .updatedFields;
+        card = { ...card, properties: fields.properties ?? card.properties };
+        return new Response(null, { status: 204 });
+      }
+      return new Response(JSON.stringify(card), { status: 200 });
+    });
+    return { sent, card: () => card };
+  }
+
+  it('sends only the title when no value changes', async () => {
+    const { sent } = oneCard({ a: '1' });
+    await new ServerBackend('').patchCard('b', 'c1', { title: 'New' });
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual(['PATCH /api/v1/cards/c1']);
+    expect(sent[0]?.body).toEqual({ title: 'New' });
+  });
+
+  it('sends every value of the card, the ones it keeps too', async () => {
+    const { sent, card } = oneCard({ a: '1', b: '2' });
+    await new ServerBackend('').patchCard('b', 'c1', {
+      updatedProperties: { b: '3' },
+      deletedProperties: ['a'],
+    });
+    expect(sent.at(-1)?.body).toEqual({ updatedProperties: { b: '3' } });
+    expect(card().properties).toEqual({ b: '3' });
+  });
+
+  it('takes away the last value through the block', async () => {
+    const { sent, card } = oneCard({ a: '1' });
+    const answer = await new ServerBackend('').patchCard('b', 'c1', { deletedProperties: ['a'] });
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'GET /api/v1/cards/c1',
+      'PATCH /api/v1/boards/b/blocks/c1',
+      'GET /api/v1/cards/c1',
+    ]);
+    expect(card().properties).toEqual({});
+    expect(answer.fields.properties).toEqual({});
+  });
+
+  it('sends two quick changes of one card one after the other, so neither undoes the other', async () => {
+    const { card } = oneCard({});
+    const backend = new ServerBackend('');
+    await Promise.all([
+      backend.patchCard('b', 'c1', { updatedProperties: { a: '1' } }),
+      backend.patchCard('b', 'c1', { updatedProperties: { b: '2' } }),
+    ]);
+    expect(card().properties).toEqual({ a: '1', b: '2' });
+  });
+});

@@ -9,6 +9,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
+import { applyCardPatch } from '../state/patches.ts';
 import {
   BackendError,
   type Account,
@@ -66,6 +67,8 @@ export function notWired(operation: string): never {
 
 export class ServerBackend implements Backend, Account {
   readonly #http: Http;
+  /** The last change of each card on its way (`patchCard`), settled either way. */
+  readonly #cardWrites = new Map<string, Promise<void>>();
 
   /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
   constructor(basePath: string) {
@@ -275,8 +278,63 @@ export class ServerBackend implements Backend, Account {
     return cardOf(card);
   }
 
-  patchCard(_boardId: string, _cardId: string, _patch: CardPatch): Promise<CardSummary> {
-    return notWired('patchCard');
+  /**
+   * Changes a card. The screens' patch names the values to set and to
+   * clear; the server's `updatedProperties` replaces every value of the card
+   * and cannot take away the last one (`contract-assumptions.md`, H6). So a
+   * patch that touches values reads the card, works out all its values, and
+   * sends them all; with none left it clears them through the card's block.
+   * The changes of one card go one after another, so that two quick ones do
+   * not both start from the same reading.
+   */
+  patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+    const before = this.#cardWrites.get(cardId) ?? Promise.resolve();
+    const write = before.catch(() => undefined).then(() => this.#patchCard(boardId, cardId, patch));
+    const settled = write.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#cardWrites.set(cardId, settled);
+    void settled.then(() => {
+      if (this.#cardWrites.get(cardId) === settled) this.#cardWrites.delete(cardId);
+    });
+    return write;
+  }
+
+  async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+    const touchesValues =
+      Object.keys(patch.updatedProperties ?? {}).length > 0 ||
+      (patch.deletedProperties ?? []).length > 0;
+    const request: Schemas['CardPatch'] = {};
+    if (patch.title !== undefined) request.title = patch.title;
+    if (patch.icon !== undefined) request.icon = patch.icon;
+    if (touchesValues) {
+      const current = await this.card(boardId, cardId);
+      const properties = applyCardPatch(current, patch).fields.properties;
+      if (Object.keys(properties).length === 0) {
+        const fields: Record<string, unknown> = { properties: {} };
+        if (patch.icon !== undefined) fields.icon = patch.icon;
+        await this.#http.request(
+          '/api/v1/boards/{boardId}/blocks/{blockId}',
+          { boardId, blockId: cardId },
+          {
+            method: 'PATCH',
+            json: {
+              updatedFields: fields,
+              ...(patch.title === undefined ? {} : { title: patch.title }),
+            },
+          },
+        );
+        return this.card(boardId, cardId);
+      }
+      request.updatedProperties = properties;
+    }
+    const card = await this.#http.request<Schemas['Card']>(
+      '/api/v1/cards/{cardId}',
+      { cardId },
+      { method: 'PATCH', json: request },
+    );
+    return cardOf(card);
   }
 
   /** Bodies are not wired: the server is changing how it stores them (`docs/contract-pending.md`, 1). */
