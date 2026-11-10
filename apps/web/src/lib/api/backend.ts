@@ -9,7 +9,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
-import { applyCardPatch } from '../state/patches.ts';
+import { applyCardPatch, applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
   type Account,
@@ -67,8 +67,8 @@ export function notWired(operation: string): never {
 
 export class ServerBackend implements Backend, Account {
   readonly #http: Http;
-  /** The last change of each card on its way (`patchCard`), settled either way. */
-  readonly #cardWrites = new Map<string, Promise<void>>();
+  /** The last change of each card or view on its way, settled either way (`#inTurn`). */
+  readonly #writes = new Map<string, Promise<void>>();
 
   /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
   constructor(basePath: string) {
@@ -244,17 +244,34 @@ export class ServerBackend implements Backend, Account {
   }
 
   /**
-   * Changes a view through its block: the server answers 204 and nothing
-   * else, so the view is read again. `updatedFields` replaces a field
-   * whole, as the screens' patch means.
+   * Changes a view through its block. The view is read first (so that a
+   * block that is not a view is not changed), the patch sent, and the view
+   * read again, since the server answers 204 alone. `updatedFields`
+   * replaces a field whole, as the screens' patch means. The changes of one
+   * view go one after another (`#inTurn`).
    */
-  async patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
+  patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
+    return this.#inTurn(viewId, () => this.#patchView(boardId, viewId, patch));
+  }
+
+  async #patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
+    const before = await this.#view(boardId, viewId);
     const { deleteAt: _deleteAt, ...request } = patch;
     await this.#http.request(
       '/api/v1/boards/{boardId}/blocks/{blockId}',
       { boardId, blockId: viewId },
       { method: 'PATCH', json: request },
     );
+    try {
+      return await this.#view(boardId, viewId);
+    } catch {
+      // Saved; only reading it back failed. What was sent is what it is.
+      return applyViewPatch(before, patch);
+    }
+  }
+
+  /** A view of this board, by its block: 404 for another block or none. */
+  async #view(boardId: string, viewId: string): Promise<BoardView> {
     const [view] = await this.#http.request<Schemas['Block'][]>(
       '/api/v1/boards/{boardId}/blocks',
       { boardId },
@@ -314,17 +331,26 @@ export class ServerBackend implements Backend, Account {
    * not both start from the same reading.
    */
   patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    const before = this.#cardWrites.get(cardId) ?? Promise.resolve();
-    const write = before.catch(() => undefined).then(() => this.#patchCard(boardId, cardId, patch));
-    const settled = write.then(
+    return this.#inTurn(cardId, () => this.#patchCard(boardId, cardId, patch));
+  }
+
+  /**
+   * Runs `write` once the writes before it to the same block have ended,
+   * however they ended. The server keeps whichever write of a block arrives
+   * last; two quick ones must not pass each other on the way.
+   */
+  #inTurn<T>(blockId: string, write: () => Promise<T>): Promise<T> {
+    const before = this.#writes.get(blockId) ?? Promise.resolve();
+    const running = before.then(write);
+    const settled = running.then(
       () => undefined,
       () => undefined,
     );
-    this.#cardWrites.set(cardId, settled);
+    this.#writes.set(blockId, settled);
     void settled.then(() => {
-      if (this.#cardWrites.get(cardId) === settled) this.#cardWrites.delete(cardId);
+      if (this.#writes.get(blockId) === settled) this.#writes.delete(blockId);
     });
-    return write;
+    return running;
   }
 
   async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {

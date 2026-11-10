@@ -197,8 +197,26 @@ test('a card carried to another column and a place in it is moved on the server'
     })
     .toBe(true);
 
+  // Within a column: Dust above Sweep. Only the view's order changes.
+  await card('Dust').focus();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Space');
+  await expect.poll(() => titlesIn('Done')).toEqual(['Dust', 'Sweep']);
+  await expect
+    .poll(async () => {
+      const [view] = (await (
+        await api.get(`/api/v1/boards/${board.boardId}/blocks`, {
+          params: { blockId: board.viewId },
+        })
+      ).json()) as Schemas['Block'][];
+      const order = (view?.fields.cardOrder ?? []) as string[];
+      return order.includes(dust) && order.indexOf(dust) < order.indexOf(sweep);
+    })
+    .toBe(true);
+
   await page.reload();
-  await expect.poll(() => titlesIn('Done')).toEqual(['Sweep', 'Dust']);
+  await expect.poll(() => titlesIn('Done')).toEqual(['Dust', 'Sweep']);
   expect(await titlesIn('To do')).toEqual(['Mop']);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();

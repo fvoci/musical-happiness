@@ -270,9 +270,64 @@ describe('changing a view on the server', () => {
       deleteAt: 0,
     });
     expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
+      ['GET', '/api/v1/boards/b/blocks?blockId=v', undefined],
       ['PATCH', '/api/v1/boards/b/blocks/v', { updatedFields: { cardOrder: ['c2', 'c1'] } }],
       ['GET', '/api/v1/boards/b/blocks?blockId=v', undefined],
     ]);
     expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
+  });
+
+  const VIEW = {
+    ...BLOCK,
+    id: 'v',
+    parentId: 'b',
+    type: 'view',
+    title: 'Board',
+    fields: { cardOrder: ['c1', 'c2'] },
+  };
+
+  it('changes no block that is not a view', async () => {
+    const sent = serve([{ ...VIEW, type: 'card' }]);
+    const refused = await new ServerBackend('')
+      .patchView('b', 'v', { updatedFields: { cardOrder: [] } })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(404);
+    expect(sent.map((one) => one.method)).toEqual(['GET']);
+  });
+
+  it('keeps a change that was saved when only reading the view back fails', async () => {
+    let calls = 0;
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) => {
+      calls += 1;
+      if (calls === 3) return Promise.reject(new TypeError('offline'));
+      if (init.method === 'PATCH') return Promise.resolve(new Response(null, { status: 204 }));
+      return Promise.resolve(new Response(JSON.stringify([VIEW]), { status: 200 }));
+    });
+    const view = await new ServerBackend('').patchView('b', 'v', {
+      updatedFields: { cardOrder: ['c2', 'c1'] },
+    });
+    expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
+  });
+
+  it('sends two quick changes of one view one after the other', async () => {
+    const order: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      order.push(`${init.method ?? 'GET'} ${typeof init.body === 'string' ? init.body : url}`);
+      // The first change's request is the slower one: it would arrive last.
+      await new Promise((resolve) => setTimeout(resolve, order.length === 2 ? 20 : 1));
+      if (init.method === 'PATCH') return new Response(null, { status: 204 });
+      return new Response(JSON.stringify([VIEW]), { status: 200 });
+    });
+    const backend = new ServerBackend('');
+    await Promise.all([
+      backend.patchView('b', 'v', { updatedFields: { cardOrder: ['a'] } }),
+      backend.patchView('b', 'v', { updatedFields: { cardOrder: ['b'] } }),
+    ]);
+    expect(order.filter((line) => line.startsWith('PATCH'))).toEqual([
+      'PATCH {"updatedFields":{"cardOrder":["a"]}}',
+      'PATCH {"updatedFields":{"cardOrder":["b"]}}',
+    ]);
+    expect(order).toHaveLength(6);
+    expect(order[3]).toMatch(/^GET/);
   });
 });
