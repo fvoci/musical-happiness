@@ -12,28 +12,13 @@
  * over (by kind), and how large the documents are. `--write` also saves the
  * documents, for looking at; they are not part of the repository.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { marked } from 'marked';
-
-import { addNotes, markdownToBlocks, type ConversionNotes } from '../../src/lib/editor/markdown.ts';
+import { addNotes, type ConversionNotes } from '../../src/lib/editor/markdown.ts';
 import { storedSize, validateDoc, type DocNode } from '../../src/lib/editor/schema.ts';
-import { listZipMembers, readZipMember } from '../zip.ts';
 
-const ARCHIVE = path.resolve(
-  import.meta.dirname,
-  '../../../../server/assets/templates.boardarchive',
-);
-
-/** A block as the archive has it. */
-interface ArchivedBlock {
-  id: string;
-  parentId: string;
-  type: string;
-  title: string;
-  fields: Record<string, unknown>;
-}
+import { CONTENT_TYPES, cardBody, readArchive, textOf } from './archive.ts';
 
 interface CardResult {
   template: string;
@@ -56,22 +41,6 @@ const OLD_NAMES = new RegExp(
   'gi',
 );
 
-function readBoard(archive: Buffer, member: string): { title: string; blocks: ArchivedBlock[] } {
-  let title = '';
-  const blocks: ArchivedBlock[] = [];
-  for (const line of readZipMember(archive, member).toString('utf8').split('\n')) {
-    if (line.trim() === '') continue;
-    const entry = JSON.parse(line) as { type: string; data: ArchivedBlock };
-    // A board is either its own kind of line or, in older boards, a block of type `board`.
-    if (entry.type === 'board' || (entry.type === 'block' && entry.data.type === 'board')) {
-      title = entry.data.title;
-    } else if (entry.type === 'block') {
-      blocks.push(entry.data);
-    }
-  }
-  return { title, blocks };
-}
-
 function measure(node: DocNode, depth = 1): { nodes: number; depth: number } {
   let nodes = 1;
   let deepest = depth;
@@ -93,32 +62,10 @@ function countLinks(node: DocNode, hosts: Map<string, number>): void {
   for (const child of node.content ?? []) countLinks(child, hosts);
 }
 
-const textOf = (node: DocNode): string =>
-  (node.text ?? '') + (node.content ?? []).map(textOf).join(' ');
-
-/**
- * The letters of a text, for comparing what two renderings say: no spaces, no
- * markup. `plainOfMarkdown` is what the original's renderer would show.
- */
-const letters = (text: string): string => text.replace(/\s+/g, '');
-function plainOfMarkdown(markdown: string): string {
-  const html = marked.parse(markdown, { gfm: true, breaks: true, async: false });
-  const text = html
-    .replace(/<[^>]*>/g, '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&');
-  return letters(text);
-}
-
-const archive = readFileSync(ARCHIVE);
-const members = listZipMembers(archive).filter((name) => name.endsWith('/board.jsonl'));
-const CONTENT_TYPES = ['text', 'checkbox', 'image', 'divider', 'h1', 'h2', 'h3', 'attachment'];
+const templates = readArchive();
 
 const totals = {
-  templates: members.length,
+  templates: templates.length,
   cards: 0,
   cardsWithContent: 0,
   blocks: {} as Record<string, number>,
@@ -143,8 +90,8 @@ const perTemplate: Record<
 const results: CardResult[] = [];
 const hosts = new Map<string, number>();
 
-for (const member of members) {
-  const { title, blocks } = readBoard(archive, member);
+for (const { board, blocks } of templates) {
+  const { title } = board;
   const byId = new Map(blocks.map((block) => [block.id, block]));
   const template = { cards: 0, blocks: 0, notes: {} as ConversionNotes, bytes: 0 };
 
@@ -155,77 +102,38 @@ for (const member of members) {
   for (const card of blocks.filter((block) => block.type === 'card')) {
     totals.cards += 1;
     template.cards += 1;
-    const order = (card.fields.contentOrder as (string | string[])[] | undefined) ?? [];
-    totals.sideBySideRows += order.filter((entry) => Array.isArray(entry)).length;
-    const ordered = order.flat();
-    const children = blocks.filter(
-      (block) => block.parentId === card.id && block.type !== 'comment',
-    );
-    totals.blocksOutsideOrder += children.filter((block) => !ordered.includes(block.id)).length;
-
-    const content: DocNode[] = [];
-    const notes: ConversionNotes = {};
-    let sourceBytes = 0;
-    for (const id of ordered) {
-      const block = byId.get(id);
-      if (!block) {
-        totals.missingBlocks += 1;
-        continue;
-      }
-      totals.blocks[block.type] = (totals.blocks[block.type] ?? 0) + 1;
-      template.blocks += 1;
-      sourceBytes += Buffer.byteLength(block.title);
-      switch (block.type) {
-        case 'text': {
-          const converted = markdownToBlocks(block.title);
-          const said = letters(converted.content.map(textOf).join(''));
-          if (said !== plainOfMarkdown(block.title)) totals.textMismatches += 1;
-          content.push(...converted.content);
-          addNotes(notes, converted.notes);
-          break;
-        }
-        case 'checkbox': {
-          // Neighbouring checkbox blocks are one task list. Their text is plain, not Markdown.
-          const item: DocNode = {
-            type: 'taskItem',
-            attrs: { checked: Boolean(block.fields.value) },
-            content: [
-              block.title === ''
-                ? { type: 'paragraph' }
-                : { type: 'paragraph', content: [{ type: 'text', text: block.title }] },
-            ],
-          };
-          const last = content.at(-1);
-          if (last?.type === 'taskList') last.content?.push(item);
-          else content.push({ type: 'taskList', content: [item] });
-          break;
-        }
-        case 'image':
-          content.push({ type: 'image', attrs: { fileId: String(block.fields.fileId) } });
-          break;
-        case 'divider':
-          content.push({ type: 'horizontalRule' });
-          break;
-        default:
-          notes[`block-${block.type}`] = (notes[`block-${block.type}`] ?? 0) + 1;
-      }
+    const body = cardBody(card, blocks);
+    totals.sideBySideRows += body.sideBySideRows;
+    totals.blocksOutsideOrder += body.blocksOutsideOrder;
+    totals.missingBlocks += body.missingBlocks;
+    totals.textMismatches += body.textMismatches;
+    for (const [type, count] of Object.entries(body.blocks)) {
+      totals.blocks[type] = (totals.blocks[type] ?? 0) + count;
+      template.blocks += count;
     }
-    if (content.length === 0) continue;
+    const { doc } = body;
+    if (!doc) continue;
 
     totals.cardsWithContent += 1;
-    const doc: DocNode = { type: 'doc', content };
     const problems = validateDoc(doc);
     if (problems.length > 0) {
       totals.invalid += 1;
       console.error(`${title} / ${card.title}: ${problems.join('; ')}`);
     }
-    addNotes(totals.notes, notes);
-    addNotes(template.notes, notes);
+    addNotes(totals.notes, body.notes);
+    addNotes(template.notes, body.notes);
     countLinks(doc, hosts);
     totals.oldNames += (textOf(doc).match(OLD_NAMES) ?? []).length;
     const bytes = storedSize(doc);
     template.bytes += bytes;
-    results.push({ template: title, card: card.title, doc, bytes, sourceBytes, ...measure(doc) });
+    results.push({
+      template: title,
+      card: card.title,
+      doc,
+      bytes,
+      sourceBytes: body.sourceBytes,
+      ...measure(doc),
+    });
   }
   perTemplate[title] = template;
 }
