@@ -34,12 +34,8 @@ impl BoardType {
 }
 
 /// A role on a board, from least to most privileged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum BoardRole {
-    /// No role. As a board's minimum role it means members keep their own role.
-    #[default]
-    #[serde(rename = "")]
-    None,
     /// May view the board.
     #[serde(rename = "viewer")]
     Viewer,
@@ -55,14 +51,56 @@ pub enum BoardRole {
 }
 
 impl BoardRole {
-    /// Returns the wire and database form; [`BoardRole::None`] is the empty string.
+    /// Returns the wire form.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::None => "",
             Self::Viewer => "viewer",
             Self::Commenter => "commenter",
             Self::Editor => "editor",
             Self::Admin => "admin",
+        }
+    }
+}
+
+/// The minimum role of a board: the role a user gets who joins the board, or is added
+/// to it by somebody who does not manage its roles.
+///
+/// A board always has one, and it is never admin: nobody becomes an administrator of a
+/// board by joining it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum MinimumRole {
+    /// Whoever joins may view the board.
+    #[serde(rename = "viewer")]
+    Viewer,
+    /// Whoever joins may also comment on cards.
+    #[serde(rename = "commenter")]
+    Commenter,
+    /// Whoever joins may also edit cards and properties. What a new board starts with.
+    #[default]
+    #[serde(rename = "editor")]
+    Editor,
+}
+
+impl MinimumRole {
+    /// Every minimum role there is.
+    pub const ALL: [Self; 3] = [Self::Viewer, Self::Commenter, Self::Editor];
+
+    /// Returns the wire and database form.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Viewer => "viewer",
+            Self::Commenter => "commenter",
+            Self::Editor => "editor",
+        }
+    }
+}
+
+impl From<MinimumRole> for BoardRole {
+    fn from(role: MinimumRole) -> Self {
+        match role {
+            MinimumRole::Viewer => Self::Viewer,
+            MinimumRole::Commenter => Self::Commenter,
+            MinimumRole::Editor => Self::Editor,
         }
     }
 }
@@ -107,7 +145,7 @@ pub struct Board {
     /// The role every member has at least, whatever their own role.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
-    pub minimum_role: BoardRole,
+    pub minimum_role: MinimumRole,
     /// The board's title.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
@@ -193,7 +231,7 @@ pub struct BoardPatch {
     pub board_type: Option<BoardType>,
     /// The new minimum role.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub minimum_role: Option<BoardRole>,
+    pub minimum_role: Option<MinimumRole>,
     /// The new title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -325,9 +363,6 @@ pub struct BoardMember {
     /// The user's independent roles on the board; unused, kept for the wire format.
     #[serde(deserialize_with = "null_as_default")]
     pub roles: String,
-    /// The board's minimum role at the time the membership was read.
-    #[serde(deserialize_with = "null_as_default")]
-    pub minimum_role: String,
     /// The user administers the board.
     #[serde(deserialize_with = "null_as_default")]
     pub scheme_admin: bool,

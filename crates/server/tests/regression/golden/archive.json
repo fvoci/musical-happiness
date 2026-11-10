@@ -21,7 +21,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
@@ -194,7 +194,6 @@
         {
           "data": {
             "boardId": "<id:2>",
-            "minimumRole": "",
             "roles": "",
             "schemeAdmin": true,
             "schemeCommenter": false,
@@ -223,7 +222,7 @@
             "id": "<id:2>",
             "isBuiltin": false,
             "isTemplate": false,
-            "minimumRole": "",
+            "minimumRole": "editor",
             "modifiedBy": "<id:1>",
             "properties": {},
             "showDescription": false,
@@ -359,7 +358,7 @@
         "id": "<id:9>",
         "isBuiltin": false,
         "isTemplate": false,
-        "minimumRole": "",
+        "minimumRole": "editor",
         "modifiedBy": "<id:8>",
         "properties": {},
         "showDescription": false,
@@ -449,7 +448,6 @@
     "body": [
       {
         "boardId": "<id:9>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
@@ -460,7 +458,6 @@
       },
       {
         "boardId": "<id:9>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,

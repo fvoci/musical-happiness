@@ -49,14 +49,15 @@ pub fn has_permission_to_team(user_id: &str, team_id: &str, permission: TeamPerm
 
 /// Returns whether a board membership grants a permission.
 ///
-/// The membership's minimum role, which comes from the board, counts as if the member
-/// had that role too.
+/// What counts is the role the membership has. The board's minimum role is what a user
+/// gets who joins or is added without a say about roles; it is not added on top of the
+/// role an administrator gave a member. Every board has a minimum role, so counting it
+/// would leave no board with a member below it: nobody could be given less.
 pub fn member_has_permission(member: &BoardMember, permission: BoardPermission) -> bool {
-    let minimum = member.minimum_role.as_str();
-    let admin = member.scheme_admin || minimum == "admin";
-    let editor = member.scheme_editor || minimum == "editor";
-    let commenter = member.scheme_commenter || minimum == "commenter";
-    let viewer = member.scheme_viewer || minimum == "viewer";
+    let admin = member.scheme_admin;
+    let editor = member.scheme_editor;
+    let commenter = member.scheme_commenter;
+    let viewer = member.scheme_viewer;
     match permission {
         BoardPermission::ManageBoardType
         | BoardPermission::DeleteBoard
@@ -209,17 +210,23 @@ mod tests {
             "only an admin deletes others' comments"
         );
 
-        // A viewer on a board whose minimum role is editor acts as an editor.
-        let raised = BoardMember {
+        // A viewer is a viewer whatever the minimum role of the board: the minimum role
+        // is what joining gives, not something added to a role that was given. A
+        // membership does not even say what its board's minimum role is.
+        let below_the_minimum = BoardMember {
             scheme_viewer: true,
-            minimum_role: "editor".to_owned(),
             ..BoardMember::default()
         };
         check(
-            "viewer raised to editor",
-            &raised,
-            &[ManageBoardCards, ManageBoardProperties, ViewBoard],
-            &[ManageBoardType, DeleteBoard],
+            "viewer, on any board",
+            &below_the_minimum,
+            &[ViewBoard],
+            &[
+                ManageBoardCards,
+                ManageBoardProperties,
+                ManageBoardType,
+                DeleteBoard,
+            ],
         );
 
         let no_role = BoardMember::default();

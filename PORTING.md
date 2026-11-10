@@ -258,7 +258,8 @@ S6에서 새로 본 것:
 | `cb3fd0ce` | **세션 수명(5.4).** 한가함 한도 14일(`session_idle_days`)과 절대 한도 90일(`session_max_days`, 세션의 `expires_at`). 마지막 사용 시각은 마지막 기록에서 10분이 지났을 때만 쓴다(전에는 요청마다). 정리는 한 시간마다 돌고 끝난 세션을 바로 지운다(31일 하한이 없다). 비활성화된 사용자의 세션은 조회에서 걸러진다. `session_expire_time`, `session_refresh_time`은 설정이 아니다(값이 있으면 시작 오류로 새 키를 알려 준다). 테스트 `users::a_session_ends_when_it_was_not_used_for_the_idle_limit`, `…_at_its_absolute_limit_however_much_it_is_used`, `the_use_of_a_session_is_recorded_at_most_every_ten_minutes`, 스토어 `sessions::a_session_of_a_deactivated_user_is_not_found`. 자기 비밀번호를 바꿀 때 다른 세션을 끝내는 것은 `d4e10cb1`에 들어갔고, 지금의 세션에 새 토큰을 주는 것은 쿠키를 다시 줄 수 있는 인증 전달 단계에서 한다 | 변화 없음 |
 | `224ef584` | **관리자(3.6).** 아래 "관리자에서 바뀐 것" | 426 → 455단계(새 시나리오 `admins` 29단계). 기존 단계 가운데 8단계, 본문만 |
 | `b53d518e` | **서버가 만드는 공유 토큰(3.8).** 아래 "공유 토큰에서 바뀐 것" | 455 → 470단계(시나리오 `sharing`에 15단계). 기존 단계 가운데 11단계, 본문만 |
-| (이 커밋) | **사용자 표시 설정(5.8).** 아래 "표시 설정에서 바뀐 것" | 470 → 500단계(새 시나리오 `settings` 30단계). 기존 단계 가운데 4단계, 본문만 |
+| `ef9a8d96` | **사용자 표시 설정(5.8).** 아래 "표시 설정에서 바뀐 것" | 470 → 500단계(새 시나리오 `settings` 30단계). 기존 단계 가운데 4단계, 본문만 |
+| (이 커밋) | **최소 역할(5.10).** 아래 "최소 역할에서 바뀐 것" | 500 → 514단계(시나리오 `members`에 14단계). 기존 단계 가운데 62단계, 본문만 |
 
 **UUIDv7과 비밀 값에서 바뀐 것.**
 
@@ -301,6 +302,19 @@ S6에서 새로 본 것:
 | 가입·비밀번호 요청의 검증 오류가 `field`를 싣는다(`username`, `email`, `password`, `oldPassword`, `newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field` |
 
 스냅샷: `auth` 시나리오에 세 단계를 더했다(다른 기기에서 로그인, 비밀번호 변경 뒤 그 기기의 401, 바꾼 세션의 200). 본문이 바뀐 일곱 단계는 `field`가 붙은 여섯과 길이 한도의 문구 하나다. 아카이브 항목 이름의 정렬이 무작위 파일 이름에 흔들리지 않게 하네스의 정렬 기준을 고쳤다. 의존성: `argon2` 0.6, `sha2` 0.11을 더하고 `bcrypt`를 뺐다(`NOTICE` 다시 생성, `cargo deny` 통과). 검증: `cargo xtask check` 여섯 단계 PASS, `cargo xtask test` SQLite 790건·PostgreSQL 697건·S3 1건, 실패 0.
+
+**최소 역할에서 바뀐 것.** (2026-11-10 22:44 KST)
+
+| 바뀐 것 | 왜 | 어디 |
+|---|---|---|
+| **보드에는 늘 최소 역할이 있다.** `viewer`, `commenter`, `editor` 가운데 하나이고 새 보드의 기본값은 `editor`다. 빈 값과 `admin`은 최소 역할이 아니다: 만들 때나 고칠 때 보내면 400 `invalid-board-minimum-role`. 스키마도 막는다(`NOT NULL DEFAULT 'editor'`, `CHECK`) | 결정(5.10). 누구나 참여해 관리자가 되는 보드는 두지 않는다 | `fvoci_model::MinimumRole`, `crates/store/schema/` |
+| 멤버 추가(역할 관리 권한이 없는 추가자)와 참여(join) 모두 보드의 최소 역할을 준다. 전에는 빈 값일 때 추가는 viewer, join은 editor였다(S6 F절에 남겼던 불일치가 닫혔다). 역할 관리 권한이 있는 추가자는 전처럼 요청한 역할을 준다 | 결정(5.10) | `api/members.rs` |
+| **다시 참여하면 최소 역할로 올린다. 내리지는 않는다.** 최소 역할보다 낮은 멤버(역할이 하나도 없는 멤버 포함)가 join하면 그 역할이 되고, 같거나 높은 멤버(관리자 포함)는 그대로다. 읽고 쓰는 것이 한 트랜잭션이라 동시에 온 join은 멤버십 하나를 만든다 | 결정(5.10) | `Store::join_board`, `Joined`, `App::join_board` |
+| **멤버의 권한은 멤버가 가진 역할이다(해석, 확인 필요).** 전에는 보드의 최소 역할을 모든 멤버가 "가진 것으로" 쳤다(원본의 동작. 빈 값이 기본이라 평소에는 효과가 없었다). 이제 모든 보드에 최소 역할이 있고 기본이 `editor`라서 그 규칙을 두면 어느 보드에도 editor보다 낮은 멤버가 있을 수 없다: 관리자가 viewer로 추가해도 편집할 수 있고, "낮은 멤버가 다시 참여하면 올린다"는 결정이 뜻을 잃는다. 그래서 최소 역할은 "참여·추가가 주는 역할"로만 쓰고 권한 계산에서는 뺐다. 최소 역할을 올려도 이미 있는 멤버는 다시 참여할 때까지 그대로다 | 결정의 넷째 줄("역할 관리 권한이 있는 추가자는 요청한 역할을 준다")과 셋째 줄이 성립하려면 이 해석이어야 한다고 판단했다. 사용자가 다르게 뜻했다면 `member_has_permission` 한 곳을 되돌리면 된다 | `permissions::member_has_permission` |
+| 멤버십 JSON에서 `minimumRole`이 빠졌다. 보드의 것이고 보드가 답한다. 전에는 읽은 멤버십에는 보드의 값이, 추가의 응답에는 빈 값이 들어 있었다 | 권한 계산에 쓰지 않는다. 같은 멤버십이 길에 따라 달리 보였다 | `fvoci_model::BoardMember` |
+| `BoardRole`에 "없음"이 없다(viewer, commenter, editor, admin). 가져오기는 아카이브의 `minimumRole`이 빈 값이거나 이 서버가 모르는 값이면 기본값으로 둔다(원본이 쓴 아카이브는 빈 값이다) | 타입이 잘못된 상태를 담지 못하게 | `fvoci_model::BoardRole`, `app/import.rs`의 `with_a_minimum_role` |
+
+**스냅샷.** 500 → 514단계. 시나리오 `members`에 14단계: 빈 값·`admin` 거절, 최소 역할보다 낮게 추가된 멤버가 그 역할대로 막히는 것, 다시 참여해 올라가는 것, 더 높은 멤버와 관리자가 그대로인 것. 기존 단계 가운데 62단계의 본문이 바뀌었다: 보드의 `minimumRole`이 `""`에서 `"editor"`로, 멤버십의 `minimumRole`이 없어졌다. 상태 코드가 바뀐 단계는 없고 권한 표 636칸도 그대로다. 테스트: API `boards::joining_again_raises_…`, `a_member_below_the_minimum_role_has_the_role_they_were_given` 등, 스토어 `boards::join_board_…`, `the_schema_refuses_a_minimum_role_that_is_none`, `joining_at_once_makes_one_membership`.
 
 **표시 설정에서 바뀐 것.** (2026-11-10 22:31 KST)
 

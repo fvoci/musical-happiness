@@ -2,9 +2,9 @@
 //! (`server/model/*.go`), and the leniency of decoding.
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardRole,
-    BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig,
-    ErrorBody, LoginRequest, PatchBoardsAndBlocks, Sharing, Subscriber, SubscriberType,
+    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardType,
+    Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig, ErrorBody,
+    LoginRequest, MinimumRole, PatchBoardsAndBlocks, Sharing, Subscriber, SubscriberType,
     Subscription, Team, User, UserPreferencesPatch,
 };
 use serde_json::{Value, json};
@@ -157,7 +157,7 @@ fn board_json_members() {
         created_by: "u1".to_owned(),
         modified_by: "u1".to_owned(),
         board_type: BoardType::Private,
-        minimum_role: BoardRole::Editor,
+        minimum_role: MinimumRole::Commenter,
         title: "Roadmap".to_owned(),
         description: "d".to_owned(),
         icon: "🚀".to_owned(),
@@ -174,7 +174,7 @@ fn board_json_members() {
     };
     let want = json!({
         "id": "b1", "teamId": "0", "createdBy": "u1", "modifiedBy": "u1",
-        "type": "P", "minimumRole": "editor", "title": "Roadmap", "description": "d",
+        "type": "P", "minimumRole": "commenter", "title": "Roadmap", "description": "d",
         "icon": "🚀", "showDescription": true, "isTemplate": false, "isBuiltin": false, "templateVersion": 6,
         "properties": { "k": "v" }, "cardProperties": [{ "id": "p1", "name": "Status" }],
         "createAt": 1, "updateAt": 2, "deleteAt": 0
@@ -190,14 +190,33 @@ fn board_json_members() {
 fn board_requires_a_valid_type_and_role() {
     let minimal: Board = serde_json::from_value(json!({ "type": "O" })).expect("decodes");
     assert_eq!(minimal, Board::default());
-    assert_eq!(minimal.minimum_role, BoardRole::None);
-    assert_eq!(to_json(&minimal)["minimumRole"], json!(""));
+    // A board always has a minimum role. One that names none starts with editor.
+    assert_eq!(minimal.minimum_role, MinimumRole::Editor);
+    assert_eq!(to_json(&minimal)["minimumRole"], json!("editor"));
+    let null_role: Board =
+        serde_json::from_value(json!({ "type": "O", "minimumRole": null })).expect("decodes");
+    assert_eq!(
+        null_role.minimum_role,
+        MinimumRole::Editor,
+        "null is absent"
+    );
+    for role in MinimumRole::ALL {
+        let board: Board =
+            serde_json::from_value(json!({ "type": "O", "minimumRole": role.as_str() }))
+                .expect("decodes");
+        assert_eq!(board.minimum_role, role);
+    }
 
+    // Empty is no minimum role, and neither is admin: nobody becomes an administrator
+    // of a board by joining it.
     for body in [
         json!({}),
         json!({ "type": "" }),
         json!({ "type": "X" }),
         json!({ "type": "O", "minimumRole": "owner" }),
+        json!({ "type": "O", "minimumRole": "" }),
+        json!({ "type": "O", "minimumRole": "admin" }),
+        json!({ "type": "O", "minimumRole": "Editor" }),
     ] {
         assert!(
             serde_json::from_value::<Board>(body.clone()).is_err(),
@@ -231,7 +250,7 @@ fn board_patch_apply_merges_card_properties_in_order() {
     patch.apply(&mut board);
 
     assert_eq!(board.board_type, BoardType::Private);
-    assert_eq!(board.minimum_role, BoardRole::Viewer);
+    assert_eq!(board.minimum_role, MinimumRole::Viewer);
     assert_eq!(
         (board.title.as_str(), board.description.as_str()),
         ("t", "d")
@@ -295,7 +314,6 @@ fn board_member_json_members() {
         board_id: "b".to_owned(),
         user_id: "u".to_owned(),
         roles: "r".to_owned(),
-        minimum_role: "viewer".to_owned(),
         scheme_admin: true,
         scheme_editor: false,
         scheme_commenter: true,
@@ -305,7 +323,7 @@ fn board_member_json_members() {
     assert_eq!(
         to_json(&member),
         json!({
-            "boardId": "b", "userId": "u", "roles": "r", "minimumRole": "viewer",
+            "boardId": "b", "userId": "u", "roles": "r",
             "schemeAdmin": true, "schemeEditor": false, "schemeCommenter": true,
             "schemeViewer": false, "synthetic": true
         })

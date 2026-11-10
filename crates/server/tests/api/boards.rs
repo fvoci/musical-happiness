@@ -24,8 +24,8 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardType, BoardsAndBlocks,
-    Category, CategoryBoards, Team, User, is_id, new_id,
+    Block, BlockType, Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, Category,
+    CategoryBoards, MinimumRole, Team, User, is_id, new_id,
 };
 use fvoci_server::auth::secret::new_secret;
 use fvoci_store::{BlockFilter, DuplicateAs, PublicBoards};
@@ -110,6 +110,14 @@ pub(crate) fn member(board_id: &str, user_id: &str) -> BoardMember {
 fn editor(board_id: &str, user_id: &str) -> BoardMember {
     BoardMember {
         scheme_editor: true,
+        ..member(board_id, user_id)
+    }
+}
+
+/// A membership as a viewer and nothing else.
+fn viewer(board_id: &str, user_id: &str) -> BoardMember {
+    BoardMember {
+        scheme_viewer: true,
         ..member(board_id, user_id)
     }
 }
@@ -610,19 +618,21 @@ async fn create_board_validates_the_body_like_the_original() {
         assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
-    let response = th
-        .client
-        .post(
-            "/boards",
-            &json!({"teamId": TEST_TEAM_ID, "type": "O", "minimumRole": "boss"}),
-        )
-        .await;
-    response.check_bad_request();
-    assert_eq!(
-        response.error_message(),
-        "invalid-board-minimum-role",
-        "the original's message"
-    );
+    for role in ["boss", "", "admin"] {
+        let response = th
+            .client
+            .post(
+                "/boards",
+                &json!({"teamId": TEST_TEAM_ID, "type": "O", "minimumRole": role}),
+            )
+            .await;
+        response.check_bad_request();
+        assert_eq!(
+            response.error_message(),
+            "invalid-board-minimum-role",
+            "the minimum role {role:?}"
+        );
+    }
 
     // The type is checked before the minimum role.
     let response = th
@@ -681,7 +691,7 @@ async fn create_board_wire_format() {
             "createdBy": me.id,
             "modifiedBy": me.id,
             "type": "O",
-            "minimumRole": "",
+            "minimumRole": "editor",
             "title": "open one",
             "description": "",
             "icon": "",
@@ -1107,12 +1117,21 @@ async fn patch_board_invalid_patch_on_a_board_with_permissions() {
     response.check_bad_request();
     assert_eq!(response.error_message(), "invalid-board-type", "the type");
 
-    let response = patch_board(&th.client, &board.id, &json!({"minimumRole": "boss"})).await;
-    response.check_bad_request();
+    // Empty is no minimum role, and neither is admin: nobody becomes an administrator of
+    // a board by joining it.
+    for role in ["boss", "", "admin", "Editor"] {
+        let response = patch_board(&th.client, &board.id, &json!({"minimumRole": role})).await;
+        response.check_bad_request();
+        assert_eq!(
+            response.error_message(),
+            "invalid-board-minimum-role",
+            "the minimum role {role:?}"
+        );
+    }
     assert_eq!(
-        response.error_message(),
-        "invalid-board-minimum-role",
-        "the minimum role"
+        stored_board(&th, &board.id).await.minimum_role,
+        MinimumRole::Editor,
+        "the board keeps the minimum role it started with"
     );
 
     // The permission is checked before the body is looked at. (The original checks the
@@ -1234,17 +1253,23 @@ async fn patch_board_permissions_by_what_the_patch_touches() {
     .await
     .ok_json();
     assert_eq!(patched.board_type, BoardType::Private, "the type");
-    assert_eq!(patched.minimum_role, BoardRole::Viewer, "the minimum role");
+    assert_eq!(
+        patched.minimum_role,
+        MinimumRole::Viewer,
+        "the minimum role"
+    );
     // Channels belonged to the original's host application. The member means nothing
     // any more: it is neither refused nor stored nor answered.
     let answered: Value = get_board(&th.client, &board.id).await.value();
     assert!(answered.get("channelId").is_none(), "{answered}");
 
-    // The board's minimum role shows in its memberships.
-    let members: Vec<BoardMember> = get_members(&th.client, &board.id).await.ok_json();
+    // The minimum role is the board's: a membership does not repeat it.
+    let members: Value = get_members(&th.client, &board.id).await.value();
     assert!(
-        members.iter().all(|member| member.minimum_role == "viewer"),
-        "{members:?}"
+        members.as_array().is_some_and(|members| members
+            .iter()
+            .all(|member| member.get("minimumRole").is_none())),
+        "{members}"
     );
 
     // Malformed bodies are bad requests, `null` too (which crashes the original's
@@ -1595,7 +1620,6 @@ async fn get_members_for_board_should_correctly_return_board_members_for_a_valid
             "boardId": board.id,
             "userId": user2.id,
             "roles": "",
-            "minimumRole": "",
             "schemeAdmin": false,
             "schemeEditor": true,
             "schemeCommenter": false,
@@ -2010,9 +2034,9 @@ const NO_ROLE: [bool; 4] = [false; 4];
 
 /// Not in the original, which stores whatever roles the request names: an editor of an
 /// open board, who may add members but not manage roles, could make anyone an editor or
-/// a member without any role. Such an adder now gives the board's minimum role, and
-/// viewer if the board names none. The answer and the stored membership say what was
-/// given.
+/// a member without any role. Such an adder gives the board's minimum role, which every
+/// board has: editor unless the board says otherwise. The answer and the stored
+/// membership say what was given.
 #[tokio::test]
 async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board() {
     let th = Setup::native().start().await.init_basic().await;
@@ -2024,8 +2048,9 @@ async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board()
         ..member(board_id, user_id)
     };
 
+    // The empty one is the board that says nothing about its minimum role.
     let cases = [
-        ("", ONLY_VIEWER),
+        ("", ONLY_EDITOR),
         ("viewer", ONLY_VIEWER),
         ("commenter", ONLY_COMMENTER),
         ("editor", ONLY_EDITOR),
@@ -2088,45 +2113,6 @@ async fn add_member_without_managing_roles_gives_the_minimum_role_of_the_board()
             }
         }
     }
-    th.teardown().await;
-}
-
-/// A board's minimum role is every member's least role. If it is admin, every member
-/// manages the roles, so there is nobody on that board who adds members without
-/// managing roles: the request of any member is stored as it is.
-#[tokio::test]
-async fn add_member_on_a_board_whose_minimum_role_is_admin_is_by_a_manager_of_roles() {
-    let th = Setup::native().start().await.init_basic().await;
-    let user1 = th.client.me().await;
-    let board = board_with_admin(
-        &th,
-        new_board(TEST_TEAM_ID, BoardType::Open, "open"),
-        &user1.id,
-    )
-    .await;
-    add_member(&th, &editor(&board.id, &th.client2.me().await.id)).await;
-    th.client
-        .patch(
-            &format!("/boards/{}", board.id),
-            &json!({"minimumRole": "admin"}),
-        )
-        .await
-        .check_ok();
-
-    let user3 = th.add_user("user3").await.me().await;
-    let added: BoardMember = th
-        .client2
-        .add_member(&BoardMember {
-            scheme_commenter: true,
-            ..member(&board.id, &user3.id)
-        })
-        .await
-        .ok_json();
-    assert_eq!(
-        role_flags(&added),
-        ONLY_COMMENTER,
-        "the role the request names, from a member whom the board makes an admin"
-    );
     th.teardown().await;
 }
 
@@ -3104,7 +3090,11 @@ async fn join_board_create_and_join_public_board() {
         .await
         .ok_json();
     assert_eq!(board.created_by, me.id, "created by the session's user");
-    assert_eq!(board.minimum_role, BoardRole::None, "no minimum role");
+    assert_eq!(
+        board.minimum_role,
+        MinimumRole::Editor,
+        "a board that names none starts with editor"
+    );
 
     let joined: BoardMember = join_board(&th.client2, &board.id).await.ok_json();
 
@@ -3126,41 +3116,16 @@ async fn join_board_create_and_join_public_board() {
 }
 
 /// `TestJoinBoard/"create and join public board should match the minimumRole in the
-/// membership"`, and the same for the other minimum roles (verified on the original).
+/// membership"`, for every minimum role a board can have.
 #[tokio::test]
 async fn join_board_should_match_the_minimum_role_in_the_membership() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
 
     for (minimum_role, expected) in [
-        (
-            BoardRole::Commenter,
-            BoardMember {
-                scheme_commenter: true,
-                ..BoardMember::default()
-            },
-        ),
-        (
-            BoardRole::Viewer,
-            BoardMember {
-                scheme_viewer: true,
-                ..BoardMember::default()
-            },
-        ),
-        (
-            BoardRole::Editor,
-            BoardMember {
-                scheme_editor: true,
-                ..BoardMember::default()
-            },
-        ),
-        (
-            BoardRole::Admin,
-            BoardMember {
-                scheme_admin: true,
-                ..BoardMember::default()
-            },
-        ),
+        (MinimumRole::Commenter, ONLY_COMMENTER),
+        (MinimumRole::Viewer, ONLY_VIEWER),
+        (MinimumRole::Editor, ONLY_EDITOR),
     ] {
         let board: Board = th
             .client
@@ -3174,12 +3139,13 @@ async fn join_board_should_match_the_minimum_role_in_the_membership() {
         let joined: BoardMember = join_board(&th.client2, &board.id).await.ok_json();
 
         assert_eq!(
-            joined,
-            BoardMember {
-                board_id: board.id.clone(),
-                user_id: user2.id.clone(),
-                ..expected
-            },
+            (joined.board_id.as_str(), joined.user_id.as_str()),
+            (board.id.as_str(), user2.id.as_str()),
+            "the membership of the user on the board"
+        );
+        assert_eq!(
+            role_flags(&joined),
+            expected,
             "joining a board whose minimum role is {minimum_role:?}"
         );
     }
@@ -3187,9 +3153,10 @@ async fn join_board_should_match_the_minimum_role_in_the_membership() {
 }
 
 /// `TestJoinBoard/"create and join public board should match editor role in the
-/// membership when MinimumRole is empty"`
+/// membership when MinimumRole is empty"`: a board that says nothing about its minimum
+/// role has editor.
 #[tokio::test]
-async fn join_board_should_match_editor_role_when_minimum_role_is_empty() {
+async fn join_board_should_match_editor_role_when_the_board_names_no_minimum_role() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
     let board: Board = th
@@ -3205,10 +3172,143 @@ async fn join_board_should_match_editor_role_when_minimum_role_is_empty() {
     let joined: BoardMember = join_board(&th.client2, &board.id).await.ok_json();
 
     assert_eq!(
-        joined,
-        editor(&board.id, &user2.id),
+        role_flags(&joined),
+        ONLY_EDITOR,
         "new member should be editor and nothing else"
     );
+    assert_eq!(joined.user_id, user2.id, "the user who joined");
+    th.teardown().await;
+}
+
+/// A member below the board's minimum role who joins again is raised to it. Joining
+/// never lowers anybody: a member with the minimum role or a higher one stays as they
+/// are, the administrator included.
+#[tokio::test]
+async fn joining_again_raises_to_the_minimum_role_and_never_lowers() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    let board = board_with_admin(
+        &th,
+        Board {
+            minimum_role: MinimumRole::Commenter,
+            ..new_board(TEST_TEAM_ID, BoardType::Open, "open")
+        },
+        &user1.id,
+    )
+    .await;
+    let stored_role = async || {
+        let members = members_of(&th, &board.id).await;
+        let member = members
+            .iter()
+            .find(|member| member.user_id == user2.id)
+            .expect("user2 is a member");
+        role_flags(member)
+    };
+
+    // The administrator made user2 a viewer: below the board's minimum role.
+    add_member(&th, &viewer(&board.id, &user2.id)).await;
+    assert_eq!(
+        stored_role().await,
+        ONLY_VIEWER,
+        "as the administrator said"
+    );
+    let joined: BoardMember = join_board(&th.client2, &board.id).await.ok_json();
+    assert_eq!(
+        role_flags(&joined),
+        ONLY_COMMENTER,
+        "raised by joining again"
+    );
+    assert_eq!(stored_role().await, ONLY_COMMENTER, "and stored so");
+
+    // With the minimum role: joining again changes nothing.
+    let again: BoardMember = join_board(&th.client2, &board.id).await.ok_json();
+    assert_eq!(role_flags(&again), ONLY_COMMENTER, "as before");
+
+    // Above it: an editor stays an editor.
+    th.client
+        .put(
+            &format!("/boards/{}/members/{}", board.id, user2.id),
+            &editor(&board.id, &user2.id),
+        )
+        .await
+        .check_ok();
+    let as_editor: BoardMember = join_board(&th.client2, &board.id).await.ok_json();
+    assert_eq!(role_flags(&as_editor), ONLY_EDITOR, "not lowered");
+    assert_eq!(stored_role().await, ONLY_EDITOR, "nor in the store");
+
+    // The minimum role goes up: members below it stay where they are until they join
+    // again, and then are raised.
+    patch_board(&th.client, &board.id, &json!({"minimumRole": "viewer"}))
+        .await
+        .check_ok();
+    th.client
+        .put(
+            &format!("/boards/{}/members/{}", board.id, user2.id),
+            &viewer(&board.id, &user2.id),
+        )
+        .await
+        .check_ok();
+    patch_board(&th.client, &board.id, &json!({"minimumRole": "editor"}))
+        .await
+        .check_ok();
+    assert_eq!(
+        stored_role().await,
+        ONLY_VIEWER,
+        "raising the minimum raises nobody"
+    );
+    th.client2
+        .insert_blocks(&board.id, &[card_block(&board.id)])
+        .await
+        .check_forbidden();
+    let raised: BoardMember = join_board(&th.client2, &board.id).await.ok_json();
+    assert_eq!(role_flags(&raised), ONLY_EDITOR, "joining again does");
+    th.client2
+        .insert_blocks(&board.id, &[card_block(&board.id)])
+        .await
+        .check_ok();
+
+    // The administrator joins: still the administrator.
+    let admin: BoardMember = join_board(&th.client, &board.id).await.ok_json();
+    assert!(
+        admin.scheme_admin,
+        "the administrator is not lowered: {admin:?}"
+    );
+
+    th.teardown().await;
+}
+
+/// The role that counts is the role a member has. An administrator can give a member
+/// less than the board's minimum role, and the member then has less: the minimum role
+/// is what joining gives, not something every member has anyway.
+#[tokio::test]
+async fn a_member_below_the_minimum_role_has_the_role_they_were_given() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    // A private board cannot be joined, so the member cannot raise themself.
+    let board = board_with_admin(
+        &th,
+        new_board(TEST_TEAM_ID, BoardType::Private, "private"),
+        &user1.id,
+    )
+    .await;
+    assert_eq!(board.minimum_role, MinimumRole::Editor, "the default");
+
+    add_member(&th, &viewer(&board.id, &user2.id)).await;
+
+    th.client2
+        .get(&format!("/boards/{}/blocks", board.id))
+        .await
+        .check_ok();
+    th.client2
+        .insert_blocks(&board.id, &[card_block(&board.id)])
+        .await
+        .check_forbidden();
+    join_board(&th.client2, &board.id)
+        .await
+        .check_error(StatusCode::FORBIDDEN, "cannot join a non Open board");
+
     th.teardown().await;
 }
 
@@ -3673,7 +3773,6 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_team_users() {
             "boardId": template.id,
             "userId": user2.id,
             "roles": "",
-            "minimumRole": "",
             "schemeAdmin": false,
             "schemeEditor": false,
             "schemeCommenter": false,

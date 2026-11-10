@@ -287,6 +287,90 @@ pub(crate) async fn members(s: &mut Session) {
     .user(&alice)
     .await;
     s.get("members at the end", &members).user(&alice).await;
+
+    // -- the minimum role ----------------------------------------------------------------
+    // What joining gives, and what somebody gives who adds a member without managing the
+    // board's roles. A board always has one; a new board has editor.
+    let role_board = new_board(s, &alice, "Role board", "O", json!({})).await;
+    let role_path = format!("{API}/boards/{role_board}");
+    let role_members = format!("{role_path}/members");
+    s.patch("minimum role: none", &role_path)
+        .json(json!({"minimumRole": ""}))
+        .user(&alice)
+        .await;
+    s.patch("minimum role: admin", &role_path)
+        .json(json!({"minimumRole": "admin"}))
+        .user(&alice)
+        .await;
+    s.post(
+        "create a board with no minimum role",
+        &format!("{API}/boards"),
+    )
+    .json(json!({"teamId": ROOT_TEAM_ID, "type": "O", "minimumRole": ""}))
+    .user(&alice)
+    .await;
+    s.patch("minimum role: commenter", &role_path)
+        .json(json!({"minimumRole": "commenter"}))
+        .user(&alice)
+        .await;
+    s.post(
+        "add below the minimum role: admin adds a viewer",
+        &role_members,
+    )
+    .json(json!({"boardId": role_board, "userId": bob_id, "schemeViewer": true}))
+    .user(&alice)
+    .await;
+    s.post(
+        "a viewer on the board cannot comment",
+        &format!("{role_path}/blocks"),
+    )
+    .json(json!([block(
+        "m0",
+        &role_board,
+        "comment",
+        "no",
+        "",
+        json!({})
+    )]))
+    .user(&bob)
+    .await;
+    s.post(
+        "join again: raised to the minimum role",
+        &format!("{role_path}/join"),
+    )
+    .user(&bob)
+    .await;
+    s.post(
+        "join once more: nothing changes",
+        &format!("{role_path}/join"),
+    )
+    .user(&bob)
+    .await;
+    s.post(
+        "join: a new member gets the minimum role",
+        &format!("{role_path}/join"),
+    )
+    .user(&carol)
+    .await;
+    s.put("make an editor", &format!("{role_members}/{carol_id}"))
+        .json(json!({"schemeEditor": true}))
+        .user(&alice)
+        .await;
+    s.post(
+        "join above the minimum role: not lowered",
+        &format!("{role_path}/join"),
+    )
+    .user(&carol)
+    .await;
+    s.post(
+        "join: the admin stays the admin",
+        &format!("{role_path}/join"),
+    )
+    .user(&alice)
+    .await;
+    s.get("members of the role board", &role_members)
+        .user(&alice)
+        .await;
 }
 
 pub(crate) async fn boards_and_blocks(s: &mut Session) {

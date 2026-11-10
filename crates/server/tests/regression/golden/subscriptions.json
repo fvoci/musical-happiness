@@ -14,7 +14,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,

@@ -3,7 +3,7 @@
 use fvoci_model::{
     Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, DeleteBoardsAndBlocks, new_id,
 };
-use fvoci_store::{DeletedBoard, DuplicateAs, MemberChange, PublicBoards};
+use fvoci_store::{DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards};
 
 use super::{App, DEFAULT_CATEGORY_BOARDS};
 use crate::error::{AppError, Reason};
@@ -454,6 +454,44 @@ impl App {
 
         self.broadcast_member_change_in_background(board.team_id, member.clone());
         Ok(Some(member.clone()))
+    }
+
+    /// Makes a user a member of a board with the board's minimum role, as joining does,
+    /// and returns the membership. A member below the minimum role is raised to it; a
+    /// member with that role or a higher one stays as they are. The board's members are
+    /// told about a membership that is new or changed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if there is no such board, and an error if the board
+    /// cannot be filed under the user's default category; in that case the membership
+    /// exists nonetheless.
+    pub async fn join_board(&self, board_id: &str, user_id: &str) -> Result<BoardMember, AppError> {
+        let board = self.board(board_id).await?;
+        let joined = match self.store().join_board(board_id, user_id).await {
+            Ok(joined) => joined,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
+            Err(error) => return Err(error.into()),
+        };
+        match joined {
+            Joined::New(member) => {
+                if !board.is_template {
+                    self.add_boards_to_default_category(
+                        user_id,
+                        &board.team_id,
+                        std::slice::from_ref(&board.id),
+                    )
+                    .await?;
+                }
+                self.broadcast_member_change_in_background(board.team_id, member.clone());
+                Ok(member)
+            }
+            Joined::Raised(member) => {
+                self.broadcast_member_change_in_background(board.team_id, member.clone());
+                Ok(member)
+            }
+            Joined::Already(member) => Ok(member),
+        }
     }
 
     /// Replaces the roles of a member of a board and tells the board's members.

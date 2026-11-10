@@ -37,7 +37,7 @@ pub use block::{
 pub use block_ids::generate_block_ids;
 pub use board::{
     Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
-    ParseBoardSearchFieldError,
+    MinimumRole, ParseBoardSearchFieldError,
 };
 pub use boards_and_blocks::{
     BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,

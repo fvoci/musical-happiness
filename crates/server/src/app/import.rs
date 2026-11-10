@@ -12,6 +12,7 @@ use fvoci_model::{
     ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardType, BoardsAndBlocks,
     BoardsAndBlocksError, JsonMap, renew_boards_and_blocks_ids,
 };
+use serde::Deserialize as _;
 use serde_json::Value;
 
 use super::App;
@@ -380,12 +381,14 @@ fn parse_archive_lines(
 
         match line_type {
             "board" => {
-                let mut board: Board =
-                    serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::bad_request(format_args!(
-                            "invalid board in archive line {line_number}: {error}"
-                        ))
-                    })?;
+                let mut board: Board = serde_json::from_value(with_a_minimum_role(
+                    archive_line.data,
+                ))
+                .map_err(|error| {
+                    AppError::bad_request(format_args!(
+                        "invalid board in archive line {line_number}: {error}"
+                    ))
+                })?;
                 modifier_user.clone_into(&mut board.modified_by);
                 board.update_at = now;
                 team_id.clone_into(&mut board.team_id);
@@ -631,6 +634,22 @@ fn trim(line: &[u8]) -> &[u8] {
         .rposition(|byte| !byte.is_ascii_whitespace())
         .unwrap_or(start);
     &line[start..=end]
+}
+
+/// A board of an archive, with its `minimumRole` left out unless it is one a board can
+/// have here, so that the board gets the default. Archives written by the original say
+/// `""` for "none", which is not a minimum role any more, and may say `admin`, which
+/// is none either.
+fn with_a_minimum_role(mut board: Value) -> Value {
+    if let Some(members) = board.as_object_mut() {
+        let is_one = members
+            .get("minimumRole")
+            .is_some_and(|role| fvoci_model::MinimumRole::deserialize(role).is_ok());
+        if !is_one {
+            members.remove("minimumRole");
+        }
+    }
+    board
 }
 
 #[cfg(test)]

@@ -90,7 +90,7 @@
       "id": "<id:3>",
       "isBuiltin": false,
       "isTemplate": true,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
@@ -116,7 +116,7 @@
       "id": "<id:3>",
       "isBuiltin": false,
       "isTemplate": true,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
@@ -238,7 +238,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:2>",
       "properties": {
         "trackingTemplateId": "65aba997282f3ac457cd66736fb86915"

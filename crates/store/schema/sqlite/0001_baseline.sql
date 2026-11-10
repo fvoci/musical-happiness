@@ -80,7 +80,11 @@ CREATE TABLE boards (
     created_by TEXT REFERENCES users (id),
     modified_by TEXT REFERENCES users (id),
     type TEXT NOT NULL,
-    minimum_role TEXT NOT NULL DEFAULT '',
+    -- The role whoever joins the board, or is added by somebody who does not manage its
+    -- roles, gets. Never empty, and never admin: nobody becomes an administrator by
+    -- joining.
+    minimum_role TEXT NOT NULL DEFAULT 'editor'
+        CHECK (minimum_role IN ('viewer', 'commenter', 'editor')),
     title TEXT NOT NULL,
     description TEXT NOT NULL,
     icon TEXT NOT NULL,

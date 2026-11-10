@@ -14,7 +14,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
@@ -40,7 +40,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
@@ -59,7 +59,6 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
@@ -99,7 +98,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
@@ -151,7 +149,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
@@ -168,7 +165,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
@@ -186,7 +182,6 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
@@ -197,7 +192,6 @@
       },
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
@@ -208,7 +202,6 @@
       },
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
@@ -227,7 +220,6 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
@@ -245,7 +237,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": true,
@@ -344,7 +335,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:4>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
@@ -361,7 +351,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:4>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
@@ -420,7 +409,6 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
@@ -431,7 +419,252 @@
       },
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": true,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:1>"
+      }
+    ]
+  },
+  {
+    "name": "create board Role board",
+    "request": "POST /api/v2/boards as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:7>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "editor",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "<id:3>",
+      "templateVersion": 0,
+      "title": "Role board",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "minimum role: none",
+    "request": "PATCH /api/v2/boards/<id:7> as members-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "invalid-board-minimum-role",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "minimum role: admin",
+    "request": "PATCH /api/v2/boards/<id:7> as members-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "invalid-board-minimum-role",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "create a board with no minimum role",
+    "request": "POST /api/v2/boards as members-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "invalid-board-minimum-role",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "minimum role: commenter",
+    "request": "PATCH /api/v2/boards/<id:7> as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:7>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "commenter",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "<id:3>",
+      "templateVersion": 0,
+      "title": "Role board",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "add below the minimum role: admin adds a viewer",
+    "request": "POST /api/v2/boards/<id:7>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:7>",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": false,
+      "schemeViewer": true,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "a viewer on the board cannot comment",
+    "request": "POST /api/v2/boards/<id:7>/blocks as members-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "forbidden",
+      "message": "access denied to post card comments",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "join again: raised to the minimum role",
+    "request": "POST /api/v2/boards/<id:7>/join as members-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:7>",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": true,
+      "schemeEditor": false,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "join once more: nothing changes",
+    "request": "POST /api/v2/boards/<id:7>/join as members-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:7>",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": true,
+      "schemeEditor": false,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "join: a new member gets the minimum role",
+    "request": "POST /api/v2/boards/<id:7>/join as members-carol",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:7>",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": true,
+      "schemeEditor": false,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:6>"
+    }
+  },
+  {
+    "name": "make an editor",
+    "request": "PUT /api/v2/boards/<id:7>/members/<id:6> as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:7>",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": true,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:6>"
+    }
+  },
+  {
+    "name": "join above the minimum role: not lowered",
+    "request": "POST /api/v2/boards/<id:7>/join as members-carol",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:7>",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": true,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:6>"
+    }
+  },
+  {
+    "name": "join: the admin stays the admin",
+    "request": "POST /api/v2/boards/<id:7>/join as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:7>",
+      "roles": "",
+      "schemeAdmin": true,
+      "schemeCommenter": false,
+      "schemeEditor": true,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:1>"
+    }
+  },
+  {
+    "name": "members of the role board",
+    "request": "GET /api/v2/boards/<id:7>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:7>",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:6>"
+      },
+      {
+        "boardId": "<id:7>",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": true,
+        "schemeEditor": false,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:5>"
+      },
+      {
+        "boardId": "<id:7>",
         "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,

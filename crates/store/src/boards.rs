@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 
 use fvoci_model::{
     Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType, JsonMap,
+    MinimumRole,
 };
 use md5::{Digest as _, Md5};
 use serde_json::Value;
@@ -31,6 +32,41 @@ pub enum PublicBoards {
     Include,
     /// Only boards the user is a member of are returned.
     Exclude,
+}
+
+/// What joining a board did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Joined {
+    /// The user was no member and is one now, with the board's minimum role.
+    New(BoardMember),
+    /// The user was a member below the board's minimum role and has that role now.
+    Raised(BoardMember),
+    /// The user was a member with the minimum role or a higher one; nothing changed.
+    Already(BoardMember),
+}
+
+impl Joined {
+    /// The membership as it is after joining.
+    pub fn into_member(self) -> BoardMember {
+        match self {
+            Self::New(member) | Self::Raised(member) | Self::Already(member) => member,
+        }
+    }
+}
+
+/// The highest role the scheme flags of a membership give; none if no flag is set.
+fn highest_role(member: &BoardMember) -> Option<BoardRole> {
+    if member.scheme_admin {
+        Some(BoardRole::Admin)
+    } else if member.scheme_editor {
+        Some(BoardRole::Editor)
+    } else if member.scheme_commenter {
+        Some(BoardRole::Commenter)
+    } else if member.scheme_viewer {
+        Some(BoardRole::Viewer)
+    } else {
+        None
+    }
 }
 
 /// What became of a change to a membership that must leave its board an administrator.
@@ -145,8 +181,8 @@ impl Store {
     /// Makes a user a member of a board with the scheme flags of `member`, or replaces
     /// the scheme flags of an existing membership.
     ///
-    /// The `minimum_role` and `synthetic` members of `member` are not stored; `roles` has
-    /// no column and reads as empty.
+    /// The `synthetic` member of `member` is not stored; `roles` has no column and reads
+    /// as empty.
     ///
     /// # Errors
     ///
@@ -196,6 +232,47 @@ impl Store {
                 return Ok(None);
             }
             find_member(scope, &member.board_id, &member.user_id).await
+        })
+        .await
+    }
+
+    /// Makes a user a member of a board with the board's minimum role, as joining does.
+    ///
+    /// A user who is no member becomes one with that role. A member whose role is below
+    /// it is raised to it. A member with that role or a higher one stays as they are:
+    /// joining never lowers anybody.
+    ///
+    /// Reading the board and the membership and writing the membership are one step.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such board, and
+    /// [`StoreError::Database`] if a statement fails, as it does when there is no such
+    /// user.
+    pub async fn join_board(&self, board_id: &str, user_id: &str) -> Result<Joined, StoreError> {
+        self.transaction(async |scope| {
+            lock_board(scope, board_id).await?;
+            let board = get_board(scope, board_id).await?;
+            let minimum = BoardRole::from(board.minimum_role);
+            let with_minimum = BoardMember {
+                board_id: board_id.to_owned(),
+                user_id: user_id.to_owned(),
+                scheme_editor: minimum == BoardRole::Editor,
+                scheme_commenter: minimum == BoardRole::Commenter,
+                scheme_viewer: minimum == BoardRole::Viewer,
+                ..BoardMember::default()
+            };
+            match find_member(scope, board_id, user_id).await? {
+                None => {
+                    save_member(scope, &with_minimum).await?;
+                    Ok(Joined::New(with_minimum))
+                }
+                Some(member) if highest_role(&member) < Some(minimum) => {
+                    save_member(scope, &with_minimum).await?;
+                    Ok(Joined::Raised(with_minimum))
+                }
+                Some(member) => Ok(Joined::Already(member)),
+            }
         })
         .await
     }
@@ -414,7 +491,7 @@ fn board_from_row(row: &Row) -> Result<Board, StoreError> {
         created_by: row.id(2)?,
         modified_by: row.id(3)?,
         board_type: board_type_from_text(&row.text(4)?)?,
-        minimum_role: board_role_from_text(&row.text(5)?)?,
+        minimum_role: minimum_role_from_text(&row.text(5)?)?,
         title: row.text(6)?,
         description: row.text(7)?,
         icon: row.text(8)?,
@@ -441,20 +518,14 @@ fn board_type_from_text(text: &str) -> Result<BoardType, StoreError> {
         })
 }
 
-fn board_role_from_text(text: &str) -> Result<BoardRole, StoreError> {
-    [
-        BoardRole::None,
-        BoardRole::Viewer,
-        BoardRole::Commenter,
-        BoardRole::Editor,
-        BoardRole::Admin,
-    ]
-    .into_iter()
-    .find(|role| role.as_str() == text)
-    .ok_or_else(|| StoreError::Corrupt {
-        column: "minimum_role",
-        reason: format!("unknown board role {text:?}"),
-    })
+fn minimum_role_from_text(text: &str) -> Result<MinimumRole, StoreError> {
+    MinimumRole::ALL
+        .into_iter()
+        .find(|role| role.as_str() == text)
+        .ok_or_else(|| StoreError::Corrupt {
+            column: "minimum_role",
+            reason: format!("unknown minimum role {text:?}"),
+        })
 }
 
 /// Reads the card property definitions of a board. JSON `null` reads as no definitions,
@@ -679,12 +750,11 @@ pub(crate) async fn patch_board(
     Ok(board)
 }
 
-/// Starts the query for memberships, each with the minimum role of its board.
+/// Starts the query for memberships.
 fn select_members(scope: &Scope<'_>) -> Sql {
     scope.sql(
-        "SELECT b.minimum_role, bm.board_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
-         bm.scheme_commenter, bm.scheme_viewer \
-         FROM board_members AS bm LEFT JOIN boards AS b ON b.id = bm.board_id",
+        "SELECT bm.board_id, bm.user_id, bm.scheme_admin, bm.scheme_editor, \
+         bm.scheme_commenter, bm.scheme_viewer FROM board_members AS bm",
     )
 }
 
@@ -695,15 +765,13 @@ async fn fetch_members(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<BoardMembe
         .iter()
         .map(|row| {
             Ok(BoardMember {
-                // Empty when the board does not exist, or no longer exists.
-                minimum_role: row.text(0)?,
-                board_id: row.id(1)?,
-                user_id: row.id(2)?,
+                board_id: row.id(0)?,
+                user_id: row.id(1)?,
                 roles: String::new(),
-                scheme_admin: row.bool(3)?,
-                scheme_editor: row.bool(4)?,
-                scheme_commenter: row.bool(5)?,
-                scheme_viewer: row.bool(6)?,
+                scheme_admin: row.bool(2)?,
+                scheme_editor: row.bool(3)?,
+                scheme_commenter: row.bool(4)?,
+                scheme_viewer: row.bool(5)?,
                 synthetic: false,
             })
         })

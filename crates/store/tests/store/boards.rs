@@ -15,10 +15,12 @@
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
-    Category, FileInfo, JsonMap, SubscriberType, Subscription, new_id,
+    Block, BlockType, Board, BoardMember, BoardPatch, BoardSearchField, BoardType, Category,
+    FileInfo, JsonMap, MinimumRole, SubscriberType, Subscription, new_id,
 };
-use fvoci_store::{BlockFilter, MemberChange, PublicBoards, SharingChange, Store, StoreError};
+use fvoci_store::{
+    BlockFilter, Joined, MemberChange, PublicBoards, SharingChange, Store, StoreError,
+};
 use serde_json::{Value, json};
 use tokio::task::JoinSet;
 
@@ -667,7 +669,7 @@ async fn undelete_board() {
 
         let mut board = Board {
             title: "Dunder Mifflin Scranton".to_owned(),
-            minimum_role: BoardRole::Commenter,
+            minimum_role: MinimumRole::Commenter,
             description: "Bears, beets, Battlestar Gallectica".to_owned(),
             icon: "🐻".to_owned(),
             show_description: true,
@@ -700,7 +702,11 @@ async fn undelete_board() {
         assert_eq!(team_id, board.team_id, "the team");
         assert_eq!(user_id, board.created_by, "the creator");
         assert_eq!(user_id, board.modified_by, "the modifier");
-        assert_eq!(BoardRole::Commenter, board.minimum_role, "the minimum role");
+        assert_eq!(
+            MinimumRole::Commenter,
+            board.minimum_role,
+            "the minimum role"
+        );
         assert_eq!(
             "Bears, beets, Battlestar Gallectica", board.description,
             "the description"
@@ -1468,7 +1474,7 @@ async fn delete_and_undelete_board_take_the_blocks_along() {
 /// `server/services/store/sqlstore/board.go:502-550`. There is no column for the roles
 /// any more; the member reads as empty.
 #[tokio::test]
-async fn save_member_stores_no_roles_and_reads_the_minimum_role_of_the_board() {
+async fn save_member_stores_the_scheme_flags_and_no_roles() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let member_id = common::user(&test, "member").await;
@@ -1476,7 +1482,7 @@ async fn save_member_stores_no_roles_and_reads_the_minimum_role_of_the_board() {
     let board_id = new_id();
 
     let mut board = Board {
-        minimum_role: BoardRole::Editor,
+        minimum_role: MinimumRole::Editor,
         ..new_board(&board_id, &team_id, BoardType::Open)
     };
     test.insert_board(&mut board, &user_id)
@@ -1504,11 +1510,10 @@ async fn save_member_stores_no_roles_and_reads_the_minimum_role_of_the_board() {
             board_id,
             user_id: member_id.clone(),
             roles: String::new(),
-            minimum_role: "editor".to_owned(),
             scheme_commenter: true,
             ..BoardMember::default()
         },
-        "no roles, and the minimum role of the board"
+        "the scheme flags and no roles"
     );
     let of_user = test
         .get_members_for_user(&member_id)
@@ -1976,7 +1981,7 @@ impl FullBoard {
             description: "What comes when".to_owned(),
             icon: "🗺".to_owned(),
             show_description: true,
-            minimum_role: BoardRole::Commenter,
+            minimum_role: MinimumRole::Commenter,
             properties: object(json!({ "color": "blue" })),
             card_properties: vec![object(json!({ "id": "status", "name": "Status" }))],
             ..new_board(&new_id(), &team_id, BoardType::Private)
@@ -2465,10 +2470,7 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
 
     assert_eq!(
         members_of(&test, &board.id).await,
-        [BoardMember {
-            minimum_role: board.minimum_role.as_str().to_owned(),
-            ..editor_of(&board.id, &editor_id)
-        }],
+        [editor_of(&board.id, &editor_id)],
         "the editor is a member again; the creator, who is gone, is not"
     );
 
@@ -3415,6 +3417,219 @@ async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
         assert_eq!(
             admins, refused,
             "{what}: the one who was refused is the administrator: {members:?}"
+        );
+    }
+
+    test.teardown().await;
+}
+
+// -- joining with the minimum role ------------------------------------------------------
+
+/// The scheme flags of a membership: admin, editor, commenter, viewer.
+fn flags(member: &BoardMember) -> [bool; 4] {
+    [
+        member.scheme_admin,
+        member.scheme_editor,
+        member.scheme_commenter,
+        member.scheme_viewer,
+    ]
+}
+
+const VIEWER: [bool; 4] = [false, false, false, true];
+const COMMENTER: [bool; 4] = [false, false, true, false];
+const EDITOR: [bool; 4] = [false, true, false, false];
+
+/// Joining gives the board's minimum role to a user who is no member, raises a member
+/// who is below it, and leaves alone a member who has it or more. It says which.
+#[tokio::test]
+async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
+    let test = common::setup().await;
+    let owner_id = common::user(&test, "owner").await;
+    let user_id = common::user(&test, "joiner").await;
+    let team_id = common::team(&test).await;
+
+    for (minimum_role, expected) in [
+        (MinimumRole::Viewer, VIEWER),
+        (MinimumRole::Commenter, COMMENTER),
+        (MinimumRole::Editor, EDITOR),
+    ] {
+        let board_id = new_id();
+        let mut board = Board {
+            minimum_role,
+            ..new_board(&board_id, &team_id, BoardType::Open)
+        };
+        test.insert_board_with_admin(&mut board, &owner_id)
+            .await
+            .expect("the board is stored");
+
+        let joined = test.join_board(&board_id, &user_id).await.expect("joined");
+        assert!(
+            matches!(joined, Joined::New(_)),
+            "{minimum_role:?}: {joined:?}"
+        );
+        assert_eq!(flags(&joined.into_member()), expected, "{minimum_role:?}");
+        let again = test.join_board(&board_id, &user_id).await.expect("joined");
+        assert!(
+            matches!(again, Joined::Already(_)),
+            "{minimum_role:?}: {again:?}"
+        );
+        let stored = test
+            .get_member_for_board(&board_id, &user_id)
+            .await
+            .expect("the membership is stored");
+        assert_eq!(flags(&stored), expected, "{minimum_role:?}: as stored");
+
+        // A member without any role is below every minimum role.
+        test.save_member(&BoardMember {
+            board_id: board_id.clone(),
+            user_id: user_id.clone(),
+            ..BoardMember::default()
+        })
+        .await
+        .expect("the roles are taken away");
+        let raised = test.join_board(&board_id, &user_id).await.expect("joined");
+        assert!(
+            matches!(raised, Joined::Raised(_)),
+            "{minimum_role:?}: {raised:?}"
+        );
+        assert_eq!(flags(&raised.into_member()), expected, "{minimum_role:?}");
+
+        // The owner is the administrator and stays it.
+        let owner = test.join_board(&board_id, &owner_id).await.expect("joined");
+        assert!(matches!(owner, Joined::Already(_)), "{owner:?}");
+        assert!(owner.into_member().scheme_admin, "not lowered");
+    }
+
+    // A board whose minimum role is commenter: a viewer is raised, an editor is not.
+    let board_id = new_id();
+    let mut board = Board {
+        minimum_role: MinimumRole::Commenter,
+        ..new_board(&board_id, &team_id, BoardType::Open)
+    };
+    test.insert_board_with_admin(&mut board, &owner_id)
+        .await
+        .expect("the board is stored");
+    for (before, outcome_is_raise, after) in [
+        (VIEWER, true, COMMENTER),
+        (EDITOR, false, EDITOR),
+        // Several flags at once count as the highest of them.
+        (
+            [false, true, false, true],
+            false,
+            [false, true, false, true],
+        ),
+    ] {
+        test.save_member(&BoardMember {
+            board_id: board_id.clone(),
+            user_id: user_id.clone(),
+            scheme_editor: before[1],
+            scheme_commenter: before[2],
+            scheme_viewer: before[3],
+            ..BoardMember::default()
+        })
+        .await
+        .expect("the member is stored");
+        let joined = test.join_board(&board_id, &user_id).await.expect("joined");
+        assert_eq!(
+            matches!(joined, Joined::Raised(_)),
+            outcome_is_raise,
+            "{before:?}: {joined:?}"
+        );
+        assert_eq!(flags(&joined.into_member()), after, "{before:?}");
+    }
+
+    // What does not exist is not joined.
+    let error = test
+        .join_board(&new_id(), &user_id)
+        .await
+        .expect_err("no such board");
+    assert!(error.is_not_found(), "{error:?}");
+    let error = test
+        .join_board(&board_id, &new_id())
+        .await
+        .expect_err("no such user");
+    assert!(common::refused_over_a_foreign_key(&error), "{error:?}");
+
+    test.teardown().await;
+}
+
+/// The schema keeps what the model promises: a board's minimum role is one of the three,
+/// never empty and never admin, whoever writes the row.
+#[tokio::test]
+async fn the_schema_refuses_a_minimum_role_that_is_none() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "owner").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+
+    for role in ["", "admin", "owner"] {
+        let refused = common::try_execute_raw(
+            &test.dbconfig(),
+            &format!("UPDATE boards SET minimum_role = '{role}' WHERE id = '{board_id}'"),
+        )
+        .await;
+        assert!(refused.is_err(), "{role:?} is stored: {refused:?}");
+    }
+    for role in ["viewer", "commenter", "editor"] {
+        common::execute_raw(
+            &test.dbconfig(),
+            &format!("UPDATE boards SET minimum_role = '{role}' WHERE id = '{board_id}'"),
+        )
+        .await;
+        let board = test.get_board(board_id).await.expect("the board is read");
+        assert_eq!(board.minimum_role.as_str(), role, "as written");
+    }
+
+    test.teardown().await;
+}
+
+/// Reading the membership and writing it are one step: of users who join a board at
+/// once, each ends with one membership with the minimum role, and one call made it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn joining_at_once_makes_one_membership() {
+    let test = common::setup().await;
+    let owner_id = common::user(&test, "owner").await;
+    let user_id = common::user(&test, "joiner").await;
+    let team_id = common::team(&test).await;
+
+    for round in 0..RACE_ROUNDS {
+        let board_id = stored_board(&test, &team_id, &owner_id).await;
+        let mut racers = JoinSet::new();
+        for _ in 0..6 {
+            let store = test.store.clone();
+            let (board_id, user_id) = (board_id.clone(), user_id.clone());
+            racers.spawn(async move { store.join_board(&board_id, &user_id).await });
+        }
+        let outcomes: Vec<Joined> = racers
+            .join_all()
+            .await
+            .into_iter()
+            .map(|outcome| outcome.expect("joining succeeds"))
+            .collect();
+
+        let new = outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, Joined::New(_)))
+            .count();
+        assert_eq!(new, 1, "round {round}: one call made the membership");
+        assert!(
+            outcomes
+                .iter()
+                .all(|outcome| matches!(outcome, Joined::New(_) | Joined::Already(_))),
+            "round {round}: {outcomes:?}"
+        );
+        let members = test
+            .get_members_for_board(&board_id)
+            .await
+            .expect("the members are read");
+        assert_eq!(
+            members
+                .iter()
+                .filter(|member| member.user_id == user_id)
+                .count(),
+            1,
+            "round {round}: one membership"
         );
     }
 

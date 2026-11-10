@@ -14,7 +14,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
@@ -32,7 +32,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
@@ -49,7 +48,6 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "minimumRole": "",
       "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
@@ -620,7 +618,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
@@ -639,7 +637,6 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
@@ -650,7 +647,6 @@
       },
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
@@ -661,7 +657,6 @@
       },
       {
         "boardId": "<id:2>",
-        "minimumRole": "",
         "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,

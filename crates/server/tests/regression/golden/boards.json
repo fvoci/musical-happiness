@@ -77,7 +77,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "blue"
@@ -105,7 +105,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
@@ -138,7 +138,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "blue"
@@ -177,7 +177,7 @@
       "id": "<id:4>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
@@ -226,7 +226,7 @@
         "id": "<id:4>",
         "isBuiltin": false,
         "isTemplate": false,
-        "minimumRole": "",
+        "minimumRole": "editor",
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
@@ -253,7 +253,7 @@
         "id": "<id:2>",
         "isBuiltin": false,
         "isTemplate": false,
-        "minimumRole": "",
+        "minimumRole": "editor",
         "modifiedBy": "<id:1>",
         "properties": {
           "color": "blue"
@@ -283,7 +283,7 @@
         "id": "<id:4>",
         "isBuiltin": false,
         "isTemplate": false,
-        "minimumRole": "",
+        "minimumRole": "editor",
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
@@ -334,7 +334,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "red",
@@ -370,7 +370,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "red"
@@ -427,7 +427,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "red"
@@ -462,7 +462,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "red"
@@ -545,7 +545,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "red"
@@ -624,7 +624,7 @@
           "id": "<id:6>",
           "isBuiltin": false,
           "isTemplate": false,
-          "minimumRole": "",
+          "minimumRole": "editor",
           "modifiedBy": "<id:1>",
           "properties": {
             "color": "red"
@@ -681,7 +681,7 @@
           "id": "<id:8>",
           "isBuiltin": false,
           "isTemplate": true,
-          "minimumRole": "",
+          "minimumRole": "editor",
           "modifiedBy": "<id:1>",
           "properties": {
             "color": "red"
@@ -822,7 +822,7 @@
       "id": "<id:2>",
       "isBuiltin": false,
       "isTemplate": false,
-      "minimumRole": "",
+      "minimumRole": "editor",
       "modifiedBy": "<id:1>",
       "properties": {
         "color": "red"
@@ -902,7 +902,7 @@
         "id": "<id:6>",
         "isBuiltin": false,
         "isTemplate": false,
-        "minimumRole": "",
+        "minimumRole": "editor",
         "modifiedBy": "<id:1>",
         "properties": {
           "color": "red"
@@ -931,7 +931,7 @@
         "id": "<id:2>",
         "isBuiltin": false,
         "isTemplate": false,
-        "minimumRole": "",
+        "minimumRole": "editor",
         "modifiedBy": "<id:1>",
         "properties": {
           "color": "red"

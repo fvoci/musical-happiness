@@ -4,7 +4,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{get, post};
-use fvoci_model::{Board, BoardPatch, BoardRole, BoardType, JsonMap};
+use fvoci_model::{Board, BoardPatch, BoardType, JsonMap, MinimumRole};
 use fvoci_store::PublicBoards;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -73,7 +73,7 @@ pub(super) fn take_invalid_patch_members(patch: &mut JsonMap) -> Option<InvalidB
 
     let mut invalid = None;
     // In reverse order, so that the first in the original's order wins.
-    if is_string_outside::<BoardRole>(patch.get("minimumRole")) {
+    if is_string_outside::<MinimumRole>(patch.get("minimumRole")) {
         patch.remove("minimumRole");
         invalid = Some(InvalidBoardMember::MinimumRole);
     }

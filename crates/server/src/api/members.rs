@@ -45,7 +45,7 @@ fn requested_member(board_id: String, user_id: String, body: &BoardMember) -> Bo
     }
 }
 
-/// A membership with exactly the one role; none for [`BoardRole::None`].
+/// A membership with exactly the one role.
 fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> BoardMember {
     BoardMember {
         board_id,
@@ -55,18 +55,6 @@ fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> Board
         scheme_commenter: role == BoardRole::Commenter,
         scheme_viewer: role == BoardRole::Viewer,
         ..BoardMember::default()
-    }
-}
-
-/// The role a member gets from somebody who may add members but does not manage the
-/// board's roles: the board's minimum role, and the least one if the board names none.
-///
-/// The minimum role is never admin here: on a board whose minimum role is admin every
-/// member manages the roles.
-fn role_given_without_managing_roles(minimum_role: BoardRole) -> BoardRole {
-    match minimum_role {
-        BoardRole::None => BoardRole::Viewer,
-        role => role,
     }
 }
 
@@ -152,17 +140,20 @@ async fn handle_add_member(
     let member = if manages_roles {
         requested_member(board_id, request.user_id.clone(), &request)
     } else {
+        // The board's minimum role: what joining gives, and so what somebody gives who
+        // has no say about roles.
         member_with_role(
             board_id,
             request.user_id.clone(),
-            role_given_without_managing_roles(board.minimum_role),
+            BoardRole::from(board.minimum_role),
         )
     };
     Ok(json_response(&app.add_member_to_board(&member).await?))
 }
 
 /// `POST /boards/{board_id}/join`: makes the user a member of an open board, with the
-/// board's minimum role, or as an editor if it has none.
+/// board's minimum role. A member below that role is raised to it; a member with that
+/// role or a higher one stays as they are.
 async fn handle_join_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -188,12 +179,7 @@ async fn handle_join_board(
         return Err(AppError::forbidden("guests not allowed to join boards"));
     }
 
-    let role = match board.minimum_role {
-        BoardRole::None => BoardRole::Editor,
-        role => role,
-    };
-    let member = member_with_role(board_id, user_id.clone(), role);
-    Ok(json_response(&app.add_member_to_board(&member).await?))
+    Ok(json_response(&app.join_board(&board_id, user_id).await?))
 }
 
 /// `POST /boards/{board_id}/leave`: ends the user's own membership of a board.
