@@ -7,9 +7,12 @@ import { defineConfig, devices } from '@playwright/test';
  * (its `webpath` set to `dist/`). Without it the tests start tools/preview.ts,
  * which serves `dist/` with the server's rules but has no API: enough for the
  * tests of the static shell, and only for those.
+ *
+ * `FVOCI_E2E_PORT` moves the preview to another port, so that two checkouts
+ * can run their tests at once.
  */
 const external = process.env.FVOCI_E2E_URL;
-const PREVIEW_PORT = 18310;
+const PREVIEW_PORT = Number(process.env.FVOCI_E2E_PORT ?? 18310);
 
 export default defineConfig({
   testDir: 'e2e',
