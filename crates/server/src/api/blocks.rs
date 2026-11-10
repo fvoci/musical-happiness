@@ -136,10 +136,10 @@ async fn handle_get_blocks(
 
     let blocks = if !query_param(query, "all").is_empty() {
         app.blocks_for_board(&board_id).await?
-    } else if let Some(block_id) = optional_query_param(query, "block_id") {
+    } else if let Some(block_id) = optional_query_param(query, "blockId") {
         vec![block_on_board(&app, &block_id, &board_id).await?]
     } else {
-        let parent_id = optional_query_param(query, "parent_id");
+        let parent_id = optional_query_param(query, "parentId");
         // The type is matched as it is written; an unknown one finds nothing.
         let block_type = optional_query_param(query, "type").map(BlockType::from);
         app.blocks(&board_id, parent_id.as_deref(), block_type.as_ref())
@@ -245,7 +245,7 @@ async fn handle_post_blocks(
 
     // Set when a template is made from a board or a board from a template: the files
     // the blocks refer to are then copied over from that board.
-    let source_board_id = query_param(query, "sourceBoardID");
+    let source_board_id = query_param(query, "sourceBoardId");
     if !source_board_id.is_empty() {
         require_source_board_access(&app, user_id, &source_board_id).await?;
         // The blocks are not stored yet: each is pointed at its copy here, and stored
@@ -383,16 +383,17 @@ async fn handle_patch_blocks(
     let board = app.board(&board_id).await?;
     let batch: BlockPatchBatch = decode_object(&body)?;
     if batch.block_ids.len() != batch.block_patches.len() {
-        return Err(AppError::bad_request(
-            "block_ids and block_patches differ in length",
-        ));
+        return Err(
+            AppError::bad_request("blockIds and blockPatches differ in length")
+                .with_field("blockIds"),
+        );
     }
     let mut seen = std::collections::HashSet::new();
     for block_id in &batch.block_ids {
         if !seen.insert(block_id.as_str()) {
             return Err(
                 AppError::bad_request(format_args!("block {block_id} is listed twice"))
-                    .with_field("block_ids"),
+                    .with_field("blockIds"),
             );
         }
         block_on_board(&app, block_id, &board_id).await?;

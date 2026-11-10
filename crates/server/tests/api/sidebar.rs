@@ -991,10 +991,7 @@ async fn verify_new_categories_match_existing_base_case() {
 
     let response = th
         .client
-        .put(
-            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
-            &new_order,
-        )
+        .put(&format!("/teams/{ROOT_TEAM_ID}/category-order"), &new_order)
         .await;
 
     assert_eq!(
@@ -1021,7 +1018,7 @@ async fn verify_new_categories_match_existing_different_category_counts() {
     let response = th
         .client
         .put(
-            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
+            &format!("/teams/{ROOT_TEAM_ID}/category-order"),
             &[second.id.as_str(), third.id.as_str()],
         )
         .await;
@@ -1085,7 +1082,7 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
         "the default category was created"
     );
     assert!(listed[0].board_metadata.is_empty(), "with no boards");
-    // The exact wire format of an entry, as the original answers it.
+    // The exact wire format of an entry.
     let user = th.client.me().await;
     let entry = &response.value()[0];
     assert_eq!(
@@ -1093,17 +1090,16 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
         json!({
             "id": listed[0].category.id,
             "name": "Boards",
-            "userID": user.id,
-            "teamID": ROOT_TEAM_ID,
+            "userId": user.id,
+            "teamId": ROOT_TEAM_ID,
             "createAt": listed[0].category.create_at,
             "updateAt": listed[0].category.create_at,
             "deleteAt": 0,
             "collapsed": false,
-            "sorting": "",
             "type": "system",
             "boardMetadata": [],
-            // Preserved quirk: always zero here, whatever the category's place.
-            "sortOrder": 0,
+            // Preserved quirk: a category created at the top is stored one place down.
+            "sortOrder": 10,
         }),
         "the entry"
     );
@@ -1353,7 +1349,7 @@ async fn category_routes_need_a_session() {
         (Method::POST, &format!("/teams/{ROOT_TEAM_ID}/categories")),
         (
             Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
+            &format!("/teams/{ROOT_TEAM_ID}/category-order"),
         ),
         (
             Method::PUT,
@@ -1365,7 +1361,7 @@ async fn category_routes_need_a_session() {
         ),
         (
             Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/reorder"),
+            &format!("/teams/{ROOT_TEAM_ID}/categories/any/board-order"),
         ),
         (
             Method::POST,
@@ -1407,25 +1403,21 @@ async fn category_routes_need_a_team_that_exists() {
         let categories = categories_path(team_id);
         let one = format!("{categories}/{}", created.id);
         let place = format!("{one}/boards/{}", board.id);
-        let new = json!({"name": "New", "userID": user.id, "teamID": team_id});
+        let new = json!({"name": "New", "userId": user.id, "teamId": team_id});
         let change = json!({
-            "id": created.id, "name": "Renamed", "userID": user.id, "teamID": team_id,
+            "id": created.id, "name": "Renamed", "userId": user.id, "teamId": team_id,
         });
         let requests = [
             (Method::GET, categories.clone(), Value::Null),
             (Method::POST, categories.clone(), new),
             (
                 Method::PUT,
-                format!("{categories}/reorder"),
+                format!("/teams/{team_id}/category-order"),
                 json!(ids(&before)),
             ),
             (Method::PUT, one.clone(), change),
             (Method::DELETE, one.clone(), Value::Null),
-            (
-                Method::PUT,
-                format!("{one}/boards/reorder"),
-                json!([board.id]),
-            ),
+            (Method::PUT, format!("{one}/board-order"), json!([board.id])),
             (Method::POST, place.clone(), Value::Null),
             (Method::PUT, format!("{place}/hide"), Value::Null),
             (Method::PUT, format!("{place}/unhide"), Value::Null),
@@ -1501,7 +1493,7 @@ async fn create_category_answers_the_stored_category() {
         .client
         .post(
             &format!("/teams/{ROOT_TEAM_ID}/categories"),
-            &json!({"name": "Cat A", "userID": user.id, "teamID": ROOT_TEAM_ID}),
+            &json!({"name": "Cat A", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         )
         .await;
     let created: Category = response.ok_json();
@@ -1510,15 +1502,14 @@ async fn create_category_answers_the_stored_category() {
         json!({
             "id": created.id,
             "name": "Cat A",
-            "userID": user.id,
-            "teamID": ROOT_TEAM_ID,
+            "userId": user.id,
+            "teamId": ROOT_TEAM_ID,
             "createAt": created.create_at,
             "updateAt": created.create_at,
             "deleteAt": 0,
             "collapsed": false,
             // Preserved quirk: a category created at the top is stored one place down.
             "sortOrder": 10,
-            "sorting": "",
             "type": "custom",
         }),
         "the created category"
@@ -1527,16 +1518,16 @@ async fn create_category_answers_the_stored_category() {
     assert!(created.create_at > 0, "a creation time");
 
     // What the client may choose: the times, the collapsed state and the type. A
-    // negative sort order counts as zero and the sorting method is not stored. The
-    // identifier is the server's to make.
+    // negative sort order counts as zero and a `sorting` member is no member of a
+    // category. The identifier is the server's to make.
     let response = th
         .client
         .post(
             &format!("/teams/{ROOT_TEAM_ID}/categories"),
             &json!({
                 "name": "With id",
-                "userID": user.id,
-                "teamID": ROOT_TEAM_ID,
+                "userId": user.id,
+                "teamId": ROOT_TEAM_ID,
                 "sortOrder": -5,
                 "createAt": 5,
                 "sorting": "alpha",
@@ -1553,14 +1544,13 @@ async fn create_category_answers_the_stored_category() {
         json!({
             "id": made_id,
             "name": "With id",
-            "userID": user.id,
-            "teamID": ROOT_TEAM_ID,
+            "userId": user.id,
+            "teamId": ROOT_TEAM_ID,
             "createAt": 5,
             "updateAt": 5,
             "deleteAt": 0,
             "collapsed": true,
             "sortOrder": 10,
-            "sorting": "",
             "type": "system",
         }),
         "the created category"
@@ -1572,7 +1562,7 @@ async fn create_category_answers_the_stored_category() {
             .client
             .post(
                 &format!("/teams/{ROOT_TEAM_ID}/categories"),
-                &json!({"name": "Blank type", "userID": user.id, "teamID": ROOT_TEAM_ID, "type": blank}),
+                &json!({"name": "Blank type", "userId": user.id, "teamId": ROOT_TEAM_ID, "type": blank}),
             )
             .await;
         assert_eq!(
@@ -1596,9 +1586,11 @@ async fn create_category_refuses_invalid_requests() {
     // A category is made for the session's user and nobody else, whatever else the
     // body says.
     for body in [
-        json!({"name": "x", "userID": other.id, "teamID": ROOT_TEAM_ID}),
-        json!({"name": "x", "teamID": ROOT_TEAM_ID}),
-        json!({"name": "x", "userID": other.id, "teamID": ROOT_TEAM_ID, "type": "bogus"}),
+        json!({"name": "x", "userId": other.id, "teamId": ROOT_TEAM_ID}),
+        json!({"name": "x", "teamId": ROOT_TEAM_ID}),
+        json!({"name": "x", "userId": other.id, "teamId": ROOT_TEAM_ID, "type": "bogus"}),
+        // The user under a name that is no member of a category: no user is named.
+        json!({"name": "x", "userID": user.id, "teamID": ROOT_TEAM_ID}),
     ] {
         let response = th.client.post(path, &body).await;
         check_error(
@@ -1606,36 +1598,36 @@ async fn create_category_refuses_invalid_requests() {
             StatusCode::FORBIDDEN,
             "a user makes categories for themselves only",
         );
-        assert_eq!(response.value()["field"], json!("userID"), "{body}");
+        assert_eq!(response.value()["field"], json!("userId"), "{body}");
     }
 
     // Another team than the path's: one that exists, one that does not, and text that
     // is no identifier.
     for team_id in [TEST_TEAM_ID, UNKNOWN_ID, "1"] {
-        let body = json!({"name": "x", "userID": user.id, "teamID": team_id});
+        let body = json!({"name": "x", "userId": user.id, "teamId": team_id});
         let response = th.client.post(path, &body).await;
-        check_error(&response, StatusCode::BAD_REQUEST, "teamID mismatch");
+        check_error(&response, StatusCode::BAD_REQUEST, "teamId mismatch");
     }
 
     let cases = [
         (
             "a blank name",
-            json!({"name": "  ", "userID": user.id, "teamID": ROOT_TEAM_ID}),
+            json!({"name": "  ", "userId": user.id, "teamId": ROOT_TEAM_ID}),
             "category name cannot be empty".to_owned(),
         ),
         (
             "a `null` name",
-            json!({"name": null, "userID": user.id, "teamID": ROOT_TEAM_ID}),
+            json!({"name": null, "userId": user.id, "teamId": ROOT_TEAM_ID}),
             "category name cannot be empty".to_owned(),
         ),
         (
             "an unknown type",
-            json!({"name": "x", "userID": user.id, "teamID": ROOT_TEAM_ID, "type": "bogus"}),
+            json!({"name": "x", "userId": user.id, "teamId": ROOT_TEAM_ID, "type": "bogus"}),
             invalid_type.to_owned(),
         ),
         (
             "a blank name and an unknown type: the name is checked first",
-            json!({"name": "", "userID": user.id, "teamID": ROOT_TEAM_ID, "type": "bogus"}),
+            json!({"name": "", "userId": user.id, "teamId": ROOT_TEAM_ID, "type": "bogus"}),
             "category name cannot be empty".to_owned(),
         ),
     ];
@@ -1665,7 +1657,7 @@ async fn create_category_refuses_invalid_requests() {
     // original stores the client's identifier, and answers 500 for one that is taken.)
     let others = create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "Theirs")).await;
     for id in ["fresh", UNKNOWN_ID, others.id.as_str()] {
-        let named = json!({"id": id, "name": "x", "userID": user.id, "teamID": ROOT_TEAM_ID});
+        let named = json!({"id": id, "name": "x", "userId": user.id, "teamId": ROOT_TEAM_ID});
         let response = th.client.post(path, &named).await;
         check_error(
             &response,
@@ -1681,7 +1673,7 @@ async fn create_category_refuses_invalid_requests() {
     th.client
         .post(
             path,
-            &json!({"name": "x", "userID": user.id, "teamID": ROOT_TEAM_ID}),
+            &json!({"name": "x", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         )
         .await
         .check_ok();
@@ -1710,8 +1702,8 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
             &json!({
                 "id": created.id,
                 "name": "Cat A2",
-                "userID": user.id,
-                "teamID": ROOT_TEAM_ID,
+                "userId": user.id,
+                "teamId": ROOT_TEAM_ID,
                 "collapsed": true,
                 "sortOrder": 99,
                 "type": "system",
@@ -1727,14 +1719,13 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
         json!({
             "id": created.id,
             "name": "Cat A2",
-            "userID": user.id,
-            "teamID": ROOT_TEAM_ID,
+            "userId": user.id,
+            "teamId": ROOT_TEAM_ID,
             "createAt": created.create_at,
             "updateAt": updated.update_at,
             "deleteAt": 0,
             "collapsed": true,
             "sortOrder": created.sort_order,
-            "sorting": "",
             "type": "custom",
         }),
         "the updated category"
@@ -1757,7 +1748,7 @@ async fn update_category_refuses_invalid_requests() {
     let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
     let body = |change: Value| {
         let mut body =
-            json!({"id": created.id, "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID});
+            json!({"id": created.id, "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID});
         for (name, value) in change.as_object().expect("an object") {
             body[name] = value.clone();
         }
@@ -1774,12 +1765,12 @@ async fn update_category_refuses_invalid_requests() {
             "the category of the body is not the one of the path",
         ),
         (
-            body(json!({"userID": other.id})),
+            body(json!({"userId": other.id})),
             "the user of the body is not the session's",
         ),
-        (body(json!({"teamID": TEST_TEAM_ID})), "teamID mismatch"),
-        (body(json!({"teamID": UNKNOWN_ID})), "teamID mismatch"),
-        (body(json!({"teamID": "1"})), "teamID mismatch"),
+        (body(json!({"teamId": TEST_TEAM_ID})), "teamId mismatch"),
+        (body(json!({"teamId": UNKNOWN_ID})), "teamId mismatch"),
+        (body(json!({"teamId": "1"})), "teamId mismatch"),
         (body(json!({"name": ""})), "category name cannot be empty"),
         (
             body(json!({"type": "bogus"})),
@@ -1797,19 +1788,19 @@ async fn update_category_refuses_invalid_requests() {
     for (route, request) in [
         (
             format!("/teams/{TEST_TEAM_ID}/categories/{}", created.id),
-            body(json!({"teamID": TEST_TEAM_ID})),
+            body(json!({"teamId": TEST_TEAM_ID})),
         ),
         (
             format!("/teams/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}"),
-            json!({"id": UNKNOWN_ID, "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID}),
+            json!({"id": UNKNOWN_ID, "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         ),
         (
             format!("/teams/{ROOT_TEAM_ID}/categories/nope"),
-            json!({"id": "nope", "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID}),
+            json!({"id": "nope", "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         ),
         (
             format!("/teams/{ROOT_TEAM_ID}/categories/{}", others.id),
-            json!({"id": others.id, "name": "n", "userID": user.id, "teamID": ROOT_TEAM_ID}),
+            json!({"id": others.id, "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         ),
     ] {
         let response = th.client.put(&route, &request).await;
@@ -1884,14 +1875,13 @@ async fn delete_category_over_the_api() {
         json!({
             "id": created.id,
             "name": "Cat A",
-            "userID": user.id,
-            "teamID": ROOT_TEAM_ID,
+            "userId": user.id,
+            "teamId": ROOT_TEAM_ID,
             "createAt": created.create_at,
             "updateAt": created.update_at,
             "deleteAt": deleted.delete_at,
             "collapsed": false,
             "sortOrder": created.sort_order,
-            "sorting": "",
             "type": "custom",
         }),
         "the deleted category"
@@ -1912,7 +1902,7 @@ async fn delete_category_over_the_api() {
 async fn reorder_categories_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let path = &format!("/teams/{ROOT_TEAM_ID}/categories/reorder");
+    let path = &format!("/teams/{ROOT_TEAM_ID}/category-order");
 
     // With no categories, the empty order is accepted and answered with the empty
     // list. The user has none before the first listing creates the default one. (The
@@ -1970,6 +1960,15 @@ async fn reorder_categories_over_the_api() {
     assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
     let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(ids(&listed), new_order, "the new order");
+    let places: Vec<i64> = listed
+        .iter()
+        .map(|entry| entry.category.sort_order)
+        .collect();
+    assert_eq!(
+        places,
+        [0, 10, 20],
+        "the listing tells each category's place"
+    );
 
     // Preserved quirk: only the count and the membership are checked, so naming one
     // category twice passes. The one left out keeps its place value.
@@ -2001,7 +2000,7 @@ async fn reorder_category_boards_over_the_api() {
         file_board(&th.client, ROOT_TEAM_ID, &created.id, board_id).await;
     }
     let path = format!(
-        "/teams/{ROOT_TEAM_ID}/categories/{}/boards/reorder",
+        "/teams/{ROOT_TEAM_ID}/categories/{}/board-order",
         created.id
     );
     let order = async || {
@@ -2040,11 +2039,11 @@ async fn reorder_category_boards_over_the_api() {
     // A category of another team than the path's, and one that does not exist.
     for route in [
         format!(
-            "/teams/{TEST_TEAM_ID}/categories/{}/boards/reorder",
+            "/teams/{TEST_TEAM_ID}/categories/{}/board-order",
             created.id
         ),
-        format!("/teams/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}/boards/reorder"),
-        format!("/teams/{ROOT_TEAM_ID}/categories/nope/boards/reorder"),
+        format!("/teams/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}/board-order"),
+        format!("/teams/{ROOT_TEAM_ID}/categories/nope/board-order"),
     ] {
         let response = th.client.put(&route, &new_order).await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -2057,7 +2056,7 @@ async fn reorder_category_boards_over_the_api() {
         .client
         .send_raw_body(
             Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/reorder"),
+            &format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/board-order"),
             "[]",
         )
         .await;
@@ -2238,20 +2237,51 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     th.teardown().await;
 }
 
-/// The word `reorder` is reserved where other routes have an identifier: with another
-/// method than the reorder routes' the path is a known one asked the wrong way. (In the
-/// original it addresses the category or the board that has the word as its
-/// identifier, which a client could choose.)
+/// The orders have paths of their own, so no word is reserved where the category
+/// routes have an identifier: `reorder` there names a category or a board like any
+/// other text, and no category or board has it for an identifier.
 #[tokio::test]
-async fn the_word_reorder_is_reserved() {
+async fn the_word_reorder_is_an_identifier_like_any_other() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     category_boards(&th.client, ROOT_TEAM_ID).await;
     let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let board = board_with_admin(&th, ROOT_TEAM_ID, &user.id).await;
+    file_board(&th.client, ROOT_TEAM_ID, &created.id, &board.id).await;
+    let before = category_boards(&th.client, ROOT_TEAM_ID).await;
 
+    // Among the categories: an update and a deletion of the category `reorder`.
+    let as_category = format!("/teams/{ROOT_TEAM_ID}/categories/reorder");
+    let mut reversed = ids(&before);
+    reversed.reverse();
+    let response = th.client.put(&as_category, &reversed).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    let response = th.client.delete(&as_category).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
+
+    // Among the boards of a category: the place of the board `reorder`, which takes
+    // `POST` only.
+    let as_board = format!(
+        "/teams/{ROOT_TEAM_ID}/categories/{}/boards/reorder",
+        created.id
+    );
+    let response = th.client.put(&as_board, &[&board.id]).await;
+    check_error(
+        &response,
+        StatusCode::METHOD_NOT_ALLOWED,
+        "method not allowed",
+    );
+    assert_eq!(response.header("allow"), "POST", "what the path takes");
+    let response = th.client.post_empty(&as_board).await;
+    check_error(&response, StatusCode::NOT_FOUND, "board not found");
+
+    let after = category_boards(&th.client, ROOT_TEAM_ID).await;
+    assert_eq!(after, before, "none of these changed anything");
+
+    // The paths of the orders take `PUT` and nothing else.
     let response = th
         .client
-        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/reorder"))
+        .delete(&format!("/teams/{ROOT_TEAM_ID}/category-order"))
         .await;
     check_error(
         &response,
@@ -2263,7 +2293,7 @@ async fn the_word_reorder_is_reserved() {
     let response = th
         .client
         .post_empty(&format!(
-            "/teams/{ROOT_TEAM_ID}/categories/{}/boards/reorder",
+            "/teams/{ROOT_TEAM_ID}/categories/{}/board-order",
             created.id
         ))
         .await;
@@ -2272,6 +2302,7 @@ async fn the_word_reorder_is_reserved() {
         StatusCode::METHOD_NOT_ALLOWED,
         "method not allowed",
     );
+    assert_eq!(response.header("allow"), "PUT", "what the path takes");
 
     th.teardown().await;
 }
@@ -2430,14 +2461,14 @@ async fn another_users_category_cannot_be_changed() {
 
     // Reorder the boards in it.
     let response = intruder
-        .put(&format!("{path}/boards/reorder"), &[two.board_id.as_str()])
+        .put(&format!("{path}/board-order"), &[two.board_id.as_str()])
         .await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     // Reorder the categories: they are not among the intruder's.
     let order: Vec<&str> = ids(&before);
     let response = intruder
-        .put(&format!("/teams/{ROOT_TEAM_ID}/categories/reorder"), &order)
+        .put(&format!("/teams/{ROOT_TEAM_ID}/category-order"), &order)
         .await;
     response.check_bad_request();
 
@@ -2543,7 +2574,7 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
     create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "theirs")).await;
     let before = stored_categories(&th, &user.id).await;
     let others_before = stored_categories(&th, &other.id).await;
-    let path = &format!("/teams/{ROOT_TEAM_ID}/categories/reorder");
+    let path = &format!("/teams/{ROOT_TEAM_ID}/category-order");
 
     for hostile_id in [
         "a' THEN 777 WHEN 'zz",
@@ -2642,7 +2673,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
         file_board(&th.client, ROOT_TEAM_ID, &created.id, board_id).await;
     }
     let category_path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
-    let path = format!("{category_path}/boards/reorder");
+    let path = format!("{category_path}/board-order");
     let new_order = [boards[2].as_str(), boards[0].as_str(), boards[1].as_str()];
     let response = th.client.put(&path, &new_order).await;
     assert_eq!(response.ok_json::<Vec<String>>(), new_order, "the answer");
@@ -2692,7 +2723,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
         let response = th
             .client
             .put(
-                &format!("/teams/{ROOT_TEAM_ID}/categories/{segment}/boards/reorder"),
+                &format!("/teams/{ROOT_TEAM_ID}/categories/{segment}/board-order"),
                 &new_order,
             )
             .await;
@@ -2804,7 +2835,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
     let category_order = [default_id.as_str(), created.id.as_str()];
     th.client
         .put(
-            &format!("/teams/{ROOT_TEAM_ID}/categories/reorder"),
+            &format!("/teams/{ROOT_TEAM_ID}/category-order"),
             &category_order,
         )
         .await
@@ -2824,10 +2855,10 @@ async fn category_changes_are_sent_to_the_users_connection() {
     file_board(&th.client, ROOT_TEAM_ID, &created.id, &board_id).await;
     expect_message(&mut socket, "filing a board").await;
     let deleted: Category = th.client.delete(&path).await.ok_json();
-    let moved = json!({"boardID": board_id, "categoryID": default_id, "hidden": false});
+    let moved = json!({"boardId": board_id, "categoryId": default_id, "hidden": false});
     assert_eq!(
         expect_message(&mut socket, "deleting a category").await,
-        json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "blockCategories": [moved]}),
+        json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "boardCategories": [moved]}),
         "after deleting a category: its board is in the default category"
     );
     assert_eq!(
@@ -2849,11 +2880,11 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
     let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
     let mut socket = subscribed_socket(&th, ROOT_TEAM_ID, &user.id).await;
-    let board_change = |boards: Value| json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "blockCategories": boards});
+    let board_change = |boards: Value| json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "boardCategories": boards});
     let first = open_board(&th, ROOT_TEAM_ID).await;
     let second = open_board(&th, ROOT_TEAM_ID).await;
-    let shown = json!({"boardID": first, "categoryID": created.id, "hidden": false});
-    let hidden = json!({"boardID": first, "categoryID": created.id, "hidden": true});
+    let shown = json!({"boardId": first, "categoryId": created.id, "hidden": false});
+    let hidden = json!({"boardId": first, "categoryId": created.id, "hidden": true});
 
     // Filing a board sends all the boards of the category.
     file_board(&th.client, ROOT_TEAM_ID, &created.id, &first).await;
@@ -2865,7 +2896,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     file_board(&th.client, ROOT_TEAM_ID, &created.id, &second).await;
     let message = expect_message(&mut socket, "filing a second board").await;
     assert_eq!(
-        message["blockCategories"].as_array().map(Vec::len),
+        message["boardCategories"].as_array().map(Vec::len),
         Some(2),
         "after filing a second board: {message}"
     );
@@ -2890,15 +2921,15 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
 
     let board_order = [second.as_str(), first.as_str()];
     th.client
-        .put(&format!("{path}/boards/reorder"), &board_order)
+        .put(&format!("{path}/board-order"), &board_order)
         .await
         .check_ok();
     assert_eq!(
         expect_message(&mut socket, "reordering the boards").await,
         json!({
             "action": "REORDER_CATEGORY_BOARDS",
-            "CategoryId": created.id,
-            "BoardOrder": board_order,
+            "categoryId": created.id,
+            "boardOrder": board_order,
             "teamId": ROOT_TEAM_ID,
         }),
         "after reordering the boards"

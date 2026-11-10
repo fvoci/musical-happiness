@@ -73,10 +73,7 @@ impl Hidden {
         let part = Part::bytes(b"hidden".to_vec()).file_name("hidden.txt");
         let request = th
             .client
-            .request(
-                Method::POST,
-                &format!("/teams/{TEST_TEAM_ID}/{}/files", board.id),
-            )
+            .request(Method::POST, &format!("/boards/{}/files", board.id))
             .multipart(Form::new().part("file", part));
         let uploaded = Client::send(request).await;
         uploaded.check_ok();
@@ -94,7 +91,7 @@ impl Hidden {
             .client
             .post(
                 &format!("/teams/{TEST_TEAM_ID}/categories"),
-                &json!({"name": "Hidden", "userID": owner.id, "teamID": TEST_TEAM_ID}),
+                &json!({"name": "Hidden", "userId": owner.id, "teamId": TEST_TEAM_ID}),
             )
             .await
             .ok_json();
@@ -157,7 +154,7 @@ impl Hidden {
             .client2
             .post(
                 &format!("/teams/{TEST_TEAM_ID}/categories"),
-                &json!({"name": "Own", "userID": outsider, "teamID": TEST_TEAM_ID}),
+                &json!({"name": "Own", "userId": outsider, "teamId": TEST_TEAM_ID}),
             )
             .await
             .ok_json();
@@ -295,7 +292,7 @@ fn cases() -> Vec<Case> {
         ),
         case(
             Method::GET,
-            |h, i| format!("/boards/{}/blocks?block_id={}", h.board[i], h.card[i]),
+            |h, i| format!("/boards/{}/blocks?blockId={}", h.board[i], h.card[i]),
             no_body,
         ),
         case(
@@ -310,7 +307,7 @@ fn cases() -> Vec<Case> {
         case(
             Method::PATCH,
             |h, i| format!("/boards/{}/blocks", h.board[i]),
-            |h, i| json!({"block_ids": [h.card[i]], "block_patches": [{"title": "x"}]}),
+            |h, i| json!({"blockIds": [h.card[i]], "blockPatches": [{"title": "x"}]}),
         ),
         case(
             Method::PATCH,
@@ -354,35 +351,30 @@ fn cases() -> Vec<Case> {
         // Its files.
         case(
             Method::GET,
-            |h, i| format!("/files/teams/{TEST_TEAM_ID}/{}/{}", h.board[i], h.file[i]),
+            |h, i| format!("/boards/{}/files/{}", h.board[i], h.file[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| {
-                format!(
-                    "/files/teams/{TEST_TEAM_ID}/{}/{}/info",
-                    h.board[i], h.file[i]
-                )
-            },
+            |h, i| format!("/boards/{}/files/{}/info", h.board[i], h.file[i]),
             no_body,
         ),
         // A wrong read token is no token.
         case(
             Method::GET,
-            |h, i| format!("/boards/{}?read_token=wrong", h.board[i]),
+            |h, i| format!("/boards/{}?readToken=wrong", h.board[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| format!("/boards/{}/blocks?read_token=wrong", h.board[i]),
+            |h, i| format!("/boards/{}/blocks?readToken=wrong", h.board[i]),
             no_body,
         ),
         // Both kinds of combined request.
         case(
             Method::PATCH,
             |_, _| "/boards-and-blocks".to_owned(),
-            |h, i| json!({"boardIDs": [h.board[i]], "boardPatches": [{"title": "x"}]}),
+            |h, i| json!({"boardIds": [h.board[i]], "boardPatches": [{"title": "x"}]}),
         ),
         case(
             Method::DELETE,
@@ -414,7 +406,7 @@ fn cases() -> Vec<Case> {
         case(
             Method::PUT,
             |h, i| format!("/teams/{TEST_TEAM_ID}/categories/{}", h.category[i]),
-            |h, i| json!({"id": h.category[i], "name": "x", "teamID": TEST_TEAM_ID}),
+            |h, i| json!({"id": h.category[i], "name": "x", "teamId": TEST_TEAM_ID}),
         ),
         case(
             Method::DELETE,
@@ -425,7 +417,7 @@ fn cases() -> Vec<Case> {
             Method::PUT,
             |h, i| {
                 format!(
-                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/reorder",
+                    "/teams/{TEST_TEAM_ID}/categories/{}/board-order",
                     h.category[i]
                 )
             },
@@ -451,12 +443,6 @@ fn cases() -> Vec<Case> {
             },
             no_body,
         ),
-        // The owner's settings.
-        case(
-            Method::PUT,
-            |h, i| format!("/users/{}/config", h.owner[i]),
-            |_, _| json!({"updatedFields": {"a": "b"}}),
-        ),
     ]
 }
 
@@ -475,7 +461,7 @@ fn mixed_cases() -> Vec<Case> {
         // A hidden block through the asker's own board.
         case(
             Method::GET,
-            |h, i| format!("/boards/{}/blocks?block_id={}", h.own_board, h.card[i]),
+            |h, i| format!("/boards/{}/blocks?blockId={}", h.own_board, h.card[i]),
             no_body,
         ),
         case(
@@ -503,8 +489,8 @@ fn mixed_cases() -> Vec<Case> {
             |h, _| format!("/boards/{}/blocks", h.own_board),
             |h, i| {
                 json!({
-                    "block_ids": [h.own_card, h.card[i]],
-                    "block_patches": [{"title": "x"}, {"title": "y"}],
+                    "blockIds": [h.own_card, h.card[i]],
+                    "blockPatches": [{"title": "x"}, {"title": "y"}],
                 })
             },
         ),
@@ -514,8 +500,8 @@ fn mixed_cases() -> Vec<Case> {
             |_, _| "/boards-and-blocks".to_owned(),
             |h, i| {
                 json!({
-                    "boardIDs": [h.own_board], "boardPatches": [{"title": "x"}],
-                    "blockIDs": [h.card[i]], "blockPatches": [{"title": "y"}],
+                    "boardIds": [h.own_board], "boardPatches": [{"title": "x"}],
+                    "blockIds": [h.card[i]], "blockPatches": [{"title": "y"}],
                 })
             },
         ),
@@ -524,7 +510,7 @@ fn mixed_cases() -> Vec<Case> {
             |_, _| "/boards-and-blocks".to_owned(),
             |h, i| {
                 json!({
-                    "boardIDs": [h.own_board, h.board[i]],
+                    "boardIds": [h.own_board, h.board[i]],
                     "boardPatches": [{"title": "x"}, {"title": "y"}],
                 })
             },
@@ -550,7 +536,7 @@ fn mixed_cases() -> Vec<Case> {
             Method::POST,
             |h, i| {
                 format!(
-                    "/boards/{}/blocks?sourceBoardID={}",
+                    "/boards/{}/blocks?sourceBoardId={}",
                     h.own_board, h.board[i]
                 )
             },
@@ -599,24 +585,19 @@ fn mixed_cases() -> Vec<Case> {
             |h, i| {
                 json!({
                     "id": h.category[i], "name": "x",
-                    "userID": h.outsider, "teamID": TEST_TEAM_ID,
+                    "userId": h.outsider, "teamId": TEST_TEAM_ID,
                 })
             },
         ),
         // A file of the hidden board through the asker's own board.
         case(
             Method::GET,
-            |h, i| format!("/files/teams/{TEST_TEAM_ID}/{}/{}", h.own_board, h.file[i]),
+            |h, i| format!("/boards/{}/files/{}", h.own_board, h.file[i]),
             no_body,
         ),
         case(
             Method::GET,
-            |h, i| {
-                format!(
-                    "/files/teams/{TEST_TEAM_ID}/{}/{}/info",
-                    h.own_board, h.file[i]
-                )
-            },
+            |h, i| format!("/boards/{}/files/{}/info", h.own_board, h.file[i]),
             no_body,
         ),
     ]
@@ -821,15 +802,10 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (Method::POST, "/teams/{}/onboard".to_owned(), Value::Null),
         (
             Method::POST,
-            "/teams/{}/regenerate_signup_token".to_owned(),
+            "/teams/{}/signup-token".to_owned(),
             Value::Null,
         ),
         (Method::GET, "/users/{}".to_owned(), Value::Null),
-        (
-            Method::PUT,
-            "/users/{}/config".to_owned(),
-            json!({"updatedFields": {"a": "b"}}),
-        ),
         (Method::GET, "/subscriptions/{}".to_owned(), Value::Null),
         (
             Method::DELETE,
@@ -845,12 +821,12 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (Method::PATCH, "/cards/{}".to_owned(), json!({"title": "x"})),
         (
             Method::GET,
-            format!("/boards/{board}/blocks?block_id={{}}"),
+            format!("/boards/{board}/blocks?blockId={{}}"),
             Value::Null,
         ),
         (
             Method::GET,
-            format!("/boards/{board}/blocks?parent_id={{}}"),
+            format!("/boards/{board}/blocks?parentId={{}}"),
             Value::Null,
         ),
         (
@@ -896,7 +872,7 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         (
             Method::PUT,
             format!("/teams/{team}/categories/{{}}"),
-            json!({"id": "{}", "name": "x", "userID": me, "teamID": team}),
+            json!({"id": "{}", "name": "x", "userId": me, "teamId": team}),
         ),
         (
             Method::DELETE,

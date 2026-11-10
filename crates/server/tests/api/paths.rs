@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use fvoci_model::BoardType;
 use reqwest::{Method, StatusCode};
 use serde_json::Value;
 
@@ -94,7 +95,7 @@ async fn check_path_rules(origin: &str, base: &str) {
 
     // A known API path with another method: 405, with the methods the path has.
     for (method, path, allowed) in [
-        (Method::DELETE, "/api/v1/clientConfig", "GET"),
+        (Method::DELETE, "/api/v1/client-config", "GET"),
         (Method::GET, "/api/v1/login", "POST"),
         (Method::PUT, "/api/v1/boards", "POST"),
     ] {
@@ -117,7 +118,7 @@ async fn check_path_rules(origin: &str, base: &str) {
     // Everything else under the API prefix: a JSON 404, never the web app's page.
     for path in [
         "/api/v1/no-such-route",
-        "/api/v1/clientConfig/",
+        "/api/v1/client-config/",
         "/api/v1/boards/",
         "/api/v1",
         "/api/v1/",
@@ -235,13 +236,63 @@ async fn path_rules_under_a_base_path() {
     for path in [
         "/",
         "/hello",
-        "/api/v1/clientConfig",
+        "/api/v1/client-config",
         "/board/abc",
         "/boardsx",
     ] {
         let answer = ask(&origin, Method::GET, path).await;
         assert_eq!(answer.status, StatusCode::NOT_FOUND, "GET {path}");
         assert!(!answer.is_the_web_app(), "{path}");
+    }
+    th.teardown().await;
+}
+
+/// The paths the original server had for what now has another path are no routes: a
+/// JSON 404 like any path the API does not have, with a session and without one, and
+/// whether or not what they name is there.
+#[tokio::test]
+async fn the_original_paths_of_routes_that_have_another_path_are_not_found() {
+    let th = Setup::native().start().await.init_basic().await;
+    let me = th.client.me().await.id;
+    let other = th.client2.me().await.id;
+    let board = th.create_board(ROOT_TEAM_ID, BoardType::Open).await.id;
+    let team = ROOT_TEAM_ID;
+    let file = "7unknownunknownunknownunk12.png";
+
+    let requests = [
+        (Method::GET, "/clientConfig".to_owned()),
+        (
+            Method::POST,
+            format!("/teams/{team}/regenerate_signup_token"),
+        ),
+        (Method::POST, format!("/users/{me}/changepassword")),
+        (Method::POST, format!("/users/{other}/changepassword")),
+        (Method::GET, "/users/me/config".to_owned()),
+        (Method::PUT, format!("/users/{me}/config")),
+        (Method::PUT, format!("/users/{other}/config")),
+        (Method::POST, format!("/teams/{team}/{board}/files")),
+        (Method::GET, format!("/files/teams/{team}/{board}/{file}")),
+        (
+            Method::GET,
+            format!("/files/teams/{team}/{board}/{file}/info"),
+        ),
+    ];
+    for (method, path) in requests {
+        for client in [&th.client, &th.anonymous()] {
+            let response = client.send_raw_body(method.clone(), &path, "{}").await;
+            assert_eq!(
+                response.status,
+                StatusCode::NOT_FOUND,
+                "{method} {path}: {}",
+                response.text()
+            );
+            response.check_error(StatusCode::NOT_FOUND, "route not found");
+            assert_eq!(
+                response.header("content-type"),
+                "application/json",
+                "{method} {path}"
+            );
+        }
     }
     th.teardown().await;
 }

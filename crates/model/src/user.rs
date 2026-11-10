@@ -5,7 +5,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::serde_util::{is_zero, null_as_default};
+use crate::serde_util::null_as_default;
 use crate::settings::{ClientStateError, check_client_state_name, check_client_state_value};
 
 /// A user account.
@@ -13,7 +13,7 @@ use crate::settings::{ClientStateError, check_client_state_name, check_client_st
 /// The JSON form carries only the public members. The email address, password hash and
 /// the other authentication members are never serialized and are ignored when decoding.
 #[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct User {
     /// The user's identifier.
     pub id: String,
@@ -22,41 +22,38 @@ pub struct User {
     /// The email address.
     #[serde(skip)]
     pub email: String,
-    /// The nickname.
+    /// The nickname. Nothing stores one; not part of the JSON form.
+    #[serde(skip)]
     pub nickname: String,
-    /// The first name.
-    #[serde(rename = "firstname")]
+    /// The first name. Nothing stores one; not part of the JSON form.
+    #[serde(skip)]
     pub first_name: String,
-    /// The last name.
-    #[serde(rename = "lastname")]
+    /// The last name. Nothing stores one; not part of the JSON form.
+    #[serde(skip)]
     pub last_name: String,
     /// The hash of the password, as a PHC string.
     #[serde(skip)]
     pub password_hash: String,
     /// Creation time in milliseconds since the Unix epoch.
-    #[serde(rename = "create_at", skip_serializing_if = "is_zero")]
     pub create_at: i64,
     /// Last modification time in milliseconds since the Unix epoch.
-    #[serde(rename = "update_at", skip_serializing_if = "is_zero")]
     pub update_at: i64,
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
-    #[serde(rename = "delete_at")]
     pub delete_at: i64,
     /// Whether the user is an administrator of the instance. Decided by the server;
     /// nothing a request says about it is taken over.
-    #[serde(rename = "isAdmin")]
     pub is_admin: bool,
-    /// Whether the account is a bot.
+    /// Whether the account is a bot. Nothing makes one; not part of the JSON form.
+    #[serde(skip)]
     pub is_bot: bool,
-    /// Whether the account is a guest.
+    /// Whether the account is a guest. Nothing makes one; not part of the JSON form.
+    #[serde(skip)]
     pub is_guest: bool,
-    /// Special permissions of the user.
-    #[serde(
-        deserialize_with = "null_as_default",
-        skip_serializing_if = "Vec::is_empty"
-    )]
+    /// Special permissions of the user. Nothing stores any; not part of the JSON form.
+    #[serde(skip)]
     pub permissions: Vec<String>,
-    /// The user's system roles.
+    /// The user's system roles. Nothing stores any; not part of the JSON form.
+    #[serde(skip)]
     pub roles: String,
 }
 

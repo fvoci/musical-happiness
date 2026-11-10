@@ -20,9 +20,6 @@ const ACCESS_DENIED_TO_TEAM: &str = "access denied to team";
 /// The refusal of the routes that reorder or hide, whatever was denied.
 const ACCESS_DENIED_TO_CATEGORY: &str = "access denied to category";
 
-// The word `reorder` is reserved where other routes have an identifier: the server
-// makes the identifiers of categories and boards, and never makes that one. With
-// another method than the reorder routes' the path answers 405.
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route(
@@ -30,7 +27,7 @@ pub(super) fn routes() -> Router<App> {
             post(handle_create_category).get(handle_get_user_category_boards),
         )
         .route(
-            "/teams/{team_id}/categories/reorder",
+            "/teams/{team_id}/category-order",
             put(handle_reorder_categories),
         )
         .route(
@@ -38,7 +35,7 @@ pub(super) fn routes() -> Router<App> {
             put(handle_update_category).delete(handle_delete_category),
         )
         .route(
-            "/teams/{team_id}/categories/{category_id}/boards/reorder",
+            "/teams/{team_id}/categories/{category_id}/board-order",
             put(handle_reorder_category_boards),
         )
         .route(
@@ -130,7 +127,7 @@ async fn handle_create_category(
     let category = &request.category;
     if category.user_id != session.user_id {
         return Err(
-            AppError::forbidden("a user makes categories for themselves only").with_field("userID"),
+            AppError::forbidden("a user makes categories for themselves only").with_field("userId"),
         );
     }
     // The server makes the identifier. One chosen by the client would have to be
@@ -140,7 +137,7 @@ async fn handle_create_category(
         return Err(AppError::bad_request("a new category cannot have an ID").with_field("id"));
     }
     if category.team_id != team_id {
-        return Err(AppError::bad_request("teamID mismatch"));
+        return Err(AppError::bad_request("teamId mismatch").with_field("teamId"));
     }
 
     let created = app.create_category(request.into_category()?).await?;
@@ -167,11 +164,11 @@ async fn handle_update_category(
     }
     if category.user_id != session.user_id {
         return Err(
-            AppError::bad_request("the user of the body is not the session's").with_field("userID"),
+            AppError::bad_request("the user of the body is not the session's").with_field("userId"),
         );
     }
     if category.team_id != team_id {
-        return Err(AppError::bad_request("teamID mismatch").with_field("teamID"));
+        return Err(AppError::bad_request("teamId mismatch").with_field("teamId"));
     }
 
     let updated = app.update_category(request.into_category()?).await?;

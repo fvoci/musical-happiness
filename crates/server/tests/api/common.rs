@@ -587,11 +587,9 @@ impl Client {
     /// `Login`: signs in and keeps the session token.
     pub(crate) async fn login(&mut self, username: &str, password: &str) -> ApiResponse {
         let request = LoginRequest {
-            login_type: "normal".to_owned(),
             username: username.to_owned(),
             email: String::new(),
             password: password.to_owned(),
-            mfa_token: String::new(),
         };
         let response = self.post("/login", &request).await;
         if response.status == StatusCode::OK {

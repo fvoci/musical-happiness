@@ -69,7 +69,7 @@ fn client_of(
 /// what a user reports can be found in the log. An identifier the client sends is not
 /// taken over: it would let a client write into the log.
 ///
-/// The query string is left out because it can carry `access_token` and `read_token`,
+/// The query string is left out because it can carry the read token of a shared board,
 /// and no header is logged, so neither are the session token and the cookies.
 pub(crate) async fn log_request(
     State(proxies): State<Arc<TrustedProxies>>,
@@ -283,9 +283,9 @@ mod tests {
     #[tokio::test]
     async fn request_log_has_no_query_string_and_no_credentials() {
         let mut request =
-            Request::get("/api/v1/boards/b1?read_token=SECRET-READ&access_token=SECRET-ACCESS")
+            Request::get("/api/v1/boards/b1?readToken=SECRET-READ&other=SECRET-OTHER")
                 .header("Authorization", "Bearer SECRET-BEARER")
-                .header("Cookie", "FVOCIAUTHTOKEN=SECRET-COOKIE")
+                .header("Cookie", "fvoci_session=SECRET-COOKIE")
                 .header(X_FORWARDED_FOR, "203.0.113.7")
                 .body(Body::empty())
                 .expect("a valid request");
@@ -304,7 +304,7 @@ mod tests {
         ] {
             assert!(log.contains(expected), "{expected:?} is logged: {log}");
         }
-        for secret in ["SECRET", "read_token", "access_token", "203.0.113.7"] {
+        for secret in ["SECRET", "readToken", "203.0.113.7"] {
             assert!(!log.contains(secret), "{secret:?} is not logged: {log}");
         }
     }
@@ -326,7 +326,7 @@ mod tests {
     /// the request is still logged.
     #[tokio::test]
     async fn handler_panic_becomes_the_internal_server_error_response() {
-        let request = Request::get("/api/v1/boom?access_token=SECRET-ACCESS")
+        let request = Request::get("/api/v1/boom?readToken=SECRET-READ")
             .body(Body::empty())
             .expect("a valid request");
 

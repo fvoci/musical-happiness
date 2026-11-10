@@ -64,22 +64,16 @@ const NO_FILE_PART: &str = "the request has no part named `file` with a file nam
 /// The routes that read files.
 pub(super) fn routes() -> Router<App> {
     Router::new()
+        .route("/boards/{board_id}/files/{file_id}", get(handle_serve_file))
         .route(
-            "/files/teams/{team_id}/{board_id}/{filename}",
-            get(handle_serve_file),
-        )
-        .route(
-            "/files/teams/{team_id}/{board_id}/{filename}/info",
+            "/boards/{board_id}/files/{file_id}/info",
             get(handle_get_file_info),
         )
 }
 
 /// The route that takes a file, whose size has a limit of its own.
 pub(super) fn upload_routes() -> Router<App> {
-    Router::new().route(
-        "/teams/{team_id}/{board_id}/files",
-        post(handle_upload_file),
-    )
+    Router::new().route("/boards/{board_id}/files", post(handle_upload_file))
 }
 
 /// Checks that the requester may read the board's files: a member with the view
@@ -104,11 +98,11 @@ async fn check_read_access(
     Ok(())
 }
 
-/// `GET /files/teams/{team_id}/{board_id}/{filename}`: serves an uploaded file.
+/// `GET /boards/{board_id}/files/{file_id}`: serves an uploaded file.
 async fn handle_serve_file(
     State(app): State<App>,
     session: OptionalSession,
-    Path((_team_id, board_id, filename)): Path<(String, String, String)>,
+    Path((board_id, filename)): Path<(String, String)>,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> ApiResult {
@@ -127,11 +121,11 @@ async fn handle_serve_file(
     serve_content(&app, &filename, &info.path, size, "", &headers).await
 }
 
-/// `GET /files/teams/{team_id}/{board_id}/{filename}/info`: the metadata of a file.
+/// `GET /boards/{board_id}/files/{file_id}/info`: the metadata of a file.
 async fn handle_get_file_info(
     State(app): State<App>,
     session: OptionalSession,
-    Path((_team_id, board_id, filename)): Path<(String, String, String)>,
+    Path((board_id, filename)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     check_read_access(&app, session.user_id(), &board_id, query.as_deref()).await?;
@@ -142,11 +136,11 @@ async fn handle_get_file_info(
     }
 }
 
-/// `POST /teams/{team_id}/{board_id}/files`: stores an uploaded file.
+/// `POST /boards/{board_id}/files`: stores an uploaded file.
 async fn handle_upload_file(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    Path((_team_id, board_id)): Path<(String, String)>,
+    Path(board_id): Path<String>,
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();

@@ -133,8 +133,8 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "boardID": "<id:4>",
-      "teamID": "<id:1>"
+      "boardId": "<id:4>",
+      "teamId": "<id:1>"
     }
   },
   {
@@ -266,11 +266,11 @@
       {
         "boardMetadata": [
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           },
           {
-            "boardID": "<id:6>",
+            "boardId": "<id:6>",
             "hidden": false
           }
         ],
@@ -279,39 +279,23 @@
         "deleteAt": 0,
         "id": "<id:7>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:1>",
+        "sortOrder": 10,
+        "teamId": "<id:1>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:2>"
+        "userId": "<id:2>"
       }
     ]
   },
   {
     "name": "config after onboarding",
-    "request": "GET /api/v1/users/me/config as tpl-alice",
+    "request": "GET /api/v1/users/me/client-state as tpl-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": [
-      {
-        "category": "client",
-        "name": "onboardingTourStarted",
-        "user_id": "<id:2>",
-        "value": "1"
-      },
-      {
-        "category": "client",
-        "name": "onboardingTourStep",
-        "user_id": "<id:2>",
-        "value": "0"
-      },
-      {
-        "category": "client",
-        "name": "tourCategory",
-        "user_id": "<id:2>",
-        "value": "onboarding"
-      }
-    ]
+    "body": {
+      "onboardingTourStarted": "1",
+      "onboardingTourStep": "0",
+      "tourCategory": "onboarding"
+    }
   }
 ]

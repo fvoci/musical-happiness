@@ -9,7 +9,7 @@ use serde_json::json;
 use crate::common::{ApiResponse, Client, PASSWORD, Setup, TestServer, USER1_USERNAME};
 
 fn credentials(username: &str, password: &str) -> serde_json::Value {
-    json!({"type": "normal", "username": username, "password": password})
+    json!({"username": username, "password": password})
 }
 
 async fn login(th: &TestServer, username: &str, password: &str) -> ApiResponse {
@@ -246,7 +246,7 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
         .await
         .check_error(StatusCode::FORBIDDEN, "registration needs the signup token");
     // What needs no password is not an attempt.
-    th.anonymous().get("/clientConfig").await.check_ok();
+    th.anonymous().get("/client-config").await.check_ok();
 
     th.teardown().await;
 }

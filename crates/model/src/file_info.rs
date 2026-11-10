@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// What the server records about an uploaded file.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct FileInfo {
     /// The record's identifier.
     #[serde(deserialize_with = "null_as_default")]
@@ -58,7 +58,7 @@ mod tests {
             encoded,
             json!({
                 "id": "abc",
-                "create_at": 1,
+                "createAt": 1,
                 "name": "picture.png",
                 "extension": ".png",
                 "size": 4,

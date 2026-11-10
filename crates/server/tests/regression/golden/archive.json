@@ -194,12 +194,10 @@
         {
           "data": {
             "boardId": "<id:2>",
-            "roles": "",
             "schemeAdmin": true,
             "schemeCommenter": false,
             "schemeEditor": true,
             "schemeViewer": false,
-            "synthetic": false,
             "userId": "<id:1>"
           },
           "type": "boardMember"
@@ -448,29 +446,25 @@
     "body": [
       {
         "boardId": "<id:9>",
-        "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": false,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:8>"
       },
       {
         "boardId": "<id:9>",
-        "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:1>"
       }
     ]
   },
   {
     "name": "imported file",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:9>/<secret:2>.png as arch-bob",
+    "request": "GET /api/v1/boards/<id:9>/files/<secret:2>.png as arch-bob",
     "status": 200,
     "content_type": "application/octet-stream",
     "body": "<67 bytes>"

@@ -125,13 +125,13 @@ impl From<&BoardsAndBlocks> for DeleteBoardsAndBlocks {
 #[serde(default)]
 pub struct PatchBoardsAndBlocks {
     /// The identifiers of the boards to patch.
-    #[serde(rename = "boardIDs", deserialize_with = "null_as_default")]
+    #[serde(rename = "boardIds", deserialize_with = "null_as_default")]
     pub board_ids: Vec<String>,
     /// The board patches, one per board identifier.
     #[serde(rename = "boardPatches", deserialize_with = "null_as_default")]
     pub board_patches: Vec<BoardPatch>,
     /// The identifiers of the blocks to patch.
-    #[serde(rename = "blockIDs", deserialize_with = "null_as_default")]
+    #[serde(rename = "blockIds", deserialize_with = "null_as_default")]
     pub block_ids: Vec<String>,
     /// The block patches, one per block identifier.
     #[serde(rename = "blockPatches", deserialize_with = "null_as_default")]

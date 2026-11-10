@@ -260,9 +260,9 @@ pub(crate) fn query_param(query: Option<&str>, name: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Reads the `disable_notify` query flag.
+/// Reads the `disableNotify` query flag.
 pub(crate) fn change_notification(query: Option<&str>) -> ChangeNotification {
-    if query_param(query, "disable_notify") == TRUE {
+    if query_param(query, "disableNotify") == TRUE {
         ChangeNotification::Suppress
     } else {
         ChangeNotification::Send
@@ -293,7 +293,7 @@ pub(crate) async fn has_valid_read_token(
     query: Option<&str>,
     board_id: &str,
 ) -> Result<bool, AppError> {
-    let read_token = query_param(query, "read_token");
+    let read_token = query_param(query, "readToken");
     if read_token.is_empty() {
         return Ok(false);
     }

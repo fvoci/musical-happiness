@@ -1,5 +1,4 @@
-//! Pins the JSON form of the wire types against the member names of the original structs
-//! (`server/model/*.go`), and the leniency of decoding.
+//! Pins the JSON form of the wire types, and the leniency of decoding.
 
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardType,
@@ -120,7 +119,7 @@ fn block_patch_json_members() {
     );
 
     let batch: BlockPatchBatch =
-        serde_json::from_value(json!({ "block_ids": ["a"], "block_patches": [{ "title": "t" }] }))
+        serde_json::from_value(json!({ "blockIds": ["a"], "blockPatches": [{ "title": "t" }] }))
             .expect("decodes");
     assert_eq!(batch.block_ids, ["a"]);
     assert_eq!(batch.block_patches[0].title.as_deref(), Some("t"));
@@ -320,12 +319,13 @@ fn board_member_json_members() {
         scheme_viewer: false,
         synthetic: true,
     };
+    // What nothing stores is not sent: the roles and whether the membership is derived.
     assert_eq!(
         to_json(&member),
         json!({
-            "boardId": "b", "userId": "u", "roles": "r",
+            "boardId": "b", "userId": "u",
             "schemeAdmin": true, "schemeEditor": false, "schemeCommenter": true,
-            "schemeViewer": false, "synthetic": true
+            "schemeViewer": false
         })
     );
 }
@@ -333,8 +333,8 @@ fn board_member_json_members() {
 #[test]
 fn patch_boards_and_blocks_json_members() {
     let patch: PatchBoardsAndBlocks = serde_json::from_value(json!({
-        "boardIDs": ["b"], "boardPatches": [{ "title": "t" }],
-        "blockIDs": ["a"], "blockPatches": [{ "title": "u" }]
+        "boardIds": ["b"], "boardPatches": [{ "title": "t" }],
+        "blockIds": ["a"], "blockPatches": [{ "title": "u" }]
     }))
     .expect("decodes");
     assert_eq!((patch.board_ids.len(), patch.block_ids.len()), (1, 1));
@@ -357,25 +357,27 @@ fn category_json_members() {
         sorting: "alpha".to_owned(),
         category_type: CategoryType::System,
     };
+    // The sorting method has no place in the storage and is not sent.
     let want = json!({
-        "id": "7c", "name": "Boards", "userID": "u", "teamID": "0", "createAt": 1,
+        "id": "7c", "name": "Boards", "userId": "u", "teamId": "0", "createAt": 1,
         "updateAt": 2, "deleteAt": 0, "collapsed": true, "sortOrder": 20,
-        "sorting": "alpha", "type": "system"
+        "type": "system"
     });
     assert_eq!(to_json(&category), want);
     assert_eq!(
         serde_json::from_value::<Category>(want).expect("decodes"),
-        category
+        Category {
+            sorting: String::new(),
+            ..category
+        }
     );
 
     let defaulted: Category = serde_json::from_value(json!({ "name": "n" })).expect("decodes");
     assert_eq!(defaulted.category_type, CategoryType::Custom);
 }
 
-/// Preserved quirk: the category's sort order never reaches the wire through
-/// `CategoryBoards`.
 #[test]
-fn category_boards_json_flattens_the_category_and_zeroes_sort_order() {
+fn category_boards_json_flattens_the_category() {
     let category_boards = CategoryBoards {
         category: Category {
             id: "7c".to_owned(),
@@ -391,9 +393,9 @@ fn category_boards_json_flattens_the_category_and_zeroes_sort_order() {
     assert_eq!(
         to_json(&category_boards),
         json!({
-            "id": "7c", "name": "Boards", "userID": "", "teamID": "", "createAt": 0,
-            "updateAt": 0, "deleteAt": 0, "collapsed": false, "sortOrder": 0, "sorting": "",
-            "type": "custom", "boardMetadata": [{ "boardID": "b1", "hidden": true }]
+            "id": "7c", "name": "Boards", "userId": "", "teamId": "", "createAt": 0,
+            "updateAt": 0, "deleteAt": 0, "collapsed": false, "sortOrder": 30,
+            "type": "custom", "boardMetadata": [{ "boardId": "b1", "hidden": true }]
         })
     );
 }
@@ -450,7 +452,7 @@ fn category_hydrate_and_validate() {
 }
 
 #[test]
-fn user_json_hides_credentials_and_empty_members() {
+fn user_json_hides_credentials_and_what_nothing_stores() {
     let user = User {
         id: "u1".to_owned(),
         username: "alice".to_owned(),
@@ -471,9 +473,8 @@ fn user_json_hides_credentials_and_empty_members() {
     assert_eq!(
         to_json(&user),
         json!({
-            "id": "u1", "username": "alice", "nickname": "al", "firstname": "Alice",
-            "lastname": "A", "update_at": 5, "delete_at": 0, "isAdmin": true,
-            "is_bot": false, "is_guest": true, "roles": "system_user"
+            "id": "u1", "username": "alice", "createAt": 0, "updateAt": 5, "deleteAt": 0,
+            "isAdmin": true
         })
     );
 
@@ -544,7 +545,7 @@ fn subscription_json_members() {
     };
     let want = json!({
         "blockType": "card", "blockId": "c", "subscriberType": "user", "subscriberId": "u",
-        "createAt": 1, "deleteAt": 0
+        "notifiedAt": 0, "createAt": 1, "deleteAt": 0
     });
     assert_eq!(to_json(&subscription), want);
     assert_eq!(
@@ -563,7 +564,7 @@ fn subscription_json_members() {
     };
     assert_eq!(
         to_json(&subscriber),
-        json!({ "subscriber_type": "channel", "subscriber_id": "ch", "notified_at": 4 })
+        json!({ "subscriberType": "channel", "subscriberId": "ch", "notifiedAt": 4 })
     );
 }
 
@@ -577,7 +578,7 @@ fn config_error_and_request_json_members() {
             ..ClientConfig::default()
         }),
         json!({
-            "telemetry": false, "telemetryid": "", "enablePublicSharedBoards": true,
+            "enablePublicSharedBoards": true,
             "teammateNameDisplay": "username", "featureFlags": {}, "maxFileSize": 7
         })
     );
@@ -612,14 +613,12 @@ fn config_error_and_request_json_members() {
         })
     );
 
+    // Members a client of the original sends along are not read and not refused.
     let login: LoginRequest = serde_json::from_value(json!({
         "type": "normal", "username": "u", "email": "e", "password": "p", "mfa_token": "m"
     }))
     .expect("decodes");
-    assert_eq!(
-        (login.login_type.as_str(), login.mfa_token.as_str()),
-        ("normal", "m")
-    );
+    assert_eq!((login.username.as_str(), login.email.as_str()), ("u", "e"));
     assert!(
         !format!("{login:?}").contains("\"p\""),
         "Debug leaks the password"

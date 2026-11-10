@@ -275,8 +275,6 @@ impl App {
     pub fn client_config(&self) -> ClientConfig {
         let config = self.config();
         ClientConfig {
-            telemetry: false,
-            telemetry_id: String::new(),
             enable_public_shared_boards: config.enable_public_shared_boards,
             teammate_name_display: config.teammate_name_display.clone(),
             feature_flags: config.feature_flags.clone(),

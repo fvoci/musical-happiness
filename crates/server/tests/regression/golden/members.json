@@ -59,12 +59,10 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:1>"
       }
     ]
@@ -98,12 +96,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:5>"
     }
   },
@@ -115,7 +111,7 @@
     "body": {
       "error": "bad_request",
       "field": "userId",
-      "message": "empty userID",
+      "message": "empty userId",
       "request_id": "<request-id>"
     }
   },
@@ -149,12 +145,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
       "schemeViewer": true,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -165,12 +159,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
       "schemeViewer": true,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -182,32 +174,26 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": false,
         "schemeViewer": true,
-        "synthetic": false,
         "userId": "<id:6>"
       },
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:5>"
       },
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:1>"
       }
     ]
@@ -220,12 +206,10 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:5>"
       }
     ]
@@ -237,12 +221,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -335,12 +317,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:4>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -351,12 +331,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:4>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -409,22 +387,18 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:5>"
       },
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:1>"
       }
     ]
@@ -521,12 +495,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:7>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
       "schemeViewer": true,
-      "synthetic": false,
       "userId": "<id:5>"
     }
   },
@@ -548,12 +520,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:7>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:5>"
     }
   },
@@ -564,12 +534,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:7>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:5>"
     }
   },
@@ -580,12 +548,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:7>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -596,12 +562,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:7>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -612,12 +576,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:7>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:6>"
     }
   },
@@ -628,12 +590,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:7>",
-      "roles": "",
       "schemeAdmin": true,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:1>"
     }
   },
@@ -645,32 +605,26 @@
     "body": [
       {
         "boardId": "<id:7>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:6>"
       },
       {
         "boardId": "<id:7>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": true,
         "schemeEditor": false,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:5>"
       },
       {
         "boardId": "<id:7>",
-        "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:1>"
       }
     ]

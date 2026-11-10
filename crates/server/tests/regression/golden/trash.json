@@ -32,12 +32,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:4>"
     }
   },
@@ -48,12 +46,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": false,
       "schemeViewer": true,
-      "synthetic": false,
       "userId": "<id:5>"
     }
   },
@@ -415,7 +411,7 @@
   },
   {
     "name": "blocks on the card: the text is still deleted",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:7> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -457,7 +453,7 @@
   },
   {
     "name": "blocks on the card: the text is back",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:7> as trash-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:7> as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -637,32 +633,26 @@
     "body": [
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": false,
         "schemeViewer": true,
-        "synthetic": false,
         "userId": "<id:5>"
       },
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": false,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:4>"
       },
       {
         "boardId": "<id:2>",
-        "roles": "",
         "schemeAdmin": true,
         "schemeCommenter": false,
         "schemeEditor": true,
         "schemeViewer": false,
-        "synthetic": false,
         "userId": "<id:1>"
       }
     ]

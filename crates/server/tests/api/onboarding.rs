@@ -126,7 +126,7 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
         .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
-    let board_id = value["boardID"].as_str().expect("a board id").to_owned();
+    let board_id = value["boardId"].as_str().expect("a board id").to_owned();
 
     let mut copied = card_titles(&ts, &ts.client2, &board_id).await;
     copied.sort();
@@ -175,7 +175,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
         .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
-    let board_id = value["boardID"].as_str().expect("a board id").to_owned();
+    let board_id = value["boardId"].as_str().expect("a board id").to_owned();
 
     let copy: Board = ts
         .client
@@ -206,11 +206,11 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
         .await;
     let value = response.ok_json::<Value>();
     assert_eq!(
-        value["teamID"],
+        value["teamId"],
         Value::String(ROOT_TEAM_ID.to_owned()),
         "the team"
     );
-    let board_id = value["boardID"].as_str().expect("a board id").to_owned();
+    let board_id = value["boardId"].as_str().expect("a board id").to_owned();
     assert!(!board_id.is_empty(), "a board id is returned");
 
     let board = ts
@@ -275,12 +275,12 @@ async fn onboard_echoes_the_team_identifier() {
         .await
         .ok_json::<Value>();
     assert_eq!(
-        value["teamID"],
+        value["teamId"],
         Value::String(TEST_TEAM_ID.to_owned()),
         "the team is echoed"
     );
     assert!(
-        value["boardID"].as_str().is_some_and(|id| !id.is_empty()),
+        value["boardId"].as_str().is_some_and(|id| !id.is_empty()),
         "a board id"
     );
     ts.teardown().await;

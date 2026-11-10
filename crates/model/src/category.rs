@@ -46,11 +46,9 @@ pub struct Category {
     #[serde(deserialize_with = "null_as_default")]
     pub name: String,
     /// The identifier of the user the category belongs to.
-    #[serde(rename = "userID")]
     #[serde(deserialize_with = "null_as_default")]
     pub user_id: String,
     /// The identifier of the team the category belongs to.
-    #[serde(rename = "teamID")]
     #[serde(deserialize_with = "null_as_default")]
     pub team_id: String,
     /// Creation time in milliseconds since the Unix epoch.
@@ -68,8 +66,9 @@ pub struct Category {
     /// The position of the category among the user's categories.
     #[serde(deserialize_with = "null_as_default")]
     pub sort_order: i64,
-    /// The sorting method applied to the boards in the category.
-    #[serde(deserialize_with = "null_as_default")]
+    /// The sorting method applied to the boards in the category. Nothing stores one;
+    /// not part of the JSON form.
+    #[serde(skip)]
     pub sorting: String,
     /// Whether this is a system or a custom category.
     #[serde(rename = "type")]
@@ -120,10 +119,9 @@ impl Category {
 
 /// A board's place in a category.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct CategoryBoardMetadata {
     /// The identifier of the board.
-    #[serde(rename = "boardID")]
     #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
     /// Whether the user has hidden the board from the sidebar.
@@ -132,52 +130,25 @@ pub struct CategoryBoardMetadata {
 }
 
 /// A category together with the boards in it, in display order.
-///
-/// Preserved quirk: the JSON form always carries `"sortOrder": 0`, whatever the
-/// category's own sort order. In the original a second, never-assigned `sortOrder` member
-/// hides the category's. Clients order categories by their position in the response.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct CategoryBoards {
     /// The category. Its members appear inline in the JSON form.
     #[serde(flatten)]
     pub category: Category,
     /// The boards in the category.
-    #[serde(rename = "boardMetadata", deserialize_with = "null_as_default")]
+    #[serde(deserialize_with = "null_as_default")]
     pub board_metadata: Vec<CategoryBoardMetadata>,
-}
-
-impl Serialize for CategoryBoards {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        #[derive(Serialize)]
-        struct Wire<'a> {
-            #[serde(flatten)]
-            category: Category,
-            #[serde(rename = "boardMetadata")]
-            board_metadata: &'a [CategoryBoardMetadata],
-        }
-
-        Wire {
-            category: Category {
-                sort_order: 0,
-                ..self.category.clone()
-            },
-            board_metadata: &self.board_metadata,
-        }
-        .serialize(serializer)
-    }
 }
 
 /// The payload of the websocket message sent when a board moves between categories or is
 /// hidden.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct BoardCategoryWebsocketData {
     /// The identifier of the board.
-    #[serde(rename = "boardID")]
     pub board_id: String,
     /// The identifier of the category the board is now in.
-    #[serde(rename = "categoryID")]
     pub category_id: String,
     /// Whether the board is hidden from the sidebar.
     pub hidden: bool,

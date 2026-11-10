@@ -42,13 +42,10 @@ pub(super) fn routes() -> Router<App> {
     Router::new()
         .route("/logout", post(handle_logout))
         .route(
-            "/teams/{team_id}/regenerate_signup_token",
+            "/teams/{team_id}/signup-token",
             post(handle_regenerate_signup_token),
         )
-        .route(
-            "/users/{user_id}/changepassword",
-            post(handle_change_password),
-        )
+        .route("/users/me/password", post(handle_change_password))
 }
 
 /// The routes anyone can send a body to: they come before there is a session.
@@ -65,9 +62,6 @@ async fn handle_login(
     body: Bytes,
 ) -> ApiResult {
     let login: LoginRequest = decode_object(&body)?;
-    if login.login_type != "normal" {
-        return Err(AppError::bad_request("invalid login type").with_field("type"));
-    }
     let token = app
         .login(
             &login.username,
@@ -147,6 +141,8 @@ async fn handle_register(
     Ok(empty_response())
 }
 
+/// `POST /teams/{team_id}/signup-token`: makes a new signup token for the team; the
+/// old one stops working.
 async fn handle_regenerate_signup_token(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -161,19 +157,13 @@ async fn handle_regenerate_signup_token(
     Ok(json_response(&team))
 }
 
+/// `POST /users/me/password`: changes the password of the session's user, who proves
+/// to know the old one. Nobody changes another user's password this way.
 async fn handle_change_password(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    Path(user_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    // The original lets any signed-in user change any user's password, provided they
-    // know that user's current password. A password change is for one's own account.
-    if session.user_id != user_id {
-        return Err(AppError::forbidden(
-            "access denied to change another user's password",
-        ));
-    }
     let request: ChangePasswordRequest = decode_object(&body)?;
     request.validate()?;
 

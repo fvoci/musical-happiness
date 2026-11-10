@@ -938,14 +938,14 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
     let anonymous = th.anonymous();
     get_board(&anonymous, &board.id).await.check_unauthorized();
     anonymous
-        .get(&format!("/boards/{}?read_token=wrong", board.id))
+        .get(&format!("/boards/{}?readToken=wrong", board.id))
         .await
         .check_unauthorized();
 
     // ...but it can with the read token. Who reads without a session is not told who
     // made the board.
     let read: Board = anonymous
-        .get(&format!("/boards/{}?read_token={sharing_token}", board.id))
+        .get(&format!("/boards/{}?readToken={sharing_token}", board.id))
         .await
         .ok_json();
     assert_eq!(
@@ -1619,12 +1619,10 @@ async fn get_members_for_board_should_correctly_return_board_members_for_a_valid
         json!({
             "boardId": board.id,
             "userId": user2.id,
-            "roles": "",
             "schemeAdmin": false,
             "schemeEditor": true,
             "schemeCommenter": false,
             "schemeViewer": false,
-            "synthetic": false,
         }),
         "the members of a membership on the wire"
     );
@@ -1861,7 +1859,7 @@ async fn add_member_validates_the_body_like_the_original() {
     }
     let response = th.client.post(&path, &json!({"schemeEditor": true})).await;
     response.check_bad_request();
-    assert_eq!(response.error_message(), "empty userID", "no user named");
+    assert_eq!(response.error_message(), "empty userId", "no user named");
 
     // Only the user and the four role flags are taken from the body; the board comes from
     // the path.
@@ -3754,8 +3752,7 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_team_users() {
         "nothing about the member themselves: {rest:?}"
     );
 
-    // Open: the members are told about a synthetic viewer membership of every other
-    // user.
+    // Open: the members are told about a viewer membership of every other user.
     patch_board(&th.client, &template.id, &json!({"type": "O"}))
         .await
         .check_ok();
@@ -3767,14 +3764,12 @@ async fn patch_board_type_of_a_template_is_broadcast_to_the_team_users() {
         json!({
             "boardId": template.id,
             "userId": user2.id,
-            "roles": "",
             "schemeAdmin": false,
             "schemeEditor": false,
             "schemeCommenter": false,
             "schemeViewer": true,
-            "synthetic": true,
         }),
-        "a synthetic viewer"
+        "a viewer"
     );
     let rest = socket1.drain().await;
     assert_eq!(

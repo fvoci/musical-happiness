@@ -134,8 +134,8 @@ async fn team_subscription_needs_authentication() {
     assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
     assert_eq!(message["teamId"], json!(ROOT_TEAM_ID), "{message}");
     assert_eq!(message["category"]["name"], json!("Projects"), "{message}");
-    assert_eq!(message["category"]["userID"], json!(user1.id), "{message}");
-    assert!(message.get("blockCategories").is_none(), "{message}");
+    assert_eq!(message["category"]["userId"], json!(user1.id), "{message}");
+    assert!(message.get("boardCategories").is_none(), "{message}");
 
     assert_eq!(
         anonymous.next(QUIET).await,

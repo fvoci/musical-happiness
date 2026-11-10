@@ -50,11 +50,17 @@ pub(crate) async fn blocks(s: &mut Session) {
     s.get("list: by type", &format!("{path}?type=card"))
         .user(&alice)
         .await;
-    s.get("list: by parent", &format!("{path}?parent_id={card}"))
+    s.get("list: by parent", &format!("{path}?parentId={card}"))
         .user(&alice)
         .await;
     s.get(
         "list: by parent and type",
+        &format!("{path}?parentId={card}&type=text"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "list: the old name of the parameter is no filter",
         &format!("{path}?parent_id={card}&type=text"),
     )
     .user(&alice)
@@ -65,16 +71,16 @@ pub(crate) async fn blocks(s: &mut Session) {
     s.get("list: all", &format!("{path}?all=true"))
         .user(&alice)
         .await;
-    s.get("list: one block", &format!("{path}?block_id={card}"))
+    s.get("list: one block", &format!("{path}?blockId={card}"))
         .user(&alice)
         .await;
     s.get(
         "list: unknown block id",
-        &format!("{path}?block_id=unknown-block"),
+        &format!("{path}?blockId=unknown-block"),
     )
     .user(&alice)
     .await;
-    s.get("list: paged", &format!("{path}?page=0&per_page=2"))
+    s.get("list: paged", &format!("{path}?page=0&perPage=2"))
         .user(&alice)
         .unrecorded()
         .await;
@@ -149,20 +155,17 @@ pub(crate) async fn blocks(s: &mut Session) {
         )]))
         .user(&bob)
         .await;
-    s.post(
-        "insert: keeping ids",
-        &format!("{path}?disable_notify=true"),
-    )
-    .json(json!([block(
-        "x2",
-        &board,
-        "card",
-        "Quiet card",
-        "",
-        json!({})
-    )]))
-    .user(&alice)
-    .await;
+    s.post("insert: keeping ids", &format!("{path}?disableNotify=true"))
+        .json(json!([block(
+            "x2",
+            &board,
+            "card",
+            "Quiet card",
+            "",
+            json!({})
+        )]))
+        .user(&alice)
+        .await;
 
     s.patch("patch", &format!("{path}/{card}"))
         .json(json!({
@@ -194,20 +197,20 @@ pub(crate) async fn blocks(s: &mut Session) {
         .await;
     s.patch("patch several", &path)
         .json(json!({
-            "block_ids": [card, text],
-            "block_patches": [{"title": "Card again"}, {"title": "Text again"}],
+            "blockIds": [card, text],
+            "blockPatches": [{"title": "Card again"}, {"title": "Text again"}],
         }))
         .user(&alice)
         .await;
     s.patch("patch several: unknown block", &path)
         .json(json!({
-            "block_ids": [card, "unknown-block"],
-            "block_patches": [{"title": "a"}, {"title": "b"}],
+            "blockIds": [card, "unknown-block"],
+            "blockPatches": [{"title": "a"}, {"title": "b"}],
         }))
         .user(&alice)
         .await;
     s.patch("patch several: commenter", &path)
-        .json(json!({"block_ids": [card], "block_patches": [{"title": "hijack"}]}))
+        .json(json!({"blockIds": [card], "blockPatches": [{"title": "hijack"}]}))
         .user(&bob)
         .await;
     s.get("list after patches", &path).user(&alice).await;
@@ -273,7 +276,7 @@ pub(crate) async fn blocks(s: &mut Session) {
         .await;
     s.get(
         "list: children of the deleted card",
-        &format!("{path}?parent_id={card}"),
+        &format!("{path}?parentId={card}"),
     )
     .user(&alice)
     .await;
@@ -292,7 +295,7 @@ pub(crate) async fn cards(s: &mut Session) {
         }))
         .user(&alice)
         .await;
-    s.post("create: quiet", &format!("{path}?disable_notify=true"))
+    s.post("create: quiet", &format!("{path}?disableNotify=true"))
         .json(json!({"title": "Card two"}))
         .user(&alice)
         .await;
@@ -313,7 +316,7 @@ pub(crate) async fn cards(s: &mut Session) {
     .await;
     s.get("list", &path).user(&alice).await;
     s.get("list: viewer", &path).user(&bob).await;
-    s.get("list: paged", &format!("{path}?page=0&per_page=1"))
+    s.get("list: paged", &format!("{path}?page=0&perPage=1"))
         .user(&alice)
         .unrecorded()
         .await;

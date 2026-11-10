@@ -427,42 +427,42 @@ pub(crate) async fn boards_and_blocks(s: &mut Session) {
 
     s.patch("patch", &path)
         .json(json!({
-            "boardIDs": [board_a, board_b],
+            "boardIds": [board_a, board_b],
             "boardPatches": [{"title": "Board A2"}, {"description": "about B"}],
-            "blockIDs": [card_a, card_b],
+            "blockIds": [card_a, card_b],
             "blockPatches": [{"title": "Card A2"}, {"updatedFields": {"icon": "z"}}],
         }))
         .user(&alice)
         .await;
     s.patch("patch: counts differ", &path)
         .json(json!({
-            "boardIDs": [board_a], "boardPatches": [], "blockIDs": [card_a], "blockPatches": [{"title": "x"}],
+            "boardIds": [board_a], "boardPatches": [], "blockIds": [card_a], "blockPatches": [{"title": "x"}],
         }))
         .user(&alice)
         .await;
     s.patch("patch: no boards", &path)
         .json(json!({
-            "boardIDs": [], "boardPatches": [], "blockIDs": [card_a], "blockPatches": [{"title": "x"}],
+            "boardIds": [], "boardPatches": [], "blockIds": [card_a], "blockPatches": [{"title": "x"}],
         }))
         .user(&alice)
         .await;
     s.patch("patch: block of an unlisted board", &path)
         .json(json!({
-            "boardIDs": [board_a], "boardPatches": [{"title": "x"}],
-            "blockIDs": [card_b], "blockPatches": [{"title": "x"}],
+            "boardIds": [board_a], "boardPatches": [{"title": "x"}],
+            "blockIds": [card_b], "blockPatches": [{"title": "x"}],
         }))
         .user(&alice)
         .await;
     s.patch("patch: non-member", &path)
         .json(json!({
-            "boardIDs": [board_a], "boardPatches": [{"title": "hijack"}],
-            "blockIDs": [card_a], "blockPatches": [{"title": "x"}],
+            "boardIds": [board_a], "boardPatches": [{"title": "hijack"}],
+            "blockIds": [card_a], "blockPatches": [{"title": "x"}],
         }))
         .user(&bob)
         .await;
     s.patch("patch: unknown board", &path)
         .json(json!({
-            "boardIDs": ["unknown-board"], "boardPatches": [{"title": "x"}], "blockIDs": [], "blockPatches": [],
+            "boardIds": ["unknown-board"], "boardPatches": [{"title": "x"}], "blockIds": [], "blockPatches": [],
         }))
         .user(&alice)
         .await;

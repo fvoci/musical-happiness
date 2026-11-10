@@ -69,8 +69,8 @@ async fn ping_returns_metadata_on_success() {
     th.teardown().await;
 }
 
-/// `TestGetClientConfig/"Test Get Client Config"`. Telemetry is not ported; its two
-/// members are still sent, switched off, for the original's web app.
+/// `TestGetClientConfig/"Test Get Client Config"`. Telemetry is not ported, and the
+/// configuration has no members for it.
 #[tokio::test]
 async fn get_client_config() {
     let th = Setup::local_mode()
@@ -85,13 +85,11 @@ async fn get_client_config() {
         .await;
 
     // Without a session: the login page needs the configuration.
-    let response = th.anonymous().get("/clientConfig").await;
+    let response = th.anonymous().get("/client-config").await;
 
     assert_eq!(
         response.ok_json::<serde_json::Value>(),
         json!({
-            "telemetry": false,
-            "telemetryid": "",
             "enablePublicSharedBoards": true,
             "teammateNameDisplay": "username",
             "featureFlags": {"newBoardsEditor": "true"},
@@ -108,7 +106,7 @@ async fn get_client_config() {
 async fn reading_needs_no_requested_with_header() {
     let th = Setup::native().start().await.init_basic().await;
 
-    for path in ["/api/v1/clientConfig", "/api/v1/users/me", "/api/v1/teams"] {
+    for path in ["/api/v1/client-config", "/api/v1/users/me", "/api/v1/teams"] {
         let request = th
             .client
             .raw_request(Method::GET, path)
@@ -172,7 +170,7 @@ async fn base_path_prefixes_every_route() {
 
     // Outside the prefix there is nothing.
     let root = th.base_url.trim_end_matches("/boards");
-    let outside = reqwest::get(format!("{root}/api/v1/clientConfig"))
+    let outside = reqwest::get(format!("{root}/api/v1/client-config"))
         .await
         .expect("the server answers");
     assert_eq!(
@@ -278,7 +276,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
             .into_iter()
             .flatten()
             .flat_map(|category| category["boardMetadata"].as_array().into_iter().flatten())
-            .filter_map(|metadata| metadata["boardID"].as_str())
+            .filter_map(|metadata| metadata["boardId"].as_str())
             .collect();
         let counts = (
             created.len(),

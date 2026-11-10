@@ -239,7 +239,7 @@ impl<'a> Fixture<'a> {
     async fn upload_file(&self) -> String {
         self.owner(
             Method::POST,
-            &format!("{API}/teams/{ROOT_TEAM_ID}/{}/files", self.board),
+            &format!("{API}/boards/{}/files", self.board),
             multipart("file", "pixel.png", &PNG, "image/png"),
         )
         .await
@@ -334,7 +334,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "blocks: list" => Request::new(Method::GET, blocks),
         "blocks: list all" => Request::new(Method::GET, format!("{blocks}?all=true")),
         "blocks: list by parent" => {
-            Request::new(Method::GET, format!("{blocks}?parent_id={}", fx.card))
+            Request::new(Method::GET, format!("{blocks}?parentId={}", fx.card))
         }
         "blocks: insert card" => Request::json(
             Method::POST,
@@ -364,7 +364,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         "blocks: patch several" => Request::json(
             Method::PATCH,
             blocks,
-            json!({"block_ids": [fx.card], "block_patches": [{"title": "p"}]}),
+            json!({"blockIds": [fx.card], "blockPatches": [{"title": "p"}]}),
         ),
         "blocks: delete card" => Request::new(Method::DELETE, format!("{blocks}/{}", fx.card)),
         "blocks: delete view" => Request::new(Method::DELETE, format!("{blocks}/{}", fx.view)),
@@ -383,8 +383,8 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
             Method::PATCH,
             format!("{API}/boards-and-blocks"),
             json!({
-                "boardIDs": [board], "boardPatches": [{"title": "p"}],
-                "blockIDs": [fx.card], "blockPatches": [{"title": "p"}],
+                "boardIds": [board], "boardPatches": [{"title": "p"}],
+                "blockIds": [fx.card], "blockPatches": [{"title": "p"}],
             }),
         ),
         "boards-and-blocks: delete" => Request::json(
@@ -474,21 +474,18 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         }
         "files: upload" => Request {
             method: Method::POST,
-            path: format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files"),
+            path: format!("{API}/boards/{board}/files"),
             payload: multipart("file", "pixel.png", &PNG, "image/png"),
         },
         "files: download" => {
             let file = fx.upload_file().await;
-            Request::new(
-                Method::GET,
-                format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}/{file}"),
-            )
+            Request::new(Method::GET, format!("{API}/boards/{board}/files/{file}"))
         }
         "files: info" => {
             let file = fx.upload_file().await;
             Request::new(
                 Method::GET,
-                format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}/{file}/info"),
+                format!("{API}/boards/{board}/files/{file}/info"),
             )
         }
         "archive: export board" => {

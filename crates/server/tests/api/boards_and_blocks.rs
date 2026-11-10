@@ -742,9 +742,9 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithoutMembers, TEST_TEAM_ID).await;
     let request = json!({
-        "boardIDs": [boards.board1.id, boards.board2.id],
+        "boardIds": [boards.board1.id, boards.board2.id],
         "boardPatches": [{"title": "new title 4"}, {"type": "invalid"}],
-        "blockIDs": [boards.block1.id, boards.block2.id],
+        "blockIds": [boards.block1.id, boards.block2.id],
         "blockPatches": [{"title": "new title 4"}, {"title": "new title 4"}],
     });
 
@@ -757,16 +757,16 @@ async fn patch_boards_and_blocks_patches_should_be_rejected_if_one_is_invalid() 
     // then for permissions, so with the boards swapped the missing permission comes
     // first.
     let swapped = json!({
-        "boardIDs": [boards.board2.id, boards.board1.id],
+        "boardIds": [boards.board2.id, boards.board1.id],
         "boardPatches": [{"title": "new title 4"}, {"minimumRole": "boss"}],
-        "blockIDs": [],
+        "blockIds": [],
         "blockPatches": [],
     });
     patch(&th.client, &swapped).await.check_forbidden();
     let role = json!({
-        "boardIDs": [boards.board1.id],
+        "boardIds": [boards.board1.id],
         "boardPatches": [{"minimumRole": "boss"}],
-        "blockIDs": [],
+        "blockIds": [],
         "blockPatches": [],
     });
     expect_bad_request(
@@ -868,9 +868,9 @@ async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
     let first_id = &boards.board1.id;
 
-    let null_patch = format!("{{\"boardIDs\":[\"{first_id}\"],\"boardPatches\":[null]}}");
+    let null_patch = format!("{{\"boardIds\":[\"{first_id}\"],\"boardPatches\":[null]}}");
     let number_type =
-        format!("{{\"boardIDs\":[\"{first_id}\"],\"boardPatches\":[{{\"type\":5}}]}}");
+        format!("{{\"boardIds\":[\"{first_id}\"],\"boardPatches\":[{{\"type\":5}}]}}");
     for body in ["{bad", "null", "[]", &null_patch, &number_type] {
         let response = th.client.send_raw_body(Method::PATCH, PATH, body).await;
         response.check_bad_request();
@@ -899,7 +899,7 @@ async fn patch_boards_and_blocks_checks() {
     for board_id in [UNKNOWN_ID, "nonexistent", private.id.as_str()] {
         let response = patch(
             &th.client2,
-            &json!({"boardIDs": [board_id], "boardPatches": [{"title": "n"}]}),
+            &json!({"boardIds": [board_id], "boardPatches": [{"title": "n"}]}),
         )
         .await;
         response.check_error(StatusCode::NOT_FOUND, "board not found");
@@ -910,8 +910,8 @@ async fn patch_boards_and_blocks_checks() {
         let response = patch(
             &th.client,
             &json!({
-                "boardIDs": [first_id], "boardPatches": [{"title": "n"}],
-                "blockIDs": [block_id], "blockPatches": [{"title": "n"}],
+                "boardIds": [first_id], "boardPatches": [{"title": "n"}],
+                "blockIds": [block_id], "blockPatches": [{"title": "n"}],
             }),
         )
         .await;
@@ -932,8 +932,8 @@ async fn patch_boards_and_blocks_checks() {
     let response = patch(
         &th.client2,
         &json!({
-            "boardIDs": [first_id], "boardPatches": [{"type": "P"}],
-            "blockIDs": [boards.block1.id], "blockPatches": [{"title": "n"}],
+            "boardIds": [first_id], "boardPatches": [{"type": "P"}],
+            "blockIds": [boards.block1.id], "blockPatches": [{"title": "n"}],
         }),
     )
     .await;
@@ -949,7 +949,7 @@ async fn patch_boards_and_blocks_checks() {
     // (The original answers `"blocks": null`; the model sends empty lists.)
     let response = patch(
         &th.client2,
-        &json!({"boardIDs": [first_id], "boardPatches": [{"description": "by the editor"}]}),
+        &json!({"boardIds": [first_id], "boardPatches": [{"description": "by the editor"}]}),
     )
     .await;
     let value = response.value();
@@ -966,7 +966,7 @@ async fn patch_boards_and_blocks_checks() {
     let response = patch(
         &th.client,
         &json!({
-            "boardIDs": [first_id, first_id],
+            "boardIds": [first_id, first_id],
             "boardPatches": [{"title": "t1"}, {"icon": "i2"}],
         }),
     )
@@ -990,7 +990,7 @@ async fn patch_boards_and_blocks_checks() {
         .expect("user2 becomes a commenter");
     patch(
         &th.client2,
-        &json!({"boardIDs": [first_id], "boardPatches": [{"title": "n"}]}),
+        &json!({"boardIds": [first_id], "boardPatches": [{"title": "n"}]}),
     )
     .await
     .check_forbidden();

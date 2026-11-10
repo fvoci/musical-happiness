@@ -276,15 +276,11 @@ async fn account_routes_with_a_session_are_behind_the_json_limit() {
         .await
         .init_basic()
         .await;
-    let me = th.client.me().await;
 
-    for path in [
-        "/logout".to_owned(),
-        format!("/users/{}/changepassword", me.id),
-    ] {
+    for path in ["/logout", "/users/me/password"] {
         let response = th
             .client
-            .send_raw_body(Method::POST, &path, &json_of_length(1001))
+            .send_raw_body(Method::POST, path, &json_of_length(1001))
             .await;
         check_too_large(&response, 1000);
     }
@@ -310,10 +306,7 @@ async fn uploads_are_not_behind_the_json_limit() {
         .expect("a valid mime");
     let request = th
         .client
-        .request(
-            Method::POST,
-            &format!("/teams/{TEST_TEAM_ID}/{}/files", board.id),
-        )
+        .request(Method::POST, &format!("/boards/{}/files", board.id))
         .multipart(Form::new().part("file", part));
     Client::send(request).await.check_ok();
     th.teardown().await;

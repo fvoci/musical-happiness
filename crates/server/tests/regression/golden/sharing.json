@@ -32,12 +32,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": false,
       "schemeEditor": true,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:4>"
     }
   },
@@ -190,7 +188,7 @@
   },
   {
     "name": "board with the read token",
-    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -216,7 +214,18 @@
   },
   {
     "name": "board with a wrong read token",
-    "request": "GET /api/v1/boards/<id:2>?read_token=wrong as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?readToken=wrong as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "board with the token under the old name of the parameter",
+    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -227,7 +236,7 @@
   },
   {
     "name": "blocks with the read token",
-    "request": "GET /api/v1/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/blocks?readToken=<secret:1> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -249,7 +258,7 @@
   },
   {
     "name": "blocks with a wrong read token",
-    "request": "GET /api/v1/boards/<id:2>/blocks?read_token=wrong as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/blocks?readToken=wrong as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -260,7 +269,7 @@
   },
   {
     "name": "members with the read token",
-    "request": "GET /api/v1/boards/<id:2>/members?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/members?readToken=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -271,7 +280,7 @@
   },
   {
     "name": "insert with the read token",
-    "request": "POST /api/v1/boards/<id:2>/blocks?read_token=<secret:1> as anonymous",
+    "request": "POST /api/v1/boards/<id:2>/blocks?readToken=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -282,7 +291,7 @@
   },
   {
     "name": "patch with the read token",
-    "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:5>?read_token=<secret:1> as anonymous",
+    "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:5>?readToken=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -310,7 +319,7 @@
   },
   {
     "name": "board with the token from before regenerating",
-    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:1> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:1> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -321,7 +330,7 @@
   },
   {
     "name": "board with the regenerated token",
-    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -367,7 +376,7 @@
   },
   {
     "name": "board with the token of a disabled share",
-    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -395,7 +404,7 @@
   },
   {
     "name": "board with the token from before disabling",
-    "request": "GET /api/v1/boards/<id:2>?read_token=<secret:2> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>?readToken=<secret:2> as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {

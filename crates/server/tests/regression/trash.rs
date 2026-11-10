@@ -147,7 +147,7 @@ pub(crate) async fn trash(s: &mut Session) {
         .await;
     s.get(
         "blocks on the card: the text is still deleted",
-        &format!("{blocks}?parent_id={card}"),
+        &format!("{blocks}?parentId={card}"),
     )
     .user(&alice)
     .await;
@@ -156,7 +156,7 @@ pub(crate) async fn trash(s: &mut Session) {
         .await;
     s.get(
         "blocks on the card: the text is back",
-        &format!("{blocks}?parent_id={card}"),
+        &format!("{blocks}?parentId={card}"),
     )
     .user(&alice)
     .await;

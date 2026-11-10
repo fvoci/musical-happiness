@@ -83,7 +83,7 @@ pub(crate) async fn templates(s: &mut Session) {
         .post("onboard", &format!("{API}/teams/{ROOT_TEAM_ID}/onboard"))
         .user(&alice)
         .await;
-    let tour_board = onboard.string("boardID");
+    let tour_board = onboard.string("boardId");
     s.get("onboarding board", &format!("{API}/boards/{tour_board}"))
         .user(&alice)
         .await;
@@ -110,9 +110,12 @@ pub(crate) async fn templates(s: &mut Session) {
     )
     .user(&alice)
     .await;
-    s.get("config after onboarding", &format!("{API}/users/me/config"))
-        .user(&alice)
-        .await;
+    s.get(
+        "config after onboarding",
+        &format!("{API}/users/me/client-state"),
+    )
+    .user(&alice)
+    .await;
 }
 
 pub(crate) async fn files(s: &mut Session) {
@@ -128,7 +131,7 @@ pub(crate) async fn files(s: &mut Session) {
 
     let [alice, bob] = s.users("files", ["alice", "bob"]).await;
     let board = new_board(s, &alice, "Board with files", "P", json!({})).await;
-    let upload = format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files");
+    let upload = format!("{API}/boards/{board}/files");
     let png = || multipart("file", "pixel.png", &PNG, "image/png");
 
     let uploaded = s.post("upload", &upload).payload(png()).user(&alice).await;
@@ -158,7 +161,7 @@ pub(crate) async fn files(s: &mut Session) {
     s.post("upload: anonymous", &upload).payload(png()).await;
     s.post(
         "upload: unknown board",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/unknown-board/files"),
+        &format!("{API}/boards/unknown-board/files"),
     )
     .payload(png())
     .user(&alice)
@@ -168,8 +171,21 @@ pub(crate) async fn files(s: &mut Session) {
         .user(&alice)
         .await;
 
-    let files = format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}");
+    let files = format!("{API}/boards/{board}/files");
     let download = format!("{files}/{file_id}");
+    // The paths that named the team with the board are gone.
+    let old_files = format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}/{file_id}");
+    s.post(
+        "old path: upload",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files"),
+    )
+    .payload(png())
+    .user(&alice)
+    .await;
+    s.get("old path: download", &old_files).user(&alice).await;
+    s.get("old path: info", &format!("{old_files}/info"))
+        .user(&alice)
+        .await;
     s.get("download", &download)
         .user(&alice)
         .keep_headers(DOWNLOAD_HEADERS)
@@ -224,13 +240,13 @@ pub(crate) async fn files(s: &mut Session) {
         .string("token");
     s.get(
         "download with the read token",
-        &format!("{download}?read_token={read_token}"),
+        &format!("{download}?readToken={read_token}"),
     )
     .keep_headers(&["Content-Type"])
     .await;
     s.get(
         "download with a wrong read token",
-        &format!("{download}?read_token=wrong"),
+        &format!("{download}?readToken=wrong"),
     )
     .await;
 
@@ -340,10 +356,7 @@ pub(crate) async fn archive(s: &mut Session) {
     )
     .await;
     let file_id = s
-        .post(
-            "upload",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files"),
-        )
+        .post("upload", &format!("{API}/boards/{board}/files"))
         .payload(multipart("file", "pixel.png", &PNG, "image/png"))
         .user(&alice)
         .unrecorded()
@@ -487,7 +500,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let imported_file = string_member(&images.json()[0]["fields"], "fileId");
     s.get(
         "imported file",
-        &format!("{API}/files/teams/{ROOT_TEAM_ID}/{copy}/{imported_file}"),
+        &format!("{API}/boards/{copy}/files/{imported_file}"),
     )
     .user(&bob)
     .await;

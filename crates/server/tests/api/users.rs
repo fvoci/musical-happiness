@@ -27,11 +27,9 @@ fn register_request(password: &str) -> RegisterRequest {
 
 fn login_request(username: &str, email: &str, password: &str) -> LoginRequest {
     LoginRequest {
-        login_type: "normal".to_owned(),
         username: username.to_owned(),
         email: email.to_owned(),
         password: password.to_owned(),
-        mfa_token: String::new(),
     }
 }
 
@@ -161,16 +159,34 @@ async fn login_cases() {
         );
     }
 
-    // A login type other than "normal" is refused before anything is looked up.
-    let mut other_type = login_request(FAKE_USERNAME, "", "testPassword");
-    other_type.login_type = "saml".to_owned();
-    let response = th.client.post("/login", &other_type).await;
-    response.check_bad_request();
-    assert_eq!(
-        response.error_message(),
-        "invalid login type",
-        "the type is the reason"
-    );
+    // There is one way to sign in. A `type` member is no member of a login: whatever it
+    // says, the right credentials sign in and the wrong ones do not.
+    for login_type in [
+        json!("normal"),
+        json!("saml"),
+        json!(""),
+        json!(7),
+        json!(null),
+    ] {
+        let with_type = |password: &str| json!({"type": login_type, "username": FAKE_USERNAME, "password": password});
+        let response = th.client.post("/login", &with_type("testPassword")).await;
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "type {login_type}: {}",
+            response.text()
+        );
+        assert!(
+            response.session_cookie().is_some(),
+            "type {login_type}: the login opens a session"
+        );
+        let response = th.client.post("/login", &with_type("badPassword")).await;
+        assert_eq!(
+            response.status,
+            StatusCode::UNAUTHORIZED,
+            "type {login_type}"
+        );
+    }
 
     // A body is a JSON object. The members in a list, in the order the server happens to
     // declare them, are no login.
@@ -179,7 +195,7 @@ async fn login_cases() {
         .send_raw_body(
             reqwest::Method::POST,
             "/login",
-            &format!(r#"["normal","{FAKE_USERNAME}","","testPassword",""]"#),
+            &format!(r#"["{FAKE_USERNAME}","","testPassword"]"#),
         )
         .await;
     response.check_bad_request();
@@ -309,14 +325,25 @@ async fn get_me_logged_in() {
     assert_eq!(me.email, "", "the address is not sent");
     assert_eq!(me.username, FAKE_USERNAME, "the name is");
     let raw = response.value();
-    assert!(raw.get("password").is_none(), "no password member: {raw}");
-    assert!(raw.get("email").is_none(), "no email member: {raw}");
-    assert!(raw.get("permissions").is_none(), "no permissions: {raw}");
+    assert_eq!(
+        raw,
+        json!({
+            "id": me.id,
+            "username": FAKE_USERNAME,
+            "createAt": me.create_at,
+            "updateAt": me.update_at,
+            "deleteAt": 0,
+            // The first user of an instance administers it.
+            "isAdmin": true,
+        }),
+        "the members of a user on the wire: no password, no address, nothing else"
+    );
+    assert!(me.create_at > 0, "a creation time: {raw}");
 
     // The original reports a permission of its host application for a channel named in
     // the query. There are no channels; the parameter means nothing.
     let with_channel = client.get("/users/me?channelID=any-channel").await.value();
-    assert!(with_channel.get("permissions").is_none(), "{with_channel}");
+    assert_eq!(with_channel, raw, "the same answer");
 
     th.teardown().await;
 }
@@ -410,6 +437,21 @@ async fn users_list_and_profiles() {
         .ok_json();
     assert_eq!(by_id.len(), 1, "one user was asked for");
 
+    // The members of a user on the wire, as another user sees them.
+    let profile = th.client.get(&format!("/users/{}", user2.id)).await.value();
+    assert_eq!(
+        profile,
+        json!({
+            "id": user2.id,
+            "username": "user2",
+            "createAt": user2.create_at,
+            "updateAt": user2.update_at,
+            "deleteAt": 0,
+            "isAdmin": false,
+        }),
+        "the profile of another user"
+    );
+
     th.teardown().await;
 }
 
@@ -421,17 +463,13 @@ async fn user_change_password() {
     let client = th
         .register_and_login(FAKE_USERNAME, FAKE_EMAIL, &password, "")
         .await;
-    let me = client.me().await;
     let new_password = new_id();
 
     let request = ChangePasswordRequest {
         old_password: password.clone(),
         new_password: new_password.clone(),
     };
-    client
-        .post(&format!("/users/{}/changepassword", me.id), &request)
-        .await
-        .check_ok();
+    client.post("/users/me/password", &request).await.check_ok();
 
     // The new password signs in and the old one no longer does.
     th.login(FAKE_USERNAME, &new_password).await;
@@ -505,36 +543,40 @@ async fn app_update_user_password_cases() {
 }
 
 /// Security fix: the original lets any signed-in user set another user's password if
-/// they know that user's current one (`server/api/auth.go:247`). The port refuses.
+/// they know that user's current one (`server/api/auth.go:247`). Here the route for
+/// changing a password names no user: it is the session's. The path that names one is
+/// no route, for one's own identifier as for another's.
 #[tokio::test]
-async fn change_password_of_another_user_is_forbidden() {
+async fn a_password_is_changed_for_the_session_and_for_no_user_named_in_the_path() {
     let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
     let request = ChangePasswordRequest {
         old_password: PASSWORD.to_owned(),
         new_password: "another-password".to_owned(),
     };
 
-    let response = th
-        .client
-        .post(&format!("/users/{}/changepassword", user2.id), &request)
-        .await;
-
-    response.check_forbidden();
-    // The password did not change.
+    for user_id in [&user1.id, &user2.id] {
+        for path in [
+            format!("/users/{user_id}/changepassword"),
+            format!("/users/{user_id}/password"),
+        ] {
+            let response = th.client.post(&path, &request).await;
+            response.check_error(StatusCode::NOT_FOUND, "route not found");
+        }
+    }
+    // No password changed.
+    th.login("user1", PASSWORD).await;
     th.login("user2", PASSWORD).await;
 
     // A wrong old password on one's own account is a bad request, as in the original.
-    let user1 = th.client.me().await;
     let wrong = ChangePasswordRequest {
         old_password: "not-the-password".to_owned(),
         new_password: "another-password".to_owned(),
     };
-    let response = th
-        .client
-        .post(&format!("/users/{}/changepassword", user1.id), &wrong)
-        .await;
+    let response = th.client.post("/users/me/password", &wrong).await;
     response.check_bad_request();
+    th.login("user1", PASSWORD).await;
 
     th.teardown().await;
 }
@@ -552,51 +594,89 @@ async fn logout_ends_the_session() {
     th.teardown().await;
 }
 
-/// Preferences are read and patched by their owner only.
+/// The state a client keeps with the account is read and patched through the session:
+/// the answer to both is an object, the value of every entry by its name. No path names
+/// the user whose state it is.
 #[tokio::test]
-async fn user_preferences() {
+async fn client_state_is_read_and_patched_by_its_owner() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
 
-    let before = th.client.get("/users/me/config").await.value();
-    assert_eq!(before, json!([]), "a new user has no preferences");
+    let before = th.client.get(CLIENT_STATE).await;
+    before.check_ok();
+    assert_eq!(before.text(), "{}", "a new user has no client state");
 
     let patch = json!({"updatedFields": {"theme": "dark", "welcomePageViewed": "1"}});
-    let after = th
-        .client
-        .put(&format!("/users/{}/config", user1.id), &patch)
-        .await;
-    let preferences = after.value();
+    let after = th.client.patch(CLIENT_STATE, &patch).await;
+    after.check_ok();
     assert_eq!(
-        preferences.as_array().map(Vec::len),
-        Some(2),
-        "{preferences}"
+        after.value(),
+        json!({"theme": "dark", "welcomePageViewed": "1"}),
+        "the answer to a patch is all of the state"
     );
-    for preference in preferences.as_array().into_iter().flatten() {
-        assert_eq!(preference["user_id"], json!(user1.id), "{preference}");
-    }
+    assert_eq!(
+        th.client.get(CLIENT_STATE).await.value(),
+        after.value(),
+        "as stored"
+    );
 
     let patch = json!({"deletedFields": ["theme"]});
-    let after = th
-        .client
-        .put(&format!("/users/{}/config", user1.id), &patch)
-        .await
-        .value();
+    let after = th.client.patch(CLIENT_STATE, &patch).await.value();
     assert_eq!(
-        after.as_array().map(Vec::len),
-        Some(1),
-        "one preference is left: {after}"
+        after,
+        json!({"welcomePageViewed": "1"}),
+        "one entry is left"
     );
-    assert_eq!(after[0]["name"], json!("welcomePageViewed"), "{after}");
-    assert_eq!(after[0]["value"], json!("1"), "{after}");
 
-    // The settings of another user do not exist for this one, as those of nobody.
-    for other in [user2.id.as_str(), "nobody"] {
-        th.client
-            .put(&format!("/users/{other}/config"), &patch)
-            .await
-            .check_error(StatusCode::NOT_FOUND, "user not found");
+    // Each user has their own, and nobody reads it without a session.
+    assert_eq!(
+        th.client2.get(CLIENT_STATE).await.value(),
+        json!({}),
+        "the state of another user is not this one's"
+    );
+    th.anonymous().get(CLIENT_STATE).await.check_unauthorized();
+    th.anonymous()
+        .patch(CLIENT_STATE, &patch)
+        .await
+        .check_unauthorized();
+
+    // The state is patched: the other methods are not allowed on its path.
+    let response = th.client.put(CLIENT_STATE, &patch).await;
+    response.check_error(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+
+    // The paths that name a user are no routes: not for the user's own identifier, not
+    // for another user's, not for the identifier of nobody.
+    let patch = json!({"updatedFields": {"theme": "light"}});
+    for user in [user1.id.as_str(), user2.id.as_str(), "nobody"] {
+        for path in [
+            format!("/users/{user}/config"),
+            format!("/users/{user}/client-state"),
+        ] {
+            th.client
+                .put(&path, &patch)
+                .await
+                .check_error(StatusCode::NOT_FOUND, "route not found");
+            th.client
+                .patch(&path, &patch)
+                .await
+                .check_error(StatusCode::NOT_FOUND, "route not found");
+        }
+    }
+    th.client
+        .get("/users/me/config")
+        .await
+        .check_error(StatusCode::NOT_FOUND, "route not found");
+    for client in [&th.client, &th.client2] {
+        assert!(
+            client
+                .get(CLIENT_STATE)
+                .await
+                .value()
+                .get("theme")
+                .is_none(),
+            "none of these stored anything"
+        );
     }
 
     th.teardown().await;
@@ -605,6 +685,7 @@ async fn user_preferences() {
 // -- settings and the bag of client state ----------------------------------------------
 
 const SETTINGS: &str = "/users/me/settings";
+const CLIENT_STATE: &str = "/users/me/client-state";
 
 /// `GET /users/me/settings` answers every setting; what was never set has its default.
 /// `PATCH` changes the settings it names, answers all of them, and `null` puts a setting
@@ -753,15 +834,13 @@ async fn settings_refuse_what_is_no_setting_or_no_value_of_one() {
 #[tokio::test]
 async fn client_state_is_bounded_and_apart_from_the_settings() {
     let th = Setup::native().start().await.init_basic().await;
-    let user = th.client.me().await;
-    let path = format!("/users/{}/config", user.id);
-    let put = async |updated: Value| {
+    let set = async |updated: Value| {
         th.client
-            .put(&path, &json!({"updatedFields": updated}))
+            .patch(CLIENT_STATE, &json!({"updatedFields": updated}))
             .await
     };
 
-    put(json!({"theme": "of-the-client", "tour.step-1_x": "1"}))
+    set(json!({"theme": "of-the-client", "tour.step-1_x": "1"}))
         .await
         .check_ok();
     assert_eq!(
@@ -773,18 +852,15 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
         .patch(SETTINGS, &json!({"theme": "dark"}))
         .await
         .check_ok();
-    let bag = th.client.get("/users/me/config").await.value();
-    let names: Vec<&str> = bag
-        .as_array()
-        .expect("the bag is a list")
-        .iter()
-        .filter_map(|entry| entry["name"].as_str())
-        .collect();
-    assert_eq!(names, ["theme", "tour.step-1_x"], "the bag, by name: {bag}");
-    assert_eq!(bag[0]["value"], json!("of-the-client"), "untouched: {bag}");
+    let bag = th.client.get(CLIENT_STATE).await.value();
+    assert_eq!(
+        bag,
+        json!({"theme": "of-the-client", "tour.step-1_x": "1"}),
+        "the bag is untouched by the setting"
+    );
 
     for name in ["", "with space", "키", "a/b", &"n".repeat(65)] {
-        let response = put(json!({name: "v"})).await;
+        let response = set(json!({name: "v"})).await;
         response.check_bad_request();
         assert_eq!(
             response.value()["field"],
@@ -792,10 +868,10 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
             "{name:?}"
         );
     }
-    put(json!({"n".repeat(64): "v".repeat(4096)}))
+    set(json!({"n".repeat(64): "v".repeat(4096)}))
         .await
         .check_ok();
-    let response = put(json!({"big": "v".repeat(4097)})).await;
+    let response = set(json!({"big": "v".repeat(4097)})).await;
     response.check_error(
         StatusCode::BAD_REQUEST,
         "the value of an entry is at most 4096 bytes",
@@ -808,8 +884,8 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
             .collect::<serde_json::Map<String, Value>>()
             .into()
     };
-    put(many(0..97)).await.check_ok();
-    let response = put(many(97..98)).await;
+    set(many(0..97)).await.check_ok();
+    let response = set(many(97..98)).await;
     response.check_error(
         StatusCode::BAD_REQUEST,
         "a user keeps at most 100 entries of client state",
@@ -817,11 +893,11 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
     assert_eq!(response.value()["limit"], json!(100), "the limit is told");
     assert_eq!(
         th.client
-            .get("/users/me/config")
+            .get(CLIENT_STATE)
             .await
             .value()
-            .as_array()
-            .map(Vec::len),
+            .as_object()
+            .map(serde_json::Map::len),
         Some(100),
         "the refused entry was not stored"
     );
@@ -866,7 +942,7 @@ async fn teams() {
     );
 
     th.client
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/regenerate_signup_token"))
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/signup-token"))
         .await
         .check_ok();
     let regenerated = th
@@ -889,7 +965,7 @@ async fn teams() {
         "each team has a token of its own"
     );
     th.client
-        .post_empty(&format!("/teams/{UNKNOWN_ID}/regenerate_signup_token"))
+        .post_empty(&format!("/teams/{UNKNOWN_ID}/signup-token"))
         .await
         .check_error(StatusCode::NOT_FOUND, "team not found");
 
@@ -1186,7 +1262,6 @@ fn argon2_params(memory_kib: u32, iterations: u32) -> argon2::Params {
 #[tokio::test]
 async fn changing_the_password_ends_the_other_sessions_of_the_user() {
     let th = Setup::native().start().await.init_basic().await;
-    let me = th.client.me().await;
     let here = &th.client;
     let phone = th.login(crate::common::USER1_USERNAME, PASSWORD).await;
     let tablet = th.login(crate::common::USER1_USERNAME, PASSWORD).await;
@@ -1196,7 +1271,7 @@ async fn changing_the_password_ends_the_other_sessions_of_the_user() {
 
     // A refused change ends nothing.
     here.post(
-        &format!("/users/{}/changepassword", me.id),
+        "/users/me/password",
         &json!({"oldPassword": "not the password", "newPassword": "another password"}),
     )
     .await
@@ -1205,7 +1280,7 @@ async fn changing_the_password_ends_the_other_sessions_of_the_user() {
 
     let changed = here
         .post(
-            &format!("/users/{}/changepassword", me.id),
+            "/users/me/password",
             &json!({"oldPassword": PASSWORD, "newPassword": "another password"}),
         )
         .await;

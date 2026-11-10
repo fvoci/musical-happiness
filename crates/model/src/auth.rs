@@ -49,10 +49,6 @@ impl AuthParamError {
 #[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LoginRequest {
-    /// The type of login; must be `normal`.
-    #[serde(rename = "type")]
-    #[serde(deserialize_with = "null_as_default")]
-    pub login_type: String,
     /// The user name to log in with.
     #[serde(deserialize_with = "null_as_default")]
     pub username: String,
@@ -62,16 +58,12 @@ pub struct LoginRequest {
     /// The password.
     #[serde(deserialize_with = "null_as_default")]
     pub password: String,
-    /// A multi-factor token; ignored.
-    #[serde(deserialize_with = "null_as_default")]
-    pub mfa_token: String,
 }
 
 impl fmt::Debug for LoginRequest {
-    /// Leaves out the password and the multi-factor token.
+    /// Leaves out the password.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LoginRequest")
-            .field("login_type", &self.login_type)
             .field("username", &self.username)
             .field("email", &self.email)
             .finish_non_exhaustive()

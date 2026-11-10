@@ -341,7 +341,7 @@ impl Http {
 
     /// Signs `user` in and returns the session token.
     pub(crate) async fn login(&self, user: &str) -> String {
-        let body = json!({"type": "normal", "username": user, "password": PASSWORD});
+        let body = json!({"username": user, "password": PASSWORD});
         let reply = self
             .api(
                 Method::POST,

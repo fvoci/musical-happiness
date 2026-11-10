@@ -32,12 +32,10 @@
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
-      "roles": "",
       "schemeAdmin": false,
       "schemeCommenter": true,
       "schemeEditor": false,
       "schemeViewer": false,
-      "synthetic": false,
       "userId": "<id:4>"
     }
   },
@@ -191,7 +189,7 @@
   },
   {
     "name": "list: by parent",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:6> as blocks-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:6> as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -213,6 +211,28 @@
   },
   {
     "name": "list: by parent and type",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:6>&type=text as blocks-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:5>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:6>",
+        "schema": 1,
+        "title": "Some text",
+        "type": "text",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "list: the old name of the parameter is no filter",
     "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:6>&type=text as blocks-alice",
     "status": 200,
     "content_type": "application/json",
@@ -299,7 +319,7 @@
   },
   {
     "name": "list: one block",
-    "request": "GET /api/v1/boards/<id:2>/blocks?block_id=<id:6> as blocks-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?blockId=<id:6> as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -326,7 +346,7 @@
   },
   {
     "name": "list: unknown block id",
-    "request": "GET /api/v1/boards/<id:2>/blocks?block_id=unknown-block as blocks-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?blockId=unknown-block as blocks-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -548,7 +568,7 @@
   },
   {
     "name": "insert: keeping ids",
-    "request": "POST /api/v1/boards/<id:2>/blocks?disable_notify=true as blocks-alice",
+    "request": "POST /api/v1/boards/<id:2>/blocks?disableNotify=true as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -999,7 +1019,7 @@
   },
   {
     "name": "list: children of the deleted card",
-    "request": "GET /api/v1/boards/<id:2>/blocks?parent_id=<id:6> as blocks-alice",
+    "request": "GET /api/v1/boards/<id:2>/blocks?parentId=<id:6> as blocks-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []

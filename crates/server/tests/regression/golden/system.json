@@ -35,30 +35,26 @@
   },
   {
     "name": "client config",
-    "request": "GET /api/v1/clientConfig as anonymous",
+    "request": "GET /api/v1/client-config as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "enablePublicSharedBoards": true,
       "featureFlags": {},
       "maxFileSize": 0,
-      "teammateNameDisplay": "username",
-      "telemetry": false,
-      "telemetryid": ""
+      "teammateNameDisplay": "username"
     }
   },
   {
     "name": "client config without csrf header",
-    "request": "GET /api/v1/clientConfig as anonymous",
+    "request": "GET /api/v1/client-config as anonymous",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "enablePublicSharedBoards": true,
       "featureFlags": {},
       "maxFileSize": 0,
-      "teammateNameDisplay": "username",
-      "telemetry": false,
-      "telemetryid": ""
+      "teammateNameDisplay": "username"
     }
   },
   {
@@ -74,12 +70,23 @@
   },
   {
     "name": "wrong method on a known path",
-    "request": "DELETE /api/v1/clientConfig as anonymous",
+    "request": "DELETE /api/v1/client-config as anonymous",
     "status": 405,
     "content_type": "application/json",
     "body": {
       "error": "method_not_allowed",
       "message": "method not allowed",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old path: client config",
+    "request": "GET /api/v1/clientConfig as anonymous",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
       "request_id": "<request-id>"
     }
   },

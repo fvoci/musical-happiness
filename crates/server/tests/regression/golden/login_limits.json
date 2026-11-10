@@ -213,17 +213,11 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "create_at": "<ts>",
-      "delete_at": 0,
-      "firstname": "",
+      "createAt": "<ts>",
+      "deleteAt": 0,
       "id": "<id:1>",
       "isAdmin": false,
-      "is_bot": false,
-      "is_guest": false,
-      "lastname": "",
-      "nickname": "",
-      "roles": "",
-      "update_at": "<ts>",
+      "updateAt": "<ts>",
       "username": "limits-alice"
     }
   }

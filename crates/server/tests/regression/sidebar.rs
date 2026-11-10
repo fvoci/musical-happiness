@@ -23,32 +23,32 @@ pub(crate) async fn categories(s: &mut Session) {
     s.get("list: other user", &path).user(&bob).await;
     let created = s
         .post("create", &path)
-        .json(json!({"name": "Projects", "userID": alice_id, "teamID": ROOT_TEAM_ID}))
+        .json(json!({"name": "Projects", "userId": alice_id, "teamId": ROOT_TEAM_ID}))
         .user(&alice)
         .await
         .json()
         .clone();
     let second = s
         .post("create second", &path)
-        .json(json!({"name": "Archive", "userID": alice_id, "teamID": ROOT_TEAM_ID, "collapsed": true}))
+        .json(json!({"name": "Archive", "userId": alice_id, "teamId": ROOT_TEAM_ID, "collapsed": true}))
         .user(&alice)
         .await
         .json()
         .clone();
     s.post("create: no name", &path)
-        .json(json!({"name": "", "userID": alice_id, "teamID": ROOT_TEAM_ID}))
+        .json(json!({"name": "", "userId": alice_id, "teamId": ROOT_TEAM_ID}))
         .user(&alice)
         .await;
     s.post("create: for another user", &path)
-        .json(json!({"name": "x", "userID": bob_id, "teamID": ROOT_TEAM_ID}))
+        .json(json!({"name": "x", "userId": bob_id, "teamId": ROOT_TEAM_ID}))
         .user(&alice)
         .await;
     s.post("create: for another team", &path)
-        .json(json!({"name": "x", "userID": alice_id, "teamID": "1"}))
+        .json(json!({"name": "x", "userId": alice_id, "teamId": "1"}))
         .user(&alice)
         .await;
     s.post("create: bad type", &path)
-        .json(json!({"name": "x", "userID": alice_id, "teamID": ROOT_TEAM_ID, "type": "weird"}))
+        .json(json!({"name": "x", "userId": alice_id, "teamId": ROOT_TEAM_ID, "type": "weird"}))
         .user(&alice)
         .await;
     s.post("create: malformed body", &path)
@@ -91,7 +91,7 @@ pub(crate) async fn categories(s: &mut Session) {
     .await;
     s.put("update: system category", &format!("{path}/{default}"))
         .json(json!({
-            "id": default, "name": "Renamed", "userID": alice_id, "teamID": ROOT_TEAM_ID, "type": "system",
+            "id": default, "name": "Renamed", "userId": alice_id, "teamId": ROOT_TEAM_ID, "type": "system",
         }))
         .user(&alice)
         .await;
@@ -123,7 +123,7 @@ pub(crate) async fn categories(s: &mut Session) {
     .user(&alice)
     .await;
 
-    let reorder_boards = format!("{path}/{category}/boards/reorder");
+    let reorder_boards = format!("{path}/{category}/board-order");
     s.put("reorder boards", &reorder_boards)
         .json(json!([other, board]))
         .user(&alice)
@@ -140,7 +140,20 @@ pub(crate) async fn categories(s: &mut Session) {
         .json(json!([other, board]))
         .user(&bob)
         .await;
-    let reorder = format!("{path}/reorder");
+    // The paths that ended in `reorder` are gone. The one for categories now reads as a
+    // change of the category `reorder`, which is none.
+    s.put(
+        "old path: reorder boards",
+        &format!("{path}/{category}/boards/reorder"),
+    )
+    .json(json!([other, board]))
+    .user(&alice)
+    .await;
+    s.put("old path: reorder categories", &format!("{path}/reorder"))
+        .json(json!([archive, category, default]))
+        .user(&alice)
+        .await;
+    let reorder = format!("{API}/teams/{ROOT_TEAM_ID}/category-order");
     s.put("reorder categories", &reorder)
         .json(json!([archive, category, default]))
         .user(&alice)
@@ -258,38 +271,43 @@ pub(crate) async fn sharing(s: &mut Session) {
 
     s.get(
         "board with the read token",
-        &format!("{board_path}?read_token={token}"),
+        &format!("{board_path}?readToken={token}"),
     )
     .await;
     s.get(
         "board with a wrong read token",
-        &format!("{board_path}?read_token=wrong"),
+        &format!("{board_path}?readToken=wrong"),
+    )
+    .await;
+    s.get(
+        "board with the token under the old name of the parameter",
+        &format!("{board_path}?read_token={token}"),
     )
     .await;
     s.get(
         "blocks with the read token",
-        &format!("{board_path}/blocks?read_token={token}"),
+        &format!("{board_path}/blocks?readToken={token}"),
     )
     .await;
     s.get(
         "blocks with a wrong read token",
-        &format!("{board_path}/blocks?read_token=wrong"),
+        &format!("{board_path}/blocks?readToken=wrong"),
     )
     .await;
     s.get(
         "members with the read token",
-        &format!("{board_path}/members?read_token={token}"),
+        &format!("{board_path}/members?readToken={token}"),
     )
     .await;
     s.post(
         "insert with the read token",
-        &format!("{board_path}/blocks?read_token={token}"),
+        &format!("{board_path}/blocks?readToken={token}"),
     )
     .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
     .await;
     s.patch(
         "patch with the read token",
-        &format!("{board_path}/blocks/{card}?read_token={token}"),
+        &format!("{board_path}/blocks/{card}?readToken={token}"),
     )
     .json(json!({"title": "hijack"}))
     .await;
@@ -306,12 +324,12 @@ pub(crate) async fn sharing(s: &mut Session) {
     );
     s.get(
         "board with the token from before regenerating",
-        &format!("{board_path}?read_token={token}"),
+        &format!("{board_path}?readToken={token}"),
     )
     .await;
     s.get(
         "board with the regenerated token",
-        &format!("{board_path}?read_token={renewed}"),
+        &format!("{board_path}?readToken={renewed}"),
     )
     .await;
 
@@ -322,7 +340,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     s.get("get: disabled", &path).user(&alice).await;
     s.get(
         "board with the token of a disabled share",
-        &format!("{board_path}?read_token={renewed}"),
+        &format!("{board_path}?readToken={renewed}"),
     )
     .await;
     let last = s
@@ -337,7 +355,7 @@ pub(crate) async fn sharing(s: &mut Session) {
     );
     s.get(
         "board with the token from before disabling",
-        &format!("{board_path}?read_token={renewed}"),
+        &format!("{board_path}?readToken={renewed}"),
     )
     .await;
 }

@@ -107,7 +107,7 @@ async fn handle_add_member(
 
     let request: BoardMember = decode_object(&body)?;
     if request.user_id.is_empty() {
-        return Err(AppError::bad_request("empty userID").with_field("userId"));
+        return Err(AppError::bad_request("empty userId").with_field("userId"));
     }
     // The original stores a membership of nobody; the user must exist.
     match user_is_guest(&app, &request.user_id).await {

@@ -18,7 +18,7 @@ const FOREIGN_ORIGIN: &str = "https://evil.example";
 const MINUTE: i64 = 60 * 1000;
 
 fn login_body() -> serde_json::Value {
-    json!({"type": "normal", "username": USER1_USERNAME, "password": PASSWORD})
+    json!({"username": USER1_USERNAME, "password": PASSWORD})
 }
 
 fn board_body() -> serde_json::Value {
@@ -93,7 +93,7 @@ async fn login_sets_the_session_cookie_and_the_body_carries_no_token() {
         .anonymous()
         .post(
             "/login",
-            &json!({"type": "normal", "username": USER1_USERNAME, "password": "wrong password"}),
+            &json!({"username": USER1_USERNAME, "password": "wrong password"}),
         )
         .await;
     refused.check_unauthorized();
@@ -170,10 +170,7 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
     let browser = th.client.as_browser();
     let unsafe_requests = [
         (Method::POST, "/boards".to_owned()),
-        (
-            Method::PUT,
-            format!("/users/{}/config", th.client.me().await.id),
-        ),
+        (Method::PATCH, "/users/me/client-state".to_owned()),
         (Method::PATCH, "/users/me/settings".to_owned()),
         (Method::DELETE, "/boards-and-blocks".to_owned()),
         (Method::POST, "/logout".to_owned()),
@@ -391,11 +388,10 @@ async fn the_cookie_is_renewed_when_the_use_of_the_session_is_recorded() {
 async fn a_changed_password_puts_a_new_token_in_the_cookie() {
     let th = Setup::native().start().await.init_basic().await;
     let browser = th.client.as_browser();
-    let me = browser.me().await;
 
     let response = browser
         .post(
-            &format!("/users/{}/changepassword", me.id),
+            "/users/me/password",
             &json!({"oldPassword": PASSWORD, "newPassword": "another password"}),
         )
         .await;
@@ -429,10 +425,7 @@ async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
     let board = th.create_board(ROOT_TEAM_ID, BoardType::Private).await;
     let uploaded = th
         .client
-        .request(
-            Method::POST,
-            &format!("/teams/{ROOT_TEAM_ID}/{}/files", board.id),
-        )
+        .request(Method::POST, &format!("/boards/{}/files", board.id))
         .multipart(
             reqwest::multipart::Form::new().part(
                 "file",
@@ -446,7 +439,7 @@ async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
         .as_str()
         .expect("the upload answers the file's name")
         .to_owned();
-    let path = format!("/files/teams/{ROOT_TEAM_ID}/{}/{file_id}", board.id);
+    let path = format!("/boards/{}/files/{file_id}", board.id);
 
     let response = Client::send(th.client.as_browser().bare_request(Method::GET, &path)).await;
 

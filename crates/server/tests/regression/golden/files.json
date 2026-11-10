@@ -27,7 +27,7 @@
   },
   {
     "name": "upload",
-    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-alice",
+    "request": "POST /api/v1/boards/<id:2>/files as files-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -42,7 +42,7 @@
   },
   {
     "name": "upload: jpeg extension",
-    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-alice",
+    "request": "POST /api/v1/boards/<id:2>/files as files-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -51,7 +51,7 @@
   },
   {
     "name": "upload: text",
-    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-alice",
+    "request": "POST /api/v1/boards/<id:2>/files as files-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -60,7 +60,7 @@
   },
   {
     "name": "upload: wrong field",
-    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-alice",
+    "request": "POST /api/v1/boards/<id:2>/files as files-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -72,7 +72,7 @@
   },
   {
     "name": "upload: non-member",
-    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-bob",
+    "request": "POST /api/v1/boards/<id:2>/files as files-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -83,7 +83,7 @@
   },
   {
     "name": "upload: anonymous",
-    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as anonymous",
+    "request": "POST /api/v1/boards/<id:2>/files as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -94,7 +94,7 @@
   },
   {
     "name": "upload: unknown board",
-    "request": "POST /api/v1/teams/<id:3>/unknown-board/files as files-alice",
+    "request": "POST /api/v1/boards/unknown-board/files as files-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -105,7 +105,7 @@
   },
   {
     "name": "upload: not multipart",
-    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-alice",
+    "request": "POST /api/v1/boards/<id:2>/files as files-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -115,8 +115,41 @@
     }
   },
   {
-    "name": "download",
+    "name": "old path: upload",
+    "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old path: download",
     "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png as files-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old path: info",
+    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png/info as files-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "download",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as files-alice",
     "status": 200,
     "content_type": "application/octet-stream",
     "headers": {
@@ -132,7 +165,7 @@
   },
   {
     "name": "download: text",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:3>.txt as files-alice",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:3>.txt as files-alice",
     "status": 200,
     "content_type": "application/octet-stream",
     "headers": {
@@ -148,7 +181,7 @@
   },
   {
     "name": "download: range",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png as files-alice",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as files-alice",
     "status": 206,
     "content_type": "application/octet-stream",
     "headers": {
@@ -159,7 +192,7 @@
   },
   {
     "name": "download: range past the end",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png as files-alice",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as files-alice",
     "status": 416,
     "content_type": "text/plain",
     "headers": {
@@ -169,7 +202,7 @@
   },
   {
     "name": "download: non-member",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png as files-bob",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as files-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -180,7 +213,7 @@
   },
   {
     "name": "download: anonymous",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -191,7 +224,7 @@
   },
   {
     "name": "download: unknown file",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/7unknownfile.png as files-alice",
+    "request": "GET /api/v1/boards/<id:2>/files/7unknownfile.png as files-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -202,7 +235,7 @@
   },
   {
     "name": "download: traversal",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/..%2F..%2Fconfig.json as files-alice",
+    "request": "GET /api/v1/boards/<id:2>/files/..%2F..%2Fconfig.json as files-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -213,11 +246,11 @@
   },
   {
     "name": "info",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png/info as files-alice",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png/info as files-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "create_at": "<ts>",
+      "createAt": "<ts>",
       "extension": ".png",
       "id": "<id:4>",
       "name": "pixel.png",
@@ -226,7 +259,7 @@
   },
   {
     "name": "info: non-member",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png/info as files-bob",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png/info as files-bob",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -237,7 +270,7 @@
   },
   {
     "name": "info: unknown file",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/7unknownfile.png/info as files-alice",
+    "request": "GET /api/v1/boards/<id:2>/files/7unknownfile.png/info as files-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -259,7 +292,7 @@
   },
   {
     "name": "download with the read token",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png?read_token=<secret:4> as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png?readToken=<secret:4> as anonymous",
     "status": 200,
     "content_type": "application/octet-stream",
     "headers": {
@@ -269,7 +302,7 @@
   },
   {
     "name": "download with a wrong read token",
-    "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png?read_token=wrong as anonymous",
+    "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png?readToken=wrong as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {

@@ -31,6 +31,6 @@ async fn handle_onboard(
 
     let (team_id, board_id) = app.prepare_onboarding_tour(user_id, &team_id).await?;
     Ok(json_response(
-        &json!({ "teamID": team_id, "boardID": board_id }),
+        &json!({ "teamId": team_id, "boardId": board_id }),
     ))
 }

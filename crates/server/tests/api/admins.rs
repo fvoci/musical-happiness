@@ -217,7 +217,7 @@ async fn the_signup_token_is_for_administrators() {
 #[tokio::test]
 async fn an_administrator_renews_the_signup_token() {
     let th = Setup::native().start().await.init_basic().await;
-    let path = format!("/teams/{ROOT_TEAM_ID}/regenerate_signup_token");
+    let path = format!("/teams/{ROOT_TEAM_ID}/signup-token");
     let old = team_as(&th.client).await["signupToken"]
         .as_str()
         .expect("the token")
@@ -227,7 +227,7 @@ async fn an_administrator_renews_the_signup_token() {
     // A team that does not exist is not found, whoever asks.
     for client in [&th.client, &th.client2] {
         client
-            .post_empty(&format!("/teams/{UNKNOWN_ID}/regenerate_signup_token"))
+            .post_empty(&format!("/teams/{UNKNOWN_ID}/signup-token"))
             .await
             .check_error(StatusCode::NOT_FOUND, "team not found");
     }

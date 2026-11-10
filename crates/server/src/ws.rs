@@ -99,7 +99,7 @@ struct UpdateCategoryMessage<'a> {
     team_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     category: Option<&'a Category>,
-    #[serde(rename = "blockCategories", skip_serializing_if = "<[_]>::is_empty")]
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
     board_categories: &'a [BoardCategoryWebsocketData],
 }
 
@@ -111,22 +111,20 @@ struct CategoryReorderMessage<'a> {
     team_id: &'a str,
 }
 
-/// The member names of this message are capitalized in the original's wire format.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CategoryBoardsReorderMessage<'a> {
     action: &'static str,
-    #[serde(rename = "CategoryId")]
     category_id: &'a str,
-    #[serde(rename = "BoardOrder")]
     board_order: &'a [String],
-    #[serde(rename = "teamId")]
     team_id: &'a str,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UpdateClientConfigMessage<'a> {
     action: &'static str,
-    clientconfig: &'a ClientConfig,
+    client_config: &'a ClientConfig,
 }
 
 type ListenerId = u64;
@@ -632,7 +630,7 @@ impl Hub {
     pub fn broadcast_config_change(&self, client_config: &ClientConfig) {
         let message = UpdateClientConfigMessage {
             action: "UPDATE_CLIENT_CONFIG",
-            clientconfig: client_config,
+            client_config,
         };
         let recipients: Vec<ListenerId> = self.listeners().by_id.keys().copied().collect();
         self.send(&recipients, &message);

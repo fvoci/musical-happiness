@@ -439,12 +439,12 @@ mod tests {
     #[test]
     fn query_values_are_percent_decoded() {
         assert_eq!(
-            query_value("a=1&read_token=x%2By", "read_token").as_deref(),
+            query_value("a=1&readToken=x%2By", "readToken").as_deref(),
             Some("x+y")
         );
-        assert_eq!(query_value("a=1", "read_token"), None);
+        assert_eq!(query_value("a=1", "readToken"), None);
         assert_eq!(
-            query_value("read_token=a+b", "read_token").as_deref(),
+            query_value("readToken=a+b", "readToken").as_deref(),
             Some("a b")
         );
     }

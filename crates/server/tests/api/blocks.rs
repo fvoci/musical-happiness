@@ -1069,7 +1069,7 @@ async fn get_blocks_with_a_read_token() {
     let content = card_with_content(&th, &boards).await;
     let read_token = th.share(&boards.board.id).await;
     let anonymous = th.anonymous();
-    let with_token = |board: &Board| format!("{}?read_token={read_token}", blocks_path(&board.id));
+    let with_token = |board: &Board| format!("{}?readToken={read_token}", blocks_path(&board.id));
 
     let blocks: Vec<Block> = anonymous.get(&with_token(&boards.board)).await.ok_json();
     assert_eq!(
@@ -1082,7 +1082,7 @@ async fn get_blocks_with_a_read_token() {
     let blocks: Vec<Block> = th.client2.get(&with_token(&boards.board)).await.ok_json();
     assert_eq!(blocks.len(), 3, "the token counts for a non-member");
 
-    let wrong = format!("{}?read_token=wrong", blocks_path(&boards.board.id));
+    let wrong = format!("{}?readToken=wrong", blocks_path(&boards.board.id));
     let response = anonymous.get(&wrong).await;
     response.check_unauthorized();
     assert_eq!(
@@ -1102,7 +1102,7 @@ async fn get_blocks_with_a_read_token() {
         .check_unauthorized();
     let response = anonymous
         .get(&format!(
-            "{}&block_id={}",
+            "{}&blockId={}",
             with_token(&boards.board),
             content.other_card.id
         ))
@@ -1119,7 +1119,7 @@ async fn get_blocks_with_a_read_token() {
     th.teardown().await;
 }
 
-/// The list parameters of `GET /boards/{board_id}/blocks`: `all`, `parent_id` and
+/// The list parameters of `GET /boards/{board_id}/blocks`: `all`, `parentId` and
 /// `type`.
 #[tokio::test]
 async fn get_blocks_filters() {
@@ -1139,7 +1139,7 @@ async fn get_blocks_filters() {
     ];
     insert(&th.client, &board.id, &children).await;
     insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card 2")).await;
-    let children_of_card = format!("parent_id={}", card.id);
+    let children_of_card = format!("parentId={}", card.id);
 
     let everything = vec!["card", "card 2", "comment", "heading", "text"];
     let none: Vec<&str> = Vec::new();
@@ -1148,7 +1148,7 @@ async fn get_blocks_filters() {
         ("all", "?all=true".to_owned(), everything.clone()),
         (
             "all wins over the filters",
-            "?all=true&type=card&parent_id=x".to_owned(),
+            "?all=true&type=card&parentId=x".to_owned(),
             everything.clone(),
         ),
         (
@@ -1185,7 +1185,7 @@ async fn get_blocks_filters() {
         ),
         (
             "there is no paging on this route",
-            "?page=1&per_page=1".to_owned(),
+            "?page=1&perPage=1".to_owned(),
             everything,
         ),
     ];
@@ -1194,14 +1194,14 @@ async fn get_blocks_filters() {
         assert_eq!(titles(&blocks), expected, "{case}");
     }
 
-    let no_children = th.client.get(&format!("{path}?parent_id=nobody")).await;
+    let no_children = th.client.get(&format!("{path}?parentId=nobody")).await;
     no_children.check_ok();
     assert_eq!(no_children.text(), "[]", "no match is an empty list");
 
     th.teardown().await;
 }
 
-/// `GET /boards/{board_id}/blocks?block_id=`: one block, if it is on the board.
+/// `GET /boards/{board_id}/blocks?blockId=`: one block, if it is on the board.
 #[tokio::test]
 async fn get_blocks_by_block_id() {
     let th = Setup::one_user().start().await;
@@ -1218,7 +1218,7 @@ async fn get_blocks_by_block_id() {
 
     let blocks: Vec<Block> = th
         .client
-        .get(&format!("{path}?block_id={}&type=text", card.id))
+        .get(&format!("{path}?blockId={}&type=text", card.id))
         .await
         .ok_json();
     assert_eq!(
@@ -1229,16 +1229,94 @@ async fn get_blocks_by_block_id() {
 
     let response = th
         .client
-        .get(&format!("{path}?block_id=no-such-block"))
+        .get(&format!("{path}?blockId=no-such-block"))
         .await;
     response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     let response = th
         .client
-        .get(&format!("{path}?block_id={}", other_block.id))
+        .get(&format!("{path}?blockId={}", other_block.id))
         .await;
     // A block of another board answers as one that does not exist.
     response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
+
+    th.teardown().await;
+}
+
+/// A query parameter has one spelling. Any other spelling of it is a parameter the server
+/// does not know, and those are ignored: it filters nothing, opens nothing and names no
+/// source board.
+#[tokio::test]
+async fn a_query_parameter_spelled_another_way_is_no_parameter() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let path = blocks_path(&boards.board.id);
+
+    // No filter: the answer is the one to no parameters at all.
+    for query in [
+        format!("parent_id={}", content.card.id),
+        "parent_id=nobody".to_owned(),
+        format!("parentID={}", content.card.id),
+        format!("block_id={}", content.text.id),
+        "block_id=no-such-block".to_owned(),
+        format!("blockID={}", content.text.id),
+    ] {
+        let blocks: Vec<Block> = th.client.get(&format!("{path}?{query}")).await.ok_json();
+        assert_eq!(titles(&blocks), ["card", "comment", "text"], "{query}");
+    }
+    let children: Vec<Block> = th
+        .client
+        .get(&format!("{path}?parentId={}", content.card.id))
+        .await
+        .ok_json();
+    assert_eq!(
+        titles(&children),
+        ["comment", "text"],
+        "the parameter itself filters"
+    );
+
+    // No read token: without a session the request is one without a session, and with
+    // the session of somebody who is no member the board does not exist.
+    let read_token = th.share(&boards.board.id).await;
+    let anonymous = th.anonymous();
+    for route in [path.clone(), format!("/boards/{}", boards.board.id)] {
+        anonymous
+            .get(&format!("{route}?readToken={read_token}"))
+            .await
+            .check_ok();
+        for name in ["read_token", "readtoken", "ReadToken"] {
+            let with_token = format!("{route}?{name}={read_token}");
+            let response = anonymous.get(&with_token).await;
+            response.check_unauthorized();
+            assert_eq!(response.error_code(), "unauthorized", "{with_token}");
+            th.client2
+                .get(&with_token)
+                .await
+                .check_error(StatusCode::NOT_FOUND, NO_BOARD);
+        }
+    }
+
+    // No source board: a source that is not there is refused, and its other spellings
+    // are not looked at.
+    let card = new_block(&boards.board.id, BlockType::Card, "posted");
+    let response = th
+        .client
+        .post(&format!("{path}?sourceBoardId=no-such-board"), &[&card])
+        .await;
+    response.check_error(StatusCode::NOT_FOUND, "source board not found");
+    for name in ["sourceBoardID", "source_board_id"] {
+        let response = th
+            .client
+            .post(&format!("{path}?{name}=no-such-board"), &[&card])
+            .await;
+        assert_eq!(
+            response.status,
+            StatusCode::OK,
+            "{name}: {}",
+            response.text()
+        );
+    }
 
     th.teardown().await;
 }
@@ -1654,10 +1732,7 @@ async fn patch_block_changes() {
         "deleteAt": 5,
     });
     th.client
-        .patch(
-            &format!("{card_path}?disable_notify=true"),
-            &foreign_members,
-        )
+        .patch(&format!("{card_path}?disableNotify=true"), &foreign_members)
         .await
         .check_ok();
     let stored = blocks_of(&th.client, &boards.board.id).await;
@@ -1743,7 +1818,7 @@ async fn patch_blocks_batch_refusals() {
         let response = th.client.patch(&path, uneven).await;
         response.check_error(
             StatusCode::BAD_REQUEST,
-            "block_ids and block_patches differ in length",
+            "blockIds and blockPatches differ in length",
         );
     }
 
@@ -1763,7 +1838,7 @@ async fn patch_blocks_batch_refusals() {
     );
 
     // A body that is no batch is a bad request. (The original answers 500.)
-    for body in ["not json", "null", "{\"block_ids\":5}", "[]", "[[], []]"] {
+    for body in ["not json", "null", "{\"blockIds\":5}", "[]", "[[], []]"] {
         let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
         response.check_bad_request();
         assert_eq!(response.error_code(), "bad_request", "{body}");
@@ -1793,13 +1868,13 @@ async fn patch_blocks_batch_changes() {
     assert_eq!(
         serde_json::to_value(&patches).expect("a batch is JSON"),
         json!({
-            "block_ids": [card.id, text.id],
-            "block_patches": [
+            "blockIds": [card.id, text.id],
+            "blockPatches": [
                 {"title": "card 1", "updatedFields": {}, "deletedFields": []},
                 {"title": "text 1", "updatedFields": {}, "deletedFields": []},
             ],
         }),
-        "the members of a batch are spelled with underscores"
+        "the members of a batch on the wire"
     );
     let response = boards.editor.patch(&path, &patches).await;
     response.check_ok();
@@ -1819,15 +1894,21 @@ async fn patch_blocks_batch_changes() {
     // An empty batch, and one whose members are spelled differently, do nothing.
     for body in [
         json!({}),
-        json!({"block_ids": [], "block_patches": []}),
-        json!({"blockIds": [card.id], "blockPatches": [{"title": "camel"}]}),
+        json!({"blockIds": [], "blockPatches": []}),
+        json!({"block_ids": [card.id], "block_patches": [{"title": "snake"}]}),
     ] {
         let response = boards.editor.patch(&path, &body).await;
         response.check_ok();
         assert_eq!(response.text(), "{}", "{body}");
     }
+    let stored = blocks_of(&th.client, &boards.board.id).await;
+    assert_eq!(
+        titles(&stored),
+        ["card 1", "comment", "text 1"],
+        "none of them patched anything"
+    );
 
-    let quiet = format!("{path}?disable_notify=true");
+    let quiet = format!("{path}?disableNotify=true");
     th.client
         .patch(&quiet, &batch(&[(text, "text 2"), (card, "card 2")]))
         .await
@@ -1937,7 +2018,7 @@ async fn delete_block_takes_the_children_along() {
     let response = boards
         .editor
         .delete(&format!(
-            "{}?disable_notify=true",
+            "{}?disableNotify=true",
             block_path(board_id, &content.card.id)
         ))
         .await;
@@ -2188,7 +2269,7 @@ async fn duplicate_block_copies() {
 // -- who is told about a change -----------------------------------------------------------
 
 /// Every change of a block is broadcast to the board's members who listen to its team,
-/// with or without `disable_notify`; except, as in the original, a batch patch.
+/// with or without `disableNotify`; except, as in the original, a batch patch.
 #[tokio::test]
 async fn block_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
@@ -2211,7 +2292,7 @@ async fn block_changes_are_broadcast() {
     let quiet_card = new_block(&board.id, BlockType::Card, "quiet card");
     let quiet: Vec<Block> = th
         .client
-        .post(&format!("{path}?disable_notify=true"), &[quiet_card])
+        .post(&format!("{path}?disableNotify=true"), &[quiet_card])
         .await
         .ok_json();
     let announced = member.next_block().await;
@@ -2224,7 +2305,7 @@ async fn block_changes_are_broadcast() {
     assert_eq!(announced["title"], json!("patched"), "{announced}");
     th.client
         .patch(
-            &format!("{}?disable_notify=true", block_path(&board.id, &card.id)),
+            &format!("{}?disableNotify=true", block_path(&board.id, &card.id)),
             &title_patch("patched quietly"),
         )
         .await
@@ -2356,7 +2437,7 @@ async fn block_changes_call_the_webhook() {
 
     th.client
         .patch(
-            &format!("{}?disable_notify=true", block_path(&board.id, &card.id)),
+            &format!("{}?disableNotify=true", block_path(&board.id, &card.id)),
             &title_patch("patched"),
         )
         .await
@@ -2403,7 +2484,7 @@ async fn block_changes_call_the_webhook() {
     serving.abort();
 }
 
-/// Security fix: `sourceBoardID` makes the server copy the files the inserted blocks
+/// Security fix: `sourceBoardId` makes the server copy the files the inserted blocks
 /// name from that board. The original does not check that the user may read it
 /// (`server/api/blocks.go:297-303`): on the original, a user who is on neither board of
 /// another user got the file copied in storage. The port refuses before anything is
@@ -2434,7 +2515,7 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
         let response = outsider
             .request(
                 Method::POST,
-                &format!("/boards/{}/blocks?sourceBoardID={source}", own.id),
+                &format!("/boards/{}/blocks?sourceBoardId={source}", own.id),
             )
             .json(&[&image])
             .send()
@@ -2458,7 +2539,7 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
     assert!(stored.is_empty(), "nothing was inserted: {stored:?}");
 }
 
-/// The legitimate use of `sourceBoardID`: copying from a board the user is on.
+/// The legitimate use of `sourceBoardId`: copying from a board the user is on.
 #[tokio::test]
 async fn post_blocks_with_a_source_board_the_user_can_read_still_works() {
     let th = Setup::native().start().await.init_basic().await;
@@ -2470,7 +2551,7 @@ async fn post_blocks_with_a_source_board_the_user_can_read_still_works() {
         .client
         .request(
             Method::POST,
-            &format!("/boards/{}/blocks?sourceBoardID={}", target.id, source.id),
+            &format!("/boards/{}/blocks?sourceBoardId={}", target.id, source.id),
         )
         .json(&[&card])
         .send()

@@ -135,7 +135,7 @@ async fn create_board_and_cards(th: &TestServer, count: usize) -> (Board, Vec<Ca
         let created: Card = th
             .client
             .post(
-                &format!("{}?disable_notify=true", cards_path(&board.id)),
+                &format!("{}?disableNotify=true", cards_path(&board.id)),
                 &card,
             )
             .await
@@ -198,7 +198,7 @@ async fn get_cards_fixture(th: &TestServer) -> Board {
             title: number.to_string(),
             ..Card::default()
         };
-        let path = format!("{}?disable_notify=true", cards_path(&board.id));
+        let path = format!("{}?disableNotify=true", cards_path(&board.id));
         let created: Card = th.client.post(&path, &card).await.ok_json();
 
         let texts: Vec<Block> = (0..3)
@@ -212,7 +212,7 @@ async fn get_cards_fixture(th: &TestServer) -> Board {
             .collect();
         th.client
             .post(
-                &format!("/boards/{}/blocks?disable_notify=true", board.id),
+                &format!("/boards/{}/blocks?disableNotify=true", board.id),
                 &texts,
             )
             .await
@@ -301,7 +301,7 @@ async fn get_cards_fetch_all_cards() {
     let th = Setup::native().start().await.init_basic().await;
     let board = get_cards_fixture(&th).await;
 
-    let cards = cards_of(&th.client, &board.id, "?page=0&per_page=-1").await;
+    let cards = cards_of(&th.client, &board.id, "?page=0&perPage=-1").await;
 
     assert_eq!(cards.len(), CARD_COUNT, "all cards and none of the texts");
     th.teardown().await;
@@ -315,7 +315,7 @@ async fn get_cards_fetch_with_pagination() {
     let mut card_numbers_seen = BTreeSet::new();
 
     for (page, expected_count) in [(0, 10), (1, 10), (2, 5)] {
-        let query = format!("?page={page}&per_page=10");
+        let query = format!("?page={page}&perPage=10");
         let cards = cards_of(&th.client, &board.id, &query).await;
         assert_eq!(cards.len(), expected_count, "the cards of page {page}");
         card_numbers_seen.extend(card_numbers(&cards));
@@ -337,7 +337,7 @@ async fn get_cards_a_non_authenticated_user_should_be_rejected() {
 
     let response = th
         .anonymous()
-        .get(&format!("{}?page=0&per_page=10", cards_path(&board.id)))
+        .get(&format!("{}?page=0&perPage=10", cards_path(&board.id)))
         .await;
 
     response.check_unauthorized();
@@ -988,10 +988,10 @@ async fn get_cards_permissions_and_malformed_paging() {
     let invalid = |name: &str, reason: &str| format!("invalid `{name}` parameter: {reason}");
     let cases = [
         ("?page=x", "page", "not a whole number"),
-        ("?per_page=x", "per_page", "not a whole number"),
-        ("?page=x&per_page=y", "page", "not a whole number"),
-        ("?per_page=1.5", "per_page", "not a whole number"),
-        ("?per_page=%202", "per_page", "not a whole number"),
+        ("?perPage=x", "perPage", "not a whole number"),
+        ("?page=x&perPage=y", "page", "not a whole number"),
+        ("?perPage=1.5", "perPage", "not a whole number"),
+        ("?perPage=%202", "perPage", "not a whole number"),
         ("?page=99999999999999999999", "page", "out of range"),
     ];
     for (query, name, reason) in cases {
@@ -1006,7 +1006,7 @@ async fn get_cards_permissions_and_malformed_paging() {
     th.teardown().await;
 }
 
-/// `page` counts from zero and defaults to it, `per_page` defaults to 100, and zero or
+/// `page` counts from zero and defaults to it, `perPage` defaults to 100, and zero or
 /// less asks for all cards.
 #[tokio::test]
 async fn get_cards_paging() {
@@ -1032,30 +1032,33 @@ async fn get_cards_paging() {
     assert_eq!(count("").await, 100, "a page has 100 cards by default");
     assert_eq!(count("?page=1").await, 3, "the rest is on the second page");
     assert_eq!(count("?page=2").await, 0, "and nothing on the third");
-    assert_eq!(count("?page=&per_page=").await, 100, "empty is absent");
-    assert_eq!(count("?per_page=2").await, 2, "a smaller page");
-    assert_eq!(count("?per_page=%2B2").await, 2, "a sign is fine");
-    assert_eq!(count("?page=00&per_page=03").await, 3, "so are zeros");
-    assert_eq!(count("?page=51&per_page=2").await, 1, "the last card");
-    assert_eq!(count("?page=1000&per_page=2").await, 0, "beyond the end");
-    assert_eq!(count("?per_page=1000000000000").await, total, "a huge page");
-    assert_eq!(count("?per_page=0").await, total, "zero is no limit");
-    assert_eq!(count("?per_page=-1").await, total, "nor is less than zero");
+    assert_eq!(count("?page=&perPage=").await, 100, "empty is absent");
+    // The page size has one spelling; another is a parameter the server does not know.
+    assert_eq!(count("?per_page=2").await, 100, "no page size");
+    assert_eq!(count("?per_page=x").await, 100, "and nothing to refuse");
+    assert_eq!(count("?perPage=2").await, 2, "a smaller page");
+    assert_eq!(count("?perPage=%2B2").await, 2, "a sign is fine");
+    assert_eq!(count("?page=00&perPage=03").await, 3, "so are zeros");
+    assert_eq!(count("?page=51&perPage=2").await, 1, "the last card");
+    assert_eq!(count("?page=1000&perPage=2").await, 0, "beyond the end");
+    assert_eq!(count("?perPage=1000000000000").await, total, "a huge page");
+    assert_eq!(count("?perPage=0").await, total, "zero is no limit");
+    assert_eq!(count("?perPage=-1").await, total, "nor is less than zero");
     assert_eq!(
-        count("?page=0&per_page=-5").await,
+        count("?page=0&perPage=-5").await,
         total,
         "on the first page"
     );
     assert_eq!(count("?page=-1").await, 0, "no page before the first");
-    assert_eq!(count("?page=-1&per_page=2").await, 0, "whatever its size");
+    assert_eq!(count("?page=-1&perPage=2").await, 0, "whatever its size");
     // The original's SQLite fails these two with a server error, an offset without a
     // limit being no valid query there; here a page size of zero or less is all cards
     // on any page.
-    assert_eq!(count("?page=1&per_page=0").await, total, "all cards");
-    assert_eq!(count("?page=-1&per_page=-1").await, total, "all cards");
+    assert_eq!(count("?page=1&perPage=0").await, total, "all cards");
+    assert_eq!(count("?page=-1&perPage=-1").await, total, "all cards");
     // The original's offset wraps around here and lands on the first page.
     assert_eq!(
-        count("?page=4611686018427387904&per_page=4").await,
+        count("?page=4611686018427387904&perPage=4").await,
         0,
         "a page beyond any card"
     );
@@ -1063,7 +1066,7 @@ async fn get_cards_paging() {
     // Pages do not overlap and leave nothing out.
     let mut titles = BTreeSet::new();
     for page in 0..6 {
-        let cards = cards_of(&th.client, &board.id, &format!("?page={page}&per_page=20")).await;
+        let cards = cards_of(&th.client, &board.id, &format!("?page={page}&perPage=20")).await;
         titles.extend(cards.into_iter().map(|card| card.title));
     }
     assert_eq!(titles.len(), total, "every card is on one of the pages");
@@ -1325,7 +1328,7 @@ async fn patch_card_changes() {
     // The order and the icon, by an editor, without notification.
     let patched = send(
         &roles.editor,
-        &format!("{path}?disable_notify=true"),
+        &format!("{path}?disableNotify=true"),
         json!({"contentOrder": ["x", "y", "z"], "icon": "🐿"}),
     )
     .await;
@@ -1375,7 +1378,7 @@ async fn patch_card_changes() {
 // -- who is told about a change -----------------------------------------------------------
 
 /// Creating and patching a card is broadcast as the change of its block to the
-/// board's members who listen to its team, with or without `disable_notify`.
+/// board's members who listen to its team, with or without `disableNotify`.
 #[tokio::test]
 async fn card_changes_are_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1388,7 +1391,7 @@ async fn card_changes_are_broadcast() {
 
     for (path, title) in [
         (path.clone(), "card"),
-        (format!("{path}?disable_notify=true"), "quiet card"),
+        (format!("{path}?disableNotify=true"), "quiet card"),
     ] {
         let card: Card = th
             .client
@@ -1401,7 +1404,7 @@ async fn card_changes_are_broadcast() {
         assert_eq!(message["block"]["title"], json!(title), "{message}");
         assert_eq!(message["block"]["boardId"], json!(board.id), "{message}");
 
-        for (query, title) in [("", "patched"), ("?disable_notify=true", "patched quietly")] {
+        for (query, title) in [("", "patched"), ("?disableNotify=true", "patched quietly")] {
             th.client
                 .patch(
                     &format!("{}{query}", card_path(&card.id)),
@@ -1499,7 +1502,7 @@ async fn card_changes_call_the_webhook() {
 
     th.client
         .patch(
-            &format!("{}?disable_notify=true", card_path(&card.id)),
+            &format!("{}?disableNotify=true", card_path(&card.id)),
             &title_patch("patched"),
         )
         .await

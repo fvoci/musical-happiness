@@ -263,8 +263,8 @@ async fn a_block_patch_with_malformed_properties_changes_nothing() {
             .patch(
                 &format!("/boards/{}/blocks", board.id),
                 &json!({
-                    "block_ids": [second.id, card.id],
-                    "block_patches": [
+                    "blockIds": [second.id, card.id],
+                    "blockPatches": [
                         {"title": "renamed"},
                         {"updatedFields": {"properties": {"p1": value}}},
                     ],
@@ -448,8 +448,8 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
             .patch(
                 "/boards-and-blocks",
                 &json!({
-                    "boardIDs": [board_id], "boardPatches": [board_patch],
-                    "blockIDs": [block_id], "blockPatches": [block_patch],
+                    "boardIds": [board_id], "boardPatches": [board_patch],
+                    "blockIds": [block_id], "blockPatches": [block_patch],
                 }),
             )
             .await;

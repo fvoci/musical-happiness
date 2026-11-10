@@ -34,10 +34,11 @@ pub(crate) async fn system(s: &mut Session) {
         "ping version and sku",
         &json!([ping["version"], ping["sku"], "<db>"]),
     );
-    s.get("client config", &format!("{API}/clientConfig")).await;
+    s.get("client config", &format!("{API}/client-config"))
+        .await;
     s.get(
         "client config without csrf header",
-        &format!("{API}/clientConfig"),
+        &format!("{API}/client-config"),
     )
     .without_csrf_header()
     .await;
@@ -45,15 +46,17 @@ pub(crate) async fn system(s: &mut Session) {
         .await;
     s.delete(
         "wrong method on a known path",
-        &format!("{API}/clientConfig"),
+        &format!("{API}/client-config"),
     )
     .await;
     // The prefix of the original server's API names nothing: a client written for it
     // is told so, with or without a session, and is not handed the web app's page.
+    s.get("old path: client config", &format!("{API}/clientConfig"))
+        .await;
     s.get("old prefix: client config", "/api/v2/clientConfig")
         .await;
     s.post("old prefix: login", "/api/v2/login")
-        .json(json!({"type": "normal", "username": "nobody", "password": "nothing"}))
+        .json(json!({"username": "nobody", "password": "nothing"}))
         .await;
     s.get("old prefix: the prefix itself", "/api/v2").await;
     s.get("the api root", "/api").await;
@@ -125,16 +128,16 @@ pub(crate) async fn auth(s: &mut Session) {
     }
 
     s.post("login", &login)
-        .json(json!({"type": "normal", "username": alice, "password": "test-password"}))
+        .json(json!({"username": alice, "password": "test-password"}))
         .await;
     s.post("login by email", &login)
-        .json(json!({"type": "normal", "email": format!("{alice}@example.com"), "password": "test-password"}))
+        .json(json!({"email": format!("{alice}@example.com"), "password": "test-password"}))
         .await;
     s.post("login: wrong password", &login)
-        .json(json!({"type": "normal", "username": alice, "password": "nope"}))
+        .json(json!({"username": alice, "password": "nope"}))
         .await;
     s.post("login: unknown user", &login)
-        .json(json!({"type": "normal", "username": "nobody", "password": "x"}))
+        .json(json!({"username": "nobody", "password": "x"}))
         .await;
     s.post("login: wrong type", &login)
         .json(json!({"type": "sso", "username": alice, "password": "test-password"}))
@@ -150,9 +153,8 @@ pub(crate) async fn auth(s: &mut Session) {
     s.get("my memberships", &format!("{API}/users/me/memberships"))
         .user(&alice)
         .await;
-    s.get("my config", &format!("{API}/users/me/config"))
-        .user(&alice)
-        .await;
+    let client_state = format!("{API}/users/me/client-state");
+    s.get("my config", &client_state).user(&alice).await;
     let alice_id = s.user_id(&alice).await;
     s.get("user by id", &format!("{API}/users/{alice_id}"))
         .user(&alice)
@@ -168,25 +170,21 @@ pub(crate) async fn auth(s: &mut Session) {
         .json(json!([]))
         .user(&alice)
         .await;
-    s.put(
-        "update my config",
-        &format!("{API}/users/{alice_id}/config"),
-    )
-    .json(
-        json!({"updatedFields": {"welcomePageViewed": "1", "theme": "dark"}, "deletedFields": []}),
-    )
-    .user(&alice)
-    .await;
-    s.put(
-        "delete a config entry",
-        &format!("{API}/users/{alice_id}/config"),
-    )
-    .json(json!({"updatedFields": {}, "deletedFields": ["theme"]}))
-    .user(&alice)
-    .await;
-    s.get("my config afterwards", &format!("{API}/users/me/config"))
+    s.patch("update my config", &client_state)
+        .json(
+            json!({"updatedFields": {"welcomePageViewed": "1", "theme": "dark"}, "deletedFields": []}),
+        )
         .user(&alice)
         .await;
+    s.patch("delete a config entry", &client_state)
+        .json(json!({"updatedFields": {}, "deletedFields": ["theme"]}))
+        .user(&alice)
+        .await;
+    s.get("my config afterwards", &client_state)
+        .user(&alice)
+        .await;
+    // The bag of client state is reached through the session only. The paths that
+    // named a user, one's own or another, are gone.
     let root_id = s.user_id("root").await;
     s.put(
         "update another user's config",
@@ -195,12 +193,32 @@ pub(crate) async fn auth(s: &mut Session) {
     .json(json!({"updatedFields": {"x": "1"}, "deletedFields": []}))
     .user(&alice)
     .await;
+    s.put(
+        "old path: update my config",
+        &format!("{API}/users/{alice_id}/config"),
+    )
+    .json(json!({"updatedFields": {"x": "1"}, "deletedFields": []}))
+    .user(&alice)
+    .await;
+    s.get("old path: my config", &format!("{API}/users/me/config"))
+        .user(&alice)
+        .await;
+    s.get("my config after the old paths", &client_state)
+        .user(&alice)
+        .await;
 
-    let change_password = format!("{API}/users/{alice_id}/changepassword");
+    s.post(
+        "old path: change password",
+        &format!("{API}/users/{alice_id}/changepassword"),
+    )
+    .json(json!({"oldPassword": "test-password", "newPassword": "new-password"}))
+    .user(&alice)
+    .await;
+    let change_password = format!("{API}/users/me/password");
     // A second session of the same user, as on another device, opened before the change.
     let other_device = s
         .post("login on another device", &login)
-        .json(json!({"type": "normal", "username": alice, "password": "test-password"}))
+        .json(json!({"username": alice, "password": "test-password"}))
         .await
         .session_token();
     s.post("change password: wrong old password", &change_password)
@@ -240,10 +258,10 @@ pub(crate) async fn auth(s: &mut Session) {
     .user(&alice)
     .await;
     s.post("login with the new password", &login)
-        .json(json!({"type": "normal", "username": alice, "password": "new-password"}))
+        .json(json!({"username": alice, "password": "new-password"}))
         .await;
     s.post("login with the old password", &login)
-        .json(json!({"type": "normal", "username": alice, "password": "test-password"}))
+        .json(json!({"username": alice, "password": "test-password"}))
         .await;
 
     s.post("logout", &format!("{API}/logout"))
@@ -318,7 +336,7 @@ pub(crate) async fn admins(s: &mut Session) {
     let root_id = s.user_id("root").await;
     let old_token = s.signup_token("root").await;
     let team = format!("{API}/teams/{ROOT_TEAM_ID}");
-    let regenerate = format!("{team}/regenerate_signup_token");
+    let regenerate = format!("{team}/signup-token");
     let admin_of = |user_id: &str| format!("{API}/users/{user_id}/admin");
 
     s.get("me: the first user", &format!("{API}/users/me"))
@@ -349,7 +367,13 @@ pub(crate) async fn admins(s: &mut Session) {
     s.post("renew the token: no session", &regenerate).await;
     s.post(
         "renew the token: unknown team",
-        &format!("{API}/teams/{UNKNOWN_ID}/regenerate_signup_token"),
+        &format!("{API}/teams/{UNKNOWN_ID}/signup-token"),
+    )
+    .user("root")
+    .await;
+    s.post(
+        "old path: renew the token",
+        &format!("{team}/regenerate_signup_token"),
     )
     .user("root")
     .await;
@@ -430,9 +454,8 @@ pub(crate) async fn admins(s: &mut Session) {
 /// next to it.
 pub(crate) async fn settings(s: &mut Session) {
     let [alice, bob] = s.users("settings", ["alice", "bob"]).await;
-    let alice_id = s.user_id(&alice).await;
     let path = format!("{API}/users/me/settings");
-    let bag = format!("{API}/users/{alice_id}/config");
+    let bag = format!("{API}/users/me/client-state");
 
     s.get("get: defaults", &path).user(&alice).await;
     s.get("get: no session", &path).await;
@@ -493,36 +516,34 @@ pub(crate) async fn settings(s: &mut Session) {
     s.get("get: after the refusals", &path).user(&alice).await;
 
     // The bag of client state: names and values the server does not know, within bounds.
-    s.put("client state: set", &bag)
+    s.patch("client state: set", &bag)
         .json(json!({"updatedFields": {"theme": "of-the-client", "tour.step": "2"}}))
         .user(&alice)
         .await;
-    s.get("client state: get", &format!("{API}/users/me/config"))
-        .user(&alice)
-        .await;
+    s.get("client state: get", &bag).user(&alice).await;
     s.get("get: untouched by the client state", &path)
         .user(&alice)
         .await;
-    s.put("client state: a name with a space", &bag)
+    s.patch("client state: a name with a space", &bag)
         .json(json!({"updatedFields": {"with space": "1"}}))
         .user(&alice)
         .await;
-    s.put("client state: a name that is too long", &bag)
+    s.patch("client state: a name that is too long", &bag)
         .json(json!({"updatedFields": {"n".repeat(65): "1"}}))
         .user(&alice)
         .await;
-    s.put("client state: a value that is too long", &bag)
+    s.patch("client state: a value that is too long", &bag)
         .json(json!({"updatedFields": {"big": "v".repeat(4097)}}))
         .user(&alice)
         .await;
     let many: serde_json::Map<String, Value> = (0..99)
         .map(|index| (format!("entry-{index:02}"), json!("v")))
         .collect();
-    s.put("client state: more entries than the bag holds", &bag)
+    s.patch("client state: more entries than the bag holds", &bag)
         .json(json!({"updatedFields": many}))
         .user(&alice)
         .await;
-    s.put("client state: remove", &bag)
+    s.patch("client state: remove", &bag)
         .json(json!({"deletedFields": ["theme"]}))
         .user(&alice)
         .await;
@@ -535,7 +556,7 @@ pub(crate) async fn cookies(s: &mut Session) {
     let login = format!("{API}/login");
     let me = format!("{API}/users/me");
     let boards = format!("{API}/boards");
-    let credentials = json!({"type": "normal", "username": alice, "password": "test-password"});
+    let credentials = json!({"username": alice, "password": "test-password"});
     let board = json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": "made"});
     // The address the test servers take for their own: the default `serverRoot`.
     let own_origin = "http://localhost:8000";
@@ -549,7 +570,7 @@ pub(crate) async fn cookies(s: &mut Session) {
         .await
         .session_token();
     s.post("login: wrong password sets no cookie", &login)
-        .json(json!({"type": "normal", "username": alice, "password": "nope"}))
+        .json(json!({"username": alice, "password": "nope"}))
         .keep_headers(&["Set-Cookie"])
         .await;
     s.post("login: without the header", &login)
@@ -665,7 +686,8 @@ pub(crate) async fn cookies(s: &mut Session) {
 pub(crate) async fn login_limits(s: &mut Session) {
     let [alice, bob] = s.users("limits", ["alice", "bob"]).await;
     let login = format!("{API}/login");
-    let attempt = |username: &str, password: &str| json!({"type": "normal", "username": username, "password": password});
+    let attempt =
+        |username: &str, password: &str| json!({"username": username, "password": password});
 
     for account in [alice.as_str(), "limits-nobody"] {
         // Five failures are free; the sixth is refused like them and starts the wait.

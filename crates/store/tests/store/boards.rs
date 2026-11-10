@@ -4200,7 +4200,7 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
         .expect("the author is a member");
     assert_eq!(
         members_at_their_default(all_flags, &BoardMember::default()),
-        ["roles", "synthetic"],
+        Vec::<String>::new(),
         "of the membership: {all_flags:?}"
     );
 

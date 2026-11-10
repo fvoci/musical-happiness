@@ -361,8 +361,9 @@ pub struct BoardMember {
     /// The identifier of the user.
     #[serde(deserialize_with = "null_as_default")]
     pub user_id: String,
-    /// The user's independent roles on the board; unused, kept for the wire format.
-    #[serde(deserialize_with = "null_as_default")]
+    /// The user's independent roles on the board. Nothing stores any; not part of the
+    /// JSON form.
+    #[serde(skip)]
     pub roles: String,
     /// The user administers the board.
     #[serde(deserialize_with = "null_as_default")]
@@ -376,8 +377,9 @@ pub struct BoardMember {
     /// The user may view the board.
     #[serde(deserialize_with = "null_as_default")]
     pub scheme_viewer: bool,
-    /// The membership was derived from a group rather than granted directly.
-    #[serde(deserialize_with = "null_as_default")]
+    /// The membership was derived from a group rather than granted directly. Nothing
+    /// derives one; not part of the JSON form.
+    #[serde(skip)]
     pub synthetic: bool,
 }
 

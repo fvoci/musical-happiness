@@ -60,11 +60,11 @@
       {
         "boardMetadata": [
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": false
           },
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           }
         ],
@@ -73,12 +73,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 10,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   },
@@ -95,12 +94,11 @@
         "deleteAt": 0,
         "id": "<id:6>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 10,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:7>"
+        "userId": "<id:7>"
       }
     ]
   },
@@ -116,11 +114,10 @@
       "id": "<id:8>",
       "name": "Projects",
       "sortOrder": 10,
-      "sorting": "",
-      "teamID": "<id:3>",
+      "teamId": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
-      "userID": "<id:1>"
+      "userId": "<id:1>"
     }
   },
   {
@@ -135,11 +132,10 @@
       "id": "<id:9>",
       "name": "Archive",
       "sortOrder": 10,
-      "sorting": "",
-      "teamID": "<id:3>",
+      "teamId": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
-      "userID": "<id:1>"
+      "userId": "<id:1>"
     }
   },
   {
@@ -160,7 +156,7 @@
     "content_type": "application/json",
     "body": {
       "error": "forbidden",
-      "field": "userID",
+      "field": "userId",
       "message": "a user makes categories for themselves only",
       "request_id": "<request-id>"
     }
@@ -172,7 +168,8 @@
     "content_type": "application/json",
     "body": {
       "error": "bad_request",
-      "message": "teamID mismatch",
+      "field": "teamId",
+      "message": "teamId mismatch",
       "request_id": "<request-id>"
     }
   },
@@ -211,12 +208,11 @@
         "deleteAt": 0,
         "id": "<id:8>",
         "name": "Projects",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [],
@@ -225,21 +221,20 @@
         "deleteAt": 0,
         "id": "<id:9>",
         "name": "Archive",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 10,
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": false
           },
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           }
         ],
@@ -248,12 +243,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 30,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   },
@@ -269,11 +263,10 @@
       "id": "<id:8>",
       "name": "Projects 2",
       "sortOrder": 20,
-      "sorting": "",
-      "teamID": "<id:3>",
+      "teamId": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
-      "userID": "<id:1>"
+      "userId": "<id:1>"
     }
   },
   {
@@ -322,11 +315,10 @@
       "id": "<id:5>",
       "name": "Boards",
       "sortOrder": 30,
-      "sorting": "",
-      "teamID": "<id:3>",
+      "teamId": "<id:3>",
       "type": "system",
       "updateAt": "<ts>",
-      "userID": "<id:1>"
+      "userId": "<id:1>"
     }
   },
   {
@@ -356,12 +348,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 30,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [],
@@ -370,21 +361,20 @@
         "deleteAt": 0,
         "id": "<id:9>",
         "name": "Archive",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 10,
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": false
           },
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           }
         ],
@@ -393,12 +383,11 @@
         "deleteAt": 0,
         "id": "<id:8>",
         "name": "Projects 2",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   },
@@ -433,12 +422,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 30,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [],
@@ -447,21 +435,20 @@
         "deleteAt": 0,
         "id": "<id:9>",
         "name": "Archive",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 10,
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           },
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": true
           }
         ],
@@ -470,12 +457,11 @@
         "deleteAt": 0,
         "id": "<id:8>",
         "name": "Projects 2",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   },
@@ -488,7 +474,7 @@
   },
   {
     "name": "reorder boards",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
+    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -498,7 +484,7 @@
   },
   {
     "name": "reorder boards: missing one",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
+    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -509,7 +495,7 @@
   },
   {
     "name": "reorder boards: unknown board",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
+    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -520,7 +506,29 @@
   },
   {
     "name": "reorder boards: other user",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/reorder as cat-bob",
+    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-bob",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old path: reorder boards",
+    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
+    "status": 405,
+    "content_type": "application/json",
+    "body": {
+      "error": "method_not_allowed",
+      "message": "method not allowed",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "old path: reorder categories",
+    "request": "PUT /api/v1/teams/<id:3>/categories/reorder as cat-alice",
     "status": 404,
     "content_type": "application/json",
     "body": {
@@ -531,7 +539,7 @@
   },
   {
     "name": "reorder categories",
-    "request": "PUT /api/v1/teams/<id:3>/categories/reorder as cat-alice",
+    "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -542,7 +550,7 @@
   },
   {
     "name": "reorder categories: missing one",
-    "request": "PUT /api/v1/teams/<id:3>/categories/reorder as cat-alice",
+    "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -553,7 +561,7 @@
   },
   {
     "name": "reorder categories: unknown id",
-    "request": "PUT /api/v1/teams/<id:3>/categories/reorder as cat-alice",
+    "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -575,12 +583,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [],
@@ -590,20 +597,19 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           },
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": false
           }
         ],
@@ -612,12 +618,11 @@
         "deleteAt": 0,
         "id": "<id:8>",
         "name": "Projects 2",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 10,
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   },
@@ -666,11 +671,10 @@
       "id": "<id:8>",
       "name": "Projects 2",
       "sortOrder": 10,
-      "sorting": "",
-      "teamID": "<id:3>",
+      "teamId": "<id:3>",
       "type": "custom",
       "updateAt": "<ts>",
-      "userID": "<id:1>"
+      "userId": "<id:1>"
     }
   },
   {
@@ -709,20 +713,19 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           },
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": false
           }
         ],
@@ -731,12 +734,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   },
@@ -765,20 +767,19 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           },
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": false
           }
         ],
@@ -787,12 +788,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   },
@@ -821,20 +821,19 @@
         "id": "<id:9>",
         "name": "Archive",
         "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "teamId": "<id:3>",
         "type": "custom",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       },
       {
         "boardMetadata": [
           {
-            "boardID": "<id:4>",
+            "boardId": "<id:4>",
             "hidden": false
           },
           {
-            "boardID": "<id:2>",
+            "boardId": "<id:2>",
             "hidden": false
           }
         ],
@@ -843,12 +842,11 @@
         "deleteAt": 0,
         "id": "<id:5>",
         "name": "Boards",
-        "sortOrder": 0,
-        "sorting": "",
-        "teamID": "<id:3>",
+        "sortOrder": 20,
+        "teamId": "<id:3>",
         "type": "system",
         "updateAt": "<ts>",
-        "userID": "<id:1>"
+        "userId": "<id:1>"
       }
     ]
   }

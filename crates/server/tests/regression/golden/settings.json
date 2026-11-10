@@ -286,43 +286,23 @@
   },
   {
     "name": "client state: set",
-    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
+    "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": [
-      {
-        "category": "client",
-        "name": "theme",
-        "user_id": "<id:1>",
-        "value": "of-the-client"
-      },
-      {
-        "category": "client",
-        "name": "tour.step",
-        "user_id": "<id:1>",
-        "value": "2"
-      }
-    ]
+    "body": {
+      "theme": "of-the-client",
+      "tour.step": "2"
+    }
   },
   {
     "name": "client state: get",
-    "request": "GET /api/v1/users/me/config as settings-alice",
+    "request": "GET /api/v1/users/me/client-state as settings-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": [
-      {
-        "category": "client",
-        "name": "theme",
-        "user_id": "<id:1>",
-        "value": "of-the-client"
-      },
-      {
-        "category": "client",
-        "name": "tour.step",
-        "user_id": "<id:1>",
-        "value": "2"
-      }
-    ]
+    "body": {
+      "theme": "of-the-client",
+      "tour.step": "2"
+    }
   },
   {
     "name": "get: untouched by the client state",
@@ -341,7 +321,7 @@
   },
   {
     "name": "client state: a name with a space",
-    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
+    "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -353,7 +333,7 @@
   },
   {
     "name": "client state: a name that is too long",
-    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
+    "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -365,7 +345,7 @@
   },
   {
     "name": "client state: a value that is too long",
-    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
+    "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -377,7 +357,7 @@
   },
   {
     "name": "client state: more entries than the bag holds",
-    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
+    "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 400,
     "content_type": "application/json",
     "body": {
@@ -390,16 +370,11 @@
   },
   {
     "name": "client state: remove",
-    "request": "PUT /api/v1/users/<id:1>/config as settings-alice",
+    "request": "PATCH /api/v1/users/me/client-state as settings-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": [
-      {
-        "category": "client",
-        "name": "tour.step",
-        "user_id": "<id:1>",
-        "value": "2"
-      }
-    ]
+    "body": {
+      "tour.step": "2"
+    }
   }
 ]

@@ -18,7 +18,7 @@ use crate::permissions::BoardPermission;
 
 /// The page of cards a request without `page` gets.
 const DEFAULT_PAGE: i64 = 0;
-/// The number of cards a page has in a request without `per_page`.
+/// The number of cards a page has in a request without `perPage`.
 const DEFAULT_PER_PAGE: i64 = 100;
 
 pub(super) fn routes() -> Router<App> {
@@ -110,7 +110,7 @@ async fn handle_create_card(
 }
 
 /// `GET /boards/{board_id}/cards`: one page of the board's cards, for everyone who may
-/// view the board. `page` counts from zero and defaults to it; `per_page` defaults to
+/// view the board. `page` counts from zero and defaults to it; `perPage` defaults to
 /// 100, and zero or less asks for all cards.
 async fn handle_get_cards(
     State(app): State<App>,
@@ -130,7 +130,7 @@ async fn handle_get_cards(
     .await?;
 
     let page = int_query_param(query, "page", DEFAULT_PAGE)?;
-    let per_page = int_query_param(query, "per_page", DEFAULT_PER_PAGE)?;
+    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE)?;
 
     let cards = app.cards_for_board(&board_id, page, per_page).await?;
     tracing::debug!(

@@ -285,7 +285,7 @@ impl BlockPatch {
 
 /// A batch of block identifiers and the patch to apply to each, matched by position.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct BlockPatchBatch {
     /// The identifiers of the blocks to patch.
     #[serde(deserialize_with = "null_as_default")]

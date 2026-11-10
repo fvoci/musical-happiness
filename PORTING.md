@@ -519,6 +519,80 @@ S6에서 새로 본 것:
 
 **문서.** `docs/fvoci-cdn.md`의 경로를 바꿨다. 이 문서는 S6 이전의 인증(`Authorization: Bearer`, `FVOCIAUTHTOKEN` 쿠키, `access_token`)과 `trust_forwarded_for`를 설명하고 있어, 계약 단계 끝의 문서 정리에서 지금의 동작에 맞춘다. `website/`는 원본 제품의 문서라 손대지 않았다.
 
+### L. 구현 7a단계: 경로와 이름 (2026-11-11 00:49 KST)
+
+설계 1.5와 2.4가 "OpenAPI를 내면서 한 번에 정리"하라고 한 이름의 불규칙이다. 계약에 한 번 적히면 고치는 값이 커지므로 계약을 내기 전에 따로 커밋했다. 상태 코드(7b)와 목록 순서(7c)는 다음 커밋이다.
+
+**경로.** 옛 경로는 모두 지워졌고 회귀 시나리오가 그 응답을 고정한다.
+
+| 전 | 지금 | 비고 |
+|---|---|---|
+| `GET /clientConfig` | `GET /client-config` | |
+| `POST /teams/{team}/regenerate_signup_token` | `POST /teams/{team}/signup-token` | |
+| `POST /users/{user}/changepassword` | `POST /users/me/password` | 남의 비밀번호는 경로로 가리킬 수도 없다. 전의 "남의 ID면 403" 분기가 없어졌다 |
+| `GET /users/me/config`, `PUT /users/{user}/config` | `GET`·`PATCH /users/me/client-state` | 본문이 고치는 것만 담으므로 `PATCH`다. 답은 `{이름: 값}` 객체다(전에는 `{user_id, category, name, value}`의 목록) |
+| `POST /teams/{team}/{board}/files` | `POST /boards/{board}/files` | 파일은 보드의 것이다(S6 3단계). 팀은 경로에서 아무 일도 하지 않았다 |
+| `GET /files/teams/{team}/{board}/{file}`, `.../info` | `GET /boards/{board}/files/{file}`, `.../info` | |
+| `PUT /teams/{team}/categories/reorder` | `PUT /teams/{team}/category-order` | `reorder`가 카테고리 ID 자리의 예약어가 아니게 됐다 |
+| `PUT /teams/{team}/categories/{category}/boards/reorder` | `PUT /teams/{team}/categories/{category}/board-order` | |
+
+**질의 매개변수.** 모두 camelCase다: `blockId`, `parentId`, `perPage`, `disableNotify`, `readToken`, `sourceBoardId`(전: `block_id`, `parent_id`, `per_page`, `disable_notify`, `read_token`, `sourceBoardID`). 옛 표기는 모르는 매개변수라 무시된다(회귀 `blocks`의 `list: the old name of the parameter is no filter`, `sharing`의 `board with the token under the old name of the parameter`가 401).
+
+**JSON 멤버.** 모두 camelCase이고 `Id`로 끝난다.
+
+| 타입 | 전 | 지금 |
+|---|---|---|
+| 블록 일괄 수정 | `block_ids`, `block_patches` | `blockIds`, `blockPatches` |
+| 보드·블록 묶음 수정/삭제 | `boardIDs`, `blockIDs` | `boardIds`, `blockIds` |
+| 카테고리 | `userID`, `teamID`, 보드 항목의 `boardID` | `userId`, `teamId`, `boardId` |
+| 사용자 | `create_at`, `update_at`, `delete_at` | `createAt`, `updateAt`, `deleteAt` |
+| 파일 정보 | `create_at` | `createAt` |
+| 구독 | `notifiedAt`이 0이면 생략 | 늘 보낸다 |
+| 온보딩 답 | `teamID`, `boardID` | `teamId`, `boardId` |
+| 웹소켓 `UPDATE_BOARD_CATEGORY` | `blockCategories`, 항목 `boardID`·`categoryID` | `boardCategories`, 항목 `boardId`·`categoryId` |
+| 웹소켓 카테고리 보드 순서 | `CategoryId`, `BoardOrder` | `categoryId`, `boardOrder` |
+| 웹소켓 클라이언트 설정 | `clientconfig` | `clientConfig` |
+
+오류 본문의 `field`도 새 표기를 가리킨다(`userId`, `teamId`, `blockIds`, `perPage`). 오류 본문 자체의 `retry_after`, `request_id`는 설계 1.2가 정한 모양이라 그대로다.
+
+**내 판단으로 한 것.** 설계가 하나씩 정하지 않은 것이다. 모두 serde 속성 한 줄이나 라우트 한 줄로 되돌릴 수 있다.
+
+| 한 것 | 근거 |
+|---|---|
+| 저장하지 않는 멤버를 응답에서 뺐다: 사용자의 `nickname`, `firstname`, `lastname`, `is_bot`, `is_guest`, `roles`, `permissions`; 보드 멤버의 `roles`, `synthetic`; 카테고리의 `sorting`; 클라이언트 설정의 `telemetry`, `telemetryid` | 기준 스키마(3단계)에 그 열이 없어 늘 빈 값이었다. 계약에 적으면 웹 앱이 뜻 없는 멤버의 타입을 갖게 된다. Rust 타입의 필드는 남아 있다(`#[serde(skip)]`). 받을 때는 무시한다 |
+| 카테고리 목록이 실제 `sortOrder`를 보낸다 | 전에는 원본을 따라 목록에서만 늘 0이었다. 호환을 끝냈으니 이유가 없다 |
+| 로그인 요청의 `type`과 `mfa_token`을 없앴다 | 로그인 방식이 하나다. `type`이 `normal`이 아니면 400이던 검사가 없어져, `type`을 보내도 무시된다 |
+| 사용자의 시각 멤버를 늘 보낸다 | 전에는 0이면 생략했다. 계약에서 "늘 있다"로 적기 위해서다 |
+
+**스냅샷.** 558 → 571단계. 바꾸기 전 스냅샷과 비교해 기존 558단계에서 사라진 단계는 없고, 상태 코드가 바뀐 기존 단계는 둘이다.
+
+| 단계 | 전 | 지금 | 왜 |
+|---|---|---|---|
+| `auth`의 `login: wrong type` | 400 | 200 | `type`을 읽지 않는다. 자격이 맞으니 로그인된다 |
+| `auth`의 `login: empty body` | 400 `invalid login type` | 401 `incorrect login` | 같은 이유. 이름도 비밀번호도 없는 로그인은 틀린 로그인이다 |
+
+나머지 변화는 위 표의 것뿐이다: 요청 줄 72개가 새 경로·새 매개변수로 바뀌었고(스크립트로 전·후를 짝지어 셌다), 본문에서는 옛 멤버가 빠지고 새 표기가 들어왔으며 `sortOrder` 17곳이 0에서 실제 값(10, 20, 30)이 됐다. `auth`의 `update another user's config`는 전에도 404(`user not found`)였고 지금은 경로가 없어 404(`route not found`)다. 새 단계 13개:
+
+| 시나리오 | 단계 | 답 |
+|---|---|---|
+| `system` | `old path: client config` | 404 |
+| `auth` | `old path: update my config`, `old path: my config`, `old path: change password` | 404 |
+| `auth` | `my config after the old paths` | 200, 옛 경로가 아무것도 바꾸지 않았다 |
+| `admins` | `old path: renew the token` | 404 |
+| `files` | `old path: upload`, `old path: download`, `old path: info` | 404 |
+| `categories` | `old path: reorder categories` | 404. 이제 ID가 `reorder`인 카테고리의 수정으로 읽히고 그런 카테고리는 없다 |
+| `categories` | `old path: reorder boards` | 405. `.../categories/{category}/boards/{board}`의 경로와 겹치고 그 라우트에 `PUT`이 없다 |
+| `blocks` | `list: the old name of the parameter is no filter` | 200, 거르지 않은 목록 |
+| `sharing` | `board with the token under the old name of the parameter` | 401 |
+
+권한 표 두 장은 바뀌지 않았다(636칸). SQLite와 PostgreSQL 모두 새 스냅샷과 일치한다.
+
+**테스트.** API 테스트(`tests/api`)의 적응은 하위 에이전트(Claude Fable 5.2)가 했고 주 세션이 결과를 확인했다. 480 → 482개. 테스트를 지우지 않고 고정하는 것을 바꿨다: 남의 비밀번호 변경이 403이던 테스트는 "옛 경로는 자기 ID로도 남의 ID로도 404이고 비밀번호가 바뀌지 않는다"가 됐고, `reorder`가 예약어라는 테스트는 "여느 ID와 같다"가 됐다. 새 테스트는 옛 경로 아홉 개의 404 표(`paths.rs`)와 옛 표기의 질의 매개변수가 아무 일도 하지 않는다는 것(`blocks.rs`)이다. 에이전트가 서버에서 찾아 고친 것 둘: 카테고리 생성의 팀 불일치가 옛 표기(`teamID mismatch`)에 `field`도 없었고, 블록 일괄 수정의 길이 불일치에 `field`가 없었다. 주제가 없어져 뺀 것은 `visibility.rs`의 `PUT /users/{user}/config` 두 줄이다(사용자를 가리키는 경로가 없다. 옛 경로의 404는 `paths.rs`와 `users.rs`가 고정한다). `disableNotify`는 API로 보이는 효과가 없어 옛 표기와 구별하는 테스트를 두지 못했다.
+
+스토어 테스트 하나(`a_board_comes_back_from_the_trash_with_every_member_it_had`)의 기대가 바뀌었다. 휴지통은 멤버십을 JSON으로 두는데 그 JSON에서 `roles`와 `synthetic`이 빠졌다. 둘은 저장한 적이 없는 값이라 잃는 것이 없다.
+
+**남긴 불규칙.** 이번에 고치지 않았고 `docs/contract-pending.md`와 최종 보고의 남은 문제에 적는다: `/content-blocks/{block}/moveto/{where}/{dst}`(본문 저장 5.7과 함께 바뀐다), 아카이브 경로와 줄 형식(템플릿 변환 3.10), ID 목록을 받는 조회가 `POST`인 것(`POST /users`, `POST /teams/{team}/users`), `/subscriptions/{block}/{subscriber}`의 모양, 동작을 경로 끝에 붙인 라우트(`hide`, `unhide`, `join`, `leave`, `duplicate`, `undelete`, `onboard`), 구독자 종류 `channel`(서버는 `user`만 받는다), 늘 0인 `deleteAt`, 팀의 `title`·`settings`, `/ping`의 `db_type`.
+
 ## 플러그인 저장소의 수정 사항 점검
 
 원본에서 갈라진 플러그인 저장소가 분리 뒤에 넣은 보안·검증 수정 15건(서버 쪽)을 원본 standalone 경로에 대해 하나씩 확인했다. 원본에 같은 결함이 있는지는 오라클에서 재현해 판단했고, 처리 결과는 `crates/server/PORTING.md`의 보안 수정 표, 의도적 차이, 보안 결정 대기 표에 PR 번호와 함께 적었다.

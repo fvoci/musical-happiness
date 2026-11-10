@@ -74,7 +74,7 @@ async fn shared_setup() -> (TestServer, Board) {
 
 /// Returns whether a read token lets a request without a session read the board.
 async fn read_token_opens(th: &TestServer, board_id: &str, token: &str) -> bool {
-    let path = format!("/boards/{board_id}?read_token={token}");
+    let path = format!("/boards/{board_id}?readToken={token}");
     th.anonymous().get(&path).await.status == StatusCode::OK
 }
 
@@ -386,7 +386,7 @@ async fn sharing_needs_the_permission_to_share_the_board() {
     let anonymous = th.anonymous();
     let response = anonymous
         .get(&format!(
-            "{}?read_token={}",
+            "{}?readToken={}",
             sharing_path(&board.id),
             shared.token
         ))
