@@ -65,6 +65,20 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.55 0.2 260);
+  /*
+   * Fill of the label of a select option, one per colour a person can give an
+   * option. The text on it is `--foreground`: 4.5:1 on every one.
+   */
+  --option-default: oklch(0.94 0 0);
+  --option-gray: oklch(0.87 0.01 260);
+  --option-brown: oklch(0.86 0.045 55);
+  --option-orange: oklch(0.9 0.08 65);
+  --option-yellow: oklch(0.93 0.09 100);
+  --option-green: oklch(0.9 0.07 150);
+  --option-blue: oklch(0.89 0.06 245);
+  --option-purple: oklch(0.89 0.06 300);
+  --option-pink: oklch(0.9 0.06 350);
+  --option-red: oklch(0.88 0.07 25);
 
   --radius: 0.5rem;
 }
@@ -104,6 +118,16 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.7 0.15 255);
+  --option-default: oklch(0.32 0 0);
+  --option-gray: oklch(0.42 0.01 260);
+  --option-brown: oklch(0.4 0.05 55);
+  --option-orange: oklch(0.44 0.09 60);
+  --option-yellow: oklch(0.44 0.08 95);
+  --option-green: oklch(0.4 0.07 150);
+  --option-blue: oklch(0.4 0.08 250);
+  --option-purple: oklch(0.4 0.09 300);
+  --option-pink: oklch(0.42 0.09 350);
+  --option-red: oklch(0.42 0.1 25);
 }
 
 /* ------------------------------------------------------------------ type */
@@ -251,6 +275,16 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-option-default: var(--option-default);
+  --color-option-gray: var(--option-gray);
+  --color-option-brown: var(--option-brown);
+  --color-option-orange: var(--option-orange);
+  --color-option-yellow: var(--option-yellow);
+  --color-option-green: var(--option-green);
+  --color-option-blue: var(--option-blue);
+  --color-option-purple: var(--option-purple);
+  --color-option-pink: var(--option-pink);
+  --color-option-red: var(--option-red);
 
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);

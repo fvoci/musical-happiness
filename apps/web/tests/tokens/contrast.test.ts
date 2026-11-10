@@ -49,6 +49,17 @@ const TEXT_PAIRS: [string, string][] = [
   ['sidebar-primary-foreground', 'sidebar-primary'],
   ['sidebar-accent-foreground', 'sidebar-accent'],
   ['muted-foreground', 'sidebar'],
+  // The label of a select option: its text is the page's text colour.
+  ['foreground', 'option-default'],
+  ['foreground', 'option-gray'],
+  ['foreground', 'option-brown'],
+  ['foreground', 'option-orange'],
+  ['foreground', 'option-yellow'],
+  ['foreground', 'option-green'],
+  ['foreground', 'option-blue'],
+  ['foreground', 'option-purple'],
+  ['foreground', 'option-pink'],
+  ['foreground', 'option-red'],
 ];
 
 /** [indicator, surface] */
