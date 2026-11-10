@@ -124,7 +124,7 @@
       "Cache-Control": "private, no-cache",
       "Content-Disposition": "attachment;filename=\"<secret:1>.png\"; filename*=UTF-8''<secret:1>.png",
       "Content-Length": "67",
-      "Content-Security-Policy": "Frame-ancestors 'none'",
+      "Content-Security-Policy": "sandbox; frame-ancestors 'none'",
       "Content-Type": "application/octet-stream",
       "X-Content-Type-Options": "nosniff"
     },
@@ -140,7 +140,7 @@
       "Cache-Control": "private, no-cache",
       "Content-Disposition": "attachment;filename=\"<secret:3>.txt\"; filename*=UTF-8''<secret:3>.txt",
       "Content-Length": "5",
-      "Content-Security-Policy": "Frame-ancestors 'none'",
+      "Content-Security-Policy": "sandbox; frame-ancestors 'none'",
       "Content-Type": "application/octet-stream",
       "X-Content-Type-Options": "nosniff"
     },

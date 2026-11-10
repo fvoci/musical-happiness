@@ -9,8 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, Board, BoardMember, BoardType, LoginRequest, LoginResponse, RegisterRequest, Team, User,
-    new_id,
+    Block, Board, BoardMember, BoardType, LoginRequest, RegisterRequest, Team, User, new_id,
 };
 use fvoci_server::app::App;
 use fvoci_server::auth::secret::new_secret;
@@ -22,7 +21,12 @@ use reqwest::{Method, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use tokio::net::TcpStream;
 use tokio::sync::oneshot;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+
+/// A websocket connection to a test server.
+pub(crate) type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 pub(crate) const USER1_USERNAME: &str = "user1";
 pub(crate) const USER2_USERNAME: &str = "user2";
@@ -374,9 +378,24 @@ impl TestServer {
 pub(crate) struct Client {
     http: reqwest::Client,
     base_url: String,
-    /// The session token, sent as a bearer token when not empty.
+    /// The session token; nothing is sent while it is empty.
     pub(crate) token: String,
+    /// How the token is sent.
+    carrier: Carrier,
 }
+
+/// How a client presents its session token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Carrier {
+    /// In the `Authorization` header, as a client that is no browser does.
+    Bearer,
+    /// In the session cookie, as a browser does.
+    Cookie,
+}
+
+/// The name of the session cookie of a server reached over plain HTTP, as the test
+/// servers are.
+pub(crate) const SESSION_COOKIE: &str = "fvoci_session";
 
 /// What the server answered.
 #[derive(Debug)]
@@ -395,6 +414,79 @@ impl Client {
                 .expect("an HTTP client can be built"),
             base_url: base_url.to_owned(),
             token: token.to_owned(),
+            carrier: Carrier::Bearer,
+        }
+    }
+
+    /// This client's session as a browser has it: the token goes out in the session
+    /// cookie instead of the `Authorization` header.
+    pub(crate) fn as_browser(&self) -> Self {
+        Self {
+            carrier: Carrier::Cookie,
+            ..self.clone()
+        }
+    }
+
+    /// Adds the client's token to a request, the way this client presents it.
+    fn authorized(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if self.token.is_empty() {
+            return request;
+        }
+        match self.carrier {
+            Carrier::Bearer => request.bearer_auth(&self.token),
+            Carrier::Cookie => request.header("Cookie", format!("{SESSION_COOKIE}={}", self.token)),
+        }
+    }
+
+    /// Opens a websocket connection as this client: the handshake carries the token as
+    /// this client presents it, and an `Origin` header if it is a browser's.
+    pub(crate) async fn connect_websocket(&self) -> WebSocket {
+        let headers: Vec<(&str, String)> = match self.carrier {
+            Carrier::Bearer => Vec::new(),
+            // A browser names the page's origin; the test servers take localhost:8000
+            // for their own address.
+            Carrier::Cookie => vec![("Origin", "http://localhost:8000".to_owned())],
+        };
+        self.try_connect_websocket(&headers)
+            .await
+            .expect("the websocket endpoint accepts the connection")
+    }
+
+    /// Tries to open a websocket connection as this client, with further headers on the
+    /// handshake. The error is the status the handshake was refused with.
+    pub(crate) async fn try_connect_websocket(
+        &self,
+        headers: &[(&str, String)],
+    ) -> Result<WebSocket, StatusCode> {
+        use tokio_tungstenite::tungstenite::Error;
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+        use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
+
+        let mut request = self
+            .websocket_url()
+            .into_client_request()
+            .expect("the websocket address is a URL");
+        let mut add = |name: &str, value: &str| {
+            request.headers_mut().insert(
+                HeaderName::from_bytes(name.as_bytes()).expect("a header name"),
+                HeaderValue::from_str(value).expect("a header value"),
+            );
+        };
+        if !self.token.is_empty() {
+            match self.carrier {
+                Carrier::Bearer => add("Authorization", &format!("Bearer {}", self.token)),
+                Carrier::Cookie => add("Cookie", &format!("{SESSION_COOKIE}={}", self.token)),
+            }
+        }
+        for (name, value) in headers {
+            add(name, value);
+        }
+        match tokio_tungstenite::connect_async(request).await {
+            Ok((stream, _)) => Ok(stream),
+            Err(Error::Http(response)) => {
+                Err(StatusCode::from_u16(response.status().as_u16()).expect("a status code"))
+            }
+            Err(other) => panic!("the websocket handshake failed without an answer: {other}"),
         }
     }
 
@@ -415,10 +507,17 @@ impl Client {
             .http
             .request(method, format!("{}/api/v2{path}", self.base_url))
             .header("X-Requested-With", "XMLHttpRequest");
-        if !self.token.is_empty() {
-            request = request.bearer_auth(&self.token);
-        }
+        request = self.authorized(request);
         request
+    }
+
+    /// A request to an API path with the client's token and nothing else: without the
+    /// header of the request-forgery check, as a link or an image tag asks.
+    pub(crate) fn bare_request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
+        self.authorized(
+            self.http
+                .request(method, format!("{}/api/v2{path}", self.base_url)),
+        )
     }
 
     /// A request to any path of the server, with no headers added.
@@ -493,7 +592,9 @@ impl Client {
         };
         let response = self.post("/login", &request).await;
         if response.status == StatusCode::OK {
-            self.token = response.json::<LoginResponse>().token;
+            self.token = response
+                .session_cookie()
+                .expect("a login answers with the session cookie");
         }
         response
     }
@@ -522,6 +623,26 @@ impl Client {
 }
 
 impl ApiResponse {
+    /// The values of the `Set-Cookie` headers of the answer.
+    pub(crate) fn set_cookies(&self) -> Vec<&str> {
+        self.headers
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .collect()
+    }
+
+    /// The session token the answer sets in the session cookie, under either of its
+    /// names; `None` if the answer sets none. The token is empty where the cookie is
+    /// cleared.
+    pub(crate) fn session_cookie(&self) -> Option<String> {
+        self.set_cookies().into_iter().find_map(|cookie| {
+            let (pair, _attributes) = cookie.split_once(';').unwrap_or((cookie, ""));
+            let (name, value) = pair.split_once('=')?;
+            matches!(name, "fvoci_session" | "__Host-fvoci_session").then(|| value.to_owned())
+        })
+    }
+
     /// The body as text.
     pub(crate) fn text(&self) -> String {
         String::from_utf8_lossy(&self.body).into_owned()

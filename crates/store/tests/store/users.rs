@@ -264,7 +264,7 @@ async fn create_and_update_user() {
     // "UpdateUserPasswordByID": the password a user changes themselves.
     let new_password = new_id();
     store
-        .change_user_password(&user.id, &new_password, &new_id())
+        .change_user_password(&user.id, &new_password, &new_id(), "unused-digest")
         .await
         .unwrap();
 
@@ -783,7 +783,7 @@ async fn updates_of_missing_users_fail() {
 
     let ghost = new_id();
     let by_id = store
-        .change_user_password(&ghost, "hash", &new_id())
+        .change_user_password(&ghost, "hash", &new_id(), "unused-digest")
         .await
         .unwrap_err();
     assert_eq!(by_id.to_string(), format!("user not found ({ghost})"));
@@ -791,7 +791,7 @@ async fn updates_of_missing_users_fail() {
 
     // Text that is not an identifier is refused as such before any user is looked for.
     let no_id = store
-        .change_user_password("ghost", "hash", &new_id())
+        .change_user_password("ghost", "hash", &new_id(), "unused-digest")
         .await
         .unwrap_err();
     assert!(

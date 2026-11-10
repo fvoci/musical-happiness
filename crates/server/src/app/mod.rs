@@ -104,10 +104,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an error if webhooks are configured and their HTTP client cannot be set
-    /// up.
+    /// Returns an error if `serverRoot` or an allowed origin is no URL, or if webhooks
+    /// are configured and their HTTP client cannot be set up.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
-        let auth = Authenticator::new(store.clone(), &config);
+        let auth = Authenticator::new(store.clone(), &config)?;
         let ping_interval = (config.websocket_ping_seconds > 0)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
         let ws = Hub::new(store.clone(), auth.clone(), ping_interval);

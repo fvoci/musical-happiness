@@ -102,9 +102,10 @@ async fn get_client_config() {
     th.teardown().await;
 }
 
-/// Every API route refuses a request without the header a cross-site page cannot set.
+/// Reading needs no header of the request-forgery check: a link or an image tag can
+/// point at the API. What changes something does; see the `cookies` module.
 #[tokio::test]
-async fn api_requests_need_the_requested_with_header() {
+async fn reading_needs_no_requested_with_header() {
     let th = Setup::native().start().await.init_basic().await;
 
     for path in ["/api/v2/clientConfig", "/api/v2/users/me", "/api/v2/teams"] {
@@ -112,15 +113,8 @@ async fn api_requests_need_the_requested_with_header() {
             .client
             .raw_request(Method::GET, path)
             .bearer_auth(&th.client.token);
-        let response = Client::send(request).await;
-        response.check_error(
-            StatusCode::FORBIDDEN,
-            "the X-Requested-With: XMLHttpRequest header is required",
-        );
-        assert_eq!(response.error_reason(), "csrf", "{path}");
+        Client::send(request).await.check_ok();
     }
-
-    // Outside the API the header is not needed.
     Client::send(th.client.raw_request(Method::GET, "/hello"))
         .await
         .check_ok();

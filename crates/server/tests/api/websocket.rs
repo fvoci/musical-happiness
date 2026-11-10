@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{ROOT_TEAM_ID, Setup, TestServer};
+use crate::common::{Client, ROOT_TEAM_ID, Setup, TestServer};
 
 /// How long to wait for a message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -32,10 +32,16 @@ enum Event {
 }
 
 impl Socket {
+    /// A connection without a session, as a page opens one that nobody is signed in
+    /// on.
     async fn connect(th: &TestServer) -> Self {
-        let (stream, _) = tokio_tungstenite::connect_async(th.client.websocket_url())
-            .await
-            .expect("the websocket endpoint accepts the connection");
+        let stream = th.anonymous().as_browser().connect_websocket().await;
+        Self { stream }
+    }
+
+    /// A connection of the client's session: whose it is is settled by the handshake.
+    async fn connect_as(client: &Client) -> Self {
+        let stream = client.connect_websocket().await;
         Self { stream }
     }
 
@@ -44,10 +50,6 @@ impl Socket {
             .send(Message::Text(command.to_string().into()))
             .await
             .expect("the command is sent");
-    }
-
-    async fn authenticate(&mut self, token: &str) {
-        self.send(json!({"action": "AUTH", "token": token})).await;
     }
 
     async fn next(&mut self, wait: Duration) -> Event {
@@ -105,14 +107,14 @@ async fn subscribe_to_team(th: &TestServer, socket: &mut Socket, team_id: &str, 
     panic!("the socket was never subscribed to team {team_id}");
 }
 
-/// A session subscribes to a team and is told about the user's category changes; without
-/// authentication the subscription is ignored.
+/// A connection of a session subscribes to a team and is told about the user's category
+/// changes; on a connection without a session the subscription is ignored.
 #[tokio::test]
 async fn team_subscription_needs_authentication() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
 
-    // Not authenticated: the subscription is ignored, and so is an unknown action.
+    // No session: the subscription is ignored, and so is an unknown action.
     let mut anonymous = Socket::connect(&th).await;
     anonymous
         .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
@@ -120,8 +122,7 @@ async fn team_subscription_needs_authentication() {
     anonymous.send(json!({"action": "NO_SUCH_ACTION"})).await;
     anonymous.send(json!("not a command")).await;
 
-    let mut socket = Socket::connect(&th).await;
-    socket.authenticate(&th.client.token).await;
+    let mut socket = Socket::connect_as(&th.client).await;
     subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
 
     let change = category(ROOT_TEAM_ID, &user1.id, "Projects");
@@ -158,18 +159,28 @@ async fn team_subscription_needs_authentication() {
     th.teardown().await;
 }
 
-/// A token that belongs to no session closes the connection.
+/// There is no message to sign in with: a connection is whose its handshake says, and
+/// stays that. `AUTH`, which used to carry the token, is an action like any unknown one.
 #[tokio::test]
-async fn authentication_with_an_unknown_token_closes_the_connection() {
-    let th = Setup::native().start().await;
+async fn a_message_does_not_sign_a_connection_in() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
     let mut socket = Socket::connect(&th).await;
 
-    socket.authenticate("not-a-session-token").await;
+    socket
+        .send(json!({"action": "AUTH", "token": th.client.token}))
+        .await;
+    socket
+        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
+        .await;
+    th.app
+        .ws()
+        .broadcast_category_change(&category(ROOT_TEAM_ID, &user1.id, "Projects"));
 
     assert_eq!(
-        socket.next(PATIENCE).await,
-        Event::Closed,
-        "the server hangs up"
+        socket.next(QUIET).await,
+        Event::Nothing,
+        "the connection is nobody's: it hears nothing, and it is not closed either"
     );
     th.teardown().await;
 }
@@ -194,11 +205,9 @@ async fn board_changes_go_to_subscribed_members() {
         .await
         .expect("the board is stored with user1 as admin");
 
-    let mut member = Socket::connect(&th).await;
-    member.authenticate(&th.client.token).await;
+    let mut member = Socket::connect_as(&th.client).await;
     subscribe_to_team(&th, &mut member, ROOT_TEAM_ID, &user1.id).await;
-    let mut outsider = Socket::connect(&th).await;
-    outsider.authenticate(&th.client2.token).await;
+    let mut outsider = Socket::connect_as(&th.client2).await;
     subscribe_to_team(&th, &mut outsider, ROOT_TEAM_ID, &user2.id).await;
 
     th.app
@@ -399,14 +408,13 @@ async fn no_pings_when_turned_off() {
 async fn commands_with_members_of_the_wrong_type_are_ignored() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let mut socket = Socket::connect(&th).await;
+    let mut socket = Socket::connect_as(&th.client).await;
 
     let malformed = [
         json!({"action": "SUBSCRIBE_TEAM", "teamId": 5}),
         json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "blockIds": "not-a-list"}),
         json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "blockIds": [1, 2, 3]}),
         json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "readToken": {"a": 1}, "blockIds": []}),
-        json!({"action": "AUTH", "token": ["a", "b"]}),
         json!({"action": 7}),
         json!([1, 2, 3]),
         json!(null),
@@ -415,8 +423,7 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
         socket.send(command).await;
     }
 
-    // The same connection still authenticates, subscribes and is told about changes.
-    socket.authenticate(&th.client.token).await;
+    // The same connection still subscribes and is told about changes.
     subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
     let change = category(ROOT_TEAM_ID, &user1.id, "After the noise");
     th.app.ws().broadcast_category_change(&change);
@@ -434,18 +441,16 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
 }
 
 /// A password that an administrator sets signs the user out everywhere, live websocket
-/// connections included: a connection checks its token only once, when it authenticates.
+/// connections included: a connection checks its token only once, at its handshake.
 /// Connections of other users stay.
 #[tokio::test]
 async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
-    let mut socket1 = Socket::connect(&th).await;
-    socket1.authenticate(&th.client.token).await;
+    let mut socket1 = Socket::connect_as(&th.client).await;
     subscribe_to_team(&th, &mut socket1, ROOT_TEAM_ID, &user1.id).await;
-    let mut socket2 = Socket::connect(&th).await;
-    socket2.authenticate(&th.client2.token).await;
+    let mut socket2 = Socket::connect_as(&th.client2).await;
     subscribe_to_team(&th, &mut socket2, ROOT_TEAM_ID, &user2.id).await;
 
     th.app

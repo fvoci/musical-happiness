@@ -13,8 +13,7 @@ use axum::response::{IntoResponse, Response};
 use bytes::BytesMut;
 use futures_util::StreamExt as _;
 
-use super::request_token;
-use super::session::session_of;
+use super::session::{claims_session, session_of};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -65,17 +64,27 @@ pub(crate) async fn limit_session_request_body(
     request: Request,
     next: Next,
 ) -> Response {
-    let token = request_token(request.headers(), request.uri().query());
     let small = UNAUTHENTICATED_BODY_LIMIT.0;
     let largest = declared_length(&request).or_else(|| request.body().size_hint().upper());
-    let wants_the_room = !token.is_empty() && largest.is_none_or(|length| length > small);
-    if wants_the_room && let Err(error) = session_of(&app, &token).await {
+    let wants_the_room =
+        claims_session(&app, request.headers()) && largest.is_none_or(|length| length > small);
+    if wants_the_room
+        && let Err(error) = session_of(&app, request.headers(), request.extensions()).await
+    {
         let (parts, body) = request.into_parts();
         if !parts.headers.contains_key(EXPECT) {
             discard(body.into_data_stream(), 0).await;
         }
         return error.into_response();
     }
+    let limit = if claims_session(&app, request.headers()) {
+        limit
+    } else {
+        // A request that claims no session gets the room of the routes that need none:
+        // the body is read before anyone looks at who sends it, and "anyone" should not
+        // be able to make the server hold more than that.
+        BodyLimit(limit.0.min(UNAUTHENTICATED_BODY_LIMIT.0))
+    };
     limit_request_body(State(limit), request, next).await
 }
 
@@ -89,8 +98,7 @@ fn declared_length(request: &Request) -> Option<u64> {
 }
 
 /// Reads the request body up to the limit and hands the request on with it, or answers
-/// 413 with the limit. The limit is the smaller one of the routes without a session if
-/// the request carries no session token.
+/// 413 with the limit.
 ///
 /// A body that declares more than the limit is refused without any of it being kept.
 /// One that declares nothing, or less than it sends, is refused as soon as it passes the
@@ -100,14 +108,6 @@ pub(crate) async fn limit_request_body(
     request: Request,
     next: Next,
 ) -> Response {
-    // A request that claims no session gets the room of the routes that need none:
-    // the body is read before anyone looks at who sends it, and "anyone" should not be
-    // able to make the server hold more than that.
-    let limit = if request_token(request.headers(), request.uri().query()).is_empty() {
-        limit.min(UNAUTHENTICATED_BODY_LIMIT.0)
-    } else {
-        limit
-    };
     let declared = declared_length(&request);
     let (parts, body) = request.into_parts();
     let mut stream = body.into_data_stream();
@@ -222,38 +222,6 @@ mod tests {
         let error: fvoci_model::ErrorBody = serde_json::from_str(&body).expect("an error body");
         assert_eq!(error.error, "payload_too_large");
         assert_eq!(error.limit, Some(16), "the answer names the limit");
-    }
-
-    /// The routes behind the limit take a session; a request that does not even claim
-    /// one gets no more room than the login.
-    #[tokio::test]
-    async fn a_request_without_a_session_token_gets_the_small_limit() {
-        let large = usize::try_from(UNAUTHENTICATED_BODY_LIMIT.0).expect("fits") + 1;
-        let request = |token: Option<&str>| {
-            let mut request = Request::post("/");
-            if let Some(token) = token {
-                request = request.header("Authorization", format!("Bearer {token}"));
-            }
-            request
-                .body(Body::from(vec![b'x'; large]))
-                .expect("a valid request")
-        };
-
-        let (status, body) = answer(limited(1_000_000), request(None)).await;
-        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
-        let error: fvoci_model::ErrorBody = serde_json::from_str(&body).expect("an error body");
-        assert_eq!(
-            error.limit,
-            Some(UNAUTHENTICATED_BODY_LIMIT.0),
-            "the limit that applied"
-        );
-
-        let (status, body) = answer(limited(1_000_000), request(Some("a-token"))).await;
-        assert_eq!(
-            status,
-            StatusCode::OK,
-            "with a token the route's limit: {body}"
-        );
     }
 
     /// A client that asked first, with `Expect: 100-continue`, is answered without its

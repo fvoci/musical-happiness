@@ -102,9 +102,6 @@ pub struct Configuration {
     /// Whether to serve HTTPS, with `./cert/cert.pem` and `./cert/key.pem`.
     #[serde(rename = "usessl")]
     pub use_ssl: bool,
-    /// Accepted for compatibility; the server sets no cookie.
-    #[serde(rename = "securecookie")]
-    pub secure_cookie: bool,
     /// The directory holding the web app: `index.html` and `static/`.
     #[serde(rename = "webpath")]
     pub web_path: String,
@@ -125,6 +122,10 @@ pub struct Configuration {
     pub prometheus_address: String,
     /// URLs that receive a POST with every changed block.
     pub webhook_update: Vec<String>,
+    /// Further origins whose pages may send requests that change something and open
+    /// websocket connections, next to the origin of `serverRoot`. For development,
+    /// where the web app is served by a tool of its own on another port.
+    pub allowed_origins: Vec<String>,
     /// How many days a session may go unused before it ends.
     pub session_idle_days: u32,
     /// How many days after signing in a session ends, however much it is used.
@@ -194,7 +195,6 @@ impl Default for Configuration {
             db_config: "./fvoci.db".to_owned(),
             db_ping_attempts: 5,
             use_ssl: false,
-            secure_cookie: false,
             web_path: "./pack".to_owned(),
             files_driver: "local".to_owned(),
             files_s3_config: AmazonS3Config::default(),
@@ -202,6 +202,7 @@ impl Default for Configuration {
             max_file_size: 0,
             prometheus_address: String::new(),
             webhook_update: Vec::new(),
+            allowed_origins: Vec::new(),
             session_idle_days: 14,
             session_max_days: 90,
             local_only: false,
@@ -240,6 +241,7 @@ impl std::fmt::Debug for Configuration {
             .field("files_path", &self.files_path)
             .field("max_file_size", &self.max_file_size)
             .field("webhook_update", &self.webhook_update)
+            .field("allowed_origins", &self.allowed_origins)
             .field("session_idle_days", &self.session_idle_days)
             .field("session_max_days", &self.session_max_days)
             .field("local_only", &self.local_only)
@@ -284,13 +286,13 @@ const ENV_KEYS: [(&str, EnvKind); 31] = [
     ("dbconfig", EnvKind::Text),
     ("dbpingattempts", EnvKind::Number),
     ("usessl", EnvKind::Flag),
-    ("securecookie", EnvKind::Flag),
     ("webpath", EnvKind::Text),
     ("filesdriver", EnvKind::Text),
     ("filespath", EnvKind::Text),
     ("maxfilesize", EnvKind::Number),
     ("prometheusaddress", EnvKind::Text),
     ("webhook_update", EnvKind::List),
+    ("allowed_origins", EnvKind::List),
     ("session_idle_days", EnvKind::Number),
     ("session_max_days", EnvKind::Number),
     ("localonly", EnvKind::Flag),
@@ -316,11 +318,15 @@ const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 /// Keys of the original server's configuration that this server no longer has, each with
 /// what to do instead. A file or an environment that sets one to something is refused:
 /// a server that silently ignored it would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 3] = [
+const REMOVED_KEYS: [(&str, &str); 4] = [
     (
         "dbtableprefix",
         "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
          database, give the server a schema of its own with search_path in dbconfig",
+    ),
+    (
+        "securecookie",
+        "the session cookie is Secure exactly when serverRoot is an https address",
     ),
     (
         "session_expire_time",
@@ -434,6 +440,10 @@ impl Configuration {
         if self.max_request_bytes == 0 {
             bail!("max_request_bytes must be a positive number of bytes, not 0");
         }
+        // The session cookie and the check of where a request comes from both follow
+        // from this address.
+        crate::auth::token::Origins::new(&self.server_root, &self.allowed_origins)
+            .map_err(anyhow::Error::msg)?;
         // Zero would end every session as it starts.
         if self.session_idle_days == 0 || self.session_max_days == 0 {
             bail!("session_idle_days and session_max_days must be at least 1");

@@ -118,6 +118,18 @@ impl Reply {
     pub(crate) fn header(&self, name: &str) -> String {
         self.headers.get(name).cloned().unwrap_or_default()
     }
+
+    /// The session token the answer sets in the session cookie.
+    #[track_caller]
+    pub(crate) fn session_token(&self) -> String {
+        let cookie = self.header("Set-Cookie");
+        cookie
+            .strip_prefix("fvoci_session=")
+            .and_then(|rest| rest.split(';').next())
+            .filter(|token| !token.is_empty())
+            .unwrap_or_else(|| panic!("no session cookie in {cookie:?}"))
+            .to_owned()
+    }
 }
 
 /// A string member of a JSON object.
@@ -159,8 +171,11 @@ pub(crate) enum Payload {
 pub(crate) enum Caller {
     /// No session.
     Anonymous,
-    /// This bearer token.
+    /// This session token in the `Authorization` header, as a client that is no browser
+    /// sends it.
     Token(String),
+    /// This session token in the session cookie, as a browser sends it.
+    Cookie(String),
 }
 
 /// A `multipart/form-data` body with one file part.
@@ -209,7 +224,7 @@ impl Http {
     }
 
     /// Sends a request. `path` is relative to the server root, e.g. `/api/v2/boards`.
-    /// `csrf` adds the header every API route requires.
+    /// `csrf` adds the header of the API's request-forgery check.
     pub(crate) async fn send(
         &self,
         method: Method,
@@ -225,9 +240,11 @@ impl Http {
         if csrf == Csrf::Header {
             request = request.header("X-Requested-With", "XMLHttpRequest");
         }
-        if let Caller::Token(token) = caller {
-            request = request.bearer_auth(token);
-        }
+        request = match caller {
+            Caller::Anonymous => request,
+            Caller::Token(token) => request.bearer_auth(token),
+            Caller::Cookie(token) => request.header("Cookie", format!("fvoci_session={token}")),
+        };
         request = match payload {
             Payload::None => request,
             Payload::Json(value) => request.json(&value),
@@ -328,7 +345,7 @@ impl Http {
             )
             .await;
         assert_eq!(reply.status, 200, "login {user}: {:?}", reply.body);
-        reply.string("token")
+        reply.session_token()
     }
 
     /// The team's signup token, read as the holder of `token`.
@@ -363,6 +380,15 @@ pub(crate) enum Csrf {
     Header,
     /// No such header.
     Missing,
+}
+
+/// How a request presents its session token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Carrier {
+    /// In the `Authorization` header.
+    Bearer,
+    /// In the session cookie.
+    Cookie,
 }
 
 /// Whether a request becomes a step of the recording.
@@ -423,6 +449,7 @@ impl Session {
             user: None,
             token: None,
             csrf: Csrf::Header,
+            carrier: Carrier::Bearer,
             recording: Recording::Step,
             keep_headers: &[],
             extra_headers: Vec::new(),
@@ -473,6 +500,17 @@ impl Session {
     }
 
     #[track_caller]
+    /// The session token of a registered user. Not recorded.
+    pub(crate) fn session_token(&self, user: &str) -> String {
+        self.token_of(user).to_owned()
+    }
+
+    /// Takes `token` for the session of `user` from now on: for when the server gave
+    /// the session a new one.
+    pub(crate) fn set_session_token(&mut self, user: &str, token: String) {
+        self.tokens.insert(user.to_owned(), token);
+    }
+
     fn token_of(&self, user: &str) -> &str {
         self.tokens
             .get(user)
@@ -491,6 +529,7 @@ pub(crate) struct Call<'s> {
     user: Option<String>,
     token: Option<String>,
     csrf: Csrf,
+    carrier: Carrier,
     recording: Recording,
     keep_headers: &'static [&'static str],
     extra_headers: Vec<(&'static str, String)>,
@@ -531,6 +570,13 @@ impl Call<'_> {
         self
     }
 
+    /// Sends the session token in the session cookie, as a browser does, instead of the
+    /// `Authorization` header.
+    pub(crate) fn in_cookie(mut self) -> Self {
+        self.carrier = Carrier::Cookie;
+        self
+    }
+
     /// Leaves out the header of the API's cross-site check.
     pub(crate) fn without_csrf_header(mut self) -> Self {
         self.csrf = Csrf::Missing;
@@ -566,7 +612,15 @@ impl Call<'_> {
             (None, Some(_)) => "token",
             (None, None) => "anonymous",
         };
-        let caller = token.clone().map_or(Caller::Anonymous, Caller::Token);
+        let who = match self.carrier {
+            Carrier::Bearer => who.to_owned(),
+            Carrier::Cookie => format!("{who} (cookie)"),
+        };
+        let caller = match (token.clone(), self.carrier) {
+            (None, _) => Caller::Anonymous,
+            (Some(token), Carrier::Bearer) => Caller::Token(token),
+            (Some(token), Carrier::Cookie) => Caller::Cookie(token),
+        };
         let reply = session
             .http
             .send(

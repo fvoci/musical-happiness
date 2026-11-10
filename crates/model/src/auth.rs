@@ -78,21 +78,6 @@ impl fmt::Debug for LoginRequest {
     }
 }
 
-/// The response to a successful login.
-#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct LoginResponse {
-    /// The session token to present on later requests.
-    pub token: String,
-}
-
-impl fmt::Debug for LoginResponse {
-    /// Leaves out the token.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LoginResponse").finish_non_exhaustive()
-    }
-}
-
 /// A request to register a new user.
 #[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]

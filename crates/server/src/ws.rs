@@ -1,9 +1,10 @@
 //! The websocket endpoint `/ws`: clients subscribe to a team or to blocks and are told
 //! about changes as they happen.
 //!
-//! A connection starts unauthenticated. `AUTH` with a session token makes it a user's
-//! connection, which may then subscribe to teams. `SUBSCRIBE_BLOCKS` works without
-//! authentication but needs the read token of the shared board the blocks belong to.
+//! Whose connection it is is settled at the handshake, from the session the request
+//! carries; there is no message to sign in with. A user's connection may subscribe to
+//! teams. `SUBSCRIBE_BLOCKS` works without a session but needs the read token of the
+//! shared board the blocks belong to.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -11,7 +12,9 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig};
+use fvoci_model::{
+    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, Session,
+};
 use fvoci_store::Store;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -29,13 +32,31 @@ const OUTBOX_CAPACITY: usize = 512;
 /// way and the closing frame. A peer that has stopped reading gets neither.
 const WRITER_GRACE: Duration = Duration::from_secs(5);
 
+/// Whose connection a websocket is: the session its handshake came with, and the token
+/// that session was found under.
+#[derive(Clone)]
+pub struct Identity {
+    /// The session.
+    pub session: Session,
+    /// The session token of the handshake.
+    pub token: String,
+}
+
+impl std::fmt::Debug for Identity {
+    /// Leaves out the token.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Identity")
+            .field("session", &self.session)
+            .finish_non_exhaustive()
+    }
+}
+
 /// A command a client sends.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct Command {
     action: String,
     team_id: String,
-    token: String,
     read_token: String,
     #[serde(deserialize_with = "null_as_empty")]
     block_ids: Vec<String>,
@@ -197,11 +218,21 @@ impl Hub {
             .expect("the listener table lock is never held across a panic")
     }
 
-    /// Serves one websocket connection until it closes.
-    pub async fn serve(&self, socket: WebSocket) {
+    /// Serves one websocket connection until it closes. `identity` is the session the
+    /// handshake came with, if any; without one the connection can only subscribe to
+    /// the blocks of shared boards.
+    pub async fn serve(&self, socket: WebSocket, identity: Option<Identity>) {
         let (mut sink, mut stream) = socket.split();
         let (outbox, mut inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
+        let (user_id, session_id, token) = match identity {
+            Some(identity) => (
+                identity.session.user_id,
+                identity.session.id,
+                Some(identity.token),
+            ),
+            None => (String::new(), String::new(), None),
+        };
 
         let id = {
             let mut listeners = self.listeners();
@@ -210,8 +241,8 @@ impl Hub {
             listeners.by_id.insert(
                 id,
                 Listener {
-                    user_id: String::new(),
-                    session_id: String::new(),
+                    user_id,
+                    session_id,
                     outbox,
                     closed: closed.clone(),
                     teams: Vec::new(),
@@ -220,6 +251,17 @@ impl Hub {
             );
             id
         };
+
+        // The sessions of a user can be ended between the handshake and the lines above
+        // that made this a connection of that user; the closing of the user's
+        // connections would then have passed this one by. Looked up once more, now that
+        // it is closable, the session is either still there or the connection ends.
+        if let Some(token) = token
+            && self.inner.auth.get_session(&token).await.is_err()
+        {
+            self.listeners().remove(id);
+            return;
+        }
 
         let ping_interval = self.inner.ping_interval;
         let mut writer = tokio::spawn(async move {
@@ -317,7 +359,6 @@ impl Hub {
     /// Handles one command. Returns `false` if the connection must be closed.
     async fn handle(&self, id: ListenerId, command: Command) -> bool {
         match command.action.as_str() {
-            "AUTH" => return self.authenticate(id, &command.token).await,
             "SUBSCRIBE_BLOCKS" | "UNSUBSCRIBE_BLOCKS" => {
                 if !self.is_read_token_valid(&command).await {
                     tracing::error!(action = %command.action, "websocket: rejected an invalid read token");
@@ -363,32 +404,6 @@ impl Hub {
             other => tracing::error!(action = other, "websocket: invalid action"),
         }
         true
-    }
-
-    /// Makes the connection a user's connection. A second `AUTH` is ignored; a token that
-    /// belongs to no session closes the connection.
-    async fn authenticate(&self, id: ListenerId, token: &str) -> bool {
-        let already_authenticated = self
-            .listeners()
-            .by_id
-            .get(&id)
-            .is_some_and(|listener| !listener.user_id.is_empty());
-        if already_authenticated {
-            return true;
-        }
-
-        let Ok(session) = self.inner.auth.get_session(token).await else {
-            return false;
-        };
-        if let Some(listener) = self.listeners().by_id.get_mut(&id) {
-            listener.user_id = session.user_id;
-            listener.session_id = session.id;
-        }
-        // The sessions of a user can be ended between the lookup above and the line that
-        // made this a connection of that user; the closing of the user's connections
-        // would then have passed this one by. Looked up once more, now that it is
-        // closable, the session is either still there or the connection ends.
-        self.inner.auth.get_session(token).await.is_ok()
     }
 
     /// A block subscription needs a team, blocks that all belong to one board, and that

@@ -151,6 +151,19 @@ pub(crate) async fn delete_sessions_of_user(
     Ok(())
 }
 
+/// Puts a session under another token digest: its old token no longer finds it.
+pub(crate) async fn replace_token_digest(
+    scope: &mut Scope<'_>,
+    session_id: &str,
+    token_digest: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql("UPDATE sessions SET token_hash = ");
+    sql.bind(token_digest)
+        .push_bind(" WHERE id = ", Id(session_id));
+    scope.execute(sql).await?;
+    Ok(())
+}
+
 /// Deletes every session of a user but one.
 pub(crate) async fn delete_other_sessions_of_user(
     scope: &mut Scope<'_>,

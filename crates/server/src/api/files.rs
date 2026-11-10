@@ -309,9 +309,12 @@ fn base_headers(filename: &str, content_type: &str, modtime: SystemTime) -> Head
     headers.insert(CONTENT_TYPE, header_value(content_type));
     headers.insert(CONTENT_DISPOSITION, header_value(&disposition));
     headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    // A file can be asked for with a plain link or an image tag, so a browser may open
+    // it as a document of this origin. `sandbox` takes that document's scripts and its
+    // origin away: an uploaded SVG or HTML file cannot act as the user.
     headers.insert(
         "content-security-policy",
-        HeaderValue::from_static("Frame-ancestors 'none'"),
+        HeaderValue::from_static("sandbox; frame-ancestors 'none'"),
     );
     headers.insert(
         LAST_MODIFIED,

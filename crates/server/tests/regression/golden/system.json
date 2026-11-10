@@ -50,13 +50,15 @@
   {
     "name": "client config without csrf header",
     "request": "GET /api/v2/clientConfig as anonymous",
-    "status": 403,
+    "status": 200,
     "content_type": "application/json",
     "body": {
-      "error": "forbidden",
-      "message": "the X-Requested-With: XMLHttpRequest header is required",
-      "reason": "csrf",
-      "request_id": "<request-id>"
+      "enablePublicSharedBoards": true,
+      "featureFlags": {},
+      "maxFileSize": 0,
+      "teammateNameDisplay": "username",
+      "telemetry": false,
+      "telemetryid": ""
     }
   },
   {

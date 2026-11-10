@@ -13,6 +13,7 @@ mod boards;
 mod boards_and_blocks;
 mod cards;
 mod content_blocks;
+mod cookies;
 mod export;
 mod files;
 mod limits;

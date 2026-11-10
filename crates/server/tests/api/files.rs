@@ -328,8 +328,8 @@ async fn download_has_the_originals_headers() {
     assert_eq!(response.header("x-frame-options"), "DENY", "frame options");
     assert_eq!(
         response.header("content-security-policy"),
-        "Frame-ancestors 'none'",
-        "csp"
+        "sandbox; frame-ancestors 'none'",
+        "a file opened as a document has no scripts and no origin"
     );
     assert_eq!(response.header("accept-ranges"), "bytes", "accept ranges");
     assert_eq!(response.header("content-length"), "20", "content length");

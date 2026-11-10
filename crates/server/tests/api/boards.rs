@@ -3513,20 +3513,15 @@ pub(crate) struct TeamSocket {
 }
 
 impl TeamSocket {
-    /// Connects, authenticates with the client's token and subscribes to the team.
+    /// Connects as the client and subscribes to the team.
     pub(crate) async fn subscribe(
         th: &TestServer,
         client: &Client,
         team_id: &str,
         user_id: &str,
     ) -> Self {
-        let (stream, _) = tokio_tungstenite::connect_async(client.websocket_url())
-            .await
-            .expect("the websocket endpoint accepts the connection");
+        let stream = client.connect_websocket().await;
         let mut socket = Self { stream };
-        socket
-            .send(json!({"action": "AUTH", "token": client.token}))
-            .await;
         socket
             .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": team_id}))
             .await;

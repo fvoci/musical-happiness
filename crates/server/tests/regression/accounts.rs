@@ -193,7 +193,7 @@ pub(crate) async fn auth(s: &mut Session) {
         .post("login on another device", &login)
         .json(json!({"type": "normal", "username": alice, "password": "test-password"}))
         .await
-        .string("token");
+        .session_token();
     s.post("change password: wrong old password", &change_password)
         .json(json!({"oldPassword": "nope", "newPassword": "new-password"}))
         .user(&alice)
@@ -202,10 +202,22 @@ pub(crate) async fn auth(s: &mut Session) {
         .json(json!({"oldPassword": "test-password", "newPassword": "short"}))
         .user(&alice)
         .await;
-    s.post("change password", &change_password)
+    let before_the_change = s.session_token(&alice);
+    let new_token = s
+        .post("change password", &change_password)
         .json(json!({"oldPassword": "test-password", "newPassword": "new-password"}))
         .user(&alice)
-        .await;
+        .keep_headers(&["Set-Cookie"])
+        .await
+        .session_token();
+    // The session the password was changed through goes on under a new token.
+    s.set_session_token(&alice, new_token);
+    s.get(
+        "me with the token from before the change",
+        &format!("{API}/users/me"),
+    )
+    .token(&before_the_change)
+    .await;
     s.get(
         "me on the other device after the change",
         &format!("{API}/users/me"),
@@ -504,5 +516,137 @@ pub(crate) async fn settings(s: &mut Session) {
     s.put("client state: remove", &bag)
         .json(json!({"deletedFields": ["theme"]}))
         .user(&alice)
+        .await;
+}
+
+/// How a session reaches the server and what keeps another site's page from using it:
+/// the cookie of a login, the request-forgery header, the origin of a request.
+pub(crate) async fn cookies(s: &mut Session) {
+    let [alice] = s.users("cookies", ["alice"]).await;
+    let login = format!("{API}/login");
+    let me = format!("{API}/users/me");
+    let boards = format!("{API}/boards");
+    let credentials = json!({"type": "normal", "username": alice, "password": "test-password"});
+    let board = json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": "made"});
+    // The address the test servers take for their own: the default `serverRoot`.
+    let own_origin = "http://localhost:8000";
+    let foreign_origin = "https://evil.example";
+
+    // -- signing in -----------------------------------------------------------------
+    let token = s
+        .post("login: the cookie and an empty body", &login)
+        .json(credentials.clone())
+        .keep_headers(&["Set-Cookie"])
+        .await
+        .session_token();
+    s.post("login: wrong password sets no cookie", &login)
+        .json(json!({"type": "normal", "username": alice, "password": "nope"}))
+        .keep_headers(&["Set-Cookie"])
+        .await;
+    s.post("login: without the header", &login)
+        .json(credentials.clone())
+        .without_csrf_header()
+        .await;
+    s.post("login: from another origin", &login)
+        .json(credentials.clone())
+        .header("Origin", foreign_origin)
+        .await;
+    s.post("login: from the own origin", &login)
+        .json(credentials.clone())
+        .header("Origin", own_origin)
+        .unrecorded()
+        .await;
+
+    // -- reading --------------------------------------------------------------------
+    s.get("read: cookie, no header", &me)
+        .token(&token)
+        .in_cookie()
+        .without_csrf_header()
+        .await;
+    s.get("read: bearer, no header", &me)
+        .token(&token)
+        .without_csrf_header()
+        .await;
+    s.get("read: cookie, another origin named", &me)
+        .token(&token)
+        .in_cookie()
+        .header("Origin", foreign_origin)
+        .await;
+    s.get(
+        "read: the token in the address",
+        &format!("{me}?access_token={token}"),
+    )
+    .await;
+    s.get("read: a cookie that is no session's", &me)
+        .token("not-a-session")
+        .in_cookie()
+        .await;
+    s.get("read: the cookie of another name", &me)
+        .header("Cookie", &format!("FVOCIAUTHTOKEN={token}"))
+        .await;
+
+    // -- changing -------------------------------------------------------------------
+    s.post("change: cookie, no header", &boards)
+        .json(board.clone())
+        .token(&token)
+        .in_cookie()
+        .without_csrf_header()
+        .await;
+    s.post("change: cookie and header", &boards)
+        .json(board.clone())
+        .token(&token)
+        .in_cookie()
+        .await;
+    s.post("change: bearer, no header", &boards)
+        .json(board.clone())
+        .token(&token)
+        .without_csrf_header()
+        .await;
+    s.post("change: cookie and header, the own origin", &boards)
+        .json(board.clone())
+        .token(&token)
+        .in_cookie()
+        .header("Origin", own_origin)
+        .await;
+    s.post("change: cookie and header, another origin", &boards)
+        .json(board.clone())
+        .token(&token)
+        .in_cookie()
+        .header("Origin", foreign_origin)
+        .await;
+    s.post("change: bearer, another origin", &boards)
+        .json(board.clone())
+        .token(&token)
+        .header("Origin", foreign_origin)
+        .await;
+    s.post("change: cookie and header, no origin to speak of", &boards)
+        .json(board.clone())
+        .token(&token)
+        .in_cookie()
+        .header("Origin", "null")
+        .await;
+    s.post(
+        "change: bearer and cookie, the bearer is no session's",
+        &boards,
+    )
+    .json(board)
+    .token("not-a-session")
+    .header("Cookie", &format!("fvoci_session={token}"))
+    .await;
+
+    // -- signing out ----------------------------------------------------------------
+    s.post("logout: cookie, no header", &format!("{API}/logout"))
+        .token(&token)
+        .in_cookie()
+        .without_csrf_header()
+        .await;
+    s.post("logout: clears the cookie", &format!("{API}/logout"))
+        .token(&token)
+        .in_cookie()
+        .keep_headers(&["Set-Cookie"])
+        .await;
+    s.get("read: after the logout", &me)
+        .token(&token)
+        .in_cookie()
         .await;
 }

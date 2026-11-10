@@ -4,9 +4,10 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::http::header::USER_AGENT;
+use axum::http::header::{SET_COOKIE, USER_AGENT};
+use axum::response::Response;
 use axum::routing::post;
-use fvoci_model::{ChangePasswordRequest, LoginRequest, LoginResponse, RegisterRequest};
+use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest};
 
 use super::{
     ApiResult, RequiredSession, decode_object, empty_response, json_response, require_admin,
@@ -69,7 +70,16 @@ async fn handle_login(State(app): State<App>, headers: HeaderMap, body: Bytes) -
             &user_agent(&headers),
         )
         .await?;
-    Ok(json_response(&LoginResponse { token }))
+    // The token goes out in the cookie only: a script of the page never sees it. A
+    // client that is no browser reads it from the `Set-Cookie` header.
+    Ok(with_session_cookie(&app, &token, empty_response()))
+}
+
+/// Adds the session cookie with the token to a response.
+fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Response {
+    let cookie = app.authenticator().session_cookie().set(token);
+    response.headers_mut().insert(SET_COOKIE, cookie);
+    response
 }
 
 async fn handle_logout(
@@ -77,7 +87,11 @@ async fn handle_logout(
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
     app.logout(&session.id).await?;
-    Ok(empty_response())
+    let mut response = empty_response();
+    response
+        .headers_mut()
+        .insert(SET_COOKIE, app.authenticator().session_cookie().clear());
+    Ok(response)
 }
 
 async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
@@ -146,7 +160,9 @@ async fn handle_change_password(
     let request: ChangePasswordRequest = decode_object(&body)?;
     request.validate()?;
 
-    app.change_password(&session, &request.old_password, &request.new_password)
+    let token = app
+        .change_password(&session, &request.old_password, &request.new_password)
         .await?;
-    Ok(empty_response())
+    // The session goes on under a new token, which replaces the old one in the cookie.
+    Ok(with_session_cookie(&app, &token, empty_response()))
 }

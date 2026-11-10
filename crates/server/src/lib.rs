@@ -23,8 +23,8 @@ use axum::body::Body;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::{OriginalUri, Request, State};
-use axum::http::header::ALLOW;
-use axum::http::{HeaderValue, Method, StatusCode, Uri};
+use axum::http::header::{ALLOW, ORIGIN, REFERRER_POLICY};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
@@ -36,8 +36,9 @@ pub use crate::tls::TlsFiles;
 
 use crate::admin_socket::AdminSocket;
 use crate::app::App;
+use crate::auth::token::Credential;
 use crate::config::Configuration;
-use crate::error::AppError;
+use crate::error::{AppError, ErrorKind};
 use crate::request_log::ClientAddress;
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
@@ -178,6 +179,7 @@ impl Server {
             ClientAddress::SocketPeer
         };
         router
+            .layer(middleware::from_fn(send_no_referrer))
             .layer(middleware::from_fn(request_log::contain_panics))
             .layer(middleware::from_fn_with_state(
                 client_address,
@@ -345,6 +347,17 @@ async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
     }
 }
 
+/// Tells browsers not to say where a request comes from when a page of this server
+/// leads elsewhere: the address of a shared board carries its read token.
+async fn send_no_referrer(request: Request, next: middleware::Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .entry(REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static("no-referrer"));
+    response
+}
+
 /// Starts the task that deletes the sessions that have ended: unused for the idle limit,
 /// or past their absolute limit. The first run is one interval after the start.
 fn start_session_clean_up(app: &App) -> RecurringTask {
@@ -386,8 +399,20 @@ fn start_trash_purge(app: &App) -> RecurringTask {
     })
 }
 
+/// The websocket endpoint. Whose connection it becomes is settled here, at the
+/// handshake, and so is whether it is accepted at all:
+///
+/// * A handshake with an `Origin` header comes from a browser. The origin must be the
+///   server's own (or one of `allowed_origins`): a browser lets any page open a
+///   websocket to any host and sends the cookies of that host along, so nothing else
+///   keeps another site's page from listening as the user. The session is the one of
+///   the cookie; without a valid one the connection is anonymous and can only follow
+///   shared boards with their read token.
+/// * A handshake without an `Origin` header comes from something that is no browser,
+///   and needs a session token in its `Authorization` header.
 async fn handle_websocket(
     State(app): State<App>,
+    headers: HeaderMap,
     upgrade: Result<WebSocketUpgrade, WebSocketUpgradeRejection>,
 ) -> Response {
     let upgrade = match upgrade {
@@ -409,12 +434,59 @@ async fn handle_websocket(
             return response;
         }
     };
+    let identity = match websocket_identity(&app, &headers).await {
+        Ok(identity) => identity,
+        Err(error) => return error.into_response(),
+    };
     // The commands a connection sends are small; a larger message is a mistake or an
     // attempt to make the server buffer it, and closes the connection.
     upgrade
         .max_message_size(api::WEBSOCKET_MESSAGE_LIMIT)
         .max_frame_size(api::WEBSOCKET_MESSAGE_LIMIT)
-        .on_upgrade(move |socket| async move { app.ws().serve(socket).await })
+        .on_upgrade(move |socket| async move { app.ws().serve(socket, identity).await })
+}
+
+/// Whose connection a websocket handshake opens; `None` for an anonymous one.
+///
+/// # Errors
+///
+/// Returns a 403 for a handshake from another origin, a 401 for one without an
+/// `Origin` header that has no valid token in its `Authorization` header, and for any
+/// handshake whose `Authorization` header carries a token that is no session's.
+async fn websocket_identity(
+    app: &App,
+    headers: &HeaderMap,
+) -> Result<Option<ws::Identity>, AppError> {
+    let auth = app.authenticator();
+    if auth.origins().foreign_origin(headers).is_some() {
+        tracing::debug!("a websocket handshake from another origin was refused");
+        return Err(api::foreign_origin());
+    }
+    let from_a_browser = headers.contains_key(ORIGIN);
+    match auth.session_cookie().credential(headers) {
+        // Sent on purpose: it is a session's, or the handshake is refused.
+        Some(Credential::Bearer(token)) => {
+            let session = auth.get_session(&token).await?.session;
+            Ok(Some(ws::Identity { session, token }))
+        }
+        Some(Credential::Cookie(token)) if from_a_browser => {
+            match auth.get_session(&token).await {
+                Ok(authenticated) => Ok(Some(ws::Identity {
+                    session: authenticated.session,
+                    token,
+                })),
+                // A cookie that outlived its session: the page may still follow a shared
+                // board.
+                Err(error) if error.kind() == ErrorKind::Unauthorized => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+        None if from_a_browser => Ok(None),
+        Some(Credential::Cookie(_)) | None => Err(AppError::unauthorized(
+            "a websocket handshake without an Origin header needs a session token in the \
+             Authorization header",
+        )),
+    }
 }
 
 async fn handle_static(State(app): State<App>, request: Request<Body>) -> Response {

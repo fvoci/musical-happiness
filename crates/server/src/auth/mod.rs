@@ -10,6 +10,7 @@ use subtle::ConstantTimeEq as _;
 
 use crate::config::Configuration;
 use crate::error::AppError;
+use token::{Origins, SessionCookie};
 
 /// How long after the last recorded use of a session its next use is recorded: ten
 /// minutes. Requests in between do not write to the database, and the idle limit is
@@ -22,17 +23,49 @@ pub struct Authenticator {
     store: Store,
     session_idle_millis: i64,
     public_shared_boards: bool,
+    cookie: SessionCookie,
+    origins: Origins,
+}
+
+/// A session a token was found to stand for.
+#[derive(Debug, Clone)]
+pub struct Authenticated {
+    /// The session.
+    pub session: Session,
+    /// Whether this lookup wrote down that the session was used, which it does when the
+    /// last record is old enough. Then is also when a browser's cookie is renewed.
+    pub use_recorded: bool,
 }
 
 impl Authenticator {
-    /// Creates an authenticator with the session lifetime and the sharing switch of the
-    /// configuration.
-    pub fn new(store: Store, config: &Configuration) -> Self {
-        Self {
+    /// Creates an authenticator with the session lifetime, the sharing switch and the
+    /// origins of the configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `serverRoot` or one of `allowed_origins` is no `http` or
+    /// `https` URL.
+    pub fn new(store: Store, config: &Configuration) -> anyhow::Result<Self> {
+        let origins = Origins::new(&config.server_root, &config.allowed_origins)
+            .map_err(anyhow::Error::msg)?;
+        let idle_millis = config.session_idle_millis();
+        Ok(Self {
             store,
-            session_idle_millis: config.session_idle_millis(),
+            session_idle_millis: idle_millis,
             public_shared_boards: config.enable_public_shared_boards,
-        }
+            cookie: SessionCookie::new(origins.https(), idle_millis / 1000),
+            origins,
+        })
+    }
+
+    /// The session cookie of this server.
+    pub fn session_cookie(&self) -> &SessionCookie {
+        &self.cookie
+    }
+
+    /// The origins whose pages may send requests that change something.
+    pub fn origins(&self) -> &Origins {
+        &self.origins
     }
 
     /// Returns the session a token belongs to, and records that it was used unless that
@@ -46,7 +79,7 @@ impl Authenticator {
     ///
     /// Returns an unauthorized error if the token is empty, unknown or of a session that
     /// has ended, and a server error if the session cannot be looked up.
-    pub async fn get_session(&self, token: &str) -> Result<Session, AppError> {
+    pub async fn get_session(&self, token: &str) -> Result<Authenticated, AppError> {
         if token.is_empty() {
             return Err(AppError::unauthorized("no session token"));
         }
@@ -71,14 +104,21 @@ impl Authenticator {
             }
         };
 
+        let mut use_recorded = false;
         if now.saturating_sub(session.last_used_at) >= SESSION_USE_RECORDING_INTERVAL_MILLIS {
             // A session that cannot be marked as used is still the caller's session.
             match self.store.touch_session(&session.id, now).await {
-                Ok(()) => session.last_used_at = now,
+                Ok(()) => {
+                    session.last_used_at = now;
+                    use_recorded = true;
+                }
                 Err(error) => tracing::warn!(%error, "unable to record the use of the session"),
             }
         }
-        Ok(session)
+        Ok(Authenticated {
+            session,
+            use_recorded,
+        })
     }
 
     /// Returns whether `read_token` grants read access to a shared board.

@@ -69,6 +69,8 @@ impl ErrorKind {
 pub enum Reason {
     /// The request lacks the header of the cross-site request check.
     Csrf,
+    /// The request, or the websocket handshake, comes from a page of another origin.
+    ForeignOrigin,
     /// The user name, email address or password of a login is wrong.
     InvalidCredentials,
     /// Registration needs the signup token, and the request has none.
@@ -92,6 +94,7 @@ impl Reason {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Csrf => "csrf",
+            Self::ForeignOrigin => "foreign_origin",
             Self::InvalidCredentials => "invalid_credentials",
             Self::SignupTokenRequired => "signup_token_required",
             Self::SignupTokenInvalid => "signup_token_invalid",

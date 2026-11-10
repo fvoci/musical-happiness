@@ -98,10 +98,15 @@ async fn user_login_with_registered_user() {
         )
         .await;
 
-    let token = response.ok_json::<serde_json::Value>()["token"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    response.check_ok();
+    assert_eq!(
+        response.value(),
+        json!({}),
+        "the body of a login carries no token: a script of the page never sees it"
+    );
+    let token = response
+        .session_cookie()
+        .expect("the token comes in the session cookie");
     assert_eq!(
         token.len(),
         fvoci_server::auth::secret::SECRET_LENGTH,
@@ -447,7 +452,8 @@ async fn app_change_password_cases() {
         .authenticator()
         .get_session(&th.client.token)
         .await
-        .expect("the first client has a session");
+        .expect("the first client has a session")
+        .session;
 
     // "fail, missing login information" and "fail, invalid userId": a session of nobody,
     // and one of a user who is not there.
@@ -543,53 +549,6 @@ async fn logout_ends_the_session() {
     th.client.get("/users/me").await.check_unauthorized();
     // The other user's session is untouched.
     th.client2.get("/users/me").await.check_ok();
-    th.teardown().await;
-}
-
-/// The session token is accepted from the cookie, both authorization schemes and the
-/// query, as in `server/services/auth/request_parser.go`.
-#[tokio::test]
-async fn session_token_locations() {
-    let th = Setup::native().start().await.init_basic().await;
-    let token = th.client.token.clone();
-    let anonymous = th.anonymous();
-    let request = || anonymous.request(reqwest::Method::GET, "/users/me");
-
-    let by_cookie = request().header("Cookie", format!("FVOCIAUTHTOKEN={token}"));
-    assert_eq!(
-        crate::common::Client::send(by_cookie).await.status,
-        StatusCode::OK,
-        "cookie"
-    );
-    let by_bearer = request().header("Authorization", format!("Bearer {token}"));
-    assert_eq!(
-        crate::common::Client::send(by_bearer).await.status,
-        StatusCode::OK,
-        "bearer"
-    );
-    let by_token = request().header("Authorization", format!("token {token}"));
-    assert_eq!(
-        crate::common::Client::send(by_token).await.status,
-        StatusCode::OK,
-        "token scheme"
-    );
-    let by_query = anonymous.request(
-        reqwest::Method::GET,
-        &format!("/users/me?access_token={token}"),
-    );
-    assert_eq!(
-        crate::common::Client::send(by_query).await.status,
-        StatusCode::OK,
-        "query"
-    );
-
-    let wrong = request().header("Authorization", "Bearer not-a-session");
-    assert_eq!(
-        crate::common::Client::send(wrong).await.status,
-        StatusCode::UNAUTHORIZED,
-        "an unknown token"
-    );
-
     th.teardown().await;
 }
 
@@ -1231,14 +1190,24 @@ async fn changing_the_password_ends_the_other_sessions_of_the_user() {
     .check_bad_request();
     phone.get("/users/me").await.check_ok();
 
-    here.post(
-        &format!("/users/{}/changepassword", me.id),
-        &json!({"oldPassword": PASSWORD, "newPassword": "another password"}),
-    )
-    .await
-    .check_ok();
+    let changed = here
+        .post(
+            &format!("/users/{}/changepassword", me.id),
+            &json!({"oldPassword": PASSWORD, "newPassword": "another password"}),
+        )
+        .await;
+    changed.check_ok();
 
-    here.get("/users/me").await.check_ok();
+    // The session the change came through goes on, under a new token.
+    let new_token = changed
+        .session_cookie()
+        .expect("the answer sets the cookie anew");
+    assert_ne!(new_token, here.token, "a new token");
+    here.get("/users/me").await.check_unauthorized();
+    th.client_with_token(&new_token)
+        .get("/users/me")
+        .await
+        .check_ok();
     for (client, device) in [(&phone, "phone"), (&tablet, "tablet")] {
         let response = client.get("/users/me").await;
         assert_eq!(

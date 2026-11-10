@@ -251,7 +251,8 @@ impl App {
 
     /// Changes a user's password after checking the old one, and ends the user's other
     /// sessions: whoever else knew the old password is signed out. The session the
-    /// change came through stays.
+    /// change came through stays, under a new token, which is returned: what the session
+    /// can do has changed, and the token it had is no longer accepted.
     ///
     /// # Errors
     ///
@@ -262,7 +263,7 @@ impl App {
         session: &Session,
         old_password: &str,
         new_password: &str,
-    ) -> Result<(), AppError> {
+    ) -> Result<String, AppError> {
         let user = self.store().get_user_by_id(&session.user_id).await?;
         let right = old_password.len() <= MAXIMUM_PASSWORD_BYTES
             && verify(&user.password_hash, old_password).await? != Verdict::Mismatch;
@@ -272,13 +273,19 @@ impl App {
                 .with_reason(Reason::InvalidCredentials)
                 .with_field("oldPassword"));
         }
+        let token = new_secret();
         self.store()
-            .change_user_password(&user.id, &hash(new_password).await?, &session.id)
+            .change_user_password(
+                &user.id,
+                &hash(new_password).await?,
+                &session.id,
+                &token_digest(&token),
+            )
             .await
             .map_err(|error| AppError::from(error).context("unable to update password"))?;
         self.ws()
             .close_other_sessions_of_user(&user.id, &session.id);
-        Ok(())
+        Ok(token)
     }
 }
 

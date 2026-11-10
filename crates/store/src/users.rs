@@ -292,9 +292,11 @@ impl Store {
 
     /// Sets the password hash of the user with the given identifier and deletes their
     /// sessions, except the one named: the session the password was changed through
-    /// stays, every other device has to sign in again with the new password.
+    /// stays, every other device has to sign in again with the new password. The
+    /// session that stays is found under `kept_session_token_digest` from then on: what
+    /// it could do has changed, so its old token is no longer accepted.
     ///
-    /// Either both happen or neither does.
+    /// All of it happens or none.
     ///
     /// # Errors
     ///
@@ -304,10 +306,12 @@ impl Store {
         user_id: &str,
         password_hash: &str,
         kept_session_id: &str,
+        kept_session_token_digest: &str,
     ) -> Result<(), StoreError> {
         self.transaction(async |scope| {
             update_password(scope, Lookup::Id(user_id), password_hash).await?;
-            sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await
+            sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await?;
+            sessions::replace_token_digest(scope, kept_session_id, kept_session_token_digest).await
         })
         .await
     }

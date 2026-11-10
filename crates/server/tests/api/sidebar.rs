@@ -2739,18 +2739,12 @@ async fn next_message(stream: &mut Stream, wait: Duration) -> Option<Value> {
 
 /// A socket of the first client's user, subscribed to the team.
 async fn subscribed_socket(th: &TestServer, team_id: &str, user_id: &str) -> Stream {
-    let (mut stream, _) = tokio_tungstenite::connect_async(th.client.websocket_url())
+    let mut stream = th.client.connect_websocket().await;
+    let command = json!({"action": "SUBSCRIBE_TEAM", "teamId": team_id});
+    stream
+        .send(Message::Text(command.to_string().into()))
         .await
-        .expect("the websocket endpoint accepts the connection");
-    for command in [
-        json!({"action": "AUTH", "token": th.client.token}),
-        json!({"action": "SUBSCRIBE_TEAM", "teamId": team_id}),
-    ] {
-        stream
-            .send(Message::Text(command.to_string().into()))
-            .await
-            .expect("the command is sent");
-    }
+        .expect("the command is sent");
     // Commands are not acknowledged: wait until a broadcast comes through.
     let probe = category(team_id, user_id, "subscription probe");
     for _ in 0..50 {

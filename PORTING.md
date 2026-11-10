@@ -259,7 +259,7 @@ S6에서 새로 본 것:
 | `224ef584` | **관리자(3.6).** 아래 "관리자에서 바뀐 것" | 426 → 455단계(새 시나리오 `admins` 29단계). 기존 단계 가운데 8단계, 본문만 |
 | `b53d518e` | **서버가 만드는 공유 토큰(3.8).** 아래 "공유 토큰에서 바뀐 것" | 455 → 470단계(시나리오 `sharing`에 15단계). 기존 단계 가운데 11단계, 본문만 |
 | `ef9a8d96` | **사용자 표시 설정(5.8).** 아래 "표시 설정에서 바뀐 것" | 470 → 500단계(새 시나리오 `settings` 30단계). 기존 단계 가운데 4단계, 본문만 |
-| (이 커밋) | **최소 역할(5.10).** 아래 "최소 역할에서 바뀐 것" | 500 → 514단계(시나리오 `members`에 14단계). 기존 단계 가운데 62단계, 본문만 |
+| `7b845798` | **최소 역할(5.10).** 아래 "최소 역할에서 바뀐 것" | 500 → 514단계(시나리오 `members`에 14단계). 기존 단계 가운데 62단계, 본문만 |
 
 **UUIDv7과 비밀 값에서 바뀐 것.**
 
@@ -302,6 +302,26 @@ S6에서 새로 본 것:
 | 가입·비밀번호 요청의 검증 오류가 `field`를 싣는다(`username`, `email`, `password`, `oldPassword`, `newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field` |
 
 스냅샷: `auth` 시나리오에 세 단계를 더했다(다른 기기에서 로그인, 비밀번호 변경 뒤 그 기기의 401, 바꾼 세션의 200). 본문이 바뀐 일곱 단계는 `field`가 붙은 여섯과 길이 한도의 문구 하나다. 아카이브 항목 이름의 정렬이 무작위 파일 이름에 흔들리지 않게 하네스의 정렬 기준을 고쳤다. 의존성: `argon2` 0.6, `sha2` 0.11을 더하고 `bcrypt`를 뺐다(`NOTICE` 다시 생성, `cargo deny` 통과). 검증: `cargo xtask check` 여섯 단계 PASS, `cargo xtask test` SQLite 790건·PostgreSQL 697건·S3 1건, 실패 0.
+
+### H. 구현 4단계: 인증 전달 (2026-11-10 23:04 KST)
+
+설계 5.1(쿠키)과 5.4의 3번(비밀번호를 바꾼 세션에 새 토큰)을 구현했다. 커밋 하나다.
+
+| 바뀐 것 | 왜 | 어디 |
+|---|---|---|
+| **로그인이 세션 쿠키를 설정하고 본문에는 토큰이 없다**(본문은 `{}`). 쿠키는 `HttpOnly; SameSite=Lax; Path=/`이고 `Max-Age`는 한가함 한도다. `serverRoot`가 `https`이면 이름이 `__Host-fvoci_session`이고 `Secure`가 붙는다. `http`이면 `fvoci_session`이다. 각 모드는 자기 이름의 쿠키만 읽는다. 로그아웃은 `Max-Age=0`으로 지운다. `securecookie` 설정은 없다(값이 있으면 시작 오류) | 설계 5.1의 1–3번. 페이지의 스크립트가 토큰을 볼 길이 없다 | `auth::token::SessionCookie`, `api/auth.rs` |
+| **토큰을 받는 길은 둘이다:** `Authorization: Bearer <토큰>`과 세션 쿠키. 둘 다 오면 헤더를 쓴다(헤더의 토큰이 세션이 아니면 쿠키가 유효해도 401). 브라우저가 아닌 클라이언트는 로그인 응답의 `Set-Cookie`에서 토큰을 읽어 헤더로 보낸다. **없앤 길:** 쿼리의 `access_token`(주소가 로그와 기록에 남는다), `token` 스킴, 옛 쿠키 이름 `FVOCIAUTHTOKEN` | 설계 5.1의 3번. 쿼리의 토큰은 설계가 남기기로 한 길에 없다 | `auth::token::{Credential, bearer_token}` |
+| **위조 방지 검사의 범위.** 안전하지 않은 메서드(`GET`·`HEAD`·`OPTIONS` 밖)에만 한다. (1) `Origin`이 있으면 `serverRoot`의 출처이거나 `allowed_origins`의 하나여야 한다. 아니면 403 `foreign_origin`. (2) `Authorization: Bearer`가 없으면 `X-Requested-With: XMLHttpRequest`가 있어야 한다. 아니면 403 `csrf`. `GET`은 헤더 없이 된다(이미지 태그와 링크) | 설계 5.1의 4·7번 | `api::guard_against_forgery`, `auth::token::Origins` |
+| **설계와 다른 점 둘.** 헤더는 "쿠키로 인증된" 요청이 아니라 "Bearer가 없는" 요청에 요구한다: 세션이 없는 로그인·가입도 포함된다(위조된 로그인은 브라우저를 공격자의 계정에 로그인시킨다). `Origin` 검사는 Bearer로 인증한 요청에도 한다(다른 출처의 페이지가 그 토큰을 보낼 이유가 없다) | 더 엄격한 쪽으로 정했다. 브라우저가 아닌 클라이언트는 `Origin`을 보내지 않아 영향이 없다 | 같은 곳 |
+| **쿠키의 갱신.** 세션의 사용을 기록하는 요청(마지막 기록에서 10분이 지난 첫 요청)의 응답에 쿠키를 `Max-Age`를 채워 다시 준다. 쿠키로 온 요청에만 한다 | 설계 5.1의 1번, 5.4. 브라우저가 쿠키를 잊는 때가 서버가 세션을 끝내는 때와 맞는다 | `api::session::{renew_session_cookie, CookieRenewal}` |
+| **비밀번호를 바꾼 세션은 새 토큰을 받는다.** 응답이 쿠키를 다시 설정하고 옛 토큰은 401이다. 다른 세션이 끝나는 것은 전과 같다. 비밀번호 변경, 다른 세션 삭제, 토큰 교체가 한 트랜잭션이다 | 설계 5.4의 3번 | `Store::change_user_password`, `App::change_password` |
+| **WebSocket은 핸드셰이크에서 인증한다.** `AUTH` 메시지는 없다(와도 모르는 동작으로 무시한다). `Origin`이 있으면 허용된 출처여야 하고 아니면 403 `foreign_origin`. 세션은 쿠키의 것이다. 쿠키가 없거나 세션이 아니면 익명 연결이다(공유 보드의 블록만 읽기 토큰으로 구독한다). `Origin`이 없으면 `Authorization: Bearer`가 있어야 하고(없으면 401) 그 토큰은 세션이어야 한다. Bearer 토큰이 세션이 아니면 출처가 맞아도 401이다 | 설계 5.1의 5번. 브라우저는 아무 페이지나 WebSocket을 열게 두고 쿠키를 싣는다 | `lib.rs`의 `websocket_identity`, `ws::Identity` |
+| **파일 응답의 헤더.** `Content-Security-Policy: sandbox; frame-ancestors 'none'`(전에는 `Frame-ancestors 'none'`만). 모든 응답에 `Referrer-Policy: no-referrer` | 설계 5.1의 7·8번. 올린 SVG·HTML을 문서로 열어도 스크립트와 출처가 없다. 공유 보드의 주소(읽기 토큰)가 다른 사이트로 새지 않는다 | `api/files.rs`, `lib.rs`의 `send_no_referrer` |
+| 설정 `allowed_origins`(목록, 기본 빈 값): `serverRoot`의 출처 말고 더 받을 출처. 개발용이다. `serverRoot`와 이 목록이 `http`·`https` 주소가 아니면 시작 오류다 | 설계 5.1의 5번 | `config.rs` |
+
+**스냅샷.** 514 → 536단계. 새 시나리오 `cookies`(21단계)가 로그인의 쿠키와 빈 본문, 읽기와 바꾸기에서의 헤더·출처 규칙, 없앤 길, 로그아웃을 고정한다. `auth`에 1단계(비밀번호를 바꾸기 전의 토큰이 401). 기존 단계 가운데 8단계가 바뀌었고 상태 코드는 하나다: 헤더 없는 `GET /clientConfig`가 403에서 200으로. 나머지는 본문·헤더다(로그인 본문의 `token`이 없어졌고, 파일의 CSP가 바뀌었다). 권한 표 636칸은 그대로다. 회귀 하네스는 로그인의 `Set-Cookie`에서 토큰을 읽고, 단계마다 Bearer와 쿠키를 골라 보낼 수 있다. 쿠키의 토큰은 `<secret:N>`으로 정규화된다.
+
+**테스트.** API `cookies::*` 10개(쿠키의 속성, HTTPS의 이름, 로그아웃, 헤더 검사, 출처 검사, 헤더와 쿠키의 우선순위, 갱신, 비밀번호 변경, 파일을 쿠키만으로 읽기와 헤더, WebSocket 핸드셰이크의 출처와 세션 조합), `websocket::a_message_does_not_sign_a_connection_in`, 단위 `auth::token::tests` 7개.
 
 **최소 역할에서 바뀐 것.** (2026-11-10 22:44 KST)
 

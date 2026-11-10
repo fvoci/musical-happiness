@@ -329,9 +329,7 @@ enum Outcome {
 /// Sends one text message of `length` bytes and says whether the connection is still
 /// there afterwards.
 async fn after_a_message_of(th: &TestServer, length: usize) -> Outcome {
-    let (mut stream, _) = tokio_tungstenite::connect_async(th.client.websocket_url())
-        .await
-        .expect("the websocket endpoint accepts the connection");
+    let mut stream = th.client.connect_websocket().await;
     // No command, so the server has nothing to do with it but read it.
     let text = json_of_length(length);
     if stream.send(Message::Text(text.into())).await.is_err() {

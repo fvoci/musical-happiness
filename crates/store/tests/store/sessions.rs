@@ -384,14 +384,23 @@ async fn change_user_password_keeps_one_session_and_ends_the_others() {
     }
 
     store
-        .change_user_password(&alice, "new-hash", &kept.id)
+        .change_user_password(&alice, "new-hash", &kept.id, "alice-here-anew")
         .await
         .expect("the password is changed");
 
     assert!(
-        is_valid(store, "alice-here", T0 + 1, T0 - 1).await,
-        "the session the change came through stays"
+        is_valid(store, "alice-here-anew", T0 + 1, T0 - 1).await,
+        "the session the change came through stays, under its new token"
     );
+    assert!(
+        !is_valid(store, "alice-here", T0 + 1, T0 - 1).await,
+        "and is no longer found under the old one"
+    );
+    let kept_now = store
+        .get_session("alice-here-anew", T0 + 1, T0 - 1)
+        .await
+        .expect("the session is read");
+    assert_eq!(kept_now.id, kept.id, "the same session");
     for digest in ["alice-phone", "alice-old"] {
         assert!(
             !is_valid(store, digest, T0 + 1, T0 - 1).await,
@@ -410,7 +419,7 @@ async fn change_user_password_keeps_one_session_and_ends_the_others() {
 
     // A user who is not there: an error, and no session is touched.
     let error = store
-        .change_user_password(&new_id(), "hash", &kept.id)
+        .change_user_password(&new_id(), "hash", &kept.id, "unused")
         .await
         .expect_err("no such user");
     assert!(
@@ -418,8 +427,12 @@ async fn change_user_password_keeps_one_session_and_ends_the_others() {
         "got {error:?}"
     );
     assert!(
-        is_valid(store, "alice-here", T0 + 1, T0 - 1).await,
-        "untouched"
+        is_valid(store, "alice-here-anew", T0 + 1, T0 - 1).await,
+        "untouched: the session is where it was"
+    );
+    assert!(
+        !is_valid(store, "unused", T0 + 1, T0 - 1).await,
+        "and not under the token of the refused change"
     );
 
     test.teardown().await;

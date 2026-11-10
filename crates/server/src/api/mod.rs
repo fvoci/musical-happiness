@@ -32,7 +32,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::header::CACHE_CONTROL;
-use axum::http::{HeaderMap, HeaderValue};
+use axum::http::{HeaderValue, Method};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -57,8 +57,10 @@ use crate::app::{App, ChangeNotification};
 use crate::error::{AppError, Reason};
 use fvoci_store::DuplicateAs;
 
-/// The header every API request must carry, and its value. A browser does not let another
-/// site's page set it, which is the API's protection against cross-site request forgery.
+/// The header that shows a request was sent by a script of the server's own pages, and
+/// its value. A browser does not let another site's page set it, which is one half of
+/// the API's protection against cross-site request forgery; see
+/// [`guard_against_forgery`].
 const HEADER_REQUESTED_WITH: &str = "X-Requested-With";
 const HEADER_REQUESTED_WITH_XML: &str = "XMLHttpRequest";
 
@@ -67,8 +69,8 @@ pub(crate) type ApiResult = Result<Response, AppError>;
 
 /// The routes under `/api/v2`.
 ///
-/// Every route checks the cross-site request forgery header, and responses are marked as
-/// not cacheable unless a handler set its own policy. Request bodies are limited: to
+/// Every request that changes something is checked for cross-site request forgery, and
+/// responses are marked as not cacheable unless a handler set its own policy. Request bodies are limited: to
 /// `max_request_bytes` where a route takes JSON and the request has a session, to less
 /// where no session is needed, none is claimed, or the claimed one does not exist. The
 /// routes that take files are outside these limits.
@@ -119,7 +121,14 @@ pub fn router(app: &App) -> Router<App> {
         // shape; the framework's limit of 2 MB on what an extractor reads would cut in
         // below them with an answer of its own.
         .layer(DefaultBodyLimit::disable())
-        .route_layer(middleware::from_fn(require_csrf_header))
+        .route_layer(middleware::from_fn_with_state(
+            app.clone(),
+            session::renew_session_cookie,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            app.clone(),
+            guard_against_forgery,
+        ))
         .route_layer(middleware::from_fn(mark_not_cacheable))
 }
 
@@ -143,12 +152,47 @@ pub fn admin_router() -> Router<App> {
         .layer(DefaultBodyLimit::disable())
 }
 
-async fn require_csrf_header(request: Request, next: Next) -> Response {
-    let header = request
-        .headers()
-        .get(HEADER_REQUESTED_WITH)
-        .and_then(|value| value.to_str().ok());
-    if header == Some(HEADER_REQUESTED_WITH_XML) {
+/// Refuses requests that another site's page may have made a browser send.
+///
+/// A browser sends the session cookie along by itself, so a request that comes with it
+/// must show that the server's own pages sent it. Two things show that, and a request
+/// that changes something needs both:
+///
+/// * If it has an `Origin` header, the origin is the server's own (or one of
+///   `allowed_origins`). Browsers set the header on such requests and scripts cannot
+///   change it.
+/// * It has the header `X-Requested-With: XMLHttpRequest`, which a page of another site
+///   cannot add without the server's leave, and no leave is given. A request with a
+///   token in its `Authorization` header needs none: no browser adds that header by
+///   itself.
+///
+/// `GET` and `HEAD` requests change nothing and are not checked: an image or a link can
+/// point at the API. A request without any session is checked like one with the cookie:
+/// a forged login would sign the browser in to somebody else's account.
+pub(crate) async fn guard_against_forgery(
+    State(app): State<App>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if is_safe(request.method()) {
+        return next.run(request).await;
+    }
+    let headers = request.headers();
+    if app
+        .authenticator()
+        .origins()
+        .foreign_origin(headers)
+        .is_some()
+    {
+        tracing::debug!("a request from another origin was refused");
+        return foreign_origin().into_response();
+    }
+    let sent_on_purpose = crate::auth::token::bearer_token(headers).is_some()
+        || headers
+            .get(HEADER_REQUESTED_WITH)
+            .and_then(|value| value.to_str().ok())
+            == Some(HEADER_REQUESTED_WITH_XML);
+    if sent_on_purpose {
         next.run(request).await
     } else {
         tracing::debug!("a request without the X-Requested-With header was refused");
@@ -156,6 +200,18 @@ async fn require_csrf_header(request: Request, next: Next) -> Response {
             .with_reason(Reason::Csrf)
             .into_response()
     }
+}
+
+/// Whether a request of this method changes nothing.
+fn is_safe(method: &Method) -> bool {
+    matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS)
+}
+
+/// The refusal of a request, or of a websocket handshake, that a page of another origin
+/// sent.
+pub(crate) fn foreign_origin() -> AppError {
+    AppError::forbidden("requests from this origin are not accepted")
+        .with_reason(Reason::ForeignOrigin)
 }
 
 /// Runs the rest of the request as a task of its own, so that it finishes even if the
@@ -243,11 +299,4 @@ pub(crate) async fn has_valid_read_token(app: &App, query: Option<&str>, board_i
             false
         }
     }
-}
-
-/// Returns the session token a request carries, if any.
-pub(crate) fn request_token(headers: &HeaderMap, query: Option<&str>) -> String {
-    crate::auth::token::parse_auth_token(headers, query)
-        .map(|(token, _)| token)
-        .unwrap_or_default()
 }

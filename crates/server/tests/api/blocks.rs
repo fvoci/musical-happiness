@@ -284,13 +284,8 @@ impl Socket {
     /// returns once the server has acted on the subscription. Commands have no
     /// acknowledgement, so the wait is for a broadcast to the user to come through.
     async fn subscribed_to_team(th: &TestServer, client: &Client, team_id: &str) -> Self {
-        let (stream, _) = tokio_tungstenite::connect_async(client.websocket_url())
-            .await
-            .expect("the websocket endpoint accepts the connection");
+        let stream = client.connect_websocket().await;
         let mut socket = Self { stream };
-        socket
-            .send(json!({"action": "AUTH", "token": client.token}))
-            .await;
         socket
             .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": team_id}))
             .await;
