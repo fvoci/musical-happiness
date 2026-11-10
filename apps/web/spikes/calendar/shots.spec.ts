@@ -1,6 +1,8 @@
 /**
  * The pictures of docs/calendar-proposal.md. Not a test: it writes PNG files
- * into docs/calendar/, and runs only when asked for.
+ * into `target/screens/spikes/calendar/` at the top of the repository (not
+ * committed; the pictures in docs/calendar/ stay as they are), and runs only
+ * when asked for.
  *
  *   FVOCI_CALENDAR_SHOTS=1 pnpm --filter web run spikes:e2e calendar/shots --project desktop
  *
@@ -23,7 +25,7 @@ import { SCREENS, SIZES, addressOf, type ScreenId, type Variant } from './params
 import { NOW, PAGE, settled } from './support.ts';
 
 const ENABLED = process.env.FVOCI_CALENDAR_SHOTS === '1';
-const OUT = path.resolve(import.meta.dirname, '../../docs/calendar');
+const OUT = path.resolve(import.meta.dirname, '../../../../target/screens/spikes/calendar');
 
 type Size = keyof typeof SIZES;
 

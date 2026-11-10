@@ -753,7 +753,7 @@ WOFF2만 싣는 방법: KaTeX의 스타일시트는 글꼴마다 WOFF2·WOFF·TT
 - **수식**은 글자 색(`currentColor`)으로 그려진다. KaTeX의 스타일시트에 색이 없는 것을 테스트가 본다. 브라우저 테스트가 두 화면에서 수식의 색이 문단의 글자 색과 같은 것을 확인한다.
 - **다이어그램**의 색은 토큰에서 읽는다(`diagram.ts`의 `PALETTE`, `SERIES`). 토큰은 oklch라 라이브러리(색 계산에 `khroma`를 쓴다)가 읽지 못하므로, 캔버스에 한 점을 칠하고 그 점을 읽어 `#rrggbb`로 넘긴다. 반투명 토큰은 바탕 위에 칠한다. 읽을 수 없는 브라우저에서는 라이브러리의 `neutral` 테마로 물러난다. 루트 요소의 `class`가 바뀌면(밝기가 바뀌면) 편집기와 표시기의 모든 다이어그램을 다시 그린다. 브라우저 테스트가 노드의 채움이 두 화면 모두에서 `--muted`와 같은 색이고 밝기를 바꾸면 그림이 새로 그려지는 것을 확인한다.
 - **대비**(표시기, 예제 `embeds`, 브라우저에서 잰 값): 밝은 화면에서 수식 19.8:1, 노드의 라벨 18.2:1, 선 5.5:1. 어두운 화면에서 19.0:1, 14.5:1, 7.7:1. 테스트는 글자 4.5:1, 선 3:1 이상을 요구한다.
-- 스크린샷: `docs/screens/editor/`의 `view-light.png`, `view-dark.png`, `editor-light.png`, `editor-dark.png`(1280×900, 예제 `embeds`). 다시 찍으려면 `FVOCI_EDITOR_SHOTS=1 FVOCI_SPIKES_PORT=<포트> pnpm --filter web run spikes:e2e editor/embeds --project desktop`. 평소의 실행은 찍지 않는다(기기의 글꼴에 달린 산출물이다).
+- 스크린샷: `docs/screens/editor/`의 `view-light.png`, `view-dark.png`, `editor-light.png`, `editor-dark.png`(1280×900, 예제 `embeds`). 다시 찍으면 커밋하지 않는 `target/screens/spikes/editor/`에 생긴다(2026-11-11부터). 다시 찍으려면 `FVOCI_EDITOR_SHOTS=1 FVOCI_SPIKES_PORT=<포트> pnpm --filter web run spikes:e2e editor/embeds --project desktop`. 평소의 실행은 찍지 않는다(기기의 글꼴에 달린 산출물이다).
 
 ### 편집기와 표시기의 비교에 더한 것
 

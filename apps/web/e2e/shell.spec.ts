@@ -23,6 +23,7 @@ import {
   strip,
   topBar,
 } from './shell.support.ts';
+import { screensDir } from './screens.ts';
 
 test('the app starts and requests only hashed, compressed files', async ({ page }) => {
   const errors: string[] = [];
@@ -312,7 +313,7 @@ test.describe('the edges the device keeps', () => {
 });
 
 /**
- * Pictures of the shell for docs/screens/shell: each screen at the stage of
+ * Pictures of the shell, into `target/screens/shell/` (`e2e/screens.ts`): each screen at the stage of
  * the project, on the light and on the dark screen. Not part of a usual run:
  *
  *   FVOCI_SCREENS=1 pnpm exec playwright test e2e/shell.spec.ts -g pictures
@@ -320,7 +321,7 @@ test.describe('the edges the device keeps', () => {
 test.describe('pictures', () => {
   test.skip(!process.env.FVOCI_SCREENS, 'only when FVOCI_SCREENS is set');
 
-  const FOLDER = path.join(import.meta.dirname, '../docs/screens/shell');
+  const FOLDER = screensDir('shell');
 
   /** What is put on the screen before each picture is taken. */
   const SCREENS: Record<string, (page: Page) => Promise<void>> = {

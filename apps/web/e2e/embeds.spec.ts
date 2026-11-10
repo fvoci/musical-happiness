@@ -8,11 +8,13 @@
  * where it can be tested widely: spikes/editor/attacks.spec.ts and the unit
  * tests. Here is only that the assembled app, with the policy, draws them.
  *
- * `FVOCI_SCREENS=1` also takes the pictures docs/screens/card/embeds-*.
+ * `FVOCI_SCREENS=1` also takes the pictures `embeds-*`, into
+ * `target/screens/card/` (`e2e/screens.ts`).
  */
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { screensDir } from './screens.ts';
 
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
 interface DevBackend {
@@ -180,7 +182,7 @@ const STAGE_OF_PROJECT: Record<string, string> = {
 test.describe('pictures of a formula and a diagram', () => {
   test.skip(!process.env.FVOCI_SCREENS, 'set FVOCI_SCREENS=1 to take the pictures');
 
-  const SCREENS = path.resolve(import.meta.dirname, '../docs/screens/card');
+  const SCREENS = screensDir('card');
 
   for (const scheme of ['light', 'dark'] as const) {
     test(`a card with a formula and a diagram (${scheme})`, async ({ page }, testInfo) => {

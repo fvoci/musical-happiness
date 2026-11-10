@@ -8,11 +8,13 @@
  * behind it draws its cards. The tests that are about coming from the board
  * (back closes, the focus returns) press a card on the board instead.
  *
- * `FVOCI_SCREENS=1` also takes the pictures of docs/screens/card/.
+ * `FVOCI_SCREENS=1` also takes the pictures of the card, into
+ * `target/screens/card/` (`e2e/screens.ts`).
  */
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { screensDir } from './screens.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
 // other work they have run past the default of thirty seconds without anything
@@ -1193,7 +1195,7 @@ test.describe('in Korean', () => {
 test.describe('pictures of the card', () => {
   test.skip(!process.env.FVOCI_SCREENS, 'set FVOCI_SCREENS=1 to take the pictures');
 
-  const SCREENS = path.resolve(import.meta.dirname, '../docs/screens/card');
+  const SCREENS = screensDir('card');
 
   for (const scheme of ['light', 'dark'] as const) {
     test(`the card, its menu, a picker and a conflict (${scheme})`, async ({ page }, testInfo) => {

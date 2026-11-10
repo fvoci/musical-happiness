@@ -18,6 +18,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { screensDir } from './screens.ts';
 
 interface StoredView {
   id: string;
@@ -1109,7 +1110,8 @@ test.describe('while the window changes size', () => {
 });
 
 /**
- * The pictures of docs/screens/view-header/: every scene at the stage of the
+ * The pictures of the view header, into `target/screens/view-header/`
+ * (`e2e/screens.ts`): every scene at the stage of the
  * project that runs, light and dark. Only with `FVOCI_SCREENS=1`:
  *
  *   FVOCI_SCREENS=1 pnpm exec playwright test e2e/view-header.spec.ts -g pictures
@@ -1122,7 +1124,7 @@ test.describe('pictures', () => {
     middle: 'medium',
     desktop: 'expanded',
   };
-  const directory = path.resolve(import.meta.dirname, '../docs/screens/view-header');
+  const directory = screensDir('view-header');
 
   type Scene = (page: Page) => Promise<void>;
   const SCENES: Record<string, Scene> = {

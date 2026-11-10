@@ -25,40 +25,39 @@
 - [x] 7. 카드 지우기와 휴지통에서 되살리기(실행 취소로. 휴지통 화면은 없다)
 - [x] 8. 카드 상세에서도 지울 때 묻지 않는다
 - [x] 9. 표시 설정의 이름 `theme`, `haptics`
-- [ ] 10. 스크린샷을 커밋하지 않는 폴더에 찍는다
+- [x] 10. 스크린샷을 커밋하지 않는 폴더(`target/screens/`)에 찍는다
 
 ## 어디에 무엇이 있는가
 
-| 알고 싶은 것                                     | 있는 곳                                                                                        |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| 무엇을 왜 그렇게 했는가, 고정한 판, 미결 사항    | `PORTING.md`                                                                                   |
-| 화면 조립에서 한 일의 목록                       | `PORTING.md`의 "화면 조립: 서버의 계약 없이, 메모리 구현 위에서"                               |
-| 그 전에 한 일의 목록                             | `PORTING.md`의 "서버의 계약을 기다리며 한 것"                                                  |
-| 묻지 않고 스스로 정한 것, 검토에서 남긴 것       | `docs/decisions.md`                                                                            |
-| 서버에 대해 가정한 것과 물을 것                  | `docs/contract-assumptions.md`                                                                 |
-| 모바일 화면 안, 경계 값, 질문 36개와 그 결정     | `docs/mobile-proposal.md`(결정은 "결정" 절), 그림은 `docs/mobile/`                             |
-| 캘린더 뷰의 안, 질문 24개                        | `docs/calendar-proposal.md`, 그림은 `docs/calendar/`                                           |
-| 조립된 화면의 그림                               | `docs/screens/<화면>/`                                                                         |
-| 글꼴의 결정과 수치                               | `PORTING.md`의 "글꼴"                                                                          |
-| 날짜 값의 와이어, 지역 설정의 값                 | `PORTING.md`의 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대: 계정 설정"                   |
-| 번역 결정, 한국어 검수 표                        | `docs/i18n-conversion.md`, `docs/ko-review.md`                                                 |
-| 템플릿 산출물과 바뀐 곳                          | `tools/templates/output/README.md`, `CHANGES.md`                                               |
-| 편집기, 읽기 전용 표시기, 번들 크기              | `docs/spike-editor.md`(표시기는 9절, 창 크기는 6.5절, 수식과 다이어그램은 10절)                |
-| 드래그의 결정 1–11, 공개 형태, 창 크기가 바뀔 때 | `docs/spike-drag.md`                                                                           |
-| 속성 편집기, 카드 상세와 원본 테스트의 대응      | `docs/properties-test-mapping.md`, `docs/card-test-mapping.md`, `src/lib/components/README.md` |
-| 빌드의 `.zst`, 원본 폴더 없이 도는 것            | `docs/build-notes.md`                                                                          |
-| 화면 크기의 세 단계라는 방침                     | `PORTING.md`의 "화면 크기의 세 단계", 저장소 밖의 계획 `~/.claude/plans/fvoci-web-svelte.md`   |
-| 도구의 위치, 화면을 띄우는 법, 함정              | 이 문서                                                                                        |
+| 알고 싶은 것                                     | 있는 곳                                                                                                          |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| 무엇을 왜 그렇게 했는가, 고정한 판, 미결 사항    | `PORTING.md`                                                                                                     |
+| 화면 조립에서 한 일의 목록                       | `PORTING.md`의 "화면 조립: 서버의 계약 없이, 메모리 구현 위에서"                                                 |
+| 그 전에 한 일의 목록                             | `PORTING.md`의 "서버의 계약을 기다리며 한 것"                                                                    |
+| 묻지 않고 스스로 정한 것, 검토에서 남긴 것       | `docs/decisions.md`                                                                                              |
+| 서버에 대해 가정한 것과 물을 것                  | `docs/contract-assumptions.md`                                                                                   |
+| 모바일 화면 안, 경계 값, 질문 36개와 그 결정     | `docs/mobile-proposal.md`(결정은 "결정" 절), 그림은 `docs/mobile/`                                               |
+| 캘린더 뷰의 안, 질문 24개                        | `docs/calendar-proposal.md`, 그림은 `docs/calendar/`                                                             |
+| 조립된 화면의 그림                               | 저장소에 든 것은 `docs/screens/<화면>/`. 새로 찍으면 `target/screens/<화면>/`(커밋하지 않는다, `e2e/screens.ts`) |
+| 글꼴의 결정과 수치                               | `PORTING.md`의 "글꼴"                                                                                            |
+| 날짜 값의 와이어, 지역 설정의 값                 | `PORTING.md`의 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대: 계정 설정"                                     |
+| 번역 결정, 한국어 검수 표                        | `docs/i18n-conversion.md`, `docs/ko-review.md`                                                                   |
+| 템플릿 산출물과 바뀐 곳                          | `tools/templates/output/README.md`, `CHANGES.md`                                                                 |
+| 편집기, 읽기 전용 표시기, 번들 크기              | `docs/spike-editor.md`(표시기는 9절, 창 크기는 6.5절, 수식과 다이어그램은 10절)                                  |
+| 드래그의 결정 1–11, 공개 형태, 창 크기가 바뀔 때 | `docs/spike-drag.md`                                                                                             |
+| 속성 편집기, 카드 상세와 원본 테스트의 대응      | `docs/properties-test-mapping.md`, `docs/card-test-mapping.md`, `src/lib/components/README.md`                   |
+| 빌드의 `.zst`, 원본 폴더 없이 도는 것            | `docs/build-notes.md`                                                                                            |
+| 화면 크기의 세 단계라는 방침                     | `PORTING.md`의 "화면 크기의 세 단계", 저장소 밖의 계획 `~/.claude/plans/fvoci-web-svelte.md`                     |
+| 도구의 위치, 화면을 띄우는 법, 함정              | 이 문서                                                                                                          |
 
 ## 정해졌고 아직 코드에 없는 것
 
-| 정해진 것                                                               | 언제       | 코드의 지금                            |
-| ----------------------------------------------------------------------- | ---------- | -------------------------------------- |
-| 스크린샷은 커밋하지 않는 폴더에 찍는다. 저장소에 든 307장은 그대로 둔다 | 2026-11-11 | 찍는 테스트가 아직 `docs/` 아래에 쓴다 |
+| 정해진 것 | 언제 | 코드의 지금 |
+| --------- | ---- | ----------- |
 
 - 카드 상세에서 지울 때도 묻지 않는 것은 코드에 넣었다(tracer-bullet 8). 되돌리기는 실행 취소와 휴지통(30일)이 맡는다.
 - 표시 설정의 이름 `theme`, `haptics`는 코드에 넣었다(tracer-bullet 9). 값과 타입은 그대로다(`docs/contract-assumptions.md`의 F1).
-- 그림을 `docs/` 아래에 쓰는 곳은 `e2e/*.spec.ts`의 `FVOCI_SCREENS` 갈래와 `spikes/mobile/shots.spec.ts`, `spikes/calendar/shots.spec.ts`다.
+- 스크린샷은 커밋하지 않는 `target/screens/`에 찍는다(tracer-bullet 10): `e2e/*.spec.ts`의 `FVOCI_SCREENS` 갈래는 `target/screens/<화면>/`, 스파이크의 `shots.spec.ts` 둘과 `spikes/editor/embeds.spec.ts`는 `target/screens/spikes/<이름>/`. 저장소에 든 307장은 그대로 두었다. 문서에 새 그림이 필요하면 손으로 옮긴다.
 
 ## 다음에 할 일
 
