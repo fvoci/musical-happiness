@@ -80,22 +80,22 @@ describe('utils', () => {
       expect(buildUrl('/test', undefined)).toBe('/test');
     });
 
-    // QUIRK(Q8): without an origin the result has no leading slash.
+    // Changed from the original (Q8): the address starts at the root of the site.
     test('buildURL, base no slash', () => {
       expect(buildUrl('test', 'base', origin)).toBe('http://localhost/base/test');
       expect(buildUrl('/test', 'base', origin)).toBe('http://localhost/base/test');
 
-      expect(buildUrl('test', 'base')).toBe('base/test');
-      expect(buildUrl('/test', 'base')).toBe('base/test');
+      expect(buildUrl('test', 'base')).toBe('/base/test');
+      expect(buildUrl('/test', 'base')).toBe('/base/test');
     });
 
-    // QUIRK(Q8): the same.
+    // Changed from the original (Q8), as above.
     test('buildUrl, base with slash', () => {
       expect(buildUrl('test', '/base/', origin)).toBe('http://localhost/base/test');
       expect(buildUrl('/test', '/base/', origin)).toBe('http://localhost/base/test');
 
-      expect(buildUrl('test', '/base/')).toBe('base/test');
-      expect(buildUrl('/test', '/base/')).toBe('base/test');
+      expect(buildUrl('test', '/base/')).toBe('/base/test');
+      expect(buildUrl('/test', '/base/')).toBe('/base/test');
     });
   });
 

@@ -5,6 +5,7 @@
  * locale. `now` is a parameter wherever the result depends on the current
  * time, so that a test does not.
  */
+import type { CalendarDate } from './dates.ts';
 
 /** What a function needs in order to turn a value into text for a person. */
 export interface DisplayContext {
@@ -14,6 +15,8 @@ export interface DisplayContext {
   now?: Date;
   /** Shown for a select value whose option no longer exists. */
   unknownOption?: string;
+  /** The reader's time zone (an IANA name); defaults to that of the device. */
+  timeZone?: string;
 }
 
 const isValid = (date: Date): boolean => !Number.isNaN(date.getTime());
@@ -30,6 +33,20 @@ export function displayDate(date: Date, locale: string, now: Date = new Date()):
     month: 'long',
     day: '2-digit',
   }).format(date);
+}
+
+/**
+ * A calendar date as text: `July 09`, with the year unless it is `thisYear`.
+ * A calendar date has no time zone, so this gives the same text everywhere.
+ */
+export function displayCalendarDate(date: CalendarDate, locale: string, thisYear?: number): string {
+  const year = Number(date.slice(0, 4));
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: 'UTC',
+    year: year === thisYear ? undefined : 'numeric',
+    month: 'long',
+    day: '2-digit',
+  }).format(Date.UTC(year, Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))));
 }
 
 /** The short all-digits form a person types: `07/09/2026` in the United States. */

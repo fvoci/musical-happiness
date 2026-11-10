@@ -22,17 +22,13 @@ function conditionsOf(valueType: FilterValueType): readonly FilterCondition[] | 
 /**
  * The condition to use after the property of a filter changed: the current
  * one when the new kind of value offers it, otherwise that kind's default.
- *
- * QUIRK(Q13): for a person property the original keeps no condition and
- * falls back to `includes`, although its label function treats people like
- * options. Kept as in the original.
  */
 export function filterConditionValidOrDefault(
   valueType: FilterValueType,
   current: FilterCondition,
 ): FilterCondition {
-  if (valueType === 'none' || valueType === 'person') return 'includes';
-  const conditions = CONDITIONS[valueType];
+  const conditions = conditionsOf(valueType);
+  if (!conditions) return 'includes';
   return conditions.includes(current) ? current : (conditions[0] ?? 'includes');
 }
 

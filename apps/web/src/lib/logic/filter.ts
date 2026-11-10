@@ -1,19 +1,25 @@
 /** Deciding which cards a view's filter lets through. */
 import { arraysEqual } from './arrays.ts';
+import { daysOf, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
+import { foldCase } from './text.ts';
 import {
   cardProperty,
   isFilterGroup,
   parseDateValue,
+  parseFilterDate,
   type Card,
-  type DateValue,
   type FilterClause,
   type FilterGroup,
   type PropertyTemplate,
   type PropertyValue,
 } from './wire.ts';
 
-const HALF_DAY = 12 * 60 * 60 * 1000;
+/** What evaluating a filter depends on besides the card. */
+export interface FilterContext {
+  /** The reader's time zone (an IANA name); defaults to that of the device. */
+  timeZone?: string;
+}
 
 /** Whether two clauses filter the same property in the same way. */
 export function areEqual(first: FilterClause, second: FilterClause): boolean {
@@ -28,8 +34,9 @@ export function applyFilterGroup(
   group: FilterGroup,
   templates: readonly PropertyTemplate[],
   cards: readonly Card[],
+  context: FilterContext = {},
 ): Card[] {
-  return cards.filter((card) => isFilterGroupMet(group, templates, card));
+  return cards.filter((card) => isFilterGroupMet(group, templates, card, context));
 }
 
 /** A group without filters lets every card through. */
@@ -37,22 +44,21 @@ export function isFilterGroupMet(
   group: FilterGroup,
   templates: readonly PropertyTemplate[],
   card: Card,
+  context: FilterContext = {},
 ): boolean {
   if (group.filters.length < 1) return true;
   const met = (filter: FilterClause | FilterGroup): boolean =>
     isFilterGroup(filter)
-      ? isFilterGroupMet(filter, templates, card)
-      : isClauseMet(filter, templates, card);
+      ? isFilterGroupMet(filter, templates, card, context)
+      : isClauseMet(filter, templates, card, context);
   return group.operation === 'or' ? group.filters.some(met) : group.filters.every(met);
 }
 
-const isTimeOfCard = (template: PropertyTemplate | undefined): boolean =>
-  template?.type === 'createdTime' || template?.type === 'updatedTime';
-
 /**
- * The value a clause is compared with, and its reading as a date for date
- * properties. A property without a stored value falls back to what the card
- * itself knows: who created or changed it, and when.
+ * The value a clause is compared with. A property without a stored value
+ * falls back to what the card itself knows: who created or changed it. For
+ * the date kinds `dateValue` is the value as a date: the stored one, or the
+ * moment the card was created or changed.
  */
 function valueForClause(
   filter: FilterClause,
@@ -60,54 +66,60 @@ function valueForClause(
   card: Card,
 ): { value: PropertyValue | undefined; dateValue: DateValue | undefined } {
   let value = cardProperty(card, filter.propertyId);
-  if (filter.propertyId === 'title') value = card.title.toLowerCase();
+  if (filter.propertyId === 'title') value = card.title;
 
-  let dateValue: DateValue | undefined;
-  if (template?.type === 'date') dateValue = parseDateValue(value as string | undefined);
-
-  if (!value && template) {
-    if (template.type === 'createdBy') {
-      value = card.createdBy;
-    } else if (template.type === 'updatedBy') {
-      value = card.modifiedBy;
-    } else if (template.type === 'createdTime') {
-      value = card.createAt.toString();
-      dateValue = parseDateValue(value);
-    } else if (template.type === 'updatedTime') {
-      value = card.updateAt.toString();
-      dateValue = parseDateValue(value);
-    }
+  switch (template?.type) {
+    case 'date':
+      return { value, dateValue: parseDateValue(typeof value === 'string' ? value : undefined) };
+    case 'createdTime':
+      return { value: String(card.createAt), dateValue: { from: { instant: card.createAt } } };
+    case 'updatedTime':
+      return { value: String(card.updateAt), dateValue: { from: { instant: card.updateAt } } };
+    case 'createdBy':
+      return { value: value || card.createdBy, dateValue: undefined };
+    case 'updatedBy':
+      return { value: value || card.modifiedBy, dateValue: undefined };
+    default:
+      return { value, dateValue: undefined };
   }
-  return { value, dateValue };
 }
 
 /**
  * Whether a card meets one clause.
  *
- * A clause that cannot be evaluated (no values to compare with, an unknown
+ * A clause that cannot be evaluated (no value to compare with, an unknown
  * condition) is met: an unfinished filter must not hide every card.
  *
- * QUIRK(Q2): the text conditions lower-case the value of the filter but only
- * the title of the card, not a property value. A filter "is hello" finds the
- * title "Hello" and never finds the property value "Hello". Kept as in the
- * original.
+ * Text is compared without regard to case, for the title and for every kind
+ * of property alike (see `foldCase`). Of a value that is a list, one item has
+ * to match.
+ *
+ * Dates are compared as calendar days, in the reader's time zone where a
+ * moment is involved: "is the 7th" finds a card created at any time on the
+ * reader's 7th, and a range that includes the 7th.
  */
 export function isClauseMet(
   filter: FilterClause,
   templates: readonly PropertyTemplate[],
   card: Card,
+  context: FilterContext = {},
 ): boolean {
   const template = templates.find((candidate) => candidate.id === filter.propertyId);
   const { value, dateValue } = valueForClause(filter, template, card);
   const first = filter.values[0];
-  const needle = first?.toLowerCase() ?? '';
-  const text = typeof value === 'string' ? value : '';
+
   // Text or a list; anything else a stored value might be counts as empty.
   const stored = typeof value === 'string' || Array.isArray(value) ? value : '';
   const hasAnyValue = (): boolean =>
     filter.values.some((candidate) =>
-      Array.isArray(value) ? value.includes(candidate) : candidate === value,
+      Array.isArray(stored) ? stored.includes(candidate) : candidate === stored,
     );
+  const needle = foldCase(first ?? '');
+  const texts = (Array.isArray(stored) ? stored : [stored]).map(foldCase);
+  const someText = (test: (text: string) => boolean): boolean => texts.some(test);
+
+  const days = dateValue ? daysOf(dateValue, context.timeZone) : undefined;
+  const day = parseFilterDate(first);
 
   switch (filter.condition) {
     case 'includes':
@@ -119,52 +131,34 @@ export function isClauseMet(
     case 'isNotEmpty':
       return stored.length > 0;
     case 'isSet':
-      return Boolean(value);
+      return dateValue ? days !== undefined : Boolean(value);
     case 'isNotSet':
-      return !value;
-    case 'is': {
+      return dateValue ? days === undefined : !value;
+    case 'is':
       if (first === undefined) return true;
-      if (dateValue === undefined) return needle === value;
-      const day = Number.parseInt(first, 10);
-      if (isTimeOfCard(template)) {
-        // A time of day, compared with a day: anything within twelve hours of its noon.
-        return dateValue.from
-          ? dateValue.from > day - HALF_DAY && dateValue.from < day + HALF_DAY
-          : false;
-      }
-      if (dateValue.from && dateValue.to) return dateValue.from <= day && dateValue.to >= day;
-      // QUIRK(Q5): equal to the millisecond. It holds because both sides are
-      // written as 12:00 UTC of their day.
-      return dateValue.from === day;
-    }
+      if (!dateValue) return someText((text) => text === needle);
+      if (day === undefined) return true;
+      return days !== undefined && days.first <= day && day <= days.last;
     case 'contains':
-      // A list value (several options) contains the text when one item equals it.
-      return first === undefined || stored.includes(needle);
+      return first === undefined || someText((text) => text.includes(needle));
     case 'notContains':
-      return first === undefined || !stored.includes(needle);
+      return first === undefined || !someText((text) => text.includes(needle));
     case 'startsWith':
-      return first === undefined || text.startsWith(needle);
+      return first === undefined || someText((text) => text.startsWith(needle));
     case 'notStartsWith':
-      return first === undefined || !text.startsWith(needle);
+      return first === undefined || !someText((text) => text.startsWith(needle));
     case 'endsWith':
-      return first === undefined || text.endsWith(needle);
+      return first === undefined || someText((text) => text.endsWith(needle));
     case 'notEndsWith':
-      return first === undefined || !text.endsWith(needle);
-    case 'isBefore': {
-      if (first === undefined) return true;
-      if (dateValue === undefined) return false;
-      const day = Number.parseInt(first, 10);
-      if (isTimeOfCard(template)) return dateValue.from ? dateValue.from < day - HALF_DAY : false;
-      return dateValue.from ? dateValue.from < day : false;
-    }
-    case 'isAfter': {
-      if (first === undefined) return true;
-      if (dateValue === undefined) return false;
-      const day = Number.parseInt(first, 10);
-      if (isTimeOfCard(template)) return dateValue.from ? dateValue.from > day + HALF_DAY : false;
-      if (dateValue.to) return dateValue.to > day;
-      return dateValue.from ? dateValue.from > day : false;
-    }
+      return first === undefined || !someText((text) => text.endsWith(needle));
+    case 'isBefore':
+      if (first === undefined || day === undefined) return true;
+      // A range is before a day when it starts before it.
+      return days !== undefined && days.first < day;
+    case 'isAfter':
+      if (first === undefined || day === undefined) return true;
+      // A range is after a day when it ends after it.
+      return days !== undefined && days.last > day;
     default:
       diagnostics.report(`invalid filter condition: ${String(filter.condition)}`);
       return true;

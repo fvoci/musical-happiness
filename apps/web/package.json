@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "check": "pnpm run i18n && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && eslint . && prettier --check . && node tools/licenses/check.ts && node tools/names/check.ts",
-    "test": "pnpm run i18n && vitest run",
+    "test": "pnpm run i18n && node tools/test-zones.ts",
     "build": "pnpm run i18n && node tools/fonts/build.ts && vite build",
     "preview": "node tools/preview.ts",
     "e2e": "playwright test",
@@ -19,7 +19,8 @@
     "build-storybook": "pnpm run i18n && storybook build --output-dir storybook-static",
     "spikes": "pnpm run i18n && vite --config vite.spikes.config.ts",
     "spikes:build": "pnpm run i18n && vite build --config vite.spikes.config.ts",
-    "spikes:e2e": "pnpm run i18n && playwright test --config playwright.spikes.config.ts"
+    "spikes:e2e": "pnpm run i18n && playwright test --config playwright.spikes.config.ts",
+    "test:once": "pnpm run i18n && vitest run"
   },
   "dependencies": {
     "@tiptap/core": "3.33.0",
@@ -61,6 +62,7 @@
     "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-svelte": "3.24.1",
+    "fast-check": "4.10.2",
     "globals": "17.14.0",
     "jsdom": "31.0.0",
     "prettier": "3.9.10",

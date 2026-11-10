@@ -7,19 +7,14 @@ export function normalizeBasePath(raw: string | undefined): string {
 }
 
 /**
- * The address of `path` under the base path. With `origin` the result is
- * absolute.
- *
- * QUIRK(Q8): without `origin`, a base path gives an address with no leading
- * slash (`base/test`), which a browser resolves against the current page,
- * while no base path gives `/test`. Kept as in the original; the router of
- * the new app decides what it needs.
+ * The address of `path` under the base path: `/base/path`, always from the
+ * root of the site. With `origin` the result is absolute.
  */
 export function buildUrl(path: string, basePath: string | undefined, origin?: string): string {
   const base = normalizeBasePath(basePath);
-  const joined = path.startsWith('/') ? base + path : `${base}/${path}`;
-  if (origin === undefined) return joined;
-  return `${origin}/${joined.startsWith('/') ? joined.slice(1) : joined}`;
+  const relative = path.startsWith('/') ? path.slice(1) : path;
+  const joined = base === '' ? `/${relative}` : `/${base}/${relative}`;
+  return origin === undefined ? joined : `${origin}${joined}`;
 }
 
 /**

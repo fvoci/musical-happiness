@@ -1,16 +1,18 @@
 /**
  * Search, grouping, the property table and CSV rows. The original has no
- * tests for this code; these were written for the port. Cases named
- * "quirk Qn" pin a behaviour of the original that looks like a defect and
- * is listed in PORTING.md.
+ * tests for this code; these were written for the port. Where the behaviour
+ * differs from the original on purpose, the case names the entry in
+ * PORTING.md (Q3, Q4, Q12, Q13).
  */
 import { describe, expect, it, vi } from 'vitest';
 
 import { mergeBlocks } from '$lib/logic/block-tree.ts';
 import { csvText, tableRows } from '$lib/logic/csv.ts';
+import { calendarDate } from '$lib/logic/dates.ts';
 import { diagnostics } from '$lib/logic/diagnostics.ts';
 import {
   filterConditionDisplayString,
+  filterConditionValidOrDefault,
   type FilterConditionMessages,
 } from '$lib/logic/filter-conditions.ts';
 import { getVisibleAndHiddenGroups } from '$lib/logic/group.ts';
@@ -24,6 +26,7 @@ import { searchFilterCards } from '$lib/logic/search.ts';
 import {
   createBlock,
   createCard,
+  formatDateValue,
   setCardProperty,
   type Card,
   type PropertyTemplate,
@@ -101,10 +104,16 @@ describe('search', () => {
     expect(ids(searchFilterCards([odd], templates, 'anything'))).toBe('');
   });
 
-  it('quirk Q3: a multi-select only matches a whole label', () => {
+  it('finds a multi-select by a part of a label, like every other kind (Q3)', () => {
     expect(ids(searchFilterCards(cards, templates, 'urgent'))).toBe('multi');
-    expect(ids(searchFilterCards(cards, templates, 'backend'))).toBe('');
-    expect(ids(searchFilterCards(cards, templates, 'backend work'))).toBe('multi');
+    expect(ids(searchFilterCards(cards, templates, 'BACKEND'))).toBe('multi');
+    expect(ids(searchFilterCards(cards, templates, 'end wo'))).toBe('multi');
+  });
+
+  it('does not look at case or at the width of characters', () => {
+    const wide = [card('wide', 'ＡＢＣ 상사'), card('upper', 'x', { notes: 'DEADLINE' })];
+    expect(ids(searchFilterCards(wide, templates, 'abc'))).toBe('wide');
+    expect(ids(searchFilterCards(wide, templates, 'dead'))).toBe('upper');
   });
 });
 
@@ -157,17 +166,42 @@ describe('groups of a board view', () => {
     ]);
   });
 
-  it('never hides the group of cards that have no creator recorded', () => {
-    const by: PropertyTemplate = { id: 'by', name: 'By', type: 'createdBy', options: [] };
-    const groups = getVisibleAndHiddenGroups([card('1', '1')], [], [''], by, noValue);
-    expect(groups.visible.map((group) => group.option.id)).toEqual(['']);
-    expect(groups.hidden).toEqual([]);
+  it('puts cards without a person in a "no value" group that comes first (Q4)', () => {
+    const people = [card('1', '1', { owner: 'ann' }), card('2', '2'), card('3', '3')];
+    const groups = getVisibleAndHiddenGroups(people, [], [], owner, noValue);
+    expect(groups.visible.map((group) => [group.option, ids(group.cards)])).toEqual([
+      [{ id: '', value: 'No Owner', color: '' }, '2 3'],
+      [{ id: 'ann', value: 'ann', color: '' }, '1'],
+    ]);
   });
 
-  it('quirk Q4: cards without a person form a group called "undefined"', () => {
-    const groups = getVisibleAndHiddenGroups([card('1', '1')], [], [], owner, noValue);
-    expect(groups.visible.map((group) => group.option)).toEqual([
-      { id: 'undefined', value: 'undefined', color: '' },
+  it('has no "no value" group when every card has a person, and hides it like any other', () => {
+    const everyone = [card('1', '1', { owner: 'ann' })];
+    expect(
+      getVisibleAndHiddenGroups(everyone, [], [], owner, noValue).visible.map(
+        (group) => group.option.id,
+      ),
+    ).toEqual(['ann']);
+
+    const groups = getVisibleAndHiddenGroups(
+      [card('1', '1'), ...everyone],
+      [],
+      [''],
+      owner,
+      noValue,
+    );
+    expect(groups.visible.map((group) => group.option.id)).toEqual(['ann']);
+    expect(groups.hidden.map((group) => group.option.id)).toEqual(['']);
+  });
+
+  it('groups by who created a card', () => {
+    const by: PropertyTemplate = { id: 'by', name: 'Created by', type: 'createdBy', options: [] };
+    const first = card('1', '1');
+    first.createdBy = 'ann';
+    const groups = getVisibleAndHiddenGroups([first, card('2', '2')], [], [], by, noValue);
+    expect(groups.visible.map((group) => [group.option.value, ids(group.cards)])).toEqual([
+      ['No Created by', '2'],
+      ['ann', '1'],
     ]);
   });
 });
@@ -235,16 +269,26 @@ describe('property behaviour', () => {
     expect(displayValue([], card('x', 'x'), tags, context)).toBe('');
   });
 
-  it('shows a date and a range of dates', () => {
+  it('shows a date and a range of dates the same in every time zone', () => {
     const { displayValue } = PROPERTY_BEHAVIORS.date;
-    const day = (month: number, date: number): number => new Date(2026, month, date, 12).getTime();
-    expect(displayValue(`{"from":${day(2, 5)}}`, card('x', 'x'), due, context)).toBe('March 05');
-    expect(
-      displayValue(`{"from":${day(2, 5)},"to":${day(2, 9)}}`, card('x', 'x'), due, context),
-    ).toBe('March 05 -> March 09');
-    expect(displayValue(String(day(2, 5)), card('x', 'x'), due, context)).toBe('March 05');
+    const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
+    const single = formatDateValue({ from: day(5) });
+    const range = formatDateValue({ from: day(5), to: day(9) });
+    for (const timeZone of ['UTC', 'Asia/Seoul', 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+      const zoned = { ...context, timeZone };
+      expect(displayValue(single, card('x', 'x'), due, zoned)).toBe('March 05');
+      expect(displayValue(range, card('x', 'x'), due, zoned)).toBe('March 05 -> March 09');
+    }
+    const lastYear = formatDateValue({ from: { date: calendarDate(2025, 12, 31) } });
+    expect(displayValue(lastYear, card('x', 'x'), due, context)).toBe('December 31, 2025');
     expect(displayValue('not a date', card('x', 'x'), due, context)).toBe('');
     expect(displayValue(undefined, card('x', 'x'), due, context)).toBe('');
+  });
+
+  it('shows a date with a time as the moment it is', () => {
+    const { displayValue } = PROPERTY_BEHAVIORS.date;
+    const timed = formatDateValue({ from: { instant: new Date(2026, 2, 5, 15, 20).getTime() } });
+    expect(displayValue(timed, card('x', 'x'), due, context)).toBe('March 05 at 3:20 PM');
   });
 
   it('shows the times of the card itself', () => {
@@ -253,9 +297,27 @@ describe('property behaviour', () => {
     expect(PROPERTY_BEHAVIORS.createdTime.displayValue(undefined, created, due, context)).toBe(
       'March 05 at 3:20 PM',
     );
-    expect(PROPERTY_BEHAVIORS.createdTime.dateRange?.(undefined, created).from?.getTime()).toBe(
-      created.createAt,
+  });
+
+  it('says which days a card occupies in a calendar', () => {
+    const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
+    const days = PROPERTY_BEHAVIORS.date.days;
+    expect(days?.(formatDateValue({ from: day(5), to: day(9) }), card('x', 'x'))).toEqual({
+      first: '2026-03-05',
+      last: '2026-03-09',
+    });
+    expect(days?.(undefined, card('x', 'x'))).toBeUndefined();
+
+    // A card made at 18:00 UTC on the 6th is on the 7th for a reader in Seoul.
+    const created = card('x', 'x');
+    created.createAt = Date.UTC(2023, 11, 6, 18, 0);
+    expect(PROPERTY_BEHAVIORS.createdTime.days?.(undefined, created, 'Asia/Seoul')?.first).toBe(
+      '2023-12-07',
     );
+    expect(PROPERTY_BEHAVIORS.createdTime.days?.(undefined, created, 'UTC')?.first).toBe(
+      '2023-12-06',
+    );
+    expect(PROPERTY_BEHAVIORS.text.days).toBeUndefined();
   });
 });
 
@@ -276,7 +338,7 @@ describe('CSV rows', () => {
   it('writes a header and a row per card, properties in the order of the board', () => {
     const rows = tableRows([first, card('2', 'Empty')], templates, view, 'Name', context);
     expect(rows).toEqual([
-      ['Name', 'Status', 'Tags', 'Notes', 'Amount'],
+      ['"Name"', '"Status"', '"Tags"', '"Notes"', '"Amount"'],
       [`"Say ""hi"" ${HASH_SIGN_TOKEN}1"`, '"Done"', 'Urgent|Backend work', '"a, b"', '12.5'],
       ['"Empty"', '""', '', '', ''],
     ]);
@@ -286,12 +348,12 @@ describe('CSV rows', () => {
   it('adds the date a calendar view places its cards by', () => {
     const calendar = { ...view, viewType: 'calendar' as const, dateDisplayPropertyId: 'due' };
     expect(tableRows([], templates, calendar, 'Name', context)[0]).toEqual([
-      'Name',
-      'Status',
-      'Tags',
-      'Notes',
-      'Amount',
-      'Due',
+      '"Name"',
+      '"Status"',
+      '"Tags"',
+      '"Notes"',
+      '"Amount"',
+      '"Due"',
     ]);
     expect(
       tableRows([], templates, { ...view, dateDisplayPropertyId: 'due' }, 'Name', context)[0],
@@ -312,10 +374,15 @@ describe('CSV rows', () => {
     expect(rows[1]).toEqual(['"t"', '"user-1"']);
   });
 
-  it('quirk Q12: header cells are not quoted', () => {
-    const comma: PropertyTemplate = { id: 'c', name: 'Cost, total', type: 'text', options: [] };
-    const rows = tableRows([], [comma], { ...view, visiblePropertyIds: ['c'] }, 'Name', context);
-    expect(csvText(rows)).toBe('Name,Cost, total\r\n');
+  it('quotes the headings too, so a comma in a property name stays in its cell (Q12)', () => {
+    const awkward: PropertyTemplate = {
+      id: 'c',
+      name: 'Cost, "total" #1',
+      type: 'text',
+      options: [],
+    };
+    const rows = tableRows([], [awkward], { ...view, visiblePropertyIds: ['c'] }, 'Name', context);
+    expect(csvText(rows)).toBe(`"Name","Cost, ""total"" ${HASH_SIGN_TOKEN}1"\r\n`);
   });
 });
 
@@ -336,6 +403,26 @@ describe('merging updated blocks', () => {
       'b:new b',
       'd:new d',
     ]);
+  });
+});
+
+describe('the condition of a filter after its property changed', () => {
+  it('keeps a condition the new kind of value offers', () => {
+    expect(filterConditionValidOrDefault('options', 'isEmpty')).toBe('isEmpty');
+    expect(filterConditionValidOrDefault('date', 'isAfter')).toBe('isAfter');
+  });
+
+  it('treats people like options (Q13)', () => {
+    for (const condition of ['includes', 'notIncludes', 'isEmpty', 'isNotEmpty'] as const) {
+      expect(filterConditionValidOrDefault('person', condition)).toBe(condition);
+    }
+    expect(filterConditionValidOrDefault('person', 'contains')).toBe('includes');
+  });
+
+  it('falls back to the default of the kind, and to "includes" where nothing can be filtered', () => {
+    expect(filterConditionValidOrDefault('text', 'includes')).toBe('is');
+    expect(filterConditionValidOrDefault('boolean', 'is')).toBe('isSet');
+    expect(filterConditionValidOrDefault('none', 'is')).toBe('includes');
   });
 });
 

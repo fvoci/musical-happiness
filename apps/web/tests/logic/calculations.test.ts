@@ -1,7 +1,7 @@
 /**
  * The cases of the original `calculations.test.tsx`, one to one and under
- * the same names. Four of them pin a behaviour that looks like a defect
- * (marked QUIRK, listed in PORTING.md).
+ * the same names. Four of them (marked) expect what the original did not: a
+ * checkbox holding the text `false` is not ticked. See Q9 in PORTING.md.
  */
 import { describe, expect, it, test } from 'vitest';
 
@@ -276,10 +276,10 @@ describe('components/calculations/calculation logic', () => {
     expect(result).toBe('2');
   });
 
-  // QUIRK(Q9): card2 holds the text `false` and counts as checked.
+  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
   test('countChecked for cards', () => {
     const result = CALCULATIONS.countChecked(cards, properties.checkbox, intl);
-    expect(result).toBe('3');
+    expect(result).toBe('2');
   });
 
   test('countChecked for cards, one set, other unset', () => {
@@ -287,10 +287,10 @@ describe('components/calculations/calculation logic', () => {
     expect(result).toBe('1');
   });
 
-  // QUIRK(Q9): card2 holds the text `false` and counts as checked.
+  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
   test('countUnchecked for cards', () => {
     const result = CALCULATIONS.countUnchecked(cards, properties.checkbox, intl);
-    expect(result).toBe('1');
+    expect(result).toBe('2');
   });
 
   test('countUnchecked for cards, two set, one unset', () => {
@@ -308,16 +308,16 @@ describe('components/calculations/calculation logic', () => {
     expect(result).toBe('2');
   });
 
-  // QUIRK(Q9): card2 holds the text `false` and counts as checked.
+  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
   test('percentChecked for cards', () => {
     const result = CALCULATIONS.percentChecked(cards, properties.checkbox, intl);
-    expect(result).toBe('75%');
+    expect(result).toBe('50%');
   });
 
-  // QUIRK(Q9): card2 holds the text `false` and counts as checked.
+  // Changed from the original (Q9): card2 holds `false`, which is not a tick.
   test('percentUnchecked for cards', () => {
     const result = CALCULATIONS.percentUnchecked(cards, properties.checkbox, intl);
-    expect(result).toBe('25%');
+    expect(result).toBe('50%');
   });
 
   test('sum', () => {

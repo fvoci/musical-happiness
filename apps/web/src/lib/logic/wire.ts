@@ -6,7 +6,7 @@
  *
  * - what a block, a card, a view and a board look like,
  * - what is inside the untyped `fields` of a block,
- * - how a date value is written into a property,
+ * - how a date value and the day of a date filter are written,
  * - how identifiers are made, and
  * - what a patch (the delta sent to the server) looks like.
  *
@@ -16,6 +16,7 @@
  * top level: `id`, `title`, `type`, `boardId`, `parentId`, `createdBy`,
  * `modifiedBy`, `createAt`, `updateAt`, `deleteAt` and `limited`.
  */
+import { dateOfUtc, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 
 // ------------------------------------------------------------ identifiers
@@ -625,50 +626,74 @@ export function createBoard(source?: Board, statusName = 'Status'): Board {
 // ------------------------------------------------------------ date values
 
 /**
- * The value of a date property. `from` and `to` are milliseconds since the
- * epoch. Without `includeTime` each stands for a calendar day and is written
- * as 12:00 UTC of that day.
+ * How a date property is stored today: the text of a JSON object whose `from`
+ * and `to` are milliseconds since the epoch. Without `includeTime` each
+ * stands for a calendar day and is written as 12:00 UTC of that day; with it,
+ * each is the moment itself.
  */
-export interface DateValue {
-  from?: number;
-  to?: number;
-  includeTime?: boolean;
-  timeZone?: string;
+interface StoredDateValue {
+  from?: unknown;
+  to?: unknown;
+  includeTime?: unknown;
 }
 
+const NOON = 12 * 60 * 60 * 1000;
+
+const noonUtcOf = (date: CalendarDate): number =>
+  Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) +
+  NOON;
+
+function readPoint(stored: unknown, includeTime: boolean): DatePoint | undefined {
+  if (typeof stored !== 'number' || !Number.isFinite(stored) || stored <= 0) return undefined;
+  // A day is read off the UTC calendar: noon UTC is the same day everywhere on it.
+  return includeTime ? { instant: stored } : { date: dateOfUtc(stored) };
+}
+
+const writePoint = (point: DatePoint): number => point.instant ?? noonUtcOf(point.date);
+
 /**
- * Reads the text stored in a date property. Two forms exist: a bare number
- * of milliseconds (a single day), and a JSON object. Anything else reads as
- * an empty value.
+ * Reads the text stored in a date property. Text that is not such a value
+ * (leftovers of another property type, the bare number of very old data)
+ * reads as an empty value.
  */
 export function parseDateValue(text: string | undefined): DateValue {
   if (!text) return {};
-  const single = new Date(Number(text)).getTime();
-  if (!Number.isNaN(single)) return { from: single };
-  return parseDateObject(text);
-}
-
-/**
- * Reads a date property that is written as a JSON object and nothing else.
- *
- * QUIRK(Q10): sorting and the date calculations of the original read values
- * this way, so a value in the older bare-number form counts as empty there,
- * while the filter and the display read it. Kept as in the original.
- */
-export function parseDateObject(text: string | undefined): DateValue {
-  if (!text) return {};
+  let stored: StoredDateValue;
   try {
     const parsed: unknown = JSON.parse(text);
-    const isObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
-    return isObject ? parsed : {};
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    stored = parsed;
   } catch {
     return {};
   }
+  const includeTime = stored.includeTime === true;
+  const from = readPoint(stored.from, includeTime);
+  const to = readPoint(stored.to, includeTime);
+  if (!from) return to ? { from: to } : {};
+  return to ? { from, to } : { from };
 }
 
-/** The text to store for a date value; empty when it has neither end. */
+/** The text to store for a date value; empty when the value is empty. */
 export function formatDateValue(value: DateValue): string {
-  return value.from || value.to ? JSON.stringify(value) : '';
+  if (!value.from) return '';
+  const stored: Record<string, number | boolean> = { from: writePoint(value.from) };
+  if (value.to) stored.to = writePoint(value.to);
+  if (value.from.instant !== undefined) stored.includeTime = true;
+  return JSON.stringify(stored);
+}
+
+/**
+ * The day a date filter compares with. A filter stores it the way a date
+ * property stores a day: as the milliseconds of its noon in UTC.
+ */
+export function parseFilterDate(text: string | undefined): CalendarDate | undefined {
+  const stored = Number.parseInt(text ?? '', 10);
+  return Number.isFinite(stored) ? dateOfUtc(stored) : undefined;
+}
+
+/** The text to store in a date filter for a day. */
+export function formatFilterDate(date: CalendarDate): string {
+  return String(noonUtcOf(date));
 }
 
 // ---------------------------------------------------------------- patches

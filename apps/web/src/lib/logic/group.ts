@@ -11,7 +11,7 @@ export interface BoardGroups {
   hidden: BoardGroup[];
 }
 
-/** The label of the group of cards that have no value: "No Status". */
+/** The label of the group of cards that have no value: "No Status", "No Owner". */
 export type NoValueLabel = (propertyName: string) => string;
 
 function groupCardsByOptions(
@@ -67,31 +67,34 @@ function getOptionGroups(
 }
 
 /**
- * One group per person that occurs, in the order of first occurrence.
- *
- * QUIRK(Q4): a card without a person lands in a group whose identifier and
- * label are the text "undefined". Kept as in the original.
+ * One group per person that occurs, in the order of first occurrence. The
+ * cards without a person form the group with the empty identifier, which
+ * comes first, like the column of cards without a value of a select property.
  */
 function getPersonGroups(
   cards: readonly Card[],
   groupBy: PropertyTemplate,
   hiddenOptionIds: readonly string[],
+  noValueLabel: NoValueLabel,
 ): BoardGroups {
-  const byPerson = new Map<string, Card[]>();
+  const byPerson = new Map<string, Card[]>([['', []]]);
   for (const card of cards) {
-    let key = String(cardProperty(card, groupBy.id));
+    let key = cardProperty(card, groupBy.id);
     if (groupBy.type === 'createdBy') key = card.createdBy;
     else if (groupBy.type === 'updatedBy') key = card.modifiedBy;
-    const group = byPerson.get(key);
+    const person = typeof key === 'string' ? key : '';
+    const group = byPerson.get(person);
     if (group) group.push(card);
-    else byPerson.set(key, [card]);
+    else byPerson.set(person, [card]);
   }
 
   const groups: BoardGroups = { visible: [], hidden: [] };
-  for (const [key, groupCards] of byPerson) {
-    const group = { option: { id: key, value: key, color: '' }, cards: groupCards };
-    // A group with an empty key (no creator recorded) is never hidden, as in the original.
-    if (key !== '' && hiddenOptionIds.includes(key)) groups.hidden.push(group);
+  for (const [person, groupCards] of byPerson) {
+    // Without cards there is no "nobody" group, unlike the columns of a select property.
+    if (person === '' && groupCards.length === 0) continue;
+    const label = person === '' ? noValueLabel(groupBy.name) : person;
+    const group = { option: { id: person, value: label, color: '' }, cards: groupCards };
+    if (hiddenOptionIds.includes(person)) groups.hidden.push(group);
     else groups.visible.push(group);
   }
   return groups;
@@ -109,7 +112,7 @@ export function getVisibleAndHiddenGroups(
     groupBy &&
     (groupBy.type === 'createdBy' || groupBy.type === 'updatedBy' || groupBy.type === 'person')
   ) {
-    return getPersonGroups(cards, groupBy, hiddenOptionIds);
+    return getPersonGroups(cards, groupBy, hiddenOptionIds, noValueLabel);
   }
   return getOptionGroups(cards, visibleOptionIds, hiddenOptionIds, groupBy, noValueLabel);
 }

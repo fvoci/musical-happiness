@@ -67,7 +67,8 @@ export class UndoManager {
 
   /**
    * Remembers a change that has already been performed. A discardable change
-   * takes the checkpoint of the change before it instead of the current time.
+   * takes the checkpoint of the change before it instead of the current time
+   * (0 when it is the first).
    */
   registerUndo(
     command: { undo: (value?: unknown) => Promise<void>; redo: () => Promise<unknown> },
@@ -82,12 +83,8 @@ export class UndoManager {
     // Whatever was undone and not redone is gone once something new happens.
     this.#commands.splice(this.#index + 1);
 
-    const previous = this.#commands.at(-1);
-    const checkpoint = isDiscardable
-      ? this.#commands.length > 1 && previous
-        ? previous.checkpoint
-        : 0
-      : Date.now();
+    // A discardable change does not move the checkpoint: it keeps the one before it.
+    const checkpoint = isDiscardable ? (this.#commands.at(-1)?.checkpoint ?? 0) : Date.now();
     this.#commands.push({
       checkpoint,
       undo: command.undo,

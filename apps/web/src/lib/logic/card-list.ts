@@ -13,13 +13,13 @@ export function cardsOfView(
   templates: readonly PropertyTemplate[],
   view: ViewQuery,
   searchText: string,
-  sorting: Pick<SortContext, 'lastCommentAt' | 'usernameOf' | 'usersKnown'> = {},
+  context: Pick<SortContext, 'lastCommentAt' | 'usernameOf' | 'locale' | 'timeZone'> = {},
 ): Card[] {
   let result = cards.filter((card) => !card.limited);
-  result = applyFilterGroup(view.filter, templates, result);
+  result = applyFilterGroup(view.filter, templates, result, context);
   if (searchText) result = searchFilterCards(result, templates, searchText);
   return sortCards(result, {
-    ...sorting,
+    ...context,
     templates,
     sortOptions: view.sortOptions,
     cardOrder: view.cardOrder,

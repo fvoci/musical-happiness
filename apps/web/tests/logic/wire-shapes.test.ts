@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { calendarDate } from '$lib/logic/dates.ts';
+
 import {
   createAttachmentBlock,
   createBlock,
@@ -15,41 +17,83 @@ import {
   createPatchesFromBoards,
   encodeBase32,
   formatDateValue,
+  formatFilterDate,
   idKindOfBlockType,
   normalizeBlock,
-  parseDateObject,
   parseDateValue,
+  parseFilterDate,
   type Board,
 } from '$lib/logic/wire.ts';
 
 describe('the text of a date property', () => {
-  it('reads the object form and the older bare number', () => {
-    expect(parseDateValue('{"from":10,"to":20}')).toEqual({ from: 10, to: 20 });
-    expect(parseDateValue('1625553000000')).toEqual({ from: 1625553000000 });
+  const noon = (date: number): number => Date.UTC(2026, 2, date, 12);
+
+  it('reads a day from its noon in UTC', () => {
+    expect(parseDateValue(`{"from":${noon(5)}}`)).toEqual({ from: { date: '2026-03-05' } });
+    expect(parseDateValue(`{"from":${noon(5)},"to":${noon(9)}}`)).toEqual({
+      from: { date: '2026-03-05' },
+      to: { date: '2026-03-09' },
+    });
+  });
+
+  it('reads the day even when the stored time is not exactly noon (Q11)', () => {
+    expect(parseDateValue(`{"from":${noon(5) + 17 * 60_000}}`)).toEqual({
+      from: { date: '2026-03-05' },
+    });
+    expect(parseDateValue(`{"from":${Date.UTC(2026, 2, 5, 0, 0)}}`)).toEqual({
+      from: { date: '2026-03-05' },
+    });
+  });
+
+  it('reads a value with a time as the moment it is', () => {
+    const moment = Date.UTC(2026, 2, 5, 18, 30);
+    expect(parseDateValue(`{"from":${moment},"includeTime":true}`)).toEqual({
+      from: { instant: moment },
+    });
+  });
+
+  it('writes a day as exactly its noon in UTC, whatever the time zone of the device', () => {
+    const value = {
+      from: { date: calendarDate(2026, 3, 5) },
+      to: { date: calendarDate(2026, 3, 9) },
+    };
+    expect(formatDateValue(value)).toBe(`{"from":${noon(5)},"to":${noon(9)}}`);
+    expect(parseDateValue(formatDateValue(value))).toEqual(value);
+    const timed = { from: { instant: 1_780_000_000_000 } };
+    expect(parseDateValue(formatDateValue(timed))).toEqual(timed);
   });
 
   it('reads anything else as an empty value', () => {
-    expect(parseDateValue(undefined)).toEqual({});
-    expect(parseDateValue('')).toEqual({});
-    expect(parseDateValue('tomorrow')).toEqual({});
+    for (const text of [
+      undefined,
+      '',
+      'tomorrow',
+      'null',
+      '"text"',
+      '[1,2]',
+      '{}',
+      '{"from":"abc"}',
+      '{"from":0}',
+    ]) {
+      expect(parseDateValue(text)).toEqual({});
+    }
+    // The bare number of very old data is not read any more (Q10).
+    expect(parseDateValue('1625553000000')).toEqual({});
   });
 
-  it('reads JSON that is not an object as an empty value', () => {
-    expect(parseDateValue('null')).toEqual({});
-    expect(parseDateValue('"text"')).toEqual({});
-    expect(parseDateValue('[1,2]')).toEqual({});
+  it('keeps the end of a value that has lost its start', () => {
+    expect(parseDateValue(`{"to":${noon(9)}}`)).toEqual({ from: { date: '2026-03-09' } });
   });
 
-  it('writes nothing for a value without a start or an end', () => {
+  it('writes nothing for an empty value', () => {
     expect(formatDateValue({})).toBe('');
-    expect(formatDateValue({ includeTime: true })).toBe('');
-    expect(parseDateValue(formatDateValue({ from: 5, to: 9 }))).toEqual({ from: 5, to: 9 });
   });
 
-  it('quirk Q10: the strict reader does not take the bare number', () => {
-    expect(parseDateObject('1625553000000')).toEqual({});
-    expect(parseDateObject('{"from":10}')).toEqual({ from: 10 });
-    expect(parseDateObject('nonsense')).toEqual({});
+  it('reads and writes the day of a date filter the same way', () => {
+    expect(parseFilterDate(String(noon(5)))).toBe('2026-03-05');
+    expect(formatFilterDate(calendarDate(2026, 3, 5))).toBe(String(noon(5)));
+    expect(parseFilterDate('soon')).toBeUndefined();
+    expect(parseFilterDate(undefined)).toBeUndefined();
   });
 });
 

@@ -7,10 +7,7 @@ import { cardProperty, type Card, type PropertyTemplate, type ViewQuery } from '
  * A header row and one row per card: the title, then the visible properties
  * in the order of the board. A calendar view also exports the property it
  * places its cards by. `nameHeader` is the translated heading of the title
- * column.
- *
- * QUIRK(Q12): the cells of the header row are not quoted, so a property name
- * with a comma in it shifts the columns. Kept as in the original.
+ * column. Every text cell is quoted, the headings included.
  */
 export function tableRows(
   cards: readonly Card[],
@@ -29,9 +26,12 @@ export function tableRows(
     if (dateDisplay) visible.push(dateDisplay);
   }
 
-  const rows: string[][] = [[nameHeader, ...visible.map((template) => template.name)]];
+  const quoted = (text: string): string => `"${encodeCsvText(text)}"`;
+  const rows: string[][] = [
+    [quoted(nameHeader), ...visible.map((template) => quoted(template.name))],
+  ];
   for (const card of cards) {
-    const row = [`"${encodeCsvText(card.title)}"`];
+    const row = [quoted(card.title)];
     for (const template of visible) {
       let value = cardProperty(card, template.id);
       if (template.type === 'createdBy') value = card.createdBy;

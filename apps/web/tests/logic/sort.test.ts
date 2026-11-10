@@ -1,17 +1,19 @@
 /**
  * The order of cards. The original has no tests for this code
- * (`store/cards.ts`); these were written for the port. Cases named
- * "quirk Qn" pin a behaviour of the original that looks like a defect and
- * is listed in PORTING.md; they are to change when the behaviour is decided.
+ * (`store/cards.ts`); these were written for the port. The manual order and
+ * the handling of several sort options differ from the original on purpose
+ * (Q1 and Q6 in PORTING.md).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { cardsOfView, hiddenCardCount } from '$lib/logic/card-list.ts';
+import { calendarDate } from '$lib/logic/dates.ts';
 import { diagnostics } from '$lib/logic/diagnostics.ts';
 import { manualOrder, sortCards, titleOrCreatedOrder, type SortContext } from '$lib/logic/sort.ts';
 import {
   createCard,
   createFilterGroup,
+  formatDateValue,
   setCardProperty,
   TITLE_COLUMN_ID,
   type Card,
@@ -19,12 +21,17 @@ import {
   type PropertyValue,
 } from '$lib/logic/wire.ts';
 
-function card(id: string, title: string, properties: Record<string, PropertyValue> = {}): Card {
+function card(
+  id: string,
+  title: string,
+  properties: Record<string, PropertyValue> = {},
+  createAt = 1000,
+): Card {
   const created = createCard();
   created.id = id;
   created.title = title;
-  created.createAt = 1000;
-  created.updateAt = 1000;
+  created.createAt = createAt;
+  created.updateAt = createAt;
   for (const [propertyId, value] of Object.entries(properties)) {
     setCardProperty(created, propertyId, value);
   }
@@ -46,6 +53,7 @@ const templates: PropertyTemplate[] = [
       { id: 'o2', value: 'alpha', color: '' },
     ],
   },
+  { id: 'who', name: 'Owner', type: 'person', options: [] },
   { id: 'people', name: 'People', type: 'multiPerson', options: [] },
   { id: 'by', name: 'Created by', type: 'createdBy', options: [] },
   { id: 'created', name: 'Created', type: 'createdTime', options: [] },
@@ -53,13 +61,13 @@ const templates: PropertyTemplate[] = [
 ];
 
 const sortBy = (
-  propertyId: string,
-  reversed = false,
+  options: [propertyId: string, reversed?: boolean][],
   extra: Partial<SortContext> = {},
 ): SortContext => ({
   templates,
-  sortOptions: [{ propertyId, reversed }],
+  sortOptions: options.map(([propertyId, reversed = false]) => ({ propertyId, reversed })),
   cardOrder: [],
+  locale: 'en',
   ...extra,
 });
 
@@ -73,48 +81,70 @@ describe('titleOrCreatedOrder', () => {
     expect(titleOrCreatedOrder(card('a', 'apple'), card('b', ''))).toBe(-1);
   });
 
-  it('orders two cards without a title by age', () => {
-    const older = card('a', '');
-    const newer = card('b', '');
-    newer.createAt = 2000;
-    expect(titleOrCreatedOrder(older, newer)).toBeLessThan(0);
+  it('orders two cards without a title by age, and by identifier when made at once', () => {
+    expect(titleOrCreatedOrder(card('a', '', {}, 1000), card('b', '', {}, 2000))).toBeLessThan(0);
+    expect(titleOrCreatedOrder(card('b', '', {}, 1000), card('a', '', {}, 1000))).toBeGreaterThan(
+      0,
+    );
+    expect(
+      titleOrCreatedOrder(card('a', 'same', {}, 2000), card('b', 'same', {}, 1000)),
+    ).toBeGreaterThan(0);
   });
 });
 
 describe('manual order', () => {
   const order = ['c', 'a', 'b'];
+  const manual = (cards: Card[]): string =>
+    ids(sortCards(cards, { templates, sortOptions: [], cardOrder: order }));
 
   it('follows the positions of the view', () => {
-    const cards = [card('a', '1'), card('b', '2'), card('c', '3')];
-    expect(ids(sortCards(cards, { templates, sortOptions: [], cardOrder: order }))).toBe('c a b');
+    expect(manual([card('a', '1'), card('b', '2'), card('c', '3')])).toBe('c a b');
   });
 
-  it('orders two cards without a position by title', () => {
-    expect(manualOrder(order, card('x', 'apple'), card('y', 'banana'))).toBeLessThan(0);
+  it('puts cards without a position after all placed ones, oldest first', () => {
+    const cards = [
+      card('new2', 'aaa', {}, 3000),
+      card('a', '1'),
+      card('new1', 'zzz', {}, 2000),
+      card('c', '3'),
+    ];
+    expect(manual(cards)).toBe('c a new1 new2');
   });
 
-  it('puts a card without a position after a placed one', () => {
-    expect(manualOrder(order, card('x', 'new'), card('a', '1'))).toBe(1);
+  it('gives opposite answers for the two ways round (Q1)', () => {
+    const placed = card('a', '1');
+    const unplaced = card('x', 'new');
+    expect(manualOrder(order, placed, unplaced)).toBe(-1);
+    expect(manualOrder(order, unplaced, placed)).toBe(1);
+    expect(manualOrder(order, placed, placed)).toBe(0);
   });
 
-  it('quirk Q1: a placed card compared with one without a position is also "after"', () => {
-    // The mirror of the case above should be negative. It is the position plus one.
-    expect(manualOrder(order, card('a', '1'), card('x', 'new'))).toBe(2);
-    expect(manualOrder(order, card('c', '3'), card('x', 'new'))).toBe(1);
+  it('gives the same result whatever order the cards come in', () => {
+    const cards = [
+      card('x', 'q', {}, 5),
+      card('a', '1'),
+      card('y', 'p', {}, 4),
+      card('b', '2'),
+      card('c', '3'),
+    ];
+    const expected = 'c a b y x';
+    expect(manual(cards)).toBe(expected);
+    expect(manual([...cards].reverse())).toBe(expected);
+    expect(manual([cards[2], cards[4], cards[0], cards[3], cards[1]] as Card[])).toBe(expected);
   });
 
   it('does not change the list it is given', () => {
     const cards = [card('a', '1'), card('b', '2'), card('c', '3')];
-    sortCards(cards, { templates, sortOptions: [], cardOrder: order });
+    manual(cards);
     expect(ids(cards)).toBe('a b c');
   });
 });
 
 describe('sorting by a property', () => {
-  it('sorts by title, both ways', () => {
+  it('sorts by title; cards without one stay last both ways', () => {
     const cards = [card('b', 'banana'), card('a', 'apple'), card('c', '')];
-    expect(ids(sortCards(cards, sortBy(TITLE_COLUMN_ID)))).toBe('a b c');
-    expect(ids(sortCards(cards, sortBy(TITLE_COLUMN_ID, true)))).toBe('c b a');
+    expect(ids(sortCards(cards, sortBy([[TITLE_COLUMN_ID]])))).toBe('a b c');
+    expect(ids(sortCards(cards, sortBy([[TITLE_COLUMN_ID, true]])))).toBe('b a c');
   });
 
   it('sorts numbers as numbers', () => {
@@ -123,59 +153,75 @@ describe('sorting by a property', () => {
       card('b', 'b', { n: '9' }),
       card('c', 'c', { n: '-1' }),
     ];
-    expect(ids(sortCards(cards, sortBy('n')))).toBe('c b a');
-    expect(ids(sortCards(cards, sortBy('n', true)))).toBe('a b c');
+    expect(ids(sortCards(cards, sortBy([['n']])))).toBe('c b a');
+    expect(ids(sortCards(cards, sortBy([['n', true]])))).toBe('a b c');
   });
 
   it('keeps cards without a value last whichever way the sort runs', () => {
-    const cards = [card('empty', 'x'), card('a', 'a', { n: '1' }), card('b', 'b', { n: '2' })];
-    expect(ids(sortCards(cards, sortBy('n')))).toBe('a b empty');
-    expect(ids(sortCards(cards, sortBy('n', true)))).toBe('b a empty');
-    const texts = [card('empty', 'x'), card('a', 'a', { t: 'one' }), card('b', 'b', { t: 'two' })];
-    expect(ids(sortCards(texts, sortBy('t', true)))).toBe('b a empty');
-  });
-
-  it('breaks ties by title', () => {
-    const cards = [card('b', 'banana', { t: 'same' }), card('a', 'apple', { t: 'same' })];
-    expect(ids(sortCards(cards, sortBy('t')))).toBe('a b');
-  });
-
-  it('sorts dates by their start', () => {
     const cards = [
-      card('late', 'x', { d: '{"from":2000}' }),
-      card('early', 'y', { d: '{"from":1000,"to":9000}' }),
+      card('empty', 'x'),
+      card('a', 'a', { n: '1' }),
+      card('b', 'b', { n: '2' }),
+      card('text', 'y', { n: 'abc' }),
     ];
-    expect(ids(sortCards(cards, sortBy('d')))).toBe('early late');
+    expect(ids(sortCards(cards, sortBy([['n']])))).toBe('a b empty text');
+    expect(ids(sortCards(cards, sortBy([['n', true]])))).toBe('b a empty text');
+    const texts = [card('empty', 'x'), card('a', 'a', { t: 'one' }), card('b', 'b', { t: 'two' })];
+    expect(ids(sortCards(texts, sortBy([['t', true]])))).toBe('b a empty');
   });
 
-  it('quirk Q10: a date written as a bare number sorts as empty', () => {
-    const cards = [card('bare', 'x', { d: '1000' }), card('object', 'y', { d: '{"from":2000}' })];
-    expect(ids(sortCards(cards, sortBy('d')))).toBe('object bare');
+  it('breaks ties by title, then by age', () => {
+    const cards = [
+      card('b', 'banana', { t: 'same' }),
+      card('a2', 'apple', { t: 'same' }, 2000),
+      card('a1', 'apple', { t: 'same' }, 1000),
+    ];
+    expect(ids(sortCards(cards, sortBy([['t']])))).toBe('a1 a2 b');
+  });
+
+  it('sorts dates by their first day; a value without a time before one with a time that day', () => {
+    const day = (date: number) => ({ date: calendarDate(2026, 3, date) });
+    const cards = [
+      card('late', 'x', { d: formatDateValue({ from: day(9) }) }),
+      card('range', 'y', { d: formatDateValue({ from: day(5), to: day(20) }) }),
+      card('timed', 'z', { d: formatDateValue({ from: { instant: Date.UTC(2026, 2, 5, 9, 0) } }) }),
+      card('none', 'w'),
+    ];
+    expect(ids(sortCards(cards, sortBy([['d']], { timeZone: 'UTC' })))).toBe(
+      'range timed late none',
+    );
+    expect(ids(sortCards(cards, sortBy([['d', true]], { timeZone: 'UTC' })))).toBe(
+      'late timed range none',
+    );
   });
 
   it('sorts a select by the label of its option, not by its identifier', () => {
-    const cards = [card('zeta', 'x', { s: 'o1' }), card('alpha', 'y', { s: 'o2' })];
-    expect(ids(sortCards(cards, sortBy('s')))).toBe('alpha zeta');
+    const cards = [
+      card('zeta', 'x', { s: 'o1' }),
+      card('alpha', 'y', { s: 'o2' }),
+      card('gone', 'z', { s: 'deleted' }),
+    ];
+    expect(ids(sortCards(cards, sortBy([['s']])))).toBe('alpha zeta gone');
   });
 
   it('sorts people by username', () => {
     const usernameOf = (id: string): string | undefined => ({ u1: 'zoe', u2: 'adam' })[id];
-    const cards = [card('zoe', 'x', { people: ['u1'] }), card('adam', 'y', { people: ['u2'] })];
-    expect(ids(sortCards(cards, sortBy('people', false, { usernameOf })))).toBe('adam zoe');
+    const people = [card('zoe', 'x', { people: ['u1'] }), card('adam', 'y', { people: ['u2'] })];
+    expect(ids(sortCards(people, sortBy([['people']], { usernameOf })))).toBe('adam zoe');
+    const owners = [card('zoe', 'x', { who: 'u1' }), card('adam', 'y', { who: 'u2' })];
+    expect(ids(sortCards(owners, sortBy([['who']], { usernameOf })))).toBe('adam zoe');
 
     const first = card('zoe', 'x');
     first.createdBy = 'u1';
     const second = card('adam', 'y');
     second.createdBy = 'u2';
-    expect(ids(sortCards([first, second], sortBy('by', false, { usernameOf })))).toBe('adam zoe');
+    expect(ids(sortCards([first, second], sortBy([['by']], { usernameOf })))).toBe('adam zoe');
   });
 
   it('sorts by creation time', () => {
-    const older = card('older', 'x');
-    const newer = card('newer', 'y');
-    newer.createAt = 5000;
-    expect(ids(sortCards([newer, older], sortBy('created')))).toBe('older newer');
-    expect(ids(sortCards([older, newer], sortBy('created', true)))).toBe('newer older');
+    const cards = [card('newer', 'y', {}, 5000), card('older', 'x', {}, 1000)];
+    expect(ids(sortCards(cards, sortBy([['created']])))).toBe('older newer');
+    expect(ids(sortCards(cards, sortBy([['created', true]])))).toBe('newer older');
   });
 
   it('counts the newest comment as a change of the card', () => {
@@ -185,42 +231,41 @@ describe('sorting by a property', () => {
     discussed.updateAt = 1000;
     const lastCommentAt = (id: string): number | undefined =>
       id === 'discussed' ? 9000 : undefined;
-    expect(ids(sortCards([discussed, quiet], sortBy('updated')))).toBe('discussed quiet');
-    expect(ids(sortCards([discussed, quiet], sortBy('updated', false, { lastCommentAt })))).toBe(
+    expect(ids(sortCards([discussed, quiet], sortBy([['updated']])))).toBe('discussed quiet');
+    expect(ids(sortCards([discussed, quiet], sortBy([['updated']], { lastCommentAt })))).toBe(
       'quiet discussed',
     );
   });
+});
 
-  describe('a sort option on a property that no longer exists', () => {
+describe('several sort options (Q6)', () => {
+  const cards = [
+    card('a', 'a', { n: '1', t: 'y' }),
+    card('b', 'b', { n: '2', t: 'x' }),
+    card('c', 'c', { n: '1', t: 'x' }),
+    card('d', 'd', { t: 'w' }),
+  ];
+
+  it('applies them in the order they are listed: the first decides, the next breaks its ties', () => {
+    expect(ids(sortCards(cards, sortBy([['n'], ['t']])))).toBe('c a b d');
+    expect(ids(sortCards(cards, sortBy([['t'], ['n']])))).toBe('d c b a');
+  });
+
+  it('turns each option on its own', () => {
+    expect(ids(sortCards(cards, sortBy([['n', true], ['t']])))).toBe('b c a d');
+    expect(ids(sortCards(cards, sortBy([['n'], ['t', true]])))).toBe('a c b d');
+  });
+
+  describe('an option on a property that no longer exists', () => {
     const report = vi.spyOn(diagnostics, 'report').mockImplementation(() => undefined);
     beforeEach(() => {
       report.mockClear();
     });
 
-    it('leaves the order alone and reports it', () => {
-      const cards = [card('b', 'banana'), card('a', 'apple')];
-      expect(ids(sortCards(cards, sortBy('gone')))).toBe('b a');
+    it('is skipped and reported; the others still apply', () => {
+      expect(ids(sortCards(cards, sortBy([['gone'], ['n'], ['t']])))).toBe('c a b d');
       expect(report).toHaveBeenCalledTimes(1);
     });
-  });
-
-  it('quirk Q6: with two sort options only the last one shows', () => {
-    const cards = [
-      card('a', 'a', { n: '1', t: 'x' }),
-      card('b', 'b', { n: '2', t: 'x' }),
-      card('c', 'c', { n: '1', t: 'y' }),
-    ];
-    // By number, then by text: one would expect "a c b" (number first, text within).
-    const context: SortContext = {
-      templates,
-      sortOptions: [
-        { propertyId: 'n', reversed: false },
-        { propertyId: 't', reversed: false },
-      ],
-      cardOrder: [],
-    };
-    // The text sort runs last over everything and breaks its ties by title.
-    expect(ids(sortCards(cards, context))).toBe('a b c');
   });
 });
 

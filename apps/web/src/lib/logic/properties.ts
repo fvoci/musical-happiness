@@ -7,9 +7,9 @@
  * up here instead of switching on the name.
  */
 import type { CalculationId } from './calculations.ts';
-import { dateFromOf, dateToOf } from './dates.ts';
+import { dateOfInstant, daysOf, type CalendarDate, type DatePoint } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
-import { displayDate, displayDateTime, type DisplayContext } from './format.ts';
+import { displayCalendarDate, displayDateTime, type DisplayContext } from './format.ts';
 import {
   parseDateValue,
   type Card,
@@ -46,11 +46,15 @@ export interface PropertyBehavior {
     template: PropertyTemplate,
     context: DisplayContext,
   ) => string;
-  /** For the date kinds: the days a card occupies in a calendar. */
-  dateRange?: (
+  /**
+   * For the date kinds: the first and last day a card occupies in a calendar,
+   * as the reader's calendar has them.
+   */
+  days?: (
     value: PropertyValue | undefined,
     card: Card,
-  ) => { from: Date | undefined; to: Date | undefined };
+    timeZone?: string,
+  ) => { first: CalendarDate; last: CalendarDate } | undefined;
 }
 
 const COMMON_CALCULATIONS: readonly CalculationOption[] = [
@@ -125,13 +129,30 @@ const displayMultiSelect: Display = (value, card, template) => {
   return options.map((option) => option.value);
 };
 
+const thisYear = (context: DisplayContext): number => (context.now ?? new Date()).getFullYear();
+
+/** A day as a date, a moment as a date with its time. */
+function displayPoint(point: DatePoint, context: DisplayContext): string {
+  return point.instant === undefined
+    ? displayCalendarDate(point.date, context.locale, thisYear(context))
+    : displayDateTime(new Date(point.instant), context.locale, context.now);
+}
+
 const displayDateValue: Display = (value, _card, _template, context) => {
-  if (!value || typeof value !== 'string') return '';
-  const { from, to } = parseDateValue(value);
-  let shown = '';
-  if (from) shown = displayDate(new Date(from), context.locale, context.now);
-  if (to) shown += ` -> ${displayDate(new Date(to), context.locale, context.now)}`;
-  return shown;
+  const { from, to } = parseDateValue(typeof value === 'string' ? value : undefined);
+  if (!from) return '';
+  return to
+    ? `${displayPoint(from, context)} -> ${displayPoint(to, context)}`
+    : displayPoint(from, context);
+};
+
+/** The day a moment of the card itself falls on, as a one-day range. */
+const dayOfMoment = (
+  instant: number,
+  timeZone?: string,
+): { first: CalendarDate; last: CalendarDate } => {
+  const day = dateOfInstant(instant, timeZone);
+  return { first: day, last: day };
 };
 
 /** The behaviour of every kind of property. `file` has none of its own and behaves as unknown. */
@@ -164,10 +185,8 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     canFilter: true,
     filterValueType: 'date',
     displayValue: displayDateValue,
-    dateRange: (value) => {
-      const dateValue = parseDateValue(typeof value === 'string' ? value : undefined);
-      return { from: dateFromOf(dateValue), to: dateToOf(dateValue) };
-    },
+    days: (value, _card, timeZone) =>
+      daysOf(parseDateValue(typeof value === 'string' ? value : undefined), timeZone),
   }),
   person: behavior({ canGroup: true, canFilter: true, filterValueType: 'person' }),
   multiPerson: behavior({ canFilter: true, filterValueType: 'person' }),
@@ -179,7 +198,7 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     calculationOptions: TIME_CALCULATIONS,
     displayValue: (_value, card, _template, context) =>
       displayDateTime(new Date(card.createAt), context.locale, context.now),
-    dateRange: (_value, card) => ({ from: new Date(card.createAt), to: new Date(card.createAt) }),
+    days: (_value, card, timeZone) => dayOfMoment(card.createAt, timeZone),
   }),
   updatedTime: behavior({
     canFilter: true,
@@ -188,7 +207,7 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     calculationOptions: TIME_CALCULATIONS,
     displayValue: (_value, card, _template, context) =>
       displayDateTime(new Date(card.updateAt), context.locale, context.now),
-    dateRange: (_value, card) => ({ from: new Date(card.updateAt), to: new Date(card.updateAt) }),
+    days: (_value, card, timeZone) => dayOfMoment(card.updateAt, timeZone),
   }),
   createdBy: behavior({
     canGroup: true,

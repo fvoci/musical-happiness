@@ -5,18 +5,22 @@ export function ensureProtocol(url: string): string {
   return /^.+:\/\//.test(url) ? url : `https://${url}`;
 }
 
-const ILLEGAL_IN_FILE_NAMES = ['\\', '/', '?', ':', '<', '>', '*', '|', '"', '.'];
+const ILLEGAL_IN_FILE_NAMES = /[\\/?:<>*|".]/g;
+
+/** A name for a downloaded file, made from a title: without the characters file systems refuse. */
+export function sanitizeFilename(filename: string): string {
+  return filename.replace(ILLEGAL_IN_FILE_NAMES, '');
+}
 
 /**
- * A name for a downloaded file, made from a title.
- *
- * QUIRK(Q7): only the first occurrence of each character is removed, so
- * `a.b.c` becomes `ab.c`. Kept as in the original.
+ * A text in the form used for comparing without regard to case. It does not
+ * depend on the language of the reader or the device: the same two texts
+ * match for everyone. Compatibility forms are unified as well, so a
+ * full-width `Ａ` matches `a` and Hangul typed as separate jamo matches the
+ * composed syllable.
  */
-export function sanitizeFilename(filename: string): string {
-  let sanitized = filename;
-  for (const character of ILLEGAL_IN_FILE_NAMES) sanitized = sanitized.replace(character, '');
-  return sanitized;
+export function foldCase(text: string): string {
+  return text.normalize('NFKC').toLowerCase();
 }
 
 export function htmlEncode(text: string): string {

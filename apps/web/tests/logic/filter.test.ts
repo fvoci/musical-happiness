@@ -538,11 +538,10 @@ describe('src/cardFilter', () => {
     });
   });
 
-  // QUIRK(Q16): the day of a filter on a creation or update time is a UTC
-  // day, and the value these cases filter by is the card's local wall-clock
-  // time read as UTC. `is`, `isBefore` and `isAfter` below therefore only
-  // hold where local time is less than twelve hours from UTC; they fail under
-  // TZ=Pacific/Kiritimati (UTC+14). Kept as in the original.
+  // Q16 in PORTING.md: these three cases are unchanged from the original, but
+  // under the original's rule they only held within twelve hours of UTC. The
+  // filter now compares calendar days in the reader's time zone, and they
+  // hold everywhere.
   describe('verify isClauseMet method - (createdTime) date property', () => {
     const createDate = new Date(card1.createAt);
     const checkDate = Date.UTC(

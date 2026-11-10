@@ -1,13 +1,22 @@
 /**
- * Date values, formatting and text helpers. Written for the port; the
- * original tests cover only part of this code (see utils.test.ts). Cases
- * named "quirk Qn" pin a behaviour of the original that looks like a defect
- * and is listed in PORTING.md.
+ * Calendar dates, formatting and text helpers. Written for the port; the
+ * original tests cover only part of this code (see utils.test.ts).
  */
 import { describe, expect, it } from 'vitest';
 
 import { arrayMove, arraysEqual } from '$lib/logic/arrays.ts';
-import { dateFromOf, dateToOf, localDateOf, timestampOfDay } from '$lib/logic/dates.ts';
+import {
+  addDays,
+  calendarDate,
+  comparePoints,
+  dateOfInstant,
+  dateOfLocal,
+  dateOfPoint,
+  daysBetween,
+  daysOf,
+  localMidnight,
+  parseCalendarDate,
+} from '$lib/logic/dates.ts';
 import {
   displayDate,
   displayDateTime,
@@ -19,6 +28,7 @@ import {
 } from '$lib/logic/format.ts';
 import {
   countCheckboxesInMarkdown,
+  foldCase,
   hashCode,
   htmlDecode,
   htmlEncode,
@@ -26,57 +36,87 @@ import {
 } from '$lib/logic/text.ts';
 import { fillPath, normalizeBasePath } from '$lib/logic/urls.ts';
 import { fullName } from '$lib/logic/users.ts';
-describe('a calendar day as a stored timestamp', () => {
-  // These hold in every time zone; the suite is also run under several (PORTING.md).
-  const days = [
-    new Date(2026, 0, 1),
-    new Date(2026, 2, 8, 23, 0),
-    new Date(2026, 5, 30, 0, 0),
-    new Date(2026, 10, 1, 9, 0),
-  ];
-
-  it('stores 12:00 UTC of the local calendar day', () => {
-    for (const day of days) {
-      expect(timestampOfDay(day)).toBe(
-        Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), 12),
-      );
-    }
+describe('calendar dates', () => {
+  it('are written year-month-day and compare as text', () => {
+    expect(calendarDate(2026, 3, 5)).toBe('2026-03-05');
+    expect(calendarDate(2026, 3, 5) < calendarDate(2026, 11, 1)).toBe(true);
+    expect(calendarDate(2026, 13, 1)).toBe('2027-01-01');
   });
 
-  it('does not change the date it is given', () => {
-    const day = new Date(2026, 0, 1, 8, 0);
-    timestampOfDay(day);
-    expect(day.getHours()).toBe(8);
+  it('are read from text only when the text is a real day', () => {
+    expect(parseCalendarDate('2026-03-05')).toBe('2026-03-05');
+    expect(parseCalendarDate('2026-02-30')).toBeUndefined();
+    expect(parseCalendarDate('2026-3-5')).toBeUndefined();
+    expect(parseCalendarDate('tomorrow')).toBeUndefined();
   });
 
-  it('reads the stored day back as the same local day', () => {
-    for (const day of days) {
-      const local = localDateOf(timestampOfDay(day));
-      expect([local.getFullYear(), local.getMonth(), local.getDate()]).toEqual([
-        day.getFullYear(),
-        day.getMonth(),
-        day.getDate(),
-      ]);
-      const start = dateFromOf({ from: timestampOfDay(day) });
-      expect(start?.getTime()).toBe(
-        new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime(),
-      );
-    }
+  it('move by days across months, years and leap days', () => {
+    expect(addDays(calendarDate(2026, 12, 31), 1)).toBe('2027-01-01');
+    expect(addDays(calendarDate(2028, 3, 1), -1)).toBe('2028-02-29');
+    expect(daysBetween(calendarDate(2026, 1, 1), calendarDate(2027, 1, 1))).toBe(365);
+    expect(daysBetween(calendarDate(2026, 3, 5), calendarDate(2026, 3, 1))).toBe(-4);
   });
 
-  it('leaves a value with a time of day as the instant it is', () => {
-    const instant = Date.UTC(2026, 4, 5, 18, 30);
-    expect(localDateOf(instant, true).getTime()).toBe(instant);
+  it('give the day a moment falls on for a reader in a time zone', () => {
+    const moment = Date.UTC(2023, 11, 6, 18, 0);
+    expect(dateOfInstant(moment, 'UTC')).toBe('2023-12-06');
+    expect(dateOfInstant(moment, 'Asia/Seoul')).toBe('2023-12-07');
+    expect(dateOfInstant(moment, 'America/Los_Angeles')).toBe('2023-12-06');
+    expect(dateOfInstant(Date.UTC(2023, 11, 6, 10, 30), 'Pacific/Kiritimati')).toBe('2023-12-07');
+    expect(dateOfInstant(Date.UTC(2023, 11, 8, 10, 30), 'Pacific/Pago_Pago')).toBe('2023-12-07');
   });
 
-  it('has no end for a single day', () => {
-    expect(dateToOf({ from: 1 })).toBeUndefined();
-    expect(dateFromOf({})).toBeUndefined();
+  it('use the time zone of the device when none is given', () => {
+    const local = new Date(2026, 2, 5, 23, 59);
+    expect(dateOfInstant(local.getTime())).toBe('2026-03-05');
+    expect(dateOfLocal(local)).toBe('2026-03-05');
+    expect(dateOfLocal(new Date(2026, 2, 5, 0, 0))).toBe('2026-03-05');
   });
 
-  it('quirk Q11: minutes of the given time end up in the stored value', () => {
-    const day = new Date(2026, 0, 1, 8, 17);
-    expect(timestampOfDay(day)).toBe(Date.UTC(2026, 0, 1, 12, 17));
+  it('turn into local midnight for a calendar, and back', () => {
+    const midnight = localMidnight(calendarDate(2026, 3, 5));
+    expect([
+      midnight.getFullYear(),
+      midnight.getMonth(),
+      midnight.getDate(),
+      midnight.getHours(),
+    ]).toEqual([2026, 2, 5, 0]);
+    expect(dateOfLocal(midnight)).toBe('2026-03-05');
+  });
+});
+
+describe('date values', () => {
+  const fifth = { date: calendarDate(2026, 3, 5) };
+  const ninth = { date: calendarDate(2026, 3, 9) };
+
+  it('cover one day, or every day of a range', () => {
+    expect(daysOf({ from: fifth })).toEqual({ first: '2026-03-05', last: '2026-03-05' });
+    expect(daysOf({ from: fifth, to: ninth })).toEqual({ first: '2026-03-05', last: '2026-03-09' });
+    expect(daysOf({})).toBeUndefined();
+  });
+
+  it('cover the same days when a range was stored backwards', () => {
+    expect(daysOf({ from: ninth, to: fifth })).toEqual({ first: '2026-03-05', last: '2026-03-09' });
+  });
+
+  it("fall on the reader's day when they carry a time", () => {
+    const moment = { instant: Date.UTC(2026, 2, 5, 20, 0) };
+    expect(daysOf({ from: moment }, 'UTC')?.first).toBe('2026-03-05');
+    expect(daysOf({ from: moment }, 'Asia/Seoul')?.first).toBe('2026-03-06');
+    expect(dateOfPoint(fifth, 'Asia/Seoul')).toBe('2026-03-05');
+  });
+
+  it('order by day, a bare day before a moment of that day, moments by time', () => {
+    const morning = { instant: Date.UTC(2026, 2, 5, 8, 0) };
+    const evening = { instant: Date.UTC(2026, 2, 5, 20, 0) };
+    expect(comparePoints(fifth, ninth, 'UTC')).toBe(-1);
+    expect(comparePoints(ninth, fifth, 'UTC')).toBe(1);
+    expect(comparePoints(fifth, fifth, 'UTC')).toBe(0);
+    expect(comparePoints(fifth, morning, 'UTC')).toBe(-1);
+    expect(comparePoints(morning, fifth, 'UTC')).toBe(1);
+    expect(comparePoints(morning, evening, 'UTC')).toBe(-1);
+    // In Seoul the evening moment is already the 6th.
+    expect(comparePoints(evening, { date: calendarDate(2026, 3, 6) }, 'Asia/Seoul')).toBe(1);
   });
 });
 
@@ -139,9 +179,18 @@ describe('durations and sizes', () => {
 });
 
 describe('text', () => {
-  it('quirk Q7: only the first of each illegal character leaves a file name', () => {
+  it('removes every character a file name may not have (Q7)', () => {
     expect(sanitizeFilename('a/b:c')).toBe('abc');
-    expect(sanitizeFilename('v1.2.3 notes')).toBe('v12.3 notes');
+    expect(sanitizeFilename('v1.2.3 notes')).toBe('v123 notes');
+    expect(sanitizeFilename('a/b\\c/d?e*f|g"h<i>j')).toBe('abcdefghij');
+    expect(sanitizeFilename('보드 제목')).toBe('보드 제목');
+  });
+
+  it('folds case the same way for every reader', () => {
+    expect(foldCase('HeLLo')).toBe('hello');
+    expect(foldCase('ＡＢＣ')).toBe('abc');
+    expect(foldCase('\u1112\u1161\u11ab')).toBe('한');
+    expect(foldCase('TITLE')).toBe('title');
   });
 
   it('encodes and decodes the characters that matter in HTML', () => {

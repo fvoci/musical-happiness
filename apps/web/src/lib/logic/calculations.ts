@@ -1,6 +1,7 @@
 /** The summary row of a table and the summary of a board column. */
+import { addDays, daysBetween, daysOf, type CalendarDate } from './dates.ts';
 import {
-  displayDate,
+  displayCalendarDate,
   displayDateTime,
   humanizeDuration,
   roundTo,
@@ -8,7 +9,7 @@ import {
 } from './format.ts';
 import {
   cardProperty,
-  parseDateObject,
+  parseDateValue,
   TITLE_COLUMN_ID,
   type Card,
   type PropertyTemplate,
@@ -102,40 +103,70 @@ const rounded = (value: number, none: number): string =>
 const lowest = (value: number): string => rounded(value, Number.POSITIVE_INFINITY);
 const highest = (value: number): string => rounded(value, Number.NEGATIVE_INFINITY);
 
-function timestamps(card: Card, property: PropertyTemplate): number[] {
-  const value = valueOf(card, property);
-  if (typeof value === 'number') return [value];
-  if (typeof value !== 'string') return [];
-  const { from, to } = parseDateObject(value);
-  return [from, to].filter((time): time is number => Boolean(time));
+const DAY = 24 * 60 * 60 * 1000;
+
+/** The first and last day over the date values of the cards, as the reader's calendar has them. */
+function daySpan(
+  cards: readonly Card[],
+  property: PropertyTemplate,
+  timeZone: string | undefined,
+): { first: CalendarDate; last: CalendarDate } | undefined {
+  let span: { first: CalendarDate; last: CalendarDate } | undefined;
+  for (const card of cards) {
+    const stored = cardProperty(card, property.id);
+    const days = daysOf(parseDateValue(typeof stored === 'string' ? stored : undefined), timeZone);
+    if (!days) continue;
+    span = span
+      ? {
+          first: days.first < span.first ? days.first : span.first,
+          last: days.last > span.last ? days.last : span.last,
+        }
+      : days;
+  }
+  return span;
 }
 
-function timeSpan(
+/** The earliest and latest of the moments the cards themselves carry (created, updated). */
+function momentSpan(
   cards: readonly Card[],
   property: PropertyTemplate,
 ): { first: number; last: number } {
   let first = Number.POSITIVE_INFINITY;
   let last = Number.NEGATIVE_INFINITY;
   for (const card of cards) {
-    for (const time of timestamps(card, property)) {
-      first = Math.min(first, time);
-      last = Math.max(last, time);
-    }
+    const value = valueOf(card, property);
+    if (typeof value !== 'number') continue;
+    first = Math.min(first, value);
+    last = Math.max(last, value);
   }
   return { first, last };
 }
 
-const showTime = (
-  timestamp: number,
+const thisYear = (context: DisplayContext): number => (context.now ?? new Date()).getFullYear();
+
+/** The text for the earliest (`end` "first") or latest day or moment of a property. */
+function showEnd(
+  cards: readonly Card[],
   property: PropertyTemplate,
   context: DisplayContext,
-): string => {
-  if (!Number.isFinite(timestamp)) return '';
-  const date = new Date(timestamp);
-  return property.type === 'date'
-    ? displayDate(date, context.locale, context.now)
-    : displayDateTime(date, context.locale, context.now);
-};
+  end: 'first' | 'last',
+): string {
+  if (property.type === 'date') {
+    const span = daySpan(cards, property, context.timeZone);
+    return span ? displayCalendarDate(span[end], context.locale, thisYear(context)) : '';
+  }
+  const moment = momentSpan(cards, property)[end];
+  return Number.isFinite(moment)
+    ? displayDateTime(new Date(moment), context.locale, context.now)
+    : '';
+}
+
+/** Whether a checkbox value is ticked. The editor writes `true` for a tick and nothing for none. */
+const isChecked = (card: Card, property: PropertyTemplate): boolean =>
+  valueOf(card, property) === 'true';
+
+const checkedCount = (cards: readonly Card[], property: PropertyTemplate): number =>
+  cards.filter((card) => isChecked(card, property)).length;
 
 function sumOf(cards: readonly Card[], property: PropertyTemplate): number {
   return withValue(cards, property).reduce((sum, card) => sum + numberOf(card, property), 0);
@@ -152,14 +183,7 @@ function median(cards: readonly Card[], property: PropertyTemplate): string {
   return String(roundTo(result, DECIMALS));
 }
 
-/**
- * Every calculation by its identifier. Each returns the text to show.
- *
- * QUIRK(Q9): the checkbox calculations count a card as checked when its
- * value is any non-empty text, so a stored `false` counts as checked. The
- * editor of the original writes `true` or an empty text, never `false`, but
- * imported data can hold it. Kept as in the original.
- */
+/** Every calculation by its identifier. Each returns the text to show. */
 export const CALCULATIONS: Record<CalculationId, Calculation> = {
   count: (cards) => String(cards.length),
   countEmpty: (cards, property) => String(cards.length - withValue(cards, property).length),
@@ -181,12 +205,12 @@ export const CALCULATIONS: Record<CalculationId, Calculation> = {
     }
     return String(unique.size);
   },
-  countChecked: (cards, property) => String(valueCount(cards, property)),
-  countUnchecked: (cards, property) => String(cards.length - valueCount(cards, property)),
+  countChecked: (cards, property) => String(checkedCount(cards, property)),
+  countUnchecked: (cards, property) => String(cards.length - checkedCount(cards, property)),
   percentChecked: (cards, property) =>
-    `${Math.round((valueCount(cards, property) * 100) / cards.length)}%`,
+    cards.length === 0 ? '' : percent(checkedCount(cards, property), cards.length),
   percentUnchecked: (cards, property) =>
-    `${Math.round(((cards.length - valueCount(cards, property)) * 100) / cards.length)}%`,
+    cards.length === 0 ? '' : percent(cards.length - checkedCount(cards, property), cards.length),
   sum: (cards, property) => String(roundTo(sumOf(cards, property), DECIMALS)),
   average: (cards, property) => {
     const count = withValue(cards, property).length;
@@ -200,11 +224,16 @@ export const CALCULATIONS: Record<CalculationId, Calculation> = {
     const { low, high } = extremes(cards, property);
     return `${lowest(low)} - ${highest(high)}`;
   },
-  earliest: (cards, property, context) =>
-    showTime(timeSpan(cards, property).first, property, context),
-  latest: (cards, property, context) => showTime(timeSpan(cards, property).last, property, context),
+  earliest: (cards, property, context) => showEnd(cards, property, context, 'first'),
+  latest: (cards, property, context) => showEnd(cards, property, context, 'last'),
   dateRange: (cards, property, context) => {
-    const { first, last } = timeSpan(cards, property);
+    if (property.type === 'date') {
+      // Both ends count: a single day is a range of one day.
+      const span = daySpan(cards, property, context.timeZone);
+      const days = span ? daysBetween(span.first, addDays(span.last, 1)) : 0;
+      return span ? humanizeDuration(days * DAY, context.locale) : '';
+    }
+    const { first, last } = momentSpan(cards, property);
     return Number.isFinite(first) ? humanizeDuration(last - first, context.locale) : '';
   },
 };
