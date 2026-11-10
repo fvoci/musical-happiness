@@ -35,6 +35,35 @@ export function scriptHash(text: string): string {
   return `'sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}'`;
 }
 
+/**
+ * A content security policy the app runs under, given the hashes of
+ * `csp.json`. The preview server sends it, so that the browser tests run
+ * under it; it is also the starting point for the policy of the real server.
+ *
+ * - Scripts: the app's own files and the one hashed inline script. Nothing
+ *   else: no `unsafe-inline`, no `unsafe-eval`.
+ * - Styles: the app's own files, and inline styles. Inline styles are needed:
+ *   the parts that place popovers, the editor and the formula renderer write
+ *   `style` attributes.
+ * - Images: the app's own origin (files of a board are served from it) and
+ *   `blob:` (the in-memory backend hands out files that way).
+ * - No plugins, no framing by another site, no `<base>`.
+ */
+export function contentSecurityPolicy(scriptHashes: readonly string[]): string {
+  return [
+    "default-src 'self'",
+    ["script-src 'self'", ...scriptHashes].join(' '),
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' blob:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ');
+}
+
 /** Writes `csp.json` next to the built `index.html`. */
 export function cspHashes(): Plugin {
   return {

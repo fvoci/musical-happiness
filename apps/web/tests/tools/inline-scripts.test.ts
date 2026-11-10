@@ -5,7 +5,11 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { inlineScripts, scriptHash } from '../../tools/build/inline-scripts.ts';
+import {
+  contentSecurityPolicy,
+  inlineScripts,
+  scriptHash,
+} from '../../tools/build/inline-scripts.ts';
 
 describe('the inline scripts of a page', () => {
   it('are the script elements without a src, with their text exactly as written', () => {
@@ -32,5 +36,13 @@ describe('the inline scripts of a page', () => {
     const scripts = inlineScripts(html);
     expect(scripts).toHaveLength(1);
     expect(scripts[0]).toContain("localStorage.getItem('fvoci:display')");
+  });
+
+  it('go into a policy that allows no other inline script and no eval', () => {
+    const policy = contentSecurityPolicy(["'sha256-abc='"]);
+    const scripts = policy.split('; ').find((part) => part.startsWith('script-src'));
+    expect(scripts).toBe("script-src 'self' 'sha256-abc='");
+    expect(policy).toContain("object-src 'none'");
+    expect(policy).toContain("frame-ancestors 'none'");
   });
 });
