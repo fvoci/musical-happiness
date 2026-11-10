@@ -734,6 +734,24 @@ S6에서 새로 본 것:
 
 **검증(2026-11-11 02:52 KST).** `cargo xtask check` 일곱 단계 PASS. `cargo xtask test`: SQLite 991건, PostgreSQL 883건, S3 1건, 실패 0(SQLite 62.9초, PostgreSQL 102.9초). API 테스트 487건, 회귀 32건, 서버 단위 125건, xtask 21건.
 
+### Q. `hello`와 `ping`도 `/api/v1` 아래로 (2026-11-11 03:08 KST)
+
+6단계(K절)는 `/hello`와 `/ping`을 상태 확인용이라 보고 접두어 밖에 뒀다. 그런데 둘은 계약에 조작으로 올라 있고, 설계 2절의 경로 표에는 API 밖의 주소로 `/ws`와 `/static`만 있다. "모든 API가 `/api/v1` 아래"라는 기준에 맞지 않아 옮겼다.
+
+| 바뀐 것 | 어디 |
+|---|---|
+| `GET /api/v1/hello`, `GET /api/v1/ping`. 세션이 필요 없는 라우트 묶음(로그인, 가입과 같은 묶음)에 넣었다 | `api/mod.rs`의 `routes()`, `api/system.rs` |
+| 접두어 밖의 라우터(`system_router`)를 없앴다. 계약도 접두어 아래의 라우트 하나에서만 만든다 | `lib.rs`, `api/contract.rs` |
+| 예전 주소 `/hello`, `/ping`은 다른 모든 주소처럼 웹앱의 화면 주소다(설계 2절의 "그 밖의 GET·HEAD"). 404가 아니라 웹앱의 페이지가 나간다 | `tests/api/paths.rs` |
+
+**스냅샷.** 589 → 591단계, 권한 표 636칸 그대로. 바뀐 기록 하나: `system`의 `hello`(`GET /hello`)가 `text/plain`의 `Hello`에서 웹앱의 페이지(`text/html`)가 됐다. 새 단계 둘: `ping: at the root`(웹앱의 페이지), `hello: under the prefix`(`Hello`). `ping`의 멤버를 보는 관찰 단계는 새 주소에서 읽는다.
+
+**계약.** 경로 56개가 모두 `/api/v1` 아래다. 조작 73, 스키마 51은 그대로다.
+
+**고치며 본 것.** 기준 경로에 끝 슬래시를 준 서버의 테스트(`startup_refuses_a_malformed_base_path`의 끝)가 `/boards//hello`를 물어 웹앱의 페이지 200으로 통과하고 있었다. API의 답(`Hello`)을 보게 고쳤다.
+
+**알아 둘 것.** 바깥의 상태 확인(로드 밸런서 등)이 `/hello`나 `/ping`을 보고 있었다면 주소를 바꿔야 한다. 저장소 안에는 그런 설정이 없다(`docker/`, `docs/fvoci-cdn.md`에 없음).
+
 ## 플러그인 저장소의 수정 사항 점검
 
 원본에서 갈라진 플러그인 저장소가 분리 뒤에 넣은 보안·검증 수정 15건(서버 쪽)을 원본 standalone 경로에 대해 하나씩 확인했다. 원본에 같은 결함이 있는지는 오라클에서 재현해 판단했고, 처리 결과는 `crates/server/PORTING.md`의 보안 수정 표, 의도적 차이, 보안 결정 대기 표에 PR 번호와 함께 적었다.

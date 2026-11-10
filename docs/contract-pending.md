@@ -103,7 +103,7 @@
 | 오류 본문의 선택 멤버 | 스키마에는 `null`도 되는 것으로 적혀 있으나 서버는 `null`을 보내지 않고 멤버를 뺀다 |
 | `deleteAt` | 있는 것에서는 늘 0이다(지운 것은 휴지통에 있다). WebSocket의 삭제 알림이 쓴다 |
 | 팀의 `title`, `settings` | 값을 정하는 라우트가 없다 |
-| `/hello`, `/ping` | `/api/v1` 밖에 있다. `/ping`의 멤버 이름은 `db_type` 등 snake_case다 |
+| `ping`의 멤버 이름 | `db_type`, `build_number` 등 snake_case다. `hello`와 `ping`도 `/api/v1` 아래에 있다(`/api/v1/hello`, `/api/v1/ping`). 예전 주소 `/hello`, `/ping`은 이제 웹앱의 화면 주소와 같게 다뤄진다 |
 | 요청 스키마와 서버의 해석 | 만들기와 고치기의 요청은 `NewBoard`, `NewBlock`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`로 따로 적었다. 서버는 이보다 너그럽게 읽는다(모르는 멤버를 대부분 버린다). 예외: `patchUserSettings`는 모르는 멤버를 400으로 거절하고, `createBoard`와 `createCategory`는 `id`를, `setSharing`은 `token`을 400으로 거절한다. 스키마가 필수로 적은 멤버가 빠졌을 때 거절하지 않고 빈 값으로 읽는 곳도 있다(`login`의 `password`가 없으면 401, `patchBlocks`의 목록이 없으면 204). 계약에 없는 멤버는 보내지 않는다 |
 | `NewBlock`의 `createAt`, `updateAt` | 필수이고 1 이상이어야 하지만 서버는 그 값을 쓰지 않는다 |
 | `NewCategory`, `CategoryUpdate`의 `userId`, `teamId`(와 고칠 때의 `id`) | 세션과 경로가 이미 말하는 값인데 본문에도 있어야 하고 같아야 한다. 세션과 다른 `userId`는 만들 때 403, 고칠 때 400이다 |

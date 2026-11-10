@@ -14,7 +14,7 @@ use crate::common::{Client, PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, USER1_U
 async fn hello_returns_hello_on_success() {
     let th = Setup::native().start().await;
 
-    let response = Client::send(th.client.raw_request(Method::GET, "/hello")).await;
+    let response = Client::send(th.client.raw_request(Method::GET, "/api/v1/hello")).await;
 
     response.check_ok();
     assert_eq!(response.text(), "Hello", "the greeting");
@@ -26,7 +26,7 @@ async fn hello_returns_hello_on_success() {
 async fn ping_returns_metadata_on_success() {
     let th = Setup::native().start().await;
 
-    let response = Client::send(th.client.raw_request(Method::GET, "/ping")).await;
+    let response = Client::send(th.client.raw_request(Method::GET, "/api/v1/ping")).await;
 
     let metadata = response.ok_json::<serde_json::Value>();
     assert_eq!(metadata["version"], json!("8.0.0"), "{metadata}");
@@ -115,7 +115,7 @@ async fn reading_needs_no_requested_with_header() {
             .bearer_auth(&th.client.token);
         Client::send(request).await.check_ok();
     }
-    Client::send(th.client.raw_request(Method::GET, "/hello"))
+    Client::send(th.client.raw_request(Method::GET, "/api/v1/hello"))
         .await
         .check_ok();
     th.teardown().await;
@@ -281,11 +281,13 @@ async fn startup_refuses_a_malformed_base_path() {
         );
     }
 
-    // A trailing slash is fine, as before.
+    // A trailing slash is fine, as before: the base path is the same without it.
     let th = Setup::native().base_path("/boards/").start().await;
-    Client::send(th.client.raw_request(Method::GET, "/hello"))
-        .await
-        .check_ok();
+    let hello = format!("{}/api/v1/hello", th.base_url.trim_end_matches('/'));
+    assert!(hello.ends_with("/boards/api/v1/hello"), "{hello}");
+    let response = Client::send(reqwest::Client::new().get(hello)).await;
+    response.check_ok();
+    assert_eq!(response.text(), "Hello", "the API, not the web app's page");
     th.teardown().await;
 }
 

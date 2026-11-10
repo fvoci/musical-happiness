@@ -3,6 +3,20 @@
     "name": "hello",
     "request": "GET /hello as anonymous",
     "status": 200,
+    "content_type": "text/html",
+    "body": "<html>"
+  },
+  {
+    "name": "ping: at the root",
+    "request": "GET /ping as anonymous",
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html>"
+  },
+  {
+    "name": "hello: under the prefix",
+    "request": "GET /api/v1/hello as anonymous",
+    "status": 200,
     "content_type": "text/plain",
     "body": "Hello"
   },

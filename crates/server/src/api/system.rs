@@ -1,5 +1,5 @@
-//! `/hello` and `/ping`, which sit outside `/api/v1` and need neither a session nor the
-//! cross-site request forgery header.
+//! `hello` and `ping`, which say that the server is there and what it is. They are under
+//! `/api/v1` like the rest of the API and need no session.
 
 use axum::extract::State;
 use utoipa_axum::router::OpenApiRouter;

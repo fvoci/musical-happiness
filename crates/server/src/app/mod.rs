@@ -51,7 +51,7 @@ use crate::web::WebRoot;
 use crate::webhook::Webhook;
 use crate::ws::Hub;
 
-/// The version reported by `/ping`. The original's web app compares it with its own.
+/// The version reported by `ping`. The original's web app compares it with its own.
 pub const SERVER_VERSION: &str = "8.0.0";
 
 /// The shared state of the server. Cloning is cheap; every clone is the same server.
@@ -78,7 +78,7 @@ struct Inner {
     default_category: tokio::sync::Mutex<()>,
 }
 
-/// What `/ping` reports about the server.
+/// What `ping` reports about the server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct ServerMetadata {
     /// The server version.
@@ -282,7 +282,7 @@ impl App {
         }
     }
 
-    /// What `/ping` reports.
+    /// What `ping` reports.
     pub async fn server_metadata(&self) -> ServerMetadata {
         let db_version = match self.store().db_version().await {
             Ok(version) => version,

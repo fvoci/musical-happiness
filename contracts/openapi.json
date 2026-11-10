@@ -1391,7 +1391,7 @@
         "type": "object"
       },
       "ServerMetadata": {
-        "description": "What `/ping` reports about the server.",
+        "description": "What `ping` reports about the server.",
         "properties": {
           "build_date": {
             "description": "The build date; empty unless set at build time.",
@@ -3697,6 +3697,41 @@
         ]
       }
     },
+    "/api/v1/hello": {
+      "get": {
+        "description": "Answers the text `Hello`.",
+        "operationId": "hello",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The server is there."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Whether the server is there",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/login": {
       "post": {
         "description": "Starts a session for the user with the given name, or, if no user has that name,\nwith the given email address. The session comes in the `Set-Cookie` header and\nnowhere else.\n\nWrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong\nabout them, a missing password too. Attempts are counted at the name and at the\nemail address the request gives, each for itself, and by where they come from; too\nmany are 429. What is counted does not depend on whether there is such an account.",
@@ -3793,6 +3828,41 @@
         "summary": "Sign out",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/ping": {
+      "get": {
+        "description": "The version of the server and what it runs on.",
+        "operationId": "ping",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerMetadata"
+                }
+              }
+            },
+            "description": "What the server says about itself."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "What the server is",
+        "tags": [
+          "system"
         ]
       }
     },
@@ -5433,76 +5503,6 @@
         "summary": "Make a user an administrator, or end that",
         "tags": [
           "users"
-        ]
-      }
-    },
-    "/hello": {
-      "get": {
-        "description": "Answers the text `Hello`.",
-        "operationId": "hello",
-        "responses": {
-          "200": {
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            },
-            "description": "The server is there."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
-          }
-        },
-        "security": [
-          {}
-        ],
-        "summary": "Whether the server is there",
-        "tags": [
-          "system"
-        ]
-      }
-    },
-    "/ping": {
-      "get": {
-        "description": "The version of the server and what it runs on.",
-        "operationId": "ping",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ServerMetadata"
-                }
-              }
-            },
-            "description": "What the server says about itself."
-          },
-          "default": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
-          }
-        },
-        "security": [
-          {}
-        ],
-        "summary": "What the server is",
-        "tags": [
-          "system"
         ]
       }
     }

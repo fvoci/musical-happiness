@@ -1,4 +1,4 @@
-//! The HTTP API under `/api/v1`, plus `/hello` and `/ping`.
+//! The HTTP API, all of it under `/api/v1`.
 //!
 //! One module per area, mirroring the original's `server/api` package. Each module has a
 //! `routes()` function, and [`router`] puts them together.
@@ -68,7 +68,7 @@ const HEADER_REQUESTED_WITH_XML: &str = "XMLHttpRequest";
 /// The result of an API handler.
 pub(crate) type ApiResult = Result<Response, AppError>;
 
-/// Where the API is: the prefix of every path but `/hello` and `/ping`.
+/// Where the API is: the prefix of every path of it.
 pub const PREFIX: &str = "/api/v1";
 
 /// The routes under [`PREFIX`], with what the contract says of them, apart by the limit
@@ -106,9 +106,13 @@ fn routes() -> Routes {
     let uploads = OpenApiRouter::new()
         .merge(files::upload_routes())
         .merge(archive::upload_routes());
+    // What asks whether the server is there needs no session either.
+    let unauthenticated = OpenApiRouter::new()
+        .merge(auth::unauthenticated_routes())
+        .merge(system::routes());
     Routes {
         json,
-        unauthenticated: auth::unauthenticated_routes(),
+        unauthenticated,
         uploads,
     }
 }
@@ -155,11 +159,6 @@ pub fn router(app: &App) -> Router<App> {
             guard_against_forgery,
         ))
         .route_layer(middleware::from_fn(mark_not_cacheable))
-}
-
-/// The routes outside `/api/v1`: `/hello` and `/ping`.
-pub fn system_router() -> Router<App> {
-    system::routes().into()
 }
 
 /// The administration routes, with their full paths (`/api/v1/admin/...`).

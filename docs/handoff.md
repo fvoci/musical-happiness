@@ -1,6 +1,6 @@
 # 서버 트랙 인수인계
 
-고친 때: 2026-11-11 02:55 KST. 브랜치 `fvoci/hafgufa`. `408faa63`까지는 사용자가 새 저장소에 올렸고 그 뒤로도 수시로 올린다. 이 세션은 푸시하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않고, 고칠 것은 새 커밋으로 얹는다.** 앞선 판(S5 시점, 401줄)은 `git show 14b4f37b:docs/handoff-s5.md`로 본다.
+고친 때: 2026-11-11 03:08 KST. 브랜치 `fvoci/hafgufa`. `408faa63`까지는 사용자가 새 저장소에 올렸고 그 뒤로도 수시로 올린다. 이 세션은 푸시하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않고, 고칠 것은 새 커밋으로 얹는다.** 앞선 판(S5 시점, 401줄)은 `git show 14b4f37b:docs/handoff-s5.md`로 본다.
 
 이 문서는 저장소의 다른 파일에 적혀 있지 않은 것만 담는다: 검증 명령과 걸리는 시간, 스냅샷을 갱신하는 절차, 이 기기의 컨테이너와 서버의 상태, 걸렸던 함정, 리뷰를 맡긴 방식, 커밋되지 않는 조사 자료의 자리.
 
@@ -33,7 +33,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 회귀 테스트만(`cargo test -p fvoci-server --test regression`) | SQLite 29–30초 |
 | API 테스트만(`--test api`, 487건) | SQLite 15초, PostgreSQL 37초 |
 
-- 지금의 기대 결과: check 일곱 단계 PASS. test는 SQLite 991건, PostgreSQL 883건, S3 1건, 실패 0. SQLite 실행에서 `ignored` 1건은 S3 테스트이고 세 번째 단계가 그것을 돌린다. 회귀 스냅샷은 589단계(시나리오 21개), 권한 표는 636칸이다. 수는 커밋마다 달라지므로 `PORTING.md`보다 실행 결과를 믿는다.
+- 지금의 기대 결과: check 일곱 단계 PASS. test는 SQLite 991건, PostgreSQL 883건, S3 1건, 실패 0. SQLite 실행에서 `ignored` 1건은 S3 테스트이고 세 번째 단계가 그것을 돌린다. 회귀 스냅샷은 591단계(시나리오 21개), 권한 표는 636칸이다. 수는 커밋마다 달라지므로 `PORTING.md`보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다.
@@ -162,6 +162,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 - 다음 묶음은 본문 저장과 날짜 값(설계 5.7), 스트리밍과 청크 업로드(4.3, 5.6), 템플릿 변환(3.10)이다. 계약에서 바뀔 조작과 멤버는 `docs/contract-pending.md`에 있고, 그 묶음의 커밋마다 계약 파일과 그 문서를 함께 고친다.
 - 웹앱 세션에 전할 것: 계약 파일 `contracts/openapi.json`(브랜치 `fvoci/hafgufa`)과 `docs/contract-pending.md`. 타입 생성은 웹 트랙이 한다(`openapi-typescript` 7.13.0이 이 파일을 받는 것은 확인했다). 날짜 값의 시각 표기는 UTC 밀리초 정수다(설계 5.7). 본문의 공유 테스트 벡터는 서버 쪽이 처음 만든다(아직 없다). WebSocket 메시지는 계약에 없다.
+- `hello`와 `ping`도 `/api/v1` 아래에 있다(`/api/v1/hello`, `/api/v1/ping`, `PORTING.md` Q절). API 밖의 주소는 `/ws`, `/static/…`, 웹앱의 화면뿐이다.
 - 마지막 리뷰(네 갈래)의 지적과 반영, 남긴 것과 까닭은 `PORTING.md`의 S6 P절에 있다. 서버의 결함으로 남은 것(카드가 아닌 모양의 카드 블록이 `getCards`를 500으로 만드는 것 등)은 `docs/contract-pending.md` 8절에 있고 다음 묶음에서 고칠 후보다.
 - 웹앱이 알아야 할 것 하나: 바꾸는 요청은 `fetch`의 기본 방식(`cors`)으로 보낸다. 서버가 페이지에 `Referrer-Policy: no-referrer`를 붙여서, 다른 방식(`same-origin`, `no-cors`, 브라우저가 직접 보내는 폼)의 요청은 `Origin: null`이 되어 403이다(계약의 머리말).
 - 알려진 채로 남긴 것은 `PORTING.md`의 S6 각 절과 `docs/contract-pending.md` 7절에 있다. 큰 것: 요청 스키마를 손으로 쓴 것(해석 쪽과 어긋나도 검사가 없다), 멤버십에 시각이 없어 멤버 목록이 ID 순서인 것, WebSocket 메시지가 계약 밖인 것.

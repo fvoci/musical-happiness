@@ -493,7 +493,9 @@ impl Client {
         }
     }
 
-    /// The address of a path outside the API, such as `/ping`.
+    /// The address of a path as it is written, with nothing put before it but the
+    /// server's own address: for the paths outside the API, and for those that are
+    /// written out in full.
     pub(crate) fn root_url(&self, path: &str) -> String {
         format!("{}{path}", self.base_url)
     }

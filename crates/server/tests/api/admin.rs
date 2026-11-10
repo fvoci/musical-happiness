@@ -377,7 +377,7 @@ mod socket {
     }
 
     /// The socket serves the one administration route and nothing else: not the API, not
-    /// `/hello`, not the web app.
+    /// `hello`, not the web app.
     #[tokio::test]
     async fn admin_socket_serves_only_the_admin_route() {
         let (th, socket) = start_with_admin_socket().await;
@@ -393,8 +393,8 @@ mod socket {
         }
         for target in [
             "/",
-            "/hello",
-            "/ping",
+            "/api/v1/hello",
+            "/api/v1/ping",
             "/api/v1/users/me",
             "/api/v1/admin/users/user1/password/",
             "/api/v1/admin/boards",
@@ -539,7 +539,7 @@ async fn use_ssl_serves_over_tls() {
         .expect("an HTTPS client can be built");
 
     let hello = https
-        .get(format!("https://localhost:{port}/hello"))
+        .get(format!("https://localhost:{port}/api/v1/hello"))
         .send()
         .await
         .expect("the server answers over TLS");
@@ -561,7 +561,7 @@ async fn use_ssl_serves_over_tls() {
 
     assert!(
         reqwest::Client::new()
-            .get(format!("http://localhost:{port}/hello"))
+            .get(format!("http://localhost:{port}/api/v1/hello"))
             .timeout(Duration::from_secs(30))
             .send()
             .await
@@ -586,7 +586,7 @@ async fn use_ssl_failed_handshakes_do_not_disturb_the_server() {
         .start()
         .await;
     let port = port_of(&th);
-    let url = format!("https://localhost:{port}/hello");
+    let url = format!("https://localhost:{port}/api/v1/hello");
 
     let stranger = reqwest::Client::builder()
         .tls_certs_only([])
@@ -640,7 +640,7 @@ async fn use_ssl_without_certificate_files_refuses_to_serve() {
     }
     assert!(
         reqwest::Client::new()
-            .get(format!("http://localhost:{port}/hello"))
+            .get(format!("http://localhost:{port}/api/v1/hello"))
             .timeout(Duration::from_secs(5))
             .send()
             .await
@@ -682,7 +682,7 @@ async fn without_use_ssl_missing_certificate_files_do_not_matter() {
     };
     let th = Setup::native().tls_files(tls_files).start().await;
 
-    let response = Client::send(th.client.raw_request(Method::GET, "/hello")).await;
+    let response = Client::send(th.client.raw_request(Method::GET, "/api/v1/hello")).await;
 
     response.check_ok();
     assert_eq!(response.text(), "Hello", "over plain HTTP");

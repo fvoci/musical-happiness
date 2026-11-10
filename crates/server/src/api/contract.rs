@@ -273,7 +273,6 @@ pub fn document() -> Result<String, ContractError> {
         .merge(routes.uploads);
     let (_, openapi) = OpenApiRouter::<App>::new()
         .nest(super::PREFIX, api)
-        .merge(super::system::routes())
         .split_for_parts();
 
     let mut document = serde_json::to_value(&openapi)

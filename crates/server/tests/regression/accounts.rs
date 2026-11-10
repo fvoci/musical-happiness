@@ -10,9 +10,17 @@ use crate::common::{ROOT_TEAM_ID, UNKNOWN_ID};
 use crate::harness::{API, Session};
 
 pub(crate) async fn system(s: &mut Session) {
+    // Where the two were before all of the API went under the prefix: addresses like
+    // any other now, which the web app has, or nobody.
     s.get("hello", "/hello").without_csrf_header().await;
+    s.get("ping: at the root", "/ping")
+        .without_csrf_header()
+        .await;
+    s.get("hello: under the prefix", &format!("{API}/hello"))
+        .without_csrf_header()
+        .await;
     let ping = s
-        .get("ping", "/ping")
+        .get("ping", &format!("{API}/ping"))
         .without_csrf_header()
         .unrecorded()
         .await;

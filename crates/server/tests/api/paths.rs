@@ -87,10 +87,10 @@ async fn ask_owned(origin: &str, method: Method, address: String) -> Answer {
     reason = "one block per row of the table of path rules"
 )]
 async fn check_path_rules(origin: &str, base: &str) {
-    // A known API path with its method reaches the handler. No session is needed for
-    // the client configuration, and no header for a route outside the API.
-    let hello = ask(origin, Method::GET, &format!("{base}/hello")).await;
-    assert_eq!(hello.status, StatusCode::OK, "{base}/hello");
+    // A known API path with its method reaches the handler. No session is needed to ask
+    // whether the server is there, or for the client configuration.
+    let hello = ask(origin, Method::GET, &format!("{base}/api/v1/hello")).await;
+    assert_eq!(hello.status, StatusCode::OK, "{base}/api/v1/hello");
     assert_eq!(hello.body, "Hello", "the greeting");
 
     // A known API path with another method: 405, with the methods the path has.
@@ -178,8 +178,17 @@ async fn check_path_rules(origin: &str, base: &str) {
         assert!(answer.is_the_web_app(), "GET {base}{path}: {answer:?}");
     }
 
-    // Any other GET or HEAD is a screen of the web app.
-    for path in ["/board/abc", "/login", "/staticx/y", "/board/abc?x=1"] {
+    // Any other GET or HEAD is a screen of the web app. `/hello` and `/ping` were the
+    // API's once, outside its prefix; all of the API is under the prefix now, and these
+    // two are addresses like any other.
+    for path in [
+        "/board/abc",
+        "/login",
+        "/staticx/y",
+        "/board/abc?x=1",
+        "/hello",
+        "/ping",
+    ] {
         let answer = ask_owned(origin, Method::GET, format!("{base}{path}")).await;
         assert!(answer.is_the_web_app(), "GET {base}{path}: {answer:?}");
         let head = ask_owned(origin, Method::HEAD, format!("{base}{path}")).await;
@@ -235,7 +244,7 @@ async fn path_rules_under_a_base_path() {
     // Outside the base path there is nothing.
     for path in [
         "/",
-        "/hello",
+        "/api/v1/hello",
         "/api/v1/client-config",
         "/board/abc",
         "/boardsx",
