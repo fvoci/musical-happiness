@@ -13,14 +13,14 @@
 
   Where the focus goes on opening differs on purpose. In the popover it goes
   to the element marked `data-picker-focus` (the field of a list), or else to
-  the first control. On the sheet it goes to the sheet itself: focusing a
+  the first control; under a finger it goes to the popover itself. On the sheet it goes to the sheet itself: focusing a
   field there would raise the on-screen keyboard over half of the choices
   before the person has asked to type.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  import { insets } from '$lib/layout/room.svelte.ts';
+  import { fingerPointer, insets } from '$lib/layout/room.svelte.ts';
   import * as Popover from '$lib/ui/popover/index.js';
   import { cn } from '$lib/utils.js';
 
@@ -53,6 +53,13 @@
   let popover = $state<HTMLElement | null>(null);
 
   function focusMarked(event: Event): void {
+    // Under a finger the focus stays out of the field: the keyboard comes up
+    // when the person taps it, not before they have seen the choices.
+    if (fingerPointer.current) {
+      event.preventDefault();
+      popover?.focus();
+      return;
+    }
     const marked = popover?.querySelector<HTMLElement>('[data-picker-focus]');
     if (!marked) return;
     event.preventDefault();

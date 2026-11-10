@@ -22,13 +22,21 @@ export function coveredHeight(
   return covered > 48 ? Math.round(covered) : 0;
 }
 
-/** Starts keeping `--keyboard` up to date. Returns the function that stops. */
-export function watchKeyboard(): () => void {
+/**
+ * Starts keeping `--keyboard` up to date, and tells `onChange` the height in
+ * pixels whenever it changes. Returns the function that stops.
+ */
+export function watchKeyboard(onChange?: (height: number) => void): () => void {
   const viewport = window.visualViewport;
   if (!viewport) return () => undefined;
   const root = document.documentElement;
+  let last = -1;
   const update = (): void => {
-    root.style.setProperty('--keyboard', `${coveredHeight(window.innerHeight, viewport)}px`);
+    const height = coveredHeight(window.innerHeight, viewport);
+    if (height === last) return;
+    last = height;
+    root.style.setProperty('--keyboard', `${height}px`);
+    onChange?.(height);
   };
   update();
   viewport.addEventListener('resize', update);

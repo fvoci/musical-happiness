@@ -16,6 +16,7 @@
  * the style sheet is turned into pixels at the moment it is compared, so a
  * change of the reader's text size is followed too.
  */
+import { MediaQuery } from 'svelte/reactivity';
 
 /**
  * The three stages of a page. `compact`: a drawer, sheets, a card that fills
@@ -91,6 +92,8 @@ class Insets {
   right = $state(0);
   bottom = $state(0);
   left = $state(0);
+  /** The height the on-screen keyboard covers where the page was not shrunk for it. */
+  keyboard = $state(0);
   #probe: HTMLElement | undefined;
 
   /** Starts reading the values; they change when the device turns or folds. */
@@ -123,11 +126,19 @@ class Insets {
     return {
       top: 8 + this.top,
       right: 8 + this.right,
-      bottom: 8 + this.bottom,
+      // A popover next to a field stays above the keyboard that came up for it.
+      bottom: 8 + this.bottom + this.keyboard,
       left: 8 + this.left,
     };
   }
 }
+
+/**
+ * Whether the main pointer is a finger. For the one thing that is neither
+ * layout nor size: a finger has not asked for the keyboard, so nothing that
+ * opens under one puts the focus into a field.
+ */
+export const fingerPointer = new MediaQuery('(pointer: coarse)');
 
 /** The page. The entry point attaches it to the element the app is mounted in. */
 export const page = new PageRoom();

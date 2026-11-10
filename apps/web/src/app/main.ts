@@ -17,7 +17,9 @@ if (!target) throw new Error('index.html has no #app element');
 const locale = startLocale();
 watchSystemTheme();
 watchDisplay();
-watchKeyboard();
+watchKeyboard((height) => {
+  insets.keyboard = height;
+});
 insets.watch();
 // The page is what is inside the edges the device keeps: #app has them as padding.
 page.attach(target);
