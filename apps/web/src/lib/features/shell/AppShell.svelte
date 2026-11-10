@@ -33,7 +33,6 @@
   import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { sidebarShape } from '$lib/layout/presentation.ts';
   import { page, pane } from '$lib/layout/room.svelte.ts';
-  import { createBoardView } from '$lib/logic/wire.ts';
   import type { Workspace } from '$lib/state/index.ts';
 
   import { devReadout } from './dev.svelte.ts';
@@ -178,24 +177,13 @@
   }
 
   /**
-   * "Add board": an empty board with one view, and the page goes to it. The
-   * view is made here because a board without one has nothing to show. The
-   * template picker of the original is not built.
+   * "Add board": an empty board with one view (the workspace makes the two
+   * together, because a board without a view has nothing to show), and the
+   * page goes to it. The template picker of the original is not built.
    */
   async function addBoard(): Promise<void> {
-    const made = await workspace.createBoard({ title: '' });
-    if (!made) return;
-    // The store is opened and the address changed in one step, so that the
-    // page, which opens whatever board the address names, finds it open.
-    const opening = workspace.openBoard(made.id);
-    openBoard(made.id);
-    const store = await opening;
-    if (store.status === 'ready' && store.views.length === 0) {
-      await store.createView({
-        title: m['View.NewBoardTitle'](),
-        fields: createBoardView().fields,
-      });
-    }
+    const made = await workspace.createBoard({ title: '' }, m['View.NewBoardTitle']());
+    if (made) openBoard(made.id);
   }
 
   function onkeydown(event: KeyboardEvent): void {

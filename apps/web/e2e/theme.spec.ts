@@ -19,10 +19,11 @@ async function beforeTheApp(
   }));
 }
 
-const remember = (page: Page, settings: object): Promise<void> =>
-  page.addInitScript((stored) => {
+async function remember(page: Page, settings: object): Promise<void> {
+  await page.addInitScript((stored) => {
     localStorage.setItem('fvoci:display', stored);
   }, JSON.stringify(settings));
+}
 
 test('a remembered dark screen is dark before the app starts', async ({ page }) => {
   await remember(page, { brightness: 'dark' });
