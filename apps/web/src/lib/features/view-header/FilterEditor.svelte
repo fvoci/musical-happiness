@@ -10,6 +10,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
 
+  import { arrowChoice } from '$lib/components/arrow-choice.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type {
     BoardView,
@@ -83,6 +84,7 @@
     <div
       role="radiogroup"
       aria-label={m.viewheader_filter_match()}
+      {@attach arrowChoice()}
       class="flex gap-1 self-start rounded-lg bg-muted p-0.5"
     >
       {#each OPERATIONS as { operation, label } (operation)}

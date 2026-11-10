@@ -8,6 +8,7 @@
   fit it is not shown (a class, so nothing is swapped when the pane changes).
 -->
 <script lang="ts">
+  import { arrowChoice } from '$lib/components/arrow-choice.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
 
   /** One tab: a column, or what stands after the columns. */
@@ -47,6 +48,7 @@
   bind:this={strip}
   role="tablist"
   aria-label={m.kanban_columns()}
+  {@attach arrowChoice()}
   data-testid="column-tabs"
   class="relative flex shrink-0 [scrollbar-width:none] overflow-x-auto border-b px-2 @columns/pane:hidden"
 >

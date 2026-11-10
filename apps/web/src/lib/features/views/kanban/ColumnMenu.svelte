@@ -16,6 +16,7 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import TrashIcon from '@lucide/svelte/icons/trash-2';
 
+  import { arrowChoice } from '$lib/components/arrow-choice.ts';
   import ConfirmDialog from '$lib/components/confirm/ConfirmDialog.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
@@ -169,7 +170,13 @@
       {#snippet trigger({ props }: { props: Record<string, unknown> })}
         <span {...props} aria-hidden="true" class="pointer-events-none absolute inset-0"></span>
       {/snippet}
-      <div role="radiogroup" aria-label={m.property_option_color()} class="flex flex-col">
+      <!-- Choosing a colour closes the list, so the arrow keys only move through it. -->
+      <div
+        role="radiogroup"
+        aria-label={m.property_option_color()}
+        class="flex flex-col"
+        {@attach arrowChoice({ choose: false })}
+      >
         {#each OPTION_COLORS as color (color)}
           <button
             type="button"
