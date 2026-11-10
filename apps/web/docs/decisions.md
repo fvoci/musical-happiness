@@ -1357,6 +1357,40 @@
   - 왜: 전의 "하나도 남지 않는다"를 새 규칙에 맞게 좁혔다. 본문·제목·설명·다른 속성에는 예시 주소도 남지 못한다.
   - 바꾸려면: `output.ts`의 `promiseProblems`.
 
+## 서버에 붙이며 정한 것 (`lib/api`)
+
+2026-11-11 04:13 KST부터 브랜치 `fvoci/web-wire`에서 적었다. 번호는 "연결의 1번"처럼 부른다. tracer-bullet의 목록과 지금 어디까지 왔는지는 `handoff.md`의 "지금 상태"에 있다.
+
+- **연결 1.** 어느 구현을 쓸지는 페이지가 말한다: `<meta name="fvoci:backend" content="memory">`가 있으면 메모리, `server`이거나 없으면 서버. 서버 없이 빌드를 서빙하는 도구(`tools/preview.ts`, `tools/serve.ts`)가 `memory`를 적어 넣고(`tools/build/in-memory.ts`), 서버는 아무것도 적지 않는다. Vite의 개발 서버는 소스를 그대로 서빙해 태그가 없고, 그때는 메모리다(`import.meta.env.DEV`).
+  - 왜: 같은 빌드(`dist/`)를 메모리의 종단 테스트(미리 보기)와 서버가 함께 쓴다. 빌드할 때 고르면 빌드가 둘이 된다. 서버를 고칠 필요가 없다.
+  - 다른 안: 빌드 때의 환경 변수 / 시작할 때 `/api/v1/hello`를 물어 보기(요청 하나와 시간 제한이 더 든다) / 주소의 인자.
+  - 바꾸려면: `src/app/backend.ts`의 `chosenBackend`.
+- **연결 2.** 서버 구현은 `src/lib/api/`(높이 3)에 둔다. 타입은 계약에서 만든 `contract.ts`이고(`pnpm run api:types`), `check`가 계약과 어긋나면 실패한다(`--check`).
+  - 왜: 린트(`fvoci/no-direct-server`)가 이미 `api/`를 경계의 구현으로 보고 있었다. `state/`의 인터페이스를 가져와야 하므로 `state`보다 높다.
+  - 바꾸려면: `tools/lint/layers.ts`의 `LAYERS`, `src/lib/README.md`.
+- **연결 3.** 아직 서버에 붙이지 않은 조작은 `BackendError`(405, `reason: 'not_wired'`)로 거절한다(`api/backend.ts`의 `notWired`). **본문 쓰기도 그렇다**: 화면에서 막지 않고, 쓰면 "변경이 저장되지 않아 되돌렸습니다"가 뜬다.
+  - 왜: 화면에서 막으려면 "이 구현은 무엇을 못 하는가"를 인터페이스에 더해야 한다. 서버의 본문 저장이 곧 들어오므로 그 장치는 금방 쓸모가 없어진다. 조용히 아무것도 안 하는 것보다 오류가 낫다.
+  - 다른 안: 화면에서 편집기를 읽기 전용으로 / 새 상태 코드(501).
+  - 바꾸려면: 붙일 때마다 그 메서드를 채운다.
+- **연결 4.** 로그인 화면은 `features/account/SignInPage.svelte` 하나다. 로그인과 계정 만들기가 한 화면에서 링크로 바뀐다. 계정을 만들면(서버는 만들기만 한다) 이어서 로그인한다. 초대 코드는 칸 하나로 받는다.
+  - 왜: 주소가 없어도 된다(`signedOut`일 때 어느 주소에서나 이 화면이다). 로그인한 뒤 주소가 그대로라 원래 가려던 보드가 열린다.
+  - 다른 안: `/login`, `/register` 주소 / 주소의 `?token=`으로 초대 코드.
+  - 바꾸려면: `src/app/App.svelte`의 `signedOut` 갈래.
+- **연결 5.** 작업 공간을 읽다 401을 받으면 상태가 `signedOut`이다(`Workspace.load`). 알림 줄은 띄우지 않는다.
+  - 바꾸려면: `workspace.svelte.ts`의 `load`.
+- **연결 6.** 로그아웃은 설정 대화상자의 맨 끝("…(으)로 로그인함"과 단추)이다. 로그아웃하면 앱의 첫 주소로 페이지를 새로 연다.
+  - 왜: 메모리에 남은 앞 사람의 보드와 실행 취소 기록을 확실히 버린다.
+  - 다른 안: 사이드바 아래의 계정 메뉴 / 저장소를 비우고 그 자리에서 로그인 화면.
+  - 바꾸려면: `App.svelte`의 `signOut`, `SettingsDialog.svelte`의 `onSignOut`.
+- **연결 7.** 사람의 이름은 로그인 이름이다. 계약의 사용자에는 별명, 성명, 이메일이 없다(`convert.ts`의 `userOf`가 빈 글자로 채운다).
+- **연결 8.** 실제 서버의 종단 테스트는 `e2e-live/`와 `playwright.live.config.ts`이고 `pnpm --filter web run e2e:live`로 돈다. `tools/live-server.ts`가 이 체크아웃에서 빌드한 서버를 SQLite로, `target/web-live/<시각>-<포트>/`의 새 데이터 폴더와 포트 18510(`FVOCI_LIVE_PORT`)에서 띄우고, 실행이 끝나면(실패해도) 멈춘다. 서버가 `dist/`를 서빙해 페이지와 API의 출처가 하나다.
+  - 서버 하나를 모든 테스트가 함께 쓰므로 한 번에 하나씩 돈다(`workers: 1`). 테스트마다 자기 이름의 계정과 보드를 만든다.
+  - 서버의 첫 계정(관리자)은 도우미가 API로 만들고, 그 계정으로 초대 코드를 읽어 다른 계정을 만든다(`e2e-live/support.ts`).
+  - 한 주소에서 여러 번 로그인하므로 그 한도(`login_address_attempts_per_minute`)를 1000으로 올려 띄운다.
+  - 데이터 폴더는 지우지 않는다. 실패한 뒤에 들여다볼 수 있게.
+  - 다른 안: Playwright의 전역 준비에서 서버를 띄우기 / 테스트 파일마다 서버.
+  - 바꾸려면: `playwright.live.config.ts`, `tools/live-server.ts`.
+
 ## 검토에서 나온 것과 처리
 
 검토한 때는 2026-11-11 00:50–01:10 KST다.

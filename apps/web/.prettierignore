@@ -22,3 +22,6 @@ src/lib/ui/**/*.ts
 src/lib/hooks/
 src/lib/utils.ts
 components.json
+
+# Made from contracts/openapi.json by `pnpm run api:types`; `check` fails when it is stale.
+src/lib/api/contract.ts

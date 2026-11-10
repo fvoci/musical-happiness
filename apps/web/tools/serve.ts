@@ -23,6 +23,7 @@ import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 
 import { chooseEncoding } from './build/encodings.ts';
+import { inMemory } from './build/in-memory.ts';
 import { contentSecurityPolicy } from './build/inline-scripts.ts';
 
 const TYPES: Record<string, string> = {
@@ -105,7 +106,7 @@ function appPage(name: string, folder: string): { body: string; policy: string }
     ? (JSON.parse(readFileSync(hashesFile, 'utf8')) as { 'script-src': string[] })['script-src']
     : [];
   return {
-    body: index.replaceAll('{{.BaseURL}}', `/${name}`),
+    body: inMemory(index.replaceAll('{{.BaseURL}}', `/${name}`)),
     policy: contentSecurityPolicy(hashes),
   };
 }

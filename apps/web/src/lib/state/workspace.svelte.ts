@@ -30,7 +30,8 @@ import {
 import { BoardStore } from './board.svelte.ts';
 import { sidebarOf, type SidebarCategory } from './order.ts';
 
-export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed';
+/** `signedOut`: the backend has accounts and nobody is signed in (401). */
+export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut';
 
 /** Something a write or a read failed with, for the reader to be told. */
 export interface Problem {
@@ -144,6 +145,10 @@ export class Workspace {
       });
       this.status = 'ready';
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) {
+        this.status = 'signedOut';
+        return;
+      }
       this.status = 'failed';
       this.report('load', error);
     }

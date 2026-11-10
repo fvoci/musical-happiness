@@ -12,6 +12,7 @@
     the chosen one. The list and the function that changes it come from the
     app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
+  - Who is signed in, and signing out: only where the backend has accounts.
 
   A dialog in the middle of the page; on a compact page it fills the screen,
   clear of the edges the device keeps. The back button closes it.
@@ -40,6 +41,7 @@
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
   import type { Workspace } from '$lib/state/index.ts';
+  import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
@@ -63,9 +65,18 @@
     locale?: string;
     /** Changes the language; the page is loaded again in it. */
     onChooseLocale?: (locale: string) => void;
+    /** Signs the reader out. Without it there is no account to leave (the backend in memory). */
+    onSignOut?: () => void;
   }
 
-  let { open = $bindable(), workspace, locales = [], locale, onChooseLocale }: Props = $props();
+  let {
+    open = $bindable(),
+    workspace,
+    locales = [],
+    locale,
+    onChooseLocale,
+    onSignOut,
+  }: Props = $props();
 
   closeOnBack(
     () => open,
@@ -258,6 +269,17 @@
           }}
         />
       </label>
+
+      {#if onSignOut}
+        <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
+          <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="signed-in-as">
+            {m.account_signed_in_as({ name: workspace.me?.username ?? '' })}
+          </span>
+          <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>
+            {m.account_sign_out()}
+          </Button>
+        </div>
+      {/if}
     </div>
   </Dialog.Content>
 </Dialog.Root>
