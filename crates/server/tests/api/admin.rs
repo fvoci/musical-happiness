@@ -152,16 +152,85 @@ mod socket {
         assert!(response.is_json(), "{}", response.head);
         assert!(can_log_in(&th, NEW_PASSWORD).await, "the new password");
         assert!(!can_log_in(&th, PASSWORD).await, "the old password");
-        // Preserved quirk: the sessions the user had stay valid.
-        assert_eq!(
-            th.client.me().await.username,
-            USER1_USERNAME,
-            "the old session"
-        );
         assert!(
             th.login("user2", PASSWORD).await.token.len() > 1,
             "other users keep their passwords"
         );
+        th.teardown().await;
+    }
+
+    /// Not in the original, whose sessions outlive a password an administrator sets.
+    /// Whoever asks for a new password may have lost the old one to someone else, so
+    /// every session opened with it ends.
+    #[tokio::test]
+    async fn admin_set_password_ends_every_session_of_the_user() {
+        let (th, socket) = start_with_admin_socket().await;
+        let second_device = th.login(USER1_USERNAME, PASSWORD).await;
+        for (client, device) in [(&th.client, "the first"), (&second_device, "a second")] {
+            client.get("/users/me").await.check_ok();
+            assert_ne!(client.token, "", "{device} device is signed in");
+        }
+
+        let body = json!({ "password": NEW_PASSWORD }).to_string();
+        set_password(&socket, USER1_USERNAME, &body)
+            .await
+            .check(200, "{}");
+
+        for (client, device) in [(&th.client, "the first"), (&second_device, "a second")] {
+            let response = client.get("/users/me").await;
+            response.check_unauthorized();
+            assert_eq!(
+                response.error_message(),
+                "unable to get the session for the token: sql: no rows in result set",
+                "the session of {device} device is gone, as after a logout"
+            );
+        }
+        let signed_in_again = th.login(USER1_USERNAME, NEW_PASSWORD).await;
+        assert_eq!(
+            signed_in_again.me().await.username,
+            USER1_USERNAME,
+            "a session opened with the new password works"
+        );
+        th.teardown().await;
+    }
+
+    /// Only the sessions of the user whose password was set end.
+    #[tokio::test]
+    async fn admin_set_password_leaves_the_sessions_of_other_users() {
+        let (th, socket) = start_with_admin_socket().await;
+
+        let body = json!({ "password": NEW_PASSWORD }).to_string();
+        set_password(&socket, USER1_USERNAME, &body)
+            .await
+            .check(200, "{}");
+
+        assert_eq!(
+            th.client2.me().await.username,
+            "user2",
+            "the session of another user"
+        );
+        th.teardown().await;
+    }
+
+    /// A request that sets no password ends no session.
+    #[tokio::test]
+    async fn a_refused_admin_set_password_keeps_the_sessions() {
+        let (th, socket) = start_with_admin_socket().await;
+
+        set_password(&socket, USER1_USERNAME, r#"{"password":""}"#)
+            .await
+            .check(400, r#"{"error":"password is required","errorCode":400}"#);
+        let body = json!({ "password": NEW_PASSWORD }).to_string();
+        set_password(&socket, "nobody", &body)
+            .await
+            .check(500, INTERNAL_SERVER_ERROR);
+
+        assert_eq!(
+            th.client.me().await.username,
+            USER1_USERNAME,
+            "the session is still there"
+        );
+        assert!(can_log_in(&th, PASSWORD).await, "and so is the password");
         th.teardown().await;
     }
 

@@ -1,4 +1,5 @@
-//! The administration API: setting a user's password without knowing the old one.
+//! The administration API: setting a user's password without knowing the old one, which
+//! also ends every session of that user.
 //!
 //! It is served on the local Unix socket only, never on the TCP listener, so that being
 //! able to open the socket file is the credential. There is no session and no cross-site
@@ -76,7 +77,7 @@ async fn handle_admin_set_password(
         )));
     }
 
-    app.update_user_password(&username, &password).await?;
+    app.reset_user_password(&username, &password).await?;
     tracing::debug!(username, "AdminSetPassword");
     Ok(empty_response())
 }

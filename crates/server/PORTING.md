@@ -327,7 +327,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 |---|---|---|---|
 | S1 | `server/api/teams.go:106-131` | 로그인한 사용자는 누구나 `GET /teams/{아무 ID}`로 가입 토큰을 읽는다. 원본 웹 앱의 "초대 링크 복사"가 이 값을 쓰므로 응답에서 빼면 그 기능이 달라진다 | 원본대로 |
 | S2 | `server/api/auth.go:25` | 로그인한 사용자는 누구나 가입 토큰을 재발급할 수 있다(관리자 개념이 없다) | 원본대로 |
-| S3 | `server/api/admin.go` | 관리자가 비밀번호를 재설정해도 그 사용자의 기존 세션이 살아 있다. 끊으면 다른 기기가 로그아웃된다 | 원본대로 |
+| S3 | `server/api/admin.go` | 관리자가 비밀번호를 재설정해도 그 사용자의 기존 세션이 살아 있다. 끊으면 다른 기기가 로그아웃된다 | **S6에서 정리됨(2026-11-10).** 재설정하면 그 이름의 사용자가 가진 세션을 모두 지우고(비밀번호 변경과 한 트랜잭션), 그 사용자로 인증한 WebSocket 연결을 닫는다. 재설정이 거절되면(빈 비밀번호, 없는 사용자) 세션은 그대로다. 다른 사용자의 세션은 건드리지 않는다. `Store::reset_user_password`, `App::reset_user_password`, `Hub::close_user`. 테스트 `admin::socket::admin_set_password_ends_every_session_of_the_user`, `…_leaves_the_sessions_of_other_users`, `a_refused_admin_set_password_keeps_the_sessions`, `websocket::resetting_a_password_closes_the_websocket_connections_of_that_user`, 스토어 `sessions::reset_user_password_deletes_the_sessions_of_those_users_only` |
 | S4 | `server/web/webserver.go:113` | `usessl`인데 인증서 파일이 없으면 조용히 평문 HTTP로 뜬다. 시작을 거부하는 편이 안전하지만 운영자가 보는 동작이 바뀐다 | 원본대로 + 경고 로그 |
 | S5 | `server/api/blocks.go` 전반 | 요청 본문 크기에 제한이 없다. 로그인한 사용자가 서버 메모리를 원하는 만큼 쓰게 할 수 있다. 블록 하나의 `fields`가 정당하게 2MB를 넘을 수 있어 일괄 제한은 정상 요청을 막을 수 있다 | 원본대로(제한 없음) |
 | S6 | `server/api/blocks.go` undelete·duplicate·묶음 패치 | 비멤버가 403과 404의 차이로 보드·블록의 존재 여부를 알 수 있다. 고치면 정상 클라이언트가 보는 상태 코드가 바뀐다 | 원본대로 |
@@ -373,7 +373,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 - **컴플라이언스 라우트의 거절은 403이 아니라 401이다**(`server/api/compliance.go:75-78` 등). 히스토리 두 라우트는 권한보다 `modified_since`를 먼저 본다(없으면 400).
 - **채널·통계 라우트는 501 `not permitted in standalone mode`.**
 - **관리자 라우트의 없는 사용자와 잘못된 본문은 둘 다 500이다.** TCP로 관리자 경로를 부르면 다른 모르는 경로처럼 `index.html`(200)이다.
-- **관리자가 비밀번호를 바꿔도 기존 세션은 유지된다**(오라클 확인).
+- **관리자가 비밀번호를 바꿔도 기존 세션은 유지된다**(오라클 확인). → **S6에서 정리됨:** 이제 그 사용자의 세션을 모두 끊는다(보안 결정 대기 S3).
 - **`securecookie` 설정은 효과가 없다.** 서버는 쿠키를 읽기만 하고 설정하지 않는다.
 - **블록 삽입은 전부 아니면 전무가 아니다**(`server/app/blocks.go:182-191`). 두 번째 블록에서 400이 나도 첫 블록은 저장되어 있다.
 - **빈 목록 삽입(`[]`, `null`)은 보드가 있든 없든, 권한 검사 없이 200 `[]`이다**(`server/api/blocks.go:237-283`).

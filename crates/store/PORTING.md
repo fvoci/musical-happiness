@@ -83,7 +83,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 | `GetUserByID`, `GetUserByEmail`, `GetUserByUsername` | `get_user_by_id`, `get_user_by_email`, `get_user_by_username` |
 | `GetUsersList`, `GetUsersByTeam`, `SearchUsersByTeam` | `get_users_list(&[String])`, `get_users_by_team()`, `search_users_by_team(query)` |
 | `CreateUser`, `UpdateUser` | `create_user(&mut User)`, `update_user(&mut User)` |
-| `UpdateUserPassword`, `UpdateUserPasswordByID` | `update_user_password(username, hash)`, `update_user_password_by_id(user_id, hash)` |
+| `UpdateUserPassword`, `UpdateUserPasswordByID` | `reset_user_password(username, hash) -> Vec<String>`(S6: 그 사용자들의 세션도 같은 트랜잭션에서 지우고 사용자 ID를 돌려준다), `update_user_password_by_id(user_id, hash)` |
 | `PatchUserPreferences`, `GetUserPreferences` | `patch_user_preferences(user_id, &UserPreferencesPatch) -> Vec<Preference>`, `get_user_preferences(user_id)` |
 | `GetActiveUserCount` | `get_active_user_count(updated_seconds_ago)` |
 | `GetSession`, `CreateSession`, `RefreshSession`, `UpdateSession`, `DeleteSession`, `CleanUpSessions` | `get_session(token, expire_seconds)`, `create_session(&Session)`, `refresh_session(&Session)`, `update_session(&Session)`, `delete_session(id)`, `clean_up_sessions(expire_seconds)` |
@@ -187,6 +187,12 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 ## S3–S5에서 바뀐 것
 
 - **`testing` 모듈(`test-util` 기능).** 테스트용 빈 데이터베이스를 만드는 코드(SQLite 파일 또는 PostgreSQL 스키마)를 서버 크레이트의 테스트도 쓰도록 `fvoci_store::testing::TestDatabase`로 옮겼다. 기능을 켜지 않으면 컴파일되지 않는다.
+
+## S6에서 바뀐 것
+
+호환을 끝낸 뒤의 변경이다(루트 `PORTING.md`의 "S6" 절).
+
+- **`reset_user_password`** (옛 `update_user_password`): 이름으로 비밀번호를 바꾸면서 그 사용자들의 세션을 같은 트랜잭션에서 지운다. 관리자의 비밀번호 재설정용이다(서버 문서의 S3). 테스트 `sessions::reset_user_password_deletes_the_sessions_of_those_users_only`.
 
 ## 결정 대기
 

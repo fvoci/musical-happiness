@@ -242,7 +242,7 @@ async fn create_and_update_user() {
     // "UpdateUserPassword"
     let new_password = new_id(IdKind::None);
     store
-        .update_user_password(&user.username, &new_password)
+        .reset_user_password(&user.username, &new_password)
         .await
         .unwrap();
 
@@ -549,7 +549,7 @@ async fn updates_of_missing_users_fail() {
     let errors = [
         store.update_user(&mut ghost).await.unwrap_err(),
         store
-            .update_user_password("ghost", "hash")
+            .reset_user_password("ghost", "hash")
             .await
             .unwrap_err(),
         store

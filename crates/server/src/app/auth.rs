@@ -162,21 +162,30 @@ impl App {
             .map_err(|error| AppError::from(error).context("Unable to create the new user"))
     }
 
-    /// Sets the password of every user with the given name. For the administration
-    /// socket.
+    /// Sets the password of every user with the given name and signs them out
+    /// everywhere: their sessions are deleted and their websocket connections closed.
+    /// For the administration socket.
+    ///
+    /// Whoever asks an administrator for a new password may have lost the old one to
+    /// someone else; a session opened with the old password must not outlive it.
     ///
     /// # Errors
     ///
-    /// Returns an error if no user has that name or the password cannot be stored.
-    pub async fn update_user_password(
+    /// Returns an error if no user has that name or the password cannot be stored. The
+    /// sessions are then untouched.
+    pub async fn reset_user_password(
         &self,
         username: &str,
         password: &str,
     ) -> Result<(), AppError> {
-        Ok(self
+        let user_ids = self
             .store()
-            .update_user_password(username, &hash(password).await?)
-            .await?)
+            .reset_user_password(username, &hash(password).await?)
+            .await?;
+        for user_id in &user_ids {
+            self.ws().close_user(user_id);
+        }
+        Ok(())
     }
 
     /// Changes a user's password after checking the old one.

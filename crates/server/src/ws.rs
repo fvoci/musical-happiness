@@ -286,8 +286,23 @@ impl Hub {
     /// Closes every connection. For shutdown: the connections are not part of the HTTP
     /// server's own connection handling once they are upgraded.
     pub fn close(&self) {
+        self.close_where(|_| true);
+    }
+
+    /// Closes every connection that authenticated as the user. For when the user's
+    /// sessions are ended: a connection checks its token once, when it authenticates.
+    pub fn close_user(&self, user_id: &str) {
+        self.close_where(|listener| listener.user_id == user_id);
+    }
+
+    fn close_where(&self, closes: impl Fn(&Listener) -> bool) {
         let mut listeners = self.listeners();
-        let ids: Vec<ListenerId> = listeners.by_id.keys().copied().collect();
+        let ids: Vec<ListenerId> = listeners
+            .by_id
+            .iter()
+            .filter(|(_, listener)| closes(listener))
+            .map(|(id, _)| *id)
+            .collect();
         for id in ids {
             if let Some(listener) = listeners.by_id.get(&id) {
                 listener.closed.cancel();

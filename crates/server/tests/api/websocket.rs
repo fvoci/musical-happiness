@@ -454,3 +454,39 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
 
     th.teardown().await;
 }
+
+/// A password that an administrator sets signs the user out everywhere, live websocket
+/// connections included: a connection checks its token only once, when it authenticates.
+/// Connections of other users stay.
+#[tokio::test]
+async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    let mut socket1 = Socket::connect(&th).await;
+    socket1.authenticate(&th.client.token).await;
+    subscribe_to_team(&th, &mut socket1, "0", &user1.id).await;
+    let mut socket2 = Socket::connect(&th).await;
+    socket2.authenticate(&th.client2.token).await;
+    subscribe_to_team(&th, &mut socket2, "0", &user2.id).await;
+
+    th.app
+        .reset_user_password(&user1.username, "another-Pa$$word")
+        .await
+        .expect("the password is set");
+
+    assert_eq!(
+        socket1.next(PATIENCE).await,
+        Event::Closed,
+        "the connection of the user whose password was set"
+    );
+    th.app
+        .ws()
+        .broadcast_category_change(&category("0", &user2.id, "still listening"));
+    let message = socket2
+        .next_json(PATIENCE)
+        .await
+        .expect("the other user's connection still gets messages");
+    assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
+    th.teardown().await;
+}

@@ -245,3 +245,62 @@ async fn json_stored_as_a_blob_by_the_original_on_sqlite_reads_back() {
 
     test.teardown().await;
 }
+
+/// Not in the original: a password set by name ends the sessions of the users with that
+/// name, and only theirs, together with the password change.
+#[tokio::test]
+async fn reset_user_password_deletes_the_sessions_of_those_users_only() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let hour = 60 * 60;
+    for (id, username) in [("user-a", "anna"), ("user-b", "bert")] {
+        let mut user = fvoci_model::User {
+            id: id.to_owned(),
+            username: username.to_owned(),
+            email: format!("{username}@example.com"),
+            password: "old-hash".to_owned(),
+            ..fvoci_model::User::default()
+        };
+        store.create_user(&mut user).await.unwrap();
+    }
+    for (id, token, user_id) in [
+        ("s1", "anna-phone", "user-a"),
+        ("s2", "anna-laptop", "user-a"),
+        ("s3", "bert-phone", "user-b"),
+    ] {
+        let session = Session {
+            id: id.to_owned(),
+            token: token.to_owned(),
+            user_id: user_id.to_owned(),
+            ..Session::default()
+        };
+        store.create_session(&session).await.unwrap();
+    }
+
+    let user_ids = store.reset_user_password("anna", "new-hash").await.unwrap();
+
+    assert_eq!(user_ids, ["user-a"], "the users whose password was set");
+    assert_eq!(
+        store.get_user_by_id("user-a").await.unwrap().password,
+        "new-hash"
+    );
+    for token in ["anna-phone", "anna-laptop"] {
+        let error = store.get_session(token, hour).await.unwrap_err();
+        assert!(error.is_not_found(), "{token}: got {error:?}");
+    }
+    assert_eq!(
+        store.get_session("bert-phone", hour).await.unwrap().user_id,
+        "user-b",
+        "the session of a user with another name"
+    );
+
+    // An unknown name changes nothing.
+    let error = store.reset_user_password("nobody", "x").await.unwrap_err();
+    assert_eq!(error.to_string(), "user not found (nobody)");
+    assert_eq!(
+        store.get_session("bert-phone", hour).await.unwrap().user_id,
+        "user-b"
+    );
+
+    test.teardown().await;
+}

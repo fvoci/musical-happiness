@@ -464,18 +464,15 @@ async fn app_update_user_password_cases() {
     let th = Setup::native().start().await.init_basic().await;
 
     assert!(
-        th.app.update_user_password("", "").await.is_err(),
+        th.app.reset_user_password("", "").await.is_err(),
         "fail, missing login information"
     );
     assert!(
-        th.app
-            .update_user_password("badUsername", "")
-            .await
-            .is_err(),
+        th.app.reset_user_password("badUsername", "").await.is_err(),
         "fail, invalid username"
     );
     th.app
-        .update_user_password("user1", "testPassword")
+        .reset_user_password("user1", "testPassword")
         .await
         .expect("success, username");
     th.login("user1", "testPassword").await;

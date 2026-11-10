@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::Store;
 use crate::db::{Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
+use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
 const USER_COLUMNS: &str = "id, username, email, password, mfa_secret, auth_service, auth_data, \
@@ -165,18 +166,36 @@ impl Store {
         .await
     }
 
-    /// Sets the password hash of every user with the given name.
+    /// Sets the password hash of every user with the given name and deletes their
+    /// sessions, so that nobody stays signed in with the old password. For a password an
+    /// administrator sets. Returns the identifiers of those users.
+    ///
+    /// Either both happen or neither does.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::UserNotFound`] if no user has that name.
-    pub async fn update_user_password(
+    pub async fn reset_user_password(
         &self,
         username: &str,
         password: &str,
-    ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| update_password(scope, "username", username, password).await)
-            .await
+    ) -> Result<Vec<String>, StoreError> {
+        self.transaction(async |scope| {
+            update_password(scope, "username", username, password).await?;
+            let mut sql = scope.sql(&format!("SELECT id FROM {} WHERE ", scope.table("users")));
+            sql.push_bind("username = ", username);
+            let user_ids: Vec<String> = scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect::<Result<_, _>>()?;
+            for user_id in &user_ids {
+                sessions::delete_sessions_of_user(scope, user_id).await?;
+            }
+            Ok(user_ids)
+        })
+        .await
     }
 
     /// Sets the password hash of the user with the given identifier.

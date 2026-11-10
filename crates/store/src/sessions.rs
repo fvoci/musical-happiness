@@ -162,6 +162,20 @@ impl Store {
     }
 }
 
+/// Deletes every session of a user.
+pub(crate) async fn delete_sessions_of_user(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(&format!(
+        "DELETE FROM {} WHERE user_id = ",
+        scope.table("sessions")
+    ));
+    sql.bind(user_id);
+    scope.execute(sql).await?;
+    Ok(())
+}
+
 pub(crate) async fn get_session(
     scope: &mut Scope<'_>,
     token: &str,
