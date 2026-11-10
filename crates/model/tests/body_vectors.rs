@@ -20,6 +20,11 @@ fn reason(error: &BodyError) -> &'static str {
 
 /// The document a case's `build` stands for, as the description of the vectors says.
 fn build(recipe: &Value) -> Value {
+    assert_eq!(
+        recipe.as_object().map(serde_json::Map::len),
+        Some(1),
+        "a build names one size: {recipe}"
+    );
     let size = |name: &str| recipe[name].as_u64().and_then(|n| usize::try_from(n).ok());
     if let Some(depth) = size("depth") {
         let mut node = json!({"type": "paragraph"});
@@ -71,10 +76,15 @@ fn the_shared_vectors_hold() {
     assert!(!cases.is_empty(), "there are cases");
     for case in cases {
         let name = case["name"].as_str().expect("a case has a name");
-        let sent = match case.get("build") {
-            Some(recipe) => build(recipe),
-            None => case["body"].clone(),
+        let sent = match (case.get("body"), case.get("build")) {
+            (Some(body), None) => body.clone(),
+            (None, Some(recipe)) => build(recipe),
+            _ => panic!("{name}: a case has a body or a build, one of them"),
         };
+        assert!(
+            case.get("text").is_none() || case["expect"] == "accept",
+            "{name}: only an accepted case has a text"
+        );
         let got = Body::parse(sent.clone());
         match case["expect"].as_str() {
             Some("accept") => {

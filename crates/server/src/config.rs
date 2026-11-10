@@ -509,8 +509,8 @@ impl Configuration {
     /// # Errors
     ///
     /// Returns an error naming the first setting this server cannot honor: an
-    /// authentication mode other than `native`, a metrics address, an unknown file
-    /// backend, or version 2 request signing for S3.
+    /// authentication mode other than `native`, a metrics address, port 0, a limit of
+    /// zero, an unknown file backend, or version 2 request signing for S3.
     pub fn check(&self) -> anyhow::Result<Vec<String>> {
         if self.auth_mode != "native" {
             bail!(
@@ -518,11 +518,12 @@ impl Configuration {
                 self.auth_mode
             );
         }
-        // Zero does not mean "no limit": a server that takes bodies of any size is not
-        // something to end up with by leaving a number out.
+        // Zero would listen on any free port, not on one the operator can name.
         if self.port == 0 {
             bail!("port must be 1 to 65535, not 0");
         }
+        // Zero does not mean "no limit": a server that takes bodies of any size is not
+        // something to end up with by leaving a number out.
         if self.max_request_bytes == 0 {
             bail!("max_request_bytes must be a positive number of bytes, not 0");
         }

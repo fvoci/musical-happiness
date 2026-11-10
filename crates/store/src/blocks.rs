@@ -32,8 +32,6 @@ const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"sc
                              fields, create_at, update_at, board_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
-// Where [`LISTED_BLOCK_COLUMNS`] puts what it says of the body, after the columns of a
-// block (the `NULL` stands for the body itself).
 /// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
 const LISTED_HAS_BODY: usize = 12;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.

@@ -36,7 +36,7 @@ const BLOCKS: &[&str] = &[
 const INLINE: &[&str] = &["text", "hardBreak", "mention", "inlineMath"];
 
 /// The longest source of a formula.
-pub(crate) const LATEX_MAX: usize = 4000;
+const LATEX_MAX: usize = 4000;
 
 /// The longest link.
 const HREF_MAX: usize = 2048;
@@ -52,7 +52,7 @@ enum Rule {
     /// A string of one to this many UTF-16 code units.
     NonEmptyText(usize),
     /// A whole number in this range.
-    Integer(i64, i64),
+    Integer(i32, i32),
     /// `true` or `false`.
     Boolean,
     /// The language of a code block: `^[A-Za-z0-9+#._-]{1,40}$`.
@@ -151,14 +151,14 @@ fn mark_spec(name: &str) -> Option<&'static [Attribute]> {
 }
 
 /// The length of a text as the web app counts it: in UTF-16 code units.
-pub(crate) fn utf16_len(text: &str) -> usize {
+fn utf16_len(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
 /// Whether a link may be stored: one of [`LINK_SCHEMES`], or a path inside the app.
 /// Whitespace and control characters do not hide a scheme: browsers drop them before
 /// they read one, so they are left out before deciding (but kept in what is stored).
-pub(crate) fn is_allowed_href(href: &str) -> bool {
+fn is_allowed_href(href: &str) -> bool {
     let length = utf16_len(href);
     if length == 0 || length > HREF_MAX {
         return false;
@@ -196,6 +196,14 @@ fn is_language(text: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '#' | '.' | '_' | '-'))
 }
 
+/// Whether a JSON number is a whole number in the range, however it is written (`1`,
+/// `1.0`, `1e0`), as the web app's `Number.isInteger` takes it.
+fn is_whole_number_in(value: &Value, low: i32, high: i32) -> bool {
+    value.as_f64().is_some_and(|number| {
+        number.fract() == 0.0 && (f64::from(low)..=f64::from(high)).contains(&number)
+    })
+}
+
 impl Rule {
     fn allows(self, value: &Value) -> bool {
         match self {
@@ -203,9 +211,7 @@ impl Rule {
             Self::NonEmptyText(max) => value
                 .as_str()
                 .is_some_and(|text| (1..=max).contains(&utf16_len(text))),
-            Self::Integer(low, high) => value
-                .as_i64()
-                .is_some_and(|number| (low..=high).contains(&number)),
+            Self::Integer(low, high) => is_whole_number_in(value, low, high),
             Self::Boolean => value.is_boolean(),
             Self::Language => value.as_str().is_some_and(is_language),
             Self::Href => value.as_str().is_some_and(is_allowed_href),
@@ -394,7 +400,8 @@ fn check_text(members: &Map<String, Value>) -> Result<(), &'static str> {
 }
 
 /// The words of a document without its structure, for searching: a line per
-/// paragraph, heading, code block and formula block, the empty lines left out. A
+/// paragraph, heading, code block and formula block, the lines of blocks with no words
+/// left out. A hard break is a line break inside its block's line and is kept. A
 /// formula in a line gives its source there. A mention gives nothing: the name is not
 /// stored.
 pub(crate) fn plain_text(document: &Value) -> String {

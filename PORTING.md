@@ -884,6 +884,7 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 | 1 카드의 본문 | `8134dc2..233431d` | Must 1, Should 6, Consider 7 | Must와 Should 모두 반영: 같은 밀리초의 두 쓰기가 `readAt`을 지나가던 것(고칠 때마다 `updateAt`이 커진다), 블록 경로가 검사 없이 본문을 받던 것(400 `field: body`), 카드 목록이 본문을 모두 읽던 것(요약 열을 읽는다), 휴지통 복원이 본문을 요청의 검증기로 다시 읽던 것, 설계와 다른 열 타입(PostgreSQL `JSONB`, SQLite `TEXT`. 올리기 전이라 `0002`를 고쳤다), 낡은 문서, 빠진 테스트(본문 없는 `readAt`, 블록 경로, 휴지통과 복제, 옛 DB의 이전, 1 MiB의 경계, `body: null`, 두 DB의 `0002` 일치). Consider 가운데 둘(파일 중간의 `use`, 모호한 주석) 반영. 멘션의 사용자 ID가 익명 독자에게 가는 것은 "사용자 결정 필요"로 `docs/contract-pending.md` 1절에 |
 | 1 반영분의 재검토 | `233431d..acc2030` | Must 1, Should 3, Consider 8 | Must와 Should 모두 반영: U+0000을 담은 본문이 PostgreSQL에서 500이던 것(검증이 거절하고 공유 벡터에 두 경우를 더함), 블록 경로가 빈 문서나 문서 아닌 본문을 `field` 없는 400으로 거절하던 것(디코딩 전에 원시 JSON에서 꺼내 거절), `updateAt`이 커지는 것과 저장된 할 일 수를 보는 테스트가 없던 것. Consider 가운데 넷 반영: 409보다 400이 먼저, 목록 열의 자리를 이름 붙인 상수와 테스트로, 블록용·패치용 거절 함수를 둘로, 계약의 `Block.body`·`BlockPatch.body` 설명. 128단보다 깊은 JSON이 `field` 없는 400인 것은 `docs/contract-pending.md` 1절에 적음 |
 | 1b 설정, 1 재검토분 | `acc2030..33d25e1` | Must 0, Should 5, Consider 6 | 모두 반영하되 하나는 빼고: 없앤 키를 환경 변수로 줄 때의 문서, 포트 0을 거절(`check`), 블록 경로의 테스트가 거절된 만들기와 보드 패치가 아무것도 남기지 않은 것을 봄, U+0000 벡터를 아는 속성의 값과 링크에(판 2의 벡터에 넣음), `serverRoot`의 경로와 `FVOCI_HTTP_SERVER_BASEPATH`, 400과 409의 순서를 실제대로 좁혀 적음, 객체가 아닌 `filess3config`를 거절, `signv2`와 음수 `maxfilesize`의 문서, 문서의 시각, 제목의 U+0000을 8절의 결함으로, 상수의 문서와 테스트의 복제 |
+| 2 허용 목록 판 2, 1b 반영분 | `33d25e1..d668618` | Must 0, Should 6, Consider 7 | Should 모두 반영: `1.0`처럼 쓴 정수를 웹앱처럼 받음(벡터에 넣음), 설계의 표에 `start`의 위 끝과 `fileId`의 길이(벡터에 경계), 행마다 거절하는 벡터(`taskList`, `hardBreak` 등), 평문의 설명을 실제대로(줄바꿈은 남는다, 벡터로 고정), 낡은 문서(결정 19번, 인수인계 6절, 고친 때), 웹앱에 알릴 차이에 `marks: null`. Consider 가운데 다섯 반영: 벡터 테스트가 `body`·`build` 중 하나, `text`는 받는 경우에만인지 봄, 겹친 벡터, 빈 `attrs`와 잎의 빈 `content`를 설계에 적고 벡터로, 크기를 직렬화 없이 셈, 설정 문서의 `null`과 공백·주석의 자리 |
 
 **받지 않은 지적.**
 
@@ -898,6 +899,8 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 - TB1 재검토, `createCard`가 읽기 전용인 `hasBody`·`tasksTotal`·`tasksDone`의 타입을 검사함(Consider): 계약에서 정수인 멤버에 다른 타입을 보내면 400인 것은 다른 읽기 전용 멤버(`createAt` 등)와 같다. 값은 서버가 다시 센다.
 - TB1 재검토, 빈 `attrs`를 가진 문단이 빈 문서로 보이지 않음, 크기·깊이·노드 수의 벡터가 없음(Consider): 둘 다 다음 tracer-bullet(허용 목록 전체와 벡터 판 2)의 일이다.
 - TB1b 리뷰, `createBlocks`가 `Vec<Value>`를 거쳐 읽어 같은 JSON 키가 두 번 오면 뒤의 것을 받음(Consider): `serde_json`이 블록으로 바로 읽을 때도 `Value`의 멤버(`fields` 등)에서는 같은 일을 한다. 해가 없고, 본문을 꺼내려면 거쳐야 한다.
+- TB2, 거절 문구가 속성과 마크의 이름을 말하지 않음(Consider): 오류는 노드의 자리(`/content/0/...`)를 말하고, 노드 하나의 속성은 많아야 둘이다. 이름을 실으려면 `problem`이 열거형이 되는데, 답에 실리는 문구라 바꾸지 않는다.
+- TB2, 목록 항목의 첫 자식과 코드 블록의 마크를 노드 표의 필드로(Consider): 규칙 둘이고, 이름으로 쓴 지금이 표를 읽는 사람에게 더 바로 보인다.
 
 ## 작성 모델
 

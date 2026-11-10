@@ -257,14 +257,29 @@ fn is_empty_document(value: &Value) -> bool {
             .is_none_or(|content| content.as_array().is_some_and(Vec::is_empty))
 }
 
-/// Checks the size of a document that the allowlist accepted.
-fn check_size(value: &Value) -> Result<(), BodyError> {
-    // Serializing a JSON value cannot fail.
-    let bytes = serde_json::to_vec(value).map_or(usize::MAX, |json| json.len());
-    if bytes > BODY_MAX_BYTES {
-        return Err(BodyError::TooLarge);
+/// Counts the bytes written to it, and stops the writing past [`BODY_MAX_BYTES`].
+#[derive(Debug, Default)]
+struct ByteCount(usize);
+
+impl std::io::Write for ByteCount {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0 += bytes.len();
+        if self.0 > BODY_MAX_BYTES {
+            return Err(std::io::Error::other("the body is too large"));
+        }
+        Ok(bytes.len())
     }
-    Ok(())
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Checks the size of a document that the allowlist accepted, as JSON without
+/// whitespace, without making that JSON.
+fn check_size(value: &Value) -> Result<(), BodyError> {
+    // Writing a JSON value fails only when the count passes the limit.
+    serde_json::to_writer(ByteCount::default(), value).map_err(|_| BodyError::TooLarge)
 }
 
 /// Calls `f` for every node of the document, the document first.
