@@ -186,3 +186,57 @@ async fn ts_template_count(ts: &crate::common::TestServer) -> usize {
         .expect("the template boards")
         .len()
 }
+
+/// Built-in templates that were imported before the onboarding mark existed are imported
+/// again at the next start, so that the tour finds its board. Once there is a marked
+/// one, nothing is imported.
+#[tokio::test]
+async fn templates_without_the_onboarding_mark_are_imported_again() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let marked = |boards: &[Board]| {
+        boards
+            .iter()
+            .filter(|board| board.properties.get("onboarding") == Some(&serde_json::json!(true)))
+            .map(|board| board.id.clone())
+            .collect::<Vec<_>>()
+    };
+    let before: Vec<Board> = ts.client.get("/teams/0/templates").await.ok_json();
+    let marked_before = marked(&before);
+    assert_eq!(
+        marked_before.len(),
+        1,
+        "one marked template after the first start"
+    );
+    assert!(
+        !ts.app.init_templates().await.expect("the check runs"),
+        "current templates are not imported again"
+    );
+
+    // As a database looked before the mark existed.
+    let unmark = fvoci_model::BoardPatch {
+        deleted_properties: vec!["onboarding".to_owned()],
+        ..fvoci_model::BoardPatch::default()
+    };
+    ts.app
+        .store()
+        .patch_board(&marked_before[0], &unmark, "system")
+        .await
+        .expect("the mark is removed");
+
+    assert!(
+        ts.app.init_templates().await.expect("the import runs"),
+        "templates without a marked one are imported again"
+    );
+    let after: Vec<Board> = ts.client.get("/teams/0/templates").await.ok_json();
+    assert_eq!(after.len(), before.len(), "the same number of templates");
+    let marked_after = marked(&after);
+    assert_eq!(marked_after.len(), 1, "one marked template again");
+    assert_ne!(marked_after, marked_before, "a newly imported board");
+    ts.client.post_empty("/teams/0/onboard").await.check_ok();
+    ts.teardown().await;
+}

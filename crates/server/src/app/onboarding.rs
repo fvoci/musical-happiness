@@ -1,7 +1,8 @@
 //! The onboarding tour.
 //!
 //! Ports `server/app/onboarding.go`. Onboarding duplicates the welcome template board
-//! for a user and records the tour state in their preferences.
+//! for a user and records the tour state in their preferences. The welcome board is the
+//! built-in template that carries the onboarding mark, not a board with a certain title.
 
 use std::collections::BTreeMap;
 
@@ -9,10 +10,8 @@ use fvoci_model::{BoardPatch, BoardType, GLOBAL_TEAM_ID, UserPreferencesPatch};
 use fvoci_store::DuplicateAs;
 
 use super::App;
+use super::templates::{ONBOARDING_PROPERTY, is_onboarding_template};
 use crate::error::AppError;
-
-/// The title of the welcome board in the default templates.
-const WELCOME_BOARD_TITLE: &str = "Welcome to Boards!";
 
 /// The preference that records the tour has started.
 const KEY_TOUR_STARTED: &str = "onboardingTourStarted";
@@ -66,20 +65,27 @@ impl App {
         };
         let board_id = board.id.clone();
 
+        // The copy is a user's board, not the built-in template: it loses the mark.
         let patch = BoardPatch {
             board_type: Some(BoardType::Private),
+            deleted_properties: vec![ONBOARDING_PROPERTY.to_owned()],
             ..BoardPatch::default()
         };
         self.patch_board(&patch, &board_id, user_id).await?;
         Ok(board_id)
     }
 
-    /// The identifier of the welcome board among the global templates.
+    /// The identifier of the built-in template the tour copies.
+    ///
+    /// The original takes the first open template of the global team that has the
+    /// welcome board's title (`server/app/onboarding.go:47-66`). The global team is also
+    /// the team every user of a standalone server makes boards in, so a template that
+    /// any user gave that title could be handed to new users as their first board.
     async fn onboarding_board_id(&self) -> Result<String, AppError> {
         let boards = self.store().get_template_boards(GLOBAL_TEAM_ID, "").await?;
         boards
             .into_iter()
-            .find(|board| board.title == WELCOME_BOARD_TITLE && board.team_id == GLOBAL_TEAM_ID)
+            .find(is_onboarding_template)
             .map(|board| board.id)
             .ok_or_else(|| {
                 AppError::internal("unable to find welcome board in newly created blocks")
