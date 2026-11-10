@@ -135,13 +135,21 @@ const STARTS_WITH_PARAGRAPH = new Set(['listItem', 'taskItem']);
 
 function checkAttributes(
   where: string,
-  attrs: Record<string, unknown> | undefined,
+  attrs: unknown,
   specs: Record<string, AttributeSpec>,
   problems: string[],
 ): void {
-  const given = attrs ?? {};
+  if (
+    attrs !== undefined &&
+    (typeof attrs !== 'object' || attrs === null || Array.isArray(attrs))
+  ) {
+    problems.push(`${where}: attrs is not an object`);
+    return;
+  }
+  const given = (attrs ?? {}) as Record<string, unknown>;
   for (const name of Object.keys(given)) {
-    const spec = specs[name];
+    // `Object.hasOwn`: an attribute named `constructor` is not on the list.
+    const spec = Object.hasOwn(specs, name) ? specs[name] : undefined;
     if (!spec) problems.push(`${where}: unknown attribute "${name}"`);
     else if (!spec.rule(given[name]))
       problems.push(`${where}: attribute "${name}" has an invalid value`);
@@ -199,20 +207,42 @@ export function validateDoc(doc: unknown): string[] {
 
     if (type === 'text') {
       if (typeof text !== 'string' || text.length === 0) problems.push(`${at}: text is empty`);
-      for (const mark of marks ?? []) {
-        const markSpec = Object.hasOwn(MARK_SPECS, mark.type) ? MARK_SPECS[mark.type] : undefined;
-        if (!markSpec) problems.push(`${at}: unknown mark "${mark.type}"`);
-        else checkAttributes(`${at}@${mark.type}`, mark.attrs, markSpec, problems);
+      // What is stored comes from elsewhere: nothing about its shape is taken on trust.
+      const given: unknown = marks ?? [];
+      if (!Array.isArray(given)) {
+        problems.push(`${at}: marks is not a list`);
+        return;
       }
-      if (new Set((marks ?? []).map((mark) => mark.type)).size !== (marks ?? []).length) {
-        problems.push(`${at}: a mark is given twice`);
+      const names: string[] = [];
+      for (const mark of given as unknown[]) {
+        if (typeof mark !== 'object' || mark === null || Array.isArray(mark)) {
+          problems.push(`${at}: a mark is not an object`);
+          continue;
+        }
+        const {
+          type: markType,
+          attrs: markAttrs,
+          ...others
+        } = mark as DocMark & Record<string, unknown>;
+        const markName = typeof markType === 'string' ? markType : '(no type)';
+        names.push(markName);
+        const markSpec =
+          typeof markType === 'string' && Object.hasOwn(MARK_SPECS, markType)
+            ? MARK_SPECS[markType]
+            : undefined;
+        if (!markSpec) problems.push(`${at}: unknown mark "${markName}"`);
+        else checkAttributes(`${at}@${markName}`, markAttrs, markSpec, problems);
+        for (const key of Object.keys(others)) {
+          problems.push(`${at}@${markName}: unknown member "${key}"`);
+        }
       }
+      if (new Set(names).size !== names.length) problems.push(`${at}: a mark is given twice`);
     } else {
       if (text !== undefined) problems.push(`${at}: only text nodes have text`);
       if (marks !== undefined) problems.push(`${at}: only text nodes have marks`);
     }
 
-    const children = content ?? [];
+    const children: unknown = content ?? [];
     if (!Array.isArray(children)) {
       problems.push(`${at}: content is not a list`);
       return;
@@ -221,13 +251,17 @@ export function validateDoc(doc: unknown): string[] {
       problems.push(`${at}: needs at least ${spec.minChildren} child`);
     if (children.length > 0 && spec.children.length === 0)
       problems.push(`${at}: cannot have content`);
-    if (STARTS_WITH_PARAGRAPH.has(type) && children[0]?.type !== 'paragraph') {
+    const member = (child: unknown, name: string): unknown =>
+      typeof child === 'object' && child !== null
+        ? (child as Record<string, unknown>)[name]
+        : undefined;
+    if (STARTS_WITH_PARAGRAPH.has(type) && member(children[0], 'type') !== 'paragraph') {
       problems.push(`${at}: has to start with a paragraph`);
     }
-    if (type === 'codeBlock' && children.some((child) => child.marks !== undefined)) {
+    if (type === 'codeBlock' && children.some((child) => member(child, 'marks') !== undefined)) {
       problems.push(`${at}: text in a code block has no marks`);
     }
-    children.forEach((child, index) => {
+    (children as unknown[]).forEach((child, index) => {
       visit(child, `${at}[${index}]`, depth + 1, spec.children);
     });
   }
@@ -245,6 +279,9 @@ export function emptyDoc(): DocNode {
  * A document in the form that is stored: attributes without a value are left
  * out, and so is an attribute list that became empty. The editor gives every
  * attribute it knows a slot, `null` when unset; the stored form has no nulls.
+ * Marks stay on text alone: the editor lets a line break or a mention inside
+ * bold text carry the mark too (`<strong>a<br>b</strong>`), which means
+ * nothing for a node without text and is not on the list.
  */
 export function toStoredDoc(node: DocNode): DocNode {
   const stored: DocNode = { type: node.type };
@@ -253,7 +290,7 @@ export function toStoredDoc(node: DocNode): DocNode {
   );
   if (attrs.length > 0) stored.attrs = Object.fromEntries(attrs);
   if (node.content) stored.content = node.content.map(toStoredDoc);
-  if (node.marks) {
+  if (node.marks && node.type === 'text') {
     stored.marks = node.marks.map((mark) => {
       const markAttrs = Object.entries(mark.attrs ?? {}).filter(
         ([, value]) => value !== null && value !== undefined,

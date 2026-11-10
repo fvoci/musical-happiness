@@ -141,6 +141,21 @@ describe('HTML from elsewhere', () => {
     });
   });
 
+  it('keeps marks off line breaks and mentions inside marked text', () => {
+    const doc = load(
+      '<p><strong>a<br>b <span data-mention data-user-id="u1"></span> c</strong></p><p><a href="/x"><em>d<br></em>e</a></p>',
+    );
+    expect(validateDoc(doc)).toEqual([]);
+    const unmarked = (node: DocNode): DocNode[] => [
+      ...(node.type === 'hardBreak' || node.type === 'mention' ? [node] : []),
+      ...(node.content ?? []).flatMap(unmarked),
+    ];
+    expect(unmarked(doc).map((node) => node.type)).toEqual(['hardBreak', 'mention', 'hardBreak']);
+    for (const node of unmarked(doc)) expect(node.marks).toBeUndefined();
+    // The text on both sides keeps its marks.
+    expect(marks(doc).filter((mark) => mark === 'bold')).toHaveLength(3);
+  });
+
   it('drops scripts, frames, styles and event handlers, and keeps the text', () => {
     const doc = load(
       '<p onclick="steal()" style="color:red">before<script>alert(1)</script><iframe src="https://evil.example"></iframe>' +

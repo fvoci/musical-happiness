@@ -292,3 +292,50 @@ describe('reading a document without an editor', () => {
     expect(plainText(emptyDoc())).toBe('');
   });
 });
+
+describe('a value that is not shaped like a document', () => {
+  // The validator is the gate for what arrives from elsewhere: it answers, it never throws.
+  const text = (extra: Record<string, unknown>): unknown => ({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x', ...extra }] }],
+  });
+
+  it.each([
+    ['marks that are a number', text({ marks: 5 })],
+    ['marks that are text', text({ marks: 'bold' })],
+    ['a mark that is null', text({ marks: [null] })],
+    ['a mark that is text', text({ marks: ['bold'] })],
+    ['a mark without a type', text({ marks: [{}] })],
+    ['a mark with a member that is not on the list', text({ marks: [{ type: 'bold', x: 1 }] })],
+    ['a mark with attributes that are a number', text({ marks: [{ type: 'link', attrs: 7 }] })],
+    ['attributes that are a number', { type: 'doc', content: [{ type: 'paragraph', attrs: 7 }] }],
+    ['attributes that are a list', { type: 'doc', content: [{ type: 'paragraph', attrs: [] }] }],
+    [
+      'an attribute named like a member every object has',
+      { type: 'doc', content: [{ type: 'heading', attrs: { level: 1, constructor: 1 } }] },
+    ],
+    ['a child that is null', { type: 'doc', content: [null] }],
+    ['a child that is text', { type: 'doc', content: ['paragraph'] }],
+    [
+      'a null child of a code block',
+      { type: 'doc', content: [{ type: 'codeBlock', content: [null] }] },
+    ],
+    [
+      'a null first child of a list item',
+      {
+        type: 'doc',
+        content: [{ type: 'bulletList', content: [{ type: 'listItem', content: [null] }] }],
+      },
+    ],
+    ['content that is an object', { type: 'doc', content: {} }],
+    ['a number', 5],
+    ['a list', []],
+    ['nothing', null],
+  ])('is refused without an exception: %s', (_name, value) => {
+    let problems: string[] = [];
+    expect(() => {
+      problems = validateDoc(value);
+    }).not.toThrow();
+    expect(problems.length).toBeGreaterThan(0);
+  });
+});
