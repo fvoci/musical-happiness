@@ -1,0 +1,171 @@
+/**
+ * Serves built folders for a person to look at, from another device too.
+ *
+ *   node tools/serve.ts [--host <address>] [--port <number>] <name>=<folder> ...
+ *
+ * Each folder is served under `/<name>/`; `/` lists them. It is for looking
+ * at the spikes and at Storybook on a phone on the same network: static
+ * files only, no API, nothing of the product's serving rules (that is
+ * preview.ts). The default host is this machine alone; `--host 0.0.0.0`
+ * listens on every interface.
+ */
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { networkInterfaces } from 'node:os';
+import path from 'node:path';
+
+const TYPES: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.gif': 'image/gif',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json',
+  '.map': 'application/json',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.webp': 'image/webp',
+  '.woff2': 'font/woff2',
+};
+
+function option(name: string, fallback: string): string {
+  const index = process.argv.indexOf(name);
+  return index === -1 ? fallback : (process.argv[index + 1] ?? fallback);
+}
+
+const host = option('--host', '127.0.0.1');
+const port = Number(option('--port', '4180'));
+const mounts = new Map<string, string>();
+for (const argument of process.argv.slice(2)) {
+  const match = /^([a-z0-9-]+)=(.+)$/.exec(argument);
+  if (match?.[1] && match[2]) mounts.set(match[1], path.resolve(match[2]));
+}
+if (mounts.size === 0) {
+  console.error(
+    'usage: node tools/serve.ts [--host <address>] [--port <number>] <name>=<folder> ...',
+  );
+  process.exit(2);
+}
+for (const [name, folder] of mounts) {
+  if (!existsSync(folder)) {
+    console.error(`${name}: no folder ${folder} (build it first)`);
+    process.exit(2);
+  }
+}
+
+/** The pages worth a link on the front page: every index.html up to two folders down. */
+function pagesOf(name: string, folder: string): string[] {
+  const pages: string[] = [];
+  const walk = (relative: string, depth: number): void => {
+    if (existsSync(path.join(folder, relative, 'index.html'))) {
+      pages.push(`/${name}/${relative === '' ? '' : `${relative}/`}`);
+    }
+    if (depth === 0) return;
+    for (const entry of readdirNames(path.join(folder, relative)).sort()) {
+      walk(path.join(relative, entry), depth - 1);
+    }
+  };
+  walk('', 2);
+  return pages;
+}
+
+function readdirNames(folder: string): string[] {
+  try {
+    return readdirSync(folder, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+function frontPage(): string {
+  const links = [...mounts]
+    .flatMap(([name, folder]) => pagesOf(name, folder))
+    .map((page) => `<li><a href="${page}">${page}</a></li>`)
+    .join('\n');
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fvoci: screens to look at</title>
+<style>
+  body { font: 1rem/1.6 system-ui, sans-serif; margin: 1.5rem; }
+  a { display: inline-block; padding: 0.6rem 0; font-size: 1.1rem; }
+</style>
+</head>
+<body>
+<h1>fvoci</h1>
+<ul>
+${links}
+</ul>
+</body>
+</html>
+`;
+}
+
+createServer((request, response) => {
+  const url = new URL(request.url ?? '/', 'http://localhost');
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(url.pathname);
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+  if (pathname === '/') {
+    response
+      .writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' })
+      .end(frontPage());
+    return;
+  }
+  const [, name = '', ...rest] = pathname.split('/');
+  const folder = mounts.get(name);
+  if (!folder) {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('not found');
+    return;
+  }
+  if (rest.length === 0) {
+    // `/name` and `/name/` are different bases for the relative links of a page.
+    response.writeHead(308, { Location: `/${name}/${url.search}` }).end();
+    return;
+  }
+  let file = path.join(folder, ...rest);
+  if (file !== folder && !file.startsWith(folder + path.sep)) {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('not found');
+    return;
+  }
+  if (existsSync(file) && statSync(file).isDirectory()) {
+    if (!pathname.endsWith('/')) {
+      response.writeHead(308, { Location: `${pathname}/${url.search}` }).end();
+      return;
+    }
+    file = path.join(file, 'index.html');
+  }
+  if (!existsSync(file) || !statSync(file).isFile()) {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('not found');
+    return;
+  }
+  response
+    .writeHead(200, {
+      'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream',
+      // Rebuilt in place while someone looks: never serve yesterday's file.
+      'Cache-Control': 'no-cache',
+      'X-Content-Type-Options': 'nosniff',
+    })
+    .end(readFileSync(file));
+}).listen(port, host, () => {
+  const addresses =
+    host === '0.0.0.0'
+      ? Object.values(networkInterfaces())
+          .flatMap((list) => list ?? [])
+          .filter((address) => address.family === 'IPv4')
+          .map((address) => address.address)
+      : [host];
+  for (const address of addresses) console.log(`serve: http://${address}:${port}/`);
+  console.log(`serve: pid ${process.pid}`);
+});
