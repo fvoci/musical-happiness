@@ -106,7 +106,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The new body of a card or a comment; `null` takes the body away. Sent only with `readAt`\n(400 naming `readAt` without it)."
+                "description": "The new body of a card or a comment; `null` takes the body away. Sent only with\n`readAt` (400 naming `readAt` without it)."
               },
               {
                 "type": "null"

@@ -168,7 +168,7 @@ pub enum BlockError {
     /// The `properties` among the fields are not well-formed card property values.
     #[error(transparent)]
     InvalidCardProperties(#[from] CardPropertyError),
-    /// A block that is not a card has a body.
+    /// A block that is neither a card nor a comment has a body.
     #[error("only a card or a comment has a body")]
     BodyNotAllowed,
 }
@@ -253,7 +253,7 @@ impl Block {
 
     /// The stored names of the files the block shows, each once: the file of an image
     /// or attachment block (`fileId`, or failing that `attachmentId`), and the images
-    /// of a card's body. The store's migration of file references
+    /// of the body. The store's migration of file references
     /// (`0003_file_refs.sql`) copies this rule in SQL; the two change together.
     #[must_use]
     pub fn shown_files(&self) -> Vec<String> {
@@ -297,8 +297,8 @@ pub struct BlockPatch {
     /// Keys of fields to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
-    /// The new body of a card or a comment; `null` takes the body away. Sent only with `readAt`
-    /// (400 naming `readAt` without it).
+    /// The new body of a card or a comment; `null` takes the body away. Sent only with
+    /// `readAt` (400 naming `readAt` without it).
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
     pub body: BodyChange,

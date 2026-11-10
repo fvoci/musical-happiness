@@ -176,6 +176,57 @@ async fn handle_get_blocks(
     Ok(json_response(&blocks))
 }
 
+/// Checks that the images of the blocks' bodies show files of the board, or of the board
+/// named by `sourceBoardId`, and copies the files the blocks show from that board.
+async fn check_and_copy_body_files(
+    app: &App,
+    user_id: &str,
+    board_id: &str,
+    query: Option<&str>,
+    blocks: &mut [Block],
+) -> Result<(), AppError> {
+    // Set when a template is made from a board or a board from a template: the files
+    // the blocks refer to are then copied over from that board.
+    let source_board_id = query_param(query, "sourceBoardId");
+    // Copying files into the board is an editor's: a commenter, who may post comments
+    // with bodies, may not upload either.
+    // A request with anything but comments needed the editor's permission already.
+    if !source_board_id.is_empty()
+        && blocks
+            .iter()
+            .all(|block| block.block_type == BlockType::Comment)
+        && blocks.iter().any(|block| !block.shown_files().is_empty())
+    {
+        require_board_permission(
+            app,
+            user_id,
+            board_id,
+            BoardPermission::ManageBoardCards,
+            CHANGES_DENIED,
+        )
+        .await?;
+    }
+    // The images of a body show files of the board, or of the board they are copied
+    // from.
+    let files_board_id = if source_board_id.is_empty() {
+        board_id
+    } else {
+        require_source_board_access(app, user_id, &source_board_id).await?;
+        &source_board_id
+    };
+    for block in blocks.iter() {
+        app.check_body_files(files_board_id, block.body.as_ref())
+            .await?;
+    }
+    if !source_board_id.is_empty() {
+        // The blocks are not stored yet: each is pointed at its copy here, and stored
+        // with that below.
+        app.copy_card_files_into(&source_board_id, blocks).await;
+    }
+
+    Ok(())
+}
+
 /// Insert blocks
 ///
 /// Inserts blocks under identifiers the server makes; the identifiers of the request
@@ -287,27 +338,7 @@ async fn handle_post_blocks(
     generate_block_ids(&mut blocks);
     stamp_modification_metadata(user_id, &mut blocks, now_millis());
 
-    // Set when a template is made from a board or a board from a template: the files
-    // the blocks refer to are then copied over from that board.
-    let source_board_id = query_param(query, "sourceBoardId");
-    // The images of a body show files of the board, or of the board they are copied
-    // from.
-    let files_board_id = if source_board_id.is_empty() {
-        &board_id
-    } else {
-        require_source_board_access(&app, user_id, &source_board_id).await?;
-        &source_board_id
-    };
-    for block in &blocks {
-        app.check_body_files(files_board_id, block.body.as_ref())
-            .await?;
-    }
-    if !source_board_id.is_empty() {
-        // The blocks are not stored yet: each is pointed at its copy here, and stored
-        // with that below.
-        app.copy_card_files_into(&source_board_id, &mut blocks)
-            .await;
-    }
+    check_and_copy_body_files(&app, user_id, &board_id, query, &mut blocks).await?;
 
     app.insert_blocks(&mut blocks, user_id, notification)
         .await?;
