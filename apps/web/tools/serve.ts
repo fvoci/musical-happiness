@@ -6,13 +6,17 @@
  * Each folder is served under `/<name>/`; `/` lists them. It is for looking
  * at the spikes and at Storybook on a phone on the same network: static
  * files only, no API, nothing of the product's serving rules (that is
- * preview.ts). The default host is this machine alone; `--host 0.0.0.0`
- * listens on every interface.
+ * preview.ts), except that a `.br`, `.zst` or `.gz` file next to a file is
+ * sent in its place when the client accepts it (build/encodings.ts). The
+ * default host is this machine alone; `--host 0.0.0.0` listens on every
+ * interface.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
+
+import { chooseEncoding } from './build/encodings.ts';
 
 const TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -150,14 +154,21 @@ createServer((request, response) => {
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('not found');
     return;
   }
+  // A folder built with the product's build has compressed forms next to its files.
+  const found = file;
+  const encoding = chooseEncoding(request.headers['accept-encoding'], (extension) =>
+    existsSync(found + extension),
+  );
   response
     .writeHead(200, {
       'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream',
       // Rebuilt in place while someone looks: never serve yesterday's file.
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
+      Vary: 'Accept-Encoding',
+      ...(encoding ? { 'Content-Encoding': encoding.name } : {}),
     })
-    .end(readFileSync(file));
+    .end(readFileSync(encoding ? file + encoding.extension : file));
 }).listen(port, host, () => {
   const addresses =
     host === '0.0.0.0'

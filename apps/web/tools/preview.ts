@@ -5,14 +5,16 @@
  *
  * Every path that is not under `static/` answers with `index.html`, with the
  * base path filled into the placeholder. Files under `static/` are sent with
- * the cache rule the server uses, and a `.br` or `.gz` file next to one is
- * sent in its place when the client accepts it. It is a development aid: the
- * end-to-end tests of the product run against the real server.
+ * the cache rule the server uses, and a `.br`, `.zst` or `.gz` file next to
+ * one is sent in its place when the client accepts it (build/encodings.ts
+ * has the order). It is a development aid: the end-to-end tests of the
+ * product run against the real server.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import path from 'node:path';
 
+import { chooseEncoding } from './build/encodings.ts';
 import { hasContentHash } from './build/output.ts';
 
 const DIST = path.resolve(import.meta.dirname, '../dist');
@@ -45,12 +47,8 @@ createServer((request, response) => {
       response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('not found');
       return;
     }
-    const accepted = request.headers['accept-encoding'] ?? '';
-    const encoding = [
-      ['br', '.br'],
-      ['gzip', '.gz'],
-    ].find(
-      ([name, extension]) => accepted.includes(name ?? '') && existsSync(file + (extension ?? '')),
+    const encoding = chooseEncoding(request.headers['accept-encoding'], (extension) =>
+      existsSync(file + extension),
     );
     const headers: Record<string, string> = {
       'Content-Type': TYPES[path.extname(file)] ?? 'application/octet-stream',
@@ -59,9 +57,9 @@ createServer((request, response) => {
         : 'no-cache',
       Vary: 'Accept-Encoding',
     };
-    if (encoding?.[0] && encoding[1]) {
-      headers['Content-Encoding'] = encoding[0];
-      response.writeHead(200, headers).end(readFileSync(file + encoding[1]));
+    if (encoding) {
+      headers['Content-Encoding'] = encoding.name;
+      response.writeHead(200, headers).end(readFileSync(file + encoding.extension));
     } else {
       response.writeHead(200, headers).end(readFileSync(file));
     }
