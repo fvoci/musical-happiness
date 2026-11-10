@@ -155,12 +155,22 @@ for (const sample of ['everything', 'corners']) {
     await page.locator(`[data-sample="${sample}"]`).click();
     await expect(page.getByTestId('status')).toHaveAttribute('data-valid', 'true');
     await picturesLoaded(page);
+    // The page draws with the app's fonts, which arrive while it settles: the
+    // rules of a family are fetched when the browser is idle, a file when a
+    // character first needs it. A measurement taken across such an arrival
+    // compares one side in the fallback font with the other in the real one.
+    await page.waitForLoadState('networkidle');
+    await page.evaluate(() => document.fonts.ready);
 
-    const editor = await measure(page, 'editor');
-    const view = await measure(page, 'view');
-    // Enough went through the comparison to mean something.
-    expect(editor.length).toBeGreaterThan(sample === 'corners' ? 200 : 40);
-    expect(differences(editor, view)).toEqual([]);
+    await expect(async () => {
+      const editor = await measure(page, 'editor');
+      const view = await measure(page, 'view');
+      // Nothing moved while the two were measured.
+      expect(await measure(page, 'editor')).toEqual(editor);
+      // Enough went through the comparison to mean something.
+      expect(editor.length).toBeGreaterThan(sample === 'corners' ? 200 : 40);
+      expect(differences(editor, view)).toEqual([]);
+    }).toPass({ timeout: 15_000 });
   });
 }
 
