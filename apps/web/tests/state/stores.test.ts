@@ -109,6 +109,36 @@ describe('the workspace', () => {
   });
 });
 
+describe('making and deleting boards', () => {
+  it('makes a board with a first view, a kanban grouped by its first select property', async () => {
+    const { workspace, backend } = setup();
+    await workspace.load();
+    const made = await workspace.createBoard({ title: 'Fresh' }, 'Board view');
+    expect(workspace.boards.map((board) => board.title)).toContain('Fresh');
+    // A board nobody filed yet shows in the default category.
+    expect(workspace.sidebar.at(-1)?.boards.map((board) => board.title)).toContain('Fresh');
+    const views = await backend.views(made?.id ?? '');
+    expect(views).toHaveLength(1);
+    expect(views[0]).toMatchObject({ title: 'Board view', fields: { viewType: 'board' } });
+    const status = made?.cardProperties.find((template) => template.type === 'select');
+    expect(views[0]?.fields.groupById).toBe(status?.id);
+    expect(views[0]?.fields.visibleOptionIds.at(-1)).toBe('');
+    const board = await workspace.openBoard(made?.id ?? '');
+    expect(board.role).toBe('admin');
+  });
+
+  it('deletes a board, and undo brings it back with its cards', async () => {
+    const { workspace, backend } = setup();
+    await workspace.load();
+    const [first] = workspace.boards;
+    await workspace.deleteBoard(first?.id ?? '');
+    expect(workspace.boards).toHaveLength(0);
+    await workspace.undoLast();
+    expect(workspace.boards).toHaveLength(1);
+    expect(await backend.cards(first?.id ?? '')).toHaveLength(3);
+  });
+});
+
 describe('a board', () => {
   it('reads its parts and says what the reader may do', async () => {
     const { board } = await openFirstBoard();
