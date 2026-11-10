@@ -1,15 +1,21 @@
 /**
  * Serves built folders for a person to look at, from another device too.
  *
- *   node tools/serve.ts [--host <address>] [--port <number>] <name>=<folder> ...
+ *   node tools/serve.ts [--host <address>] [--port <number>] [app:]<name>=<folder> ...
  *
  * Each folder is served under `/<name>/`; `/` lists them. It is for looking
- * at the spikes and at Storybook on a phone on the same network: static
- * files only, no API, nothing of the product's serving rules (that is
- * preview.ts), except that a `.br`, `.zst` or `.gz` file next to a file is
+ * at the app, the spikes and Storybook on a phone on the same network:
+ * static files only, no API. A `.br`, `.zst` or `.gz` file next to a file is
  * sent in its place when the client accepts it (build/encodings.ts). The
  * default host is this machine alone; `--host 0.0.0.0` listens on every
  * interface.
+ *
+ * A folder given as `app:<name>=<folder>` is a build of the product
+ * (`dist/`) and is served the way the server serves it under the base path
+ * `/<name>`: every address below it that is not a file of `static/` answers
+ * with `index.html`, the base path filled in, under the content security
+ * policy of the build. The app in that build runs on its in-memory backend,
+ * so there is still no API here.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -17,6 +23,7 @@ import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 
 import { chooseEncoding } from './build/encodings.ts';
+import { contentSecurityPolicy } from './build/inline-scripts.ts';
 
 const TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -43,13 +50,17 @@ function option(name: string, fallback: string): string {
 const host = option('--host', '127.0.0.1');
 const port = Number(option('--port', '4180'));
 const mounts = new Map<string, string>();
+/** The mounts that are builds of the product. */
+const apps = new Set<string>();
 for (const argument of process.argv.slice(2)) {
-  const match = /^([a-z0-9-]+)=(.+)$/.exec(argument);
-  if (match?.[1] && match[2]) mounts.set(match[1], path.resolve(match[2]));
+  const match = /^(app:)?([a-z0-9-]+)=(.+)$/.exec(argument);
+  if (!match?.[2] || !match[3]) continue;
+  mounts.set(match[2], path.resolve(match[3]));
+  if (match[1]) apps.add(match[2]);
 }
 if (mounts.size === 0) {
   console.error(
-    'usage: node tools/serve.ts [--host <address>] [--port <number>] <name>=<folder> ...',
+    'usage: node tools/serve.ts [--host <address>] [--port <number>] [app:]<name>=<folder> ...',
   );
   process.exit(2);
 }
@@ -86,9 +97,22 @@ function readdirNames(folder: string): string[] {
   }
 }
 
+/** The page of a product build, as the server sends it under the base path `/<name>`. */
+function appPage(name: string, folder: string): { body: string; policy: string } {
+  const index = readFileSync(path.join(folder, 'index.html'), 'utf8');
+  const hashesFile = path.join(folder, 'csp.json');
+  const hashes = existsSync(hashesFile)
+    ? (JSON.parse(readFileSync(hashesFile, 'utf8')) as { 'script-src': string[] })['script-src']
+    : [];
+  return {
+    body: index.replaceAll('{{.BaseURL}}', `/${name}`),
+    policy: contentSecurityPolicy(hashes),
+  };
+}
+
 function frontPage(): string {
   const links = [...mounts]
-    .flatMap(([name, folder]) => pagesOf(name, folder))
+    .flatMap(([name, folder]) => (apps.has(name) ? [`/${name}/`] : pagesOf(name, folder)))
     .map((page) => `<li><a href="${page}">${page}</a></li>`)
     .join('\n');
   return `<!doctype html>
@@ -131,6 +155,17 @@ createServer((request, response) => {
   const folder = mounts.get(name);
   if (!folder) {
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('not found');
+    return;
+  }
+  if (apps.has(name) && rest[0] !== 'static') {
+    const { body, policy } = appPage(name, folder);
+    response
+      .writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Content-Security-Policy': policy,
+      })
+      .end(body);
     return;
   }
   if (rest.length === 0) {

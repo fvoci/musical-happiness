@@ -23,7 +23,7 @@
     "spikes:build": "pnpm run i18n && vite build --config vite.spikes.config.ts",
     "spikes:e2e": "pnpm run i18n && playwright test --config playwright.spikes.config.ts",
     "test:once": "pnpm run i18n && vitest run",
-    "look": "pnpm run spikes:build && pnpm run build-storybook && node tools/serve.ts --host 0.0.0.0 --port 18410 screens=dist-spikes storybook=storybook-static"
+    "look": "pnpm run build && pnpm run spikes:build && pnpm run build-storybook && node tools/serve.ts --host 0.0.0.0 --port 18410 app:app=dist screens=dist-spikes storybook=storybook-static"
   },
   "dependencies": {
     "@tiptap/core": "3.33.0",
