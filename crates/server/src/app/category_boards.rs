@@ -9,7 +9,7 @@ use fvoci_model::{
 use fvoci_store::{BoardVisibility, PublicBoards};
 
 use super::App;
-use super::category::{CATEGORY_NOT_FOUND, CATEGORY_PERMISSION_DENIED};
+use super::category::CATEGORY;
 use crate::error::AppError;
 
 /// The name of the category every user has, which collects the boards filed nowhere else.
@@ -183,8 +183,7 @@ impl App {
         // The original writes first and only then finds that the user has no such
         // category, which lets a user file boards into another user's category
         // (server/app/category_boards.go:150-170). The check comes first here.
-        self.require_user_category(team_id, user_id, category_id)
-            .await?;
+        self.user_category(team_id, user_id, category_id).await?;
         self.store()
             .add_update_category_board(user_id, category_id, board_ids)
             .await?;
@@ -194,7 +193,7 @@ impl App {
             .iter()
             .find(|entry| entry.category.id == category_id)
         else {
-            return Err(AppError::internal(CATEGORY_NOT_FOUND));
+            return Err(AppError::not_found(CATEGORY));
         };
         let payload: Vec<BoardCategoryWebsocketData> = updated
             .board_metadata
@@ -207,32 +206,6 @@ impl App {
             .collect();
         self.ws()
             .broadcast_category_board_change(team_id, user_id, &payload);
-        Ok(())
-    }
-
-    /// Checks that a category is one of a user's categories in a team and not deleted.
-    ///
-    /// Another user's category is refused as such. Every other mismatch gets the
-    /// unclassified error the original answers with after its write.
-    async fn require_user_category(
-        &self,
-        team_id: &str,
-        user_id: &str,
-        category_id: &str,
-    ) -> Result<(), AppError> {
-        let category = match self.store().get_category(category_id).await {
-            Ok(category) => category,
-            Err(error) if error.is_not_found() => {
-                return Err(AppError::internal(CATEGORY_NOT_FOUND));
-            }
-            Err(error) => return Err(error.into()),
-        };
-        if category.user_id != user_id {
-            return Err(AppError::forbidden(CATEGORY_PERMISSION_DENIED));
-        }
-        if category.team_id != team_id || category.delete_at != 0 {
-            return Err(AppError::internal(CATEGORY_NOT_FOUND));
-        }
         Ok(())
     }
 
@@ -267,8 +240,7 @@ impl App {
     ///
     /// Preserved quirk: only the count and the membership are compared, so an order that
     /// names one board twice and leaves another out passes
-    /// (server/app/category_boards.go:212-263). The refusals are not classified, so they
-    /// are server errors.
+    /// (server/app/category_boards.go:212-263).
     async fn verify_new_category_boards_match_existing(
         &self,
         user_id: &str,
@@ -281,16 +253,12 @@ impl App {
             .iter()
             .find(|entry| entry.category.id == category_id)
         else {
-            return Err(AppError::internal(format_args!(
-                "{CATEGORY_NOT_FOUND} categoryID: {category_id}"
-            )));
+            return Err(AppError::not_found(CATEGORY));
         };
         if target.board_metadata.len() != new_order.len() {
-            return Err(AppError::internal(format_args!(
-                "cannot update category boards order, passed list of categories boards \
-                 different size than in database length new category boards: {}, length \
-                 existing category boards: {}, userID: {user_id}, teamID: {team_id}, \
-                 categoryID: {category_id}",
+            return Err(AppError::bad_request(format_args!(
+                "the new order must list every board of the category once: it has {}, the \
+                 category has {}",
                 new_order.len(),
                 target.board_metadata.len(),
             )));
@@ -304,9 +272,8 @@ impl App {
             .iter()
             .find(|board_id| !existing_ids.contains(board_id.as_str()))
         {
-            Some(unknown) => Err(AppError::internal(format_args!(
-                "specified board ID not found in specified category ID board ID: {unknown}, \
-                 category ID: {category_id}, userID: {user_id}, teamID: {team_id}"
+            Some(unknown) => Err(AppError::bad_request(format_args!(
+                "the new order names {unknown}, which is no board of the category"
             ))),
             None => Ok(()),
         }
@@ -315,9 +282,10 @@ impl App {
     /// Hides a board in one of a user's categories, or shows it again, and tells the
     /// user's connection about it.
     ///
-    /// Preserved quirk: nothing is checked. If the user does not have the board in the
-    /// category, nothing changes, and the user's connection is told of the change all
-    /// the same (server/app/category_boards.go:265-279).
+    /// The route has checked that the category is the user's and that the user sees the
+    /// board. Preserved quirk: if the user does not have the board in the category,
+    /// nothing changes, and the user's connection is told of the change all the same
+    /// (server/app/category_boards.go:265-279).
     ///
     /// # Errors
     ///
@@ -330,6 +298,7 @@ impl App {
         board_id: &str,
         visibility: BoardVisibility,
     ) -> Result<(), AppError> {
+        self.user_category(team_id, user_id, category_id).await?;
         self.store()
             .set_board_visibility(user_id, category_id, board_id, visibility)
             .await

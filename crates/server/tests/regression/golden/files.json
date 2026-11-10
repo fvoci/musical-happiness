@@ -64,18 +64,21 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "http: no such file",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "file",
+      "message": "the request has no part named `file` with a file name",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "upload: non-member",
     "request": "POST /api/v2/teams/0/<id:2>/files as files-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -84,18 +87,20 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "upload: unknown board",
     "request": "POST /api/v2/teams/0/unknown-board/files as files-alice",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -104,8 +109,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "request Content-Type isn't multipart/form-data",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "request Content-Type isn't multipart/form-data",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -164,11 +170,12 @@
   {
     "name": "download: non-member",
     "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png as files-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -177,28 +184,31 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "download: unknown file",
     "request": "GET /api/v2/files/teams/0/<id:2>/7unknownfile.png as files-alice",
-    "status": 500,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "not_found",
+      "message": "file not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "download: traversal",
     "request": "GET /api/v2/files/teams/0/<id:2>/..%2F..%2Fconfig.json as files-alice",
-    "status": 500,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "not_found",
+      "message": "file not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -225,19 +235,24 @@
   {
     "name": "info: non-member",
     "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png/info as files-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "info: unknown file",
     "request": "GET /api/v2/files/teams/0/<id:2>/7unknownfile.png/info as files-alice",
-    "status": 200,
+    "status": 404,
     "content_type": "application/json",
-    "body": null
+    "body": {
+      "error": "not_found",
+      "message": "file not found",
+      "request_id": "<request-id>"
+    }
   },
   {
     "name": "share",
@@ -262,8 +277,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   },
   {

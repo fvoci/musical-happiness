@@ -1,108 +1,262 @@
 //! The error type of the application and API layers, and its HTTP form.
+//!
+//! Every error answer of the API has one body, [`ErrorBody`]: a stable `error` code that
+//! follows from the status, a `message` for developers, and where a client needs them a
+//! `reason`, the refused `field` or the exceeded `limit`.
 
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{
-    AuthParamError, BlockError, BoardError, CardError, CategoryError, ErrorResponse,
-    SubscriptionError,
+    AuthParamError, BlockError, BoardError, CardError, CategoryError, ErrorBody, SubscriptionError,
 };
 use fvoci_store::StoreError;
-use thiserror::Error;
 
-/// An error of a request, classified by the HTTP status it is reported with.
-///
-/// The message of every variant except [`AppError::Internal`] is sent to the client as
-/// is, so the messages of the original server are kept word for word.
-#[derive(Debug, Error)]
-pub enum AppError {
+/// What kind of error a request ended with. The HTTP status and the `error` code of the
+/// body follow from it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
     /// The request is malformed or asks for something invalid: 400.
-    #[error("{0}")]
-    BadRequest(String),
-    /// The request carries no valid credentials: 401.
-    #[error("{0}")]
-    Unauthorized(String),
-    /// The user may not do this: 403.
-    #[error("{0}")]
-    Forbidden(String),
-    /// The record does not exist: 404.
-    #[error("{0}")]
-    NotFound(String),
+    BadRequest,
+    /// The request carries no valid session, or the login failed: 401.
+    Unauthorized,
+    /// The user can see the thing but may not do this with it: 403.
+    Forbidden,
+    /// The thing does not exist, or the user may not know that it does: 404.
+    NotFound,
+    /// The path exists but not with this method: 405.
+    MethodNotAllowed,
+    /// The request is fine but the state is against it: 409.
+    Conflict,
     /// The request body is larger than allowed: 413.
-    #[error("{0}")]
-    RequestEntityTooLarge(String),
-    /// The operation is not available on this server: 501.
-    #[error("{0}")]
-    NotImplemented(String),
-    /// Anything else: 500. The cause is logged and not sent to the client.
-    #[error("{0:#}")]
-    Internal(#[from] anyhow::Error),
+    PayloadTooLarge,
+    /// The server's own fault: 500. The cause is logged and not sent to the client.
+    Internal,
+}
+
+impl ErrorKind {
+    /// The HTTP status of this kind of error.
+    pub fn status(self) -> StatusCode {
+        match self {
+            Self::BadRequest => StatusCode::BAD_REQUEST,
+            Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::NotFound => StatusCode::NOT_FOUND,
+            Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
+            Self::Conflict => StatusCode::CONFLICT,
+            Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// The value of the body's `error` member.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::BadRequest => "bad_request",
+            Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
+            Self::NotFound => "not_found",
+            Self::MethodNotAllowed => "method_not_allowed",
+            Self::Conflict => "conflict",
+            Self::PayloadTooLarge => "payload_too_large",
+            Self::Internal => "internal",
+        }
+    }
+}
+
+/// Why a request was refused, where clients must tell causes of one kind apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reason {
+    /// The request lacks the header of the cross-site request check.
+    Csrf,
+    /// The user name, email address or password of a login is wrong.
+    InvalidCredentials,
+    /// Registration needs the signup token, and the request has none.
+    SignupTokenRequired,
+    /// The signup token of a registration is not the server's.
+    SignupTokenInvalid,
+    /// The user name is taken.
+    UsernameTaken,
+    /// The email address is taken.
+    EmailTaken,
+    /// The change would leave the board without an admin.
+    LastAdmin,
+    /// Public sharing is turned off in the server's configuration.
+    SharingDisabled,
+    /// The route does not exist for the one user of single-user mode.
+    SingleUserMode,
+}
+
+impl Reason {
+    /// The value of the body's `reason` member.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Csrf => "csrf",
+            Self::InvalidCredentials => "invalid_credentials",
+            Self::SignupTokenRequired => "signup_token_required",
+            Self::SignupTokenInvalid => "signup_token_invalid",
+            Self::UsernameTaken => "username_taken",
+            Self::EmailTaken => "email_taken",
+            Self::LastAdmin => "last_admin",
+            Self::SharingDisabled => "sharing_disabled",
+            Self::SingleUserMode => "single_user_mode",
+        }
+    }
+}
+
+/// The text every server error is answered with; what went wrong is in the log.
+const INTERNAL_MESSAGE: &str = "internal server error";
+
+/// An error of a request.
+///
+/// The message of every kind except [`ErrorKind::Internal`] is sent to the client.
+#[derive(Debug)]
+pub struct AppError {
+    kind: ErrorKind,
+    message: String,
+    reason: Option<Reason>,
+    field: Option<String>,
+    limit: Option<u64>,
+    /// The cause of a server error, for the log.
+    cause: Option<anyhow::Error>,
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.cause {
+            Some(cause) => write!(formatter, "{cause:#}"),
+            None => formatter.write_str(&self.message),
+        }
+    }
+}
+
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.cause.as_ref().map(|cause| {
+            let cause: &(dyn std::error::Error + Send + Sync + 'static) = cause.as_ref();
+            let cause: &(dyn std::error::Error + 'static) = cause;
+            cause
+        })
+    }
 }
 
 impl AppError {
+    fn new(kind: ErrorKind, message: impl std::fmt::Display) -> Self {
+        Self {
+            kind,
+            message: message.to_string(),
+            reason: None,
+            field: None,
+            limit: None,
+            cause: None,
+        }
+    }
+
     /// A 400 error with the given message.
     pub fn bad_request(message: impl std::fmt::Display) -> Self {
-        Self::BadRequest(message.to_string())
+        Self::new(ErrorKind::BadRequest, message)
     }
 
     /// A 401 error with the given message.
     pub fn unauthorized(message: impl std::fmt::Display) -> Self {
-        Self::Unauthorized(message.to_string())
+        Self::new(ErrorKind::Unauthorized, message)
     }
 
     /// A 403 error with the given message.
     pub fn forbidden(message: impl std::fmt::Display) -> Self {
-        Self::Forbidden(message.to_string())
+        Self::new(ErrorKind::Forbidden, message)
     }
 
-    /// A 404 error for the named record, worded like the store's own: `{entity} not found`.
-    pub fn not_found(entity: impl std::fmt::Display) -> Self {
-        Self::NotFound(format!("{{{entity}}} not found"))
+    /// A 404 error for a kind of thing, such as `board`: `board not found`.
+    ///
+    /// The message names the kind and nothing else, so that it is the same for a thing
+    /// that does not exist and for one the requester may not know about.
+    pub fn not_found(what: impl std::fmt::Display) -> Self {
+        Self::new(ErrorKind::NotFound, format_args!("{what} not found"))
     }
 
-    /// A 501 error with the given message.
-    pub fn not_implemented(message: impl std::fmt::Display) -> Self {
-        Self::NotImplemented(message.to_string())
+    /// A 405 error.
+    pub fn method_not_allowed() -> Self {
+        Self::new(ErrorKind::MethodNotAllowed, "method not allowed")
+    }
+
+    /// A 409 error with the given message.
+    pub fn conflict(message: impl std::fmt::Display) -> Self {
+        Self::new(ErrorKind::Conflict, message)
+    }
+
+    /// A 413 error that names the limit, in bytes, that the request body exceeds.
+    pub fn payload_too_large(limit: u64) -> Self {
+        let mut error = Self::new(
+            ErrorKind::PayloadTooLarge,
+            format_args!("the request body is larger than {limit} bytes"),
+        );
+        error.limit = Some(limit);
+        error
     }
 
     /// A 500 error with the given cause, which is logged and not sent to the client.
     pub fn internal(cause: impl std::fmt::Display) -> Self {
-        Self::Internal(anyhow::anyhow!("{cause}"))
+        Self::from(anyhow::anyhow!("{cause}"))
     }
 
-    /// Puts `context` before the message, as `context: message`, keeping the status.
-    ///
-    /// The original wraps errors this way on their way up, and the wrapped text is what
-    /// clients see.
+    /// Adds the stable reason a client can act on.
     #[must_use]
-    pub fn context(self, context: &str) -> Self {
-        let wrap = |message: String| format!("{context}: {message}");
-        match self {
-            Self::BadRequest(message) => Self::BadRequest(wrap(message)),
-            Self::Unauthorized(message) => Self::Unauthorized(wrap(message)),
-            Self::Forbidden(message) => Self::Forbidden(wrap(message)),
-            Self::NotFound(message) => Self::NotFound(wrap(message)),
-            Self::RequestEntityTooLarge(message) => Self::RequestEntityTooLarge(wrap(message)),
-            Self::NotImplemented(message) => Self::NotImplemented(wrap(message)),
-            Self::Internal(cause) => Self::Internal(cause.context(context.to_owned())),
+    pub fn with_reason(mut self, reason: Reason) -> Self {
+        self.reason = Some(reason);
+        self
+    }
+
+    /// Names the member of the request that was refused.
+    #[must_use]
+    pub fn with_field(mut self, field: &str) -> Self {
+        self.field = Some(field.to_owned());
+        self
+    }
+
+    /// Puts `context` before the message, as `context: message`, keeping the kind.
+    #[must_use]
+    pub fn context(mut self, context: &str) -> Self {
+        match self.cause.take() {
+            Some(cause) => self.cause = Some(cause.context(context.to_owned())),
+            None => self.message = format!("{context}: {}", self.message),
         }
+        self
+    }
+
+    /// The kind of this error.
+    pub fn kind(&self) -> ErrorKind {
+        self.kind
     }
 
     /// Returns `true` if this is a 404 error.
     pub fn is_not_found(&self) -> bool {
-        matches!(self, Self::NotFound(_))
+        self.kind == ErrorKind::NotFound
     }
 
     /// The HTTP status this error is reported with.
     pub fn status(&self) -> StatusCode {
-        match self {
-            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
-            Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
-            Self::Forbidden(_) => StatusCode::FORBIDDEN,
-            Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::RequestEntityTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
-            Self::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
-            Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        self.kind.status()
+    }
+
+    /// The body this error is reported with, without the identifier of the request.
+    pub fn body(&self) -> ErrorBody {
+        ErrorBody {
+            error: self.kind.code().to_owned(),
+            message: self.message.clone(),
+            reason: self.reason.map(|reason| reason.as_str().to_owned()),
+            field: self.field.clone(),
+            limit: self.limit,
+            request_id: None,
+        }
+    }
+}
+
+impl From<anyhow::Error> for AppError {
+    fn from(cause: anyhow::Error) -> Self {
+        Self {
+            cause: Some(cause),
+            ..Self::new(ErrorKind::Internal, INTERNAL_MESSAGE)
         }
     }
 }
@@ -110,13 +264,18 @@ impl AppError {
 impl From<StoreError> for AppError {
     fn from(error: StoreError) -> Self {
         match error {
-            // The original counts its database layer's "no rows" among the "not found"
-            // errors (`server/model/errors.go` `IsErrNotFound`), message and all.
+            // What was not found is in the store's message, which names identifiers; the
+            // answer does not repeat it. Routes say what kind of thing they miss.
             StoreError::NotFound(_) | StoreError::NotAllFound { .. } | StoreError::NoRows => {
-                Self::NotFound(error.to_string())
+                tracing::debug!(%error, "not found in the store");
+                Self::new(ErrorKind::NotFound, "not found")
             }
-            // The size limits and malformed property data are client errors; an empty
-            // board id is not.
+            // The one lookup that names its kind: a password is set for a user.
+            StoreError::UserNotFound(_) => {
+                tracing::debug!(%error, "not found in the store");
+                Self::not_found("user")
+            }
+            // What a client sent and the store refused.
             StoreError::InvalidBlock {
                 source:
                     BlockError::TitleSizeLimitExceeded
@@ -125,21 +284,24 @@ impl From<StoreError> for AppError {
                 ..
             }
             | StoreError::InvalidBoard(BoardError::InvalidCardProperty(_))
-            | StoreError::InvalidCategory(_) => Self::BadRequest(error.to_string()),
-            other => Self::Internal(other.into()),
+            | StoreError::InvalidBoardsAndBlocks(_)
+            | StoreError::BlockNotInDeletedBoards { .. }
+            | StoreError::InvalidCategory(_)
+            | StoreError::InvalidSubscription(_) => Self::bad_request(error),
+            other => Self::from(anyhow::Error::from(other)),
         }
     }
 }
 
 impl From<AuthParamError> for AppError {
     fn from(error: AuthParamError) -> Self {
-        Self::BadRequest(error.to_string())
+        Self::bad_request(error)
     }
 }
 
 impl From<CategoryError> for AppError {
     fn from(error: CategoryError) -> Self {
-        Self::BadRequest(error.to_string())
+        Self::bad_request(error)
     }
 }
 
@@ -148,8 +310,8 @@ impl From<BlockError> for AppError {
         match error {
             BlockError::TitleSizeLimitExceeded
             | BlockError::FieldsSizeLimitExceeded
-            | BlockError::InvalidCardProperties(_) => Self::BadRequest(error.to_string()),
-            BlockError::EmptyBoardId => Self::Internal(error.into()),
+            | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
+            BlockError::EmptyBoardId => Self::from(anyhow::Error::from(error)),
         }
     }
 }
@@ -157,36 +319,39 @@ impl From<BlockError> for AppError {
 impl From<CardError> for AppError {
     fn from(error: CardError) -> Self {
         match error {
-            CardError::BoardIdMismatch => Self::BadRequest(error.to_string()),
-            other => Self::Internal(other.into()),
+            // What a client sent.
+            CardError::BoardIdMismatch | CardError::Invalid(_) => Self::bad_request(error),
+            // What is stored cannot be read as a card.
+            CardError::NotCardBlock | CardError::InvalidFieldType { .. } => {
+                Self::from(anyhow::Error::from(error))
+            }
         }
     }
 }
 
 impl From<SubscriptionError> for AppError {
     fn from(error: SubscriptionError) -> Self {
-        Self::Internal(error.into())
+        Self::bad_request(error)
     }
 }
+
+/// The body of an error response as it left the handler, kept beside the response so
+/// that the request log can add the identifier of the request to it.
+#[derive(Debug, Clone)]
+pub(crate) struct ReportedError(pub(crate) ErrorBody);
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = self.status();
-        let message = match &self {
-            Self::Internal(cause) => {
-                tracing::error!(error = %format!("{cause:#}"), "API error");
-                "internal server error".to_owned()
-            }
-            other => {
-                tracing::debug!(status = status.as_u16(), error = %other, "API error");
-                other.to_string()
-            }
-        };
-        let body = ErrorResponse {
-            error: message,
-            error_code: status.as_u16(),
-        };
-        (status, Json(body)).into_response()
+        if let Some(cause) = &self.cause {
+            tracing::error!(error = %format!("{cause:#}"), "API error");
+        } else {
+            tracing::debug!(status = status.as_u16(), error = %self.message, "API error");
+        }
+        let body = self.body();
+        let mut response = (status, Json(&body)).into_response();
+        response.extensions_mut().insert(ReportedError(body));
+        response
     }
 }
 
@@ -197,11 +362,10 @@ mod tests {
 
     use super::*;
 
-    /// The body of `TestErrorResponse` (`server/api/api_test.go`): the error is answered
-    /// with the status, as JSON, with a message that contains `message`.
-    async fn check_error_response(error: AppError, status: u16, message: &str) {
+    /// Turns the error into its response and returns the status and the body.
+    async fn reported(error: AppError) -> (u16, ErrorBody) {
         let response = error.into_response();
-        assert_eq!(response.status().as_u16(), status, "the status");
+        let status = response.status().as_u16();
         assert_eq!(
             response
                 .headers()
@@ -210,240 +374,198 @@ mod tests {
             Some("application/json"),
             "the content type"
         );
+        assert!(
+            response.extensions().get::<ReportedError>().is_some(),
+            "the body is kept beside the response for the request log"
+        );
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("the body is read");
-        let body: ErrorResponse = serde_json::from_slice(&body).expect("the body is JSON");
-        assert!(body.error.contains(message), "the message: {body:?}");
-        assert_eq!(body.error_code, status, "the status in the body");
-    }
-
-    /// `TestErrorResponse/"ErrBadRequest should be a 400 code"`
-    #[tokio::test]
-    async fn error_response_err_bad_request_should_be_a_400_code() {
-        check_error_response(AppError::bad_request("bad field"), 400, "bad field").await;
-    }
-
-    /// `TestErrorResponse/"ErrAuthParam should be a 400 code"`
-    #[tokio::test]
-    async fn error_response_err_auth_param_should_be_a_400_code() {
-        let error = AuthParamError::new("password is required");
-        check_error_response(error.into(), 400, "password is required").await;
-    }
-
-    /// `TestErrorResponse/"ErrInvalidCategory should be a 400 code"`. The error comes
-    /// from validating a category, here one without an identifier, directly and on its
-    /// way through the store.
-    #[tokio::test]
-    async fn error_response_err_invalid_category_should_be_a_400_code() {
-        let invalid = || {
-            Category::default()
-                .validate()
-                .expect_err("an empty category is invalid")
-        };
-        let message = invalid().to_string();
-        assert!(!message.is_empty(), "the error has a message");
-        check_error_response(invalid().into(), 400, &message).await;
-        check_error_response(StoreError::from(invalid()).into(), 400, &message).await;
-    }
-
-    /// `TestErrorResponse/"ErrBoardMemberIsLastAdmin should be a 400 code"`. The port has
-    /// no error type for it; the call site builds the bad request.
-    #[tokio::test]
-    async fn error_response_err_board_member_is_last_admin_should_be_a_400_code() {
-        let error = AppError::bad_request("cannot leave a board with no admins");
-        check_error_response(error, 400, "no admins").await;
-    }
-
-    /// `TestErrorResponse/"ErrBoardIDMismatch should be a 400 code"`
-    #[tokio::test]
-    async fn error_response_err_board_id_mismatch_should_be_a_400_code() {
-        let error = CardError::BoardIdMismatch;
-        check_error_response(error.into(), 400, "Board IDs do not match").await;
-    }
-
-    /// `TestErrorResponse/"ErrBlockTitleSizeLimitExceeded should be a 400 code"`
-    #[tokio::test]
-    async fn error_response_err_block_title_size_limit_exceeded_should_be_a_400_code() {
-        let error = BlockError::TitleSizeLimitExceeded;
-        check_error_response(error.into(), 400, "block title size limit exceeded").await;
-    }
-
-    /// `TestErrorResponse/"ErrBlockFieldsSizeLimitExceeded should be a 400 code"`
-    #[tokio::test]
-    async fn error_response_err_block_fields_size_limit_exceeded_should_be_a_400_code() {
-        let error = BlockError::FieldsSizeLimitExceeded;
-        check_error_response(error.into(), 400, "block fields size limit exceeded").await;
-    }
-
-    /// `TestErrorResponse/"ErrUnauthorized should be a 401 code"`
-    #[tokio::test]
-    async fn error_response_err_unauthorized_should_be_a_401_code() {
-        let error = AppError::unauthorized("not enough permissions");
-        check_error_response(error, 401, "not enough permissions").await;
-    }
-
-    /// `TestErrorResponse/"ErrForbidden should be a 403 code"` and
-    /// `"ErrPermission should be a 403 code"`: the port has one error for both.
-    #[tokio::test]
-    async fn error_response_err_forbidden_and_err_permission_should_be_a_403_code() {
-        let error = AppError::forbidden("not enough permissions");
-        check_error_response(error, 403, "not enough permissions").await;
-    }
-
-    /// `TestErrorResponse/"ErrCategoryPermissionDenied should be a 403 code"`. The port
-    /// has no error type for it; the call site builds the refusal.
-    #[tokio::test]
-    async fn error_response_err_category_permission_denied_should_be_a_403_code() {
-        let error = AppError::forbidden("category doesn't belong to user");
-        check_error_response(error, 403, "doesn't belong to user").await;
-    }
-
-    /// `TestErrorResponse/"ErrNotFound should be a 404 code"`, built here and by the store.
-    #[tokio::test]
-    async fn error_response_err_not_found_should_be_a_404_code() {
-        check_error_response(AppError::not_found("board"), 404, "{board} not found").await;
-        let error = StoreError::NotFound("board".to_owned());
-        check_error_response(error.into(), 404, "{board} not found").await;
-    }
-
-    /// `TestErrorResponse/"ErrNotAllFound should be a 404 code"`
-    #[tokio::test]
-    async fn error_response_err_not_all_found_should_be_a_404_code() {
-        let error = StoreError::NotAllFound {
-            entity: "block",
-            ids: vec!["1".to_owned(), "2".to_owned()],
-        };
-        let message = "not all instances of {block} in {1, 2} found";
-        check_error_response(error.into(), 404, message).await;
-    }
-
-    /// `TestErrorResponse/"sql.ErrNoRows should be a 404 code"`
-    #[tokio::test]
-    async fn error_response_sql_err_no_rows_should_be_a_404_code() {
-        check_error_response(StoreError::NoRows.into(), 404, "rows").await;
-        check_error_response(StoreError::NoRows.into(), 404, "sql: no rows in result set").await;
-    }
-
-    /// `TestErrorResponse/"ErrNotFound should be a 404 code"`, the case of
-    /// `ErrCategoryDeleted`. The port has no error type for it; the call site builds the
-    /// "not found" with the original's message.
-    #[tokio::test]
-    async fn error_response_err_category_deleted_should_be_a_404_code() {
-        let error = AppError::NotFound("category is deleted".to_owned());
-        check_error_response(error, 404, "category is deleted").await;
-    }
-
-    /// `TestErrorResponse/"ErrRequestEntityTooLarge should be a 413 code"`
-    #[tokio::test]
-    async fn error_response_err_request_entity_too_large_should_be_a_413_code() {
-        let error = AppError::RequestEntityTooLarge("request entity too large".to_owned());
-        check_error_response(error, 413, "entity too large").await;
-    }
-
-    /// `TestErrorResponse/"ErrNotImplemented should be a 501 code"`
-    #[tokio::test]
-    async fn error_response_err_not_implemented_should_be_a_501_code() {
-        let error = AppError::not_implemented("not permitted in standalone mode");
-        check_error_response(error, 501, "standalone mode").await;
-    }
-
-    /// `TestErrorResponse/"Any other error should be a 500 code"`. The cause stays in the
-    /// log; the client gets the fixed message.
-    #[tokio::test]
-    async fn error_response_any_other_error_should_be_a_500_code() {
-        check_error_response(
-            AppError::internal("http handler panic"),
-            500,
-            "internal server error",
+        (
+            status,
+            serde_json::from_slice(&body).expect("the body is JSON"),
         )
-        .await;
-
-        let response = AppError::internal("the cause").into_response();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("the body is read");
-        assert_eq!(
-            String::from_utf8_lossy(&body),
-            r#"{"error":"internal server error","errorCode":500}"#,
-            "the whole body"
-        );
-
-        // Errors of the store that are no client's fault end up here too.
-        for error in [
-            StoreError::UserNotFound("nobody".to_owned()),
-            StoreError::Config("x".to_owned()),
-        ] {
-            check_error_response(error.into(), 500, "internal server error").await;
-        }
     }
 
-    #[test]
-    fn statuses_follow_the_classification() {
+    #[tokio::test]
+    async fn every_kind_has_its_status_and_code() {
         let cases = [
-            (AppError::bad_request("a"), 400),
-            (AppError::unauthorized("a"), 401),
-            (AppError::forbidden("a"), 403),
-            (AppError::not_found("user ID=1"), 404),
-            (AppError::RequestEntityTooLarge("a".to_owned()), 413),
-            (AppError::not_implemented("a"), 501),
-            (AppError::internal("a"), 500),
+            (
+                AppError::bad_request("bad field"),
+                400,
+                "bad_request",
+                "bad field",
+            ),
+            (
+                AppError::unauthorized("no session"),
+                401,
+                "unauthorized",
+                "no session",
+            ),
+            (
+                AppError::forbidden("not yours"),
+                403,
+                "forbidden",
+                "not yours",
+            ),
+            (
+                AppError::not_found("board"),
+                404,
+                "not_found",
+                "board not found",
+            ),
+            (
+                AppError::method_not_allowed(),
+                405,
+                "method_not_allowed",
+                "method not allowed",
+            ),
+            (AppError::conflict("taken"), 409, "conflict", "taken"),
+            (
+                AppError::payload_too_large(64),
+                413,
+                "payload_too_large",
+                "the request body is larger than 64 bytes",
+            ),
+            (
+                AppError::internal("the disk is on fire at /var/lib"),
+                500,
+                "internal",
+                "internal server error",
+            ),
         ];
-        for (error, status) in cases {
-            assert_eq!(error.status().as_u16(), status, "{error}");
+        for (error, status, code, message) in cases {
+            let (got_status, body) = reported(error).await;
+            assert_eq!(got_status, status, "the status of {code}");
+            assert_eq!(body.error, code, "the code");
+            assert_eq!(body.message, message, "the message of {code}");
+            assert_eq!(body.request_id, None, "the request log adds the identifier");
         }
-        assert_eq!(
-            AppError::not_found("user ID=1").to_string(),
-            "{user ID=1} not found"
-        );
     }
 
-    #[test]
-    fn context_wraps_the_message_and_keeps_the_status() {
-        let error = AppError::from(StoreError::NotFound("user ID=1".to_owned()))
-            .context("unable to find user");
-        assert!(error.is_not_found(), "still a 404: {error:?}");
+    #[tokio::test]
+    async fn reason_field_and_limit_are_in_the_body_only_when_set() {
+        let (_, plain) = reported(AppError::bad_request("x")).await;
+        assert_eq!(
+            serde_json::to_value(&plain).expect("the body serializes"),
+            serde_json::json!({"error": "bad_request", "message": "x"}),
+            "nothing else"
+        );
+
+        let error = AppError::conflict("no admins")
+            .with_reason(Reason::LastAdmin)
+            .with_field("schemeAdmin");
+        let (_, body) = reported(error).await;
+        assert_eq!(body.reason.as_deref(), Some("last_admin"), "the reason");
+        assert_eq!(body.field.as_deref(), Some("schemeAdmin"), "the field");
+
+        let (_, body) = reported(AppError::payload_too_large(4096)).await;
+        assert_eq!(body.limit, Some(4096), "the limit");
+    }
+
+    #[tokio::test]
+    async fn a_server_error_does_not_say_what_went_wrong() {
+        let error = AppError::internal("connection to 10.0.0.5 refused").context("saving");
         assert_eq!(
             error.to_string(),
-            "unable to find user: {user ID=1} not found"
+            "saving: connection to 10.0.0.5 refused",
+            "the log gets the cause"
         );
+        let (status, body) = reported(error).await;
+        assert_eq!(status, 500);
+        assert_eq!(body.message, "internal server error", "the client does not");
     }
 
     #[test]
-    fn store_errors_map_like_the_original_classification() {
-        let too_large = StoreError::InvalidBlock {
-            id: "b".to_owned(),
-            source: BlockError::TitleSizeLimitExceeded,
+    fn context_wraps_the_message_and_keeps_the_kind() {
+        let error = AppError::bad_request("no admins").context("removing a member");
+        assert_eq!(error.kind(), ErrorKind::BadRequest);
+        assert_eq!(error.to_string(), "removing a member: no admins");
+    }
+
+    #[tokio::test]
+    async fn what_the_store_does_not_find_is_not_found_without_the_identifier() {
+        for error in [
+            StoreError::NotFound("board ID=bsecret".to_owned()),
+            StoreError::NoRows,
+            StoreError::NotAllFound {
+                entity: "block",
+                ids: vec!["csecret".to_owned()],
+            },
+        ] {
+            let (status, body) = reported(error.into()).await;
+            assert_eq!(status, 404);
+            assert_eq!(body.error, "not_found");
+            assert_eq!(body.message, "not found", "no identifier, no database text");
+        }
+    }
+
+    #[tokio::test]
+    async fn what_a_client_sent_and_the_store_refused_is_a_bad_request() {
+        let category = Category::default()
+            .validate()
+            .expect_err("an empty category");
+        let block = |source| StoreError::InvalidBlock {
+            id: "c1".to_owned(),
+            source,
         };
-        let error = AppError::from(too_large);
-        assert_eq!(error.status().as_u16(), 400);
-        assert_eq!(
-            error.to_string(),
-            "error validating block b: block title size limit exceeded"
-        );
+        let errors = [
+            StoreError::from(category),
+            block(BlockError::TitleSizeLimitExceeded),
+            block(BlockError::FieldsSizeLimitExceeded),
+            StoreError::InvalidBoardsAndBlocks(fvoci_model::BoardsAndBlocksError::NoBoards),
+        ];
+        for error in errors {
+            let text = error.to_string();
+            let (status, body) = reported(error.into()).await;
+            assert_eq!(status, 400, "{text}");
+            assert_eq!(body.message, text, "the store's message says what is wrong");
+        }
+    }
 
-        let no_board = StoreError::InvalidBlock {
-            id: "b".to_owned(),
+    #[tokio::test]
+    async fn a_user_the_store_does_not_find_is_not_found_without_the_name() {
+        let (status, body) = reported(StoreError::UserNotFound("u1".to_owned()).into()).await;
+        assert_eq!(status, 404);
+        assert_eq!(body.message, "user not found");
+    }
+
+    #[tokio::test]
+    async fn any_other_store_error_is_a_server_error() {
+        let errors = [
+            block_without_board(),
+            StoreError::Config("no such file".to_owned()),
+        ];
+        for error in errors {
+            let (status, body) = reported(error.into()).await;
+            assert_eq!(status, 500);
+            assert_eq!(body.message, "internal server error");
+        }
+    }
+
+    fn block_without_board() -> StoreError {
+        StoreError::InvalidBlock {
+            id: "c1".to_owned(),
             source: BlockError::EmptyBoardId,
-        };
-        assert_eq!(AppError::from(no_board).status().as_u16(), 500);
+        }
+    }
 
-        let not_all = StoreError::NotAllFound {
-            entity: "block",
-            ids: vec!["a".to_owned(), "b".to_owned()],
-        };
-        let error = AppError::from(not_all);
-        assert_eq!(error.status().as_u16(), 404);
+    #[test]
+    fn card_errors_are_the_clients_or_the_servers() {
         assert_eq!(
-            error.to_string(),
-            "not all instances of {block} in {a, b} found"
+            AppError::from(CardError::BoardIdMismatch).kind(),
+            ErrorKind::BadRequest,
+            "a card for another board"
         );
-
         assert_eq!(
-            AppError::from(StoreError::Config("x".to_owned()))
-                .status()
-                .as_u16(),
-            500
+            AppError::from(CardError::Invalid("Icon can have only one grapheme")).kind(),
+            ErrorKind::BadRequest,
+            "an invalid card"
+        );
+        assert_eq!(
+            AppError::from(CardError::NotCardBlock).kind(),
+            ErrorKind::Internal,
+            "a stored block that is no card"
         );
     }
 }

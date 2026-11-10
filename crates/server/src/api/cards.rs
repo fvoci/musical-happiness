@@ -6,11 +6,11 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::routing::{get, post};
-use fvoci_model::{Card, CardError, CardPatch};
+use fvoci_model::{BlockType, Card, CardError, CardPatch};
 
 use super::change_notification;
 use super::{ApiResult, RequiredSession, json_response, query_param};
-use super::{decode_object_or_bad_request, require_board_permission};
+use super::{decode_object, require_board_permission, require_permission_through};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -34,7 +34,7 @@ pub(super) fn routes() -> Router<App> {
 }
 
 /// Reads a whole number from a query parameter; `default` if the parameter is absent
-/// or empty. The refusal is worded as the original's number parser words it.
+/// or empty.
 fn int_query_param(query: Option<&str>, name: &str, default: i64) -> Result<i64, AppError> {
     let text = query_param(query, name);
     if text.is_empty() {
@@ -42,32 +42,41 @@ fn int_query_param(query: Option<&str>, name: &str, default: i64) -> Result<i64,
     }
     text.parse().map_err(|error: std::num::ParseIntError| {
         let reason = match error.kind() {
-            IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => "value out of range",
-            _ => "invalid syntax",
+            IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => "out of range",
+            _ => "not a whole number",
         };
-        AppError::bad_request(format_args!(
-            "invalid `{name}` parameter: strconv.Atoi: parsing {text:?}: {reason}"
-        ))
+        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}")).with_field(name)
     })
 }
 
-/// Returns the card with the given identifier for a handler of `/cards/{card_id}`.
+/// Returns the card with the given identifier for a handler of `/cards/{card_id}`, if
+/// the user has the permission on the card's board.
 ///
-/// Preserved quirk: whatever goes wrong, a block that does not exist or is no card
-/// included, is a bad request that says why (server/api/cards.go:279-284, :356-361).
-/// The handlers ask for the card before they check any permission, so this answers
-/// every signed-in user.
-async fn fetch_card(app: &App, card_id: &str) -> Result<Card, AppError> {
-    app.card(card_id).await.map_err(|error| {
-        AppError::bad_request(format_args!("could not fetch card {card_id}: {error}"))
-    })
+/// The path names a card and no board. So for a user who may not read the card's board
+/// there is no such card, and neither is there for anyone if the block is no card.
+async fn card_with_permission(
+    app: &App,
+    user_id: &str,
+    card_id: &str,
+    permission: BoardPermission,
+    denial: &str,
+) -> Result<Card, AppError> {
+    const WHAT: &str = "card";
+    let block = match app.block(card_id).await {
+        Ok(block) => block,
+        Err(error) if error.is_not_found() => return Err(AppError::not_found(WHAT)),
+        Err(error) => return Err(error),
+    };
+    require_permission_through(app, user_id, &block.board_id, permission, denial, WHAT).await?;
+    if block.block_type != BlockType::Card {
+        return Err(AppError::not_found(WHAT));
+    }
+    app.card(card_id).await
 }
 
 /// `POST /boards/{board_id}/cards`: creates a card on the board and answers with it.
 ///
-/// The server chooses the identifier, the creator and the times. The body is decoded
-/// before the permission is checked, so a body that is no card is a bad request for
-/// everyone; a `null` body is a server error, as in the original.
+/// The server chooses the identifier, the creator and the times.
 async fn handle_create_card(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -77,8 +86,6 @@ async fn handle_create_card(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
-    let mut card: Card = decode_object_or_bad_request(&body)?;
-
     require_board_permission(
         &app,
         user_id,
@@ -87,6 +94,7 @@ async fn handle_create_card(
         "access denied to create card",
     )
     .await?;
+    let mut card: Card = decode_object(&body)?;
     if !card.board_id.is_empty() && card.board_id != board_id {
         return Err(CardError::BoardIdMismatch.into());
     }
@@ -121,9 +129,6 @@ async fn handle_get_cards(
     )
     .await?;
 
-    // The original writes its refusal of a malformed number and then, for want of a
-    // `return`, carries on and writes the cards after it (server/api/cards.go:186-196).
-    // The refusal is the whole answer here.
     let page = int_query_param(query, "page", DEFAULT_PAGE)?;
     let per_page = int_query_param(query, "per_page", DEFAULT_PER_PAGE)?;
 
@@ -140,10 +145,6 @@ async fn handle_get_cards(
 }
 
 /// `PATCH /cards/{card_id}`: partially updates a card and answers with the result.
-///
-/// The card is fetched first, then the permission on its board is checked, and only
-/// then the body is decoded: a body that is no patch is a bad request, `null` a server
-/// error, as in the original.
 async fn handle_patch_card(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -154,16 +155,15 @@ async fn handle_patch_card(
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
 
-    let card = fetch_card(&app, &card_id).await?;
-    require_board_permission(
+    let card = card_with_permission(
         &app,
         user_id,
-        &card.board_id,
+        &card_id,
         BoardPermission::ManageBoardCards,
         "access denied to patch card",
     )
     .await?;
-    let patch: CardPatch = decode_object_or_bad_request(&body)?;
+    let patch: CardPatch = decode_object(&body)?;
 
     let patched = app
         .patch_card(&patch, &card.id, user_id, notification)
@@ -172,22 +172,17 @@ async fn handle_patch_card(
     Ok(json_response(&patched))
 }
 
-/// `GET /cards/{card_id}`: one card.
-///
-/// Preserved quirk: reading a single card takes the permission to manage the board's
-/// cards, so viewers and commenters, who get the card in the board's list of cards,
-/// are refused here (server/api/cards.go:363).
+/// `GET /cards/{card_id}`: one card, for everyone who may view its board.
 async fn handle_get_card(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     Path(card_id): Path<String>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    let card = fetch_card(&app, &card_id).await?;
-    require_board_permission(
+    let card = card_with_permission(
         &app,
         user_id,
-        &card.board_id,
+        &card_id,
         BoardPermission::ViewBoard,
         "access denied to fetch card",
     )

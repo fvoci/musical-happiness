@@ -30,6 +30,9 @@ use crate::storage::StorageError;
 /// is treated as absent (`server/app/files.go:18`).
 const EMPTY_PATH: &str = "empty";
 
+/// What a request misses that names a file that is not there, or not the board's.
+pub(crate) const FILE: &str = "file";
+
 /// The directory normal uploads are stored under.
 const UPLOADS_ROOT: &str = "boards";
 
@@ -91,17 +94,15 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a server error if the name is empty or begins with a dot (the original
-    /// panics on the latter), or the store's error.
+    /// Returns a not-found error if the name is one no file can have (empty, or beginning
+    /// with a dot), or the store's error.
     pub async fn get_file_info(&self, filename: &str) -> Result<Option<FileInfo>, AppError> {
         if filename.is_empty() {
-            return Err(AppError::internal(
-                "IsFileArchived: empty filename not allowed",
-            ));
+            return Err(AppError::not_found(FILE));
         }
         let stem = filename.split('.').next().unwrap_or_default();
         if stem.is_empty() {
-            return Err(AppError::internal("file name has no identifier"));
+            return Err(AppError::not_found(FILE));
         }
         // The original drops the first byte of the name. Where that falls inside a
         // character of several bytes, what is left names no record.
@@ -242,11 +243,7 @@ impl App {
         blocks: &[Block],
         duplicate_as: DuplicateAs,
     ) -> Result<std::collections::HashMap<String, String>, AppError> {
-        let source_board = self.store().get_board(source_board_id).await.map_err(|_| {
-            AppError::not_found(format_args!(
-                "cannot fetch source board {source_board_id} for CopyCardFiles: boards"
-            ))
-        })?;
+        let source_board = self.board(source_board_id).await?;
 
         let mut new_file_names = std::collections::HashMap::new();
         let mut destination: Option<Board> = None;
@@ -265,12 +262,7 @@ impl App {
                     .as_ref()
                     .is_none_or(|board: &Board| board.id != block.board_id)
                 {
-                    destination =
-                        Some(self.store().get_board(&block.board_id).await.map_err(|_| {
-                            AppError::not_found(format_args!(
-                                "cannot fetch destination board {source_board_id} for CopyCardFiles: boards"
-                            ))
-                        })?);
+                    destination = Some(self.board(&block.board_id).await?);
                 }
                 destination
                     .as_ref()
@@ -458,7 +450,10 @@ fn civil_from_millis(millis: i64) -> (i64, u32, u32) {
 impl From<StorageError> for AppError {
     fn from(error: StorageError) -> Self {
         match error {
-            StorageError::NotFound(_) => Self::NotFound(format!("{{file}} not found: {error}")),
+            StorageError::NotFound(_) => {
+                tracing::debug!(%error, "not found in the file storage");
+                Self::not_found(FILE)
+            }
             other => Self::internal(other),
         }
     }

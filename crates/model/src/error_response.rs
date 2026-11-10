@@ -2,12 +2,31 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The JSON body the server sends with every error status.
+/// The JSON body the server sends with every error status of the API.
+///
+/// A client decides by `error` and, where there is one, `reason`; both are stable.
+/// `message` is English text for logs and developers and may change.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ErrorResponse {
-    /// A message describing the error.
+#[serde(default)]
+pub struct ErrorBody {
+    /// The kind of error, one per status code: `bad_request`, `unauthorized`,
+    /// `forbidden`, `not_found`, `method_not_allowed`, `conflict`, `payload_too_large`,
+    /// `internal`.
     pub error: String,
-    /// The HTTP status code, repeated.
-    pub error_code: u16,
+    /// What went wrong, in English. Not for showing to users, and without internals.
+    pub message: String,
+    /// Why, where a client must tell causes of the same kind apart, such as
+    /// `invalid_credentials` or `last_admin`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The member of the request that was refused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// The limit that was exceeded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    /// The identifier of the request, the same as in the `x-request-id` response header
+    /// and in the server's request log.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }

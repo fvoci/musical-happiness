@@ -162,7 +162,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 - 속성 이름 검색은 SQLite에서 JSON 경로 `$.<검색어>`가 된다. `a.b`는 중첩 키와 일치하고 잘못된 경로는 DB 오류다(`board.go:678-680`).
 - 전역 팀(`0`)의 템플릿은 제목의 MD5를 `trackingTemplateId` 속성으로 받는다(`board.go:299-303`).
 - `RemoveDefaultTemplates`는 넘겨받은 보드의 `created_by`로 판단하고, 보드는 템플릿일 때만 지우지만 블록은 항상 지우며 history를 남기지 않는다(`templates.go:24-41`).
-- 블록이 없거나 댓글만 있는 보드는 복제할 수 없다(`boards_and_blocks.go:177`). 복제된 카드의 `parent_id`가 원본 보드 ID이면 그대로 남는다.
+- 블록이 없거나 댓글만 있는 보드는 복제할 수 없다(`boards_and_blocks.go:177`). → **S6에서 정리됨(2026-11-10 18:38 KST):** 블록 없는 보드로 복제된다(아래 "S6에서 바뀐 것"). 복제된 카드의 `parent_id`가 원본 보드 ID이면 그대로 남는다.
 - 삭제 요청에서 블록이 부모보다 뒤에 있으면 not-found로 실패한다(`boards_and_blocks.go:110-123`).
 
 **카테고리 (`sqlstore/category.go`, `category_boards.go`)**
@@ -195,6 +195,8 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 - **보드와 블록의 속성 검증.** `insert_board`·`patch_board`가 카드 속성 정의를, `insert_block`(패치·복제·가져오기도 여기를 지난다)이 `fields.properties`를 검증하고, 잘못된 모양이면 `StoreError::InvalidBoard`·`InvalidBlock`으로 거절한다(서버 문서의 S14). 원본 스위트의 테스트 데이터 가운데 `id` 없는 속성 정의(`{"prop2": "val2"}`) 둘을 `id`가 있는 정의로 바꿨다(`boards::patch_board`, `boards::undelete_board`). 테스트 `boards::boards_with_malformed_card_property_definitions_are_not_stored`, `blocks::blocks_with_malformed_properties_are_not_stored`.
 - **`delete_member`**: 멤버십을 지우면서 그 사용자가 그 보드의 블록(지워진 블록 포함)에 건 구독을 같은 트랜잭션에서 끝낸다(서버 문서의 S12). 테스트 `subscriptions::delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that_board`.
 - **`reset_user_password`** (옛 `update_user_password`): 이름으로 비밀번호를 바꾸면서 그 사용자들의 세션을 같은 트랜잭션에서 지운다. 관리자의 비밀번호 재설정용이다(서버 문서의 S3). 테스트 `sessions::reset_user_password_deletes_the_sessions_of_those_users_only`.
+
+- **`duplicate_board`** (2026-11-10 18:38 KST): 블록이 없거나 댓글만 있는 보드를 블록 없는 보드로 복제한다. 전에는 요청용 ID 생성 함수가 "블록이 하나 이상"을 요구해 `InvalidBoardsAndBlocks(NoBlocks)`로 거절했다(보존한 quirk). 저장된 보드에는 `fvoci_model::renew_boards_and_blocks_ids`를 쓴다. 테스트 `boards_and_blocks::duplicate_board_copies_a_board_without_blocks`.
 
 ## 결정 대기
 

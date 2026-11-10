@@ -1,10 +1,7 @@
 //! Decoding request bodies.
 //!
-//! The original decodes each body with its JSON library and differs from handler to
-//! handler in what a body that does not decode is answered with. The helpers here name
-//! those policies. They also reproduce two things the original's decoder does and a
-//! plain decode into a record type would not: a JSON array is never read as a record,
-//! and `null` stands for a record with no members set.
+//! A body that is not the JSON a route expects is a bad request (400), whatever is wrong
+//! with it: not JSON at all, the wrong type, `null`, a member of the wrong type.
 
 use fvoci_model::JsonMap;
 use serde::de::DeserializeOwned;
@@ -12,82 +9,125 @@ use serde_json::{Map, Value};
 
 use crate::error::AppError;
 
-/// Decodes a JSON request body. The caller decides which status a failure gets, because
-/// the original differs from handler to handler.
-pub(crate) fn decode_json<T: DeserializeOwned>(body: &[u8]) -> Result<T, serde_json::Error> {
-    serde_json::from_slice(body)
-}
-
-/// Decodes a JSON request body; a failure is reported as a server error.
-///
-/// Preserved quirk: many handlers of the original pass the decoding error on unclassified,
-/// which makes a malformed body a 500 rather than a 400.
-pub(crate) fn decode_json_or_internal<T: DeserializeOwned>(body: &[u8]) -> Result<T, AppError> {
-    decode_json(body).map_err(AppError::internal)
-}
-
-/// Decodes a JSON request body; a failure is reported as a bad request.
+/// Decodes a JSON request body.
 ///
 /// # Errors
 ///
-/// Returns [`AppError::BadRequest`] if the body is not the expected JSON.
-pub(crate) fn decode_json_or_bad_request<T: DeserializeOwned>(body: &[u8]) -> Result<T, AppError> {
-    decode_json(body).map_err(AppError::bad_request)
+/// Returns a bad request if the body is not the expected JSON.
+pub(crate) fn decode_json<T: DeserializeOwned>(body: &[u8]) -> Result<T, AppError> {
+    serde_json::from_slice(body).map_err(AppError::bad_request)
 }
 
 /// Returns the JSON object that a request body must be.
 ///
-/// Anything else is a bad request, as when the original fails to decode it, except
-/// `null`, which is a server error: the original decodes into a pointer, leaves it nil
-/// and crashes on its first use, which its recovery turns into a 500.
+/// # Errors
+///
+/// Returns a bad request for anything else, `null` included.
 pub(crate) fn json_object(body: Value) -> Result<JsonMap, AppError> {
     match body {
         Value::Object(object) => Ok(object),
-        Value::Null => Err(AppError::internal("the request body is null")),
         _ => Err(AppError::bad_request(
             "the request body is not a JSON object",
         )),
     }
 }
 
-/// Decodes a JSON object from a request body. A body that is not the expected JSON is a
-/// bad request, and `null` a server error (see [`json_object`]).
-pub(crate) fn decode_object_or_bad_request<T: DeserializeOwned>(
-    body: &[u8],
-) -> Result<T, AppError> {
-    let object = json_object(decode_json_or_bad_request(body)?)?;
-    serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)
-}
-
-/// Decodes a JSON object from a request body, after `prepare` had a look at it.
+/// Decodes a request body that must be a JSON object.
 ///
-/// Preserved quirk: a body that is not the expected JSON is a server error on the routes
-/// that use this (`server/api/boards_and_blocks.go:86-89`, `:265-268`).
-pub(crate) fn decode_object_or_internal<T: DeserializeOwned, R>(
-    body: &[u8],
-    prepare: impl FnOnce(&mut JsonMap) -> R,
-) -> Result<(T, R), AppError> {
-    let mut object = json_object(decode_json_or_internal(body)?).map_err(AppError::internal)?;
-    let prepared = prepare(&mut object);
-    let decoded = serde_json::from_value(Value::Object(object)).map_err(AppError::internal)?;
-    Ok((decoded, prepared))
-}
-
-/// Reads a request body that describes one record, the way the original's decoder fills
-/// a record: the body must be a JSON object or `null`, and a member that is `null`
-/// counts as left out. The members are returned for decoding into the record.
-///
-/// Decoding the body straight into a record type would differ: a JSON array would be read
-/// as the record's members in order, and a `null` member is only accepted where the
-/// record type says so.
+/// Decoding the body straight into a record type would also accept a JSON array, read
+/// as the record's members in order.
 ///
 /// # Errors
 ///
-/// Returns a server error if the body is anything else, because the handlers that use
-/// this do not classify the original's decoding error.
+/// Returns a bad request if the body is not a JSON object with the expected members.
+pub(crate) fn decode_object<T: DeserializeOwned>(body: &[u8]) -> Result<T, AppError> {
+    let (decoded, ()) = decode_object_with(body, |_| ())?;
+    Ok(decoded)
+}
+
+/// Decodes a request body that must be a JSON object, after `prepare` had a look at its
+/// members and a chance to change them.
+///
+/// # Errors
+///
+/// Returns a bad request if the body is not a JSON object with the expected members.
+pub(crate) fn decode_object_with<T: DeserializeOwned, R>(
+    body: &[u8],
+    prepare: impl FnOnce(&mut JsonMap) -> R,
+) -> Result<(T, R), AppError> {
+    let mut object = json_object(decode_json(body)?)?;
+    let prepared = prepare(&mut object);
+    let decoded = serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
+    Ok((decoded, prepared))
+}
+
+/// Reads the members of a request body that must be a JSON object, leaving out those
+/// that are `null`: a member that is `null` counts as not sent.
+///
+/// # Errors
+///
+/// Returns a bad request if the body is not a JSON object.
 pub(crate) fn decode_object_members(body: &[u8]) -> Result<Map<String, Value>, AppError> {
-    let members: Option<Map<String, Value>> = decode_json_or_internal(body)?;
-    let mut members = members.unwrap_or_default();
+    let mut members = json_object(decode_json(body)?)?;
     members.retain(|_, member| !member.is_null());
     Ok(members)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::*;
+    use crate::error::ErrorKind;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct Record {
+        #[serde(default)]
+        title: String,
+    }
+
+    #[test]
+    fn whatever_is_wrong_with_a_body_is_a_bad_request() {
+        for body in [
+            "",
+            "{",
+            "nope",
+            "null",
+            "[]",
+            r#"["x"]"#,
+            "7",
+            r#""text""#,
+            r#"{"title": 7}"#,
+        ] {
+            let error = decode_object::<Record>(body.as_bytes()).expect_err("no record");
+            assert_eq!(error.kind(), ErrorKind::BadRequest, "body {body:?}");
+        }
+        assert_eq!(
+            decode_object::<Record>(br#"{"title": "x", "more": 1}"#).expect("a record"),
+            Record {
+                title: "x".to_owned()
+            },
+            "an object with the members is decoded"
+        );
+    }
+
+    #[test]
+    fn null_members_count_as_not_sent() {
+        let members = decode_object_members(br#"{"a": null, "b": 1}"#).expect("an object");
+        assert_eq!(members.len(), 1, "{members:?}");
+        assert_eq!(members["b"], 1);
+        let error = decode_object_members(b"null").expect_err("null is no object");
+        assert_eq!(error.kind(), ErrorKind::BadRequest);
+    }
+
+    #[test]
+    fn the_members_can_be_looked_at_before_decoding() {
+        let (record, had_title): (Record, bool) =
+            decode_object_with(br#"{"title": "x"}"#, |members| {
+                members.contains_key("title")
+            })
+            .expect("a record");
+        assert!(had_title, "what the preparation returns comes back");
+        assert_eq!(record.title, "x");
+    }
 }

@@ -50,26 +50,36 @@
   {
     "name": "client config without csrf header",
     "request": "GET /api/v2/clientConfig as anonymous",
-    "status": 400,
+    "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "checkCSRFToken FAILED",
-      "errorCode": 400
+      "error": "forbidden",
+      "message": "the X-Requested-With: XMLHttpRequest header is required",
+      "reason": "csrf",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "unknown api path",
     "request": "GET /api/v2/no-such-route as anonymous",
-    "status": 200,
-    "content_type": "text/html",
-    "body": "<html>"
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
+    }
   },
   {
     "name": "wrong method on a known path",
     "request": "DELETE /api/v2/clientConfig as anonymous",
-    "status": 200,
-    "content_type": "text/html",
-    "body": "<html>"
+    "status": 405,
+    "content_type": "application/json",
+    "body": {
+      "error": "method_not_allowed",
+      "message": "method not allowed",
+      "request_id": "<request-id>"
+    }
   },
   {
     "name": "index for an app route",

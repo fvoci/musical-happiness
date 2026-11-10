@@ -130,12 +130,11 @@ async fn api_requests_need_the_requested_with_header() {
             .raw_request(Method::GET, path)
             .bearer_auth(&th.client.token);
         let response = Client::send(request).await;
-        assert_eq!(response.status, StatusCode::BAD_REQUEST, "{path}");
-        assert_eq!(
-            response.value(),
-            json!({"error": "checkCSRFToken FAILED", "errorCode": 400}),
-            "{path}"
+        response.check_error(
+            StatusCode::FORBIDDEN,
+            "the X-Requested-With: XMLHttpRequest header is required",
         );
+        assert_eq!(response.error_reason(), "csrf", "{path}");
     }
 
     // Outside the API the header is not needed.
@@ -170,48 +169,6 @@ async fn api_responses_are_not_cacheable() {
         "application/json",
         "is JSON too"
     );
-    th.teardown().await;
-}
-
-/// Preserved quirk: what is no API route, and a known route asked with another method,
-/// gets the web app's page with status 200.
-#[tokio::test]
-async fn unknown_paths_get_the_web_app() {
-    let th = Setup::native().start().await;
-
-    let paths = [
-        (Method::GET, "/"),
-        (Method::GET, "/board/some-board"),
-        (Method::GET, "/api/v2/no-such-route"),
-        (Method::DELETE, "/api/v2/login"),
-        (Method::POST, "/hello"),
-    ];
-    for (method, path) in paths {
-        let request = th
-            .client
-            .raw_request(method.clone(), path)
-            .header("X-Requested-With", "XMLHttpRequest");
-        let response = Client::send(request).await;
-        assert_eq!(response.status, StatusCode::OK, "{method} {path}");
-        assert!(
-            response.text().contains("test web app"),
-            "{method} {path}: {}",
-            response.text()
-        );
-        assert_eq!(
-            response.header("cache-control"),
-            "no-cache",
-            "{method} {path}"
-        );
-    }
-
-    let file = Client::send(th.client.raw_request(Method::GET, "/static/main.js")).await;
-    file.check_ok();
-    assert_eq!(file.text(), "console.log('test');", "a static file");
-    for path in ["/static", "/static/", "/static/missing.js", "/staticx/y"] {
-        let response = Client::send(th.client.raw_request(Method::GET, path)).await;
-        assert_eq!(response.status, StatusCode::NOT_FOUND, "{path}");
-    }
     th.teardown().await;
 }
 

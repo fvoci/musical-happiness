@@ -3,16 +3,14 @@
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::header::CONTENT_TYPE;
-use axum::response::{IntoResponse, Response};
 use axum::routing::{post, put};
 use fvoci_model::{Category, CategoryType};
 use fvoci_store::BoardVisibility;
 use serde_json::Value;
 
 use super::decode_object_members;
-use super::require_team_access;
-use super::{ApiResult, RequiredSession, decode_json_or_internal, empty_response, json_response};
+use super::{ApiResult, RequiredSession, decode_json, empty_response, json_response};
+use super::{require_board_visible, require_team_access};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -104,7 +102,7 @@ impl CategoryRequest {
             members.remove("type");
         }
         let category =
-            serde_json::from_value(Value::Object(members)).map_err(AppError::internal)?;
+            serde_json::from_value(Value::Object(members)).map_err(AppError::bad_request)?;
         Ok(Self {
             category,
             type_is_valid: unknown_type_is_blank.unwrap_or(true),
@@ -135,23 +133,9 @@ fn is_category_type(text: &str) -> bool {
         .any(|category_type| category_type.as_str() == text)
 }
 
-/// Decodes the list of identifiers of a reorder request. `null` is the empty list.
+/// Decodes the list of identifiers of a reorder request.
 fn decode_order(body: &[u8]) -> Result<Vec<String>, AppError> {
-    let order: Option<Vec<String>> = decode_json_or_internal(body)?;
-    Ok(order.unwrap_or_default())
-}
-
-/// The answer of a reorder request: the new order.
-///
-/// Preserved quirk: an empty order, which is accepted when there is nothing to order, is
-/// answered with `null` (`server/services/store/sqlstore/category.go:215`,
-/// `category_boards.go:138`).
-fn order_response(order: &[String]) -> Response {
-    if order.is_empty() {
-        json_response(&Value::Null)
-    } else {
-        json_response(&order)
-    }
+    decode_json(body)
 }
 
 async fn handle_create_category(
@@ -163,10 +147,9 @@ async fn handle_create_category(
     let request = CategoryRequest::decode(&body)?;
     let category = &request.category;
     if category.user_id != session.user_id {
-        return Err(AppError::bad_request(format_args!(
-            "userID {} and category userID {} mismatch",
-            session.user_id, category.user_id
-        )));
+        return Err(
+            AppError::forbidden("a user makes categories for themselves only").with_field("userID"),
+        );
     }
     if category.team_id != team_id {
         return Err(AppError::bad_request("teamID mismatch"));
@@ -183,22 +166,26 @@ async fn handle_update_category(
     Path((team_id, category_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
+    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM)?;
+    // Before the body is looked at: another user's category does not exist for this one.
+    app.user_category(&team_id, &session.user_id, &category_id)
+        .await?;
     let request = CategoryRequest::decode(&body)?;
     let category = &request.category;
     if category.id != category_id {
-        return Err(AppError::bad_request(
-            "categoryID mismatch in patch and body",
-        ));
+        return Err(
+            AppError::bad_request("the category of the body is not the one of the path")
+                .with_field("id"),
+        );
     }
     if category.user_id != session.user_id {
-        return Err(AppError::bad_request(
-            "user ID mismatch in session and category",
-        ));
+        return Err(
+            AppError::bad_request("the user of the body is not the session's").with_field("userID"),
+        );
     }
     if category.team_id != team_id {
-        return Err(AppError::bad_request("teamID mismatch"));
+        return Err(AppError::bad_request("teamID mismatch").with_field("teamID"));
     }
-    require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM)?;
 
     let updated = app.update_category(request.into_category()?).await?;
     Ok(json_response(&updated))
@@ -232,11 +219,12 @@ async fn handle_update_category_board(
     Path((team_id, category_id, board_id)): Path<BoardPlace>,
 ) -> ApiResult {
     require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM)?;
+    app.user_category(&team_id, &session.user_id, &category_id)
+        .await?;
+    require_board_visible(&app, &session.user_id, &board_id).await?;
     app.add_update_user_category_board(&team_id, &session.user_id, &category_id, &[board_id])
         .await?;
-    // Preserved quirk: the body is the bare word, which is not JSON, labelled as JSON
-    // (server/api/categories.go:391).
-    Ok(([(CONTENT_TYPE, "application/json")], "ok").into_response())
+    Ok(empty_response())
 }
 
 async fn handle_reorder_categories(
@@ -250,7 +238,7 @@ async fn handle_reorder_categories(
     let order = app
         .reorder_categories(&session.user_id, &team_id, new_order)
         .await?;
-    Ok(order_response(&order))
+    Ok(json_response(&order))
 }
 
 async fn handle_reorder_category_boards(
@@ -260,15 +248,13 @@ async fn handle_reorder_category_boards(
     body: Bytes,
 ) -> ApiResult {
     require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_CATEGORY)?;
-    let category = app.category(&category_id).await?;
-    if category.user_id != session.user_id {
-        return Err(AppError::forbidden(ACCESS_DENIED_TO_CATEGORY));
-    }
+    app.user_category(&team_id, &session.user_id, &category_id)
+        .await?;
     let new_order = decode_order(&body)?;
     let order = app
         .reorder_category_boards(&session.user_id, &team_id, &category_id, new_order)
         .await?;
-    Ok(order_response(&order))
+    Ok(json_response(&order))
 }
 
 async fn handle_hide_board(
@@ -294,6 +280,8 @@ async fn set_board_visibility(
     visibility: BoardVisibility,
 ) -> ApiResult {
     require_team_access(app, user_id, team_id, ACCESS_DENIED_TO_CATEGORY)?;
+    app.user_category(team_id, user_id, category_id).await?;
+    require_board_visible(app, user_id, board_id).await?;
     app.set_board_visibility(team_id, user_id, category_id, board_id, visibility)
         .await?;
     Ok(empty_response())

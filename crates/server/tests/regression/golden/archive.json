@@ -250,11 +250,12 @@
   {
     "name": "export: non-member",
     "request": "GET /api/v2/boards/<id:2>/archive/export as arch-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -263,18 +264,20 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "export: unknown board",
     "request": "GET /api/v2/boards/unknown-board/archive/export as arch-alice",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -305,26 +308,33 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "import: not an archive",
     "request": "POST /api/v2/teams/0/archive/import as arch-bob",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "invalid Zip archive: Could not find EOCD",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "import: wrong field",
     "request": "POST /api/v2/teams/0/archive/import as arch-bob",
-    "status": 200,
-    "content_type": "text/plain",
-    "body": "http: no such file"
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "file",
+      "message": "the request has no part named `file`",
+      "request_id": "<request-id>"
+    }
   },
   {
     "name": "boards after import",
@@ -471,11 +481,12 @@
   {
     "name": "import: legacy format",
     "request": "POST /api/v2/teams/0/archive/import as arch-bob",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "invalid Zip archive: Could not find EOCD",
+      "request_id": "<request-id>"
     }
   },
   {

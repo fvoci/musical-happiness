@@ -7,6 +7,7 @@
 
 use fvoci_model::{Block, BlockType, Board, BoardType, IdKind, JsonMap, new_id};
 use reqwest::Method;
+use reqwest::StatusCode;
 use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
 
@@ -99,9 +100,10 @@ async fn upload_file_a_non_authenticated_user_should_be_rejected() {
     ts.teardown().await;
 }
 
-/// `TestUploadFile/"upload a file ... without permissions"`.
+/// `TestUploadFile/"upload a file ... without permissions"`: a board that is not there
+/// answers as a private board the user is no member of. (The original answers 403.)
 #[tokio::test]
-async fn upload_file_without_permissions_is_forbidden() {
+async fn upload_file_to_a_board_that_does_not_exist_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
     let response = upload(
         &ts.client,
@@ -111,7 +113,7 @@ async fn upload_file_without_permissions_is_forbidden() {
         b"test",
     )
     .await;
-    response.check_forbidden();
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     ts.teardown().await;
 }
 
@@ -141,12 +143,21 @@ async fn upload_file_reaching_the_max_file_size() {
     ts.teardown().await;
 }
 
-/// `TestTeamUploadFile/"no permission"`: a board with no members refuses a non-member.
+/// `TestTeamUploadFile/"no permission"`: who cannot see a board learns nothing of it;
+/// who can see it but may not add to it is refused.
 #[tokio::test]
 async fn team_upload_file_no_permission() {
     let ts = Setup::native().start().await.init_basic().await;
     let board_id = new_id(IdKind::Board);
     let response = upload(&ts.client, "0", &board_id, "x.bin", &[0_u8; 64]).await;
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
+
+    let private = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let response = upload(&ts.client2, "0", &private.id, "x.bin", &[0_u8; 64]).await;
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
+
+    let open = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let response = upload(&ts.client2, "0", &open.id, "x.bin", &[0_u8; 64]).await;
     response.check_forbidden();
     ts.teardown().await;
 }
@@ -221,10 +232,10 @@ async fn upload_name_with_path_separators_is_reduced_to_its_base() {
 
 // -- info ------------------------------------------------------------------------------
 
-/// `TestFileInfo/"Retrieving file info"`: info of an unknown name is `null`, as the
-/// original answers (verified on the oracle).
+/// `TestFileInfo/"Retrieving file info"`: there is no info of a name no file has. (The
+/// original answers 200 with `null`.)
 #[tokio::test]
-async fn file_info_of_an_unknown_file_is_null() {
+async fn file_info_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let response = ts
@@ -234,8 +245,7 @@ async fn file_info_of_an_unknown_file_is_null() {
             board.id, "7unknownunknownunknownunk12.png"
         ))
         .await;
-    response.check_ok();
-    assert_eq!(response.value(), Value::Null, "unknown file info is null");
+    response.check_error(StatusCode::NOT_FOUND, "file not found");
     ts.teardown().await;
 }
 
@@ -405,10 +415,9 @@ async fn download_if_modified_since_in_the_future_is_304() {
     ts.teardown().await;
 }
 
-/// Downloading an unknown file is a 500, as the original's handler answers before its
-/// legacy fallback (verified on the oracle).
+/// A name no file has is not found. (The original answers 500.)
 #[tokio::test]
-async fn download_of_an_unknown_file_is_500() {
+async fn download_of_an_unknown_file_is_not_found() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let response = ts
@@ -418,7 +427,7 @@ async fn download_of_an_unknown_file_is_500() {
             board.id, "7unknownunknownunknownunk12.png"
         ))
         .await;
-    response.check_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+    response.check_error(StatusCode::NOT_FOUND, "file not found");
     ts.teardown().await;
 }
 
@@ -691,23 +700,24 @@ async fn a_file_is_not_given_out_through_another_board() {
         fixture.intruder_board.id, fixture.file_id
     );
 
-    let download = ts.client2.get(&through_own_board).await;
-    download.check_forbidden();
-    assert_eq!(
-        download.error_message(),
-        "file does not belong to the specified board",
-        "the download is refused"
+    // Through another board the file is as missing as one that does not exist: the two
+    // answers are the same, so nothing is learned about the files of other boards.
+    let missing = format!(
+        "/files/teams/{TEST_TEAM_ID}/{}/7unknownunknownunknownunk12.png",
+        fixture.intruder_board.id
     );
-    let info = ts.client2.get(&format!("{through_own_board}/info")).await;
-    info.check_forbidden();
-    assert_eq!(
-        info.error_message(),
-        "access denied to file",
-        "so is the info"
-    );
+    for route in [&through_own_board, &missing] {
+        let download = ts.client2.get(route).await;
+        download.check_error(StatusCode::NOT_FOUND, "file not found");
+        let info = ts.client2.get(&format!("{route}/info")).await;
+        info.check_error(StatusCode::NOT_FOUND, "file not found");
+    }
 
     // The owner cannot be tricked into it either: the file is the other board's.
-    ts.client.get(&through_own_board).await.check_forbidden();
+    ts.client
+        .get(&through_own_board)
+        .await
+        .check_error(StatusCode::NOT_FOUND, "board not found");
     ts.teardown().await;
 }
 
@@ -728,8 +738,11 @@ async fn a_file_is_given_out_through_its_own_board() {
     let info = ts.client.get(&format!("{path}/info")).await.value();
     assert_eq!(info["name"], json!("secret.png"), "and its info: {info}");
 
-    // The second user is no member of that board.
-    ts.client2.get(&path).await.check_forbidden();
+    // The second user is no member of that private board: for them it does not exist.
+    ts.client2
+        .get(&path)
+        .await
+        .check_error(StatusCode::NOT_FOUND, "board not found");
 
     ts.client
         .post(
@@ -872,19 +885,9 @@ async fn a_template_file_is_not_given_out_through_another_board() {
     );
 
     let download = ts.client2.get(&through_other).await;
-    download.check_forbidden();
-    assert_eq!(
-        download.error_message(),
-        "file does not belong to the specified board",
-        "the download is refused"
-    );
+    download.check_error(StatusCode::NOT_FOUND, "file not found");
     let info = ts.client2.get(&format!("{through_other}/info")).await;
-    info.check_forbidden();
-    assert_eq!(
-        info.error_message(),
-        "access denied to file",
-        "so is the info"
-    );
+    info.check_error(StatusCode::NOT_FOUND, "file not found");
     ts.teardown().await;
 }
 
@@ -946,15 +949,9 @@ async fn a_file_whose_path_names_no_board_is_given_out_through_no_board() {
     for board_id in [&board.id, &other.id] {
         let route = format!("/files/teams/{TEST_TEAM_ID}/{board_id}/{name}");
         let download = ts.client.get(&route).await;
-        download.check_forbidden();
-        assert_eq!(
-            download.error_message(),
-            "file does not belong to the specified board",
-            "through board {board_id}"
-        );
+        download.check_error(StatusCode::NOT_FOUND, "file not found");
         let info = ts.client.get(&format!("{route}/info")).await;
-        info.check_forbidden();
-        assert_eq!(info.error_message(), "access denied to file");
+        info.check_error(StatusCode::NOT_FOUND, "file not found");
     }
     ts.teardown().await;
 }
@@ -1033,13 +1030,10 @@ async fn a_template_file_whose_name_begins_with_a_wide_character_is_served() {
     let download = ts.client.get(&path).await;
     download.check_ok();
     assert_eq!(download.body, b"wide", "the file is served");
+    // There is no record under such a name, so there is no info to give. This goes
+    // with the dropped first byte and ends when records are found by their own key.
     let info = ts.client.get(&format!("{path}/info")).await;
-    info.check_ok();
-    assert_eq!(
-        info.value(),
-        Value::Null,
-        "there is no record under such a name"
-    );
+    info.check_error(StatusCode::NOT_FOUND, "file not found");
 
     // An image block that names it: the board exports and duplicates.
     let mut fields = JsonMap::new();

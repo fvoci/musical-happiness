@@ -4,7 +4,7 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::routing::post;
 
-use super::require_board_permission;
+use super::require_permission_through;
 use super::{ApiResult, RequiredSession, empty_response};
 use crate::app::{App, MovePosition};
 use crate::permissions::BoardPermission;
@@ -22,43 +22,41 @@ pub(super) fn routes() -> Router<App> {
 /// `POST /content-blocks/{block_id}/moveto/{where}/{dst_block_id}`: moves a content
 /// block right `before` or `after` another one in the content order of their card.
 ///
-/// As in the original, both blocks are looked up first (404 for either, for every
-/// signed-in user), then `where` is checked, and then the permission to manage the
-/// cards of the moved block's board.
+/// The path names two blocks and no board. A block on a board the user may not read
+/// does not exist for them, whichever of the two it is.
 async fn handle_move_block_to(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
     Path((block_id, position, dst_block_id)): Path<(String, String, String)>,
 ) -> ApiResult {
+    const WHAT: &str = "block";
     let user_id = session.user_id.as_str();
     let block = app.block(&block_id).await?;
-    let dst_block = app.block(&dst_block_id).await?;
-    let position: MovePosition = position.parse()?;
-
-    require_board_permission(
+    require_permission_through(
         &app,
         user_id,
         &block.board_id,
         BoardPermission::ManageBoardCards,
         NO_CARD_CHANGES,
+        WHAT,
     )
     .await?;
-    // The original asks nothing about the destination, and then names the
-    // destination's parent in its refusal of a move between parents
-    // (server/app/content_blocks.go:11-14): anyone who may change one block anywhere
-    // learns the parent of any block they know the identifier of. A destination on
-    // another board takes the same permission there. Blocks of one card are on one
-    // board, so a real move never comes here.
+    let dst_block = app.block(&dst_block_id).await?;
     if dst_block.board_id != block.board_id {
-        require_board_permission(
+        // Blocks of one card are on one board, so a real move never comes here. The
+        // destination is checked like the block itself, so that nothing is said about a
+        // block of a board the user may not read.
+        require_permission_through(
             &app,
             user_id,
             &dst_block.board_id,
             BoardPermission::ManageBoardCards,
             NO_CARD_CHANGES,
+            WHAT,
         )
         .await?;
     }
+    let position: MovePosition = position.parse()?;
 
     app.move_content_block(&block, &dst_block, position, user_id)
         .await?;

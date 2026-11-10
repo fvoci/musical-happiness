@@ -7,7 +7,7 @@ use fvoci_model::{
 use fvoci_store::{DuplicateAs, HistoryOrder, HistoryQuery, PublicBoards};
 
 use super::{App, DEFAULT_CATEGORY_BOARDS};
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 /// The message of the refusal to remove or demote a board's only admin.
 const LAST_ADMIN: &str = "cannot leave a board with no admins";
@@ -28,7 +28,11 @@ impl App {
     ///
     /// Returns a not-found error if there is no such board, or the store's error.
     pub async fn board(&self, board_id: &str) -> Result<Board, AppError> {
-        Ok(self.store().get_board(board_id).await?)
+        match self.store().get_board(board_id).await {
+            Ok(board) => Ok(board),
+            Err(error) if error.is_not_found() => Err(AppError::not_found("board")),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Returns the boards of a team that a user is a member of and, if asked for, the
@@ -84,9 +88,9 @@ impl App {
         membership: CreatorMembership,
     ) -> Result<Board, AppError> {
         if !board.id.is_empty() {
-            // Preserved quirk: the original does not classify this error, so a client
-            // that names an identifier gets a 500 (`server/app/boards.go:234-236`).
-            return Err(AppError::internal("new board cannot have an ID"));
+            // The original does not classify this error and answers 500
+            // (`server/app/boards.go:234-236`).
+            return Err(AppError::bad_request("new board cannot have an ID").with_field("id"));
         }
         board.id = new_id(IdKind::Board);
 
@@ -183,7 +187,7 @@ impl App {
             let board = match self.store().get_board(board_id).await {
                 Ok(board) => board,
                 Err(error) if error.is_not_found() => {
-                    return Err(AppError::not_found(format_args!("board ID={board_id}")));
+                    return Err(AppError::not_found("board"));
                 }
                 Err(error) => return Err(error.into()),
             };
@@ -522,7 +526,7 @@ impl App {
                 .is_last_admin(&member.user_id, &member.board_id)
                 .await?
         {
-            return Err(AppError::bad_request(LAST_ADMIN));
+            return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
         }
 
         self.store().save_member(member).await?;
@@ -567,7 +571,7 @@ impl App {
 
         // A board keeps at least one admin.
         if old_member.scheme_admin && self.is_last_admin(user_id, board_id).await? {
-            return Err(AppError::bad_request(LAST_ADMIN));
+            return Err(AppError::conflict(LAST_ADMIN).with_reason(Reason::LastAdmin));
         }
 
         self.store().delete_member(board_id, user_id).await?;

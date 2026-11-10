@@ -82,12 +82,7 @@ fn sorted_ids(boards: &[&Board]) -> Vec<String> {
 
 #[track_caller]
 fn check_error(response: &ApiResponse, status: StatusCode, message: &str) {
-    response.check_status(status);
-    assert_eq!(
-        response.value(),
-        json!({"error": message, "errorCode": status.as_u16()}),
-        "the error answer"
-    );
+    response.check_error(status, message);
 }
 
 /// The answer when nothing is found: an empty list, not `null`.
@@ -421,36 +416,24 @@ async fn search_in_single_user_mode() {
     th.teardown().await;
 }
 
-/// The two routes that need the host application the original can run in: a standalone
-/// server refuses them, whatever is asked.
+/// The original has routes that search the channels of its host application and the
+/// boards that can be linked to one; a standalone server answered them with 501. They
+/// are gone: for every caller they are paths that do not exist.
 #[tokio::test]
-async fn search_routes_of_the_host_application_are_not_implemented() {
-    let (th, _open, _private) = two_boards().await;
+async fn search_routes_of_the_host_application_do_not_exist() {
+    let th = Setup::native().start().await.init_basic().await;
     let paths = [
         "/teams/0/channels",
         "/teams/0/channels?search=x",
-        "/teams/0/boards/search/linkable",
         "/teams/0/boards/search/linkable?q=b",
     ];
 
     for path in paths {
-        let response = th.client.get(path).await;
-        check_error(
-            &response,
-            StatusCode::NOT_IMPLEMENTED,
-            "not permitted in standalone mode",
-        );
-        // The session is checked first.
-        let response = th.anonymous().get(path).await;
-        check_error(&response, StatusCode::UNAUTHORIZED, "no session token");
+        for client in [&th.client, &th.anonymous()] {
+            let response = client.get(path).await;
+            check_error(&response, StatusCode::NOT_FOUND, "route not found");
+        }
     }
-
-    let single_user = Setup::single_user().start().await;
-    for path in paths {
-        single_user.client.get(path).await.check_not_implemented();
-    }
-    single_user.teardown().await;
-
     th.teardown().await;
 }
 

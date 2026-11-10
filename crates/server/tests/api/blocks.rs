@@ -25,7 +25,7 @@ use fvoci_model::{
     Board, BoardMember, BoardType, Category, IdKind, JsonMap, Sharing, new_id,
 };
 use fvoci_server::app::ChangeNotification;
-use fvoci_server::error::AppError;
+use fvoci_server::error::ErrorKind;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
@@ -194,13 +194,11 @@ fn duplicate_path(board_id: &str, block_id: &str) -> String {
     format!("{}/duplicate", block_path(board_id, block_id))
 }
 
-/// The 404 message for a block that is on another board than the path's.
-fn not_on_board(block: &Block, board: &Board) -> String {
-    format!(
-        "{{block ID={} on BoardID={}}} not found",
-        block.id, board.id
-    )
-}
+/// What a board answers that is not there, or that the user cannot see.
+const NO_BOARD: &str = "board not found";
+
+/// What a block answers that is not there, or that is on another board than the path's.
+const NO_BLOCK: &str = "block not found";
 
 /// `InsertBlocks`, expecting success.
 async fn insert(client: &Client, board_id: &str, blocks: &[Block]) -> Vec<Block> {
@@ -670,13 +668,9 @@ async fn undelete_block_try_to_undelete_a_block_without_permissions() {
     th.client.post_empty(&path).await.check_ok();
     delete(&th.client, &block).await;
 
+    // (The original's message speaks of members.)
     let response = th.client2.post_empty(&path).await;
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to modify board members",
-        "the original's wording, which speaks of members"
-    );
+    response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
 
     let blocks = blocks_of(&th.client, &block.board_id).await;
     assert!(blocks.is_empty(), "the block stays deleted");
@@ -724,7 +718,7 @@ async fn app_insert_block_error_scenario() {
         .insert_block(&mut too_long, "user-id-1", ChangeNotification::Send)
         .await
         .expect_err("the title is too long");
-    assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
     assert!(
         th.app.block(&too_long.id).await.is_err(),
         "nothing was stored"
@@ -835,11 +829,7 @@ async fn app_delete_block_error_scenario() {
         .await
         .expect_err("there is no such block");
     assert!(error.is_not_found(), "{error:?}");
-    assert_eq!(
-        error.to_string(),
-        "{block ID=no-such-block} not found",
-        "the store's wording"
-    );
+    assert_eq!(error.to_string(), "not found", "no identifier in it");
 
     th.teardown().await;
 }
@@ -932,7 +922,7 @@ async fn app_insert_blocks_error_scenario() {
         .insert_blocks(&mut too_long, "user-id-1", ChangeNotification::Send)
         .await
         .expect_err("the title is too long");
-    assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
 
     let mut mixed = vec![
         new_block(&board.id, BlockType::Card, ""),
@@ -943,11 +933,11 @@ async fn app_insert_blocks_error_scenario() {
         .insert_blocks(&mut mixed, "user-id-1", ChangeNotification::Send)
         .await
         .expect_err("two boards in one call");
-    assert!(matches!(error, AppError::Internal(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
     assert_eq!(
         error.to_string(),
-        "the block set contain blocks from multiple boards",
-        "the original's wording"
+        "the blocks belong to more than one board",
+        "what is wrong with the request"
     );
 
     let stored = th.app.blocks_for_board(&board.id).await.expect("readable");
@@ -1017,23 +1007,14 @@ async fn get_blocks_permissions() {
     );
 
     let response = th.client.get(&blocks_path("no-such-board")).await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{boards} not found",
-        "the store's wording for a missing board"
-    );
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
-    // No member: refused, on an open board too.
-    for board in [&boards.board, &open_board] {
-        let response = th.client2.get(&blocks_path(&board.id)).await;
-        response.check_forbidden();
-        assert_eq!(
-            response.error_message(),
-            "access denied to board",
-            "no member"
-        );
-    }
+    // No member: the open board can be seen but not read; the private one does not
+    // exist.
+    let response = th.client2.get(&blocks_path(&open_board.id)).await;
+    response.check_error(StatusCode::FORBIDDEN, "access denied to board");
+    let response = th.client2.get(&blocks_path(&boards.board.id)).await;
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
     for (role, client) in [
         ("viewer", &boards.viewer),
@@ -1073,13 +1054,9 @@ async fn get_blocks_of_templates() {
         .ok_json();
     assert_eq!(titles(&blocks), ["in a template"], "no membership needed");
 
+    // A private template is for its members; for everyone else it does not exist.
     let response = th.client2.get(&blocks_path(&private_template.id)).await;
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to board",
-        "a private template is for its members"
-    );
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
     let blocks: Vec<Block> = th
         .client
@@ -1132,7 +1109,10 @@ async fn get_blocks_with_a_read_token() {
         "access denied to board",
         "a wrong token is no token"
     );
-    th.client2.get(&wrong).await.check_forbidden();
+    th.client2
+        .get(&wrong)
+        .await
+        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
     // The token of one board opens no other board, by path or by block identifier.
     anonymous
@@ -1146,12 +1126,7 @@ async fn get_blocks_with_a_read_token() {
             content.other_card.id
         ))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        not_on_board(&content.other_card, &boards.board),
-        "a block of another board"
-    );
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     // It does not let anyone write.
     let block = new_block(&boards.board.id, BlockType::Card, "");
@@ -1275,23 +1250,14 @@ async fn get_blocks_by_block_id() {
         .client
         .get(&format!("{path}?block_id=no-such-block"))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{block ID=no-such-block} not found",
-        "no such block"
-    );
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     let response = th
         .client
         .get(&format!("{path}?block_id={}", other_block.id))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        not_on_board(&other_block, &board),
-        "a block of another board"
-    );
+    // A block of another board answers as one that does not exist.
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     th.teardown().await;
 }
@@ -1370,24 +1336,30 @@ async fn post_blocks_validation() {
     let cases = [
         (without("type"), "missing type for block id x1"),
         (without("createAt"), "invalid createAt for block id x1"),
-        (without("updateAt"), "invalid UpdateAt for block id x1"),
-        (without("boardId"), "invalid BoardID for block id x1"),
-        (json!([elsewhere]), "invalid BoardID for block id x1"),
+        (without("updateAt"), "invalid updateAt for block id x1"),
+        (without("boardId"), "invalid boardId for block id x1"),
+        (json!([elsewhere]), "invalid boardId for block id x1"),
     ];
-    // A user who is no member gets the same answers: the blocks are checked first.
-    for client in [&th.client, &th.client2] {
-        for (body, message) in &cases {
-            let response = client.post(&path, body).await;
-            response.check_bad_request();
-            assert_eq!(response.error_message(), *message, "{body}");
-        }
+    for (body, message) in &cases {
+        let response = th.client.post(&path, body).await;
+        response.check_error(StatusCode::BAD_REQUEST, message);
+        // A user who is no member of the private board learns nothing from the body.
+        let response = th.client2.post(&path, body).await;
+        response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
 
-    // Preserved quirk: a body that is not the expected JSON is a server error.
-    for body in ["not json", "{\"a\":1}", "[null]", "[{\"createAt\":\"x\"}]"] {
+    // A body that is no list of blocks is a bad request. (The original answers 500, and
+    // reads `null` as an empty list.)
+    for body in [
+        "not json",
+        "null",
+        "{\"a\":1}",
+        "[null]",
+        "[{\"createAt\":\"x\"}]",
+    ] {
         let response = th.client.send_raw_body(Method::POST, &path, body).await;
-        response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(response.error_message(), "internal server error", "{body}");
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
     assert!(
@@ -1397,23 +1369,25 @@ async fn post_blocks_validation() {
     th.teardown().await;
 }
 
-/// Preserved quirk: a request without blocks is checked for nothing. Anyone signed in
-/// gets an empty list, for any board, existing or not.
+/// A request without blocks creates nothing and needs no more than to see the board.
+/// (The original checks such a request for nothing: anyone signed in gets an empty list,
+/// for any board, existing or not.)
 #[tokio::test]
 async fn post_blocks_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;
     let board = create_board_in_store(&th, BoardType::Private).await;
     let path = blocks_path(&board.id);
 
-    for (client, path, body) in [
-        (&th.client, path.as_str(), "[]"),
-        (&th.client, path.as_str(), "null"),
-        (&th.client2, path.as_str(), "[]"),
-        (&th.client2, "/boards/no-such-board/blocks", "[]"),
+    let response = th.client.send_raw_body(Method::POST, &path, "[]").await;
+    response.check_ok();
+    assert_eq!(response.text(), "[]", "an empty list for a member");
+    for (client, path) in [
+        (&th.client2, path.as_str()),
+        (&th.client2, "/boards/no-such-board/blocks"),
+        (&th.client, "/boards/no-such-board/blocks"),
     ] {
-        let response = client.send_raw_body(Method::POST, path, body).await;
-        response.check_ok();
-        assert_eq!(response.text(), "[]", "{path} {body}");
+        let response = client.send_raw_body(Method::POST, path, "[]").await;
+        response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
 
     let response = th
@@ -1433,8 +1407,7 @@ async fn post_blocks_without_blocks() {
         .client
         .post("/boards/no-such-board/blocks", &[block])
         .await;
-    response.check_forbidden();
-    assert_eq!(response.error_message(), NO_CHANGES, "no board, no member");
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
     th.teardown().await;
 }
@@ -1450,7 +1423,7 @@ async fn post_blocks_permissions_by_block_type() {
     let card = || new_block(board_id, BlockType::Card, "card");
     let comment = || new_block(board_id, BlockType::Comment, "comment");
 
-    let cases: [(&str, &Client, Vec<Block>, Option<&str>); 10] = [
+    let cases: [(&str, &Client, Vec<Block>, Option<&str>); 8] = [
         ("editor, card", &boards.editor, vec![card()], None),
         ("editor, comment", &boards.editor, vec![comment()], None),
         (
@@ -1483,13 +1456,6 @@ async fn post_blocks_permissions_by_block_type() {
             vec![comment()],
             Some(NO_COMMENTS),
         ),
-        ("outsider, card", outsider, vec![card()], Some(NO_CHANGES)),
-        (
-            "outsider, comment",
-            outsider,
-            vec![comment()],
-            Some(NO_COMMENTS),
-        ),
         (
             "admin, card and comment",
             &th.client,
@@ -1507,6 +1473,11 @@ async fn post_blocks_permissions_by_block_type() {
             response.check_ok();
             expected_count += blocks.len();
         }
+    }
+    // For who is no member of the private board there is no board to add to.
+    for blocks in [vec![card()], vec![comment()]] {
+        let response = outsider.insert_blocks(board_id, &blocks).await;
+        response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
     assert_eq!(
         blocks_of(&th.client, board_id).await.len(),
@@ -1563,8 +1534,8 @@ async fn post_blocks_size_limits() {
         "{message}"
     );
 
-    // Preserved quirk: blocks are stored one by one. The block before the refused one
-    // stays; the block after it is never looked at.
+    // A request is stored whole or not at all. (The original stores blocks one by one
+    // and keeps those before the refused one.)
     let blocks = [
         new_block(&board.id, BlockType::Card, "before"),
         too_long,
@@ -1575,16 +1546,11 @@ async fn post_blocks_size_limits() {
         .await
         .check_bad_request();
     let stored = blocks_of(&th.client, &board.id).await;
-    let short_titles: Vec<&str> = titles(&stored)
-        .into_iter()
-        .filter(|title| title.len() < 100)
-        .collect();
     assert_eq!(
-        short_titles,
-        ["before"],
-        "only the block before the refusal"
+        titles(&stored).len(),
+        1,
+        "nothing of the refused request, next to the block with the longest title"
     );
-    assert_eq!(stored.len(), 2, "next to the block with the longest title");
 
     th.teardown().await;
 }
@@ -1609,35 +1575,30 @@ async fn patch_block_refusals() {
             block_path(board_id, &content.comment.id),
         ),
         ("viewer", &boards.viewer, card_path.clone()),
-        ("outsider", &th.client2, card_path.clone()),
-        // The permission is asked before the block is looked up.
+    ] {
+        let response = client.patch(&path, &title_patch("x")).await;
+        response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
+        assert_eq!(response.error_code(), "forbidden", "{who}");
+    }
+    // For who is no member of the private board it does not exist, whatever the block:
+    // the outsider, and an editor of one board on another board's path.
+    for (client, path) in [
+        (&th.client2, card_path.clone()),
+        (&th.client2, block_path(board_id, "no-such-block")),
         (
-            "outsider, unknown block",
-            &th.client2,
-            block_path(board_id, "no-such-block"),
-        ),
-        // An editor of one board reaches no block through another board's path.
-        (
-            "editor, another board's path",
             &boards.editor,
             block_path(&boards.other_board.id, &content.card.id),
         ),
     ] {
         let response = client.patch(&path, &title_patch("x")).await;
-        response.check_forbidden();
-        assert_eq!(response.error_message(), NO_CHANGES, "{who}");
+        response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
 
     let response = th
         .client
         .patch(&block_path(board_id, "no-such-block"), &title_patch("x"))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{block ID=no-such-block} not found",
-        "no such block"
-    );
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     let response = th
         .client
@@ -1646,21 +1607,17 @@ async fn patch_block_refusals() {
             &title_patch("x"),
         )
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        not_on_board(&content.other_card, &boards.board),
-        "a block of another board"
-    );
+    // A block of another board answers as one that does not exist.
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
-    // Preserved quirk: a body that is not a patch is a server error.
+    // A body that is no patch is a bad request. (The original answers 500.)
     for body in ["not json", "null", "{\"title\":5}"] {
         let response = th
             .client
             .send_raw_body(Method::PATCH, &card_path, body)
             .await;
-        response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(response.error_message(), "internal server error", "{body}");
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
     let too_long = title_patch(&"a".repeat(BLOCK_TITLE_MAX_CHARS + 1));
@@ -1758,57 +1715,58 @@ async fn patch_blocks_batch_refusals() {
     let path = blocks_path(&boards.board.id);
     let missing = new_block(&boards.board.id, BlockType::Card, "never stored");
 
-    // Preserved quirk: a block that does not exist is a refusal, not a 404.
-    let response = th
-        .client
-        .patch(&path, &batch(&[(card, "card 2"), (&missing, "x")]))
-        .await;
-    response.check_forbidden();
-    assert_eq!(response.error_message(), NO_CHANGES, "an unknown block");
-
-    // Preserved quirk: the refusal for a block the user may not change has a stray
-    // letter at its end.
-    for (who, client, patches) in [
-        ("commenter", &boards.commenter, batch(&[(card, "card 2")])),
-        ("outsider", &th.client2, batch(&[(card, "card 2")])),
-        (
-            "editor of one board only",
-            &boards.editor,
-            batch(&[(card, "card 2"), (&content.other_card, "other 2")]),
-        ),
+    // A block that does not exist, and one of another board, are not found: the batch
+    // is for the blocks of the board in the path. (The original answers 403 for the
+    // first and does not look at the path's board at all.)
+    for patches in [
+        batch(&[(card, "card 2"), (&missing, "x")]),
+        batch(&[(card, "card 2"), (&content.other_card, "other 2")]),
     ] {
-        let response = client.patch(&path, &patches).await;
-        response.check_forbidden();
-        assert_eq!(
-            response.error_message(),
-            "access denied to make board changesa",
-            "{who}"
-        );
+        for client in [&th.client, &boards.editor] {
+            let response = client.patch(&path, &patches).await;
+            response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
+        }
     }
 
-    // Preserved quirk: an identifier listed twice counts as a block that is missing.
+    // Who may not change the board's cards is refused; for who is no member of the
+    // private board it does not exist. (The original's refusal has a stray letter at
+    // its end.)
+    let response = boards
+        .commenter
+        .patch(&path, &batch(&[(card, "card 2")]))
+        .await;
+    response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
+    let response = th.client2.patch(&path, &batch(&[(card, "card 2")])).await;
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
+    let response = th
+        .client
+        .patch("/boards/no-such-board/blocks", &batch(&[(card, "card 2")]))
+        .await;
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
+
+    // An identifier listed twice. (The original counts it as a block that is missing.)
     let response = th
         .client
         .patch(&path, &batch(&[(card, "card 2"), (card, "card 3")]))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        format!(
-            "not all instances of {{block}} in {{{0}, {0}}} found",
-            card.id
-        ),
-        "the store's wording"
+    response.check_error(
+        StatusCode::BAD_REQUEST,
+        &format!("block {} is listed twice", card.id),
     );
 
-    // Fewer patches than identifiers: a server error, as in the original, where it is
-    // a crash.
+    // As many patches as identifiers. (The original crashes on fewer patches and
+    // ignores the extra ones.)
     let mut short = batch(&[(card, "card 2"), (text, "text 2")]);
     short.block_patches.pop();
-    th.client
-        .patch(&path, &short)
-        .await
-        .check_status(StatusCode::INTERNAL_SERVER_ERROR);
+    let mut long = batch(&[(card, "card 2")]);
+    long.block_patches.push(title_patch("ignored"));
+    for uneven in [&short, &long] {
+        let response = th.client.patch(&path, uneven).await;
+        response.check_error(
+            StatusCode::BAD_REQUEST,
+            "block_ids and block_patches differ in length",
+        );
+    }
 
     let too_long = "a".repeat(BLOCK_TITLE_MAX_CHARS + 1);
     let response = th
@@ -1825,11 +1783,11 @@ async fn patch_blocks_batch_refusals() {
         "the title limit"
     );
 
+    // A body that is no batch is a bad request. (The original answers 500.)
     for body in ["not json", "null", "{\"block_ids\":5}"] {
-        th.client
-            .send_raw_body(Method::PATCH, &path, body)
-            .await
-            .check_status(StatusCode::INTERNAL_SERVER_ERROR);
+        let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
     // A batch is all or none.
@@ -1879,34 +1837,26 @@ async fn patch_blocks_batch_changes() {
         "by the editor"
     );
 
-    // An empty batch, and one whose members are spelled differently, do nothing, for
-    // anyone.
+    // An empty batch, and one whose members are spelled differently, do nothing.
     for body in [
         json!({}),
         json!({"block_ids": [], "block_patches": []}),
         json!({"blockIds": [card.id], "blockPatches": [{"title": "camel"}]}),
     ] {
-        let response = th.client2.patch(&path, &body).await;
+        let response = boards.editor.patch(&path, &body).await;
         response.check_ok();
         assert_eq!(response.text(), "{}", "{body}");
     }
-    // More patches than identifiers: the extra ones are ignored.
-    let mut long = batch(&[(card, "card 2")]);
-    long.block_patches.push(title_patch("ignored"));
-    th.client.patch(&path, &long).await.check_ok();
 
-    // Preserved quirk: the board in the path is not looked at; the blocks may be on any
-    // boards the user may change.
-    let across = batch(&[(text, "text 2"), (&content.other_card, "other 2")]);
+    let quiet = format!("{path}?disable_notify=true");
     th.client
-        .patch("/boards/no-such-board/blocks?disable_notify=true", &across)
+        .patch(&quiet, &batch(&[(text, "text 2"), (card, "card 2")]))
         .await
         .check_ok();
-
     let stored = blocks_of(&th.client, &boards.board.id).await;
     assert_eq!(titles(&stored), ["card 2", "comment", "text 2"], "patched");
     let other = blocks_of(&th.client, &boards.other_board.id).await;
-    assert_eq!(titles(&other), ["other 2"], "on the other board too");
+    assert_eq!(titles(&other), ["other"], "the other board is as it was");
 
     th.teardown().await;
 }
@@ -1934,48 +1884,36 @@ async fn delete_block_refusals() {
             &boards.viewer,
             block_path(board_id, &content.card.id),
         ),
+    ] {
+        let response = client.delete(&path).await;
+        response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
+        assert_eq!(response.error_code(), "forbidden", "{who}");
+    }
+    // For who is no member of the private board it does not exist, whatever the block.
+    for (client, path) in [
+        (&th.client2, block_path(board_id, &content.card.id)),
+        (&th.client2, block_path(board_id, "no-such-block")),
         (
-            "outsider",
-            &th.client2,
-            block_path(board_id, &content.card.id),
-        ),
-        (
-            "outsider, unknown block",
-            &th.client2,
-            block_path(board_id, "no-such-block"),
-        ),
-        (
-            "editor, another board's path",
             &boards.editor,
             block_path(&boards.other_board.id, &content.card.id),
         ),
     ] {
         let response = client.delete(&path).await;
-        response.check_forbidden();
-        assert_eq!(response.error_message(), NO_CHANGES, "{who}");
+        response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
 
     let response = th
         .client
         .delete(&block_path(board_id, "no-such-block"))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{block ID=no-such-block} not found",
-        "no such block"
-    );
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     let response = th
         .client
         .delete(&block_path(board_id, &content.other_card.id))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        not_on_board(&content.other_card, &boards.board),
-        "a block of another board"
-    );
+    // A block of another board answers as one that does not exist.
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     assert_eq!(
         blocks_of(&th.client, board_id).await.len(),
@@ -2030,12 +1968,7 @@ async fn delete_block_takes_the_children_along() {
 
     for block in [&content.card, &content.text] {
         let response = th.client.delete(&block_path(board_id, &block.id)).await;
-        response.check_not_found();
-        assert_eq!(
-            response.error_message(),
-            format!("{{block ID={}}} not found", block.id),
-            "deleted is gone"
-        );
+        response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
     }
 
     th.teardown().await;
@@ -2057,47 +1990,38 @@ async fn undelete_block_refusals_and_children() {
         .client
         .post_empty(&undelete_path("no-such-board", &card.id))
         .await;
-    response.check_not_found();
-    assert_eq!(response.error_message(), "{boards} not found", "no board");
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
-    // A block that never existed: the original crashes on it and answers 500; the port
-    // says that it is not there. The same for a user who is no member.
-    for client in [&th.client, &th.client2] {
-        let response = client
-            .post_empty(&undelete_path(board_id, "no-such-block"))
-            .await;
-        response.check_not_found();
-        assert_eq!(
-            response.error_message(),
-            "{block ID=no-such-block} not found",
-            "no such block"
-        );
-    }
+    // A block that never existed: the original crashes on it and answers 500; here it
+    // is not there. For a user who is no member the board is not there either.
+    let response = th
+        .client
+        .post_empty(&undelete_path(board_id, "no-such-block"))
+        .await;
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
+    let response = th
+        .client2
+        .post_empty(&undelete_path(board_id, "no-such-block"))
+        .await;
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
     let response = th
         .client
         .post_empty(&undelete_path(&boards.other_board.id, &card.id))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        not_on_board(card, &boards.other_board),
-        "a block of another board"
-    );
+    // A block of another board answers as one that does not exist.
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
-    for (who, client) in [
-        ("commenter", &boards.commenter),
-        ("viewer", &boards.viewer),
-        ("outsider", &th.client2),
-    ] {
+    // (The original's refusal speaks of members.)
+    for client in [&boards.commenter, &boards.viewer] {
         let response = client.post_empty(&undelete_path(board_id, &card.id)).await;
-        response.check_forbidden();
-        assert_eq!(
-            response.error_message(),
-            "access denied to modify board members",
-            "{who}"
-        );
+        response.check_error(StatusCode::FORBIDDEN, NO_CHANGES);
     }
+    let response = th
+        .client2
+        .post_empty(&undelete_path(board_id, &card.id))
+        .await;
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     assert!(
         blocks_of(&th.client, board_id).await.is_empty(),
         "still deleted"
@@ -2147,44 +2071,30 @@ async fn duplicate_block_refusals() {
         .client
         .post_empty(&duplicate_path("no-such-board", &card.id))
         .await;
-    response.check_not_found();
-    assert_eq!(response.error_message(), "{boards} not found", "no board");
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
 
     let response = th
         .client
         .post_empty(&duplicate_path(board_id, "no-such-block"))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{block ID=no-such-block} not found",
-        "no such block"
-    );
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
     let response = th
         .client
         .post_empty(&duplicate_path(board_id, &content.other_card.id))
         .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        not_on_board(&content.other_card, &boards.board),
-        "a block of another board"
-    );
+    // A block of another board answers as one that does not exist.
+    response.check_error(StatusCode::NOT_FOUND, NO_BLOCK);
 
-    for (who, client) in [
-        ("commenter", &boards.commenter),
-        ("viewer", &boards.viewer),
-        ("outsider", &th.client2),
-    ] {
+    for client in [&boards.commenter, &boards.viewer] {
         let response = client.post_empty(&duplicate_path(board_id, &card.id)).await;
-        response.check_forbidden();
-        assert_eq!(
-            response.error_message(),
-            "access denied to modify board cards",
-            "{who}"
-        );
+        response.check_error(StatusCode::FORBIDDEN, "access denied to modify board cards");
     }
+    let response = th
+        .client2
+        .post_empty(&duplicate_path(board_id, &card.id))
+        .await;
+    response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     let comment_path = duplicate_path(board_id, &content.comment.id);
     let response = boards.viewer.post_empty(&comment_path).await;
     response.check_forbidden();
@@ -2194,18 +2104,10 @@ async fn duplicate_block_refusals() {
         "a viewer and a comment"
     );
 
-    // A commenter may ask for a copy of a comment, but comments are never copied. The
-    // original crashes on this and answers 500; the port says there is nothing to copy.
+    // A commenter may comment, but comments are never copied. (The original crashes on
+    // this and answers 500.)
     let response = boards.commenter.post_empty(&comment_path).await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        format!(
-            "{{block subtree BoardID={board_id} BlockID={}}} not found",
-            content.comment.id
-        ),
-        "nothing to copy"
-    );
+    response.check_error(StatusCode::BAD_REQUEST, "a comment cannot be duplicated");
 
     assert_eq!(
         blocks_of(&th.client, board_id).await.len(),
@@ -2353,15 +2255,18 @@ async fn block_changes_are_broadcast() {
     let announced = member.next_block().await;
     assert_eq!(announced["title"], json!("patched quietly"), "{announced}");
 
-    // Preserved quirk: a batch patch is broadcast to the team with the empty
-    // identifier, which nobody listens to.
+    // A batch patch is announced block by block, like single patches. (The original
+    // broadcasts it to the team with the empty identifier, which nobody listens to.)
     th.client
         .patch(&path, &batch(&[(card, "batch 1"), (text, "batch 2")]))
         .await
         .check_ok();
-    member
-        .expect_quiet(&th, "a batch patch is not broadcast to the team")
-        .await;
+    let mut announced = vec![member.next_block().await, member.next_block().await];
+    announced.sort_by_key(|block| block["title"].as_str().map(str::to_owned));
+    assert_eq!(announced[0]["id"], json!(card.id), "{announced:?}");
+    assert_eq!(announced[0]["title"], json!("batch 1"), "{announced:?}");
+    assert_eq!(announced[1]["id"], json!(text.id), "{announced:?}");
+    assert_eq!(announced[1]["title"], json!("batch 2"), "{announced:?}");
 
     // Duplicate: one message per copy.
     let copies: Vec<Block> = th
@@ -2558,11 +2463,13 @@ async fn post_blocks_with_a_source_board_the_user_cannot_read_is_refused() {
             .send()
             .await
             .expect("the server answers");
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "source {source}");
+        // One answer for a source that is not there and one the user cannot read.
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "source {source}");
         let body: Value = response.json().await.expect("an error body");
+        assert_eq!(body["error"], json!("not_found"), "source {source}");
         assert_eq!(
-            body["error"],
-            json!("access denied to source board"),
+            body["message"],
+            json!("source board not found"),
             "source {source}"
         );
     }

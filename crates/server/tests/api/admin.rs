@@ -22,7 +22,7 @@ mod socket {
     use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
     use std::path::{Path, PathBuf};
 
-    use fvoci_model::{IdKind, new_id};
+    use fvoci_model::{ErrorBody, IdKind, new_id};
     use reqwest::{Method, StatusCode};
     use serde_json::json;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -32,7 +32,6 @@ mod socket {
 
     const NEW_PASSWORD: &str = "N3w-Pa$$word";
     const ADMIN_PASSWORD_ROUTE: &str = "/api/v2/admin/users/user1/password";
-    const INTERNAL_SERVER_ERROR: &str = r#"{"error":"internal server error","errorCode":500}"#;
 
     /// A path for a socket. The build directory is too long for a socket address, so the
     /// sockets of these tests live in the system's directory for temporary files.
@@ -66,6 +65,22 @@ mod socket {
         fn check(&self, status: u16, body: &str) {
             assert_eq!(self.status, status, "the status; body: {}", self.body);
             assert_eq!(self.body, body, "the body");
+        }
+
+        /// Checks an error answer: the status, its code, the message, and that it is
+        /// JSON with the identifier of the request.
+        #[track_caller]
+        fn check_error(&self, status: u16, code: &str, message: &str) {
+            assert_eq!(self.status, status, "the status; body: {}", self.body);
+            assert!(self.is_json(), "an error is JSON: {}", self.head);
+            let body: ErrorBody = serde_json::from_str(&self.body).expect("an error body");
+            assert_eq!(body.error, code, "{}", self.body);
+            assert_eq!(body.message, message, "{}", self.body);
+            assert!(
+                body.request_id.is_some_and(|id| !id.is_empty()),
+                "the request is identified: {}",
+                self.body
+            );
         }
 
         fn is_json(&self) -> bool {
@@ -181,7 +196,7 @@ mod socket {
             response.check_unauthorized();
             assert_eq!(
                 response.error_message(),
-                "unable to get the session for the token: sql: no rows in result set",
+                "invalid session token",
                 "the session of {device} device is gone, as after a logout"
             );
         }
@@ -219,11 +234,13 @@ mod socket {
 
         set_password(&socket, USER1_USERNAME, r#"{"password":""}"#)
             .await
-            .check(400, r#"{"error":"password is required","errorCode":400}"#);
+            .check_error(400, "bad_request", "password is required");
         let body = json!({ "password": NEW_PASSWORD }).to_string();
-        set_password(&socket, "nobody", &body)
-            .await
-            .check(500, INTERNAL_SERVER_ERROR);
+        set_password(&socket, "nobody", &body).await.check_error(
+            404,
+            "not_found",
+            "user not found",
+        );
 
         assert_eq!(
             th.client.me().await.username,
@@ -256,8 +273,7 @@ mod socket {
 
         for body in [r#"{"password":""}"#, "{}", r#"{"password":null}"#, "null"] {
             let response = set_password(&socket, USER1_USERNAME, body).await;
-            response.check(400, r#"{"error":"password is required","errorCode":400}"#);
-            assert!(response.is_json(), "{body}: {}", response.head);
+            response.check_error(400, "bad_request", "password is required");
         }
 
         assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
@@ -289,36 +305,33 @@ mod socket {
         let body = json!({ "password": "x".repeat(73) }).to_string();
         let response = set_password(&socket, USER1_USERNAME, &body).await;
 
-        response.check(
-            400,
-            r#"{"error":"password length exceeds 72 bytes","errorCode":400}"#,
-        );
+        response.check_error(400, "bad_request", "password length exceeds 72 bytes");
         assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
         th.teardown().await;
     }
 
-    /// The store's "user not found" is not one of the errors the original classifies.
+    /// A name no user has is not found. (The original answers 500.)
     #[tokio::test]
-    async fn admin_set_password_of_an_unknown_user_is_a_server_error() {
+    async fn admin_set_password_of_an_unknown_user_is_not_found() {
         let (th, socket) = start_with_admin_socket().await;
 
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         let response = set_password(&socket, "nobody", &body).await;
 
-        response.check(500, INTERNAL_SERVER_ERROR);
-        assert!(response.is_json(), "{}", response.head);
+        response.check_error(404, "not_found", "user not found");
         th.teardown().await;
     }
 
-    /// The original passes the decoding error on unclassified.
+    /// A body that is no JSON object with a text password is the sender's mistake.
+    /// (The original answers 500.)
     #[tokio::test]
-    async fn admin_set_password_with_a_malformed_body_is_a_server_error() {
+    async fn admin_set_password_with_a_malformed_body_is_a_bad_request() {
         let (th, socket) = start_with_admin_socket().await;
 
         for body in ["", r#"{"password":"#, r#"{"password":5}"#, "5"] {
-            set_password(&socket, USER1_USERNAME, body)
-                .await
-                .check(500, INTERNAL_SERVER_ERROR);
+            let response = set_password(&socket, USER1_USERNAME, body).await;
+            assert_eq!(response.status, 400, "{body}: {}", response.body);
+            assert!(response.body.contains(r#""error":"bad_request""#), "{body}");
         }
 
         assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
@@ -333,7 +346,12 @@ mod socket {
 
         for method in ["GET", "PUT", "DELETE"] {
             let response = socket_request(&socket, method, ADMIN_PASSWORD_ROUTE, "").await;
-            response.check(405, "");
+            response.check_error(405, "method_not_allowed", "method not allowed");
+            assert!(
+                response.head.to_lowercase().contains("allow: post"),
+                "{method}: {}",
+                response.head
+            );
         }
         for target in [
             "/",
@@ -344,13 +362,13 @@ mod socket {
             "/api/v2/admin/boards",
         ] {
             let response = socket_request(&socket, "GET", target, "").await;
-            response.check(404, "404 page not found\n");
+            response.check_error(404, "not_found", "route not found");
         }
         th.teardown().await;
     }
 
-    /// The TCP listener does not know the administration route: as for any path it does not
-    /// know, the answer is the web app, and nothing happens.
+    /// The TCP listener does not know the administration route: as for any path under
+    /// the API prefix that it does not know, the answer is 404, and nothing happens.
     #[tokio::test]
     async fn admin_route_is_not_reachable_over_tcp() {
         let (th, _socket) = start_with_admin_socket().await;
@@ -369,13 +387,7 @@ mod socket {
         let signed_in = th.client.post("/admin/users/user1/password", &body).await;
 
         for response in [with_header, without_header, signed_in] {
-            response.check_ok();
-            assert!(
-                response.header("content-type").starts_with("text/html"),
-                "the web app: {}",
-                response.text()
-            );
-            assert!(response.text().contains("test web app"), "the web app");
+            response.check_error(StatusCode::NOT_FOUND, "route not found");
         }
         assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
         assert!(!can_log_in(&th, NEW_PASSWORD).await, "nothing was set");
@@ -637,138 +649,39 @@ async fn without_use_ssl_missing_certificate_files_do_not_matter() {
     th.teardown().await;
 }
 
-const NO_SESSION: &str = r#"{"error":"no session token","errorCode":401}"#;
-const NOT_IN_STANDALONE_MODE: &str =
-    r#"{"error":"not permitted in standalone mode","errorCode":501}"#;
-
-/// Checks what a route answers to a request without a session and to one of `user1`.
-async fn check_refusal(th: &TestServer, path: &str, status: StatusCode, body: &str) {
-    let anonymous = th.anonymous().get(path).await;
-    anonymous.check_unauthorized();
-    assert_eq!(anonymous.text(), NO_SESSION, "{path} without a session");
-
-    let signed_in = th.client.get(path).await;
-    signed_in.check_status(status);
-    assert_eq!(signed_in.text(), body, "{path} with a session");
-    assert_eq!(
-        signed_in.header("content-type"),
-        "application/json",
-        "{path}"
-    );
-}
-
-/// `handleGetChannel` (`server/api/channels.go:53-56`): a standalone server has no
-/// channels.
+/// The original has routes for the channels, the statistics and the compliance exports
+/// of its host application; a standalone server refused them with 501 or 401. They are
+/// gone: with or without a session, in either mode, they are paths that do not exist.
 #[tokio::test]
-async fn get_channel_is_not_implemented_in_standalone_mode() {
-    let th = Setup::native().start().await.init_basic().await;
-
-    check_refusal(
-        &th,
+async fn routes_of_the_host_application_do_not_exist() {
+    let paths = [
         "/teams/0/channels/some-channel",
-        StatusCode::NOT_IMPLEMENTED,
-        NOT_IN_STANDALONE_MODE,
-    )
-    .await;
-    th.teardown().await;
-}
-
-/// `handleStatistics` (`server/api/statistics.go:36-39`).
-#[tokio::test]
-async fn statistics_are_not_implemented_in_standalone_mode() {
-    let th = Setup::native().start().await.init_basic().await;
-
-    check_refusal(
-        &th,
         "/statistics",
-        StatusCode::NOT_IMPLEMENTED,
-        NOT_IN_STANDALONE_MODE,
-    )
-    .await;
-    th.teardown().await;
-}
-
-/// The single user of single-user mode gets the same answers.
-#[tokio::test]
-async fn standalone_refusals_are_the_same_in_single_user_mode() {
-    let th = Setup::single_user().start().await;
-
-    for path in ["/teams/0/channels/some-channel", "/statistics"] {
-        let response = th.client.get(path).await;
-        response.check_not_implemented();
-        assert_eq!(response.text(), NOT_IN_STANDALONE_MODE, "{path}");
-    }
-    let response = th.client.get("/admin/boards").await;
-    response.check_unauthorized();
-    assert_eq!(
-        response.error_message(),
-        "access denied Compliance Export getAllBoards"
-    );
-    th.teardown().await;
-}
-
-/// `TestGetBoardsForCompliance/"a non authenticated user should be rejected"` and
-/// `"a user without manage_system permission should be rejected"`, as a standalone
-/// server answers them: nobody has the permission there
-/// (`server/api/compliance.go:73-78`).
-#[tokio::test]
-async fn get_boards_for_compliance_is_refused_in_standalone_mode() {
-    let th = Setup::native().start().await.init_basic().await;
-
-    for path in ["/admin/boards", "/admin/boards?team_id=nope&page=x"] {
-        check_refusal(
-            &th,
-            path,
-            StatusCode::UNAUTHORIZED,
-            r#"{"error":"access denied Compliance Export getAllBoards","errorCode":401}"#,
-        )
-        .await;
-    }
-    th.teardown().await;
-}
-
-/// `TestGetBoardsComplianceHistory`, the same two cases on a standalone server. The
-/// required parameter is checked before the permission (`server/api/compliance.go:203-213`).
-#[tokio::test]
-async fn get_boards_compliance_history_is_refused_in_standalone_mode() {
-    let th = Setup::native().start().await.init_basic().await;
-
-    check_refusal(
-        &th,
-        "/admin/boards_history",
-        StatusCode::BAD_REQUEST,
-        r#"{"error":"`modified_since` parameter required","errorCode":400}"#,
-    )
-    .await;
-    check_refusal(
-        &th,
+        "/admin/boards",
+        "/admin/boards?team_id=nope&page=x",
         "/admin/boards_history?modified_since=1",
-        StatusCode::UNAUTHORIZED,
-        r#"{"error":"access denied Compliance Export getBoardsHistory","errorCode":401}"#,
-    )
-    .await;
-    th.teardown().await;
-}
-
-/// `TestGetBlocksComplianceHistory`, the same two cases on a standalone server
-/// (`server/api/compliance.go:352-362`).
-#[tokio::test]
-async fn get_blocks_compliance_history_is_refused_in_standalone_mode() {
-    let th = Setup::native().start().await.init_basic().await;
-
-    check_refusal(
-        &th,
-        "/admin/blocks_history",
-        StatusCode::BAD_REQUEST,
-        r#"{"error":"`modified_since` parameter required","errorCode":400}"#,
-    )
-    .await;
-    check_refusal(
-        &th,
         "/admin/blocks_history?modified_since=1&board_id=nope",
-        StatusCode::UNAUTHORIZED,
-        r#"{"error":"access denied Compliance Export getBlocksHistory","errorCode":401}"#,
-    )
-    .await;
+        "/boards/some-board/metadata",
+    ];
+
+    let th = Setup::native().start().await.init_basic().await;
+    for path in paths {
+        for client in [&th.client, &th.anonymous()] {
+            let response = client.get(path).await;
+            response.check_error(StatusCode::NOT_FOUND, "route not found");
+            assert_eq!(
+                response.header("content-type"),
+                "application/json",
+                "{path}"
+            );
+        }
+    }
     th.teardown().await;
+
+    let single_user = Setup::single_user().start().await;
+    for path in paths {
+        let response = single_user.client.get(path).await;
+        response.check_error(StatusCode::NOT_FOUND, "route not found");
+    }
+    single_user.teardown().await;
 }

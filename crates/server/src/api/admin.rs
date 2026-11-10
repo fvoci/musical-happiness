@@ -13,7 +13,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use serde::Deserialize;
 
-use super::{ApiResult, decode_json_or_internal, empty_response};
+use super::{ApiResult, decode_json, empty_response};
 use crate::Peer;
 use crate::app::App;
 use crate::error::AppError;
@@ -28,7 +28,9 @@ pub(super) fn routes() -> Router<App> {
             post(handle_admin_set_password),
         )
         .route_layer(middleware::from_fn(require_unix_connection))
-        .fallback(|| async { crate::web::not_found() })
+        // The socket speaks the API's language for what it does not have as well.
+        .fallback(|| async { AppError::not_found("route") })
+        .method_not_allowed_fallback(|| async { AppError::method_not_allowed() })
 }
 
 /// The body of a request to set a password.
@@ -50,7 +52,8 @@ async fn require_unix_connection(request: Request, next: Next) -> Response {
     if peer == Some(Peer::Unix) {
         next.run(request).await
     } else {
-        AppError::unauthorized("not a local unix connection").into_response()
+        // For anyone who does not come through the socket these routes do not exist.
+        AppError::not_found("route").into_response()
     }
 }
 
@@ -60,7 +63,7 @@ async fn handle_admin_set_password(
     body: Bytes,
 ) -> ApiResult {
     // A body of `null` decodes to nothing in the original and so to an empty password.
-    let data: Option<AdminSetPasswordData> = decode_json_or_internal(&body)?;
+    let data: Option<AdminSetPasswordData> = decode_json(&body)?;
     let password = data.and_then(|data| data.password).unwrap_or_default();
 
     // The original means to refuse an empty password here, but its check
@@ -126,9 +129,9 @@ mod tests {
         let tcp: SocketAddr = "127.0.0.1:4000".parse().expect("a socket address");
         for peer in [Some(Peer::Tcp(tcp)), None] {
             let (status, body) = status_for(peer).await;
-            assert_eq!(status, StatusCode::UNAUTHORIZED, "{peer:?}: {body}");
+            assert_eq!(status, StatusCode::NOT_FOUND, "{peer:?}: {body}");
             assert_eq!(
-                body, r#"{"error":"not a local unix connection","errorCode":401}"#,
+                body, r#"{"error":"not_found","message":"route not found"}"#,
                 "{peer:?}"
             );
         }

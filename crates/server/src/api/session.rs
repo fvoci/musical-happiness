@@ -96,5 +96,6 @@ fn check_auth_service(session: &Session, app: &App) -> Result<(), AppError> {
         got = %session.auth_service,
         "Session authService mismatch"
     );
-    Err(AppError::unauthorized("Session authService mismatch"))
+    // The log says why; the client learns only that the session does not count.
+    Err(AppError::unauthorized("invalid session token"))
 }

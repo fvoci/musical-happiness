@@ -331,8 +331,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=unknown-block} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -395,11 +396,12 @@
   {
     "name": "list: non-member",
     "request": "GET /api/v2/boards/<id:2>/blocks as blocks-carol",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -408,8 +410,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -418,8 +421,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -432,11 +436,12 @@
   {
     "name": "insert: malformed body",
     "request": "POST /api/v2/boards/<id:2>/blocks as blocks-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "invalid type: map, expected a sequence at line 1 column 0",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -445,8 +450,10 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "missing type for block id x1",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "type",
+      "message": "missing type for block id x1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -455,8 +462,10 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid createAt for block id x1",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "createAt",
+      "message": "invalid createAt for block id x1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -465,8 +474,10 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid UpdateAt for block id x1",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "updateAt",
+      "message": "invalid updateAt for block id x1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -475,8 +486,10 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid BoardID for block id x1",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "boardId",
+      "message": "invalid boardId for block id x1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -485,18 +498,20 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "error validating block <id:7>: block title size limit exceeded",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "error validating block <id:7>: block title size limit exceeded",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "insert: non-member",
     "request": "POST /api/v2/boards/<id:2>/blocks as blocks-carol",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -505,8 +520,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to make board changes",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -566,18 +582,20 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to make board changes",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "patch: non-member",
     "request": "PATCH /api/v2/boards/<id:2>/blocks/<id:5> as blocks-carol",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -586,18 +604,20 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=unknown-block} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "patch: malformed body",
     "request": "PATCH /api/v2/boards/<id:2>/blocks/<id:5> as blocks-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -606,8 +626,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "error validating block <id:5>: block title size limit exceeded",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "error validating block <id:5>: block title size limit exceeded",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -620,11 +641,12 @@
   {
     "name": "patch several: unknown block",
     "request": "PATCH /api/v2/boards/<id:2>/blocks as blocks-alice",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -633,8 +655,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changesa",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to make board changes",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -815,8 +838,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modify board cards",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to modify board cards",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -825,8 +849,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=unknown-block} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -835,18 +860,20 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to make board changes",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "delete: non-member",
     "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:6> as blocks-carol",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to make board changes",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -862,8 +889,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=<id:6>} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -872,8 +900,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=unknown-block} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -889,8 +918,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modify board members",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to make board changes",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -943,8 +973,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=unknown-block} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {

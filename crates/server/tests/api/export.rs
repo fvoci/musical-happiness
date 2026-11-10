@@ -82,6 +82,33 @@ async fn export_single_board_round_trips() {
     ts.teardown().await;
 }
 
+/// A board without blocks exports and imports as a board without blocks. (The original
+/// exports it and then refuses its own archive.)
+#[tokio::test]
+async fn export_of_a_board_without_blocks_round_trips() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board("test-team", BoardType::Open).await;
+
+    let exported = export_board(&ts.client, &board.id).await;
+    exported.check_ok();
+    import(&ts.client, "0", &exported.body).await.check_ok();
+
+    let user_id = ts.client.me().await.id;
+    let boards = ts
+        .app
+        .boards_for_user_and_team(&user_id, "0", fvoci_store::PublicBoards::Include)
+        .await
+        .expect("the imported boards");
+    assert_eq!(boards.len(), 1, "the board was imported into team 0");
+    let blocks = ts
+        .app
+        .blocks_for_board(&boards[0].id)
+        .await
+        .expect("the imported blocks");
+    assert!(blocks.is_empty(), "without blocks");
+    ts.teardown().await;
+}
+
 /// The export headers are the original's.
 #[tokio::test]
 async fn export_has_the_download_headers() {
@@ -180,32 +207,34 @@ async fn import_is_allowed_for_any_signed_in_user() {
     ts.teardown().await;
 }
 
-/// `TestApp_ImportArchive`: importing something that is not an archive is a 500
-/// (verified on the oracle).
+/// `TestApp_ImportArchive`: something that is not an archive is the sender's mistake, a
+/// bad request. (The original answers 500.)
 #[tokio::test]
-async fn import_of_a_non_archive_is_500() {
+async fn import_of_a_non_archive_is_a_bad_request() {
     let ts = Setup::native().start().await.init_basic().await;
     let response = import(&ts.client, "0", b"this is not a zip file").await;
-    response.check_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+    response.check_bad_request();
+    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
     ts.teardown().await;
 }
 
-/// Importing an empty ZIP is a 500, as the original's streaming reader rejects it.
+/// An empty ZIP is no archive either.
 #[tokio::test]
-async fn import_of_an_empty_zip_is_500() {
+async fn import_of_an_empty_zip_is_a_bad_request() {
     let ts = Setup::native().start().await.init_basic().await;
     let empty = zip::ZipWriter::new(Cursor::new(Vec::new()))
         .finish()
         .expect("an empty zip")
         .into_inner();
     let response = import(&ts.client, "0", &empty).await;
-    response.check_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+    response.check_bad_request();
+    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
     ts.teardown().await;
 }
 
-/// Importing an archive of an unsupported version is a 500 (verified on the oracle).
+/// Nor is an archive of a version this server does not read.
 #[tokio::test]
-async fn import_of_an_unsupported_version_is_500() {
+async fn import_of_an_unsupported_version_is_a_bad_request() {
     let ts = Setup::native().start().await.init_basic().await;
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer
@@ -216,7 +245,8 @@ async fn import_of_an_unsupported_version_is_500() {
         .expect("write");
     let bytes = writer.finish().expect("finish").into_inner();
     let response = import(&ts.client, "0", &bytes).await;
-    response.check_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+    response.check_bad_request();
+    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
     ts.teardown().await;
 }
 

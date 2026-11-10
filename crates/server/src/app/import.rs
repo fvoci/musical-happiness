@@ -10,7 +10,7 @@ use std::io::{Cursor, Read as _};
 use bytes::Bytes;
 use fvoci_model::{
     ArchiveHeader, ArchiveLine, Block, BlockType, Board, BoardMember, BoardType, BoardsAndBlocks,
-    JsonMap, SINGLE_USER_ID, generate_boards_and_blocks_ids,
+    BoardsAndBlocksError, JsonMap, SINGLE_USER_ID, renew_boards_and_blocks_ids,
 };
 use fvoci_store::DuplicateAs;
 use serde_json::Value;
@@ -106,10 +106,10 @@ impl App {
         }
 
         let zip = zip::ZipArchive::new(Cursor::new(archive))
-            .map_err(|error| AppError::internal(format_args!("{error}")))?;
+            .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
         // The original's streaming reader rejects a ZIP with no entries as invalid.
         if zip.is_empty() {
-            return Err(AppError::internal("zip: not a valid zip file"));
+            return Err(AppError::bad_request("zip: not a valid zip file"));
         }
 
         // First pass: the version and the boards; a file entry needs its board already
@@ -239,7 +239,7 @@ impl App {
         options: &ImportOptions,
     ) -> Result<Board, AppError> {
         if jsonl.len() > MAX_JSONL_BYTES {
-            return Err(AppError::internal(
+            return Err(AppError::bad_request(
                 "error parsing archive line 1: size limit exceeded",
             ));
         }
@@ -261,10 +261,18 @@ impl App {
 
         apply_modifiers(&mut boards_and_blocks, options);
 
-        let boards_and_blocks =
-            generate_boards_and_blocks_ids(boards_and_blocks).map_err(|error| {
-                AppError::internal(format_args!("error generating archive block IDs: {error}"))
-            })?;
+        let boards_and_blocks = match boards_and_blocks.validate() {
+            // A board without blocks is a board all the same, and what exporting one
+            // gives. The original refuses such an archive.
+            Ok(()) | Err(BoardsAndBlocksError::NoBlocks) => {
+                renew_boards_and_blocks_ids(boards_and_blocks)
+            }
+            Err(error) => {
+                return Err(AppError::bad_request(format_args!(
+                    "the archive's boards and blocks do not fit together: {error}"
+                )));
+            }
+        };
         let created = self
             .create_boards_and_blocks(boards_and_blocks, &options.modified_by)
             .await
@@ -291,7 +299,7 @@ impl App {
             .boards
             .into_iter()
             .next()
-            .ok_or_else(|| AppError::internal("missing board in archive: invalid board block"))
+            .ok_or_else(|| AppError::bad_request("missing board in archive: invalid board block"))
     }
 }
 
@@ -329,7 +337,7 @@ fn parse_archive_lines(
         }
 
         let archive_line: ArchiveLine = serde_json::from_slice(line).map_err(|error| {
-            AppError::internal(format_args!(
+            AppError::bad_request(format_args!(
                 "error parsing archive line {line_number}: {error}"
             ))
         })?;
@@ -344,7 +352,7 @@ fn parse_archive_lines(
             "board" => {
                 let mut board: Board =
                     serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::internal(format_args!(
+                        AppError::bad_request(format_args!(
                             "invalid board in archive line {line_number}: {error}"
                         ))
                     })?;
@@ -357,7 +365,7 @@ fn parse_archive_lines(
             "board_block" => {
                 let mut block: Block =
                     serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::internal(format_args!(
+                        AppError::bad_request(format_args!(
                             "invalid board block in archive line {line_number}: {error}"
                         ))
                     })?;
@@ -370,7 +378,7 @@ fn parse_archive_lines(
             "block" => {
                 let mut block: Block =
                     serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::internal(format_args!(
+                        AppError::bad_request(format_args!(
                             "invalid block in archive line {line_number}: {error}"
                         ))
                     })?;
@@ -382,14 +390,14 @@ fn parse_archive_lines(
             "boardMember" => {
                 let member: BoardMember =
                     serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::internal(format_args!(
+                        AppError::bad_request(format_args!(
                             "invalid board Member in archive line {line_number}: {error}"
                         ))
                     })?;
                 board_members.push(member);
             }
             other => {
-                return Err(AppError::internal(format_args!(
+                return Err(AppError::bad_request(format_args!(
                     "unsupported archive line type; got {other}, line {line_number}"
                 )));
             }
@@ -412,8 +420,10 @@ type Archive = zip::ZipArchive<Cursor<Bytes>>;
 fn entry_name(zip: &Archive, index: usize) -> Result<(String, String), AppError> {
     let name = zip
         .name_for_index(index)
-        .ok_or_else(|| AppError::internal("invalid archive entry"))?
-        .map_err(|error| AppError::internal(format_args!("invalid archive entry name: {error}")))?;
+        .ok_or_else(|| AppError::bad_request("invalid archive entry"))?
+        .map_err(|error| {
+            AppError::bad_request(format_args!("invalid archive entry name: {error}"))
+        })?;
     Ok(split_entry_name(&name))
 }
 
@@ -424,17 +434,19 @@ async fn read_entry(zip: &Archive, index: usize) -> Result<Bytes, AppError> {
     tokio::task::spawn_blocking(move || {
         let mut entry = zip
             .by_index(index)
-            .map_err(|error| AppError::internal(format_args!("{error}")))?;
+            .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
         let mut bytes = Vec::new();
         let read = entry
             .by_ref()
             .take(MAX_ENTRY_BYTES + 1)
             .read_to_end(&mut bytes)
             .map_err(|error| {
-                AppError::internal(format_args!("cannot read archive entry: {error}"))
+                AppError::bad_request(format_args!("cannot read archive entry: {error}"))
             })?;
         if u64::try_from(read).unwrap_or(u64::MAX) > MAX_ENTRY_BYTES {
-            return Err(AppError::internal("archive entry exceeds the size limit"));
+            return Err(AppError::bad_request(
+                "archive entry exceeds the size limit",
+            ));
         }
         Ok(Bytes::from(bytes))
     })
@@ -479,12 +491,13 @@ fn clean_dir(dir: &str) -> String {
 
 /// Validates an archive's `version.json`.
 fn check_version(bytes: &[u8]) -> Result<(), AppError> {
-    let header: ArchiveHeader = serde_json::from_slice(bytes)
-        .map_err(|error| AppError::internal(format_args!("cannot parse version.json: {error}")))?;
+    let header: ArchiveHeader = serde_json::from_slice(bytes).map_err(|error| {
+        AppError::bad_request(format_args!("cannot parse version.json: {error}"))
+    })?;
     if header.version == ARCHIVE_VERSION {
         Ok(())
     } else {
-        Err(AppError::internal(format_args!(
+        Err(AppError::bad_request(format_args!(
             "unsupported archive version; got {}, want {ARCHIVE_VERSION}",
             header.version
         )))
@@ -498,7 +511,7 @@ fn check_version(bytes: &[u8]) -> Result<(), AppError> {
 /// Returns a server error if the block is not a board block.
 fn block_to_board(block: &Block, team_id: &str) -> Result<Board, AppError> {
     if block.block_type != BlockType::Board {
-        return Err(AppError::internal("block is not a board"));
+        return Err(AppError::bad_request("block is not a board"));
     }
     let fields = &block.fields;
     Ok(Board {

@@ -35,25 +35,28 @@ impl Authenticator {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::Unauthorized`] if the token is empty, unknown or expired. The
-    /// message is the one the original sends to the client.
+    /// Returns an unauthorized error if the token is empty, unknown or expired, and a
+    /// server error if the session cannot be looked up.
     pub async fn get_session(&self, token: &str) -> Result<Session, AppError> {
         if token.is_empty() {
             return Err(AppError::unauthorized("no session token"));
         }
-        let session = self
+        let session = match self
             .store
             .get_session(token, self.session_expire_seconds)
             .await
-            .map_err(|error| {
-                // An unknown token is an everyday refusal; a store that fails is not.
-                if !error.is_not_found() {
-                    tracing::error!(%error, "the session lookup failed");
-                }
-                AppError::unauthorized(format_args!(
-                    "unable to get the session for the token: {error}"
-                ))
-            })?;
+        {
+            Ok(session) => session,
+            // An unknown or expired token is an everyday refusal; a store that fails is
+            // the server's fault and is reported as such.
+            Err(error) if error.is_not_found() => {
+                return Err(AppError::unauthorized("invalid session token"));
+            }
+            Err(error) => {
+                tracing::error!(%error, "the session lookup failed");
+                return Err(AppError::from(error).context("looking up the session"));
+            }
+        };
 
         // Preserved quirk: the store does not read a session's `update_at`, so it is zero
         // here and the session is refreshed on every request.

@@ -8,7 +8,7 @@ use fvoci_model::{BoardMember, BoardRole, BoardType};
 
 use super::{ApiResult, RequiredSession, empty_response, json_response};
 use super::{
-    decode_object_or_bad_request, require_board_permission, require_team_access, user_is_guest,
+    board_refusal, decode_object, require_board_permission, require_team_access, user_is_guest,
 };
 use crate::app::App;
 use crate::error::AppError;
@@ -98,22 +98,36 @@ async fn handle_add_member(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let board = app.board(&board_id).await?;
-
     let manages_roles = app
         .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardRoles)
         .await;
-    let edits_open_board = board.board_type == BoardType::Open
-        && app
-            .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardProperties)
-            .await;
-    if !manages_roles && !edits_open_board {
-        return Err(AppError::forbidden(MODIFY_MEMBERS_DENIED));
+    let edits_board = app
+        .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardProperties)
+        .await;
+    // Memberships outlive a deleted board; only its members learn that it is gone.
+    let board = match app.board(&board_id).await {
+        Ok(board) => board,
+        Err(_) if !manages_roles && !edits_board => {
+            return Err(board_refusal(&app, user_id, &board_id, MODIFY_MEMBERS_DENIED).await);
+        }
+        Err(error) => return Err(error),
+    };
+    let adds_to_open_board = edits_board && board.board_type == BoardType::Open;
+    if !(manages_roles || adds_to_open_board) {
+        return Err(board_refusal(&app, user_id, &board_id, MODIFY_MEMBERS_DENIED).await);
     }
 
-    let request: BoardMember = decode_object_or_bad_request(&body)?;
+    let request: BoardMember = decode_object(&body)?;
     if request.user_id.is_empty() {
-        return Err(AppError::bad_request("empty userID"));
+        return Err(AppError::bad_request("empty userID").with_field("userId"));
+    }
+    // The original stores a membership of nobody; the user must exist. Single-user mode
+    // has no accounts to look up.
+    if user_is_guest(&app, &request.user_id)
+        .await
+        .is_err_and(|error| error.is_not_found())
+    {
+        return Err(AppError::bad_request("no such user").with_field("userId"));
     }
     require_team_access(
         &app,
@@ -142,7 +156,6 @@ async fn handle_add_member(
             role_given_without_managing_roles(board.minimum_role),
         )
     };
-    // Preserved quirk: the user is not looked up; a membership of nobody is stored.
     Ok(json_response(&app.add_member_to_board(&member).await?))
 }
 
@@ -159,7 +172,8 @@ async fn handle_join_board(
     // The original lets a team administrator join any board as its admin with the
     // `allow_admin` parameter. Nobody administers the team of a standalone server.
     if board.board_type != BoardType::Open {
-        return Err(AppError::forbidden("cannot join a non Open board"));
+        // A private board exists only for its members, who have nothing to join.
+        return Err(board_refusal(&app, user_id, &board_id, "cannot join a non Open board").await);
     }
     require_team_access(&app, user_id, &board.team_id, "access denied to team")?;
     if user_is_guest(&app, user_id).await? {
@@ -203,26 +217,23 @@ async fn handle_update_member(
     Path((board_id, member_user_id)): Path<(String, String)>,
     body: Bytes,
 ) -> ApiResult {
-    let request: BoardMember = decode_object_or_bad_request(&body)?;
-    let mut member = requested_member(board_id, member_user_id, &request);
-
-    // Preserved quirk: the user is looked up before the permission is checked, so
-    // anybody learns from the 404 whether a user identifier exists.
-    if user_is_guest(&app, &member.user_id).await? {
-        member.scheme_admin = false;
-    }
     require_board_permission(
         &app,
         &session.user_id,
-        &member.board_id,
+        &board_id,
         BoardPermission::ManageBoardRoles,
         MODIFY_MEMBERS_DENIED,
     )
     .await?;
+    // Memberships outlive a deleted board; its admins are told that it is gone.
+    app.board(&board_id).await?;
+    let request: BoardMember = decode_object(&body)?;
+    let member = requested_member(board_id, member_user_id, &request);
 
-    // Preserved quirk: for a user who is not a member, and for a board that was deleted,
-    // the answer is `null` with status 200.
-    Ok(json_response(&app.update_board_member(&member).await?))
+    match app.update_board_member(&member).await? {
+        Some(updated) => Ok(json_response(&updated)),
+        None => Err(AppError::not_found("member")),
+    }
 }
 
 /// `DELETE /boards/{board_id}/members/{user_id}`: removes a member from a board.
@@ -231,7 +242,6 @@ async fn handle_delete_member(
     RequiredSession(session): RequiredSession,
     Path((board_id, member_user_id)): Path<(String, String)>,
 ) -> ApiResult {
-    app.board(&board_id).await?;
     require_board_permission(
         &app,
         &session.user_id,
@@ -241,6 +251,7 @@ async fn handle_delete_member(
     )
     .await?;
 
+    app.board(&board_id).await?;
     app.delete_board_member(&board_id, &member_user_id).await?;
     Ok(empty_response())
 }

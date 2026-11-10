@@ -476,13 +476,62 @@ impl ApiResponse {
         self.json()
     }
 
-    /// The message of an error answer.
+    /// The message of an error answer: English text for developers.
     #[track_caller]
     pub(crate) fn error_message(&self) -> String {
-        self.value()["error"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()
+        self.error_member("message")
+    }
+
+    /// The stable code of an error answer, such as `not_found`.
+    #[track_caller]
+    pub(crate) fn error_code(&self) -> String {
+        self.error_member("error")
+    }
+
+    /// The stable reason of an error answer, such as `last_admin`; empty if none.
+    #[track_caller]
+    pub(crate) fn error_reason(&self) -> String {
+        self.error_member("reason")
+    }
+
+    #[track_caller]
+    fn error_member(&self, member: &str) -> String {
+        self.value()[member].as_str().unwrap_or_default().to_owned()
+    }
+
+    /// Checks that the answer is the error with this status and message, in the one
+    /// format of the API's errors: the code that belongs to the status, the message, and
+    /// the identifier of the request, which the response header repeats.
+    #[track_caller]
+    pub(crate) fn check_error(&self, status: StatusCode, message: &str) {
+        self.check_status(status);
+        let body = self.value();
+        let code = match status.as_u16() {
+            400 => "bad_request",
+            401 => "unauthorized",
+            403 => "forbidden",
+            404 => "not_found",
+            405 => "method_not_allowed",
+            409 => "conflict",
+            413 => "payload_too_large",
+            500 => "internal",
+            other => panic!("status {other} is no error status of the API"),
+        };
+        assert_eq!(body["error"], code, "the error code: {body}");
+        assert_eq!(body["message"], message, "the message: {body}");
+        let request_id = body["request_id"].as_str().unwrap_or_default();
+        assert!(!request_id.is_empty(), "the request identifier: {body}");
+        assert_eq!(
+            self.header("x-request-id"),
+            request_id,
+            "the header repeats the identifier"
+        );
+    }
+
+    /// Checks that the answer is the server error, which never says what went wrong.
+    #[track_caller]
+    pub(crate) fn check_internal_error(&self) {
+        self.check_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
     }
 
     /// The value of a response header, or the empty string.

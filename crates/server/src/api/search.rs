@@ -12,28 +12,10 @@ use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::TeamPermission;
 
-/// The refusal of the routes that need the host application the original can run in.
-const NOT_IN_STANDALONE_MODE: &str = "not permitted in standalone mode";
-
 pub(super) fn routes() -> Router<App> {
     Router::new()
-        .route("/teams/{team_id}/channels", get(handle_search_my_channels))
         .route("/teams/{team_id}/boards/search", get(handle_search_boards))
-        .route(
-            "/teams/{team_id}/boards/search/linkable",
-            get(handle_search_linkable_boards),
-        )
         .route("/boards/search", get(handle_search_all_boards))
-}
-
-/// Searches the channels of the host application, which a standalone server lacks.
-async fn handle_search_my_channels(RequiredSession(_session): RequiredSession) -> ApiResult {
-    Err(AppError::not_implemented(NOT_IN_STANDALONE_MODE))
-}
-
-/// Searches the boards that can be linked to a channel of the host application.
-async fn handle_search_linkable_boards(RequiredSession(_session): RequiredSession) -> ApiResult {
-    Err(AppError::not_implemented(NOT_IN_STANDALONE_MODE))
 }
 
 async fn handle_search_boards(

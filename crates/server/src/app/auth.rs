@@ -8,7 +8,7 @@ use tokio::sync::Semaphore;
 
 use super::App;
 use crate::auth::password::{PasswordSettings, check_password, compare_password, hash_password};
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
 
 /// How many passwords are hashed or checked at a time: one per processor. Hashing is
 /// deliberately expensive; without a limit, a burst of logins would fill the pool of
@@ -41,30 +41,27 @@ impl App {
                 Err(error) if error.is_not_found() => None,
                 Err(error) => {
                     tracing::error!(%error, "looking up a user for login failed");
-                    return Err(AppError::from(error).context("invalid username or password"));
+                    return Err(AppError::from(error).context("looking up a user for login"));
                 }
             };
         }
         if user.is_none() && !email.is_empty() {
-            // Preserved quirk: the original only reports "not found" from this lookup and
-            // carries on after any other failure, which then ends as "invalid username or
-            // password" all the same.
             user = match self.store().get_user_by_email(email).await {
                 Ok(user) => Some(user),
+                Err(error) if error.is_not_found() => None,
                 Err(error) => {
-                    if !error.is_not_found() {
-                        tracing::error!(%error, "looking up a user for login failed");
-                    }
-                    None
+                    tracing::error!(%error, "looking up a user for login failed");
+                    return Err(AppError::from(error).context("looking up a user for login"));
                 }
             };
         }
+        // One answer for an unknown user and for a wrong password.
         let Some(user) = user else {
-            return Err(AppError::internal("invalid username or password"));
+            return Err(incorrect_login());
         };
         if !password_matches(&user.password, password).await? {
             tracing::debug!(user_id = %user.id, "invalid password for user");
-            return Err(AppError::internal("invalid username or password"));
+            return Err(incorrect_login());
         }
 
         let session = Session {
@@ -128,14 +125,22 @@ impl App {
     ) -> Result<(), AppError> {
         if !username.is_empty() {
             match self.store().get_user_by_username(username).await {
-                Ok(_) => return Err(AppError::internal("The username already exists")),
+                Ok(_) => {
+                    return Err(AppError::conflict("the username already exists")
+                        .with_reason(Reason::UsernameTaken)
+                        .with_field("username"));
+                }
                 Err(error) if error.is_not_found() => {}
                 Err(error) => return Err(error.into()),
             }
         }
         if !email.is_empty() {
             match self.store().get_user_by_email(email).await {
-                Ok(_) => return Err(AppError::internal("The email already exists")),
+                Ok(_) => {
+                    return Err(AppError::conflict("the email already exists")
+                        .with_reason(Reason::EmailTaken)
+                        .with_field("email"));
+                }
                 Err(error) if error.is_not_found() => {}
                 Err(error) => return Err(error.into()),
             }
@@ -145,8 +150,9 @@ impl App {
             minimum_length: REGISTER_MINIMUM_PASSWORD_LENGTH,
             required: &[],
         };
-        check_password(password, settings)
-            .map_err(|error| AppError::internal(format_args!("Invalid password: {error}")))?;
+        check_password(password, settings).map_err(|error| {
+            AppError::bad_request(format_args!("invalid password: {error}")).with_field("password")
+        })?;
 
         let mut user = User {
             id: new_id(IdKind::User),
@@ -200,23 +206,23 @@ impl App {
         old_password: &str,
         new_password: &str,
     ) -> Result<(), AppError> {
-        if user_id.is_empty() {
-            return Err(AppError::internal("invalid username or password"));
-        }
-        let user = self
-            .store()
-            .get_user_by_id(user_id)
-            .await
-            .map_err(|error| AppError::from(error).context("invalid username or password"))?;
+        let user = self.store().get_user_by_id(user_id).await?;
         if !password_matches(&user.password, old_password).await? {
             tracing::debug!(user_id = %user.id, "invalid password for user");
-            return Err(AppError::internal("invalid username or password"));
+            return Err(AppError::bad_request("the old password is wrong")
+                .with_reason(Reason::InvalidCredentials)
+                .with_field("oldPassword"));
         }
         self.store()
             .update_user_password_by_id(user_id, &hash(new_password).await?)
             .await
             .map_err(|error| AppError::from(error).context("unable to update password"))
     }
+}
+
+/// The refusal of a login, whichever of the name, the address and the password is wrong.
+fn incorrect_login() -> AppError {
+    AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
 }
 
 /// Runs password work off the async worker threads, which it would otherwise block for

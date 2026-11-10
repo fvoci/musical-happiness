@@ -4,7 +4,7 @@
     reason = "a scenario is one request sequence; cutting it up would hide the order it pins"
 )]
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::fixtures::{add_member, block, new_blocks, new_board};
 use crate::harness::{API, Body, Session, id_by_title};
@@ -338,6 +338,10 @@ pub(crate) async fn cards(s: &mut Session) {
     } else {
         "followed by more"
     };
+    // As JSON, so that what differs from request to request is normalized like in any
+    // other answer.
+    let first_object: Value = serde_json::from_str(first_object)
+        .unwrap_or_else(|_| Value::String(first_object.to_owned()));
     s.note(
         "list: bad page",
         &json!([bad_page.status, first_object, what_follows]),

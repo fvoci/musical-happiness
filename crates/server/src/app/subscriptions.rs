@@ -22,8 +22,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::Internal`] if the subscription has no block identifier,
-    /// block type or subscriber identifier.
+    /// Returns a bad request if the subscription has no block identifier, block type or
+    /// subscriber identifier.
     pub async fn create_subscription(
         &self,
         subscription: Subscription,
@@ -36,7 +36,7 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if the subscriber has no subscription to the
+    /// Returns a not-found error if the subscriber has no subscription to the
     /// block, or has ended it already.
     pub async fn delete_subscription(
         &self,

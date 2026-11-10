@@ -9,12 +9,8 @@ use super::category_boards::DEFAULT_CATEGORY_BOARDS;
 use crate::auth::now_millis;
 use crate::error::AppError;
 
-/// The refusal for a category that is another user's, or the user's in another team.
-pub(super) const CATEGORY_PERMISSION_DENIED: &str = "category doesn't belong to user";
-
-/// The refusal for a category the user does not have among their categories of a team.
-pub(super) const CATEGORY_NOT_FOUND: &str =
-    "category ID specified in input does not exist for user";
+/// What a request misses that names a category the user does not have.
+pub(super) const CATEGORY: &str = "category";
 
 impl App {
     /// Returns the category with the given identifier, deleted or not, whoever owns it.
@@ -32,11 +28,17 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a bad request if the category is not valid, or the store's error if it
-    /// cannot be written or read back.
+    /// Returns a bad request if the category is not valid, a conflict if its identifier
+    /// is taken, or the store's error if it cannot be written or read back.
     pub async fn create_category(&self, mut category: Category) -> Result<Category, AppError> {
         category.hydrate(now_millis());
         category.validate()?;
+        // A request may name the identifier; one that is taken stands against it.
+        if self.store().get_category(&category.id).await.is_ok() {
+            return Err(AppError::conflict(
+                "a category with this identifier exists already",
+            ));
+        }
         self.store().create_category(&category).await?;
         let created = self.store().get_category(&category.id).await?;
         self.ws().broadcast_category_change(&created);
@@ -49,22 +51,17 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a bad request if `category` is not valid, a not-found error if the
-    /// category does not exist or is deleted, a permission error if it belongs to
-    /// another user or team than `category` says, or the store's error if it cannot be
-    /// written or read back.
+    /// Returns a bad request if `category` is not valid, a not-found error if the user
+    /// and team `category` names have no such category (also if it is deleted), or the
+    /// store's error if it cannot be written or read back.
     pub async fn update_category(&self, mut category: Category) -> Result<Category, AppError> {
         let now = now_millis();
         category.hydrate(now);
         category.validate()?;
 
-        let existing = self.store().get_category(&category.id).await?;
-        if existing.delete_at != 0 {
-            return Err(AppError::NotFound("category is deleted".to_owned()));
-        }
-        if existing.user_id != category.user_id || existing.team_id != category.team_id {
-            return Err(AppError::forbidden(CATEGORY_PERMISSION_DENIED));
-        }
+        let existing = self
+            .user_category(&category.team_id, &category.user_id, &category.id)
+            .await?;
         if existing.category_type == CategoryType::System {
             category.name = existing.name;
         }
@@ -77,38 +74,22 @@ impl App {
     }
 
     /// Deletes one of a user's categories in a team, after moving its boards to the
-    /// user's default category, and tells the owner's connection about it. Deleting a
-    /// category that is deleted already changes nothing and returns it.
+    /// user's default category, and tells the owner's connection about it.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if the category does not exist, a permission error if
-    /// it belongs to another user, a bad request if it belongs to another team, an
-    /// internal error if it is a system category, or the store's error if a read or
-    /// write fails.
+    /// Returns a not-found error if the user has no such category in the team (also if
+    /// it is deleted already), a permission error if it is a system category, or the
+    /// store's error if a read or write fails.
     pub async fn delete_category(
         &self,
         category_id: &str,
         user_id: &str,
         team_id: &str,
     ) -> Result<Category, AppError> {
-        let existing = self.store().get_category(category_id).await?;
-        // The original looks at the deletion mark first and hands a deleted category to
-        // whoever asks for it (server/app/category.go:104-112). The owner comes first.
-        if existing.user_id != user_id {
-            return Err(AppError::forbidden(CATEGORY_PERMISSION_DENIED));
-        }
-        if existing.delete_at != 0 {
-            // Deleting again would overwrite the time of the deletion.
-            return Ok(existing);
-        }
-        if existing.team_id != team_id {
-            return Err(AppError::bad_request("category doesn't belong to the team"));
-        }
+        let existing = self.user_category(team_id, user_id, category_id).await?;
         if existing.category_type == CategoryType::System {
-            // Preserved quirk: the original does not classify this error, so the refusal
-            // is a server error (server/app/category.go:13, :119).
-            return Err(AppError::internal("cannot delete a system category"));
+            return Err(AppError::forbidden("a system category cannot be deleted"));
         }
 
         self.move_boards_to_default_category(user_id, team_id, category_id)
@@ -120,6 +101,30 @@ impl App {
         let deleted = self.store().get_category(category_id).await?;
         self.ws().broadcast_category_change(&deleted);
         Ok(deleted)
+    }
+
+    /// Returns one of a user's categories in a team.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if there is no such category, it is deleted, or it is
+    /// another user's or in another team: the categories of a user are nobody else's
+    /// business, so for everyone else they do not exist.
+    pub(crate) async fn user_category(
+        &self,
+        team_id: &str,
+        user_id: &str,
+        category_id: &str,
+    ) -> Result<Category, AppError> {
+        let category = match self.store().get_category(category_id).await {
+            Ok(category) => category,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found(CATEGORY)),
+            Err(error) => return Err(error.into()),
+        };
+        if category.user_id != user_id || category.team_id != team_id || category.delete_at != 0 {
+            return Err(AppError::not_found(CATEGORY));
+        }
+        Ok(category)
     }
 
     /// Moves the boards of a category to the user's default category, which is created
@@ -135,7 +140,7 @@ impl App {
             .iter()
             .find(|entry| entry.category.id == source_category_id)
         else {
-            return Err(AppError::internal(CATEGORY_NOT_FOUND));
+            return Err(AppError::not_found(CATEGORY));
         };
         let Some(default) = category_boards
             .iter()
@@ -161,8 +166,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an internal error if `new_order` does not name exactly as many categories
-    /// as the user has, or names one the user does not have, and the store's error if a
+    /// Returns a bad request if `new_order` does not name exactly as many categories as
+    /// the user has, or names one the user does not have, and the store's error if a
     /// read or write fails.
     pub async fn reorder_categories(
         &self,
@@ -183,10 +188,9 @@ impl App {
 
     /// Checks that a new order names the user's categories and nothing else.
     ///
-    /// Preserved quirk: only the count and the membership are compared, so an order that
-    /// names one category twice and leaves another out passes; the category left out
-    /// keeps its place (server/app/category.go:210-246). The refusals are not
-    /// classified, so they are server errors.
+    /// As in the original, only the count and the membership are compared, so an order
+    /// that names one category twice and leaves another out passes; the category left
+    /// out keeps its place (server/app/category.go:210-246).
     async fn verify_new_categories_match_existing(
         &self,
         user_id: &str,
@@ -195,10 +199,8 @@ impl App {
     ) -> Result<(), AppError> {
         let existing = self.store().get_user_categories(user_id, team_id).await?;
         if new_order.len() != existing.len() {
-            return Err(AppError::internal(format_args!(
-                "cannot update category order, passed list of categories different size than \
-                 in database length new categories: {}, length existing categories: {}, \
-                 userID: {user_id}, teamID: {team_id}",
+            return Err(AppError::bad_request(format_args!(
+                "the new order must list every category once: it has {}, the user has {}",
                 new_order.len(),
                 existing.len(),
             )));
@@ -211,9 +213,8 @@ impl App {
             .iter()
             .find(|category_id| !existing_ids.contains(category_id.as_str()))
         {
-            Some(unknown) => Err(AppError::internal(format_args!(
-                "{CATEGORY_NOT_FOUND} specified category ID: {unknown}, userID: {user_id}, \
-                 teamID: {team_id}"
+            Some(unknown) => Err(AppError::bad_request(format_args!(
+                "the new order names {unknown}, which is none of the user's categories"
             ))),
             None => Ok(()),
         }

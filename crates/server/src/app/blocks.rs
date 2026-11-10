@@ -85,9 +85,13 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if there is no such block.
+    /// Returns a not-found error if there is no such block.
     pub async fn block(&self, block_id: &str) -> Result<Block, AppError> {
-        Ok(self.store().get_block(block_id).await?)
+        match self.store().get_block(block_id).await {
+            Ok(block) => Ok(block),
+            Err(error) if error.is_not_found() => Err(AppError::not_found("block")),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Inserts a block, or updates the block that already has its identifier, and tells
@@ -97,8 +101,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if the block's board does not exist and
-    /// [`AppError::BadRequest`] if the title or the fields are too large.
+    /// Returns a not-found error if the block's board does not exist and
+    /// a bad request if the title or the fields are too large.
     pub async fn insert_block(
         &self,
         block: &mut Block,
@@ -124,15 +128,14 @@ impl App {
     /// websocket listeners about each right after it is stored and webhooks in the
     /// background. No blocks are no error.
     ///
-    /// Preserved quirk: the blocks are stored one by one, not all or none. If one is
-    /// refused, those before it stay stored and announced, and those after it are not
-    /// looked at (server/app/blocks.go:182-191).
+    /// The blocks are stored all or none. The original stores them one by one and keeps
+    /// those before a refused one (server/app/blocks.go:182-191).
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::Internal`] if the blocks belong to more than one board,
-    /// [`AppError::NotFound`] if the board does not exist and [`AppError::BadRequest`]
-    /// if a title or the fields of a block are too large.
+    /// Returns a bad request if the blocks belong to more than one board or a title or
+    /// the fields of a block are too large, and a not-found error if the board does not
+    /// exist.
     pub async fn insert_blocks(
         &self,
         blocks: &mut [Block],
@@ -144,14 +147,16 @@ impl App {
         };
         let board_id = first.board_id.clone();
         if blocks.iter().any(|block| block.board_id != board_id) {
-            return Err(AppError::internal(
-                "the block set contain blocks from multiple boards",
+            return Err(AppError::bad_request(
+                "the blocks belong to more than one board",
             ));
         }
         let board = self.store().get_board(&board_id).await?;
 
-        for block in blocks.iter_mut() {
-            self.store().insert_block(block, modified_by).await?;
+        // All or none: the original stores the blocks one by one, and answers with an
+        // error for the third while the first two stay.
+        self.store().insert_blocks(blocks, modified_by).await?;
+        for block in blocks.iter() {
             self.ws()
                 .broadcast_block_change(&board.team_id, block)
                 .await;
@@ -168,8 +173,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if the block or its board does not exist and
-    /// [`AppError::BadRequest`] if the patched title or fields are too large.
+    /// Returns a not-found error if the block or its board does not exist and
+    /// a bad request if the patched title or fields are too large.
     pub async fn patch_block(
         &self,
         block_id: &str,
@@ -205,9 +210,9 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] unless every identifier names exactly one block
-    /// (an identifier listed twice counts as missing), [`AppError::BadRequest`] if a
-    /// patched title or the patched fields are too large, and [`AppError::Internal`] if
+    /// Returns a not-found error unless every identifier names exactly one block
+    /// (an identifier listed twice counts as missing), a bad request if a
+    /// patched title or the patched fields are too large, and an internal error if
     /// there are fewer patches than identifiers.
     pub async fn patch_blocks(
         &self,
@@ -248,7 +253,7 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if the block or its board does not exist.
+    /// Returns a not-found error if the block or its board does not exist.
     pub async fn delete_block(
         &self,
         block_id: &str,
@@ -295,7 +300,7 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if the block or its board cannot be read after
+    /// Returns a not-found error if the block or its board cannot be read after
     /// the block was restored.
     pub async fn undelete_block(
         &self,
@@ -341,7 +346,7 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if the board does not exist or has no such block,
+    /// Returns a not-found error if the board does not exist or has no such block,
     /// or if the block is a comment, which is never copied.
     pub async fn duplicate_block(
         &self,

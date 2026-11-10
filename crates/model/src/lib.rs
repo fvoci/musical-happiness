@@ -40,7 +40,7 @@ pub use board::{
 };
 pub use boards_and_blocks::{
     BoardsAndBlocks, BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
-    generate_boards_and_blocks_ids,
+    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{
@@ -52,7 +52,7 @@ pub use category::{
     CategoryBoards, CategoryError, CategoryType,
 };
 pub use client_config::ClientConfig;
-pub use error_response::ErrorResponse;
+pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
 pub use id::{IdKind, new_id};
 pub use sharing::Sharing;

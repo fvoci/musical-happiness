@@ -85,8 +85,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "at least one board is required",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "at least one board is required",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -95,8 +96,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid BoardID elsewhere (not exists in the created boards)",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "invalid BoardID elsewhere (not exists in the created boards)",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -105,8 +107,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "cannot create boards for multiple teams",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "cannot create boards for multiple teams",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -115,18 +118,20 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid-board-type",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "invalid-board-type",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "create: malformed body",
     "request": "POST /api/v2/boards-and-blocks as bab-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -135,8 +140,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -227,8 +233,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "board ids and patches need to match",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "board ids and patches need to match",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -237,8 +244,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "at least one board is required",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "at least one board is required",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -247,28 +255,31 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "missing BoardID=<id:4>",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "block <id:5> is no block of the boards of the request",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "patch: non-member",
     "request": "PATCH /api/v2/boards-and-blocks as bab-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modifying board properties",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "patch: unknown board",
     "request": "PATCH /api/v2/boards-and-blocks as bab-alice",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modifying board properties",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -324,11 +335,12 @@
   {
     "name": "delete: non-member",
     "request": "DELETE /api/v2/boards-and-blocks as bab-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to delete board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -337,8 +349,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "missing BoardID=<id:1>",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "at least one board is required",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -347,8 +360,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "missing BoardID=<id:4>",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "block <id:5> is no block of the boards of the request",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -357,8 +371,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -374,8 +389,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   }
 ]

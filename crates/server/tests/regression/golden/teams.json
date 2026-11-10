@@ -49,8 +49,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -114,8 +115,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "User IDs are empty",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "User IDs are empty",
+      "request_id": "<request-id>"
     }
   }
 ]

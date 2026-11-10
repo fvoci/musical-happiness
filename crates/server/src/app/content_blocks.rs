@@ -47,10 +47,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::BadRequest`] if the blocks have different parents or one of
-    /// them is not in the card's content order (which is what moving a block to itself
-    /// amounts to), [`AppError::NotFound`] if the parent does not exist, and
-    /// [`AppError::Internal`] if the card's content order is not a list.
+    /// Returns a bad request if the blocks have different parents or none, are one and
+    /// the same block, or one of them is not in the card's content order; a not-found
+    /// error if the parent does not exist; and an internal error if the card's content
+    /// order is not a list.
     pub async fn move_content_block(
         &self,
         block: &Block,
@@ -59,10 +59,19 @@ impl App {
         user_id: &str,
     ) -> Result<(), AppError> {
         if block.parent_id != dst_block.parent_id {
-            return Err(AppError::bad_request(format_args!(
-                "not matching parent {} and {}",
-                block.parent_id, dst_block.parent_id
-            )));
+            return Err(AppError::bad_request(
+                "the two blocks are not content of the same card",
+            ));
+        }
+        // The original looks for a card without an identifier here and answers that it
+        // is not found, and finds a block moved next to itself missing from the order.
+        if block.parent_id.is_empty() {
+            return Err(AppError::bad_request("the block is not content of a card"));
+        }
+        if block.id == dst_block.id {
+            return Err(AppError::bad_request(
+                "a block cannot be moved next to itself",
+            ));
         }
         let card = self.block(&block.parent_id).await?;
         let content_order = match card.fields.get(CONTENT_ORDER) {
@@ -95,9 +104,8 @@ impl App {
 /// Returns `content_order` with every entry for `block_id` taken out and `block_id` put
 /// right before or after every entry for `dst_block_id`.
 ///
-/// Preserved quirk: an entry is looked at as the destination first, so a block moved to
-/// itself is never seen as the source and the move is refused
-/// (server/app/content_blocks.go:37-52).
+/// An entry is looked at as the destination first; the caller has refused a block that
+/// is moved next to itself.
 fn moved(
     content_order: &[Value],
     block_id: &str,
@@ -124,12 +132,12 @@ fn moved(
 
     if !found_src {
         return Err(AppError::bad_request(format_args!(
-            "source block {block_id} not found"
+            "block {block_id} is not in the content order of its card"
         )));
     }
     if !found_dst {
         return Err(AppError::bad_request(format_args!(
-            "destination block {dst_block_id} not found"
+            "block {dst_block_id} is not in the content order of its card"
         )));
     }
     Ok(new_content_order)

@@ -81,8 +81,7 @@ fn strings(ids: &[&str]) -> Vec<String> {
 }
 
 fn expect_bad_request(response: &ApiResponse, message: &str) {
-    response.check_bad_request();
-    assert_eq!(response.error_message(), message, "the original's message");
+    response.check_error(StatusCode::BAD_REQUEST, message);
 }
 
 /// Two open boards of user1 in one team, each with one block, as most subtests of
@@ -360,19 +359,33 @@ async fn team_boards(client: &Client) -> Vec<Board> {
         .ok_json()
 }
 
-/// Verified on the original: what `POST /boards-and-blocks` refuses beyond what its
-/// tests cover.
+/// What `POST /boards-and-blocks` refuses beyond what the original's tests cover.
 #[tokio::test]
-async fn create_boards_and_blocks_refuses_like_the_original() {
+async fn create_boards_and_blocks_refusals() {
     let th = Setup::native().start().await.init_basic().await;
     let board = json!({"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"});
 
-    // Preserved quirk: a body that cannot be decoded is a server error here.
+    // A body that is no JSON object is a bad request. (The original answers 500.)
     for body in ["{bad", "", "null", "[]"] {
-        th.client
-            .send_raw_body(Method::POST, PATH, body)
-            .await
-            .check_status(StatusCode::INTERNAL_SERVER_ERROR);
+        let response = th.client.send_raw_body(Method::POST, PATH, body).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
+    }
+
+    // Every board needs an identifier for the blocks to name, the first one too. (The
+    // original does not check the first board at all.)
+    for boards in [
+        json!([{"teamId": TEST_TEAM_ID, "type": "P", "title": "no id"}]),
+        json!([board, {"teamId": TEST_TEAM_ID, "type": "P"}]),
+    ] {
+        let response = th
+            .client
+            .post(PATH, &json!({"boards": boards, "blocks": [card_json("")]}))
+            .await;
+        expect_bad_request(
+            &response,
+            "boards need an ID to be referenced from the blocks",
+        );
     }
 
     // Blocks are checked one by one: type, creation time, modification time, board.
@@ -433,33 +446,11 @@ async fn create_boards_and_blocks_refuses_like_the_original() {
     th.teardown().await;
 }
 
-/// Verified on the original: what `POST /boards-and-blocks` accepts beyond what its
-/// tests cover.
+/// What `POST /boards-and-blocks` accepts beyond what the original's tests cover.
 #[tokio::test]
-async fn create_boards_and_blocks_accepts_like_the_original() {
+async fn create_boards_and_blocks_accepts_a_template() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
-
-    // Preserved quirk: the first board is not checked for an identifier, so one board
-    // without identifier and its block without board go through.
-    let created: BoardsAndBlocks = th
-        .client
-        .post(
-            PATH,
-            &json!({
-                "boards": [{"teamId": TEST_TEAM_ID, "type": "P", "title": "no id"}],
-                "blocks": [card_json("")],
-            }),
-        )
-        .await
-        .ok_json();
-    assert_eq!(created.boards[0].title, "no id", "created");
-    assert_eq!(created.blocks[0].board_id, created.boards[0].id, "attached");
-    assert_eq!(
-        team_boards(&th.client).await,
-        created.boards,
-        "the board is stored as answered"
-    );
 
     // A template is created like a board but filed under no category.
     let created: BoardsAndBlocks = th
@@ -676,7 +667,13 @@ async fn patch_boards_and_blocks_block_that_doesnt_belong_to_any_board() {
 
     let response = patch(&th.client, &request).await;
 
-    expect_bad_request(&response, &format!("missing BoardID={}", boards.board2.id));
+    expect_bad_request(
+        &response,
+        &format!(
+            "block {} is no block of the boards of the request",
+            boards.block2.id
+        ),
+    );
     assert_titles_unchanged(&th, &boards).await;
     th.teardown().await;
 }
@@ -851,10 +848,10 @@ async fn patch_boards_and_blocks_patches_should_be_applied_if_valid_and_related(
     th.teardown().await;
 }
 
-/// Preserved quirk, verified on the original: a body of `PATCH /boards-and-blocks` that
-/// cannot be decoded is a server error, not a bad request.
+/// A body of `PATCH /boards-and-blocks` that cannot be decoded is a bad request. (The
+/// original answers 500.)
 #[tokio::test]
-async fn patch_boards_and_blocks_undecodable_bodies_are_server_errors() {
+async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
     let first_id = &boards.board1.id;
@@ -864,12 +861,8 @@ async fn patch_boards_and_blocks_undecodable_bodies_are_server_errors() {
         format!("{{\"boardIDs\":[\"{first_id}\"],\"boardPatches\":[{{\"type\":5}}]}}");
     for body in ["{bad", "null", "[]", &null_patch, &number_type] {
         let response = th.client.send_raw_body(Method::PATCH, PATH, body).await;
-        response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(
-            response.value(),
-            json!({"error": "internal server error", "errorCode": 500}),
-            "{body}"
-        );
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
     // An empty object is decoded, and then found to list no boards.
@@ -880,22 +873,25 @@ async fn patch_boards_and_blocks_undecodable_bodies_are_server_errors() {
     th.teardown().await;
 }
 
-/// Verified on the original: the order of the checks of `PATCH /boards-and-blocks` and
-/// what it answers to requests its tests do not cover.
+/// The order of the checks of `PATCH /boards-and-blocks` and what it answers to
+/// requests the original's tests do not cover.
 #[tokio::test]
-async fn patch_boards_and_blocks_checks_like_the_original() {
+async fn patch_boards_and_blocks_checks() {
     let th = Setup::native().start().await.init_basic().await;
     let user2 = th.client2.me().await;
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
     let first_id = &boards.board1.id;
 
-    // The permission is checked before the board is looked up.
-    let response = patch(
-        &th.client,
-        &json!({"boardIDs": ["nonexistent"], "boardPatches": [{"title": "n"}]}),
-    )
-    .await;
-    response.check_forbidden();
+    // A board that does not exist, and a private board of somebody else, answer alike.
+    let private = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    for board_id in ["nonexistent", private.id.as_str()] {
+        let response = patch(
+            &th.client2,
+            &json!({"boardIDs": [board_id], "boardPatches": [{"title": "n"}]}),
+        )
+        .await;
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+    }
 
     // A block that does not exist.
     let response = patch(
@@ -906,11 +902,9 @@ async fn patch_boards_and_blocks_checks_like_the_original() {
         }),
     )
     .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{block ID=nonexistent} not found",
-        "the original's message"
+    expect_bad_request(
+        &response,
+        "block nonexistent is no block of the boards of the request",
     );
 
     // An editor patches board properties and blocks, but not the board type.
@@ -1108,9 +1102,9 @@ async fn delete_boards_and_blocks_no_boards() {
 
     let response = delete(&th.client, &request).await;
 
-    // Verified on the original: the block is checked against the listed boards before
-    // the request is found to list no boards.
-    expect_bad_request(&response, &format!("missing BoardID={}", board.id));
+    // That the request lists no board is found before anything is looked up. (The
+    // original checks the block against the listed boards first.)
+    expect_bad_request(&response, "at least one board is required");
     expect_bad_request(
         &delete(&th.client, &json!({})).await,
         "at least one board is required",
@@ -1265,41 +1259,40 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
     th.teardown().await;
 }
 
-/// Verified on the original: the order of the checks of `DELETE /boards-and-blocks` and
-/// what it answers to requests its tests do not cover.
+/// The order of the checks of `DELETE /boards-and-blocks` and what it answers to
+/// requests the original's tests do not cover.
 #[tokio::test]
-async fn delete_boards_and_blocks_checks_like_the_original() {
+async fn delete_boards_and_blocks_checks() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = two_boards(&th, SecondBoard::WithAdmin, TEST_TEAM_ID).await;
     let first_id = &boards.board1.id;
 
-    // A body that cannot be decoded is a bad request on this route; `null` crashes the
-    // original's handler, which its recovery turns into a 500.
-    for body in ["{bad", "[]"] {
-        th.client
-            .send_raw_body(Method::DELETE, PATH, body)
-            .await
-            .check_bad_request();
+    // A body that is no JSON object is a bad request.
+    for body in ["{bad", "[]", "null"] {
+        let response = th.client.send_raw_body(Method::DELETE, PATH, body).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
-    th.client
-        .send_raw_body(Method::DELETE, PATH, "null")
-        .await
-        .check_status(StatusCode::INTERNAL_SERVER_ERROR);
 
     let response = delete(&th.client, &json!({"boards": ["nonexistent"]})).await;
-    response.check_not_found();
-    assert_eq!(response.error_message(), "{boards} not found", "the board");
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
 
-    let response = delete(
-        &th.client,
-        &json!({"boards": [], "blocks": ["nonexistent"]}),
-    )
-    .await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{block ID=nonexistent} not found",
-        "the block"
+    expect_bad_request(
+        &delete(
+            &th.client,
+            &json!({"boards": [], "blocks": ["nonexistent"]}),
+        )
+        .await,
+        "at least one board is required",
+    );
+    // A block that does not exist answers as one of a board that is not listed.
+    expect_bad_request(
+        &delete(
+            &th.client,
+            &json!({"boards": [first_id], "blocks": ["nonexistent"]}),
+        )
+        .await,
+        "block nonexistent is no block of the boards of the request",
     );
 
     // A block of a board that is not listed.
@@ -1309,7 +1302,10 @@ async fn delete_boards_and_blocks_checks_like_the_original() {
             &json!({"boards": [first_id], "blocks": [boards.block2.id]}),
         )
         .await,
-        &format!("missing BoardID={}", boards.board2.id),
+        &format!(
+            "block {} is no block of the boards of the request",
+            boards.block2.id
+        ),
     );
 
     // Somebody who is not a member.

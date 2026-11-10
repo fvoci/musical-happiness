@@ -19,7 +19,7 @@ use fvoci_model::{
     IdKind, JsonMap, new_id,
 };
 use fvoci_server::app::ChangeNotification;
-use fvoci_server::error::AppError;
+use fvoci_server::error::ErrorKind;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
@@ -28,9 +28,6 @@ use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
 
 /// How long background notifications may take to finish.
 const BACKGROUND: Duration = Duration::from_secs(10);
-
-/// The body of every server error.
-const INTERNAL_ERROR: &str = r#"{"error":"internal server error","errorCode":500}"#;
 
 // -- helpers --------------------------------------------------------------------------
 
@@ -81,19 +78,13 @@ pub(crate) async fn board_with_roles(th: &TestServer) -> Roles {
 /// Checks that the answer is the error with this status and message.
 #[track_caller]
 pub(crate) fn check_error(response: &ApiResponse, status: StatusCode, message: &str) {
-    response.check_status(status);
-    assert_eq!(
-        response.value(),
-        json!({"error": message, "errorCode": status.as_u16()}),
-        "the error body"
-    );
+    response.check_error(status, message);
 }
 
 /// Checks that the answer is the server error, which never says what went wrong.
 #[track_caller]
 pub(crate) fn check_internal_error(response: &ApiResponse) {
-    response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(response.text(), INTERNAL_ERROR, "the error body");
+    response.check_internal_error();
 }
 
 fn cards_path(board_id: &str) -> String {
@@ -424,8 +415,7 @@ async fn patch_card_good() {
 
 /// `TestPatchCard/"invalid card patch"`
 ///
-/// Preserved quirk: the answer is a server error, not a bad request as for a new card
-/// with such an icon (server/app/cards.go:66-69).
+/// A bad request, as for a new card with such an icon. (The original answers 500.)
 #[tokio::test]
 async fn patch_card_invalid_card_patch() {
     let th = Setup::native().start().await.init_basic().await;
@@ -438,7 +428,11 @@ async fn patch_card_invalid_card_patch() {
 
     let response = th.client.patch(&card_path(&card.id), &patch).await;
 
-    check_internal_error(&response);
+    check_error(
+        &response,
+        StatusCode::BAD_REQUEST,
+        "invalid card, Icon can have only one grapheme",
+    );
     let unchanged: Card = th.client.get(&card_path(&card.id)).await.ok_json();
     assert_eq!(&unchanged, card, "the card is as it was");
     th.teardown().await;
@@ -522,7 +516,7 @@ async fn app_create_card_error_scenario() {
         .create_card(too_long, &board.id, &user_id, ChangeNotification::Send)
         .await
         .expect_err("the title is too long");
-    assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
     assert!(
         error.to_string().starts_with("cannot create card: "),
         "{error}"
@@ -591,7 +585,7 @@ async fn app_get_cards_error_scenario() {
         .await
         .expect_err("one of the cards is malformed");
 
-    assert!(matches!(error, AppError::Internal(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::Internal, "{error:?}");
     assert_eq!(
         error.to_string(),
         "Block2Card fail: invalid type for field 'icon'",
@@ -665,20 +659,20 @@ async fn app_patch_card_error_scenario() {
     assert!(error.is_not_found(), "{error:?}");
     assert_eq!(
         error.to_string(),
-        "cannot patch card no-such-card: {block ID=no-such-card} not found",
+        "cannot patch card no-such-card: not found",
         "the message names the card"
     );
 
     let too_long = title_patch(&"a".repeat(BLOCK_TITLE_MAX_CHARS + 1));
     let error = patch_card(&too_long, &card.id).await;
-    assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
 
     let bad_icon = CardPatch {
         icon: Some("😀😀".to_owned()),
         ..CardPatch::default()
     };
     let error = patch_card(&bad_icon, &card.id).await;
-    assert!(matches!(error, AppError::Internal(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
 
     let unchanged = th.app.card(&card.id).await.expect("the card is read");
     assert_eq!(&unchanged, card, "no patch was applied");
@@ -742,7 +736,7 @@ async fn app_get_card_error_scenario() {
 
     let error = th.app.card(&text.id).await.expect_err("a text is no card");
 
-    assert!(matches!(error, AppError::Internal(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::Internal, "{error:?}");
     assert_eq!(
         error.to_string(),
         "cannot convert block to card: not a card block",
@@ -879,8 +873,8 @@ async fn create_card_without_members() {
     th.teardown().await;
 }
 
-/// What `POST /boards/{id}/cards` refuses, in the order the checks are made: the body
-/// is decoded first, then the permission is checked, then the card.
+/// What `POST /boards/{id}/cards` refuses, in the order the checks are made: whether
+/// the board can be seen, then the permission, then the body, then the card.
 #[tokio::test]
 async fn create_card_refusals() {
     let th = Setup::native().start().await.init_basic().await;
@@ -889,32 +883,38 @@ async fn create_card_refusals() {
     let outsider = &th.client2;
     let denied = "access denied to create card";
 
-    // A body that is no card is a bad request, whoever sends it.
+    // Creating a card takes the permission to manage the board's cards. Who is no
+    // member of the private board is told that there is no such board, as for a board
+    // that does not exist; the body is not looked at.
+    let card = json!({"title": "x"});
+    for client in [&roles.commenter, &roles.viewer] {
+        for body in [card.to_string().as_str(), "{\"title\":", "null"] {
+            let response = client.send_raw_body(Method::POST, &path, body).await;
+            check_error(&response, StatusCode::FORBIDDEN, denied);
+        }
+    }
+    for body in [card.to_string().as_str(), "{\"title\":", "null"] {
+        let response = outsider.send_raw_body(Method::POST, &path, body).await;
+        check_error(&response, StatusCode::NOT_FOUND, "board not found");
+    }
+    let response = th.client.post(&cards_path("no-such-board"), &card).await;
+    check_error(&response, StatusCode::NOT_FOUND, "board not found");
+
+    // A body that is no card is a bad request.
     for body in [
         "{\"title\":",
         "",
         "[]",
+        "null",
         "{\"title\":5}",
         "\"card\"",
         "{\"contentOrder\":[[\"a\"]]}",
     ] {
-        for client in [&th.client, outsider] {
-            let response = client.send_raw_body(Method::POST, &path, body).await;
-            response.check_bad_request();
-        }
+        let response = th.client.send_raw_body(Method::POST, &path, body).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
-    // Preserved quirk: `null` is a server error (the original crashes on it).
-    let response = th.client.send_raw_body(Method::POST, &path, "null").await;
-    check_internal_error(&response);
 
-    // Creating a card takes the permission to manage the board's cards.
-    let card = json!({"title": "x"});
-    for client in [&roles.commenter, &roles.viewer, outsider] {
-        let response = client.post(&path, &card).await;
-        check_error(&response, StatusCode::FORBIDDEN, denied);
-    }
-    let response = th.client.post(&cards_path("no-such-board"), &card).await;
-    check_error(&response, StatusCode::FORBIDDEN, denied);
     let by_editor = create_card(&roles.editor, &roles.board.id, &card).await;
     assert_eq!(
         by_editor.created_by,
@@ -922,13 +922,8 @@ async fn create_card_refusals() {
         "an editor creates cards"
     );
 
-    // The card is only looked at for those who may create one.
     let other_board = json!({"boardId": "other"});
     let bad_icon = json!({"icon": "😱😱"});
-    for body in [&other_board, &bad_icon] {
-        let response = outsider.post(&path, body).await;
-        check_error(&response, StatusCode::FORBIDDEN, denied);
-    }
     let response = th.client.post(&path, &other_board).await;
     check_error(&response, StatusCode::BAD_REQUEST, "Board IDs do not match");
     let response = th.client.post(&path, &bad_icon).await;
@@ -965,7 +960,6 @@ async fn get_cards_permissions_and_malformed_paging() {
     let board_id = roles.board.id.as_str();
     let path = cards_path(board_id);
     let outsider = &th.client2;
-    let denied = "access denied to fetch cards";
     let card = create_card(&th.client, board_id, &json!({"title": "card"})).await;
 
     for client in [&th.client, &roles.editor, &roles.commenter, &roles.viewer] {
@@ -975,40 +969,31 @@ async fn get_cards_permissions_and_malformed_paging() {
             "every member reads the cards"
         );
     }
+    // The private board answers an outsider as a board that does not exist.
     let response = outsider.get(&path).await;
-    check_error(&response, StatusCode::FORBIDDEN, denied);
+    check_error(&response, StatusCode::NOT_FOUND, "board not found");
     let response = th.client.get(&cards_path("no-such-board")).await;
-    check_error(&response, StatusCode::FORBIDDEN, denied);
+    check_error(&response, StatusCode::NOT_FOUND, "board not found");
 
     // The original writes these refusals and then the cards after them; here the
-    // refusal is the whole answer.
-    let invalid = |name: &str, text: &str, reason: &str| {
-        format!("invalid `{name}` parameter: strconv.Atoi: parsing \"{text}\": {reason}")
-    };
+    // refusal is the whole answer, and it names the parameter.
+    let invalid = |name: &str, reason: &str| format!("invalid `{name}` parameter: {reason}");
     let cases = [
-        ("?page=x", invalid("page", "x", "invalid syntax")),
-        ("?per_page=x", invalid("per_page", "x", "invalid syntax")),
-        ("?page=x&per_page=y", invalid("page", "x", "invalid syntax")),
-        (
-            "?per_page=1.5",
-            invalid("per_page", "1.5", "invalid syntax"),
-        ),
-        (
-            "?per_page=%202",
-            invalid("per_page", " 2", "invalid syntax"),
-        ),
-        (
-            "?page=99999999999999999999",
-            invalid("page", "99999999999999999999", "value out of range"),
-        ),
+        ("?page=x", "page", "not a whole number"),
+        ("?per_page=x", "per_page", "not a whole number"),
+        ("?page=x&per_page=y", "page", "not a whole number"),
+        ("?per_page=1.5", "per_page", "not a whole number"),
+        ("?per_page=%202", "per_page", "not a whole number"),
+        ("?page=99999999999999999999", "page", "out of range"),
     ];
-    for (query, message) in &cases {
+    for (query, name, reason) in cases {
         let response = th.client.get(&format!("{path}{query}")).await;
-        check_error(&response, StatusCode::BAD_REQUEST, message);
+        check_error(&response, StatusCode::BAD_REQUEST, &invalid(name, reason));
+        assert_eq!(response.value()["field"], json!(name), "{query}");
     }
-    // The permission comes first.
+    // Whether the board can be seen comes first.
     let response = outsider.get(&format!("{path}?page=x")).await;
-    check_error(&response, StatusCode::FORBIDDEN, denied);
+    check_error(&response, StatusCode::NOT_FOUND, "board not found");
 
     th.teardown().await;
 }
@@ -1093,25 +1078,20 @@ async fn get_cards_fails_on_a_malformed_card() {
     // Side-by-side content, as the original's web app stores it.
     let nested = json!({"contentOrder": ["a", ["b", "c"]]});
     let cases = [
-        (nested, "contentOrder item"),
-        (json!({"contentOrder": "a"}), "contentOrder"),
-        (json!({"icon": 5}), "icon"),
-        (json!({"isTemplate": "yes"}), "isTemplate"),
+        nested,
+        json!({"contentOrder": "a"}),
+        json!({"icon": 5}),
+        json!({"isTemplate": "yes"}),
     ];
-    for (fields, field) in cases {
+    for fields in cases {
         let block = insert_card_block(&th.client, &board.id, fields).await;
 
         let response = th.client.get(&path).await;
         check_internal_error(&response);
+        // What is stored is no card: that is the server's state, not the request's
+        // mistake. (The original answers 400 for the card alone.)
         let response = th.client.get(&card_path(&block.id)).await;
-        check_error(
-            &response,
-            StatusCode::BAD_REQUEST,
-            &format!(
-                "could not fetch card {}: invalid type for field '{field}'",
-                block.id
-            ),
-        );
+        check_internal_error(&response);
 
         th.client
             .delete(&format!("/boards/{}/blocks/{}", board.id, block.id))
@@ -1132,9 +1112,8 @@ async fn get_cards_fails_on_a_malformed_card() {
 /// Reading one card takes the permission to view the board, like the board's list of
 /// cards. The original asks for the permission to manage cards here
 /// (server/api/cards.go:363), so its viewers and commenters get the card in the list but
-/// a 403 for the card alone; that is not reproduced. Preserved quirk: the card is fetched
-/// before the permission is checked, so what is wrong with the identifier is told to
-/// everyone.
+/// a 403 for the card alone; that is not reproduced. The path names a card and no board:
+/// what is no card, and a card on a board the user cannot read, answer alike.
 #[tokio::test]
 async fn get_card_permissions_and_refusals() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1149,11 +1128,7 @@ async fn get_card_permissions_and_refusals() {
         assert_eq!(fetched, card, "every member of the board reads the card");
     }
     let response = outsider.get(&path).await;
-    check_error(
-        &response,
-        StatusCode::FORBIDDEN,
-        "access denied to fetch card",
-    );
+    check_error(&response, StatusCode::NOT_FOUND, "card not found");
     for client in [&roles.commenter, &roles.viewer] {
         assert_eq!(
             cards_of(client, board_id, "").await,
@@ -1162,28 +1137,12 @@ async fn get_card_permissions_and_refusals() {
         );
     }
 
+    // No card: an identifier nobody has, a block that is no card, a board.
     let text = insert_block(&th.client, &new_block(board_id, &card.id, BlockType::Text)).await;
-    let cases = [
-        (
-            "nope".to_owned(),
-            "could not fetch card nope: {block ID=nope} not found".to_owned(),
-        ),
-        (
-            text.id.clone(),
-            format!(
-                "could not fetch card {}: cannot convert block to card: not a card block",
-                text.id
-            ),
-        ),
-        (
-            board_id.to_owned(),
-            format!("could not fetch card {board_id}: {{block ID={board_id}}} not found"),
-        ),
-    ];
-    for (card_id, message) in &cases {
+    for card_id in ["nope", text.id.as_str(), board_id] {
         for client in [&th.client, outsider] {
             let response = client.get(&card_path(card_id)).await;
-            check_error(&response, StatusCode::BAD_REQUEST, message);
+            check_error(&response, StatusCode::NOT_FOUND, "card not found");
         }
     }
 
@@ -1215,8 +1174,8 @@ async fn get_card_permissions_and_refusals() {
 
 // -- PATCH /cards/{card_id} ---------------------------------------------------------------
 
-/// What `PATCH /cards/{id}` refuses, in the order the checks are made: the card is
-/// fetched first, then the permission on its board is checked, then the body decoded.
+/// What `PATCH /cards/{id}` refuses, in the order the checks are made: whether there is
+/// such a card for the user, then the permission on its board, then the body.
 #[tokio::test]
 async fn patch_card_refusals() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1228,31 +1187,23 @@ async fn patch_card_refusals() {
     let text = insert_block(&th.client, &new_block(board_id, &card.id, BlockType::Text)).await;
     let malformed = "{\"title\":";
 
-    // No card: a bad request for everyone, whatever the body.
-    let no_card = [
-        (
-            "nope".to_owned(),
-            "could not fetch card nope: {block ID=nope} not found".to_owned(),
-        ),
-        (
-            text.id.clone(),
-            format!(
-                "could not fetch card {}: cannot convert block to card: not a card block",
-                text.id
-            ),
-        ),
-    ];
-    for (card_id, message) in &no_card {
+    // No card: not found for everyone, whatever the body. A card on a board the user
+    // cannot read answers the same.
+    for card_id in ["nope", text.id.as_str()] {
         for client in [&th.client, outsider] {
             let response = client
                 .send_raw_body(Method::PATCH, &card_path(card_id), malformed)
                 .await;
-            check_error(&response, StatusCode::BAD_REQUEST, message);
+            check_error(&response, StatusCode::NOT_FOUND, "card not found");
         }
+    }
+    for body in ["{\"title\":\"x\"}", malformed] {
+        let response = outsider.send_raw_body(Method::PATCH, &path, body).await;
+        check_error(&response, StatusCode::NOT_FOUND, "card not found");
     }
 
     // No permission to manage the board's cards: refused, whatever the body.
-    for client in [&roles.commenter, &roles.viewer, outsider] {
+    for client in [&roles.commenter, &roles.viewer] {
         for body in ["{\"title\":\"x\"}", malformed, "{\"icon\":\"🐿🐿🐿\"}"] {
             let response = client.send_raw_body(Method::PATCH, &path, body).await;
             check_error(
@@ -1264,21 +1215,19 @@ async fn patch_card_refusals() {
     }
 
     // A body that is no patch is a bad request.
+    // So are `null` and an icon of more than one grapheme. (The original answers 500.)
     for body in [
         malformed,
         "",
         "[]",
+        "null",
         "{\"title\":5}",
         "{\"contentOrder\":\"a\"}",
+        "{\"icon\":\"🐿🐿🐿\"}",
     ] {
         let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
         response.check_bad_request();
-    }
-    // Preserved quirks: `null` is a server error (the original crashes on it), and so
-    // is an icon of more than one grapheme.
-    for body in ["null", "{\"icon\":\"🐿🐿🐿\"}"] {
-        let response = th.client.send_raw_body(Method::PATCH, &path, body).await;
-        check_internal_error(&response);
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
     let too_long = title_patch(&"a".repeat(BLOCK_TITLE_MAX_CHARS + 1));

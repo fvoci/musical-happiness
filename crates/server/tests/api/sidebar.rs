@@ -66,6 +66,39 @@ async fn board_without_member(th: &TestServer, team_id: &str, creator_id: &str) 
     board
 }
 
+/// Puts an open board with the given identifier into the store, of which nobody is a
+/// member: every user of the team sees it, and it is filed nowhere by itself.
+async fn open_board(th: &TestServer, team_id: &str, board_id: &str) {
+    let mut board = Board {
+        id: board_id.to_owned(),
+        team_id: team_id.to_owned(),
+        board_type: BoardType::Open,
+        ..Board::default()
+    };
+    th.app
+        .store()
+        .insert_board(&mut board, "somebody")
+        .await
+        .expect("the board is inserted");
+}
+
+/// Puts a private board into the store that the test's users are no members of, and
+/// returns its identifier.
+async fn board_of_somebody_else(th: &TestServer, team_id: &str) -> String {
+    let mut board = Board {
+        id: new_id(IdKind::Board),
+        team_id: team_id.to_owned(),
+        board_type: BoardType::Private,
+        ..Board::default()
+    };
+    th.app
+        .store()
+        .insert_board(&mut board, "somebody")
+        .await
+        .expect("the board is inserted");
+    board.id
+}
+
 fn categories_path(team_id: &str) -> String {
     format!("/teams/{team_id}/categories")
 }
@@ -91,7 +124,7 @@ async fn file_board(client: &Client, team_id: &str, category_id: &str, board_id:
         ))
         .await;
     response.check_ok();
-    assert_eq!(response.text(), "ok", "the answer is the bare word");
+    assert_eq!(response.text(), "{}", "the answer is the empty object");
 }
 
 async fn put_empty(client: &Client, path: &str) -> ApiResponse {
@@ -141,25 +174,9 @@ fn entry<'a>(category_boards: &'a [CategoryBoards], category_id: &str) -> &'a Ca
         .unwrap_or_else(|| panic!("category {category_id} is listed"))
 }
 
-/// The answer the original gives for every error it does not classify.
-#[track_caller]
-fn check_internal_error(response: &ApiResponse) {
-    response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(
-        response.value(),
-        json!({"error": "internal server error", "errorCode": 500}),
-        "the cause of a server error is not sent"
-    );
-}
-
 #[track_caller]
 fn check_error(response: &ApiResponse, status: StatusCode, message: &str) {
-    response.check_status(status);
-    assert_eq!(
-        response.value(),
-        json!({"error": message, "errorCode": status.as_u16()}),
-        "the error answer"
-    );
+    response.check_error(status, message);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -532,12 +549,9 @@ async fn update_category_trying_to_update_someone_elses_category() {
         .await
         .expect_err("another user's category cannot be updated");
 
-    assert_eq!(error.status(), StatusCode::FORBIDDEN, "{error}");
-    assert_eq!(
-        error.to_string(),
-        "category doesn't belong to user",
-        "the reason"
-    );
+    // Another user's category, like one of another team, does not exist for this one.
+    assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
+    assert_eq!(error.to_string(), "category not found", "the answer");
     let stored = th.app.category(&created.id).await.expect("it is stored");
     assert_eq!(stored, created, "nothing changed");
 
@@ -565,12 +579,9 @@ async fn update_category_trying_to_update_some_other_teams_category() {
         .await
         .expect_err("a category of another team cannot be updated");
 
-    assert_eq!(error.status(), StatusCode::FORBIDDEN, "{error}");
-    assert_eq!(
-        error.to_string(),
-        "category doesn't belong to user",
-        "the reason"
-    );
+    // Another user's category, like one of another team, does not exist for this one.
+    assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
+    assert_eq!(error.to_string(), "category not found", "the answer");
     let stored = th.app.category(&created.id).await.expect("it is stored");
     assert_eq!(stored, created, "nothing changed");
 
@@ -709,15 +720,17 @@ async fn delete_category_trying_to_delete_already_deleted_category() {
         .await
         .expect("the owner deletes the category");
 
-    tokio::time::sleep(Duration::from_millis(5)).await;
-    let again = th
+    // A deleted category is gone: there is nothing to delete a second time. (The
+    // original answers the deleted category again.)
+    let error = th
         .app
         .delete_category(&created.id, USER_ID, TEAM_ID)
         .await
-        .expect("deleting it again is not an error");
-
+        .expect_err("there is no such category any more");
+    assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
+    let stored = th.app.category(&created.id).await.expect("it is stored");
     assert_eq!(
-        again, deleted,
+        stored.delete_at, deleted.delete_at,
         "the time of the deletion is not overwritten"
     );
 
@@ -736,12 +749,12 @@ async fn delete_category_trying_to_delete_system_category() {
         .await
         .expect_err("a system category cannot be deleted");
 
-    // Preserved quirk: the original does not classify this error.
-    assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR, "{error}");
+    // (The original does not classify this error and answers 500.)
+    assert_eq!(error.status(), StatusCode::FORBIDDEN, "{error}");
     assert_eq!(
         error.to_string(),
-        "cannot delete a system category",
-        "the cause"
+        "a system category cannot be deleted",
+        "the refusal"
     );
     let stored = th.app.category(&system.id).await.expect("it is stored");
     assert_eq!(stored.delete_at, 0, "the category is not deleted");
@@ -900,8 +913,8 @@ async fn reorder_categories_not_specifying_all_categories_should_fail() {
         .await
         .expect_err("an order that leaves a category out is refused");
 
-    // Preserved quirk: the original does not classify this error.
-    assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR, "{error}");
+    // (The original does not classify this error and answers 500.)
+    assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(listed_ids(&th).await, listed, "the order is unchanged");
 
     th.teardown().await;
@@ -956,7 +969,11 @@ async fn verify_new_categories_match_existing_different_category_counts() {
         )
         .await;
 
-    check_internal_error(&response);
+    check_error(
+        &response,
+        StatusCode::BAD_REQUEST,
+        "the new order must list every category once: it has 2, the user has 3",
+    );
     let after = category_boards(&th.client, "0").await;
     assert_eq!(ids(&after), ids(&before), "the order is unchanged");
 
@@ -1244,8 +1261,8 @@ async fn reorder_category_boards_not_specifying_all_boards() {
         .await
         .expect_err("an order that leaves a board out is refused");
 
-    // Preserved quirk: the original does not classify this error.
-    assert_eq!(error.status(), StatusCode::INTERNAL_SERVER_ERROR, "{error}");
+    // (The original does not classify this error and answers 500.)
+    assert_eq!(error.status(), StatusCode::BAD_REQUEST, "{error}");
     assert_eq!(
         listed_board_ids(&th, &created.id).await,
         ["board_id_1", "board_id_2", "board_id_3"],
@@ -1428,25 +1445,23 @@ async fn create_category_refuses_invalid_requests() {
     let other = th.client2.me().await;
     let path = "/teams/0/categories";
     let invalid_type = "category type is invalid. Allowed types: system and custom";
-    let user_mismatch = |category_user: &str| {
-        format!(
-            "userID {} and category userID {category_user} mismatch",
-            user.id
-        )
-    };
+    // A category is made for the session's user and nobody else, whatever else the
+    // body says.
+    for body in [
+        json!({"name": "x", "userID": other.id, "teamID": "0"}),
+        json!({"name": "x", "teamID": "0"}),
+        json!({"name": "x", "userID": other.id, "teamID": "0", "type": "bogus"}),
+    ] {
+        let response = th.client.post(path, &body).await;
+        check_error(
+            &response,
+            StatusCode::FORBIDDEN,
+            "a user makes categories for themselves only",
+        );
+        assert_eq!(response.value()["field"], json!("userID"), "{body}");
+    }
 
     let cases = [
-        (
-            "another user's category",
-            json!({"name": "x", "userID": other.id, "teamID": "0"}),
-            user_mismatch(&other.id),
-        ),
-        (
-            "no user",
-            json!({"name": "x", "teamID": "0"}),
-            user_mismatch(""),
-        ),
-        ("a `null` body", Value::Null, user_mismatch("")),
         (
             "another team than the path's",
             json!({"name": "x", "userID": user.id, "teamID": "1"}),
@@ -1472,11 +1487,6 @@ async fn create_category_refuses_invalid_requests() {
             json!({"name": "", "userID": user.id, "teamID": "0", "type": "bogus"}),
             "category name cannot be empty".to_owned(),
         ),
-        (
-            "another user and an unknown type: the user is checked first",
-            json!({"name": "x", "userID": other.id, "teamID": "0", "type": "bogus"}),
-            user_mismatch(&other.id),
-        ),
     ];
     for (case, body, message) in cases {
         let response = th.client.post(path, &body).await;
@@ -1484,16 +1494,31 @@ async fn create_category_refuses_invalid_requests() {
         assert_eq!(response.error_message(), message, "{case}");
     }
 
-    // Preserved quirk: a body that cannot be decoded is a server error.
-    for malformed in ["{not json", "", "[]", r#"{"name": 5}"#, r#"{"type": 5}"#] {
+    // A body that is no JSON object with members of the right types is a bad request.
+    // (The original answers 500.)
+    for malformed in [
+        "{not json",
+        "",
+        "[]",
+        "null",
+        r#"{"name": 5}"#,
+        r#"{"type": 5}"#,
+    ] {
         let response = th.client.send_raw_body(Method::POST, path, malformed).await;
-        check_internal_error(&response);
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{malformed}");
     }
 
-    // An identifier that is taken is a server error too.
+    // An identifier that is taken stands against the request. (The original answers
+    // 500.)
     let taken = json!({"id": "taken", "name": "x", "userID": user.id, "teamID": "0"});
     th.client.post(path, &taken).await.check_ok();
-    check_internal_error(&th.client.post(path, &taken).await);
+    let response = th.client.post(path, &taken).await;
+    check_error(
+        &response,
+        StatusCode::CONFLICT,
+        "a category with this identifier exists already",
+    );
 
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(
@@ -1575,11 +1600,11 @@ async fn update_category_refuses_invalid_requests() {
     let bad_requests = [
         (
             body(json!({"id": "other"})),
-            "categoryID mismatch in patch and body",
+            "the category of the body is not the one of the path",
         ),
         (
             body(json!({"userID": other.id})),
-            "user ID mismatch in session and category",
+            "the user of the body is not the session's",
         ),
         (body(json!({"teamID": "1"})), "teamID mismatch"),
         (body(json!({"name": ""})), "category name cannot be empty"),
@@ -1593,34 +1618,34 @@ async fn update_category_refuses_invalid_requests() {
         check_error(&response, StatusCode::BAD_REQUEST, message);
     }
 
-    // The category is in another team than the path and the body agree on.
-    let response = th
-        .client
-        .put(
-            &format!("/teams/1/categories/{}", created.id),
-            &body(json!({"teamID": "1"})),
-        )
-        .await;
-    check_error(
-        &response,
-        StatusCode::FORBIDDEN,
-        "category doesn't belong to user",
-    );
+    // A category of another team than the path's, one that does not exist, and
+    // another user's all answer alike, whatever the body.
+    let others = create_category(&th.client2, &category("0", &other.id, "Theirs")).await;
+    for (route, request) in [
+        (
+            format!("/teams/1/categories/{}", created.id),
+            body(json!({"teamID": "1"})),
+        ),
+        (
+            "/teams/0/categories/nope".to_owned(),
+            json!({"id": "nope", "name": "n", "userID": user.id, "teamID": "0"}),
+        ),
+        (
+            format!("/teams/0/categories/{}", others.id),
+            json!({"id": others.id, "name": "n", "userID": user.id, "teamID": "0"}),
+        ),
+    ] {
+        let response = th.client.put(&route, &request).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+        let response = th.client.send_raw_body(Method::PUT, &route, "{nope").await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
 
-    let response = th
-        .client
-        .put(
-            "/teams/0/categories/nope",
-            &json!({"id": "nope", "name": "n", "userID": user.id, "teamID": "0"}),
-        )
-        .await;
-    check_error(
-        &response,
-        StatusCode::NOT_FOUND,
-        "{category ID=nope} not found",
-    );
-
-    check_internal_error(&th.client.send_raw_body(Method::PUT, &path, "{nope").await);
+    // A body that cannot be decoded is a bad request. (The original answers 500.)
+    th.client
+        .send_raw_body(Method::PUT, &path, "{nope")
+        .await
+        .check_bad_request();
 
     let stored = th.app.category(&created.id).await.expect("it is stored");
     assert_eq!(stored, created, "none of these changed the category");
@@ -1628,7 +1653,7 @@ async fn update_category_refuses_invalid_requests() {
     // A deleted category cannot be updated.
     th.client.delete(&path).await.check_ok();
     let response = th.client.put(&path, &body(json!({}))).await;
-    check_error(&response, StatusCode::NOT_FOUND, "category is deleted");
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     th.teardown().await;
 }
@@ -1646,28 +1671,25 @@ async fn delete_category_over_the_api() {
     let path = format!("/teams/0/categories/{}", created.id);
 
     let response = th.client.delete("/teams/0/categories/nope").await;
-    check_error(
-        &response,
-        StatusCode::NOT_FOUND,
-        "{category ID=nope} not found",
-    );
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
+    // In another team than its own the category does not exist.
     let response = th
         .client
         .delete(&format!("/teams/1/categories/{}", created.id))
         .await;
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        "category doesn't belong to the team",
-    );
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
-    // Preserved quirk: refusing to delete a system category is a server error.
+    // (The original answers 500.)
     let response = th
         .client
         .delete(&format!("/teams/0/categories/{default_id}"))
         .await;
-    check_internal_error(&response);
+    check_error(
+        &response,
+        StatusCode::FORBIDDEN,
+        "a system category cannot be deleted",
+    );
 
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(names(&listed), ["Cat A", "Boards"], "nothing was deleted");
@@ -1693,10 +1715,9 @@ async fn delete_category_over_the_api() {
         "the deleted category"
     );
 
-    // Deleting it again answers the same and keeps the time of the deletion.
-    tokio::time::sleep(Duration::from_millis(5)).await;
-    let again: Category = th.client.delete(&path).await.ok_json();
-    assert_eq!(again, deleted, "the same answer");
+    // It is gone: there is nothing to delete a second time.
+    let response = th.client.delete(&path).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(names(&listed), ["Boards"], "the category is gone");
@@ -1711,13 +1732,16 @@ async fn reorder_categories_over_the_api() {
     let user = th.client.me().await;
     let path = "/teams/0/categories/reorder";
 
-    // Preserved quirk: with no categories, the empty order is accepted and answered with
-    // `null`. The user has none before the first listing creates the default one.
-    for body in ["[]", "null"] {
-        let response = th.client.send_raw_body(Method::PUT, path, body).await;
-        response.check_ok();
-        assert_eq!(response.value(), Value::Null, "the answer to {body}");
-    }
+    // With no categories, the empty order is accepted and answered with the empty
+    // list. The user has none before the first listing creates the default one. (The
+    // original answers `null`, also to a `null` body.)
+    let response = th.client.send_raw_body(Method::PUT, path, "[]").await;
+    response.check_ok();
+    assert_eq!(response.value(), json!([]), "the answer to the empty order");
+    th.client
+        .send_raw_body(Method::PUT, path, "null")
+        .await
+        .check_bad_request();
 
     let default_id = category_boards(&th.client, "0").await[0]
         .category
@@ -1738,18 +1762,23 @@ async fn reorder_categories_over_the_api() {
         json!({}),
         json!("reorder"),
     ];
+    // (The original answers all of these with 500.)
     for body in refused {
         let response = th.client.put(path, &body).await;
-        check_internal_error(&response);
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
-    check_internal_error(&th.client.send_raw_body(Method::PUT, path, "[").await);
+    th.client
+        .send_raw_body(Method::PUT, path, "[")
+        .await
+        .check_bad_request();
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(ids(&listed), before, "a refused order changes nothing");
 
     // Another user's order of these categories is refused: they are not theirs.
     category_boards(&th.client2, "0").await;
     let response = th.client2.put(path, &json!([default_id])).await;
-    check_internal_error(&response);
+    response.check_bad_request();
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(ids(&listed), before, "and changes nothing");
 
@@ -1785,6 +1814,7 @@ async fn reorder_category_boards_over_the_api() {
         .clone();
     let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
     for board_id in ["board-1", "board-2", "board-3"] {
+        open_board(&th, "0", board_id).await;
         file_board(&th.client, "0", &created.id, board_id).await;
     }
     let path = format!("/teams/0/categories/{}/boards/reorder", created.id);
@@ -1808,51 +1838,48 @@ async fn reorder_category_boards_over_the_api() {
         Value::Null,
         json!({}),
     ];
+    // (The original answers all of these with 500.)
     for body in refused {
-        check_internal_error(&th.client.put(&path, &body).await);
+        let response = th.client.put(&path, &body).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
-    check_internal_error(&th.client.send_raw_body(Method::PUT, &path, "{").await);
-    // The category is not one of the path's team.
-    let response = th
-        .client
-        .put(
-            &format!("/teams/1/categories/{}/boards/reorder", created.id),
-            &new_order,
-        )
-        .await;
-    check_internal_error(&response);
+    th.client
+        .send_raw_body(Method::PUT, &path, "{")
+        .await
+        .check_bad_request();
     assert_eq!(order().await, new_order, "a refused order changes nothing");
 
+    // A category of another team than the path's, and one that does not exist.
+    for route in [
+        format!("/teams/1/categories/{}/boards/reorder", created.id),
+        "/teams/0/categories/nope/boards/reorder".to_owned(),
+    ] {
+        let response = th.client.put(&route, &new_order).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
+    assert_eq!(order().await, new_order, "a refused order changes nothing");
+
+    // The empty order of an empty category is answered with the empty list. (The
+    // original answers `null`.)
     let response = th
         .client
-        .put("/teams/0/categories/nope/boards/reorder", &new_order)
+        .send_raw_body(
+            Method::PUT,
+            &format!("/teams/0/categories/{default_id}/boards/reorder"),
+            "[]",
+        )
         .await;
-    check_error(
-        &response,
-        StatusCode::NOT_FOUND,
-        "{category ID=nope} not found",
-    );
-
-    // Preserved quirk: the empty order of an empty category is answered with `null`.
-    for body in ["[]", "null"] {
-        let response = th
-            .client
-            .send_raw_body(
-                Method::PUT,
-                &format!("/teams/0/categories/{default_id}/boards/reorder"),
-                body,
-            )
-            .await;
-        response.check_ok();
-        assert_eq!(response.value(), Value::Null, "the answer to {body}");
-    }
+    response.check_ok();
+    assert_eq!(response.value(), json!([]), "the answer to the empty order");
 
     // A deleted category has no boards to order.
     th.client
         .delete(&format!("/teams/0/categories/{}", created.id))
         .await
         .check_ok();
-    check_internal_error(&th.client.put(&path, &new_order).await);
+    let response = th.client.put(&path, &new_order).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     th.teardown().await;
 }
@@ -1893,10 +1920,10 @@ async fn update_category_board_over_the_api() {
         "the board starts in the default category"
     );
 
-    // Preserved quirk: the answer is the bare word `ok`, labelled as JSON.
+    // (The original answers the bare word `ok`, labelled as JSON.)
     let response = th.client.post_empty(&board_path("0", &created.id)).await;
     response.check_ok();
-    assert_eq!(response.text(), "ok", "the body");
+    assert_eq!(response.text(), "{}", "the body");
     assert_eq!(
         response.header("content-type"),
         "application/json",
@@ -1921,7 +1948,8 @@ async fn update_category_board_over_the_api() {
         board_path("1", &default_id),
         board_path("0", &deleted.id),
     ] {
-        check_internal_error(&th.client.post_empty(&path).await);
+        let response = th.client.post_empty(&path).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
         assert_eq!(
             places().await,
             (vec![board.id.clone()], vec![]),
@@ -1929,19 +1957,30 @@ async fn update_category_board_over_the_api() {
         );
     }
 
-    // Preserved quirk: the board is not looked at, so any identifier can be filed.
-    file_board(&th.client, "0", &default_id, "no-such-board").await;
+    // Only a board the user can see is filed. (The original does not look at the
+    // board, so any identifier can be filed.)
+    let private = board_of_somebody_else(&th, "0").await;
+    for board_id in ["no-such-board", private.as_str()] {
+        let response = th
+            .client
+            .post_empty(&format!(
+                "/teams/0/categories/{default_id}/boards/{board_id}"
+            ))
+            .await;
+        check_error(&response, StatusCode::NOT_FOUND, "board not found");
+    }
     assert_eq!(
         places().await,
-        (vec![board.id.clone()], vec!["no-such-board".to_owned()]),
-        "an identifier that names no board is filed all the same"
+        (vec![board.id.clone()], vec![]),
+        "nothing was filed"
     );
 
     th.teardown().await;
 }
 
-/// Preserved quirk: hiding a board that is not in the category, or in a category that
-/// does not exist, is answered as a success and changes nothing.
+/// Hiding and showing need a category of the user's and a board the user can see. (The
+/// original checks nothing and answers every such request as a success.) A board that
+/// is not filed in the category is answered as a success and changes nothing.
 #[tokio::test]
 async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     let th = Setup::native().start().await.init_basic().await;
@@ -1949,20 +1988,40 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     let board = board_with_admin(&th, "0", &user.id).await;
     let before = category_boards(&th.client, "0").await;
     assert_eq!(before[0].board_metadata, [visible(&board.id)], "one board");
+    let default_id = &before[0].category.id;
 
-    for path in [
-        "/teams/0/categories/nope/boards/nope/hide".to_owned(),
-        format!("/teams/0/categories/nope/boards/{}/hide", board.id),
-        format!(
-            "/teams/0/categories/{}/boards/nope/hide",
-            before[0].category.id
+    for (path, missing) in [
+        (
+            "/teams/0/categories/nope/boards/nope/hide".to_owned(),
+            "category not found",
         ),
-        "/teams/0/categories/nope/boards/nope/unhide".to_owned(),
+        (
+            format!("/teams/0/categories/nope/boards/{}/hide", board.id),
+            "category not found",
+        ),
+        (
+            "/teams/0/categories/nope/boards/nope/unhide".to_owned(),
+            "category not found",
+        ),
+        (
+            format!("/teams/0/categories/{default_id}/boards/nope/hide"),
+            "board not found",
+        ),
     ] {
         let response = put_empty(&th.client, &path).await;
-        response.check_ok();
-        assert_eq!(response.value(), json!({}), "the answer to {path}");
+        check_error(&response, StatusCode::NOT_FOUND, missing);
     }
+
+    // A board the user sees, in a category of the user's it is not filed in.
+    let other = create_category(&th.client, &category("0", &user.id, "Other")).await;
+    let before = category_boards(&th.client, "0").await;
+    let response = put_empty(
+        &th.client,
+        &format!("/teams/0/categories/{}/boards/{}/hide", other.id, board.id),
+    )
+    .await;
+    response.check_ok();
+    assert_eq!(response.value(), json!({}), "the answer");
 
     let after = category_boards(&th.client, "0").await;
     assert_eq!(after, before, "nothing changed");
@@ -1982,11 +2041,7 @@ async fn the_word_reorder_can_be_an_identifier() {
 
     // As a category: there is none with that identifier yet.
     let response = th.client.delete("/teams/0/categories/reorder").await;
-    check_error(
-        &response,
-        StatusCode::NOT_FOUND,
-        "{category ID=reorder} not found",
-    );
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
     let named = Category {
         id: "reorder".to_owned(),
         ..category("0", &user.id, "Named reorder")
@@ -2001,6 +2056,7 @@ async fn the_word_reorder_can_be_an_identifier() {
     assert!(deleted.delete_at > 0, "is deleted");
 
     // As a board: filed, and hidden, like any other identifier.
+    open_board(&th, "0", "reorder").await;
     file_board(&th.client, "0", &created.id, "reorder").await;
     put_empty(
         &th.client,
@@ -2070,20 +2126,18 @@ async fn filing_a_board_into_another_users_category_is_refused() {
     let before = two.owner_view().await;
     let intruder_before = category_boards(&two.th.client2, "0").await;
 
-    for board_id in ["planted", two.board_id.as_str()] {
-        let response = two
-            .th
-            .client2
-            .post_empty(&format!(
-                "/teams/0/categories/{}/boards/{board_id}",
-                two.category.id
-            ))
-            .await;
-        check_error(
-            &response,
-            StatusCode::FORBIDDEN,
-            "category doesn't belong to user",
-        );
+    // Another user's category answers as one that does not exist.
+    for category_id in [two.category.id.as_str(), "nope"] {
+        for board_id in ["planted", two.board_id.as_str()] {
+            let response = two
+                .th
+                .client2
+                .post_empty(&format!(
+                    "/teams/0/categories/{category_id}/boards/{board_id}"
+                ))
+                .await;
+            check_error(&response, StatusCode::NOT_FOUND, "category not found");
+        }
     }
 
     assert_eq!(
@@ -2127,31 +2181,24 @@ async fn filing_a_board_into_an_own_category_works() {
 }
 
 /// Security fix. The original answers a `DELETE` of a category that is deleted already
-/// with the category, whoever asks (`server/app/category.go:104-112`). Here only the
-/// owner gets it; [`delete_category_trying_to_delete_already_deleted_category`] is the
-/// legitimate case.
+/// with the category, whoever asks (`server/app/category.go:104-112`). Here a deleted
+/// category is gone for everyone.
 #[tokio::test]
 async fn another_users_deleted_category_is_not_handed_out() {
     let two = TwoUsers::start().await;
     let path = format!("/teams/0/categories/{}", two.category.id);
     two.th.client.delete(&path).await.check_ok();
 
-    let response = two.th.client2.delete(&path).await;
-
-    check_error(
-        &response,
-        StatusCode::FORBIDDEN,
-        "category doesn't belong to user",
-    );
-    // The owner still gets it.
-    let again: Category = two.th.client.delete(&path).await.ok_json();
-    assert_eq!(again.id, two.category.id, "the owner's answer");
+    for client in [&two.th.client2, &two.th.client] {
+        let response = client.delete(&path).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
 
     two.th.teardown().await;
 }
 
-/// The routes that change a category refuse a user who does not own it, as in the
-/// original, and the two that hide and show change nothing.
+/// For a user who does not own it, a category does not exist: every route that names it
+/// answers as for an identifier nobody has.
 #[tokio::test]
 async fn another_users_category_cannot_be_changed() {
     let two = TwoUsers::start().await;
@@ -2159,56 +2206,46 @@ async fn another_users_category_cannot_be_changed() {
     let intruder = &two.th.client2;
     let path = format!("/teams/0/categories/{}", two.category.id);
 
-    // Update: saying whose category it is gives it away either way.
+    // Update, whoever the body says the category belongs to.
     let as_owner = Category {
         name: "Taken over".to_owned(),
         ..two.category.clone()
     };
-    let response = intruder.put(&path, &as_owner).await;
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        "user ID mismatch in session and category",
-    );
     let as_intruder = Category {
         user_id: two.intruder_id.clone(),
-        ..as_owner
+        ..as_owner.clone()
     };
-    let response = intruder.put(&path, &as_intruder).await;
-    check_error(
-        &response,
-        StatusCode::FORBIDDEN,
-        "category doesn't belong to user",
-    );
+    for body in [&as_owner, &as_intruder] {
+        let response = intruder.put(&path, body).await;
+        check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    }
 
     // Delete.
     let response = intruder.delete(&path).await;
-    check_error(
-        &response,
-        StatusCode::FORBIDDEN,
-        "category doesn't belong to user",
-    );
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     // Reorder the boards in it.
     let response = intruder
         .put(&format!("{path}/boards/reorder"), &[two.board_id.as_str()])
         .await;
-    check_error(
-        &response,
-        StatusCode::FORBIDDEN,
-        "access denied to category",
-    );
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     // Reorder the categories: they are not among the intruder's.
     let order: Vec<&str> = ids(&before);
     let response = intruder.put("/teams/0/categories/reorder", &order).await;
-    check_internal_error(&response);
+    response.check_bad_request();
 
-    // Hide and show: answered as a success, as for any board that is not there.
+    // The same answers as for a category nobody has.
+    let nobody = "/teams/0/categories/nope";
+    let response = intruder.put(nobody, &as_intruder).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
+    let response = intruder.delete(nobody).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
+
+    // Hide and show.
     let place = format!("{path}/boards/{}", two.board_id);
-    put_empty(intruder, &format!("{place}/hide"))
-        .await
-        .check_ok();
+    let response = put_empty(intruder, &format!("{place}/hide")).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
     assert_eq!(
         two.owner_view().await,
         before,
@@ -2219,9 +2256,8 @@ async fn another_users_category_cannot_be_changed() {
         .check_ok();
     let hidden_by_owner = two.owner_view().await;
     assert_ne!(hidden_by_owner, before, "the owner hides the board");
-    put_empty(intruder, &format!("{place}/unhide"))
-        .await
-        .check_ok();
+    let response = put_empty(intruder, &format!("{place}/unhide")).await;
+    check_error(&response, StatusCode::NOT_FOUND, "category not found");
     assert_eq!(
         two.owner_view().await,
         hidden_by_owner,
@@ -2292,7 +2328,7 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
         hostile_ids[2],
         "zz' OR '1'='1",
     ];
-    check_internal_error(&th.client.put(path, &unknown).await);
+    th.client.put(path, &unknown).await.check_bad_request();
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(ids(&listed), new_order, "and changes nothing");
 
@@ -2310,6 +2346,9 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
     category_boards(&th.client, "0").await;
     let created = create_category(&th.client, &category("0", &user.id, "Cat A")).await;
     let other = create_category(&th.client, &category("0", &user.id, "Cat B")).await;
+    for board_id in ["bystander", "q'q", "b' THEN 5 WHEN 'c", "plain"] {
+        open_board(&th, "0", board_id).await;
+    }
     file_board(&th.client, "0", &other.id, "bystander").await;
     // `%27` is the apostrophe and `%20` the space.
     file_board(&th.client, "0", &created.id, "q%27q").await;
@@ -2335,7 +2374,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
 
     // A hostile identifier that is not in the category is refused like any other.
     let unknown = ["plain", "q'q", "x' OR category_id <> '"];
-    check_internal_error(&th.client.put(&path, &unknown).await);
+    th.client.put(&path, &unknown).await.check_bad_request();
     let listed = category_boards(&th.client, "0").await;
     assert_eq!(
         board_ids(entry(&listed, &created.id)),
@@ -2459,6 +2498,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
     );
 
     // Deleting moves the boards to the default category first, which is its own message.
+    open_board(&th, "0", "board-1").await;
     file_board(&th.client, "0", &created.id, "board-1").await;
     expect_message(&mut socket, "filing a board").await;
     let deleted: Category = th.client.delete(&path).await.ok_json();
@@ -2492,6 +2532,8 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     let hidden = json!({"boardID": "board-1", "categoryID": created.id, "hidden": true});
 
     // Filing a board sends all the boards of the category.
+    open_board(&th, "0", "board-1").await;
+    open_board(&th, "0", "board-2").await;
     file_board(&th.client, "0", &created.id, "board-1").await;
     assert_eq!(
         expect_message(&mut socket, "filing a board").await,

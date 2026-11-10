@@ -73,21 +73,23 @@
   {
     "name": "list: non-member",
     "request": "GET /api/v2/boards/<id:2>/members as members-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board members",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "add: non-member adds",
     "request": "POST /api/v2/boards/<id:2>/members as members-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modify board members",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -113,25 +115,22 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "empty userID",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "userId",
+      "message": "empty userID",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "add: unknown user",
     "request": "POST /api/v2/boards/<id:2>/members as members-alice",
-    "status": 200,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "boardId": "<id:2>",
-      "minimumRole": "",
-      "roles": "",
-      "schemeAdmin": false,
-      "schemeCommenter": false,
-      "schemeEditor": false,
-      "schemeViewer": true,
-      "synthetic": false,
-      "userId": "unknown-user"
+      "error": "bad_request",
+      "field": "userId",
+      "message": "no such user",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -140,8 +139,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modify board members",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to modify board members",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -194,17 +194,6 @@
         "schemeViewer": true,
         "synthetic": false,
         "userId": "<id:5>"
-      },
-      {
-        "boardId": "<id:2>",
-        "minimumRole": "",
-        "roles": "",
-        "schemeAdmin": false,
-        "schemeCommenter": false,
-        "schemeEditor": false,
-        "schemeViewer": true,
-        "synthetic": false,
-        "userId": "unknown-user"
       },
       {
         "boardId": "<id:2>",
@@ -272,18 +261,21 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modify board members",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to modify board members",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "update: demote the last admin",
     "request": "PUT /api/v2/boards/<id:2>/members/<id:1> as members-alice",
-    "status": 400,
+    "status": 409,
     "content_type": "application/json",
     "body": {
-      "error": "cannot leave a board with no admins",
-      "errorCode": 400
+      "error": "conflict",
+      "message": "cannot leave a board with no admins",
+      "reason": "last_admin",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -292,8 +284,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{user} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "member not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -302,18 +295,21 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modify board members",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to modify board members",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "delete: the last admin",
     "request": "DELETE /api/v2/boards/<id:2>/members/<id:1> as members-alice",
-    "status": 400,
+    "status": 409,
     "content_type": "application/json",
     "body": {
-      "error": "cannot leave a board with no admins",
-      "errorCode": 400
+      "error": "conflict",
+      "message": "cannot leave a board with no admins",
+      "reason": "last_admin",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -333,11 +329,12 @@
   {
     "name": "join: private board",
     "request": "POST /api/v2/boards/<id:2>/join as members-carol",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "cannot join a non Open board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -380,8 +377,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -397,18 +395,21 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "leave: the last admin",
     "request": "POST /api/v2/boards/<id:3>/leave as members-alice",
-    "status": 400,
+    "status": 409,
     "content_type": "application/json",
     "body": {
-      "error": "cannot leave a board with no admins",
-      "errorCode": 400
+      "error": "conflict",
+      "message": "cannot leave a board with no admins",
+      "reason": "last_admin",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -417,17 +418,6 @@
     "status": 200,
     "content_type": "application/json",
     "body": [
-      {
-        "boardId": "<id:2>",
-        "minimumRole": "",
-        "roles": "",
-        "schemeAdmin": false,
-        "schemeCommenter": false,
-        "schemeEditor": false,
-        "schemeViewer": true,
-        "synthetic": false,
-        "userId": "unknown-user"
-      },
       {
         "boardId": "<id:2>",
         "minimumRole": "",

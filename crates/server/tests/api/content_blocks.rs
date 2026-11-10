@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use fvoci_model::{Block, BlockType, Board, BoardType};
 use fvoci_server::app::MovePosition;
-use fvoci_server::error::AppError;
+use fvoci_server::error::{AppError, ErrorKind};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
@@ -98,7 +98,6 @@ fn ids(blocks: &[&Block]) -> Value {
 struct TwoCards {
     th: TestServer,
     card1: Block,
-    card2: Block,
     /// The content blocks 1 to 3 of the first card and 4 to 6 of the second.
     content: Vec<Block>,
 }
@@ -131,12 +130,11 @@ async fn two_cards() -> TwoCards {
         .await
         .ok_json();
     assert_eq!(created.len(), 8, "all blocks were created");
-    let card2 = created.pop().expect("the second card");
+    created.pop().expect("the second card");
     let card1 = created.pop().expect("the first card");
     TwoCards {
         th,
         card1,
-        card2,
         content: created,
     }
 }
@@ -180,6 +178,9 @@ impl TwoCards {
     }
 }
 
+/// The refusal to move a block next to one that is content of another card.
+const NOT_SAME_CARD: &str = "the two blocks are not content of the same card";
+
 // -- server/integrationtests/content_blocks_test.go ---------------------------------------
 
 /// `TestMoveContentBlock/"not matching parents"`
@@ -189,14 +190,7 @@ async fn move_content_block_not_matching_parents() {
 
     let response = cards.run_cases(1).await;
 
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        &format!(
-            "not matching parent {} and {}",
-            cards.card1.id, cards.card2.id
-        ),
-    );
+    check_error(&response, StatusCode::BAD_REQUEST, NOT_SAME_CARD);
     cards.check_order([0, 1, 2]).await;
     cards.th.teardown().await;
 }
@@ -275,7 +269,7 @@ async fn app_move(
 #[track_caller]
 fn check_refused(outcome: Result<(), AppError>, message: &str) {
     let error = outcome.expect_err("the move is refused");
-    assert!(matches!(error, AppError::BadRequest(_)), "{error:?}");
+    assert_eq!(error.kind(), ErrorKind::BadRequest, "{error:?}");
     assert_eq!(error.to_string(), message, "the refusal");
 }
 
@@ -294,7 +288,7 @@ async fn app_move_content_block_not_matching_parents() {
         )
         .await;
 
-    check_refused(outcome, "not matching parent test-card and other-test-card");
+    check_refused(outcome, NOT_SAME_CARD);
     th.teardown().await;
 }
 
@@ -315,7 +309,7 @@ async fn app_move_content_block_parent_not_found() {
         .expect_err("the parent does not exist");
 
     assert!(error.is_not_found(), "{error:?}");
-    assert_eq!(error.to_string(), "{block ID=invalid-card} not found");
+    assert_eq!(error.to_string(), "block not found");
     th.teardown().await;
 }
 
@@ -327,7 +321,10 @@ async fn app_move_content_block_valid_parent_without_content_order() {
     let (outcome, order) =
         app_move(&th, json!({}), ("test-1", MovePosition::After, "test-2")).await;
 
-    check_refused(outcome, "source block test-1 not found");
+    check_refused(
+        outcome,
+        "block test-1 is not in the content order of its card",
+    );
     assert_eq!(order, json!(null), "the card still has no content order");
     th.teardown().await;
 }
@@ -345,7 +342,10 @@ async fn app_move_content_block_valid_parent_with_content_order_but_without_test
     )
     .await;
 
-    check_refused(outcome, "source block test-1 not found");
+    check_refused(
+        outcome,
+        "block test-1 is not in the content order of its card",
+    );
     assert_eq!(order, json!(["test-2"]), "the order is as it was");
     th.teardown().await;
 }
@@ -363,7 +363,10 @@ async fn app_move_content_block_valid_parent_with_content_order_but_without_test
     )
     .await;
 
-    check_refused(outcome, "destination block test-2 not found");
+    check_refused(
+        outcome,
+        "block test-2 is not in the content order of its card",
+    );
     assert_eq!(order, json!(["test-1"]), "the order is as it was");
     th.teardown().await;
 }
@@ -441,64 +444,67 @@ async fn move_content_block_refusals() {
     let response = move_block(&th.anonymous(), &a.id, "after", &b.id).await;
     response.check_unauthorized();
 
-    // A block that does not exist, for everyone and before anything else.
-    let missing = "{block ID=nope} not found";
-    for client in [&th.client, outsider] {
-        for (block_id, position, dst_id) in [
-            ("nope", "after", b.id.as_str()),
-            (a.id.as_str(), "after", "nope"),
-            ("nope", "after", "nope2"),
-            ("nope", "sideways", b.id.as_str()),
-        ] {
-            let response = move_block(client, block_id, position, dst_id).await;
-            check_error(&response, StatusCode::NOT_FOUND, missing);
-        }
+    // A block that does not exist, for everyone and before anything else. For who
+    // cannot read the board, its blocks do not exist either, whatever else is asked.
+    let missing = "block not found";
+    for (block_id, position, dst_id) in [
+        ("nope", "after", b.id.as_str()),
+        (a.id.as_str(), "after", "nope"),
+        ("nope", "after", "nope2"),
+        ("nope", "sideways", b.id.as_str()),
+    ] {
+        let response = move_block(&th.client, block_id, position, dst_id).await;
+        check_error(&response, StatusCode::NOT_FOUND, missing);
+    }
+    for (block_id, position, dst_id) in [
+        ("nope", "after", b.id.as_str()),
+        (a.id.as_str(), "after", b.id.as_str()),
+        (a.id.as_str(), "after", "nope"),
+        (a.id.as_str(), "sideways", b.id.as_str()),
+        (a.id.as_str(), "after", other_texts[0].id.as_str()),
+    ] {
+        let response = move_block(outsider, block_id, position, dst_id).await;
+        check_error(&response, StatusCode::NOT_FOUND, missing);
     }
 
-    // `where`, for everyone as well.
-    for client in [&th.client, outsider] {
-        for position in ["sideways", "AFTER", "Before", "%20after"] {
-            let response = move_block(client, &a.id, position, &b.id).await;
-            check_error(
-                &response,
-                StatusCode::BAD_REQUEST,
-                "invalid where parameter, use before or after",
-            );
-        }
-    }
-
-    // The permission to manage the cards of the moved block's board.
-    for client in [&commenter, &viewer, outsider] {
-        for dst in [b, &other_texts[0]] {
-            let response = move_block(client, &a.id, "after", &dst.id).await;
+    // The permission to manage the cards of the moved block's board, before `where`.
+    for client in [&commenter, &viewer] {
+        for (position, dst) in [("after", b), ("after", &other_texts[0]), ("sideways", b)] {
+            let response = move_block(client, &a.id, position, &dst.id).await;
             check_error(&response, StatusCode::FORBIDDEN, DENIED);
         }
     }
 
+    // `where`.
+    for position in ["sideways", "AFTER", "Before", "%20after"] {
+        let response = move_block(&th.client, &a.id, position, &b.id).await;
+        check_error(
+            &response,
+            StatusCode::BAD_REQUEST,
+            "invalid where parameter, use before or after",
+        );
+    }
+
     // The move itself.
     let response = move_block(&editor, &a.id, "after", &other_texts[0].id).await;
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        &format!("not matching parent {} and {}", card.id, other_card.id),
-    );
-    // A card has no parent.
+    check_error(&response, StatusCode::BAD_REQUEST, NOT_SAME_CARD);
+    // A card has no parent, so it is content of no card.
     let response = move_block(&editor, &a.id, "after", &card.id).await;
+    check_error(&response, StatusCode::BAD_REQUEST, NOT_SAME_CARD);
+    let response = move_block(&editor, &card.id, "after", &other_card.id).await;
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        &format!("not matching parent {} and ", card.id),
+        "the block is not content of a card",
     );
-    let response = move_block(&editor, &card.id, "after", &other_card.id).await;
-    check_error(&response, StatusCode::NOT_FOUND, "{block ID=} not found");
 
-    // Preserved quirk: a block moved to itself is not found as the source.
+    // A block is not moved next to itself.
     for position in ["after", "before"] {
         let response = move_block(&editor, &a.id, position, &a.id).await;
         check_error(
             &response,
             StatusCode::BAD_REQUEST,
-            &format!("source block {} not found", a.id),
+            "a block cannot be moved next to itself",
         );
     }
     // A child of the card that is not in its content order, as source and as
@@ -508,13 +514,13 @@ async fn move_content_block_refusals() {
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        &format!("source block {} not found", stray.id),
+        &format!("block {} is not in the content order of its card", stray.id),
     );
     let response = move_block(&editor, &a.id, "after", &stray.id).await;
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        &format!("destination block {} not found", stray.id),
+        &format!("block {} is not in the content order of its card", stray.id),
     );
     assert_eq!(
         content_order(&th, &card.id).await,
@@ -544,7 +550,7 @@ async fn move_content_block_on_a_card_without_a_list_of_content() {
             check_error(
                 &response,
                 StatusCode::BAD_REQUEST,
-                &format!("source block {} not found", c.id),
+                &format!("block {} is not in the content order of its card", c.id),
             );
         }
         assert_eq!(
@@ -600,7 +606,7 @@ async fn move_content_block_changes_the_order_of_the_card() {
     check_error(
         &response,
         StatusCode::BAD_REQUEST,
-        &format!("source block {} not found", b.id),
+        &format!("block {} is not in the content order of its card", b.id),
     );
     move_block_ok(&editor, a, "after", c).await;
     assert_eq!(
@@ -673,9 +679,10 @@ async fn move_content_block_next_to_a_block_of_a_board_without_permission_is_ref
         .ok_json();
     let (_, own_texts) = card_with_texts(intruder, &own_board.id, 1).await;
 
+    // The answer is the one for a block that does not exist.
     for position in ["after", "before"] {
         let response = move_block(intruder, &own_texts[0].id, position, &foreign_texts[0].id).await;
-        check_error(&response, StatusCode::FORBIDDEN, DENIED);
+        check_error(&response, StatusCode::NOT_FOUND, "block not found");
         assert!(
             !response.text().contains(&foreign_card.id),
             "the parent of the foreign block is not told"
@@ -685,7 +692,7 @@ async fn move_content_block_next_to_a_block_of_a_board_without_permission_is_ref
     // nowhere either.
     let claimed = insert_block(intruder, &text_block(&own_board.id, &foreign_card.id)).await;
     let response = move_block(intruder, &claimed.id, "after", &foreign_texts[0].id).await;
-    check_error(&response, StatusCode::FORBIDDEN, DENIED);
+    check_error(&response, StatusCode::NOT_FOUND, "block not found");
 
     assert_eq!(
         content_order(&th, &foreign_card.id).await,
@@ -712,16 +719,13 @@ async fn move_content_block_within_a_card_and_between_own_boards_is_as_before() 
     );
 
     let second_board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let (second_card, second_texts) = card_with_texts(&th.client, &second_board.id, 1).await;
+    let (_, second_texts) = card_with_texts(&th.client, &second_board.id, 1).await;
     let response = move_block(&th.client, &texts[0].id, "after", &second_texts[0].id).await;
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        &format!("not matching parent {} and {}", card.id, second_card.id),
-    );
-    // The editor of the first board is no member of the second.
+    check_error(&response, StatusCode::BAD_REQUEST, NOT_SAME_CARD);
+    // The editor of the first board is no member of the second, whose blocks do not
+    // exist for them.
     let response = move_block(&editor, &texts[0].id, "after", &second_texts[0].id).await;
-    check_error(&response, StatusCode::FORBIDDEN, DENIED);
+    check_error(&response, StatusCode::NOT_FOUND, "block not found");
 
     th.teardown().await;
 }

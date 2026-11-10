@@ -2,11 +2,11 @@
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, State};
 use axum::routing::{get, post, put};
 use fvoci_model::{SINGLE_USER_ID, User, UserPreferencesPatch};
 
-use super::{ApiResult, RequiredSession, decode_json_or_internal, json_response, query_param};
+use super::{ApiResult, RequiredSession, decode_json, json_response};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -22,6 +22,18 @@ pub(super) fn routes() -> Router<App> {
 }
 
 /// The user record that stands for the one user of single-user mode.
+/// What a request misses that names a user who is not there.
+const USER: &str = "user";
+
+/// Says which kind of thing was not found, for a lookup of a user.
+fn user_not_found(error: AppError) -> AppError {
+    if error.is_not_found() {
+        AppError::not_found(USER)
+    } else {
+        error
+    }
+}
+
 pub(super) async fn single_user(app: &App) -> User {
     // The root team's last change stands in for the user's creation time.
     let create_at = app
@@ -44,9 +56,9 @@ async fn handle_get_users_list(
     RequiredSession(session): RequiredSession,
     body: Bytes,
 ) -> ApiResult {
-    let user_ids: Vec<String> = decode_json_or_internal(&body)?;
+    let user_ids: Vec<String> = decode_json(&body)?;
     let Some(first) = user_ids.first() else {
-        return Err(AppError::bad_request("User IDs are empty"));
+        return Err(AppError::bad_request("the list of user IDs is empty"));
     };
     let users = if first == SINGLE_USER_ID {
         vec![single_user(&app).await]
@@ -56,7 +68,8 @@ async fn handle_get_users_list(
 
     // Whether the asking user sees others does not depend on whom they ask about; there
     // is always at least one user here, so the lookup happens as in the original.
-    if !app.can_see_user(&session.user_id).await? {
+    // The one user of single-user mode has no record to look up.
+    if session.user_id != SINGLE_USER_ID && !app.can_see_user(&session.user_id).await? {
         return Ok(json_response(&Vec::<User>::new()));
     }
     let mut sanitized = Vec::with_capacity(users.len());
@@ -74,20 +87,13 @@ async fn handle_get_users_list(
 async fn handle_get_me(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    RawQuery(query): RawQuery,
 ) -> ApiResult {
     let mut user = if session.user_id == SINGLE_USER_ID {
         single_user(&app).await
     } else {
-        app.user(&session.user_id).await?
+        app.user(&session.user_id).await.map_err(user_not_found)?
     };
 
-    // Of the permissions the original reports here, a standalone server grants only the
-    // one to post in a channel, to anyone who names a channel.
-    let channel_id = query_param(query.as_deref(), "channelID");
-    if !channel_id.is_empty() && !session.user_id.is_empty() {
-        user.permissions.push("create_post".to_owned());
-    }
     crate::app::sanitize(&mut user);
     Ok(json_response(&user))
 }
@@ -105,10 +111,19 @@ async fn handle_get_user(
     RequiredSession(session): RequiredSession,
     Path(user_id): Path<String>,
 ) -> ApiResult {
-    let mut user = app.user(&user_id).await?;
-    if !app.can_see_user(&session.user_id).await? {
-        return Err(AppError::not_found(format_args!("user ID={user_id}")));
-    }
+    let mut user = if user_id == SINGLE_USER_ID && session.user_id == SINGLE_USER_ID {
+        single_user(&app).await
+    } else {
+        let user = app.user(&user_id).await.map_err(user_not_found)?;
+        if !app
+            .can_see_user(&session.user_id)
+            .await
+            .is_ok_and(|sees| sees)
+        {
+            return Err(AppError::not_found(USER));
+        }
+        user
+    };
     if user_id == session.user_id {
         crate::app::sanitize(&mut user);
     } else {
@@ -123,10 +138,12 @@ async fn handle_update_user_config(
     Path(user_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    let patch: UserPreferencesPatch = decode_json_or_internal(&body)?;
+    // The settings of another user are nobody's business; for this one they do not
+    // exist.
     if user_id != session.user_id {
-        return Err(AppError::forbidden(""));
+        return Err(AppError::not_found(USER));
     }
+    let patch: UserPreferencesPatch = decode_json(&body)?;
     Ok(json_response(
         &app.update_user_config(&user_id, &patch).await?,
     ))

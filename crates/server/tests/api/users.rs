@@ -42,32 +42,20 @@ async fn user_register() {
 
     // The same user a second time: the first user exists, so a signup token is needed.
     let again = th.client.post("/register", &request).await;
-    again.check_unauthorized();
-    assert_eq!(
-        again.error_message(),
-        "no sign-up token and user(s) already exist",
-        "the reason is the missing token"
-    );
+    again.check_error(StatusCode::FORBIDDEN, "registration needs the signup token");
+    assert_eq!(again.error_reason(), "signup_token_required");
 
     // With the token, the name is found to be taken.
     let mut with_token = register_request(&new_id(IdKind::None));
     with_token.token = th.app.root_team().await.expect("root team").signup_token;
     let taken = th.client.post("/register", &with_token).await;
-    taken.check_bad_request();
-    assert_eq!(
-        taken.error_message(),
-        "The username already exists",
-        "the name is taken"
-    );
+    taken.check_status(StatusCode::CONFLICT);
+    assert_eq!(taken.error_reason(), "username_taken", "the name is taken");
 
     with_token.username = "another".to_owned();
     let taken = th.client.post("/register", &with_token).await;
-    taken.check_bad_request();
-    assert_eq!(
-        taken.error_message(),
-        "The email already exists",
-        "the address is taken"
-    );
+    taken.check_status(StatusCode::CONFLICT);
+    assert_eq!(taken.error_reason(), "email_taken", "the address is taken");
 
     th.teardown().await;
 }
@@ -172,12 +160,13 @@ async fn login_cases() {
         "the type is the reason"
     );
 
-    // Preserved quirk: a body that is not JSON is a server error, not a bad request.
+    // A body that is not JSON is the sender's mistake.
     let response = th
         .client
         .send_raw_body(reqwest::Method::POST, "/login", "{not json")
         .await;
-    response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
+    response.check_bad_request();
+    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
 
     th.teardown().await;
 }
@@ -256,12 +245,8 @@ async fn register_user_cases() {
     // A wrong signup token is refused.
     let body = json!({"username": "second", "email": "second@example.com", "password": "testPassword", "token": "wrong"});
     let response = th.client.post("/register", &body).await;
-    response.check_unauthorized();
-    assert_eq!(
-        response.error_message(),
-        "invalid token",
-        "the token is the reason"
-    );
+    response.check_error(StatusCode::FORBIDDEN, "the signup token is not valid");
+    assert_eq!(response.error_reason(), "signup_token_invalid");
 
     th.teardown().await;
 }
@@ -299,18 +284,12 @@ async fn get_me_logged_in() {
     let raw = response.value();
     assert!(raw.get("password").is_none(), "no password member: {raw}");
     assert!(raw.get("email").is_none(), "no email member: {raw}");
-    assert!(
-        raw.get("permissions").is_none(),
-        "no permissions without a channel: {raw}"
-    );
+    assert!(raw.get("permissions").is_none(), "no permissions: {raw}");
 
-    // The one permission a standalone server reports, for any channel that is named.
+    // The original reports a permission of its host application for a channel named in
+    // the query. There are no channels; the parameter means nothing.
     let with_channel = client.get("/users/me?channelID=any-channel").await.value();
-    assert_eq!(
-        with_channel["permissions"],
-        json!(["create_post"]),
-        "{with_channel}"
-    );
+    assert!(with_channel.get("permissions").is_none(), "{with_channel}");
 
     th.teardown().await;
 }
@@ -374,7 +353,7 @@ async fn users_list_and_profiles() {
     response.check_bad_request();
     assert_eq!(
         response.error_message(),
-        "User IDs are empty",
+        "the list of user IDs is empty",
         "an empty list is refused"
     );
 
@@ -614,10 +593,13 @@ async fn user_preferences() {
     assert_eq!(after[0]["name"], json!("welcomePageViewed"), "{after}");
     assert_eq!(after[0]["value"], json!("1"), "{after}");
 
-    th.client
-        .put(&format!("/users/{}/config", user2.id), &patch)
-        .await
-        .check_forbidden();
+    // The settings of another user do not exist for this one, as those of nobody.
+    for other in [user2.id.as_str(), "nobody"] {
+        th.client
+            .put(&format!("/users/{other}/config"), &patch)
+            .await
+            .check_error(StatusCode::NOT_FOUND, "user not found");
+    }
 
     th.teardown().await;
 }
@@ -692,17 +674,13 @@ async fn single_user_mode() {
     assert_eq!(me.id, "single-user", "the one user");
     assert_eq!(me.username, "single-user", "is named after the mode");
 
-    // Preserved quirk: the users-list route makes up the single user and then fails
-    // looking that user up in the database to decide who may see whom. The team route
-    // has no such check and answers.
-    let response = th.client.post("/users", &["single-user"]).await;
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{user} not found",
-        "as the original answers"
-    );
-    th.client.get("/users/single-user").await.check_not_found();
+    // The one user has no record in the database; every route that names a user
+    // knows that user all the same.
+    let users: Vec<User> = th.client.post("/users", &["single-user"]).await.ok_json();
+    assert_eq!(users.len(), 1, "the users list knows the one user");
+    assert_eq!(users[0].id, "single-user", "by the mode's name");
+    let user: User = th.client.get("/users/single-user").await.ok_json();
+    assert_eq!(user.id, "single-user", "and so does the profile route");
     let users: Vec<User> = th
         .client
         .post("/teams/0/users", &["single-user"])
@@ -738,23 +716,22 @@ async fn single_user_mode() {
         .await
         .check_unauthorized();
 
-    for path in ["/login", "/register"] {
-        let response = th.client.post(path, &json!({})).await;
-        response.check_unauthorized();
-        assert_eq!(
-            response.error_message(),
-            "not permitted in single-user mode",
-            "{path}"
-        );
+    // There are no accounts to sign in to, register, sign out of or change.
+    let refused = [
+        th.client.post("/login", &json!({})).await,
+        th.client.post("/register", &json!({})).await,
+        th.client.post_empty("/logout").await,
+        th.client
+            .post(
+                "/users/single-user/changepassword",
+                &json!({"oldPassword": "a", "newPassword": "b"}),
+            )
+            .await,
+    ];
+    for response in &refused {
+        response.check_error(StatusCode::FORBIDDEN, "not permitted in single-user mode");
+        assert_eq!(response.error_reason(), "single_user_mode");
     }
-    th.client.post_empty("/logout").await.check_unauthorized();
-    th.client
-        .post(
-            "/users/single-user/changepassword",
-            &json!({"oldPassword": "a", "newPassword": "b"}),
-        )
-        .await
-        .check_unauthorized();
 
     th.teardown().await;
 }

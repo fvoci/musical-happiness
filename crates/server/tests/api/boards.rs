@@ -427,8 +427,11 @@ async fn create_board_create_private_board() {
     let read: Board = get_board(&th.client, &board.id).await.ok_json();
     assert_eq!(read, board, "the creator reads the board back");
 
-    // "unauthorized user should not be able to access the private board or its blocks"
-    get_board(&th.client2, &board.id).await.check_forbidden();
+    // "unauthorized user should not be able to access the private board or its blocks":
+    // for them it does not exist.
+    get_board(&th.client2, &board.id)
+        .await
+        .check_error(StatusCode::NOT_FOUND, "board not found");
 
     th.teardown().await;
 }
@@ -447,11 +450,12 @@ async fn create_board_create_private_board_and_its_blocks() {
     let blocks = th.client.get(&format!("/boards/{}/blocks", board.id)).await;
     assert_eq!(blocks.ok_json::<Vec<Block>>(), vec![], "no blocks yet");
 
-    // "unauthorized user should not be able to access the private board or its blocks"
+    // "unauthorized user should not be able to access the private board or its blocks":
+    // for them it does not exist.
     th.client2
         .get(&format!("/boards/{}/blocks", board.id))
         .await
-        .check_forbidden();
+        .check_error(StatusCode::NOT_FOUND, "board not found");
 
     th.teardown().await;
 }
@@ -561,24 +565,13 @@ async fn create_board_validates_the_body_like_the_original() {
         "{\"teamId\":\"t\",\"type\":5}",
         "[]",
         "5",
+        // (`null` crashes the original's handler, which its recovery turns into a 500.)
+        "null",
     ] {
-        th.client
-            .send_raw_body(Method::POST, "/boards", body)
-            .await
-            .check_bad_request();
+        let response = th.client.send_raw_body(Method::POST, "/boards", body).await;
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
-
-    // `null` crashes the original's handler, which its recovery turns into a 500.
-    let response = th
-        .client
-        .send_raw_body(Method::POST, "/boards", "null")
-        .await;
-    response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
-    assert_eq!(
-        response.value(),
-        json!({"error": "internal server error", "errorCode": 500}),
-        "the 500 body says nothing more"
-    );
 
     let response = th
         .client
@@ -605,14 +598,20 @@ async fn create_board_validates_the_body_like_the_original() {
     response.check_bad_request();
     assert_eq!(response.error_message(), "invalid-board-type", "type first");
 
-    // Preserved quirk: a new board that names an identifier is a server error.
-    th.client
+    // A new board does not choose its identifier. (The original answers 500.)
+    let response = th
+        .client
         .post(
             "/boards",
             &json!({"id": "my-id", "teamId": TEST_TEAM_ID, "type": "O"}),
         )
-        .await
-        .check_status(StatusCode::INTERNAL_SERVER_ERROR);
+        .await;
+    response.check_error(StatusCode::BAD_REQUEST, "new board cannot have an ID");
+    assert_eq!(
+        response.value()["field"],
+        json!("id"),
+        "the member at fault"
+    );
 
     assert_no_boards(&th, &user1.id).await;
     th.teardown().await;
@@ -806,8 +805,10 @@ async fn create_board_template_create_private_board_template() {
     assert_eq!(read, board, "the creator reads the template back");
 
     // "unauthorized user should not be able to access the private board template or its
-    // blocks"
-    get_board(&th.client2, &board.id).await.check_forbidden();
+    // blocks": for them it does not exist.
+    get_board(&th.client2, &board.id)
+        .await
+        .check_error(StatusCode::NOT_FOUND, "board not found");
 
     th.teardown().await;
 }
@@ -833,11 +834,11 @@ async fn create_board_template_create_private_board_template_and_its_blocks() {
         .check_ok();
 
     // "unauthorized user should not be able to access the private board template or its
-    // blocks"
+    // blocks": for them it does not exist.
     th.client2
         .get(&format!("/boards/{}/blocks", board.id))
         .await
-        .check_forbidden();
+        .check_error(StatusCode::NOT_FOUND, "board not found");
 
     th.teardown().await;
 }
@@ -903,12 +904,7 @@ async fn get_board_nonexisting_board() {
 
     let response = get_board(&th.client, "nonexistent board").await;
 
-    response.check_not_found();
-    assert_eq!(
-        response.error_message(),
-        "{boards} not found",
-        "the original's message"
-    );
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     th.teardown().await;
 }
 
@@ -927,8 +923,15 @@ async fn get_board_a_user_without_permissions_to_a_private_board_cannot_retrieve
 
     let response = get_board(&th.client, &board.id).await;
 
-    response.check_forbidden();
-    assert_eq!(response.error_message(), "access denied to board", "why");
+    // The answer is the one for a board that does not exist. (The original answers 403.)
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
+    let missing = get_board(&th.client, "nonexistent board").await;
+    assert_eq!(response.status, missing.status, "the same status");
+    assert_eq!(
+        response.error_message(),
+        missing.error_message(),
+        "and the same message"
+    );
     th.teardown().await;
 }
 
@@ -998,85 +1001,10 @@ async fn get_board_in_single_user_mode_needs_the_token() {
 }
 
 // -- TestGetBoardMetadata -------------------------------------------------------------
-
-/// `TestGetBoardMetadata/"a non authenticated user should be rejected"`
-#[tokio::test]
-async fn get_board_metadata_a_non_authenticated_user_should_be_rejected() {
-    let th = Setup::native().start().await.init_basic().await;
-
-    let response = th.anonymous().get("/boards/boar-id/metadata").await;
-
-    response.check_unauthorized();
-    th.teardown().await;
-}
-
-/// `TestGetBoardMetadata/"getBoardMetadata should fail with no license"`. Verified on
-/// the original: a standalone server answers 501 whether or not the board exists and
-/// whoever asks.
-#[tokio::test]
-async fn get_board_metadata_should_fail_with_no_license() {
-    let th = Setup::local_mode().start().await.init_basic().await;
-    let user1 = th.client.me().await;
-    let board = board_with_admin(
-        &th,
-        new_board(
-            TEST_TEAM_ID,
-            BoardType::Private,
-            "private board where user1 is admin",
-        ),
-        &user1.id,
-    )
-    .await;
-
-    for (client, board_id) in [
-        (&th.client, board.id.as_str()),
-        (&th.client2, board.id.as_str()),
-        (&th.client, "nonexistent"),
-    ] {
-        let response = client.get(&format!("/boards/{board_id}/metadata")).await;
-        response.check_not_implemented();
-        assert_eq!(
-            response.value(),
-            json!({"error": "appropriate license required", "errorCode": 501}),
-            "the original's answer"
-        );
-    }
-    th.teardown().await;
-}
-
-/// `TestGetBoardMetadata/"valid read token should not get the board metadata"`
-#[tokio::test]
-async fn get_board_metadata_valid_read_token_should_not_get_the_board_metadata() {
-    let th = Setup::local_mode().start().await.init_basic().await;
-    let user1 = th.client.me().await;
-    let sharing_token = new_id(IdKind::Token);
-    let board = board_with_admin(
-        &th,
-        new_board(
-            TEST_TEAM_ID,
-            BoardType::Open,
-            "public board where user1 is admin",
-        ),
-        &user1.id,
-    )
-    .await;
-    share_board(&th, &board.id, &sharing_token).await;
-
-    let anonymous = th.anonymous();
-    anonymous
-        .get(&format!("/boards/{}/metadata", board.id))
-        .await
-        .check_unauthorized();
-    anonymous
-        .get(&format!(
-            "/boards/{}/metadata?read_token={sharing_token}",
-            board.id
-        ))
-        .await
-        .check_unauthorized();
-
-    th.teardown().await;
-}
+//
+// The original's metadata route needs a license a standalone server never has, and
+// answered 501. The route is gone; `admin::routes_of_the_host_application_do_not_exist`
+// checks that its path answers like any other that does not exist.
 
 // -- TestPatchBoard -------------------------------------------------------------------
 
@@ -1162,9 +1090,13 @@ async fn patch_board_invalid_patch_on_a_board_with_permissions() {
         "the minimum role"
     );
 
-    // Verified on the original: validity is checked before the permission.
+    // The permission is checked before the body is looked at. (The original checks the
+    // validity first.)
     let response = patch_board(&th.client2, &board.id, &json!({"type": "invalid"})).await;
-    response.check_bad_request();
+    response.check_error(
+        StatusCode::FORBIDDEN,
+        "access denied to modifying board properties",
+    );
 
     assert_eq!(
         stored_board(&th, &board.id).await,
@@ -1291,17 +1223,14 @@ async fn patch_board_permissions_by_what_the_patch_touches() {
         "{members:?}"
     );
 
-    // Malformed bodies: 400, and 500 for `null`, which crashes the original's handler.
-    for body in ["{bad", "", "[]", "{\"type\":5}"] {
+    // Malformed bodies are bad requests, `null` too (which crashes the original's
+    // handler).
+    for body in ["{bad", "", "[]", "null", "{\"type\":5}"] {
         th.client
             .send_raw_body(Method::PATCH, &format!("/boards/{}", board.id), body)
             .await
             .check_bad_request();
     }
-    th.client
-        .send_raw_body(Method::PATCH, &format!("/boards/{}", board.id), "null")
-        .await
-        .check_status(StatusCode::INTERNAL_SERVER_ERROR);
 
     th.teardown().await;
 }
@@ -1450,12 +1379,8 @@ async fn undelete_board_a_user_without_membership_should_be_rejected() {
 
     let response = undelete_board(&th.client, &board.id).await;
 
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to undelete board",
-        "why"
-    );
+    // A deleted board the user was no member of answers as one that never existed.
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     assert_board_is_gone(&th, &board.id).await;
     th.teardown().await;
 }
@@ -1494,7 +1419,7 @@ async fn undelete_board_non_existing_board() {
 
     let response = undelete_board(&th.client, "non-existing-board").await;
 
-    response.check_forbidden();
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     th.teardown().await;
 }
 
@@ -1586,7 +1511,7 @@ async fn get_members_for_board_non_existing_board() {
 
     let response = get_members(&th.client, "non-existing-board").await;
 
-    response.check_forbidden();
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     th.teardown().await;
 }
 
@@ -1711,12 +1636,8 @@ async fn add_member_a_user_without_permissions_should_be_rejected() {
 
     let response = th.client.add_member(&editor(&board.id, "user1")).await;
 
-    response.check_forbidden();
-    assert_eq!(
-        response.error_message(),
-        "access denied to modify board members",
-        "why"
-    );
+    // A private board the user is no member of does not exist for them.
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     th.teardown().await;
 }
 
@@ -1864,16 +1785,12 @@ async fn add_member_validates_the_body_like_the_original() {
     .await;
     let path = format!("/boards/{}/members", board.id);
 
-    for body in ["{bad", "[]"] {
+    for body in ["{bad", "[]", "null"] {
         th.client
             .send_raw_body(Method::POST, &path, body)
             .await
             .check_bad_request();
     }
-    th.client
-        .send_raw_body(Method::POST, &path, "null")
-        .await
-        .check_status(StatusCode::INTERNAL_SERVER_ERROR);
     let response = th.client.post(&path, &json!({"schemeEditor": true})).await;
     response.check_bad_request();
     assert_eq!(response.error_message(), "empty userID", "no user named");
@@ -1904,19 +1821,19 @@ async fn add_member_validates_the_body_like_the_original() {
         "the rest of the body is ignored"
     );
 
-    // Preserved quirk: the user is not looked up, so anything can be a member.
-    let added: BoardMember = th
+    // The user must exist. (The original stores a membership of nobody.)
+    let response = th
         .client
         .post(
             &path,
             &json!({"userId": "no-such-user", "schemeEditor": true}),
         )
-        .await
-        .ok_json();
+        .await;
+    response.check_error(StatusCode::BAD_REQUEST, "no such user");
     assert_eq!(
-        added,
-        editor(&board.id, "no-such-user"),
-        "a member nobody is"
+        response.value()["field"],
+        json!("userId"),
+        "the member at fault"
     );
 
     // A membership without any role is stored as such.
@@ -2390,7 +2307,7 @@ async fn update_member_non_existing_board() {
 
     let response = update_member(&th.client, &editor("non-existent-board-id", &user1.id)).await;
 
-    response.check_forbidden();
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     th.teardown().await;
 }
 
@@ -2441,23 +2358,19 @@ async fn update_member_should_not_leave_a_board_without_any_admin() {
 
     let response = update_member(&th.client, &editor(&board.id, &user1.id)).await;
 
-    response.check_bad_request();
-    assert_eq!(
-        response.error_message(),
-        "cannot leave a board with no admins",
-        "the original's message"
-    );
+    // The request is fine; the state of the board stands against it.
+    response.check_error(StatusCode::CONFLICT, "cannot leave a board with no admins");
+    assert_eq!(response.error_reason(), "last_admin", "the reason");
     let members = members_of(&th, &board.id).await;
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert!(members[0].scheme_admin, "still an admin");
     th.teardown().await;
 }
 
-/// Verified on the original: the order of the checks of `PUT
-/// /boards/{board_id}/members/{user_id}` and what it answers for a user who is not a
-/// member.
+/// The order of the checks of `PUT /boards/{board_id}/members/{user_id}` and what it
+/// answers for a user who is not a member.
 #[tokio::test]
-async fn update_member_checks_like_the_original() {
+async fn update_member_checks() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -2469,35 +2382,43 @@ async fn update_member_checks_like_the_original() {
     .await;
     let path = format!("/boards/{}/members/{}", board.id, user2.id);
 
-    // The body is decoded first.
-    for body in ["{bad", "[]"] {
-        th.client2
+    // Who is no member of the private board learns nothing, whatever the body and
+    // whoever the path names. (The original decodes the body and looks the user up
+    // first, for anyone.)
+    for target in [user2.id.as_str(), "no-such-user"] {
+        for body in ["{bad", "{\"schemeEditor\":true}"] {
+            let response = th
+                .client2
+                .send_raw_body(
+                    Method::PUT,
+                    &format!("/boards/{}/members/{target}", board.id),
+                    body,
+                )
+                .await;
+            response.check_error(StatusCode::NOT_FOUND, "board not found");
+        }
+    }
+
+    // Then the body.
+    for body in ["{bad", "[]", "null"] {
+        th.client
             .send_raw_body(Method::PUT, &path, body)
             .await
             .check_bad_request();
     }
-    th.client
-        .send_raw_body(Method::PUT, &path, "null")
-        .await
-        .check_status(StatusCode::INTERNAL_SERVER_ERROR);
 
-    // Then the user is looked up, before the permission is checked.
-    for client in [&th.client, &th.client2] {
-        let response = client
+    // Then the membership: a user who is no member, or nobody at all, has none to
+    // change. (The original answers 200 with `null` for the first.)
+    for target in [user2.id.as_str(), "no-such-user"] {
+        let response = th
+            .client
             .put(
-                &format!("/boards/{}/members/no-such-user", board.id),
+                &format!("/boards/{}/members/{target}", board.id),
                 &json!({"schemeEditor": true}),
             )
             .await;
-        response.check_not_found();
-        assert_eq!(response.error_message(), "{user} not found", "the user");
+        response.check_error(StatusCode::NOT_FOUND, "member not found");
     }
-
-    // Preserved quirk: updating a user who is not a member answers `null`, with status
-    // 200, and adds nothing.
-    let response = th.client.put(&path, &json!({"schemeEditor": true})).await;
-    response.check_ok();
-    assert_eq!(response.text(), "null", "no membership to answer");
     assert_eq!(
         members_of(&th, &board.id).await.len(),
         1,
@@ -2533,7 +2454,7 @@ async fn update_member_checks_like_the_original() {
     // The remaining admin cannot demote themselves.
     update_member(&th.client2, &editor(&board.id, &user2.id))
         .await
-        .check_bad_request();
+        .check_status(StatusCode::CONFLICT);
 
     th.teardown().await;
 }
@@ -2696,12 +2617,9 @@ async fn delete_member_should_not_leave_a_board_without_any_admin() {
 
     let response = delete_member(&th.client, &member(&board.id, &user1.id)).await;
 
-    response.check_bad_request();
-    assert_eq!(
-        response.error_message(),
-        "cannot leave a board with no admins",
-        "the original's message"
-    );
+    // The request is fine; the state of the board stands against it.
+    response.check_error(StatusCode::CONFLICT, "cannot leave a board with no admins");
+    assert_eq!(response.error_reason(), "last_admin", "the reason");
     let members = members_of(&th, &board.id).await;
     assert_eq!(members.len(), 1, "one member: {members:?}");
     assert!(members[0].scheme_admin, "still an admin");
@@ -3086,34 +3004,37 @@ async fn duplicate_board_from_a_template() {
     .ok_json();
     assert_eq!(copy.boards[0].team_id, TEST_TEAM_ID, "in the user's team");
 
-    // A private template is for its members only.
+    // A private template is for its members only; for others it does not exist.
     duplicate_board(
         &th.client2,
         &templates[2].id,
         &format!("?toTeam={TEST_TEAM_ID}"),
     )
     .await
-    .check_forbidden();
+    .check_error(StatusCode::NOT_FOUND, "board not found");
 
     th.teardown().await;
 }
 
-/// Preserved quirk, verified on the original: a board without blocks, or with comments
-/// only, cannot be duplicated; the answer is a server error.
+/// A board without blocks is duplicated as a board without blocks. (The original
+/// cannot duplicate it and answers 500.)
 #[tokio::test]
-async fn duplicate_board_without_blocks_is_a_server_error() {
+async fn duplicate_board_without_blocks() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
 
-    let response = duplicate_board(&th.client, &board.id, "").await;
+    let copy: BoardsAndBlocks = duplicate_board(&th.client, &board.id, "").await.ok_json();
 
-    response.check_status(StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(copy.boards.len(), 1, "one board");
+    assert!(copy.blocks.is_empty(), "no blocks");
     let boards: Vec<Board> = th
         .client
         .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
         .await
         .ok_json();
-    assert_eq!(sorted_ids(&boards), vec![board.id], "no copy was made");
+    let mut expected = vec![board.id.clone(), copy.boards[0].id.clone()];
+    expected.sort_unstable();
+    assert_eq!(sorted_ids(&boards), expected, "the board and its copy");
     th.teardown().await;
 }
 
@@ -3264,12 +3185,10 @@ async fn join_board_create_and_join_private_board_should_not_succeed() {
             .client2
             .post_empty(&format!("/boards/{}/join{query}", board.id))
             .await;
-        response.check_forbidden();
-        assert_eq!(
-            response.error_message(),
-            "cannot join a non Open board",
-            "{query}"
-        );
+        // A private board does not exist for who is no member, so there is nothing
+        // to join.
+        response.check_error(StatusCode::NOT_FOUND, "board not found");
+        assert_eq!(response.error_code(), "not_found", "{query}");
     }
     assert_eq!(members_of(&th, &board.id).await.len(), 1, "nobody joined");
     th.teardown().await;
@@ -3299,8 +3218,7 @@ async fn leave_board_cases() {
         .await
         .check_unauthorized();
     let response = leave_board(&th.client, "nonexistent").await;
-    response.check_forbidden();
-    assert_eq!(response.error_message(), "access denied to board", "why");
+    response.check_error(StatusCode::NOT_FOUND, "board not found");
     let outsider = th.add_user("user3").await;
     leave_board(&outsider, &board.id).await.check_forbidden();
 
@@ -3311,7 +3229,8 @@ async fn leave_board_cases() {
     leave_board(&th.client2, &board.id).await.check_forbidden();
 
     let response = leave_board(&th.client, &board.id).await;
-    response.check_bad_request();
+    response.check_status(StatusCode::CONFLICT);
+    assert_eq!(response.error_reason(), "last_admin", "the reason");
     assert_eq!(
         response.error_message(),
         "cannot leave a board with no admins",
@@ -3397,19 +3316,22 @@ async fn a_session_whose_user_is_gone_gets_not_found_where_the_user_is_looked_up
                 }),
             )
             .await,
-        // Here it is the member, not the asking user, who is looked up.
-        update_member(&th.client, &editor(&open.id, "ghost")).await,
     ];
     for response in &not_found {
         response.check_not_found();
-        assert_eq!(response.error_message(), "{user} not found", "the user");
+        assert_eq!(response.error_code(), "not_found", "the user");
     }
+
+    // A membership is changed without looking the member up as a user.
+    update_member(&th.client, &editor(&open.id, "ghost"))
+        .await
+        .check_ok();
 
     // The checks that come before the lookup still come first.
     let response = ghost.post("/boards", &json!({"type": "O"})).await;
     response.check_forbidden();
-    get_board(&ghost, &private.id).await.check_forbidden();
-    join_board(&ghost, &private.id).await.check_forbidden();
+    get_board(&ghost, &private.id).await.check_not_found();
+    join_board(&ghost, &private.id).await.check_not_found();
 
     // Where the original does not ask, the membership is all that counts.
     get_members(&ghost, &open.id).await.check_ok();
@@ -3512,11 +3434,7 @@ async fn app_patch_board_channel() {
         .await
         .expect_err("there is no such board");
     assert!(error.is_not_found(), "{error:?}");
-    assert_eq!(
-        error.to_string(),
-        "{board ID=no-such-board} not found",
-        "the message"
-    );
+    assert_eq!(error.to_string(), "board not found", "the message");
 
     th.teardown().await;
 }

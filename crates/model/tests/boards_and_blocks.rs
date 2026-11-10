@@ -5,7 +5,7 @@
 use fvoci_model::{
     Block, BlockPatch, BlockType, Board, BoardPatch, BoardType, BoardsAndBlocks,
     BoardsAndBlocksError, DeleteBoardsAndBlocks, PatchBoardsAndBlocks,
-    generate_boards_and_blocks_ids,
+    generate_boards_and_blocks_ids, renew_boards_and_blocks_ids,
 };
 
 fn board(id: &str, board_type: BoardType, title: &str) -> Board {
@@ -116,6 +116,29 @@ fn generate_boards_and_blocks_ids_invalid_boards_and_blocks() {
         generate_boards_and_blocks_ids(bab),
         Err(BoardsAndBlocksError::NoBoards)
     );
+}
+
+/// Boards that are stored already get new identifiers also when they have no blocks,
+/// and a block of a board that is not among them is left out.
+#[test]
+fn renew_boards_and_blocks_ids_takes_boards_without_blocks() {
+    let renewed = renew_boards_and_blocks_ids(BoardsAndBlocks {
+        boards: vec![board("board-id-1", BoardType::Open, "title")],
+        blocks: vec![],
+    });
+    assert_eq!(renewed.boards.len(), 1, "the board is kept");
+    assert_ne!(renewed.boards[0].id, "board-id-1", "under a new identifier");
+    assert!(renewed.blocks.is_empty(), "without blocks");
+
+    let renewed = renew_boards_and_blocks_ids(BoardsAndBlocks {
+        boards: vec![board("board-id-1", BoardType::Open, "title")],
+        blocks: vec![
+            block("block-id-1", "board-id-1", BlockType::Card),
+            block("block-id-2", "board-id-2", BlockType::Card),
+        ],
+    });
+    assert_eq!(renewed.blocks.len(), 1, "the block of no board is left out");
+    assert_eq!(renewed.blocks[0].board_id, renewed.boards[0].id, "attached");
 }
 
 /// `TestGenerateBoardsAndBlocksIDs` / "correctly generates IDs for all the boards and

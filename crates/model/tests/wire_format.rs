@@ -4,7 +4,7 @@
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardRole,
     BoardType, Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig,
-    ErrorResponse, LoginRequest, PatchBoardsAndBlocks, Sharing, Subscriber, SubscriberType,
+    ErrorBody, LoginRequest, PatchBoardsAndBlocks, Sharing, Subscriber, SubscriberType,
     Subscription, Team, User, UserPreferencesPatch,
 };
 use serde_json::{Value, json};
@@ -564,12 +564,32 @@ fn config_error_and_request_json_members() {
         })
     );
 
+    // An error says its kind and a sentence; the optional members appear only when set.
     assert_eq!(
-        to_json(&ErrorResponse {
-            error: "nope".to_owned(),
-            error_code: 404
+        to_json(&ErrorBody {
+            error: "not_found".to_owned(),
+            message: "board not found".to_owned(),
+            ..ErrorBody::default()
         }),
-        json!({ "error": "nope", "errorCode": 404 })
+        json!({ "error": "not_found", "message": "board not found" })
+    );
+    assert_eq!(
+        to_json(&ErrorBody {
+            error: "payload_too_large".to_owned(),
+            message: "the request body is too large".to_owned(),
+            reason: Some("r".to_owned()),
+            field: Some("f".to_owned()),
+            limit: Some(4_194_304),
+            request_id: Some("id".to_owned()),
+        }),
+        json!({
+            "error": "payload_too_large",
+            "message": "the request body is too large",
+            "reason": "r",
+            "field": "f",
+            "limit": 4_194_304,
+            "request_id": "id",
+        })
     );
 
     let login: LoginRequest = serde_json::from_value(json!({

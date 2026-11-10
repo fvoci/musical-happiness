@@ -57,8 +57,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if the board does not exist and
-    /// [`AppError::BadRequest`] if the title or the properties are too large, both
+    /// Returns a not-found error if the board does not exist and
+    /// a bad request if the title or the properties are too large, both
     /// with the message prefixed by `cannot create card`.
     pub async fn create_card(
         &self,
@@ -93,7 +93,7 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::Internal`] if one of the board's card blocks cannot be read
+    /// Returns an internal error if one of the board's card blocks cannot be read
     /// as a card, because a field of it has the wrong type.
     pub async fn cards_for_board(
         &self,
@@ -114,8 +114,9 @@ impl App {
             .iter()
             .map(|block| {
                 // Preserved quirk: one card block that is no well-formed card fails the
-                // whole list (server/app/cards.go:54-60). The web app writes such
-                // blocks: a `contentOrder` with side-by-side content has nested lists.
+                // whole list (server/app/cards.go:54-60). The original's web app writes
+                // such blocks: a `contentOrder` with side-by-side content has nested
+                // lists. What is stored is no card, so this is a server error.
                 card_from_stored_block(block, now)
                     .map_err(|error| AppError::from(error).context("Block2Card fail"))
             })
@@ -130,9 +131,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::Internal`] if the patch is not valid (an icon of more than
-    /// one grapheme) or the patched block is no card, and otherwise the errors of
-    /// [`App::patch_block`] with the message prefixed by `cannot patch card {id}`.
+    /// Returns a bad request if the patch is not valid (an icon of more than one
+    /// grapheme), an internal error if the patched block is no card, and otherwise the
+    /// errors of [`App::patch_block`] with the message prefixed by `cannot patch card
+    /// {id}`.
     pub async fn patch_card(
         &self,
         patch: &CardPatch,
@@ -140,9 +142,8 @@ impl App {
         user_id: &str,
         notification: ChangeNotification,
     ) -> Result<Card, AppError> {
-        // Preserved quirk: unlike for a new card, the invalid icon is not classified
-        // as the client's mistake here, so it is a server error
-        // (server/app/cards.go:66-69).
+        // An invalid icon is the client's mistake, as for a new card. (In the original
+        // it is a server error here, `server/app/cards.go:66-69`.)
         let block_patch = patch.to_block_patch()?;
         let block = self
             .patch_block(card_id, &block_patch, user_id, notification)
@@ -155,8 +156,8 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns [`AppError::NotFound`] if there is no block with this identifier and
-    /// [`AppError::Internal`] if the block is not a card or cannot be read as one.
+    /// Returns a not-found error if there is no block with this identifier and
+    /// an internal error if the block is not a card or cannot be read as one.
     pub async fn card(&self, card_id: &str) -> Result<Card, AppError> {
         let block = self.block(card_id).await?;
         Ok(card_from_stored_block(&block, now_millis())?)

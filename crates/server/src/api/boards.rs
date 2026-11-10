@@ -10,8 +10,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, decode_json_or_bad_request, empty_response,
-    has_valid_read_token, json_response, query_param,
+    ApiResult, OptionalSession, RequiredSession, decode_json, empty_response, has_valid_read_token,
+    json_response, query_param,
 };
 use super::{
     duplicate_as, json_object, require_board_permission, require_team_access, user_is_guest,
@@ -32,10 +32,6 @@ pub(super) fn routes() -> Router<App> {
         )
         .route("/boards/{board_id}/duplicate", post(handle_duplicate_board))
         .route("/boards/{board_id}/undelete", post(handle_undelete_board))
-        .route(
-            "/boards/{board_id}/metadata",
-            get(handle_get_board_metadata),
-        )
 }
 
 // -- what the handlers of this area share ----------------------------------------------
@@ -103,7 +99,7 @@ pub(super) fn take_invalid_board_members(board: &mut JsonMap) -> Option<InvalidB
 /// Decodes the body of a board patch. A type or minimum role outside its closed set is a
 /// bad request with the original's message.
 fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
-    let mut patch = json_object(decode_json_or_bad_request(body)?)?;
+    let mut patch = json_object(decode_json(body)?)?;
     if let Some(invalid) = take_invalid_patch_members(&mut patch) {
         return Err(invalid.into_error());
     }
@@ -141,7 +137,7 @@ async fn handle_create_board(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let mut requested = json_object(decode_json_or_bad_request(&body)?)?;
+    let mut requested = json_object(decode_json(&body)?)?;
     let invalid = take_invalid_board_members(&mut requested);
     let board: Board =
         serde_json::from_value(Value::Object(requested)).map_err(AppError::bad_request)?;
@@ -189,31 +185,21 @@ async fn handle_get_board(
     let board = app.board(&board_id).await?;
 
     if !has_valid_read_token {
-        let denial = "access denied to board";
-        match board.board_type {
-            BoardType::Private => {
-                require_board_permission(
-                    &app,
-                    user_id,
-                    &board_id,
-                    BoardPermission::ViewBoard,
-                    denial,
-                )
-                .await?;
-            }
+        // An open board is for every user of its team; a private one for its members,
+        // and for nobody else it exists.
+        let sees = match board.board_type {
+            BoardType::Private => false,
             BoardType::Open => {
-                if user_is_guest(&app, user_id).await? {
-                    require_board_permission(
-                        &app,
-                        user_id,
-                        &board_id,
-                        BoardPermission::ViewBoard,
-                        denial,
-                    )
-                    .await?;
-                }
-                require_team_access(&app, user_id, &board.team_id, denial)?;
+                !user_is_guest(&app, user_id).await?
+                    && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
             }
+        };
+        if !sees
+            && !app
+                .has_permission_to_board(user_id, &board_id, BoardPermission::ViewBoard)
+                .await
+        {
+            return Err(AppError::not_found("board"));
         }
     }
     Ok(json_response(&board))
@@ -227,10 +213,7 @@ async fn handle_patch_board(
     Path(board_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    app.board(&board_id).await?;
     let user_id = &session.user_id;
-    let patch = decode_board_patch(&body)?;
-
     require_board_permission(
         &app,
         user_id,
@@ -239,6 +222,7 @@ async fn handle_patch_board(
         "access denied to modifying board properties",
     )
     .await?;
+    let patch = decode_board_patch(&body)?;
     if patch.board_type.is_some() || patch.minimum_role.is_some() {
         require_board_permission(
             &app,
@@ -270,7 +254,6 @@ async fn handle_delete_board(
     RequiredSession(session): RequiredSession,
     Path(board_id): Path<String>,
 ) -> ApiResult {
-    app.board(&board_id).await?;
     require_board_permission(
         &app,
         &session.user_id,
@@ -279,6 +262,8 @@ async fn handle_delete_board(
         "access denied to delete board",
     )
     .await?;
+    // Memberships outlive a deleted board; its members are told that it is gone.
+    app.board(&board_id).await?;
 
     app.delete_board(&board_id, &session.user_id).await?;
     Ok(empty_response())
@@ -342,15 +327,4 @@ async fn handle_undelete_board(
 
     app.undelete_board(&board_id, &session.user_id).await?;
     Ok(empty_response())
-}
-
-/// `GET /boards/{board_id}/metadata`: who created and last changed a board and when, a
-/// feature for compliance exports that needs a license. A standalone server has none,
-/// and the original checks the license before anything else, so the answer is the same
-/// for every board and user.
-async fn handle_get_board_metadata(
-    RequiredSession(_session): RequiredSession,
-    Path(_board_id): Path<String>,
-) -> ApiResult {
-    Err(AppError::not_implemented("appropriate license required"))
 }

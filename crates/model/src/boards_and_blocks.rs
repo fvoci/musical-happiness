@@ -159,8 +159,8 @@ impl PatchBoardsAndBlocks {
     }
 }
 
-/// Gives every board and block a new identifier, keeping blocks attached to their boards
-/// and to each other.
+/// Gives every board and block of a request a new identifier, keeping blocks attached
+/// to their boards and to each other.
 ///
 /// Blocks come back grouped by board, in the order of `boards`.
 ///
@@ -172,6 +172,17 @@ pub fn generate_boards_and_blocks_ids(
     boards_and_blocks: BoardsAndBlocks,
 ) -> Result<BoardsAndBlocks, BoardsAndBlocksError> {
     boards_and_blocks.validate()?;
+    Ok(renew_boards_and_blocks_ids(boards_and_blocks))
+}
+
+/// Gives every board and block a new identifier, keeping blocks attached to their boards
+/// and to each other. For boards and blocks that are stored already, such as a board
+/// that is copied: unlike a request, they may be boards without blocks.
+///
+/// Blocks come back grouped by board, in the order of `boards`. A block of a board that
+/// is not among `boards` is left out.
+#[must_use]
+pub fn renew_boards_and_blocks_ids(boards_and_blocks: BoardsAndBlocks) -> BoardsAndBlocks {
     let BoardsAndBlocks { mut boards, blocks } = boards_and_blocks;
 
     let mut blocks_by_board: HashMap<String, Vec<Block>> = HashMap::new();
@@ -196,5 +207,5 @@ pub fn generate_boards_and_blocks_ids(
     }
     generate_block_ids(&mut blocks);
 
-    Ok(BoardsAndBlocks { boards, blocks })
+    BoardsAndBlocks { boards, blocks }
 }

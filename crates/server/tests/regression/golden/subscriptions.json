@@ -87,11 +87,13 @@
   {
     "name": "create: for another user",
     "request": "POST /api/v2/subscriptions as subs-alice",
-    "status": 400,
+    "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "userID and subscriberID mismatch",
-      "errorCode": 400
+      "error": "forbidden",
+      "field": "subscriberId",
+      "message": "a user subscribes for themselves only",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -100,8 +102,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "missing block id",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "missing block id",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -110,18 +113,21 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid subscriber type",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "subscriberType",
+      "message": "invalid subscriber type",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "create: malformed body",
     "request": "POST /api/v2/subscriptions as subs-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -144,21 +150,23 @@
   {
     "name": "list: another user's",
     "request": "GET /api/v2/subscriptions/<id:1> as subs-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "subscriber not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "delete: another user's",
     "request": "DELETE /api/v2/subscriptions/<id:3>/<id:1> as subs-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "subscription not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -174,8 +182,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{subscription BlockID=<id:3> SubscriberID=<id:1>} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "subscription not found",
+      "request_id": "<request-id>"
     }
   },
   {

@@ -4,15 +4,21 @@ use std::net::{IpAddr, SocketAddr};
 use std::panic::AssertUnwindSafe;
 use std::time::Instant;
 
+use axum::body::Body;
 use axum::extract::connect_info::Connected;
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::HeaderMap;
+use axum::http::header::CONTENT_LENGTH;
+use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::serve::IncomingStream;
 use futures_util::FutureExt as _;
+use uuid::Uuid;
 
-use crate::error::AppError;
+use crate::error::{AppError, ReportedError};
+
+/// The response header that carries the identifier of the request.
+const X_REQUEST_ID: &str = "x-request-id";
 
 /// The header a reverse proxy lists the client's address in.
 const X_FORWARDED_FOR: &str = "x-forwarded-for";
@@ -72,7 +78,13 @@ fn forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
     first.trim().parse().ok()
 }
 
-/// Logs every request: method, path, status, duration and client address.
+/// Logs every request: method, path, status, duration, client address and the
+/// identifier it gave the request.
+///
+/// The identifier is a random one of this server's making. It goes into the log line,
+/// into the `x-request-id` response header and into the body of an error answer, so that
+/// what a user reports can be found in the log. An identifier the client sends is not
+/// taken over: it would let a client write into the log.
 ///
 /// The query string is left out because it can carry `access_token` and `read_token`,
 /// and no header is logged, so neither are the session token and the cookies.
@@ -82,6 +94,7 @@ pub(crate) async fn log_request(
     next: Next,
 ) -> Response {
     let started = Instant::now();
+    let request_id = Uuid::new_v4().to_string();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
     let peer = request
@@ -90,7 +103,7 @@ pub(crate) async fn log_request(
         .map(|ConnectInfo(peer)| *peer);
     let client = client_address(source, request.headers(), peer);
 
-    let response = next.run(request).await;
+    let response = identify(next.run(request).await, &request_id);
 
     // Whole microseconds, shown as milliseconds.
     let duration_ms = (started.elapsed().as_secs_f64() * 1_000_000.0).round() / 1000.0;
@@ -100,8 +113,27 @@ pub(crate) async fn log_request(
         status = response.status().as_u16(),
         duration_ms,
         client,
+        request_id,
         "request"
     );
+    response
+}
+
+/// Puts the identifier of the request on its response: into the header, and into the
+/// body if the response is an error of this server's own format.
+fn identify(mut response: Response, request_id: &str) -> Response {
+    if let Some(ReportedError(mut body)) = response.extensions_mut().remove::<ReportedError>() {
+        body.request_id = Some(request_id.to_owned());
+        // An error body is a handful of strings; serializing it cannot fail.
+        if let Ok(bytes) = serde_json::to_vec(&body) {
+            let (mut parts, _) = response.into_parts();
+            parts.headers.remove(CONTENT_LENGTH);
+            response = Response::from_parts(parts, Body::from(bytes));
+        }
+    }
+    if let Ok(value) = HeaderValue::from_str(request_id) {
+        response.headers_mut().insert(X_REQUEST_ID, value);
+    }
     response
 }
 
@@ -312,9 +344,15 @@ mod tests {
         let (status, body, log) = logged(ClientAddress::SocketPeer, request).await;
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
-        assert_eq!(
-            body, r#"{"error":"internal server error","errorCode":500}"#,
-            "the standard body"
+        let error: fvoci_model::ErrorBody =
+            serde_json::from_str(&body).expect("the standard error body");
+        assert_eq!(error.error, "internal", "{body}");
+        assert_eq!(error.message, "internal server error", "{body}");
+        let request_id = error.request_id.expect("the identifier of the request");
+        assert_eq!(request_id.len(), 36, "a random identifier: {request_id}");
+        assert!(
+            log.contains(&format!("request_id=\"{request_id}\"")),
+            "the log line of the request carries the identifier of the answer: {log}"
         );
         assert!(log.contains("http handler panic"), "{log}");
         assert!(log.contains("panic=\"boom\""), "{log}");

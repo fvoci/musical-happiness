@@ -54,22 +54,17 @@ fn sharing_request(board_id: &str, token: &str) -> Sharing {
 
 #[track_caller]
 fn check_error(response: &ApiResponse, status: StatusCode, message: &str) {
-    response.check_status(status);
-    assert_eq!(
-        response.value(),
-        json!({"error": message, "errorCode": status.as_u16()}),
-        "the error answer"
-    );
+    response.check_error(status, message);
 }
 
 /// The answer for a board that has no sharing record.
 #[track_caller]
 fn check_no_sharing(response: &ApiResponse) {
-    check_error(
-        response,
-        StatusCode::NOT_FOUND,
-        "sql: no rows in result set",
-    );
+    // A board that was never shared answers as one whose sharing is off.
+    response.check_ok();
+    let sharing = response.value();
+    assert_eq!(sharing["enabled"], json!(false), "{sharing}");
+    assert_eq!(sharing["token"], json!(""), "{sharing}");
 }
 
 /// A server with public sharing turned on, two users, and a board of the first.
@@ -130,12 +125,13 @@ async fn sharing_post_sharing_config_false() {
 
     // It fails with the default configuration.
     let response = post_sharing(&th.client, &board.id, &sharing_request(&board.id, &token)).await;
-    // Preserved quirk: the original does not classify this refusal.
+    // The server's configuration refuses it. (The original answers 500.)
     check_error(
         &response,
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "internal server error",
+        StatusCode::FORBIDDEN,
+        "public sharing is turned off on this server",
     );
+    assert_eq!(response.error_reason(), "sharing_disabled");
 
     // "GET sharing": nothing was stored.
     let response = th.client.get(&sharing_path(&board.id)).await;
@@ -228,12 +224,7 @@ async fn get_sharing_should_return_a_not_found_error() {
 
     assert!(error.is_not_found(), "a not-found error: {error}");
     assert_eq!(error.status(), StatusCode::NOT_FOUND, "{error}");
-    // Preserved quirk: the message is the one of the original's database layer.
-    assert_eq!(
-        error.to_string(),
-        "sql: no rows in result set",
-        "the message"
-    );
+    assert_eq!(error.to_string(), "sharing not found", "the message");
     th.teardown().await;
 }
 
@@ -285,16 +276,21 @@ async fn sharing_needs_the_permission_to_share_the_board() {
     let request = sharing_request(&board.id, "token");
     let refusal = "access denied to sharing the board";
 
-    // Not a member, of an open and of a private board.
-    for board_id in [board.id.as_str(), private.id.as_str(), "no-such-board"] {
+    // Not a member of an open board: the board can be seen, its sharing not touched.
+    let response = th.client2.get(&sharing_path(&board.id)).await;
+    check_error(&response, StatusCode::FORBIDDEN, refusal);
+    let response = post_sharing(&th.client2, &board.id, &request).await;
+    check_error(&response, StatusCode::FORBIDDEN, refusal);
+    // Not a member of a private board: it answers as a board that does not exist.
+    for board_id in [private.id.as_str(), "no-such-board"] {
         let response = th.client2.get(&sharing_path(board_id)).await;
-        check_error(&response, StatusCode::FORBIDDEN, refusal);
+        check_error(&response, StatusCode::NOT_FOUND, "board not found");
         let response = post_sharing(&th.client2, board_id, &request).await;
-        check_error(&response, StatusCode::FORBIDDEN, refusal);
+        check_error(&response, StatusCode::NOT_FOUND, "board not found");
     }
     // The administrator gets the same answer for a board that does not exist.
     let response = th.client.get(&sharing_path("no-such-board")).await;
-    check_error(&response, StatusCode::FORBIDDEN, refusal);
+    check_error(&response, StatusCode::NOT_FOUND, "board not found");
 
     // A member who is an editor, not an administrator.
     let editor = BoardMember {
@@ -445,21 +441,22 @@ async fn post_sharing_turns_sharing_off() {
     th.teardown().await;
 }
 
-/// How the body is decoded: like the original, which reads `null` and missing members as
-/// defaults and answers everything it cannot decode with a server error.
+/// How the body is decoded: missing and `null` members are defaults, and everything that
+/// is no JSON object with members of the right types is a bad request.
 #[tokio::test]
-async fn post_sharing_decodes_the_body_like_the_original() {
+async fn post_sharing_decodes_missing_members_as_defaults_and_refuses_the_rest() {
     let (th, board) = shared_setup().await;
     let path = sharing_path(&board.id);
     post_sharing(&th.client, &board.id, &sharing_request(&board.id, "token"))
         .await
         .check_ok();
 
-    // Preserved quirk: a body that cannot be decoded is a server error.
+    // (The original answers these with 500, and reads `null` as an empty object.)
     for malformed in [
         "{",
         "",
         "[]",
+        "null",
         r#"{"enabled": "yes"}"#,
         r#"{"token": 5}"#,
         "5",
@@ -468,18 +465,15 @@ async fn post_sharing_decodes_the_body_like_the_original() {
             .client
             .send_raw_body(Method::POST, &path, malformed)
             .await;
-        check_error(
-            &response,
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "internal server error",
-        );
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{malformed}");
     }
     let sharing: Sharing = th.client.get(&path).await.ok_json();
     assert!(sharing.enabled, "none of these changed the record");
     assert_eq!(sharing.token, "token", "nor its token");
 
-    // An empty object, `null`, and `null` members are all "sharing off, no token".
-    for defaults in ["{}", "null", r#"{"enabled": null, "token": null}"#] {
+    // An empty object and `null` members are both "sharing off, no token".
+    for defaults in ["{}", r#"{"enabled": null, "token": null}"#] {
         post_sharing(&th.client, &board.id, &sharing_request(&board.id, "token"))
             .await
             .check_ok();

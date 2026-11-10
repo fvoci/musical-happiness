@@ -8,7 +8,8 @@
 //!   numbered in order of first appearance, also inside a longer string such as an error
 //!   message;
 //! * millisecond timestamps become `<ts>`;
-//! * values of members named like secrets (`token`, `signupToken`) become `<secret>`;
+//! * values of members named like secrets (`token`, `signupToken`) become `<secret>`, and
+//!   the identifier of the request in an error body becomes `<request-id>`;
 //! * lists of objects are sorted, because most list endpoints have no defined order.
 
 use std::collections::{BTreeMap, HashMap};
@@ -31,6 +32,9 @@ const PASSWORD: &str = "test-password";
 
 /// Members whose values are secrets and differ from run to run.
 const SECRET_KEYS: [&str; 3] = ["token", "signupToken", "signup_token"];
+
+/// The member of an error body that identifies the request; different in every run.
+const REQUEST_ID_KEY: &str = "request_id";
 
 /// Anything after 2017 in milliseconds; smaller numbers are counts, sort orders and so on.
 const TIMESTAMP_FLOOR: i64 = 1_500_000_000_000;
@@ -695,6 +699,8 @@ impl Placeholders {
             Value::String(text) => {
                 if SECRET_KEYS.contains(&key) && !text.is_empty() {
                     json!("<secret>")
+                } else if key == REQUEST_ID_KEY {
+                    json!("<request-id>")
                 } else {
                     json!(self.text(text))
                 }
@@ -735,6 +741,8 @@ fn blind_key(value: &Value) -> String {
             Value::String(text) => {
                 if SECRET_KEYS.contains(&key) && !text.is_empty() {
                     json!("<secret>")
+                } else if key == REQUEST_ID_KEY {
+                    json!("<request-id>")
                 } else {
                     json!(replace_identifiers(text, |_| "<id>".to_owned()))
                 }

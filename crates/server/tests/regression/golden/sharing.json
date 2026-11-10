@@ -67,11 +67,13 @@
   {
     "name": "get: none yet",
     "request": "GET /api/v2/boards/<id:2>/sharing as share-alice",
-    "status": 404,
+    "status": 200,
     "content_type": "application/json",
     "body": {
-      "error": "sql: no rows in result set",
-      "errorCode": 404
+      "enabled": false,
+      "id": "<id:2>",
+      "modifiedBy": "",
+      "token": ""
     }
   },
   {
@@ -80,8 +82,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to sharing the board",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to sharing the board",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -94,21 +97,23 @@
   {
     "name": "post: malformed body",
     "request": "POST /api/v2/boards/<id:2>/sharing as share-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "get: unknown board",
     "request": "GET /api/v2/boards/unknown-board/sharing as share-alice",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to sharing the board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -143,8 +148,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -175,8 +181,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -185,8 +192,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -195,8 +203,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -205,8 +214,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -222,8 +232,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   }
 ]

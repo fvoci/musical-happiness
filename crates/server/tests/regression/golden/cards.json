@@ -93,8 +93,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to create card",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to create card",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -103,18 +104,20 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "EOF while parsing an object at line 1 column 1",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "create: unknown board",
     "request": "POST /api/v2/boards/unknown-board/cards as cards-alice",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to create card",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -205,18 +208,24 @@
     "status": 0,
     "body": [
       400,
-      "{\"error\":\"invalid `page` parameter: strconv.Atoi: parsing \\\"x\\\": invalid syntax\",\"errorCode\":400}",
+      {
+        "error": "bad_request",
+        "field": "page",
+        "message": "invalid `page` parameter: not a whole number",
+        "request_id": "<request-id>"
+      },
       "alone"
     ]
   },
   {
     "name": "list: unknown board",
     "request": "GET /api/v2/boards/unknown-board/cards as cards-alice",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to fetch cards",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -272,11 +281,12 @@
   {
     "name": "get: unknown card",
     "request": "GET /api/v2/cards/unknown-card as cards-alice",
-    "status": 400,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "could not fetch card unknown-card: {block ID=unknown-card} not found",
-      "errorCode": 400
+      "error": "not_found",
+      "message": "card not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -310,18 +320,20 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to patch card",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to patch card",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "patch: unknown card",
     "request": "PATCH /api/v2/cards/unknown-card as cards-alice",
-    "status": 400,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "could not fetch card unknown-card: {block ID=unknown-card} not found",
-      "errorCode": 400
+      "error": "not_found",
+      "message": "card not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -330,8 +342,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "EOF while parsing an object at line 1 column 1",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -507,8 +520,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid where parameter, use before or after",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "invalid where parameter, use before or after",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -517,8 +531,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=unknown-block} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -527,8 +542,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{block ID=unknown-block} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "block not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -537,8 +553,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modify board cards",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to modify board cards",
+      "request_id": "<request-id>"
     }
   }
 ]

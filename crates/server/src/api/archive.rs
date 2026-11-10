@@ -7,14 +7,13 @@ use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::multipart::MultipartRejection;
 use axum::extract::{Multipart, Path, State};
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use fvoci_store::PublicBoards;
 
 use super::files::NOT_MULTIPART;
 use super::{ApiResult, RequiredSession, empty_response};
-use super::{require_team_access, user_is_guest};
+use super::{require_board_permission, require_team_access, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
@@ -22,6 +21,7 @@ use crate::permissions::BoardPermission;
 /// The multipart form field an imported archive is sent in.
 const UPLOAD_FIELD: &str = "file";
 
+/// The routes that give archives out.
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route(
@@ -29,7 +29,11 @@ pub(super) fn routes() -> Router<App> {
             get(handle_export_board),
         )
         .route("/teams/{team_id}/archive/export", get(handle_export_team))
-        .route("/teams/{team_id}/archive/import", post(handle_import))
+}
+
+/// The route that takes an archive, whose size has a limit of its own.
+pub(super) fn upload_routes() -> Router<App> {
+    Router::new().route("/teams/{team_id}/archive/import", post(handle_import))
 }
 
 /// `GET /boards/{board_id}/archive/export`: the board as an archive.
@@ -41,12 +45,14 @@ async fn handle_export_board(
     let user_id = &session.user_id;
     // The original also lets a system admin with a compliance license through; a
     // standalone server has neither, so a non-member is refused.
-    if !app
-        .has_permission_to_board(user_id, &board_id, BoardPermission::ViewBoard)
-        .await
-    {
-        return Err(AppError::forbidden("access denied to board"));
-    }
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ViewBoard,
+        "access denied to board",
+    )
+    .await?;
     let board = app.board(&board_id).await?;
     let bytes = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
@@ -88,17 +94,10 @@ async fn handle_import(
         return Err(AppError::forbidden("access denied to create board"));
     }
 
-    // The original writes what is wrong with the upload as a plain 200 body.
-    let Ok(mut multipart) = multipart else {
-        return Ok((StatusCode::OK, NOT_MULTIPART).into_response());
-    };
-    let bytes = match read_field(&mut multipart).await {
-        Ok(bytes) => bytes,
-        // The original writes the multipart error as a plain 200 body and returns.
-        Err(message) => {
-            return Ok((StatusCode::OK, message).into_response());
-        }
-    };
+    let mut multipart = multipart.map_err(|_| AppError::bad_request(NOT_MULTIPART))?;
+    let bytes = read_field(&mut multipart)
+        .await
+        .map_err(|message| AppError::bad_request(message).with_field(UPLOAD_FIELD))?;
 
     app.import_team_archive(bytes, &team_id, user_id).await?;
     Ok(empty_response())
@@ -112,7 +111,7 @@ async fn read_field(multipart: &mut Multipart) -> Result<Bytes, String> {
             .await
             .map_err(|error| error.to_string())?;
         let Some(field) = field else {
-            return Err("http: no such file".to_owned());
+            return Err("the request has no part named `file`".to_owned());
         };
         if field.name() != Some(UPLOAD_FIELD) {
             continue;

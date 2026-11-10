@@ -13,11 +13,9 @@ use fvoci_model::{
 use serde_json::Value;
 
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
-use super::decode_object_or_internal;
+use super::decode_object_with;
 use super::{ApiResult, RequiredSession, empty_response, json_response};
-use super::{
-    decode_object_or_bad_request, require_board_permission, require_team_access, user_is_guest,
-};
+use super::{decode_object, require_board_permission, require_team_access, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
@@ -54,7 +52,7 @@ async fn handle_create_boards_and_blocks(
 ) -> ApiResult {
     let user_id = &session.user_id;
     let (request, invalid): (BoardsAndBlocks, Option<InvalidBoardMember>) =
-        decode_object_or_internal(&body, |body| {
+        decode_object_with(&body, |body| {
             objects_mut(body, "boards")
                 .flatten()
                 .find_map(take_invalid_board_members)
@@ -70,18 +68,10 @@ async fn handle_create_boards_and_blocks(
         return Err(AppError::bad_request("at least one board is required"));
     }
 
-    let mut team_id = "";
+    let team_id = request.boards[0].team_id.as_str();
     let mut board_ids = HashSet::new();
     for board in &request.boards {
         board_ids.insert(board.id.as_str());
-
-        // Preserved quirk: while no team is known, which always includes the first
-        // board, a board is checked for nothing
-        // (`server/api/boards_and_blocks.go:101-104`).
-        if team_id.is_empty() {
-            team_id = board.team_id.as_str();
-            continue;
-        }
         if team_id != board.team_id {
             return Err(AppError::bad_request(
                 "cannot create boards for multiple teams",
@@ -143,7 +133,7 @@ async fn handle_patch_boards_and_blocks(
     // The patches' types and minimum roles are validated board by board below, as in the
     // original, not while decoding.
     let (patches, invalid_members): (PatchBoardsAndBlocks, Vec<Option<InvalidBoardMember>>) =
-        decode_object_or_internal(&body, |body| {
+        decode_object_with(&body, |body| {
             objects_mut(body, "boardPatches")
                 .map(|patch| patch.and_then(take_invalid_patch_members))
                 .collect()
@@ -212,6 +202,12 @@ async fn handle_patch_boards_and_blocks(
 
 /// Checks that every block exists, belongs to one of the boards and may be changed by
 /// the user.
+fn not_a_block_of_the_boards(block_id: &str) -> AppError {
+    AppError::bad_request(format_args!(
+        "block {block_id} is no block of the boards of the request"
+    ))
+}
+
 async fn require_blocks_of_boards(
     app: &App,
     user_id: &str,
@@ -219,13 +215,16 @@ async fn require_blocks_of_boards(
     board_ids: &HashSet<&str>,
 ) -> Result<(), AppError> {
     for block_id in block_ids {
-        let block = app.store().get_block(block_id).await?;
-        if !board_ids.contains(block.board_id.as_str()) {
-            return Err(AppError::bad_request(format_args!(
-                "missing BoardID={}",
-                block.board_id
-            )));
-        }
+        // One answer for a block that does not exist and for one on a board the request
+        // does not list, so that nothing is said about blocks of other boards.
+        let block = match app.block(block_id).await {
+            Ok(block) if board_ids.contains(block.board_id.as_str()) => block,
+            Ok(_) => return Err(not_a_block_of_the_boards(block_id)),
+            Err(error) if error.is_not_found() => {
+                return Err(not_a_block_of_the_boards(block_id));
+            }
+            Err(error) => return Err(error),
+        };
         require_board_permission(
             app,
             user_id,
@@ -245,12 +244,21 @@ async fn handle_delete_boards_and_blocks(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let request: DeleteBoardsAndBlocks = decode_object_or_bad_request(&body)?;
+    let request: DeleteBoardsAndBlocks = decode_object(&body)?;
+    request.validate().map_err(AppError::bad_request)?;
 
     let mut team_id = String::new();
     let mut board_ids = HashSet::new();
     for board_id in &request.boards {
         board_ids.insert(board_id.as_str());
+        require_board_permission(
+            &app,
+            user_id,
+            board_id,
+            BoardPermission::DeleteBoard,
+            "access denied to delete board",
+        )
+        .await?;
         let board = app.board(board_id).await?;
         if team_id.is_empty() {
             team_id.clone_from(&board.team_id);
@@ -260,20 +268,9 @@ async fn handle_delete_boards_and_blocks(
                 "all boards should belong to the same team",
             ));
         }
-        require_board_permission(
-            &app,
-            user_id,
-            board_id,
-            BoardPermission::DeleteBoard,
-            "access denied to delete board",
-        )
-        .await?;
     }
 
     require_blocks_of_boards(&app, user_id, &request.blocks, &board_ids).await?;
-
-    // Preserved quirk: that the request lists no board is found out last.
-    request.validate().map_err(AppError::bad_request)?;
 
     app.delete_boards_and_blocks(&request, user_id).await?;
     Ok(empty_response())

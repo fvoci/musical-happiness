@@ -5,8 +5,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid-board-type",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "invalid-board-type",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -15,8 +16,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid-board-type",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "invalid-board-type",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -25,8 +27,9 @@
     "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to create private boards",
-      "errorCode": 403
+      "error": "forbidden",
+      "message": "access denied to create private boards",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -35,8 +38,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -45,8 +49,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "key must be a string at line 1 column 2",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "key must be a string at line 1 column 2",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -148,11 +153,12 @@
   {
     "name": "get: non-member, private",
     "request": "GET /api/v2/boards/<id:2> as boards-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -187,8 +193,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "access denied to board",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -197,8 +204,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -289,11 +297,12 @@
   {
     "name": "metadata",
     "request": "GET /api/v2/boards/<id:2>/metadata as boards-alice",
-    "status": 501,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "appropriate license required",
-      "errorCode": 501
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -376,11 +385,12 @@
   {
     "name": "patch: non-member",
     "request": "PATCH /api/v2/boards/<id:2> as boards-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to modifying board properties",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -389,8 +399,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid-board-type",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "invalid-board-type",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -495,8 +506,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -505,8 +517,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "EOF while parsing a list at line 1 column 1",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "EOF while parsing a list at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -686,11 +699,12 @@
   {
     "name": "duplicate: non-member",
     "request": "POST /api/v2/boards/<id:2>/duplicate as boards-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -699,8 +713,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -730,11 +745,12 @@
   {
     "name": "delete: non-member",
     "request": "DELETE /api/v2/boards/<id:2> as boards-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to delete board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -750,8 +766,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -760,18 +777,20 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{boards} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "undelete: other user",
     "request": "POST /api/v2/boards/<id:2>/undelete as boards-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to undelete board",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "board not found",
+      "request_id": "<request-id>"
     }
   },
   {

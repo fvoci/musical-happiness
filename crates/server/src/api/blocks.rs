@@ -11,8 +11,8 @@ use fvoci_model::{
 use fvoci_store::DuplicateAs;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, decode_json_or_internal, empty_response,
-    has_valid_read_token, json_response, query_param,
+    ApiResult, OptionalSession, RequiredSession, decode_json, empty_response, has_valid_read_token,
+    json_response, query_param,
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use crate::app::App;
@@ -47,18 +47,17 @@ fn optional_query_param(query: Option<&str>, name: &str) -> Option<String> {
     Some(query_param(query, name)).filter(|value| !value.is_empty())
 }
 
-/// The 404 for a block that exists, but on another board than the one in the path.
-fn not_on_board(block: &Block, board_id: &str) -> AppError {
-    AppError::not_found(format_args!("block ID={} on BoardID={board_id}", block.id))
-}
+/// The refusal to change what is on a board.
+const CHANGES_DENIED: &str = "access denied to make board changes";
 
-/// Returns the block if it belongs to the board, and the 404 of [`not_on_board`] if not.
+/// Returns the block if it belongs to the board. A block of another board is as missing
+/// as one that does not exist: the path names the board the request is about.
 async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Block, AppError> {
     let block = app.block(block_id).await?;
     if block.board_id == board_id {
         Ok(block)
     } else {
-        Err(not_on_board(&block, board_id))
+        Err(AppError::not_found("block"))
     }
 }
 
@@ -107,7 +106,8 @@ async fn require_source_board_access(
     if readable {
         Ok(())
     } else {
-        Err(AppError::forbidden("access denied to source board"))
+        // The same answer for a board that is not there and one the user may not read.
+        Err(AppError::not_found("source board"))
     }
 }
 
@@ -129,7 +129,7 @@ async fn handle_get_blocks(
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to board"));
     }
-    let board = app.store().get_board(&board_id).await?;
+    let board = app.board(&board_id).await?;
     if !has_read_token {
         require_read_access(&app, user_id, &board).await?;
     }
@@ -153,8 +153,7 @@ async fn handle_get_blocks(
 /// generates; the given identifiers only link the blocks of the request to each other.
 ///
 /// Comments need the permission to comment, everything else the permission to manage
-/// cards. Preserved quirk: a request without blocks is checked for nothing and answers
-/// `[]`, whoever sends it and whatever board it names.
+/// cards. All blocks are inserted or none.
 async fn handle_post_blocks(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -165,18 +164,27 @@ async fn handle_post_blocks(
     let query = query.as_deref();
     let user_id = session.user_id.as_str();
     let notification = change_notification(query);
-    // `null` is an empty list here, as in the original.
-    let mut blocks: Vec<Block> =
-        decode_json_or_internal::<Option<Vec<Block>>>(&body)?.unwrap_or_default();
+    // Which permission is needed depends on the blocks, so the body is read first; but
+    // whoever may not even see the board learns nothing from what the body is like.
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ViewBoard,
+        CHANGES_DENIED,
+    )
+    .await?;
+    let mut blocks: Vec<Block> = decode_json(&body)?;
 
     let mut has_comments = false;
     let mut has_contents = false;
     for block in &blocks {
         let id = &block.id;
         if block.block_type.is_empty() {
-            return Err(AppError::bad_request(format_args!(
-                "missing type for block id {id}"
-            )));
+            return Err(
+                AppError::bad_request(format_args!("missing type for block id {id}"))
+                    .with_field("type"),
+            );
         }
         if block.block_type == BlockType::Comment {
             has_comments = true;
@@ -184,19 +192,22 @@ async fn handle_post_blocks(
             has_contents = true;
         }
         if block.create_at < 1 {
-            return Err(AppError::bad_request(format_args!(
-                "invalid createAt for block id {id}"
-            )));
+            return Err(
+                AppError::bad_request(format_args!("invalid createAt for block id {id}"))
+                    .with_field("createAt"),
+            );
         }
         if block.update_at < 1 {
-            return Err(AppError::bad_request(format_args!(
-                "invalid UpdateAt for block id {id}"
-            )));
+            return Err(
+                AppError::bad_request(format_args!("invalid updateAt for block id {id}"))
+                    .with_field("updateAt"),
+            );
         }
         if block.board_id != board_id {
-            return Err(AppError::bad_request(format_args!(
-                "invalid BoardID for block id {id}"
-            )));
+            return Err(
+                AppError::bad_request(format_args!("invalid boardId for block id {id}"))
+                    .with_field("boardId"),
+            );
         }
     }
     if has_contents {
@@ -205,7 +216,7 @@ async fn handle_post_blocks(
             user_id,
             &board_id,
             BoardPermission::ManageBoardCards,
-            "access denied to make board changes",
+            CHANGES_DENIED,
         )
         .await?;
     }
@@ -261,10 +272,10 @@ async fn handle_delete_block(
         user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
-        "access denied to make board changes",
+        CHANGES_DENIED,
     )
     .await?;
-    let block = app.block(&block_id).await?;
+    let block = block_on_board(&app, &block_id, &board_id).await?;
     if block.block_type == BlockType::Comment && block.created_by != user_id {
         require_board_permission(
             &app,
@@ -275,10 +286,6 @@ async fn handle_delete_block(
         )
         .await?;
     }
-    if block.board_id != board_id {
-        return Err(not_on_board(&block, &board_id));
-    }
-
     app.delete_block(&block_id, user_id, notification).await?;
     tracing::debug!(board_id, block_id, "DELETE Block");
     Ok(empty_response())
@@ -292,26 +299,21 @@ async fn handle_undelete_block(
     Path((board_id, block_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    let board = app.store().get_board(&board_id).await?;
-    // The original dereferences the missing history entry of a block that never
-    // existed and answers 500 from its panic handler (server/api/blocks.go:458). A 404
-    // says what is wrong.
-    let block = app
-        .last_block_history_entry(&block_id)
-        .await?
-        .ok_or_else(|| AppError::not_found(format_args!("block ID={block_id}")))?;
-    if block.board_id != board.id {
-        return Err(not_on_board(&block, &board.id));
-    }
-    // Preserved quirk: the message speaks of members (server/api/blocks.go:465).
     require_board_permission(
         &app,
         user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
-        "access denied to modify board members",
+        CHANGES_DENIED,
     )
     .await?;
+    let board = app.board(&board_id).await?;
+    let block = app
+        .last_block_history_entry(&block_id)
+        .await?
+        .filter(|block| block.board_id == board.id)
+        .ok_or_else(|| AppError::not_found("block"))?;
+    tracing::debug!(block_id = %block.id, "undeleting");
 
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
@@ -336,11 +338,11 @@ async fn handle_patch_block(
         user_id,
         &board_id,
         BoardPermission::ManageBoardCards,
-        "access denied to make board changes",
+        CHANGES_DENIED,
     )
     .await?;
     block_on_board(&app, &block_id, &board_id).await?;
-    let patch: BlockPatch = decode_json_or_internal(&body)?;
+    let patch: BlockPatch = decode_json(&body)?;
 
     app.patch_block(&block_id, &patch, user_id, notification)
         .await?;
@@ -348,43 +350,44 @@ async fn handle_patch_block(
     Ok(empty_response())
 }
 
-/// `PATCH /boards/{board_id}/blocks`: partially updates several blocks, all or none.
-///
-/// Preserved quirks (server/api/blocks.go:626-663): the board in the path is not looked
-/// at, the blocks may be on any boards whose cards the user may manage; a block that
-/// does not exist is reported as a refusal, not as missing; and the websocket
-/// broadcast goes to the team with the empty identifier, because the original reads a
-/// team from a path that has none. So the members of the board are not told about
-/// batch patches; only listeners of the blocks themselves are.
+/// `PATCH /boards/{board_id}/blocks`: partially updates several blocks of the board,
+/// all or none.
 async fn handle_patch_blocks(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
+    Path(board_id): Path<String>,
     RawQuery(query): RawQuery,
     body: Bytes,
 ) -> ApiResult {
-    /// The team the original finds in this route's path.
-    const TEAM_OF_THE_PATH: &str = "";
-
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
-    let batch: BlockPatchBatch = decode_json_or_internal(&body)?;
-
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ManageBoardCards,
+        CHANGES_DENIED,
+    )
+    .await?;
+    let board = app.board(&board_id).await?;
+    let batch: BlockPatchBatch = decode_json(&body)?;
+    if batch.block_ids.len() != batch.block_patches.len() {
+        return Err(AppError::bad_request(
+            "block_ids and block_patches differ in length",
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
     for block_id in &batch.block_ids {
-        let Ok(block) = app.block(block_id).await else {
-            return Err(AppError::forbidden("access denied to make board changes"));
-        };
-        // Preserved quirk: the message ends in a stray letter.
-        require_board_permission(
-            &app,
-            user_id,
-            &block.board_id,
-            BoardPermission::ManageBoardCards,
-            "access denied to make board changesa",
-        )
-        .await?;
+        if !seen.insert(block_id.as_str()) {
+            return Err(
+                AppError::bad_request(format_args!("block {block_id} is listed twice"))
+                    .with_field("block_ids"),
+            );
+        }
+        block_on_board(&app, block_id, &board_id).await?;
     }
 
-    app.patch_blocks(TEAM_OF_THE_PATH, &batch, user_id, notification)
+    app.patch_blocks(&board.team_id, &batch, user_id, notification)
         .await?;
     tracing::debug!(patches = batch.block_ids.len(), "PATCH Blocks");
     Ok(empty_response())
@@ -402,7 +405,15 @@ async fn handle_duplicate_block(
     let user_id = session.user_id.as_str();
     let duplicate_as = duplicate_as(query.as_deref());
 
-    let board = app.store().get_board(&board_id).await?;
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ViewBoard,
+        "access denied to modify board cards",
+    )
+    .await?;
+    let board = app.board(&board_id).await?;
     let block = block_on_board(&app, &block_id, &board.id).await?;
     if block.block_type == BlockType::Comment {
         require_board_permission(
@@ -413,16 +424,18 @@ async fn handle_duplicate_block(
             "access denied to comment on board cards",
         )
         .await?;
-    } else {
-        require_board_permission(
-            &app,
-            user_id,
-            &board_id,
-            BoardPermission::ManageBoardCards,
-            "access denied to modify board cards",
-        )
-        .await?;
+        // Comments are never copied: the store leaves them out of every duplication.
+        // The original crashes here and answers 500.
+        return Err(AppError::bad_request("a comment cannot be duplicated"));
     }
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to modify board cards",
+    )
+    .await?;
 
     tracing::debug!(board_id, block_id, "DuplicateBlock");
     let blocks = app

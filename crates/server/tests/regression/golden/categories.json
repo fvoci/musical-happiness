@@ -148,18 +148,21 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "category name cannot be empty",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "category name cannot be empty",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "create: for another user",
     "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 400,
+    "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "userID <id:1> and category userID <id:6> mismatch",
-      "errorCode": 400
+      "error": "forbidden",
+      "field": "userID",
+      "message": "a user makes categories for themselves only",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -168,8 +171,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "teamID mismatch",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "teamID mismatch",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -178,18 +182,20 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "category type is invalid. Allowed types: system and custom",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "category type is invalid. Allowed types: system and custom",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "create: malformed body",
     "request": "POST /api/v2/teams/0/categories as cat-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "EOF while parsing an object at line 1 column 1",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -276,18 +282,21 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "categoryID mismatch in patch and body",
-      "errorCode": 400
+      "error": "bad_request",
+      "field": "id",
+      "message": "the category of the body is not the one of the path",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "update: other user",
     "request": "PUT /api/v2/teams/0/categories/<id:7> as cat-bob",
-    "status": 400,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "user ID mismatch in session and category",
-      "errorCode": 400
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -296,8 +305,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{category ID=unknown-category} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -324,14 +334,14 @@
     "request": "POST /api/v2/teams/0/categories/<id:7>/boards/<id:2> as cat-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": "ok"
+    "body": {}
   },
   {
     "name": "file the second board",
     "request": "POST /api/v2/teams/0/categories/<id:7>/boards/<id:3> as cat-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": "ok"
+    "body": {}
   },
   {
     "name": "list after filing",
@@ -402,9 +412,13 @@
   {
     "name": "hide: other user",
     "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/<id:2>/hide as cat-bob",
-    "status": 200,
+    "status": 404,
     "content_type": "application/json",
-    "body": {}
+    "body": {
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
+    }
   },
   {
     "name": "list after hiding",
@@ -485,31 +499,34 @@
   {
     "name": "reorder boards: missing one",
     "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/reorder as cat-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "the new order must list every board of the category once: it has 1, the category has 2",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "reorder boards: unknown board",
     "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/reorder as cat-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "the new order names unknown, which is no board of the category",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "reorder boards: other user",
     "request": "PUT /api/v2/teams/0/categories/<id:7>/boards/reorder as cat-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied to category",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -526,21 +543,23 @@
   {
     "name": "reorder categories: missing one",
     "request": "PUT /api/v2/teams/0/categories/reorder as cat-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "the new order must list every category once: it has 2, the user has 3",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "reorder categories: unknown id",
     "request": "PUT /api/v2/teams/0/categories/reorder as cat-alice",
-    "status": 500,
+    "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "bad_request",
+      "message": "the new order names unknown, which is none of the user's categories",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -605,21 +624,23 @@
   {
     "name": "delete: other user",
     "request": "DELETE /api/v2/teams/0/categories/<id:7> as cat-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "category doesn't belong to user",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "delete: system category",
     "request": "DELETE /api/v2/teams/0/categories/<id:4> as cat-alice",
-    "status": 500,
+    "status": 403,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "forbidden",
+      "message": "a system category cannot be deleted",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -628,8 +649,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "{category ID=unknown-category} not found",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -654,20 +676,12 @@
   {
     "name": "delete: again",
     "request": "DELETE /api/v2/teams/0/categories/<id:7> as cat-alice",
-    "status": 200,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "collapsed": true,
-      "createAt": "<ts>",
-      "deleteAt": "<ts>",
-      "id": "<id:7>",
-      "name": "Projects 2",
-      "sortOrder": 10,
-      "sorting": "",
-      "teamID": "0",
-      "type": "custom",
-      "updateAt": "<ts>",
-      "userID": "<id:1>"
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -676,8 +690,9 @@
     "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "category is deleted",
-      "errorCode": 404
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -728,11 +743,12 @@
   {
     "name": "file a board: other user's category",
     "request": "POST /api/v2/teams/0/categories/<id:8>/boards/<id:3> as cat-bob",
-    "status": 403,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "category doesn't belong to user",
-      "errorCode": 403
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -783,11 +799,12 @@
   {
     "name": "file a board: unknown category",
     "request": "POST /api/v2/teams/0/categories/unknown-category/boards/<id:3> as cat-alice",
-    "status": 500,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "internal server error",
-      "errorCode": 500
+      "error": "not_found",
+      "message": "category not found",
+      "request_id": "<request-id>"
     }
   },
   {

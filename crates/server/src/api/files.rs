@@ -21,9 +21,12 @@ use fvoci_store::DuplicateAs;
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use super::{ApiResult, OptionalSession, RequiredSession, has_valid_read_token, json_response};
+use super::{
+    ApiResult, OptionalSession, RequiredSession, board_refusal, has_valid_read_token,
+    json_response, require_board_permission,
+};
 use crate::app::App;
-use crate::app::belongs_to_board;
+use crate::app::{FILE, belongs_to_board};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
@@ -58,6 +61,10 @@ pub(super) const NOT_MULTIPART: &str = "request Content-Type isn't multipart/for
 /// The multipart form field the uploaded file is sent in.
 const UPLOAD_FIELD: &str = "file";
 
+/// The refusal of an upload that carries no part with the file.
+const NO_FILE_PART: &str = "the request has no part named `file` with a file name";
+
+/// The routes that read files.
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route(
@@ -68,10 +75,14 @@ pub(super) fn routes() -> Router<App> {
             "/files/teams/{team_id}/{board_id}/{filename}/info",
             get(handle_get_file_info),
         )
-        .route(
-            "/teams/{team_id}/{board_id}/files",
-            post(handle_upload_file),
-        )
+}
+
+/// The route that takes a file, whose size has a limit of its own.
+pub(super) fn upload_routes() -> Router<App> {
+    Router::new().route(
+        "/teams/{team_id}/{board_id}/files",
+        post(handle_upload_file),
+    )
 }
 
 /// Checks that the requester may read the board's files: a member with the view
@@ -91,7 +102,7 @@ async fn check_read_access(
             .has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
             .await
     {
-        return Err(AppError::forbidden("access denied to board"));
+        return Err(board_refusal(app, user_id, board_id, "access denied to board").await);
     }
     Ok(())
 }
@@ -110,18 +121,10 @@ async fn handle_serve_file(
     let (info, path) = app
         .get_file_path(&board.team_id, &board_id, &filename)
         .await?;
-    // Not in the original, which gives any file out through any board the requester may
-    // read. A file is tied to the board its path names.
-    if !belongs_to_board(&path, &board_id) {
-        return Err(AppError::forbidden(
-            "file does not belong to the specified board",
-        ));
-    }
-    // The original's download handler returns on the first error it meets, before its
-    // channel fallback, so a missing file is a 500 (`server/api/files.go:146-170`, the
-    // missing return). The legacy fallbacks are ported on `App` but unreachable here.
-    if !app.files().exists(&path).await? {
-        return Err(AppError::internal("file not found"));
+    // A file is tied to the board its path names. Through another board it is as
+    // missing as a file that does not exist: the answers must not tell the two apart.
+    if !belongs_to_board(&path, &board_id) || !app.files().exists(&path).await? {
+        return Err(AppError::not_found(FILE));
     }
     let size = app.files().size(&path).await?.unwrap_or(0);
     let mime_type = info.map(|info| info.mime_type).unwrap_or_default();
@@ -144,11 +147,11 @@ async fn handle_get_file_info(
         .get_file_path(&board.team_id, &board_id, &filename)
         .await?
     {
-        (Some(_), path) if !belongs_to_board(&path, &board_id) => {
-            Err(AppError::forbidden("access denied to file"))
+        (Some(info), path) if belongs_to_board(&path, &board_id) => {
+            Ok(json_response(&FileInfoResponse::from(info)))
         }
-        (Some(info), _) => Ok(json_response(&FileInfoResponse::from(info))),
-        (None, _) => Ok(json_response(&Value::Null)),
+        // No record, or the record of another board's file.
+        _ => Err(AppError::not_found(FILE)),
     }
 }
 
@@ -160,12 +163,14 @@ async fn handle_upload_file(
     multipart: Result<Multipart, MultipartRejection>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    if !app
-        .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardCards)
-        .await
-    {
-        return Err(AppError::forbidden("access denied to make board changes"));
-    }
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ManageBoardCards,
+        "access denied to make board changes",
+    )
+    .await?;
     let board = app.board(&board_id).await?;
     let max_file_size = app.config().max_file_size;
 
@@ -203,13 +208,13 @@ async fn read_upload(
             .await
             .map_err(|error| AppError::bad_request(error.to_string()))?;
         let Some(mut field) = field else {
-            return Err(AppError::bad_request("http: no such file"));
+            return Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
         };
         if field.name() != Some(UPLOAD_FIELD) {
             continue;
         }
         let Some(filename) = field.file_name().map(str::to_owned) else {
-            return Err(AppError::bad_request("http: no such file"));
+            return Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
         };
 
         let mut bytes = Vec::new();
@@ -219,8 +224,8 @@ async fn read_upload(
             .map_err(|error| AppError::bad_request(error.to_string()))?
         {
             if max_file_size > 0 && bytes.len() + chunk.len() > limit {
-                return Err(AppError::RequestEntityTooLarge(
-                    "request entity too large".to_owned(),
+                return Err(AppError::payload_too_large(
+                    u64::try_from(max_file_size).unwrap_or(u64::MAX),
                 ));
             }
             bytes.extend_from_slice(&chunk);

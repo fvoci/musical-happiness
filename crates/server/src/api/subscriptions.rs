@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::decode_object_members;
-use super::require_board_permission;
+use super::require_permission_through;
 use super::{ApiResult, RequiredSession, empty_response, json_response};
 use crate::app::App;
 use crate::error::AppError;
@@ -17,6 +17,9 @@ use crate::permissions::BoardPermission;
 
 /// The refusal of this area, whatever is refused.
 const ACCESS_DENIED: &str = "access denied";
+
+/// What a request to end a subscription misses.
+const SUBSCRIPTION: &str = "subscription";
 
 pub(super) fn routes() -> Router<App> {
     // The first position after `/subscriptions` is a block in one route and a
@@ -58,7 +61,7 @@ impl SubscriptionRequest {
     /// original does not classify the decoding error (server/api/subscriptions.go:60-63).
     fn decode(body: &[u8]) -> Result<Self, AppError> {
         let members = decode_object_members(body)?;
-        serde_json::from_value(Value::Object(members)).map_err(AppError::internal)
+        serde_json::from_value(Value::Object(members)).map_err(AppError::bad_request)
     }
 
     /// Validates in the original's order (server/model/subscription.go `IsValid`):
@@ -66,7 +69,8 @@ impl SubscriptionRequest {
     fn into_subscription(self) -> Result<Subscription, AppError> {
         let subscriber_type = match self.subscriber_type.as_str() {
             "user" => Some(SubscriberType::User),
-            "channel" => Some(SubscriberType::Channel),
+            // The original also takes `channel`, for the channels of its host
+            // application. There are none here.
             _ => None,
         };
         let subscription = Subscription {
@@ -81,7 +85,9 @@ impl SubscriptionRequest {
         };
         subscription.validate().map_err(AppError::bad_request)?;
         if subscriber_type.is_none() {
-            return Err(AppError::bad_request("invalid subscriber type"));
+            return Err(
+                AppError::bad_request("invalid subscriber type").with_field("subscriberType")
+            );
         }
         Ok(subscription)
     }
@@ -103,18 +109,20 @@ async fn handle_create_subscription(
 ) -> ApiResult {
     let subscription = SubscriptionRequest::decode(&body)?.into_subscription()?;
     if session.user_id != subscription.subscriber_id {
-        return Err(AppError::bad_request("userID and subscriberID mismatch"));
+        return Err(
+            AppError::forbidden("a user subscribes for themselves only").with_field("subscriberId")
+        );
     }
-    let block = app
-        .block(&subscription.block_id)
-        .await
-        .map_err(|error| AppError::bad_request(format_args!("invalid blockID: {error}")))?;
-    require_board_permission(
+    // The request names a block and no board: a block on a board the user may not read
+    // does not exist for them.
+    let block = app.block(&subscription.block_id).await?;
+    require_permission_through(
         &app,
         &session.user_id,
         &block.board_id,
         BoardPermission::ViewBoard,
         ACCESS_DENIED,
+        "block",
     )
     .await?;
 
@@ -135,10 +143,20 @@ async fn handle_delete_subscription(
     RequiredSession(session): RequiredSession,
     Path((block_id, subscriber_id)): Path<(String, String)>,
 ) -> ApiResult {
+    // The subscriptions of another user are nobody's business: not even that there is
+    // one is said.
     if session.user_id != subscriber_id {
-        return Err(AppError::forbidden(ACCESS_DENIED));
+        return Err(AppError::not_found(SUBSCRIPTION));
     }
-    app.delete_subscription(&block_id, &subscriber_id).await?;
+    app.delete_subscription(&block_id, &subscriber_id)
+        .await
+        .map_err(|error| {
+            if error.is_not_found() {
+                AppError::not_found(SUBSCRIPTION)
+            } else {
+                error
+            }
+        })?;
     tracing::debug!(block_id, subscriber_id, "DELETE subscription");
     Ok(empty_response())
 }
@@ -150,7 +168,7 @@ async fn handle_get_subscriptions(
     Path(subscriber_id): Path<String>,
 ) -> ApiResult {
     if session.user_id != subscriber_id {
-        return Err(AppError::forbidden(ACCESS_DENIED));
+        return Err(AppError::not_found("subscriber"));
     }
     let subscriptions = app.subscriptions(&subscriber_id).await?;
     tracing::debug!(

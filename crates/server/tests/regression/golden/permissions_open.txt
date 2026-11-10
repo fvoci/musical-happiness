@@ -6,10 +6,10 @@ board: patch properties                     401        403        403        403
 board: patch type                           401        403        403        403        403        200
 board: patch minimum role                   401        403        403        403        403        200
 board: delete                               401        403        403        403        403        200
-board: undelete                             401        403        403        403        403        200
+board: undelete                             401        404        403        403        403        200
 board: duplicate                            401        403        200        200        200        200
 board: duplicate as template                401        403        200        200        200        200
-board: metadata                             401        501        501        501        501        501
+board: metadata                             404        404        404        404        404        404
 members: list                               401        403        200        200        200        200
 members: add viewer                         401        403        403        403        200        200
 members: add admin                          401        403        403        403        403        200
@@ -35,12 +35,12 @@ boards-and-blocks: patch                    401        403        403        403
 boards-and-blocks: delete                   401        403        403        403        403        200
 cards: create                               401        403        403        403        200        200
 cards: list                                 401        403        200        200        200        200
-cards: get                                  401        403        200        200        200        200
-cards: patch                                401        403        403        403        200        200
-content: move                               401        403        403        403        200        200
+cards: get                                  401        404        200        200        200        200
+cards: patch                                401        404        403        403        200        200
+content: move                               401        404        403        403        200        200
 sharing: get                                401        403        403        403        403        200
 sharing: post                               401        403        403        403        403        200
-subscriptions: create                       401        403        200        200        200        200
+subscriptions: create                       401        404        200        200        200        200
 subscriptions: delete                       401        404        200        200        200        200
 files: upload                               401        403        403        403        200        200
 files: download                             401        403        200        200        200        200

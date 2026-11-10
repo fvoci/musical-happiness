@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use fvoci_model::{
     BlockType, BoardMember, BoardType, BoardsAndBlocks, BoardsAndBlocksError,
-    DeleteBoardsAndBlocks, PatchBoardsAndBlocks, generate_boards_and_blocks_ids,
+    DeleteBoardsAndBlocks, PatchBoardsAndBlocks, renew_boards_and_blocks_ids,
 };
 
 use crate::Store;
@@ -98,7 +98,7 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board, and
-    /// [`StoreError::InvalidBoardsAndBlocks`] if the board has no block to copy.
+    /// the store's error if the copy cannot be written.
     pub async fn duplicate_board(
         &self,
         board_id: &str,
@@ -242,13 +242,14 @@ pub(crate) async fn duplicate_board(
         .filter(|block| block.block_type != BlockType::Comment)
         .collect();
 
-    // Preserved quirk: regenerating the identifiers insists on at least one block, so a
-    // board without blocks, or with comments only, cannot be duplicated
+    // A board without blocks, or with comments only, is copied as a board without
+    // blocks. The original refuses it, because it regenerates the identifiers with the
+    // function for requests, which insists on at least one block
     // (`server/services/store/sqlstore/boards_and_blocks.go:177`).
-    let mut copies = generate_boards_and_blocks_ids(BoardsAndBlocks {
+    let mut copies = renew_boards_and_blocks_ids(BoardsAndBlocks {
         boards: vec![board],
         blocks,
-    })?;
+    });
     let members = create_boards_and_blocks_with_admin(scope, &mut copies, user_id).await?;
     Ok((copies, members))
 }

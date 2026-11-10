@@ -17,9 +17,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use crate::boards::TeamSocket;
-use crate::cards::{
-    Roles, board_with_roles, check_error, check_internal_error, insert_block, new_block,
-};
+use crate::cards::{Roles, board_with_roles, check_error, insert_block, new_block};
 use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID};
 
 /// How long background notifications may take to finish.
@@ -27,8 +25,14 @@ const BACKGROUND: Duration = Duration::from_secs(10);
 
 const PATH: &str = "/subscriptions";
 
-/// The refusal of this area, whatever is refused.
-const DENIED: &str = "access denied";
+/// What a block the user cannot read answers, as one that does not exist.
+const NO_BLOCK: &str = "block not found";
+
+/// What ending a subscription the user does not have answers.
+const NO_SUBSCRIPTION: &str = "subscription not found";
+
+/// The refusal to subscribe somebody else.
+const NOT_FOR_OTHERS: &str = "a user subscribes for themselves only";
 
 // -- helpers --------------------------------------------------------------------------
 
@@ -226,14 +230,7 @@ async fn delete_subscription_delete_invalid_subscription() {
 
     let response = unsubscribe(&th.client, "bogus", &user.id).await;
 
-    check_error(
-        &response,
-        StatusCode::NOT_FOUND,
-        &format!(
-            "{{subscription BlockID=bogus SubscriberID={}}} not found",
-            user.id
-        ),
-    );
+    check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
     th.teardown().await;
 }
 
@@ -264,14 +261,13 @@ async fn create_subscription_validation() {
     let response = th.anonymous().post(PATH, &request(&card.id, &me)).await;
     response.check_unauthorized();
 
-    let no_board_block = format!("invalid blockID: {{block ID={}}} not found", board.id);
     let all_null = json!({
         "blockType": null,
         "blockId": null,
         "subscriberType": null,
         "subscriberId": null,
     });
-    let cases = [
+    let bad_requests = [
         (without("blockId"), "missing block id"),
         (without("blockType"), "missing block type"),
         (without("subscriberId"), "missing subscriber id"),
@@ -284,44 +280,49 @@ async fn create_subscription_validation() {
             with("subscriberType", json!("User")),
             "invalid subscriber type",
         ),
+        // The original also takes `channel`, for the channels of its host application.
+        (
+            with("subscriberType", json!("channel")),
+            "invalid subscriber type",
+        ),
         (with("blockId", json!("")), "missing block id"),
-        // Nothing at all, also as `null`: the first thing missing is reported.
+        // Nothing at all, also as `null` members: the first thing missing is reported.
         (json!({}), "missing block id"),
-        (json!(null), "missing block id"),
         (all_null, "missing block id"),
         (json!({"subscriberId": other}), "missing block id"),
-        // Complete, but for someone else; whether the block exists is not looked at.
-        (
-            request(&card.id, &other),
-            "userID and subscriberID mismatch",
-        ),
-        (request("nope", &other), "userID and subscriberID mismatch"),
-        // A block that does not exist. Boards are no blocks.
-        (
-            request("nope", &me),
-            "invalid blockID: {block ID=nope} not found",
-        ),
-        (with("blockId", json!(board.id)), no_board_block.as_str()),
     ];
-    for (body, message) in &cases {
+    for (body, message) in &bad_requests {
         let response = th.client.post(PATH, body).await;
         check_error(&response, StatusCode::BAD_REQUEST, message);
     }
 
-    // Preserved quirk: a body that cannot be decoded is a server error
-    // (server/api/subscriptions.go:60-63).
+    // Complete, but for someone else; whether the block exists is not looked at.
+    for block_id in [card.id.as_str(), "nope"] {
+        let response = th.client.post(PATH, &request(block_id, &other)).await;
+        check_error(&response, StatusCode::FORBIDDEN, NOT_FOR_OTHERS);
+    }
+    // A block that does not exist. Boards are no blocks.
+    for block_id in ["nope", board.id.as_str()] {
+        let response = th.client.post(PATH, &request(block_id, &me)).await;
+        check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
+    }
+
+    // A body that is no JSON object, or whose members have the wrong types, is a bad
+    // request. (The original answers 500.)
     let block_id_number = with("blockId", json!(5)).to_string();
     let time_text = with("notifiedAt", json!("now")).to_string();
     for body in [
         "{\"blockId\":",
         "",
         "[]",
+        "null",
         "\"card\"",
         &block_id_number,
         &time_text,
     ] {
         let response = th.client.send_raw_body(Method::POST, PATH, body).await;
-        check_internal_error(&response);
+        response.check_bad_request();
+        assert_eq!(response.error_code(), "bad_request", "{body}");
     }
 
     assert_eq!(
@@ -394,11 +395,8 @@ async fn create_subscription_answer_and_subscribing_again() {
     };
     assert_eq!(subscriptions_of(&th.client, &me).await, [stored]);
 
-    // The block type is whatever the client says, also another one than the block's,
-    // and a user may subscribe as a channel.
-    for (block_type, subscriber_type) in
-        [("text", "user"), ("whatever", "user"), ("card", "channel")]
-    {
+    // The block type is whatever the client says, also another one than the block's.
+    for (block_type, subscriber_type) in [("text", "user"), ("whatever", "user")] {
         let card = insert_card(&th.client, &board.id).await;
         let mut body = request(&card.id, &me);
         body["blockType"] = json!(block_type);
@@ -433,12 +431,14 @@ async fn subscriptions_of_another_user_are_refused() {
     let response = unsubscribe(&th.anonymous(), &card.id, &user1).await;
     response.check_unauthorized();
 
+    // The subscriptions of another user are nobody's business: the answer is the same
+    // for a user who has some, a user who has none, and nobody at all.
     for subscriber_id in [user1.as_str(), "nobody"] {
         let response = get_subscriptions(&th.client2, subscriber_id).await;
-        check_error(&response, StatusCode::FORBIDDEN, DENIED);
+        check_error(&response, StatusCode::NOT_FOUND, "subscriber not found");
         for block_id in [card.id.as_str(), "nope"] {
             let response = unsubscribe(&th.client2, block_id, subscriber_id).await;
-            check_error(&response, StatusCode::FORBIDDEN, DENIED);
+            check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
         }
     }
 
@@ -460,18 +460,13 @@ async fn delete_subscription_twice() {
     let me = th.client.me().await.id;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
-    let not_found = format!(
-        "{{subscription BlockID={} SubscriberID={me}}} not found",
-        card.id
-    );
-
     let response = unsubscribe(&th.client, &card.id, &me).await;
-    check_error(&response, StatusCode::NOT_FOUND, &not_found);
+    check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
 
     subscribe(&th.client, &card.id, &me).await;
     unsubscribe(&th.client, &card.id, &me).await.check_ok();
     let response = unsubscribe(&th.client, &card.id, &me).await;
-    check_error(&response, StatusCode::NOT_FOUND, &not_found);
+    check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
 
     th.teardown().await;
 }
@@ -498,11 +493,7 @@ async fn delete_subscription_to_a_deleted_block() {
         "the subscription is still listed"
     );
     let response = th.client.post(PATH, &request(&card.id, &me)).await;
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        &format!("invalid blockID: {{block ID={}}} not found", card.id),
-    );
+    check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
 
     let response = unsubscribe(&th.client, &card.id, &me).await;
     response.check_ok();
@@ -521,17 +512,13 @@ async fn subscriptions_in_single_user_mode() {
     let subscription = subscribe(&th.client, &card.id, SINGLE_USER_ID).await;
     assert_eq!(subscription.subscriber_id, SINGLE_USER_ID, "the one user");
     let response = th.client.post(PATH, &request(&card.id, "someone")).await;
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        "userID and subscriberID mismatch",
-    );
+    check_error(&response, StatusCode::FORBIDDEN, NOT_FOR_OTHERS);
     assert_eq!(
         subscriptions_of(&th.client, SINGLE_USER_ID).await,
         [subscription]
     );
     let response = get_subscriptions(&th.client, "someone").await;
-    check_error(&response, StatusCode::FORBIDDEN, DENIED);
+    check_error(&response, StatusCode::NOT_FOUND, "subscriber not found");
     let response = get_subscriptions(&th.client_with_token("wrong"), SINGLE_USER_ID).await;
     check_error(
         &response,
@@ -586,10 +573,12 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     let private_board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
     let open_board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
 
+    // The request names a block and no board, so a block the user cannot read answers
+    // as one that does not exist: nothing is said about the blocks of other boards.
     for board in [&private_board, &open_board] {
         let card = insert_card(&th.client, &board.id).await;
         let response = th.client2.post(PATH, &request(&card.id, &outsider)).await;
-        check_error(&response, StatusCode::FORBIDDEN, DENIED);
+        check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
     }
     assert_eq!(
         subscriptions_of(&th.client2, &outsider).await,
@@ -597,13 +586,8 @@ async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
         "nothing was stored"
     );
 
-    // Whether a block exists is answered before, as in the original.
     let response = th.client2.post(PATH, &request("nope", &outsider)).await;
-    check_error(
-        &response,
-        StatusCode::BAD_REQUEST,
-        "invalid blockID: {block ID=nope} not found",
-    );
+    check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
 
     // Once they have joined the open board, they can subscribe to its cards.
     let card = insert_card(&th.client, &open_board.id).await;
@@ -651,7 +635,7 @@ async fn subscription_by_every_member_of_the_board_still_works() {
         .await
         .check_ok();
     let response = viewer.post(PATH, &request(&card.id, &viewer_id)).await;
-    check_error(&response, StatusCode::FORBIDDEN, DENIED);
+    check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
     assert_eq!(
         subscriptions_of(&viewer, &viewer_id).await,
         [],

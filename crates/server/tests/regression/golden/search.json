@@ -296,8 +296,9 @@
     "status": 400,
     "content_type": "application/json",
     "body": {
-      "error": "invalid board search field",
-      "errorCode": 400
+      "error": "bad_request",
+      "message": "invalid board search field",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -306,8 +307,9 @@
     "status": 401,
     "content_type": "application/json",
     "body": {
-      "error": "no session token",
-      "errorCode": 401
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
     }
   },
   {
@@ -368,71 +370,78 @@
   {
     "name": "linkable search",
     "request": "GET /api/v2/teams/0/boards/search/linkable?q=zebra as search-alice",
-    "status": 501,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "not permitted in standalone mode",
-      "errorCode": 501
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "channels",
     "request": "GET /api/v2/teams/0/channels?search=x as search-alice",
-    "status": 501,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "not permitted in standalone mode",
-      "errorCode": 501
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "channel",
     "request": "GET /api/v2/teams/0/channels/some-channel as search-alice",
-    "status": 501,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "not permitted in standalone mode",
-      "errorCode": 501
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "statistics",
     "request": "GET /api/v2/statistics as search-alice",
-    "status": 501,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "not permitted in standalone mode",
-      "errorCode": 501
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "compliance boards",
     "request": "GET /api/v2/admin/boards as search-alice",
-    "status": 401,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied Compliance Export getAllBoards",
-      "errorCode": 401
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "compliance boards history",
     "request": "GET /api/v2/admin/boards_history?modified_since=1 as search-alice",
-    "status": 401,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied Compliance Export getBoardsHistory",
-      "errorCode": 401
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   },
   {
     "name": "compliance blocks history",
     "request": "GET /api/v2/admin/blocks_history?modified_since=1 as search-alice",
-    "status": 401,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "access denied Compliance Export getBlocksHistory",
-      "errorCode": 401
+      "error": "not_found",
+      "message": "route not found",
+      "request_id": "<request-id>"
     }
   }
 ]
