@@ -4,6 +4,8 @@ import type { ListOrder } from '$lib/logic/drop-target.ts';
 export interface Card {
   id: string;
   title: string;
+  /** What the sorted view sorts by. */
+  task: string;
   tag: string | undefined;
 }
 
@@ -39,16 +41,33 @@ const TASKS = [
 ];
 const TAGS = ['bug', 'design', undefined, 'docs', undefined, undefined];
 
-/**
- * The sizes asked for in the address (`?sizes=3,0,500`), for trying an empty
- * column or a very long one; the default board otherwise.
- */
-export function sizesFrom(search: string): number[] {
-  const sizes = (new URLSearchParams(search).get('sizes') ?? '')
+/** What the page starts with, from its address. */
+export interface Start {
+  /** Cards per column: `?sizes=3,0,500`, for trying an empty column or a very long one. */
+  sizes: number[];
+  /** `?sorted=1`: the sorted view is on. */
+  sorted: boolean;
+  /** `?select=1`: a tap selects a card instead of opening it. */
+  selecting: boolean;
+  /** `?zone=1`: the hidden column is shown as a place to drop cards on. */
+  zone: boolean;
+  /** `?dir=rtl`: the page runs right to left. */
+  rtl: boolean;
+}
+
+export function startFrom(search: string): Start {
+  const params = new URLSearchParams(search);
+  const sizes = (params.get('sizes') ?? '')
     .split(',')
     .filter((part) => /^\d+$/.test(part))
     .map(Number);
-  return sizes.length > 0 ? sizes : DEFAULT_SIZES;
+  return {
+    sizes: sizes.length > 0 ? sizes : DEFAULT_SIZES,
+    sorted: params.get('sorted') === '1',
+    selecting: params.get('select') === '1',
+    zone: params.get('zone') === '1',
+    rtl: params.get('dir') === 'rtl',
+  };
 }
 
 export function fakeBoard(sizes: readonly number[]): BoardData {
@@ -63,6 +82,7 @@ export function fakeBoard(sizes: readonly number[]): BoardData {
       board.cards[cardId] = {
         id: cardId,
         title: `${title} ${number}: ${task}`,
+        task,
         tag: TAGS[(number + at) % TAGS.length],
       };
       items.push(cardId);
@@ -71,4 +91,15 @@ export function fakeBoard(sizes: readonly number[]): BoardData {
     board.order.push({ id, items });
   });
   return board;
+}
+
+/**
+ * The order of the sorted view: by task, and among cards with the same task
+ * by id, numbers counted as numbers. Returns a comparison of two card ids.
+ */
+export function byTask(cards: Record<string, Card>): (first: string, second: string) => number {
+  const collator = new Intl.Collator('en', { numeric: true });
+  return (first, second) =>
+    collator.compare(cards[first]?.task ?? '', cards[second]?.task ?? '') ||
+    collator.compare(first, second);
 }

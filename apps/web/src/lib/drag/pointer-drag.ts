@@ -8,9 +8,12 @@
  * A mouse starts dragging once it has moved a few pixels with the button
  * down, so a click stays a click. A finger (or a pen) starts dragging after
  * resting on the item for a moment; a finger that moves before that is
- * scrolling, and is left to the browser.
+ * scrolling, and is left to the browser. The moment the resting finger has
+ * picked the item up the device buzzes briefly, where it can.
  */
 import type { Point } from '$lib/logic/drop-target.ts';
+
+import { DRAG_SETTINGS } from './settings.ts';
 
 export interface PointerDragOptions {
   /** How far a mouse travels with the button down before the drag begins, in pixels. */
@@ -19,12 +22,15 @@ export interface PointerDragOptions {
   touchDelay: number;
   /** How far a resting finger may wander without giving up the drag, in pixels. */
   touchTolerance: number;
+  /** How long the device buzzes when a resting finger begins a drag, in milliseconds. 0 for none. */
+  touchVibration: number;
 }
 
 export const POINTER_DRAG_DEFAULTS: PointerDragOptions = {
-  mouseDistance: 4,
-  touchDelay: 300,
-  touchTolerance: 8,
+  mouseDistance: DRAG_SETTINGS.mouseDistance,
+  touchDelay: DRAG_SETTINGS.touchDelay,
+  touchTolerance: DRAG_SETTINGS.touchTolerance,
+  touchVibration: DRAG_SETTINGS.touchVibration,
 };
 
 /** What one drag does. `start` is called once; after it exactly one of `drop` and `cancel`. */
@@ -65,6 +71,20 @@ interface Press {
 
 function pointOf(event: PointerEvent): Point {
   return { x: event.clientX, y: event.clientY };
+}
+
+/**
+ * A short buzz, on devices that have one. Safari on iOS has no
+ * `navigator.vibrate` at all, and a browser may refuse (before the page was
+ * ever tapped, or by a setting of the device): neither is an error here.
+ */
+function buzz(duration: number): void {
+  if (duration <= 0 || !('vibrate' in navigator)) return;
+  try {
+    navigator.vibrate(duration);
+  } catch {
+    // Nothing to do: the drag goes on without the buzz.
+  }
 }
 
 export function pointerDrag(
@@ -133,6 +153,9 @@ export function pointerDrag(
     } catch {
       // The pointer is already gone; its pointerup or pointercancel follows.
     }
+    // Only a finger that rested gets the buzz: it is the one sign that the
+    // wait is over. A mouse sees the item move.
+    if (press.touch) buzz(settings.touchVibration);
     press.session.start(press.last);
   }
 

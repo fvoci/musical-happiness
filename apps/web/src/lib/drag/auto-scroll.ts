@@ -9,6 +9,8 @@
  */
 import { edgeScrollFactor, type Axis, type Point } from '$lib/logic/drop-target.ts';
 
+import { DRAG_SETTINGS } from './settings.ts';
+
 export interface AutoScrollOptions {
   /** Width of the zone at each edge in which the pointer scrolls, in pixels. */
   edge: number;
@@ -16,7 +18,10 @@ export interface AutoScrollOptions {
   maxSpeed: number;
 }
 
-export const AUTO_SCROLL_DEFAULTS: AutoScrollOptions = { edge: 56, maxSpeed: 900 };
+export const AUTO_SCROLL_DEFAULTS: AutoScrollOptions = {
+  edge: DRAG_SETTINGS.scrollEdge,
+  maxSpeed: DRAG_SETTINGS.scrollMaxSpeed,
+};
 
 /** A box that may scroll along one axis. */
 export interface ScrollBox {

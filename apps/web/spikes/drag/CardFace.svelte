@@ -12,14 +12,16 @@
     card: Card;
     /** Off the board: under the pointer, or carried by the keyboard. */
     lifted?: boolean;
+    /** How many cards travel with this one, itself included. Shown when more than one. */
+    count?: number;
   }
 
-  let { card, lifted = false }: Props = $props();
+  let { card, lifted = false, count = 1 }: Props = $props();
 </script>
 
 <div
   class={[
-    'flex items-start gap-2 rounded-md border bg-card p-3 text-card-foreground',
+    'relative flex items-start gap-2 rounded-md border bg-card p-3 text-card-foreground',
     lifted ? 'shadow-lg ring-2 ring-ring' : 'shadow-xs',
   ]}
 >
@@ -30,4 +32,12 @@
       <p class="mt-1 text-xs text-muted-foreground">{card.tag}</p>
     {/if}
   </div>
+  {#if count > 1}
+    <span
+      data-carry-count
+      class="absolute -end-2 -top-2 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+    >
+      {count}
+    </span>
+  {/if}
 </div>

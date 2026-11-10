@@ -1,110 +1,42 @@
 /**
- * The drag spike in a browser: a real mouse, a real finger (touch events sent
- * through the DevTools protocol, which run through the browser's own gesture
- * handling) and the keyboard.
+ * The drag spike in a browser, the cards of a plain board: a real mouse, a
+ * real finger (touch events sent through the DevTools protocol, which run
+ * through the browser's own gesture handling) and the keyboard.
  *
- * Every test ends by reading the order of the cards from the page.
- *
- * A target is always measured where it lies *now*: the gap that follows the
- * pointer moves the cards below it, so a position measured before the drag
- * began is no longer where the card is.
+ * Every test ends by reading the order of the cards from the page. What the
+ * tests share, and how a target is measured, is in support.ts.
  */
-import { expect, test, type CDPSession, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
-const PAGE = '/spikes/drag/';
-
-interface Point {
-  x: number;
-  y: number;
-}
-
-const card = (page: Page, id: string): Locator => page.locator(`[data-card="${id}"]`);
-const list = (page: Page, column: string): Locator => page.locator(`[data-drag-list="${column}"]`);
-const board = (page: Page): Locator => page.getByTestId('board');
-const overlay = (page: Page): Locator => page.locator('[data-drag-overlay]');
-
-/** The ids of the cards of a column, top to bottom. */
-async function cardsIn(page: Page, column: string): Promise<string[]> {
-  return page
-    .locator(`[data-column="${column}"] [data-card]`)
-    .evaluateAll((cards) => cards.map((element) => element.getAttribute('data-card') ?? ''));
-}
-
-function numbered(column: string, from: number, to: number): string[] {
-  return Array.from({ length: to - from + 1 }, (_, index) => `${column}-${from + index}`);
-}
-
-/** A point on an element as it lies now: in the middle across, `down` of the way from its top. */
-async function pointOn(locator: Locator, down = 0.5): Promise<Point> {
-  const box = await locator.boundingBox();
-  if (!box) throw new Error('the element is not on the page');
-  return { x: box.x + box.width / 2, y: box.y + box.height * down };
-}
-
-async function nextFrame(page: Page): Promise<void> {
-  await page.evaluate(
-    () =>
-      new Promise((resolve) => {
-        requestAnimationFrame(resolve);
-      }),
-  );
-}
-
-async function scrollOf(locator: Locator): Promise<{ left: number; top: number; atEnd: boolean }> {
-  return locator.evaluate((element) => ({
-    left: element.scrollLeft,
-    top: element.scrollTop,
-    atEnd:
-      element.scrollLeft + element.clientWidth >= element.scrollWidth - 1 &&
-      element.scrollTop + element.clientHeight >= element.scrollHeight - 1,
-  }));
-}
-
-/** Where the dragged card would land, as the page reports it. */
-async function expectTarget(page: Page, column: string, index: number): Promise<void> {
-  await expect(board(page)).toHaveAttribute('data-drop-list', column);
-  await expect(board(page)).toHaveAttribute('data-drop-index', String(index));
-}
-
-async function expectNothingMoved(page: Page): Promise<void> {
-  await expect(board(page)).not.toHaveAttribute('data-dragging');
-  await expect(overlay(page)).toHaveCount(0);
-  await expect(page.locator('[data-drag-gap]')).toHaveCount(0);
-  await expect(page.getByTestId('moves')).toHaveText('0');
-  expect(await cardsIn(page, 'backlog')).toEqual(numbered('backlog', 1, 12));
-  expect(await cardsIn(page, 'ready')).toEqual(numbered('ready', 1, 30));
-}
+import {
+  announcer,
+  board,
+  card,
+  cardsIn,
+  dropIndex,
+  expectNothingMoved,
+  expectTarget,
+  Finger,
+  hover,
+  list,
+  nextFrame,
+  numbered,
+  open,
+  overlay,
+  PAGE,
+  pickUp,
+  pointOn,
+  scrollOf,
+} from './support.ts';
 
 test.beforeEach(async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto(PAGE);
-  await expect(card(page, 'backlog-1')).toBeVisible();
-  expect(errors).toEqual([]);
+  await open(page);
 });
 
 // ------------------------------------------------------------------ mouse
 
 test.describe('mouse', () => {
   test.skip(({ hasTouch }) => hasTouch, 'the mouse is tested in the desktop project');
-
-  /** Presses on a card and moves far enough for the drag to begin. */
-  async function pickUp(page: Page, id: string): Promise<void> {
-    const from = await pointOn(card(page, id));
-    await page.mouse.move(from.x, from.y);
-    await page.mouse.down();
-    await page.mouse.move(from.x + 6, from.y + 6, { steps: 3 });
-    await expect(overlay(page)).toBeVisible();
-  }
-
-  /** Moves onto a card as it lies now. Twice: the first move may open a gap that shifts it. */
-  async function hover(page: Page, id: string, down: number): Promise<void> {
-    for (let pass = 0; pass < 2; pass += 1) {
-      const to = await pointOn(card(page, id), down);
-      await page.mouse.move(to.x, to.y, { steps: 8 });
-      await nextFrame(page);
-    }
-  }
 
   test('moves a card to a chosen place in another column', async ({ page }) => {
     await pickUp(page, 'backlog-2');
@@ -288,79 +220,7 @@ test.describe('mouse', () => {
   });
 });
 
-async function dropIndex(page: Page): Promise<number> {
-  return Number(await board(page).getAttribute('data-drop-index'));
-}
-
 // ------------------------------------------------------------------ touch
-
-/** One finger, moved by touch events sent to the browser as a touch screen would send them. */
-class Finger {
-  readonly #client: CDPSession;
-  readonly #page: Page;
-  #at: Point = { x: 0, y: 0 };
-
-  constructor(client: CDPSession, page: Page) {
-    this.#client = client;
-    this.#page = page;
-  }
-
-  static async on(page: Page): Promise<Finger> {
-    return new Finger(await page.context().newCDPSession(page), page);
-  }
-
-  async #send(type: 'touchStart' | 'touchMove', at: Point): Promise<void> {
-    this.#at = at;
-    await this.#client.send('Input.dispatchTouchEvent', {
-      type,
-      touchPoints: [{ x: Math.round(at.x), y: Math.round(at.y), id: 1 }],
-    });
-  }
-
-  async down(at: Point): Promise<void> {
-    await this.#send('touchStart', at);
-  }
-
-  /** Moves in steps, a frame apart, as a finger does. */
-  async move(to: Point, steps = 8): Promise<void> {
-    const from = this.#at;
-    for (let step = 1; step <= steps; step += 1) {
-      await this.#send('touchMove', {
-        x: from.x + ((to.x - from.x) * step) / steps,
-        y: from.y + ((to.y - from.y) * step) / steps,
-      });
-      await nextFrame(this.#page);
-    }
-  }
-
-  async up(): Promise<void> {
-    await this.#client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  }
-
-  /** What the system does when it takes the touch away from the page. */
-  async cancel(): Promise<void> {
-    await this.#client.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
-  }
-
-  /** Rests on a card until the drag begins. */
-  async pickUp(id: string): Promise<void> {
-    await this.down(await pointOn(card(this.#page, id)));
-    await expect(overlay(this.#page)).toBeVisible();
-  }
-
-  /**
-   * Moves onto a card as it lies now. Twice, as with the mouse. Across, the
-   * finger stays out of the strips at the sides of the screen in which the
-   * board would scroll.
-   */
-  async hover(id: string, down: number): Promise<void> {
-    const width = this.#page.viewportSize()?.width ?? 0;
-    for (let pass = 0; pass < 2; pass += 1) {
-      const to = await pointOn(card(this.#page, id), down);
-      await this.move({ x: Math.min(Math.max(to.x, 70), width - 70), y: to.y });
-    }
-  }
-}
 
 test.describe('touch', () => {
   test.skip(({ hasTouch }) => !hasTouch, 'touch is tested in the touch project');
@@ -482,8 +342,6 @@ test.describe('touch', () => {
 // --------------------------------------------------------------- keyboard
 
 test.describe('keyboard', () => {
-  const announcer = (page: Page): Locator => page.getByTestId('announcer');
-
   test('picks a card up, moves it within and between columns and drops it', async ({ page }) => {
     await card(page, 'backlog-2').focus();
     await page.keyboard.press('Space');
