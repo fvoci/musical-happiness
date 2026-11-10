@@ -217,8 +217,10 @@ impl App {
                 })?;
             // The patch moved `updateAt` on: the caller's copies are what is answered and
             // announced, and a client edits them with that `updateAt` as `readAt`.
+            let patched: std::collections::HashSet<&str> =
+                batch.block_ids.iter().map(String::as_str).collect();
             for block in blocks.iter_mut() {
-                if batch.block_ids.contains(&block.id) {
+                if patched.contains(block.id.as_str()) {
                     *block = self.store().get_block(&block.id).await?;
                 }
             }

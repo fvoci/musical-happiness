@@ -617,6 +617,52 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
     test.teardown().await;
 }
 
+/// An image and an attachment block, and two cards whose bodies show an image deep in
+/// the document; the second and the fourth go to the trash.
+fn blocks_showing(board_id: &str) -> [Block; 5] {
+    let image = |name: &str| Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Image,
+        fields: serde_json::from_value(serde_json::json!({ "fileId": name }))
+            .expect("the fields are a JSON object"),
+        ..Block::default()
+    };
+    let card = |name: &str| Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        body: fvoci_model::Body::parse(serde_json::json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "x"}]},
+            // Deep in the document, as the back-fill must find it.
+            {"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "y"}]},
+                {"type": "blockquote", "content": [
+                    {"type": "image", "attrs": {"fileId": name}},
+                ]},
+            ]}]},
+        ]}))
+        .expect("the body may be stored"),
+        ..Block::default()
+    };
+    [
+        image("7image.png"),
+        image("7trash.png"),
+        card("7body.png"),
+        card("7trashbody.png"),
+        Block {
+            id: new_id(),
+            board_id: board_id.to_owned(),
+            block_type: BlockType::Attachment,
+            fields: serde_json::from_value(
+                serde_json::json!({ "attachmentId": "7attachment.png" }),
+            )
+            .expect("the fields are a JSON object"),
+            ..Block::default()
+        },
+    ]
+}
+
 /// The migration of file references puts down what the blocks show, live and in the
 /// trash, and counts a file that none shows from the migration: it is collected only
 /// once the grace period has passed from then.
@@ -632,6 +678,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
         "7body.png",
         "7trash.png",
         "7trashbody.png",
+        "7attachment.png",
         "7none.png",
     ] {
         let file = fvoci_model::FileInfo {
@@ -644,34 +691,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
         };
         test.save_file_info(&file).await.expect("a file is stored");
     }
-    let image = |name: &str| Block {
-        id: new_id(),
-        board_id: board_id.clone(),
-        block_type: BlockType::Image,
-        fields: serde_json::from_value(serde_json::json!({ "fileId": name }))
-            .expect("the fields are a JSON object"),
-        ..Block::default()
-    };
-    let card = |name: &str| Block {
-        id: new_id(),
-        board_id: board_id.clone(),
-        block_type: BlockType::Card,
-        body: fvoci_model::Body::parse(serde_json::json!({"type": "doc", "content": [
-            {"type": "paragraph", "content": [{"type": "text", "text": "x"}]},
-            {"type": "bulletList", "content": [{"type": "listItem", "content": [
-                {"type": "paragraph", "content": [{"type": "text", "text": "y"}]},
-            ]}]},
-            {"type": "image", "attrs": {"fileId": name}},
-        ]}))
-        .expect("the body may be stored"),
-        ..Block::default()
-    };
-    let mut blocks = [
-        image("7image.png"),
-        image("7trash.png"),
-        card("7body.png"),
-        card("7trashbody.png"),
-    ];
+    let mut blocks = blocks_showing(board_id);
     common::insert_blocks(&test, &mut blocks, &user_id).await;
     for in_trash in [&blocks[1], &blocks[3]] {
         test.delete_block(&in_trash.id, &user_id)
@@ -715,7 +735,7 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     assert_eq!(
         collected(crate::blocks::now_millis() + 3_600_000).await,
         ["7none.png"],
-        "the image, the body and the trash show theirs"
+        "the image, the attachment, the bodies and the trash show theirs"
     );
     store.close().await;
 

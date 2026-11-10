@@ -482,11 +482,15 @@ pub(crate) async fn undelete_board(
     }
     take_blocks_out_of_trash(scope, &deletion_id, user_id, now).await?;
     // The trash kept no marks: a file that no block of the board shows is counted from
-    // now, as at a file's upload.
+    // now, as at a file's upload, and one that a block shows has none.
     let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE board_id = ");
     sql.bind(Id(board_id));
     scope.execute(sql).await?;
-    file_refs::mark(scope, Some(board_id)).await?;
+    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = ");
+    sql.bind(now)
+        .push(" WHERE NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id AND r.name = file_info.name) AND board_id = ")
+        .bind(Id(board_id));
+    scope.execute(sql).await?;
 
     let mut sql = scope.sql("DELETE FROM deleted_boards WHERE id = ");
     sql.bind(Id(board_id));

@@ -713,3 +713,76 @@ async fn a_copy_of_a_body_shows_copies_of_its_files() {
 
     th.teardown().await;
 }
+
+/// The copies of files that copying a card makes are shown by the copies and are not
+/// collected, however much later; a file that was uploaded and never shown is
+/// (`docs/s6-design.md` 5.7).
+#[tokio::test]
+async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
+    );
+    let unused = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &board.id, "unused.png", b"png").await,
+    );
+    let created: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": with_image(&file_id)}),
+    )
+    .await
+    .created_json();
+    let copy: Value = th
+        .client
+        .post_empty(&format!(
+            "/boards/{}/blocks/{}/duplicate",
+            board.id, created.id
+        ))
+        .await
+        .created_json();
+    let made: Vec<Value> = th
+        .client
+        .post(
+            &format!("/boards/{}/blocks?sourceBoardId={}", other.id, board.id),
+            &[card_block(&other.id, &with_image(&file_id))],
+        )
+        .await
+        .created_json();
+    let shown = |block: &Value| {
+        block["body"]["content"][1]["attrs"]["fileId"]
+            .as_str()
+            .expect("a file")
+            .to_owned()
+    };
+    let copies = [
+        (board.id.clone(), shown(&copy[0])),
+        (other.id.clone(), shown(&made[0])),
+    ];
+
+    let collected = th
+        .app
+        .store()
+        .collect_unreferenced_files(i64::MAX)
+        .await
+        .expect("the files no block shows are collected");
+    let names: Vec<&str> = collected
+        .iter()
+        .map(|file| file.stored_name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        [unused.as_str()],
+        "only the upload that nothing shows"
+    );
+    for (board_id, name) in std::iter::once((board.id.clone(), file_id)).chain(copies) {
+        th.client
+            .get(&format!("/boards/{board_id}/files/{name}"))
+            .await
+            .check_ok();
+    }
+
+    th.teardown().await;
+}

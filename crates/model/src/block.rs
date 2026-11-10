@@ -246,7 +246,8 @@ impl Block {
 
     /// The stored names of the files the block shows, each once: the file of an image
     /// or attachment block (`fileId`, or failing that `attachmentId`), and the images
-    /// of a card's body.
+    /// of a card's body. The store's migration of file references
+    /// (`0003_file_refs.sql`) copies this rule in SQL; the two change together.
     #[must_use]
     pub fn shown_files(&self) -> Vec<String> {
         if self.block_type == BlockType::Image || self.block_type == BlockType::Attachment {

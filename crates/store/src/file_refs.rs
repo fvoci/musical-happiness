@@ -25,35 +25,37 @@ impl Store {
         &self,
         before: i64,
     ) -> Result<Vec<FileInfo>, StoreError> {
-        self.transaction(async |scope| {
-            let mut sql = scope.sql(&format!(
-                "SELECT {FILE_INFO_COLUMNS} FROM file_info \
-                 WHERE unreferenced_at IS NOT NULL AND unreferenced_at < "
-            ));
-            sql.bind(before);
-            let files = scope
+        self.with_conn(async |scope| {
+            // One statement decides and deletes: a file that a block shows again by the
+            // time its row is deleted keeps its row (PostgreSQL checks the condition
+            // again against the row as committed).
+            let mut sql = scope.sql(
+                "DELETE FROM file_info WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
+            );
+            sql.bind(before)
+                .push(&format!(" RETURNING {FILE_INFO_COLUMNS}"));
+            scope
                 .fetch_all(sql)
                 .await?
                 .iter()
                 .map(file_info_from_row)
-                .collect::<Result<Vec<_>, _>>()?;
-            for file in &files {
-                let mut sql = scope.sql("DELETE FROM file_info WHERE id = ");
-                sql.bind(Id(&file.id));
-                scope.execute(sql).await?;
-            }
-            Ok(files)
+                .collect()
         })
         .await
     }
 }
 
 /// Puts down the files a block shows now, in place of those it showed, and marks the
-/// files of its board.
+/// files of its board whose state that changes.
 pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM file_refs WHERE block_id = ");
-    sql.bind(Id(&block.id));
-    scope.execute(sql).await?;
+    sql.bind(Id(&block.id)).push(" RETURNING name");
+    let mut names = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.text(0))
+        .collect::<Result<Vec<_>, _>>()?;
     for name in block.shown_files() {
         let mut sql = scope.sql("INSERT INTO file_refs (block_id, board_id, name) VALUES (");
         sql.bind(Id(&block.id))
@@ -61,32 +63,50 @@ pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), 
             .push_bind(", ", name.as_str())
             .push(")");
         scope.execute(sql).await?;
+        names.push(name);
     }
-    mark(scope, Some(&block.board_id)).await
+    if names.is_empty() {
+        return Ok(());
+    }
+    names.sort_unstable();
+    names.dedup();
+    mark(scope, Some((&block.board_id, &names))).await
 }
 
 /// Forgets what the blocks that are gone for good showed: neither on a board nor in the
 /// trash.
 pub(crate) async fn forget_gone_blocks(scope: &mut Scope<'_>) -> Result<(), StoreError> {
     let sql = scope.sql(
-        "DELETE FROM file_refs WHERE block_id NOT IN (SELECT id FROM blocks) \
-         AND block_id NOT IN (SELECT id FROM deleted_blocks)",
+        "DELETE FROM file_refs WHERE NOT EXISTS (SELECT 1 FROM blocks b WHERE b.id = file_refs.block_id) \
+         AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = file_refs.block_id)",
     );
     scope.execute(sql).await?;
     Ok(())
 }
 
-/// Marks the files of a board, or of every board: a file a block shows is not marked,
-/// and one no block shows keeps its mark or gets the time of now.
-pub(crate) async fn mark(scope: &mut Scope<'_>, board_id: Option<&str>) -> Result<(), StoreError> {
-    let mut sql = scope.sql(
-        "UPDATE file_info SET unreferenced_at = CASE WHEN EXISTS (\
+/// Marks file records: one that a block shows has no mark, and one that no block shows
+/// gets the time of now if it had none. Only the records whose state flips are written.
+/// `only` narrows it to some stored names of one board; `None` looks at every record.
+pub(crate) async fn mark(
+    scope: &mut Scope<'_>,
+    only: Option<(&str, &[String])>,
+) -> Result<(), StoreError> {
+    let mut sql =
+        scope.sql("UPDATE file_info SET unreferenced_at = CASE WHEN unreferenced_at IS NULL THEN ");
+    sql.bind(now_millis()).push(
+        " ELSE NULL END WHERE (unreferenced_at IS NULL) = (NOT EXISTS (\
          SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
-         AND r.name = file_info.name) THEN NULL ELSE COALESCE(unreferenced_at, ",
+         AND r.name = file_info.name))",
     );
-    sql.bind(now_millis()).push(") END");
-    if let Some(board_id) = board_id {
-        sql.push_bind(" WHERE board_id = ", Id(board_id));
+    if let Some((board_id, names)) = only {
+        sql.push_bind(" AND board_id = ", Id(board_id));
+        for (index, name) in names.iter().enumerate() {
+            sql.push_bind(
+                if index == 0 { " AND name IN (" } else { ", " },
+                name.as_str(),
+            );
+        }
+        sql.push(")");
     }
     scope.execute(sql).await?;
     Ok(())

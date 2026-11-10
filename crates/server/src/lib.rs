@@ -390,7 +390,7 @@ async fn purge_trash(app: &App) {
     for file in &purged.files {
         if let Err(error) = app.files().delete(&file.path).await {
             files_left += 1;
-            tracing::warn!(%error, "a file of a purged board could not be removed");
+            tracing::warn!(%error, path = file.path, "a file of a purged board could not be removed");
         }
     }
     if purged.records > 0 || !purged.files.is_empty() {
@@ -419,7 +419,7 @@ async fn collect_unreferenced_files(app: &App) {
     for file in &files {
         if let Err(error) = app.files().delete(&file.path).await {
             files_left += 1;
-            tracing::warn!(%error, "a file no block shows could not be removed");
+            tracing::warn!(%error, path = file.path, "a file no block shows could not be removed");
         }
     }
     if !files.is_empty() {
