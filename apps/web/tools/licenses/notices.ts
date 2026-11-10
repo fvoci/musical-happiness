@@ -6,7 +6,11 @@
  * - packages whose modules Vite bundled (its own licence report),
  * - packages whose style sheets are imported from src/styles,
  * - packages whose tools wrote source files into this project ("vendored"),
- * - the fonts the font tool produced.
+ * - packages whose data a tool of this project turned into source files, when
+ *   those files are in the bundle ("derived": the emoji lists, from CLDR),
+ * - the fonts the font tool produced,
+ * - the fonts of the formula library, when that library is in the bundle
+ *   (katex-fonts.ts: its package names only the licence of its code).
  *
  * Every package has to carry a licence from the list in the repository's
  * `deny.toml`; there are no exceptions for anything that ships. The fonts are
@@ -19,7 +23,8 @@ import path from 'node:path';
 import type { Plugin } from 'vite';
 
 import exceptions from './exceptions.json' with { type: 'json' };
-import { readPackageLicense, type PackageLicense } from './packages.ts';
+import { katexFontLicense } from './katex-fonts.ts';
+import { readPackageLicense, statedLicense, type PackageLicense } from './packages.ts';
 import { isAllowed, readAllowedLicenses } from './policy.ts';
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
@@ -114,11 +119,23 @@ export function thirdPartyNotices(): Plugin {
         // The raw report is an input of this step, not part of the product.
         Reflect.deleteProperty(bundle, LICENSE_REPORT);
 
+        // A package whose manifest names no licence: what its licence file states, if it is listed.
+        for (const item of bundled) {
+          item.identifier ||= statedLicense(item.name, item.text) ?? '';
+        }
         const byName = new Map(bundled.map((item) => [item.name, item]));
         const css = readFileSync(path.join(WEB_ROOT, 'src/styles/app.css'), 'utf8');
         const extra = [...styleSheetPackages(css), ...exceptions.vendored.map((item) => item.name)];
         for (const name of extra) {
           if (!byName.has(name)) byName.set(name, readPackageLicense(name));
+        }
+        // Data that became source files: listed when a module made from it was bundled.
+        const bundledModules = Object.values(bundle).flatMap((item) =>
+          item.type === 'chunk' ? item.moduleIds : [],
+        );
+        for (const { name, modules } of exceptions.derived) {
+          const used = bundledModules.some((id) => id.split(path.sep).join('/').includes(modules));
+          if (used && !byName.has(name)) byName.set(name, readPackageLicense(name));
         }
 
         const allowed = new Set(readAllowedLicenses());
@@ -135,6 +152,8 @@ export function thirdPartyNotices(): Plugin {
         const fonts = existsSync(fontsFile)
           ? (JSON.parse(readFileSync(fontsFile, 'utf8')) as FontLicense[])
           : [];
+        // The formula library brings fonts of its own, under a licence its package does not name.
+        if (byName.has('katex')) fonts.push(katexFontLicense());
         const refusedFonts = fonts.filter((font) => font.identifier !== FONT_LICENSE);
         if (refusedFonts.length > 0) {
           this.error(

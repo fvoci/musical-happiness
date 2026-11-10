@@ -44,7 +44,9 @@
     "@tiptap/extensions": "3.33.0",
     "@tiptap/pm": "3.33.0",
     "@tiptap/suggestion": "3.33.0",
-    "marked": "18.1.3"
+    "katex": "0.19.1",
+    "marked": "18.1.3",
+    "mermaid": "12.3.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -61,6 +63,8 @@
     "@testing-library/svelte": "5.4.2",
     "@types/node": "26.6.6",
     "bits-ui": "2.20.6",
+    "cldr-annotations-derived-full": "49.0.0",
+    "cldr-annotations-full": "49.0.0",
     "cn": "0.5.2",
     "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",

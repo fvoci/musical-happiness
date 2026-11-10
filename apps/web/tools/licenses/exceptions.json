@@ -31,6 +31,26 @@
       "reason": "Command-line parser of the WOFF2 encoder that the font tool uses. It runs on the build machine and is not in the output."
     }
   ],
+  "notShipped": [
+    {
+      "name": "elkjs",
+      "license": "EPL-2.0 OR GPL-3.0-or-later",
+      "reason": "The ELK layout engine, installed as a dependency of mermaid. The build puts a stub in its place (the alias in vite.config.ts, src/lib/editor/no-elk.ts) and diagrams are laid out with dagre. Should it ever be bundled, the notices step, which has no exceptions, fails the build."
+    },
+    {
+      "name": "robust-predicates",
+      "license": "Unlicense",
+      "reason": "Arrives with d3 (through d3-delaunay), which mermaid depends on. Nothing the diagrams use imports it, so it is not in the output; the notices step fails the build if that changes."
+    }
+  ],
+  "stated": [
+    {
+      "name": "khroma",
+      "license": "MIT",
+      "says": "The MIT License (MIT)",
+      "reason": "Colour functions used by mermaid. Its package.json has no licence field; the licence file in the package is the MIT licence."
+    }
+  ],
   "vendored": [
     {
       "name": "shadcn-svelte",
@@ -47,6 +67,18 @@
       "license": "MIT",
       "firstLine": "MIT License",
       "reason": "Its package.json has no license member. The LICENSE file it ships is the MIT text; the build reads that file and stops if its first line is no longer this one."
+    }
+  ],
+  "derived": [
+    {
+      "name": "cldr-annotations-full",
+      "modules": "src/lib/editor/emoji/",
+      "reason": "tools/emoji/build.ts writes the emoji lists under src/lib/editor/emoji from its names and keywords."
+    },
+    {
+      "name": "cldr-annotations-derived-full",
+      "modules": "src/lib/editor/emoji/",
+      "reason": "The same lists take the names of flags, keycaps and joined emoji from it."
     }
   ]
 }

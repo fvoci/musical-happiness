@@ -3,6 +3,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
+import exceptions from './exceptions.json' with { type: 'json' };
+
 export interface PackageLicense {
   name: string;
   version: string;
@@ -25,6 +27,25 @@ export function packageDirectory(name: string): string {
   throw new Error(`package ${name} is not installed`);
 }
 
+/** The text of the licence file a package ships, or empty. */
+export function licenseFileText(directory: string): string {
+  const licenseFile = readdirSync(directory).find((file) =>
+    /^(licen[sc]e|copying)(\.|$)/i.test(file),
+  );
+  return licenseFile ? readFileSync(path.join(directory, licenseFile), 'utf8').trim() : '';
+}
+
+/**
+ * The licence of a package whose manifest names none but whose licence file
+ * does. Such a package is listed under `stated` in exceptions.json with the
+ * licence and the sentence its file has to contain; the name alone is not
+ * taken on trust, the text is looked at.
+ */
+export function statedLicense(name: string, licenseText: string): string | undefined {
+  const entry = exceptions.stated.find((candidate) => candidate.name === name);
+  return entry && licenseText.includes(entry.says) ? entry.license : undefined;
+}
+
 export function readPackageLicense(name: string): PackageLicense {
   const directory = packageDirectory(name);
   const manifest = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8')) as {
@@ -32,13 +53,11 @@ export function readPackageLicense(name: string): PackageLicense {
     version: string;
     license?: string;
   };
-  const licenseFile = readdirSync(directory).find((file) =>
-    /^(licen[sc]e|copying)(\.|$)/i.test(file),
-  );
+  const text = licenseFileText(directory);
   return {
     name: manifest.name,
     version: manifest.version,
-    identifier: manifest.license ?? '',
-    text: licenseFile ? readFileSync(path.join(directory, licenseFile), 'utf8').trim() : '',
+    identifier: manifest.license ?? statedLicense(manifest.name, text) ?? '',
+    text,
   };
 }

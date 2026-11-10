@@ -30,7 +30,17 @@ export default defineConfig(({ command }) => ({
     cspHashes(),
   ],
   resolve: {
-    alias: { $lib: path.resolve(import.meta.dirname, 'src/lib') },
+    alias: [
+      { find: '$lib', replacement: path.resolve(import.meta.dirname, 'src/lib') },
+      // The diagram library's ELK layout engine is under a licence the project
+      // does not allow, so it is left out of the build: this stub takes its
+      // place (see the file). The notices step fails the build if the real
+      // package is ever bundled.
+      {
+        find: /^elkjs(\/.*)?$/,
+        replacement: path.resolve(import.meta.dirname, 'src/lib/editor/no-elk.ts'),
+      },
+    ],
   },
   experimental:
     command === 'build'
