@@ -328,7 +328,7 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 | 편집기와 본문 저장 | `docs/spike-editor.md` | `src/lib/editor/`(허용 목록과 검증기, Tiptap 확장 구성, 마크다운 변환, 파일 주소) |
 | 드래그             | `docs/spike-drag.md`   | `src/lib/logic/drop-target.ts`, `src/lib/drag/`                                   |
 
-## 내장 템플릿의 변환 산출물 (2026-11-10 20:10 KST)
+## 내장 템플릿의 변환 산출물 (2026-11-10 20:09 KST)
 
 서버 설계 5.7절의 "3.10의 갱신"대로, 내장 템플릿은 서버에서 다시 변환하지 않고 이쪽 변환기의 산출물을 서버가 받아 쓴다. `node tools/templates/convert.ts --write tools/templates/output`이 만들고, 결과는 `tools/templates/output/`에 커밋되어 있다(파일 17개: `index.json`, 템플릿 13개, `changes.json`, `CHANGES.md`, 손으로 쓴 `README.md`). 모양과 건수의 설명은 그 폴더의 `README.md`에 있다.
 
@@ -342,14 +342,28 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 - **서버 쪽에 전달할 것**: (1) 온보딩 보드를 제목이 아니라 `onboarding` 표식으로 찾아야 한다. 서버의 `crates/server/src/app/templates.rs`는 지금 제목 `Welcome to Boards!`로 찾는데 그 제목이 `Welcome to fvoci!`로 바뀌었다. (2) 식별자는 아카이브의 것이라 넣을 때 새로 만들어야 한다. (3) 그림은 노드와 파일 목록만 싣고 바이트는 원본 아카이브에 있다. "이미지를 뺄지"(3.10의 추가 안)가 정해지면 다시 만든다. (4) `isTemplate`, 보드 종류, 판 번호는 서버가 넣을 때 정한다.
 - 미결: 그림을 넣을지, 템플릿 수를 줄일지(서버 설계 3.10), 글의 검수(바뀐 47곳과 `reviewNotes`의 28건), 온보딩의 "Share cards on Channels" 카드처럼 이 제품에 없는 기능을 설명하는 카드를 둘지.
 
-## 번역 (2026-11-10 19:00 KST)
+## 번역 (2026-11-10 19:00 KST, 결정 반영 20:30 KST)
 
-원본 `webapp/i18n/*.json`을 paraglide 메시지로 바꾸는 스크립트가 `tools/i18n/`에 있고 결과가 `messages/`에 있다. 통계, ICU 조사, 뺀 메시지, 채운 한국어 번역의 목록은 `docs/i18n-conversion.md`에 있다.
+원본 `webapp/i18n/*.json`을 paraglide 메시지로 바꾸는 스크립트가 `tools/i18n/`에 있고 결과가 `messages/`에 있다. 통계, ICU 조사, 뺀 메시지, 덮어쓴 문구의 목록은 `docs/i18n-conversion.md`에, 고친 한국어와 채운 한국어의 검수 표는 `docs/ko-review.md`에 있다.
 
 - 원본이 번들하는 로케일은 17개이고 **한국어는 거기에 없다**(`webapp/src/i18n.tsx`). 변환한 것은 그 17개와 `ko`, 모두 18개다.
 - 메시지 ID는 그대로다. 점과 하이픈이 든 ID는 `m['BoardComponent.add-a-group']()`처럼 부른다.
-- `messages/*.json`은 생성물이다. 이 앱만의 키는 `messages-own/`에, 채운 한국어는 `messages-fill/ko.json`에 두고 `pnpm --filter web run i18n:convert`로 다시 만든다. `check`가 생성물이 최신인지(`convert.ts --check`)와 키 집합(`check-keys.ts`)을 본다. 앞의 검사는 `webapp/`이 있어야 돈다. 원본 트리를 지울 때 `messages/`를 원본으로 삼도록 바꿔야 한다.
-- 키 집합 검사: `en`에 없는 키가 어느 로케일에든 있으면 실패, `ko`에 빠진 키가 있으면 실패. 다른 로케일의 빠진 키는 영어로 떨어지므로 개수와 이름만 보고한다.
+- `messages/*.json`은 생성물이다. 원천은 넷이다: 이 앱만의 키는 `messages-own/`, 원본에 없던 한국어는 `messages-fill/ko.json`, **원본의 문구를 손으로 고친 것은 `messages-override/<태그>.json`**(고치기 전의 원본 문구를 함께 적어, 원본이 달라지면 도구가 멈춘다), 포팅하지 않는 id는 `tools/i18n/removed.json`. `pnpm --filter web run i18n:convert`로 다시 만든다. 한국어를 고친 뒤에는 `node tools/i18n/review.ts`로 `ko-review.md`의 표도 다시 쓴다(테스트가 표와 메시지가 같은지 본다).
+- `check`가 생성물이 최신인지(`convert.ts --check`)와 키 집합(`check-keys.ts`)을 본다. 앞의 검사는 `webapp/`이 있어야 돈다. 원본 트리를 지울 때 `messages/`를 원본으로 삼도록 바꿔야 한다.
+- 키 집합 검사: `en`에 없는 키가 어느 로케일에든 있으면 실패, `ko`에 빠진 키가 있으면 실패. 다른 로케일의 빠진 키는 영어로 떨어지므로 개수와 이름만 보고한다. `en`과 `ko`는 384개다(결정 반영 전 390개).
+
+사용자 결정(2026-11-10)을 반영한 것(`docs/i18n-conversion.md`, `docs/ko-review.md`에 상세):
+
+| 결정                                                                       | 한 것                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 제품 이름으로 쓰인 "Boards"는 fvoci로, 카테고리 이름은 그대로              | 영어 **4건**을 바꿨다(`BoardPage.newVersion`, `OnboardingTour.OpenACard.Body`, `error.invalid-read-only-board`, `error.not-logged-in`). 후보 다섯 가운데 `SidebarCategories.CategoryMenu.DeleteModal.Body`는 읽어 보니 제품 이름이 아니라 기본 카테고리의 이름과 보통명사여서 그대로 뒀다. 다른 로케일은 이름이 라틴 문자로 남은 23건을 바꿨다 |
+| 네덜란드어 `medefvocigebruikers`                                           | `andere fvoci-gebruikers`로 고쳤다                                                                                                                                                                                                                                                                                                             |
+| 이상한 기존 한국어를 고치고 용어를 통일                                    | 덮어쓴 한국어 130개(원 표의 id 53개 + 통일 때문에 더 고친 77개). 검수 표는 `docs/ko-review.md`(148행: 고친 130 + 채운 18)                                                                                                                                                                                                                      |
+| 팀·관리자 메시지는 남기고, 게스트·모바일 안내·둘러보기의 한 단계는 뺀다    | 6개를 뺐다(`badge.guest`, `guest-no-board.*` 2, `Error.mobileweb`, `SidebarTour.SidebarCategories.*` 2)                                                                                                                                                                                                                                        |
+| `ShareBoard.searchPlaceholder`, `OnboardingTour.CopyLink.Body`를 다시 쓴다 | 영어와 한국어를 다시 썼고 다른 로케일은 영어로 떨어진다                                                                                                                                                                                                                                                                                        |
+| 로케일별로 나눠 받기는 조사만                                              | `docs/i18n-conversion.md`의 "로케일별로 나눠 받기". 빌드 설정은 바꾸지 않았다. W2에서 실제 화면으로 다시 재고 정한다                                                                                                                                                                                                                           |
+
+검수에서 볼 것: checked를 "확인"도 "선택"도 아닌 "체크됨 / 체크 안 됨"으로 옮겼다(두 말이 각각 Confirm, Select와 겹친다). `id`·`it`의 `BoardPage.newVersion`은 단수 "Board"였는데 제품 이름으로 보고 바꿨다. 고친 한국어와 다른 로케일의 손본 문구는 그 언어를 쓰는 사람이 화면에서 본 적이 없다.
 
 ## W1. 순수 로직 (`src/lib/logic`)
 
