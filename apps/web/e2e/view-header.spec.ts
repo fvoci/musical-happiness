@@ -491,9 +491,13 @@ test.describe('what a view shows', () => {
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
     const priority = panel.getByRole('switch', { name: 'Priority' });
     await expect(priority).toHaveAttribute('aria-checked', 'true');
-    // A board can show the marks of comments and description; it has no switch for the title.
-    await expect(panel.getByRole('switch', { name: 'Comments and description' })).toBeVisible();
+    // The list has the properties of the board and nothing else: a card always shows its title
+    // and the marks of a description and of a checklist, so neither has a switch.
+    await expect(panel.getByRole('switch', { name: 'Comments and description' })).toHaveCount(0);
     await expect(panel.getByRole('switch', { name: 'Title' })).toHaveCount(0);
+    expect(await panel.getByRole('switch').count()).toBe(
+      Object.keys(await properties(page)).length,
+    );
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');

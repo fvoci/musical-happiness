@@ -1042,7 +1042,7 @@ test.describe('moving rows', () => {
     await page.mouse.down();
     await page.mouse.move(from.x + 2, from.y + 8, { steps: 2 });
     await page.mouse.move(from.x, box.box.y - 20, { steps: 8 });
-    await expect(page.getByTestId('table-notice')).toHaveText('Release to cancel');
+    await expect(page.getByTestId('table-notice')).toHaveText('Let go to cancel.');
     await page.mouse.up();
     await expect(table(page)).not.toHaveAttribute('data-dragging');
     expect(await rowTitles(page)).toEqual(titles);

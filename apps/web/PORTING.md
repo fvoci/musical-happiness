@@ -2,13 +2,14 @@
 
 `apps/web`은 원본 웹앱(`webapp/`, React)을 Svelte 5로 새로 짠 것이다. 계획은 저장소 밖의 `~/.claude/plans/fvoci-web-svelte.md`에 있고, 이 문서는 실제로 한 것과 확인한 것을 적는다. 원본 참조는 저장소 기준 상대 경로다. 시각은 모두 KST다.
 
-| 단계            | 내용                                                            | 상태                                                                      |
-| --------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| W0              | 스택, 공용 UI, 디자인 토큰, 글꼴 도구, 라이선스 검사, 검증 명령 | 완료 (2026-11-10 17:40 KST)                                               |
-| W1              | 순수 로직 `src/lib/logic`과 원본 단위 테스트                    | 완료 (2026-11-10 18:00 KST). 원본 결함 Q1–Q16 고침 (2026-11-10 18:55 KST) |
-| 스파이크        | 편집기와 본문 저장, 드래그                                      | 완료. 결정 반영 (2026-11-10 20:50 KST)                                    |
-| 서버를 기다리며 | 서버 설계에 맞추기, 글꼴·번역 결정, 모바일 화면 안, 화면 부품   | 완료 (2026-11-10 20:50 KST). 아래 "서버의 계약을 기다리며 한 것"          |
-| W2 이후         | 서버의 계약(`contracts/openapi.json`)이 나온 뒤                 | 시작하지 않음                                                             |
+| 단계            | 내용                                                                                                                                                  | 상태                                                                          |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| W0              | 스택, 공용 UI, 디자인 토큰, 글꼴 도구, 라이선스 검사, 검증 명령                                                                                       | 완료 (2026-11-10 17:40 KST)                                                   |
+| W1              | 순수 로직 `src/lib/logic`과 원본 단위 테스트                                                                                                          | 완료 (2026-11-10 18:00 KST). 원본 결함 Q1–Q16 고침 (2026-11-10 18:55 KST)     |
+| 스파이크        | 편집기와 본문 저장, 드래그                                                                                                                            | 완료. 결정 반영 (2026-11-10 20:50 KST)                                        |
+| 서버를 기다리며 | 서버 설계에 맞추기, 글꼴·번역 결정, 모바일 화면 안, 화면 부품                                                                                         | 완료 (2026-11-10 20:50 KST). 아래 "서버의 계약을 기다리며 한 것"              |
+| 화면 조립       | 데이터의 경계와 메모리 구현, 틀·뷰 머리글·칸반·갤러리·테이블·카드 상세, 편집기의 수식·다이어그램·이모지, 어두운 화면, `.zst`, 원본 폴더에서 떼어 내기 | 완료 (2026-11-11 KST). 아래 "화면 조립: 서버의 계약 없이, 메모리 구현 위에서" |
+| 서버 연결       | 서버의 계약(`contracts/openapi.json`)이 나온 뒤: 경계의 둘째 구현, 로그인·가입, 캘린더, 공유, 템플릿 선택기, 가져오기·내보내기, 온보딩                | 시작하지 않음                                                                 |
 
 ## 검증 명령
 
@@ -115,7 +116,7 @@ apps/web/
 
 - **파일명의 해시는 16자리 16진수다.** 서버(`crates/server/src/web.rs`의 `has_content_hash`)는 이름을 `-`, `.`, `_`로 나눈 조각 가운데 "8자 이상의 16진수이고 숫자가 하나 이상"인 것이 있어야 내용 해시로 보고 `immutable`을 붙인다. Vite의 기본 해시는 base64 계열이라 이 조건에 안 맞는다. `hashCharacters: 'hex'`로 바꾸고, `static/` 아래에 조건을 못 맞춘 파일이 있으면 빌드가 실패하게 했다(`tools/build/output.ts`).
 - **base path를 빌드에 넣지 않는다.** `index.html`은 `{{.BaseURL}}/static/…`으로, 스크립트와 스타일시트끼리는 상대 경로로 참조한다(`experimental.renderBuiltUrl`). `/boards` 아래의 깊은 주소에서 파일이 모두 풀리는 것을 확인했다.
-- **사전 압축.** `static/` 아래의 텍스트 파일마다 `.br`(brotli 11)과 `.gz`(gzip 9)를 만든다. woff2는 이미 압축돼 있어 뺀다. `index.html`은 서버가 요청마다 치환해 보내므로 압축하지 않는다.
+- **사전 압축.** `static/` 아래의 텍스트 파일마다 `.br`(brotli 11), `.zst`(zstd, 2026-11-10에 더함. `docs/build-notes.md`)와 `.gz`(gzip 9)를 만든다. woff2는 이미 압축돼 있어 뺀다. `index.html`은 서버가 요청마다 치환해 보내므로 압축하지 않는다.
 - **고지.** `static/THIRD_PARTY_NOTICES.txt`. 이름에 해시가 없어 서버가 `no-cache`로 보낸다(의도).
 
 실제 Rust 서버(`hafgufa/target/release/fvoci-server`, 읽기만 함)에 `webpath`를 이 `dist`로 주고 확인한 것(2026-11-10 17:24 KST): `{{.BaseURL}}` 치환, 해시 파일의 `Cache-Control: public, max-age=31536000, immutable`, `Accept-Encoding`에 따른 `br`·`gzip`·무압축 응답과 `Vary`, 고지 파일의 `no-cache`, woff2의 `font/woff2`. `FVOCI_E2E_URL`로 그 서버를 대상으로 한 Playwright 6건도 통과했다.
@@ -317,7 +318,9 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 | 웹 고지와 서버 `NOTICE` 합치기        | 패키징 단계에서                                                                                                                                                                                                                            |
 | 번들 크기 상한                        | W2                                                                                                                                                                                                                                         |
 
-## 구조 규칙 (2026-11-10 18:25 KST)
+## 구조 규칙 (2026-11-10 18:25 KST, 층의 순서는 2026-11-10 23:00 KST)
+
+**지금의 규칙은 `src/lib/README.md`의 표다.** `src/lib` 바로 아래의 폴더가 층이고(0 `logic`·`i18n`·`hooks`·`utils`·`theme`, 1 `regional`·`display`·`fonts`·`layout`·`drag`·`editor`, 2 `state`·`ui`, 3 `components`, 4 `features`), 파일은 자기 층과 그보다 낮은 층에서만 가져온다(`fvoci/layer-order`). 공용 부품(`components`)은 `state`를 가져오지 못하고, 화면은 서버를 직접 부르지 못한다(`fvoci/no-direct-server`). 속성 편집기는 `features/properties`에서 `components/properties`로 내렸다. 아래 문단은 처음 세운 규칙의 기록이고 지금도 그대로 검사된다.
 
 `src/lib/features/<기능>/` 폴더끼리는 서로 가져오지 못한다. 공유할 것은 `lib/logic`, `lib/state`, `lib/api`, `lib/ui`로 내린다. 반대로 그 아래 층은 기능 폴더에서 가져오지 못한다. ESLint 규칙 `fvoci/feature-boundaries`(`tools/lint/layers.ts`, 직접 쓴 규칙이라 의존성이 늘지 않았다)가 검사하고 `check`에 들어 있다. `$lib/features/x`와 `../x` 두 가지 쓰기를 모두 잡는다. 규칙 자체의 테스트는 `tests/tools/layers.test.ts`(5건). 설명은 `src/lib/features/README.md`.
 
@@ -396,11 +399,11 @@ W2(API 클라이언트, WebSocket, 상태, 라우터, 로그인)는 서버의 �
 
 ### 다른 기기에서 화면 보기
 
-`pnpm --filter web run look`이 스파이크와 Storybook을 빌드해 한 포트(18410, 모든 인터페이스)에서 서빙한다(`tools/serve.ts`: 정적 파일만, API 없음). `/`가 화면의 목록이다: `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`. **이 기기(WSL2, 네트워크 모드 mirrored)에서 확인한 것(2026-11-10 22:00 KST)**: Windows 쪽에서는 `http://localhost:18410/`로 열린다(Windows의 `curl.exe`로 200). LAN 주소(`http://192.168.0.15:18410/`)는 WSL 안에서는 답하지만 Windows 쪽에서는 답이 없었다. WSL의 Hyper-V 방화벽이 들어오는 연결을 기본으로 막고(`DefaultInboundAction: Block`), LAN에 열린 규칙은 22번과 6768번 포트뿐이다. **그래서 휴대폰에서는 지금 닿지 않을 것으로 본다.** 열려면 관리자 PowerShell에서 규칙을 더해야 한다(`New-NetFirewallHyperVRule -Name fvoci-look -DisplayName "fvoci look - LAN" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 18410`, 지울 때는 `Remove-NetFirewallHyperVRule -Name fvoci-look`). 방화벽은 건드리지 않았다. 스파이크 화면과 Storybook은 앱의 글꼴을 싣는다. 스파이크의 빌드는 어느 폴더 아래에서도 서빙되게 상대 주소를 쓴다. 다시 빌드만 하면(`spikes:build`, `build-storybook`) 떠 있는 서버가 새 파일을 준다(캐시하지 않게 보낸다).
+`pnpm --filter web run look`이 앱, 스파이크, Storybook을 빌드해 한 포트(18410, 모든 인터페이스)에서 서빙한다(`tools/serve.ts`: 정적 파일만, API 없음). `/`가 화면의 목록이다: **`/app/`(조립된 앱. 2026-11-11에 더함)**, `/screens/spikes/calendar/`, `/screens/spikes/editor/`, `/screens/spikes/drag/`, `/screens/spikes/mobile/`, `/storybook/`. **이 기기(WSL2, 네트워크 모드 mirrored)에서 확인한 것(2026-11-10 22:00 KST)**: Windows 쪽에서는 `http://localhost:18410/`로 열린다(Windows의 `curl.exe`로 200). LAN 주소(`http://192.168.0.15:18410/`)는 WSL 안에서는 답하지만 Windows 쪽에서는 답이 없었다. WSL의 Hyper-V 방화벽이 들어오는 연결을 기본으로 막고(`DefaultInboundAction: Block`), LAN에 열린 규칙은 22번과 6768번 포트뿐이다. **그래서 휴대폰에서는 지금 닿지 않을 것으로 본다.** 열려면 관리자 PowerShell에서 규칙을 더해야 한다(`New-NetFirewallHyperVRule -Name fvoci-look -DisplayName "fvoci look - LAN" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 18410`, 지울 때는 `Remove-NetFirewallHyperVRule -Name fvoci-look`). 방화벽은 건드리지 않았다. 스파이크 화면과 Storybook은 앱의 글꼴을 싣는다. 스파이크의 빌드는 어느 폴더 아래에서도 서빙되게 상대 주소를 쓴다. 다시 빌드만 하면(`spikes:build`, `build-storybook`) 떠 있는 서버가 새 파일을 준다(캐시하지 않게 보낸다).
 
 ### 플랜에 더해진 결정 (2026-11-10 22:00 KST로 적힌 "모바일 안의 결정과 설정")
 
-이 문서의 일이 끝날 무렵 플랜에 모바일 안의 결정이 적혔다: 질문 36개는 권고대로 만들고 써 보며 고친다, Q8은 A(가운데 대화상자), Q35는 받아들이고 실제 기기에서 본 뒤 다시 정한다, 답마다 바꾸려면 어디를 고치는지를 함께 적는다, 그리고 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동). **이번 작업에는 반영하지 않았다.** W3에서 보드 페이지를 만들 때의 입력이다. `docs/mobile-proposal.md`는 결정 전의 안과 질문 그대로다.
+이 문서의 일이 끝날 무렵 플랜에 모바일 안의 결정이 적혔다: 질문 36개는 권고대로 만들고 써 보며 고친다, Q8은 A(가운데 대화상자), Q35는 받아들이고 실제 기기에서 본 뒤 다시 정한다, 답마다 바꾸려면 어디를 고치는지를 함께 적는다, 그리고 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동). 그때의 작업에는 반영하지 않았다. **화면 조립(2026-11-11)에서 반영했다**: `docs/mobile-proposal.md`의 "결정" 절에 답 36개와 답마다 바꾸려면 어디를 고치는지가 있고, 설정은 `src/lib/logic/display.ts`와 설정 대화상자에 있다.
 
 ## 내장 템플릿의 변환 산출물 (2026-11-10 20:09 KST)
 
