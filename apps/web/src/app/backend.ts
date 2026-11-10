@@ -38,7 +38,7 @@ const SETTINGS_KEY = 'fvoci:memory-settings';
 
 /**
  * A world in memory starts from its seed on every visit, and with it the
- * reader's account settings. So that a brightness or a time zone chosen in
+ * reader's account settings. So that a theme or a time zone chosen in
  * the settings is still there after a reload, as it would be with a server,
  * the settings are kept on the device and given back to the new world.
  */

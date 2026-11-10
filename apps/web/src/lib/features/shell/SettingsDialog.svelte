@@ -3,7 +3,7 @@
   (`workspace.changeSettings`): it shows immediately and goes back, with a
   line telling so, if the server refuses it.
 
-  - Brightness, density, vibration: how the app looks and feels here.
+  - Theme, density, haptics: how the app looks and feels here.
   - How a card opens: only the dialog in the middle is built. The other two
     answers are shown, so that the place is known, and cannot be chosen.
   - Time zone, first day of the week, way of writing hours: `Automatic`
@@ -25,11 +25,11 @@
   import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import {
-    BRIGHTNESS_SETTINGS,
+    THEME_SETTINGS,
     CARD_OPEN_BUILT,
     CARD_OPEN_SETTINGS,
     DENSITY_SETTINGS,
-    type BrightnessSetting,
+    type ThemeSetting,
     type CardOpenSetting,
     type DensitySetting,
   } from '$lib/logic/display.ts';
@@ -88,7 +88,7 @@
   const settings = $derived(workspace.settings);
   const compact = $derived(page.stage === 'compact');
 
-  const BRIGHTNESS_LABELS: Record<BrightnessSetting, () => string> = {
+  const THEME_LABELS: Record<ThemeSetting, () => string> = {
     auto: m.shell_settings_auto,
     light: m.shell_settings_brightness_light,
     dark: m.shell_settings_brightness_dark,
@@ -181,11 +181,11 @@
 
     <div class="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain p-4">
       <SettingChoice
-        name="brightness"
+        name="theme"
         label={m.shell_settings_brightness()}
-        value={settings.brightness}
-        options={BRIGHTNESS_SETTINGS.map((value) => ({ value, label: BRIGHTNESS_LABELS[value]() }))}
-        onChange={(brightness: BrightnessSetting) => void workspace.changeSettings({ brightness })}
+        value={settings.theme}
+        options={THEME_SETTINGS.map((value) => ({ value, label: THEME_LABELS[value]() }))}
+        onChange={(theme: ThemeSetting) => void workspace.changeSettings({ theme })}
       />
       <SettingChoice
         name="density"
@@ -209,14 +209,14 @@
         })}
         onChange={(cardOpen: CardOpenSetting) => void workspace.changeSettings({ cardOpen })}
       />
-      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="vibration">
+      <label class="flex min-h-8 items-center gap-3 roomy:min-h-touch" data-setting="haptics">
         <span class="grid min-w-0 flex-1 gap-0.5">
           <span class="font-medium">{m.shell_settings_vibration()}</span>
           <span class="text-xs text-muted-foreground">{m.shell_settings_vibration_hint()}</span>
         </span>
         <Switch
-          checked={settings.vibration}
-          onCheckedChange={(vibration: boolean) => void workspace.changeSettings({ vibration })}
+          checked={settings.haptics}
+          onCheckedChange={(haptics: boolean) => void workspace.changeSettings({ haptics })}
         />
       </label>
 

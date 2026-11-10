@@ -2,7 +2,7 @@
  * The inline scripts of `index.html`, for a content security policy.
  *
  * `index.html` carries one script that has to run before the style sheet
- * paints (it puts the remembered brightness and density on the root
+ * paints (it puts the remembered theme and density on the root
  * element). A policy that forbids inline scripts, as it should, has to allow
  * exactly that one, and the way to do so without `unsafe-inline` is its hash.
  * The build writes the hashes to `csp.json` beside `index.html`:

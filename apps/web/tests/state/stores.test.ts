@@ -83,10 +83,10 @@ describe('the workspace', () => {
   it('applies a setting at once and takes it back when the server refuses it', async () => {
     const { workspace, backend } = setup();
     await workspace.load();
-    const changing = workspace.changeSettings({ brightness: 'dark' });
-    expect(workspace.settings.brightness).toBe('dark');
+    const changing = workspace.changeSettings({ theme: 'dark' });
+    expect(workspace.settings.theme).toBe('dark');
     await changing;
-    expect(workspace.settings.brightness).toBe('dark');
+    expect(workspace.settings.theme).toBe('dark');
 
     backend.failNext('patchSettings', new BackendError(400, { field: 'timeZone' }));
     const failing = workspace.changeSettings({ timeZone: 'Asia/Seoul' });
@@ -109,7 +109,7 @@ describe('the workspace', () => {
     await workspace.load();
     expect(workspace.status).toBe('ready');
     backend.failNext('patchSettings', new BackendError(401, { message: 'session over' }));
-    await workspace.changeSettings({ brightness: 'dark' });
+    await workspace.changeSettings({ theme: 'dark' });
     expect(workspace.status).toBe('signedOut');
     expect(workspace.problems).toEqual([]);
   });

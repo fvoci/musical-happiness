@@ -256,7 +256,7 @@
    * choice here attaches both anew when it changes.
    */
   const attachDrag = (root: HTMLElement): (() => void) => {
-    root.dataset.vibration = String(display.resolved.vibration);
+    root.dataset.haptics = String(display.resolved.haptics);
     const detachCards = editable && groupBy ? cardSort.attach(root) : undefined;
     const detachColumns = editable && isOption ? columnSort.attach(root) : undefined;
     return () => {

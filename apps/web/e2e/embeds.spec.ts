@@ -161,7 +161,7 @@ test('on the dark screen the diagram is drawn again with the colours of the dark
   const light = await fillOf();
   // The way the settings dialog does it: the reader's account says dark.
   await page.evaluate(() =>
-    (window as unknown as { fvociDev: Dev }).fvociDev.backend.patchSettings({ brightness: 'dark' }),
+    (window as unknown as { fvociDev: Dev }).fvociDev.backend.patchSettings({ theme: 'dark' }),
   );
   await expect(page.locator('html')).toHaveClass(/dark/);
   // The diagram watches the class of the page and is drawn again.

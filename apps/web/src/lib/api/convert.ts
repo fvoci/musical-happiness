@@ -212,27 +212,11 @@ export function categoryOf(category: Schemas['CategoryBoards']): Category {
   };
 }
 
-/**
- * The settings. The contract names two of the display settings otherwise
- * than the screens still do (`theme` is `brightness`, `haptics` is
- * `vibration`; `docs/contract-assumptions.md`, F1).
- */
+/** The settings, under the names of the contract. */
 export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
-  return {
-    ...readRegionalSettings(settings),
-    ...readDisplaySettings({
-      brightness: settings.theme,
-      cardOpen: settings.cardOpen,
-      density: settings.density,
-      vibration: settings.haptics,
-    }),
-  };
+  return { ...readRegionalSettings(settings), ...readDisplaySettings(settings) };
 }
 
 export function settingsChangeOf(patch: AccountSettingsPatch): Schemas['SettingsChange'] {
-  const { brightness, vibration, ...rest } = patch;
-  const change: Schemas['SettingsChange'] = { ...rest };
-  if (brightness !== undefined) change.theme = brightness;
-  if (vibration !== undefined) change.haptics = vibration;
-  return change;
+  return { ...patch };
 }

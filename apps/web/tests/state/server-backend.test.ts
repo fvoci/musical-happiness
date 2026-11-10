@@ -348,3 +348,23 @@ describe('the trash on the server', () => {
     expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
   });
 });
+
+describe('the settings on the server', () => {
+  it('are read and written under the contract’s names', async () => {
+    const stored = {
+      theme: 'dark',
+      cardOpen: 'center',
+      density: 'compact',
+      haptics: false,
+      timeZone: 'Asia/Seoul',
+      weekStart: 'monday',
+      hourCycle: 'h23',
+    };
+    serve(stored);
+    const backend = new ServerBackend('');
+    expect(await backend.settings()).toMatchObject({ theme: 'dark', haptics: false });
+    const sent = serve({ ...stored, theme: 'light' });
+    await backend.patchSettings({ theme: 'light', haptics: true });
+    expect(sent[0]?.body).toEqual({ theme: 'light', haptics: true });
+  });
+});

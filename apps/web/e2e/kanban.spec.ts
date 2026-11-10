@@ -414,9 +414,9 @@ test.describe('dragging with a finger', () => {
         window as unknown as {
           fvociDev: { workspace: { changeSettings(patch: object): Promise<void> } };
         }
-      ).fvociDev.workspace.changeSettings({ vibration: false }),
+      ).fvociDev.workspace.changeSettings({ haptics: false }),
     );
-    await expect(kanban(page)).toHaveAttribute('data-vibration', 'false');
+    await expect(kanban(page)).toHaveAttribute('data-haptics', 'false');
     await finger.rest(card(page, 'Identify dependencies'));
     await finger.up();
     await expectNoDrag(page);
