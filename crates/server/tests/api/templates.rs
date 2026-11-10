@@ -468,3 +468,71 @@ fn the_server_copy_of_the_templates_is_the_converter_output() {
         );
     }
 }
+
+/// Templates that are stored again take the files of the old ones with them, from the
+/// storage too: the records go with the boards, and nothing would name the files after.
+#[tokio::test]
+async fn templates_stored_again_remove_the_old_files() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let old = ts
+        .app
+        .store()
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates")
+        .into_iter()
+        .find(|board| board.properties.get("onboarding") == Some(&json!(true)))
+        .expect("the marked one");
+    let file = fvoci_model::FileInfo {
+        id: fvoci_model::new_id(),
+        board_id: old.id.clone(),
+        stored_name: "picture.png".to_owned(),
+        name: "picture.png".to_owned(),
+        size: 3,
+        path: format!("{}/picture.png", old.id),
+        create_at: 1,
+        ..fvoci_model::FileInfo::default()
+    };
+    ts.app
+        .files()
+        .write(&file.path, &mut &b"png"[..])
+        .await
+        .expect("the file is stored");
+    ts.app
+        .store()
+        .save_file_info(&file)
+        .await
+        .expect("the file is recorded");
+    // As a database looks whose templates are of an older version.
+    let unmark = fvoci_model::BoardPatch {
+        deleted_properties: vec!["onboarding".to_owned()],
+        ..fvoci_model::BoardPatch::default()
+    };
+    ts.app
+        .store()
+        .patch_board(&old.id, &unmark, "")
+        .await
+        .expect("the mark is removed");
+
+    assert!(
+        ts.app
+            .init_templates()
+            .await
+            .expect("the templates are stored"),
+        "they are stored again"
+    );
+    assert!(
+        !ts.app
+            .files()
+            .exists(&file.path)
+            .await
+            .expect("the storage answers"),
+        "the old template's file is gone"
+    );
+    ts.teardown().await;
+}

@@ -4327,3 +4327,39 @@ async fn replacing_the_built_in_templates_hands_back_the_old_files() {
 
     test.teardown().await;
 }
+
+/// Two replacements of the built-in templates that start at once, each finding none,
+/// store them once between them: the second decides after the first has committed. On
+/// PostgreSQL that is the advisory lock, on SQLite the write transaction.
+#[tokio::test]
+async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let templates = || fvoci_model::BoardsAndBlocks {
+        boards: vec![Board {
+            is_template: true,
+            ..new_board(&new_id(), &team_id, BoardType::Open)
+        }],
+        blocks: Vec::new(),
+    };
+    let (mut first, mut second) = (templates(), templates());
+    let (first, second) = tokio::join!(
+        test.replace_builtin_templates(&mut first, <[Board]>::is_empty),
+        test.replace_builtin_templates(&mut second, <[Board]>::is_empty),
+    );
+    let replaced = [first, second]
+        .into_iter()
+        .map(|result| result.expect("a replacement runs").is_some())
+        .filter(|&replaced| replaced)
+        .count();
+    assert_eq!(replaced, 1, "one of them stores the templates");
+    assert_eq!(
+        test.get_builtin_templates()
+            .await
+            .expect("the built-in templates are read")
+            .len(),
+        1,
+        "and they are there once"
+    );
+    test.teardown().await;
+}

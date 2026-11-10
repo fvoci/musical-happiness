@@ -364,6 +364,10 @@ async fn concurrent_onboarding_stores_the_templates_once() {
         .get_builtin_templates()
         .await
         .expect("the built-in templates are read");
-    assert_eq!(templates.len(), 13, "stored once");
+    assert_eq!(
+        templates.len(),
+        13,
+        "not stored twice over, and every onboarding found its welcome board"
+    );
     ts.teardown().await;
 }

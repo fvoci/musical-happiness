@@ -211,10 +211,9 @@ impl App {
         let replaced = self
             .store()
             .replace_builtin_templates(&mut templates, |stored| {
-                initialization_reason(stored).is_some_and(|reason| {
-                    tracing::debug!(reason, "Storing the built-in templates");
-                    true
-                })
+                initialization_reason(stored)
+                    .inspect(|reason| tracing::debug!(reason, "Storing the built-in templates"))
+                    .is_some()
             })
             .await
             .map_err(|error| {

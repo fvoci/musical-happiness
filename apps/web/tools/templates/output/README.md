@@ -1,6 +1,6 @@
 # 내장 템플릿의 변환 산출물
 
-원본의 내장 템플릿 아카이브(`server/assets/templates.boardarchive`)를 새 서버가 받을 모양으로 바꾼 결과다. 서버 설계(저장소 루트의 `docs/s6-design.md` 5.7절의 "3.10의 갱신")가 정한 대로, 서버가 이 폴더를 저장소 루트의 `crates/server/assets/templates/`에 받아 내장 템플릿으로 쓴다. 이 README를 뺀 파일은 도구가 쓴 것이고 손으로 고치지 않는다.
+원본의 내장 템플릿 아카이브(`server/assets/templates.boardarchive`)를 새 서버가 받을 모양으로 바꾼 결과다. 서버 설계(저장소 루트의 `docs/s6-design.md` 5.7절의 "3.10의 갱신")가 정한 대로, 서버가 이 폴더의 템플릿 파일(`index.json`이 적은 13개)을 저장소 루트의 `crates/server/assets/templates/`에 복사해 내장 템플릿으로 쓴다. `index.json`은 서버의 테스트가 이 자리에서 읽는다. 이 README를 뺀 파일은 도구가 쓴 것이고 손으로 고치지 않는다.
 
 ```bash
 cd apps/web

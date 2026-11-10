@@ -473,7 +473,9 @@ impl Store {
     }
 
     /// Removes the built-in templates together with their blocks, for good: they do not
-    /// go to the trash.
+    /// go to the trash. For tests: it neither takes the lock of
+    /// [`Store::replace_builtin_templates`] nor hands back the templates' files, so the
+    /// server replaces its templates with that.
     ///
     /// # Errors
     ///

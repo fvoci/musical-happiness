@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use fvoci_model::{BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks};
+use fvoci_model::{BoardMember, BoardsAndBlocks, DeleteBoardsAndBlocks, PatchBoardsAndBlocks};
 
 use super::App;
 use super::boards::CreatorMembership;
@@ -84,7 +84,7 @@ impl App {
     pub(crate) async fn announce_created(
         &self,
         created: &BoardsAndBlocks,
-        members: &[fvoci_model::BoardMember],
+        members: &[BoardMember],
     ) {
         // All new boards belong to one team. The original crashes here without boards;
         // then there is nobody to tell.

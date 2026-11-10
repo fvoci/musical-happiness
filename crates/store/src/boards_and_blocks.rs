@@ -36,7 +36,7 @@ impl Store {
     pub async fn replace_builtin_templates(
         &self,
         templates: &mut BoardsAndBlocks,
-        needed: impl Fn(&[Board]) -> bool + Send + Sync,
+        needed: impl FnOnce(&[Board]) -> bool + Send,
     ) -> Result<Option<Vec<FileInfo>>, StoreError> {
         self.transaction(async |scope| {
             // On SQLite the transaction holds the database from its start.
@@ -45,6 +45,9 @@ impl Store {
                 sql.bind(BUILTIN_TEMPLATES_LOCK).push(")");
                 scope.execute(sql).await?;
             }
+            // Under READ COMMITTED, the default, the read below sees what the transaction
+            // that held the lock before committed. A stricter isolation level would take
+            // its snapshot before the lock is granted, and miss that.
             let stored = boards::get_builtin_templates(scope).await?;
             if !needed(&stored) {
                 return Ok(None);
