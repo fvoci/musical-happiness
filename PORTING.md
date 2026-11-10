@@ -12,7 +12,7 @@
 
 | 크레이트 | 경로 | 원본 | 상태 |
 |---|---|---|---|
-| `fvoci-model` | `crates/model` | `server/model`, `server/utils/utils.go`, `server/services/auth/email.go` | S1 |
+| `fvoci-model` | `crates/model` | `server/model`, `server/utils/utils.go`, `server/services/auth/email.go` | 완료 (S1) |
 | `fvoci-store` | `crates/store` | `server/services/store` | S2 |
 | `fvoci-server` | `crates/server` | `server/api`, `server/app`, `server/auth`, `server/ws`, `server/web`, `server/services/*` | S3–S4 |
 
