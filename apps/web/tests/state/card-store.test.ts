@@ -55,6 +55,18 @@ describe('an open card', () => {
     expect((await backend.card(board.boardId, cardId)).body).toEqual(text('three'));
   });
 
+  it('waits for a write that is under way when asked to store with nothing new', async () => {
+    const { card, backend, board, cardId } = await openAlpha();
+    backend.latency = 5;
+    void card.saveBody(text('on its way'));
+    expect(card.saving).toBe(true);
+    // The caller that closes the card asks once more and leaves when this answers.
+    await card.saveBody();
+    expect(card.saving).toBe(false);
+    expect(card.dirty).toBe(false);
+    expect((await backend.card(board.boardId, cardId)).body).toEqual(text('on its way'));
+  });
+
   it('writes on the newest version it knows after the reader changed a property', async () => {
     const { card, board, backend, workspace, cardId } = await openAlpha();
     await board.setCardProperty(cardId, STATUS, 'done');

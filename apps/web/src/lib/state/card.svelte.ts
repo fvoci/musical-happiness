@@ -158,7 +158,11 @@ export class CardStore {
    */
   async saveBody(body?: DocNode | null): Promise<void> {
     if (body !== undefined) this.editBody(body);
-    if (!this.#unsaved) return;
+    if (!this.#unsaved) {
+      // Nothing new to send, but what was given before may still be on its way.
+      await this.#writing;
+      return;
+    }
     this.saving = true;
     this.#writing ??= this.#drain().finally(() => {
       this.#writing = undefined;
