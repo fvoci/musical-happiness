@@ -296,7 +296,7 @@
         {...props}
         type="button"
         data-slot="property-date"
-        class="flex min-h-8 w-full min-w-0 items-center rounded-md px-2 py-1 text-left hover:bg-muted aria-expanded:bg-muted pointer-coarse:min-h-touch"
+        class="flex min-h-8 w-full min-w-0 items-center rounded-md px-2 py-1 text-left hover:bg-muted aria-expanded:bg-muted roomy:min-h-touch"
       >
         <span class="sr-only">{name}</span>
         {#if text !== ''}

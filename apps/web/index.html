@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <!-- The path the app is served under. The server fills it in; the router reads it. -->
+    <meta name="fvoci:base" content="{{.BaseURL}}" />
+    <meta name="theme-color" content="#ffffff" />
     <title>fvoci</title>
   </head>
   <body>

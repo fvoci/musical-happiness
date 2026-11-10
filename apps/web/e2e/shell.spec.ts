@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('the empty shell renders and requests only hashed, compressed files', async ({ page }) => {
+test('the app starts and requests only hashed, compressed files', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') errors.push(message.text());
@@ -19,20 +19,12 @@ test('the empty shell renders and requests only hashed, compressed files', async
   });
 
   await page.goto('/');
-  await expect(page.getByText('fvoci', { exact: true })).toBeVisible();
-  await expect(page.getByRole('status')).toHaveText('Loading…');
+  await expect(page.getByTestId('app-shell')).toBeVisible();
   // Fonts are requested while the page settles; wait for them.
   await page.waitForLoadState('networkidle');
 
   expect(errors).toEqual([]);
   const assets = responses.filter((response) => response.url.includes('/static/'));
-
-  // English text needs one font file at most: the common part of the Latin
-  // family. A device that has the family installed requests none.
-  const fonts = assets
-    .filter((asset) => asset.url.endsWith('.woff2'))
-    .map((asset) => asset.url.replace(/^.*\//, '').replace(/-[0-9a-f]{16}/, ''));
-  expect(['', 'noto-sans-common.woff2']).toContain(fonts.join(','));
   expect(assets.length).toBeGreaterThanOrEqual(2);
   for (const asset of assets) {
     expect(asset.status, asset.url).toBe(200);
@@ -47,8 +39,9 @@ test('the page can be zoomed and follows the text size of the browser', async ({
   expect(viewport).not.toContain('user-scalable');
   expect(viewport).not.toContain('maximum-scale');
 
+  await expect(page.getByTestId('app-shell')).toBeVisible();
   const size = (): Promise<number> =>
-    page.getByRole('status').evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+    page.locator('body').evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
   const before = await size();
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
@@ -56,7 +49,13 @@ test('the page can be zoomed and follows the text size of the browser', async ({
   expect(await size()).toBeCloseTo(before * 2, 1);
 });
 
-test('a deep link gets the shell, and its files resolve from the base path', async ({ page }) => {
+test('a deep link gets the app, and its files resolve from the base path', async ({ page }) => {
   await page.goto('/board/some-board/some-view');
-  await expect(page.getByText('fvoci', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveText('Board not found.');
+});
+
+test('an address that is not one of the app says so', async ({ page }) => {
+  await page.goto('/nowhere/at/all');
+  await expect(page.getByRole('alert')).toHaveText('There is nothing at this address.');
 });

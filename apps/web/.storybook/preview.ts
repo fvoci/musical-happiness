@@ -2,9 +2,13 @@ import type { Preview } from '@storybook/svelte';
 
 import { loadFontFaces } from '$lib/fonts.js';
 import { setLocale } from '$lib/i18n/paraglide/runtime.js';
+import { page } from '$lib/layout/room.svelte.ts';
 import { applyTheme } from '$lib/theme.svelte.js';
 
 import '../src/styles/app.css';
+
+// Parts that open as a sheet on a compact page ask the page for its width.
+page.attach(document.body);
 
 const preview: Preview = {
   globalTypes: {

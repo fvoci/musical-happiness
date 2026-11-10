@@ -67,7 +67,7 @@ export const DateOnSheet: Story = {
 };
 
 /**
- * The default a caller gets from `PickerPresentation`: a sheet under 768px, a
+ * The default a caller gets from `PickerPresentation`: a sheet on a compact page (under 600px), a
  * popover from there on. Resize the window, then open the value.
  */
 export const FollowsTheViewport: Story = {

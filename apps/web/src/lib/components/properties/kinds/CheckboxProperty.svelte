@@ -19,7 +19,7 @@
 
 <label
   data-slot="property-checkbox"
-  class="inline-flex min-h-8 min-w-8 items-center px-2 pointer-coarse:min-h-touch pointer-coarse:min-w-touch"
+  class="inline-flex min-h-8 min-w-8 items-center px-2 roomy:min-h-touch roomy:min-w-touch"
 >
   <Checkbox
     aria-label={name}

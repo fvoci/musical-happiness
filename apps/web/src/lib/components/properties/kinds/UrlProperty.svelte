@@ -110,14 +110,14 @@
       <span class="min-w-0 truncate px-2 py-1.5" title={value}>{value}</span>
     {/if}
     <span
-      class="flex shrink-0 items-center opacity-0 group-focus-within/url:opacity-100 group-hover/url:opacity-100 pointer-coarse:opacity-100"
+      class="flex shrink-0 items-center opacity-0 group-focus-within/url:opacity-100 group-hover/url:opacity-100 roomy:opacity-100"
     >
       {#if editable}
         <Button
           bind:ref={editButton}
           variant="ghost"
           size="icon-sm"
-          class="pointer-coarse:size-touch"
+          class="roomy:size-touch"
           aria-label="{name}: {m['URLProperty.edit']()}"
           title={m['URLProperty.edit']()}
           onclick={(event: MouseEvent) => {
@@ -131,7 +131,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        class="pointer-coarse:size-touch"
+        class="roomy:size-touch"
         aria-label="{name}: {copied ? m['URLProperty.copiedLink']() : m['URLProperty.copy']()}"
         title={copied ? m['URLProperty.copiedLink']() : m['URLProperty.copy']()}
         onclick={(event: MouseEvent) => void copy(event)}

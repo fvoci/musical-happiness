@@ -173,7 +173,7 @@
         {...props}
         type="button"
         data-slot="property-select"
-        class="flex min-h-8 w-full min-w-0 flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left hover:bg-muted aria-expanded:bg-muted pointer-coarse:min-h-touch"
+        class="flex min-h-8 w-full min-w-0 flex-wrap items-center gap-1 rounded-md px-2 py-1 text-left hover:bg-muted aria-expanded:bg-muted roomy:min-h-touch"
       >
         <span class="sr-only">{name}</span>
         {@render labels()}

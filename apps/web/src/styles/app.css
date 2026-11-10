@@ -24,6 +24,57 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* The device can point without pressing: what appears on hover may wait for it. */
+@custom-variant can-hover (@media (hover: hover));
+
+/*
+ * Things a finger has to hit get room: the reader chose "comfortable", or
+ * left the choice to the device and its main pointer is a finger. The root
+ * element carries the settled choice in `data-density` (lib/display.svelte.ts
+ * and the script in index.html put it there); a page that never set it (a
+ * story, a spike) follows the pointer.
+ */
+@custom-variant roomy {
+  &:is([data-density='comfortable'] *) {
+    @slot;
+  }
+  @media (pointer: coarse) {
+    &:not([data-density] *) {
+      @slot;
+    }
+  }
+}
+
+/* -------------------------------------------------------------- layout */
+
+/*
+ * Where the layout changes. This is the only place the widths are written:
+ * classes use them as container variants (`@columns/pane:`, `@header/pane:`,
+ * `@card-roomy/card:`) and lib/layout reads the same variables for what a
+ * class cannot decide (the shape of the sidebar, the frame of a card,
+ * whether a menu is a sheet).
+ *
+ * They are widths of a box, not of the screen. `page` is the window less the
+ * room the device keeps at its left and right edges; `pane` is what is left
+ * of that for the board. In rem, so that a reader with a larger text size
+ * gets the narrower layout sooner: the same number of characters fits.
+ *
+ * To move a boundary, change the number here. docs/mobile-proposal.md says
+ * where each came from.
+ */
+@theme static {
+  /* page: 600px. From here a strip of the sidebar stays, a card is a panel, a menu a popover. */
+  --container-medium: 37.5rem;
+  /* page: 840px. From here the sidebar is fixed and a card is a dialog. */
+  --container-expanded: 52.5rem;
+  /* pane: 544px, two kanban columns of 16rem and what is between them. */
+  --container-columns: 34rem;
+  /* pane: 992px, the whole header of a view in one row. */
+  --container-header: 62rem;
+  /* card: 576px. From here the names of the properties get a wider column. */
+  --container-card-roomy: 36rem;
+}
+
 /* ---------------------------------------------------------------- colour */
 
 :root {
@@ -81,10 +132,35 @@
   --option-red: oklch(0.88 0.07 25);
 
   --radius: 0.5rem;
+
+  /*
+   * A page lower than this is laid out as a narrow one however wide it is: a
+   * phone on its side has the width of a tablet and the height of nothing.
+   */
+  --stage-min-height: 31.25rem;
+
+  /*
+   * Room the device takes at each edge of the screen (notch, home indicator,
+   * a camera or a hinge at one side) and the height of the on-screen
+   * keyboard where the browser does not shrink the page for it. Everything
+   * pinned to an edge is placed with these. Left and right are two values:
+   * they differ on some devices, and neither stands in for the other.
+   */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --keyboard: 0px;
+
+  /* What dims the page behind a sheet, a drawer or a dialog, and how much it blurs it. */
+  --scrim: oklch(0 0 0 / 12%);
+  --scrim-blur: 4px;
 }
 
 .dark {
   color-scheme: dark;
+
+  --scrim: oklch(0 0 0 / 55%);
 
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
@@ -330,5 +406,48 @@
   :focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
+  }
+}
+
+/*
+ * The page itself stays clear of the top, left and right edges the device
+ * keeps; the page box is measured inside this. What is pinned to the bottom
+ * edge adds `--safe-bottom` itself, and what is drawn outside of this box
+ * (sheets, dialogs) uses the four values on its own.
+ */
+#app {
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+}
+
+/* The layer behind a sheet, a drawer or a dialog. */
+@utility scrim {
+  background-color: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur));
+}
+
+/*
+ * The reader's own switches, followed without asking again: less
+ * transparency means no blur behind a sheet (a plain, darker layer instead),
+ * less motion means nothing slides or fades.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --scrim: oklch(0 0 0 / 40%);
+    --scrim-blur: 0px;
+  }
+
+  .dark {
+    --scrim: oklch(0 0 0 / 70%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

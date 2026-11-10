@@ -2,10 +2,11 @@
   The surface a list of choices or a date picker opens on: a popover next to
   its trigger on a wide screen, a sheet from the bottom edge on a narrow one.
 
-  This is the only place that knows the two. Which one is used is the
-  `presentation` argument; the caller decides (default-presentation.svelte.ts
-  has a default that follows the width of the viewport). To change how
-  pickers open on narrow screens, change the `sheet` branch below.
+  Which one is used is the `presentation` argument; the caller decides
+  (default-presentation.svelte.ts has the default, which follows the stage of
+  the page by the rule of lib/layout/presentation.ts). The sheet is the same
+  one menus use (../sheet/BottomSheet.svelte): it closes with the back button
+  too, and sits on top of the on-screen keyboard.
 
   Inside the surface, `group-data-[presentation=sheet]/surface:` styles a
   child for the sheet only: rows a finger has to hit grow to `min-h-touch`.
@@ -19,11 +20,11 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
 
-  import { m } from '$lib/i18n/paraglide/messages.js';
-  import { Button } from '$lib/ui/button/index.js';
+  import { insets } from '$lib/layout/room.svelte.ts';
   import * as Popover from '$lib/ui/popover/index.js';
-  import * as Sheet from '$lib/ui/sheet/index.js';
   import { cn } from '$lib/utils.js';
+
+  import BottomSheet from '../sheet/BottomSheet.svelte';
 
   import type { Presentation } from './presentation.ts';
 
@@ -49,13 +50,7 @@
     class: className,
   }: Props = $props();
 
-  let sheet = $state<HTMLElement | null>(null);
   let popover = $state<HTMLElement | null>(null);
-
-  function focusSheet(event: Event): void {
-    event.preventDefault();
-    sheet?.focus();
-  }
 
   function focusMarked(event: Event): void {
     const marked = popover?.querySelector<HTMLElement>('[data-picker-focus]');
@@ -66,37 +61,21 @@
 </script>
 
 {#if presentation === 'sheet'}
-  <Sheet.Root bind:open {onOpenChange}>
-    <Sheet.Trigger>
-      {#snippet child({ props }: { props: Record<string, unknown> })}
-        {@render trigger({ props })}
-      {/snippet}
-    </Sheet.Trigger>
-    <Sheet.Content
-      bind:ref={sheet}
-      side="bottom"
-      showCloseButton={false}
-      class="max-h-[85dvh] gap-0 rounded-t-xl pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] outline-none"
-      onOpenAutoFocus={focusSheet}
-    >
-      <Sheet.Header class="pb-2">
-        <Sheet.Title>{title}</Sheet.Title>
-      </Sheet.Header>
-      <div
-        data-presentation="sheet"
-        class={cn('group/surface min-h-0 flex-1 overflow-y-auto px-2', className)}
-      >
-        {@render children()}
-      </div>
-      <Sheet.Footer class="pt-2">
-        <Sheet.Close>
-          {#snippet child({ props }: { props: Record<string, unknown> })}
-            <Button {...props} variant="outline" class="min-h-touch">{m.ui_done()}</Button>
-          {/snippet}
-        </Sheet.Close>
-      </Sheet.Footer>
-    </Sheet.Content>
-  </Sheet.Root>
+  {@render trigger({
+    props: {
+      'aria-haspopup': 'dialog',
+      'aria-expanded': open,
+      onclick: () => {
+        open = true;
+        onOpenChange?.(true);
+      },
+    },
+  })}
+  <BottomSheet bind:open {title} {onOpenChange}>
+    <div class={cn('px-2 pb-2', className)}>
+      {@render children()}
+    </div>
+  </BottomSheet>
 {:else}
   <Popover.Root bind:open {onOpenChange}>
     <Popover.Trigger>
@@ -107,8 +86,9 @@
     <Popover.Content
       bind:ref={popover}
       align="start"
+      collisionPadding={insets.collisionPadding}
       aria-label={title}
-      class="max-h-(--bits-popover-content-available-height) w-auto max-w-[calc(100vw-1rem-env(safe-area-inset-left)-env(safe-area-inset-right))] min-w-64 gap-0 overflow-y-auto p-1"
+      class="max-h-(--bits-popover-content-available-height) w-auto max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))] min-w-64 gap-0 overflow-y-auto p-1"
       onOpenAutoFocus={focusMarked}
     >
       <div data-presentation="popover" class={cn('group/surface', className)}>

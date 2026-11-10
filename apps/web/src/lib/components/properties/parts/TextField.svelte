@@ -138,7 +138,7 @@
   {onkeydown}
   {onblur}
   class={cn(
-    'h-8 w-full min-w-0 rounded-md border border-transparent bg-transparent px-2 text-base text-foreground outline-none placeholder:text-muted-foreground hover:bg-muted focus-visible:border-ring focus-visible:bg-background focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm pointer-coarse:min-h-touch',
+    'h-8 w-full min-w-0 rounded-md border border-transparent bg-transparent px-2 text-base text-foreground outline-none placeholder:text-muted-foreground hover:bg-muted focus-visible:border-ring focus-visible:bg-background focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm roomy:min-h-touch',
     className,
   )}
 />

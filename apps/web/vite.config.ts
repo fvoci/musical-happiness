@@ -76,7 +76,7 @@ export default defineConfig(({ command }) => ({
         test: {
           name: 'ui',
           environment: 'jsdom',
-          include: ['tests/ui/**/*.test.ts'],
+          include: ['tests/ui/**/*.test.ts', 'tests/state/**/*.test.ts'],
           setupFiles: ['tests/ui/setup.ts'],
         },
       },

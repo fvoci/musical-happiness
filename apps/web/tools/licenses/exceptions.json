@@ -40,5 +40,13 @@
       "name": "@inlang/paraglide-js",
       "reason": "Its compiler writes the message runtime under src/lib/i18n/paraglide, which is compiled into the output."
     }
+  ],
+  "unlabelled": [
+    {
+      "name": "svelte-toolbelt",
+      "license": "MIT",
+      "firstLine": "MIT License",
+      "reason": "Its package.json has no license member. The LICENSE file it ships is the MIT text; the build reads that file and stops if its first line is no longer this one."
+    }
   ]
 }

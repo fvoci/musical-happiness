@@ -36,6 +36,29 @@ export interface FontLicense {
   text: string;
 }
 
+/**
+ * The licence of a bundled package whose `package.json` does not name one.
+ * Nothing is guessed: the package has to be listed under `unlabelled` in
+ * exceptions.json with the licence a person read off its licence file, and
+ * that file still has to begin with the line recorded there.
+ */
+function labelled(item: PackageLicense, fail: (message: string) => never): PackageLicense {
+  const entry = exceptions.unlabelled.find((candidate) => candidate.name === item.name);
+  if (!entry) {
+    return fail(
+      `${item.name} ${item.version} is in the bundle and its package.json names no licence. Read its licence file and list it under "unlabelled" in tools/licenses/exceptions.json.`,
+    );
+  }
+  const shipped = readPackageLicense(item.name);
+  const firstLine = shipped.text.split('\n')[0]?.trim() ?? '';
+  if (firstLine !== entry.firstLine) {
+    return fail(
+      `${item.name} ${item.version}: its licence file begins with "${firstLine}", not "${entry.firstLine}" as recorded in tools/licenses/exceptions.json. Read it again.`,
+    );
+  }
+  return { ...item, identifier: entry.license, text: item.text || shipped.text };
+}
+
 /** Packages named by a bare `@import` in a style sheet of the app. */
 export function styleSheetPackages(css: string): string[] {
   const names = new Set<string>();
@@ -85,7 +108,9 @@ export function thirdPartyNotices(): Plugin {
         if (report?.type !== 'asset') {
           this.error(`${LICENSE_REPORT} is missing: set build.license.fileName to it`);
         }
-        const bundled = JSON.parse(String(report.source)) as PackageLicense[];
+        const bundled = (JSON.parse(String(report.source)) as PackageLicense[]).map((item) =>
+          item.identifier ? item : labelled(item, (message) => this.error(message)),
+        );
         // The raw report is an input of this step, not part of the product.
         Reflect.deleteProperty(bundle, LICENSE_REPORT);
 

@@ -61,11 +61,7 @@ describe.each(PICKERS)('the picker of a %s property', (type, value) => {
     mount(type, value, { presentation: 'sheet' });
     await fireEvent.click(valueButton(name));
     const sheet = screen.getByRole('dialog', { name });
-    expect(sheet).toHaveClass(
-      'pl-[env(safe-area-inset-left)]',
-      'pr-[env(safe-area-inset-right)]',
-      'pb-[env(safe-area-inset-bottom)]',
-    );
+    expect(sheet).toHaveClass('pl-(--safe-left)', 'pr-(--safe-right)', 'pb-(--safe-bottom)');
   });
 
   it('closes the sheet with its Done button and with Escape', async () => {

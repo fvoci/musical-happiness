@@ -1,0 +1,345 @@
+/**
+ * The data boundary: everything a screen can read, write and listen to.
+ *
+ * Screens never talk to a server. They use the stores of this folder, and
+ * the stores use one `Backend`. Today the only implementation keeps its data
+ * in memory (`memory/`); when the server's contract is published, an
+ * implementation that calls the server takes its place and nothing above
+ * this file changes.
+ *
+ * The shapes follow the server design (its `docs/s6-design.md`): errors are
+ * `{error, message, reason?, field?, limit?}` with the status codes of its
+ * section 1.3, identifiers are made by the server, a card or a comment has
+ * its text as one document (`body`), a card list comes without bodies, and
+ * a body is written with the `updateAt` it was read at so that a stale write
+ * is refused with 409. Where the design says nothing and something had to be
+ * made up, the place is listed in `docs/contract-assumptions.md`.
+ *
+ * No method promises an order. Whatever is shown in an order is sorted by
+ * the client (`order.ts`).
+ */
+import type { DocNode } from '../editor/schema.ts';
+import type { DisplaySettings } from '../logic/display.ts';
+import type { RegionalSettings } from '../logic/regional.ts';
+import type { UserNames } from '../logic/users.ts';
+import type {
+  Block,
+  BlockPatch,
+  Board,
+  BoardMember,
+  BoardPatch,
+  BoardView,
+  Card,
+} from '../logic/wire.ts';
+
+// ----------------------------------------------------------------- errors
+
+/** The kinds of error, one per status code (server design 1.3). */
+export const ERROR_KINDS = {
+  400: 'bad_request',
+  401: 'unauthorized',
+  403: 'forbidden',
+  404: 'not_found',
+  405: 'method_not_allowed',
+  409: 'conflict',
+  413: 'payload_too_large',
+  429: 'rate_limited',
+  500: 'internal',
+} as const;
+
+export type ErrorStatus = keyof typeof ERROR_KINDS;
+export type ErrorKind = (typeof ERROR_KINDS)[ErrorStatus] | 'network';
+
+/** The body of an error answer, as the server design has it. */
+export interface ErrorBody {
+  error: ErrorKind;
+  /** English, for logs and developers. Never shown as it is. */
+  message: string;
+  /** A stable reason within the kind, for choosing the text to show. */
+  reason?: string;
+  field?: string;
+  limit?: number;
+  request_id?: string;
+  /** Seconds, with 429. */
+  retry_after?: number;
+}
+
+/** What every method of the backend rejects with. */
+export class BackendError extends Error {
+  /** 0 when no answer arrived at all (`network`). */
+  readonly status: ErrorStatus | 0;
+  readonly kind: ErrorKind;
+  readonly reason: string | undefined;
+  readonly field: string | undefined;
+  readonly limit: number | undefined;
+  readonly retryAfter: number | undefined;
+
+  constructor(status: ErrorStatus | 0, body?: Partial<ErrorBody>) {
+    const kind = status === 0 ? 'network' : ERROR_KINDS[status];
+    super(body?.message ?? kind);
+    this.name = 'BackendError';
+    this.status = status;
+    this.kind = kind;
+    this.reason = body?.reason;
+    this.field = body?.field;
+    this.limit = body?.limit;
+    this.retryAfter = body?.retry_after;
+  }
+}
+
+export function isBackendError(error: unknown): error is BackendError {
+  return error instanceof BackendError;
+}
+
+/** The stored version differs from the one the write was based on. */
+export function isConflict(error: unknown): error is BackendError {
+  return isBackendError(error) && error.status === 409;
+}
+
+// ------------------------------------------------------------------ model
+
+export interface User extends UserNames {
+  id: string;
+  email: string;
+  /** Only on the reader's own user. */
+  isAdmin?: boolean;
+  createAt: number;
+  updateAt: number;
+  /** Not 0: the account was deactivated; it stays so that what it made keeps an author. */
+  deleteAt: number;
+}
+
+export interface Team {
+  id: string;
+  title: string;
+}
+
+/**
+ * The reader's account settings: the three of the server design (5.8) and
+ * the four display settings the plan adds to them. The answer always holds
+ * every member.
+ */
+export type AccountSettings = RegionalSettings & DisplaySettings;
+
+/** A member set to `null` goes back to its default. */
+export type AccountSettingsPatch = { [K in keyof AccountSettings]?: AccountSettings[K] | null };
+
+/** A category of the reader's sidebar, with the boards filed under it. */
+export interface Category {
+  id: string;
+  name: string;
+  userId: string;
+  teamId: string;
+  /** `system` is the one every reader has and cannot delete. */
+  type: 'custom' | 'system';
+  collapsed: boolean;
+  /** The reader's order of the categories; ties are the client's to break. */
+  sortOrder: number;
+  /** The boards in the reader's order. */
+  boardIds: string[];
+  /** Boards of this category the reader hid from the sidebar. */
+  hiddenBoardIds: string[];
+  createAt: number;
+  updateAt: number;
+}
+
+export interface CategoryDraft {
+  name: string;
+}
+
+export interface CategoryPatch {
+  name?: string;
+  collapsed?: boolean;
+}
+
+/** A card as a list has it: no body, but whether there is one and how its tasks stand. */
+export interface CardSummary extends Card {
+  hasBody: boolean;
+  tasksTotal: number;
+  tasksDone: number;
+}
+
+/** A card read on its own: with its body. */
+export interface CardDetail extends CardSummary {
+  body: DocNode | null;
+}
+
+export interface Comment extends Block {
+  type: 'comment';
+  body: DocNode | null;
+}
+
+/** A file attached to a card. It is a child block of the card; `fileId` names the bytes. */
+export interface Attachment extends Block {
+  type: 'attachment';
+  fileId: string;
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+/** What a card is made from. The server gives it its identifier and times. */
+export interface CardDraft {
+  title?: string;
+  icon?: string;
+  properties?: Card['fields']['properties'];
+  isTemplate?: boolean;
+  body?: DocNode | null;
+}
+
+export interface CardPatch {
+  title?: string;
+  icon?: string;
+  /** Properties to set. */
+  updatedProperties?: Card['fields']['properties'];
+  /** Properties to clear. */
+  deletedProperties?: string[];
+}
+
+export interface ViewDraft {
+  title: string;
+  fields: BoardView['fields'];
+}
+
+export interface BoardDraft {
+  title: string;
+  description?: string;
+  icon?: string;
+  type?: Board['type'];
+  cardProperties?: Board['cardProperties'];
+}
+
+/** A write of a body: the document and the version it was based on. */
+export interface BodyWrite {
+  body: DocNode | null;
+  /** The `updateAt` of the card or comment as the writer read it. */
+  readAt: number;
+}
+
+export interface UploadProgress {
+  sentBytes: number;
+  totalBytes: number;
+}
+
+export interface UploadOptions {
+  onProgress?: (progress: UploadProgress) => void;
+  /** Aborting gives up the upload; what was sent is discarded by the server. */
+  signal?: AbortSignal;
+}
+
+export interface UploadedFile {
+  fileId: string;
+  name: string;
+  size: number;
+  contentType: string;
+}
+
+// ---------------------------------------------------------------- changes
+
+/**
+ * A change that happened on the server, whoever made it: the reader in this
+ * tab, the reader in another one, or somebody else. Stores apply these the
+ * same way they apply the answer to their own write, so applying one twice
+ * does nothing.
+ */
+export type Change =
+  | { kind: 'board'; board: Board }
+  | { kind: 'boardDeleted'; boardId: string }
+  /** Blocks that were added or changed. A card comes as its summary. */
+  | { kind: 'blocks'; boardId: string; blocks: (BoardView | CardSummary | Comment | Attachment)[] }
+  | { kind: 'blocksDeleted'; boardId: string; blockIds: string[] }
+  | { kind: 'members'; boardId: string; members: BoardMember[] }
+  | { kind: 'categories'; categories: Category[] }
+  | { kind: 'settings'; settings: AccountSettings };
+
+export type ChangeListener = (change: Change) => void;
+
+type ChangedBlock = Extract<Change, { kind: 'blocks' }>['blocks'][number];
+
+/** Whether a changed block is a card. The types of the blocks overlap, so `type` has to be asked. */
+export function isCardBlock(block: ChangedBlock): block is CardSummary {
+  return block.type === 'card';
+}
+
+export function isViewBlock(block: ChangedBlock): block is BoardView {
+  return block.type === 'view';
+}
+
+// ---------------------------------------------------------------- backend
+
+export interface Backend {
+  // The reader and the people around them.
+  me(): Promise<User>;
+  teams(): Promise<Team[]>;
+  /** The people of a team: who can be mentioned or set as a person. */
+  users(teamId: string): Promise<User[]>;
+
+  // Account settings (server design 5.8) and the pocket of screen state.
+  settings(): Promise<AccountSettings>;
+  patchSettings(patch: AccountSettingsPatch): Promise<AccountSettings>;
+  /** Small things a screen wants to find again on another device. Keys and values are text. */
+  screenState(): Promise<Record<string, string>>;
+  patchScreenState(updated: Record<string, string>, deleted?: string[]): Promise<void>;
+
+  // Boards.
+  boards(teamId: string): Promise<Board[]>;
+  board(boardId: string): Promise<Board>;
+  createBoard(teamId: string, draft: BoardDraft): Promise<Board>;
+  patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
+  /** Moves the board to the trash. */
+  deleteBoard(boardId: string): Promise<void>;
+  /** Takes the board, its blocks and its members back out of the trash. */
+  restoreBoard(boardId: string): Promise<Board>;
+  members(boardId: string): Promise<BoardMember[]>;
+
+  // The reader's sidebar.
+  categories(teamId: string): Promise<Category[]>;
+  createCategory(teamId: string, draft: CategoryDraft): Promise<Category>;
+  patchCategory(categoryId: string, patch: CategoryPatch): Promise<Category>;
+  deleteCategory(categoryId: string): Promise<void>;
+  /** The reader's order of all their categories. */
+  reorderCategories(teamId: string, categoryIds: string[]): Promise<void>;
+  /** Files a board under a category, at a place among its boards. */
+  moveBoardToCategory(boardId: string, categoryId: string, index: number): Promise<void>;
+
+  // Views.
+  views(boardId: string): Promise<BoardView[]>;
+  createView(boardId: string, draft: ViewDraft): Promise<BoardView>;
+  patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView>;
+
+  // Cards.
+  cards(boardId: string): Promise<CardSummary[]>;
+  card(boardId: string, cardId: string): Promise<CardDetail>;
+  createCard(boardId: string, draft: CardDraft): Promise<CardSummary>;
+  patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary>;
+  /** Replaces the body. Rejects with 409 when the card changed since `readAt`. */
+  writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail>;
+
+  // Comments and attachments of a card.
+  comments(boardId: string, cardId: string): Promise<Comment[]>;
+  createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment>;
+  attachments(boardId: string, cardId: string): Promise<Attachment[]>;
+  createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment>;
+
+  // Any block of a board: a view, a card, a comment, an attachment.
+  /** Moves the block and everything under it to the trash. */
+  deleteBlock(boardId: string, blockId: string): Promise<void>;
+  /** Takes the block and what was deleted with it back out of the trash. */
+  restoreBlock(boardId: string, blockId: string): Promise<void>;
+
+  // Files.
+  /**
+   * Uploads a file of a board. Small files go in one request and large ones
+   * in parts (server design 5.6); which, and the retrying of a part, is the
+   * implementation's business.
+   */
+  upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile>;
+  /** Where the bytes of a file can be fetched by an `<img>` or a link. */
+  fileUrl(boardId: string, fileId: string): string | undefined;
+
+  // Changes as they happen.
+  /** Listens to the changes of one board. Returns the function that stops listening. */
+  watchBoard(boardId: string, listener: ChangeListener): () => void;
+  /** Listens to the changes of the reader's own things: boards they can see, sidebar, settings. */
+  watchSelf(listener: ChangeListener): () => void;
+}
