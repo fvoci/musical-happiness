@@ -1,11 +1,13 @@
 /** What the two browser test files of this spike share. */
 import type { Page } from '@playwright/test';
 
+import { SIZES } from './params.ts';
+
 export const PAGE = '/spikes/mobile/';
 
 /** The phone and the desktop of the proposals, in CSS pixels. */
-export const PHONE = { width: 360, height: 740 };
-export const DESKTOP = { width: 1280, height: 800 };
+export const PHONE = SIZES[360];
+export const DESKTOP = SIZES[1280];
 
 /**
  * The moment every page believes it is: the calendar marks "today", and a

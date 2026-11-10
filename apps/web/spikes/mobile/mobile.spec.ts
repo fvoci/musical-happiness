@@ -3,12 +3,16 @@
  * narrow ones do not spill sideways, and each proposal is in fact the thing
  * it claims to be (a sheet, a popover, a page, a dialog).
  *
- * The `touch` project looks at the phone (360×740, a finger), the `desktop`
- * project at the desktop (1280×800, a mouse).
+ * The `touch` project looks at the phone (360×740, a finger) and at the
+ * sizes in between; the `desktop` project at the desktop (1280×800, a mouse).
+ *
+ * Further down: what changes at which width and that classes and script
+ * agree on it, what happens to what is open when the window changes size,
+ * and the edges a device keeps for itself.
  */
 import { expect, test, type Page } from '@playwright/test';
 
-import { SCREENS, addressOf, type ScreenId, type Variant } from './params.ts';
+import { SCREENS, SIZES, addressOf, type ScreenId, type Variant } from './params.ts';
 import { DESKTOP, NOW, PAGE, PHONE, settled } from './support.ts';
 
 /** `--spacing-touch`, in pixels at the default text size. */
@@ -90,7 +94,7 @@ test.describe('on a phone', () => {
 
   test('the sidebar is a drawer that the back button closes', async ({ page }) => {
     await show(page, 'sidebar', 'a');
-    const drawer = page.locator('[data-sidebar="sidebar"][data-mobile="true"]');
+    const drawer = page.getByTestId('sidebar-drawer');
     await expect(drawer).toBeVisible();
     const box = await drawer.boundingBox();
     expect(box?.x).toBe(0);
@@ -283,7 +287,7 @@ test.describe('on a desktop', () => {
     page,
   }) => {
     await show(page, 'sidebar', 'b');
-    await expect(page.locator('[data-slot="sidebar-container"]')).toBeVisible();
+    await expect(page.getByTestId('sidebar')).toBeVisible();
     await expect(page.getByRole('dialog').getByPlaceholder('보드 찾기')).toBeVisible();
     await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
   });
@@ -293,12 +297,12 @@ test.describe('on a desktop', () => {
     const header = page.getByTestId('view-header');
     await expect(header.getByRole('button', { name: '새로 만들기' })).toBeVisible();
     await expect(header.getByRole('button', { name: '정렬' })).toBeVisible();
-    await expect(page.getByTestId('column-tabs')).toHaveCount(0);
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
     await expect(page.getByTestId('new-card-fab')).toHaveCount(0);
     expect(await header.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   });
 
-  test('a card is a dialog in one proposal and a panel at the right in the other', async ({
+  test('a card is a dialog in one proposal and a pane beside the board in the other', async ({
     page,
   }) => {
     await show(page, 'card', 'a');
@@ -307,9 +311,15 @@ test.describe('on a desktop', () => {
     expect((dialog?.x ?? 0) + (dialog?.width ?? 0)).toBeLessThan(DESKTOP.width - 100);
 
     await show(page, 'card', 'b');
-    const panel = await page.getByTestId('card-sheet').boundingBox();
-    expect((panel?.x ?? 0) + (panel?.width ?? 0)).toBe(DESKTOP.width);
-    expect(panel?.height).toBe(DESKTOP.height);
+    const beside = await page.getByTestId('card-pane').boundingBox();
+    // Half of the page: its left edge is on the middle line.
+    expect(beside?.x).toBe(DESKTOP.width / 2);
+    expect((beside?.x ?? 0) + (beside?.width ?? 0)).toBe(DESKTOP.width);
+    expect(beside?.height).toBe(DESKTOP.height);
+    // The board is still there, in what is left, and laid out for that width.
+    const board = await page.getByTestId('pane').boundingBox();
+    expect(board?.width).toBe(DESKTOP.width / 2 - 256);
+    await expect(page.getByTestId('column-tabs')).toBeVisible();
   });
 
   for (const screen of ['menu-view', 'menu-card', 'menu-select', 'menu-date'] as const) {
@@ -333,5 +343,501 @@ test.describe('on a desktop', () => {
     const button = await page.getByTestId('open-sidebar').boundingBox();
     expect(button?.width).toBe(32);
     expect(await spill(page)).toBe(0);
+  });
+});
+
+/** The stage the page says it is in: what script made of the width. */
+async function expectStage(page: Page, stage: 'compact' | 'medium' | 'expanded'): Promise<void> {
+  await expect(page.getByTestId('app')).toHaveAttribute('data-stage', stage);
+}
+
+async function widthOf(page: Page, name: string): Promise<number> {
+  return (await page.getByTestId(name).boundingBox())?.width ?? -1;
+}
+
+/** Whether a column of the kanban is in view from edge to edge. */
+async function wholeInView(page: Page, column: string): Promise<boolean> {
+  return page.locator(`[data-column="${column}"]`).evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const within = element.closest('[data-testid="pane"]')?.getBoundingClientRect();
+    return within !== undefined && box.left >= within.left && box.right <= within.right;
+  });
+}
+
+test.describe('the sizes in between', () => {
+  test.skip(({ hasTouch }) => !hasTouch, 'with a finger');
+
+  for (const width of [466, 626, 820, 890] as const) {
+    test(`every screen and proposal comes up at ${width} without an error or spilling sideways`, async ({
+      page,
+    }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize(SIZES[width]);
+      for (const { screen, variant } of ALL) {
+        await show(page, screen, variant);
+        expect(errors, `${screen} ${variant}`).toEqual([]);
+        expect(await spill(page), `${screen} ${variant}`).toBe(0);
+      }
+    });
+  }
+
+  test('466 is compact: one column, a drawer, a card as a page, a menu as a sheet', async ({
+    page,
+  }) => {
+    await page.setViewportSize(SIZES[466]);
+    await show(page, 'kanban', 'a');
+    await expectStage(page, 'compact');
+    await expect(page.getByTestId('column-tabs')).toBeVisible();
+    await expect(page.getByTestId('open-sidebar')).toBeVisible();
+    // The one column does not grow without end: 24rem, in the middle.
+    expect((await page.locator('[data-column="doing"]').boundingBox())?.width).toBe(384);
+
+    await show(page, 'card', 'a');
+    expect(await page.getByTestId('card-page').boundingBox()).toEqual({
+      x: 0,
+      y: 0,
+      ...SIZES[466],
+    });
+    await show(page, 'menu-card', 'a');
+    expect(await widthOf(page, 'bottom-sheet')).toBe(466);
+  });
+
+  test('626 is medium: a strip, two columns, a card as a panel, a menu as a popover', async ({
+    page,
+  }) => {
+    await page.setViewportSize(SIZES[626]);
+    await show(page, 'kanban', 'a');
+    await expectStage(page, 'medium');
+    expect(await widthOf(page, 'sidebar-strip')).toBe(56);
+    expect(await widthOf(page, 'pane')).toBe(570);
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    await expect(page.getByTestId('open-sidebar')).toHaveCount(0);
+    expect(await wholeInView(page, 'todo')).toBe(true);
+    expect(await wholeInView(page, 'doing')).toBe(true);
+    // The header is still folded: the pane is far from 62rem.
+    await expect(page.getByTestId('new-card-fab')).toBeVisible();
+    expect(await smallTargets(page, '[data-testid="sidebar-strip"]')).toEqual([]);
+
+    // The strip opens into the whole list, over the page.
+    await page.getByTestId('expand-sidebar').tap();
+    const drawer = page.getByTestId('sidebar-drawer');
+    await expect(drawer).toBeVisible();
+    expect(Math.round((await drawer.boundingBox())?.width ?? 0)).toBe(288);
+    await page.goBack();
+    await expect(drawer).toBeHidden();
+
+    // The other proposal: no strip, the button of a phone, the same drawer.
+    await show(page, 'sidebar', 'b', '&open=0');
+    await expect(page.getByTestId('sidebar-strip')).toHaveCount(0);
+    expect(await widthOf(page, 'pane')).toBe(626);
+    await page.getByTestId('open-sidebar').tap();
+    await expect(drawer).toBeVisible();
+
+    for (const variant of ['a', 'b'] as const) {
+      await show(page, 'card', variant);
+      const panel = await page.getByTestId('card-panel').boundingBox();
+      expect(panel).toEqual({ x: 626 - 480, y: 0, width: 480, height: 890 });
+    }
+
+    await show(page, 'menu-select', 'a');
+    await expect(page.getByTestId('popover')).toBeVisible();
+    await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
+  });
+
+  test('820 is medium as well, with room for more of the same', async ({ page }) => {
+    await page.setViewportSize(SIZES[820]);
+    await show(page, 'kanban', 'a');
+    await expectStage(page, 'medium');
+    expect(await widthOf(page, 'pane')).toBe(764);
+    expect(await wholeInView(page, 'doing')).toBe(true);
+    expect(await wholeInView(page, 'review')).toBe(false);
+    // A finger on a wide screen: what it hits is large, and a field does not make iOS zoom.
+    await show(page, 'card', 'a');
+    expect(await smallTargets(page, '[data-testid="card-panel"]')).toEqual([]);
+    const size = await page
+      .getByTestId('comment-field')
+      .evaluate((field) => parseFloat(getComputedStyle(field).fontSize));
+    expect(size).toBeGreaterThanOrEqual(16);
+  });
+
+  test('890 is expanded, and what the pane shows depends on what is beside it', async ({
+    page,
+  }) => {
+    await page.setViewportSize(SIZES[890]);
+    await show(page, 'kanban', 'a');
+    await expectStage(page, 'expanded');
+    expect(await widthOf(page, 'sidebar')).toBe(256);
+    expect(await widthOf(page, 'pane')).toBe(634);
+    expect(await wholeInView(page, 'doing')).toBe(true);
+    expect(await wholeInView(page, 'review')).toBe(false);
+    await expect(page.getByTestId('new-card-fab')).toBeVisible();
+
+    // The sidebar folded to a strip: the same window, a third column.
+    await page.getByTestId('toggle-sidebar').tap();
+    await expect(page.getByTestId('sidebar-strip')).toBeVisible();
+    await expect.poll(() => widthOf(page, 'pane')).toBe(834);
+    expect(await wholeInView(page, 'review')).toBe(true);
+    await page.getByTestId('expand-sidebar').tap();
+    await expect(page.getByTestId('sidebar')).toBeVisible();
+
+    await show(page, 'card', 'a');
+    await expect(page.getByTestId('card-dialog')).toBeVisible();
+
+    // Beside the board: half the page each, and the sidebar gives way to a strip.
+    await show(page, 'card', 'b');
+    const beside = await page.getByTestId('card-pane').boundingBox();
+    expect(beside?.x).toBe(445);
+    expect(beside?.width).toBe(445);
+    await expect(page.getByTestId('sidebar-strip')).toBeVisible();
+    expect(await widthOf(page, 'pane')).toBe(389);
+    await expect(page.getByTestId('column-tabs')).toBeVisible();
+    // Closed, the sidebar comes back and the board has its columns again.
+    await page.getByTestId('card-pane').getByRole('button', { name: '닫기' }).tap();
+    await expect(page.getByTestId('sidebar')).toBeVisible();
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+  });
+});
+
+test.describe('where the layout changes', () => {
+  test.skip(({ hasTouch }) => hasTouch, 'widths do not depend on the pointer: one project');
+
+  test('the page is medium from 600 and expanded from 840', async ({ page }) => {
+    const stages = [
+      [599, 'compact'],
+      [600, 'medium'],
+      [839, 'medium'],
+      [840, 'expanded'],
+    ] as const;
+    for (const [width, stage] of stages) {
+      await page.setViewportSize({ width, height: 800 });
+      await show(page, 'kanban', 'a');
+      await expectStage(page, stage);
+    }
+  });
+
+  test('classes and script change at the same width of the pane', async ({ page }) => {
+    // 34rem. A class hides the column tabs; script turns the list into a table.
+    await page.setViewportSize({ width: 543, height: 800 });
+    await show(page, 'table', 'b');
+    await expect(page.getByTestId('table-list')).toBeVisible();
+    await show(page, 'kanban', 'a');
+    await expect(page.getByTestId('column-tabs')).toBeVisible();
+    await page.setViewportSize({ width: 544, height: 800 });
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    await show(page, 'table', 'b');
+    await expect(page.getByTestId('table')).toBeVisible();
+
+    // 62rem, which beside a sidebar of 256 is a window of 1248. A class shows
+    // the description of the board; script unfolds the header.
+    const description = page.getByText('앱 4.0에 들어갈 작업을 한곳에서 봅니다.');
+    await page.setViewportSize({ width: 1247, height: 800 });
+    await show(page, 'kanban', 'a');
+    await expect(description).toBeHidden();
+    await expect(page.getByTestId('new-card-fab')).toBeVisible();
+    await page.setViewportSize({ width: 1248, height: 800 });
+    await expect(description).toBeVisible();
+    await expect(page.getByTestId('new-card-fab')).toHaveCount(0);
+  });
+
+  test('the pane follows the sidebar, not the window', async ({ page }) => {
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await show(page, 'kanban', 'a');
+    const header = page.getByTestId('view-header');
+    expect(await widthOf(page, 'pane')).toBe(844);
+    await expect(header.getByRole('button', { name: '정렬' })).toHaveCount(0);
+
+    await page.getByTestId('toggle-sidebar').click();
+    await expect.poll(() => widthOf(page, 'pane')).toBe(1044);
+    await expect(header.getByRole('button', { name: '정렬' })).toBeVisible();
+    await expect(page.getByTestId('new-card-fab')).toHaveCount(0);
+  });
+
+  test('a larger text size moves every boundary with it', async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 800 });
+    await show(page, 'kanban', 'a');
+    await expectStage(page, 'medium');
+    // 25% larger: 37.5rem is now 750 pixels, 34rem is 680.
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '20px';
+    });
+    await page.setViewportSize({ width: 701, height: 800 });
+    await expectStage(page, 'compact');
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    await page.setViewportSize({ width: 679, height: 800 });
+    await expect(page.getByTestId('column-tabs')).toBeVisible();
+  });
+
+  test('the "…" of a card waits to be pointed at, where the device can point', async ({ page }) => {
+    await show(page, 'kanban', 'a');
+    const card = page.locator('[data-card="c1"]');
+    const menu = card.getByRole('button', { name: '카드 메뉴' });
+    await expect(menu).toHaveCSS('opacity', '0');
+    await card.hover();
+    await expect(menu).toHaveCSS('opacity', '1');
+  });
+});
+
+test.describe('when the window changes size', () => {
+  test.skip(({ hasTouch }) => !hasTouch, 'a device that folds and turns: with a finger');
+
+  const DRAFT = '반쯤 쓴 댓글';
+
+  test('a card over the board stays as it is: the draft, the scroll, the caret', async ({
+    page,
+  }) => {
+    await show(page, 'card', 'a');
+    const field = page.getByTestId('comment-field');
+    const scroller = page.getByTestId('card-scroll');
+    await field.fill(DRAFT);
+    await scroller.evaluate((element) => {
+      element.scrollTop = 120;
+      // The very element, to tell a card that was kept from one that was built again.
+      Object.assign(window, { spikeScroller: element });
+    });
+
+    const forms = [
+      [626, 'card-panel'],
+      [890, 'card-dialog'],
+      [820, 'card-panel'],
+      [360, 'card-page'],
+    ] as const;
+    for (const [width, name] of forms) {
+      await page.setViewportSize(SIZES[width]);
+      await expect(page.getByTestId(name)).toBeVisible();
+      await expect(field).toHaveValue(DRAFT);
+      await expect(field).toBeFocused();
+      expect(
+        await scroller.evaluate((element) => ({
+          at: element.scrollTop,
+          same: element === (window as unknown as { spikeScroller: Element }).spikeScroller,
+        })),
+        name,
+      ).toEqual({ at: 120, same: true });
+    }
+
+    // Still one step of the history: one "back" closes it.
+    await page.goBack();
+    await expect(page.getByTestId('card-page')).toBeHidden();
+    await expect(page).toHaveURL(/screen=card/);
+  });
+
+  test('a card beside the board is built again: the draft and the scroll are carried, the focus is not', async ({
+    page,
+  }) => {
+    await show(page, 'card', 'b');
+    const field = page.getByTestId('comment-field');
+    const scroller = page.getByTestId('card-scroll');
+    await expect(page.getByTestId('card-sheet')).toBeVisible();
+    await field.fill(DRAFT);
+    await scroller.evaluate((element) => {
+      element.scrollTop = 120;
+    });
+    await expect(field).toBeFocused();
+
+    const forms = [
+      [626, 'card-panel'],
+      [890, 'card-pane'],
+      [360, 'card-sheet'],
+    ] as const;
+    for (const [width, name] of forms) {
+      await page.setViewportSize(SIZES[width]);
+      await expect(page.getByTestId(name)).toBeVisible();
+      await expect(field).toHaveValue(DRAFT);
+      await expect.poll(() => scroller.evaluate((element) => element.scrollTop), name).toBe(120);
+      await expect(field).not.toBeFocused();
+    }
+  });
+
+  test('a drawer that is out stays out until the list is on the page, and does not come back', async ({
+    page,
+  }) => {
+    await show(page, 'sidebar', 'a');
+    const drawer = page.getByTestId('sidebar-drawer');
+    await expect(drawer).toBeVisible();
+
+    await page.setViewportSize(SIZES[626]);
+    await expectStage(page, 'medium');
+    await expect(drawer).toBeVisible();
+
+    await page.setViewportSize(SIZES[890]);
+    await expectStage(page, 'expanded');
+    await expect(drawer).toBeHidden();
+    await expect(page.getByTestId('sidebar')).toBeVisible();
+
+    await page.setViewportSize(SIZES[626]);
+    await expect(page.getByTestId('sidebar-strip')).toBeVisible();
+    await expect(drawer).toBeHidden();
+    // The step of the history the drawer had taken was given back when it closed.
+    await expect(page).toHaveURL(/screen=sidebar/);
+  });
+
+  test('an open sheet becomes a popover and a sheet again, open all along', async ({ page }) => {
+    await show(page, 'menu-select', 'a');
+    await expect(page.getByTestId('bottom-sheet')).toBeVisible();
+
+    await page.setViewportSize(SIZES[626]);
+    await expect(page.getByTestId('popover')).toBeVisible();
+    await expect(page.getByTestId('bottom-sheet')).toHaveCount(0);
+    await expect(page.getByTestId('card-panel')).toBeVisible();
+
+    await page.setViewportSize(SIZES[360]);
+    await expect(page.getByTestId('bottom-sheet')).toBeVisible();
+    await expect(page.getByTestId('popover')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('the board keeps its place: a table where it was scrolled to, a kanban on its column', async ({
+    page,
+  }) => {
+    await show(page, 'table', 'a');
+    const table = page.getByTestId('table');
+    const place = (): Promise<{ left: number; top: number }> =>
+      table.evaluate((element) => ({ left: element.scrollLeft, top: element.scrollTop }));
+    await table.evaluate((element) => {
+      element.scrollTo(100, 60);
+    });
+
+    // Wider, and still not wide enough for the whole table: sideways it stays.
+    // Taller than the table is long: there is nothing left to scroll down.
+    await page.setViewportSize(SIZES[626]);
+    await expectStage(page, 'medium');
+    expect(await place()).toEqual({ left: 100, top: 0 });
+
+    // What the spike does not keep. On the way to 890 there is one pass of
+    // layout in which the window is already wide but the page is still put
+    // together for the medium stage: the strip of 56 pixels, not the fixed
+    // sidebar. The pane is 834 wide in that pass, the table all but fits, and
+    // the browser brings the scroll back to the little that is left to
+    // scroll. There it stays when the sidebar takes its 256 pixels.
+    await page.setViewportSize(SIZES[890]);
+    await expectStage(page, 'expanded');
+    expect(await widthOf(page, 'pane')).toBe(634);
+    const tableWidth = await table.evaluate((element) => element.scrollWidth);
+    expect(tableWidth).toBeGreaterThan(634 + 100);
+    expect((await place()).left).toBe(tableWidth - (890 - 56));
+
+    await page.setViewportSize(SIZES[360]);
+    await show(page, 'kanban', 'a', '&column=2');
+    const tabs = page.getByTestId('column-tabs').getByRole('tab');
+    await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
+    await page.setViewportSize(SIZES[626]);
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    // Back to one column: the one that was in view, in the middle again.
+    await page.setViewportSize(SIZES[360]);
+    await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
+    await expect
+      .poll(async () => {
+        const box = await page.locator('[data-column="review"]').boundingBox();
+        return box ? Math.round(box.x + box.width / 2) : -1;
+      })
+      .toBe(180);
+  });
+
+  test('turned on its side, the same page is laid out for the new width and height', async ({
+    page,
+  }) => {
+    await page.setViewportSize(SIZES[626]);
+    await show(page, 'card', 'a');
+    await expect(page.getByTestId('card-panel')).toBeVisible();
+    await page.setViewportSize(SIZES[890]);
+    // Heights come from `dvh`, read anew: the dialog fits the lower screen.
+    const dialog = page.getByTestId('card-dialog');
+    await expect
+      .poll(async () => ({
+        dialog: (await dialog.boundingBox())?.height,
+        window: await page.evaluate(() => window.innerHeight),
+      }))
+      .toEqual({ dialog: 626 - 64, window: 626 });
+    expect(await spill(page)).toBe(0);
+  });
+});
+
+test.describe('the edges a device keeps for itself', () => {
+  test.skip(({ hasTouch }) => !hasTouch, 'with a finger');
+
+  /** Buttons and fields of these parts that reach into the strip at the right. */
+  const underTheStrip = (page: Page, edge: number): Promise<string[]> =>
+    page
+      .locator(
+        [
+          'app-bar',
+          'view-header',
+          'new-card-fab',
+          'bottom-sheet',
+          'sidebar-drawer',
+          'card-page',
+          'popover',
+          'dropdown',
+        ]
+          .map((name) => `[data-testid="${name}"]`)
+          .flatMap((part) => [`${part} button`, `${part} input`, `button${part}`])
+          .join(', '),
+      )
+      .evaluateAll(
+        (controls, limit) =>
+          controls
+            .filter((control) => {
+              const box = control.getBoundingClientRect();
+              return box.width > 0 && box.right > limit;
+            })
+            .map((control) => control.getAttribute('aria-label') ?? control.textContent.trim()),
+        edge,
+      );
+
+  test('84 pixels at the right only: the page is 382 wide and starts at the left edge', async ({
+    page,
+  }) => {
+    await page.setViewportSize(SIZES[466]);
+    const screens = [
+      ['kanban', 'a'],
+      ['sidebar', 'a'],
+      ['card', 'a'],
+      ['menu-card', 'a'],
+      ['menu-select', 'a'],
+      ['menu-select', 'b'],
+      ['menu-card', 'b'],
+    ] as const;
+    for (const [screen, variant] of screens) {
+      await show(page, screen, variant, '&safe=right');
+      const name = `${screen} ${variant}`;
+      expect(await page.getByTestId('app').boundingBox(), name).toMatchObject({ x: 0, width: 382 });
+      expect(await underTheStrip(page, 382), name).toEqual([]);
+      await expectStage(page, 'compact');
+    }
+
+    // Nothing was moved in from the left by the room kept at the right.
+    await show(page, 'kanban', 'a', '&safe=right');
+    expect((await page.getByTestId('open-sidebar').boundingBox())?.x).toBeLessThan(8);
+    await show(page, 'menu-card', 'a', '&safe=right');
+    const sheet = page.getByTestId('bottom-sheet');
+    expect(
+      await sheet.evaluate((element) => ({
+        left: getComputedStyle(element).paddingLeft,
+        right: getComputedStyle(element).paddingRight,
+      })),
+    ).toEqual({ left: '0px', right: '84px' });
+  });
+
+  test('the stage is counted from the room that is left, not from the screen', async ({ page }) => {
+    // 640 wide is medium; with 84 kept at the right there are 556, and that is compact.
+    await page.setViewportSize({ width: 640, height: 800 });
+    await show(page, 'kanban', 'a');
+    await expectStage(page, 'medium');
+    await show(page, 'kanban', 'a', '&safe=right');
+    await expectStage(page, 'compact');
+    await expect(page.getByTestId('column-tabs')).toBeHidden();
+    expect(await widthOf(page, 'pane')).toBe(556);
+  });
+
+  test('where a finger is the pointer the "…" of a card is always there, at any width', async ({
+    page,
+  }) => {
+    for (const width of [360, 820] as const) {
+      await page.setViewportSize(SIZES[width]);
+      await show(page, 'kanban', 'a');
+      await expect(
+        page.locator('[data-card="c1"]').getByRole('button', { name: '카드 메뉴' }),
+      ).toHaveCSS('opacity', '1');
+    }
   });
 });

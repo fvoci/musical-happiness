@@ -1,8 +1,9 @@
 <!--
   The board as a table: a row a card, a column a property.
 
-  On a wide screen it is a plain table. On a narrow one, two proposals
-  (`narrowAs`):
+  Where the pane is wide it is a plain table. The title column widens with
+  the pane (10rem, 14rem, 22rem). In a pane too narrow for two kanban columns,
+  two proposals (`narrowAs`):
 
   - `table`: still a table. The title column stays at the left edge while the
     others scroll under it sideways, and the header row stays at the top.
@@ -23,7 +24,7 @@
   import Avatar from './Avatar.svelte';
   import Chip from './Chip.svelte';
   import { CARDS, PRIORITIES, TAGS, optionOf, personOf, statusOf, type Card } from './data.ts';
-  import { narrow } from './layout.svelte.ts';
+  import { pane } from './layout.svelte.ts';
   import { T } from './text.ts';
 
   interface Props {
@@ -54,7 +55,7 @@
   });
 </script>
 
-{#if narrow.current && narrowAs === 'list'}
+{#if narrowAs === 'list' && pane.measured && !pane.columns}
   <ul data-testid="table-list" class="h-full divide-y overflow-y-auto overscroll-contain">
     {#each CARDS as card (card.id)}
       {@const priority = optionOf(PRIORITIES, card.priority)}
@@ -139,7 +140,7 @@
             >
               <button
                 type="button"
-                class="block h-9 w-40 truncate px-3 text-left hover:bg-muted md:w-88 pointer-coarse:h-touch"
+                class="@columns/pane:w-56 @header/pane:w-88 block h-9 w-40 truncate px-3 text-left hover:bg-muted pointer-coarse:h-touch"
                 onclick={() => {
                   onopen(card);
                 }}

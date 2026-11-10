@@ -11,7 +11,7 @@ const target = document.getElementById('app');
 if (!target) throw new Error('index.html has no #app element');
 
 const root = document.documentElement;
-if (CURRENT.fakeSafeArea) root.dataset.fakeSafe = '';
+if (CURRENT.fakeSafeArea !== 'none') root.dataset.fakeSafe = CURRENT.fakeSafeArea;
 if (CURRENT.fakeKeyboard) root.dataset.fakeKeyboard = '';
 
 watchSystemTheme();

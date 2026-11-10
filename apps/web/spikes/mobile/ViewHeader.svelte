@@ -2,8 +2,10 @@
   The header of a view: which view, and what is done to it (search, filter,
   sort, group, properties, new card).
 
-  Where there is room (`wide`) everything is in one row, with words. Below
-  that it folds, in one of two ways:
+  Where the pane it is in has room for it (`pane.header`, 62rem) everything
+  is in one row, with words. The pane, not the window: next to a fixed
+  sidebar or an open card the same window has a narrower pane. Below that
+  it folds, in one of two ways:
 
   - `a`: one row. The view tabs become one button that names the current view;
     search and filter stay as icons; the rest is behind "…". "New" leaves the
@@ -36,7 +38,7 @@
   import type { Action, IconComponent } from './actions.ts';
   import { FILTERS, GROUPABLE, SORTS, VIEWS, type ViewKind, type ViewLink } from './data.ts';
   import IconButton from './IconButton.svelte';
-  import { wide } from './layout.svelte.ts';
+  import { pane } from './layout.svelte.ts';
   import Surface from './Surface.svelte';
   import { T } from './text.ts';
   import ViewSettings from './ViewSettings.svelte';
@@ -85,8 +87,7 @@
 
   /** Behind "…": whatever of the tools has no button of its own in this arrangement. */
   const moreActions = $derived.by<Action[]>(() => {
-    if (wide.current)
-      return VIEW_COMMANDS.map((action, at) => ({ ...action, separated: at === 3 }));
+    if (pane.header) return VIEW_COMMANDS.map((action, at) => ({ ...action, separated: at === 3 }));
     if (folding === 'b') return [PROPERTIES, ...VIEW_COMMANDS];
     return [
       {
@@ -110,7 +111,7 @@
   </span>
 {/snippet}
 
-<!-- The filter button and what it opens. With words on a wide screen, an icon and a count otherwise. -->
+<!-- The filter button and what it opens. With words where the header is whole, an icon and a count otherwise. -->
 {#snippet settings()}
   <Surface
     bind:open={settingsOpen}
@@ -120,7 +121,7 @@
     popoverClass="w-[32rem]"
   >
     {#snippet trigger(props: Record<string, unknown>)}
-      {#if wide.current}
+      {#if pane.header}
         <Button {...props} variant="ghost">
           <ListFilterIcon data-icon="inline-start" />
           {T.filter}
@@ -182,7 +183,7 @@
   </nav>
 {/snippet}
 
-{#if wide.current}
+{#if pane.header}
   <div data-testid="view-header" class="flex h-12 shrink-0 items-center gap-1 border-b px-4">
     {@render tabs()}
     <div class="flex-1"></div>
@@ -224,7 +225,7 @@
   </div>
 {:else}
   <div data-testid="view-header" class="shrink-0 border-b">
-    <div class="flex h-touch items-center px-1.5">
+    <div class="flex h-9 items-center px-1.5 pointer-coarse:h-touch">
       {@render tabs()}
     </div>
     <div data-testid="view-tools" class="flex h-12 items-center gap-0.5 border-t px-1.5">

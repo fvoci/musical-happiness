@@ -10,6 +10,7 @@
 
   import type { Action } from './actions.ts';
   import BottomSheet from './BottomSheet.svelte';
+  import { insets } from './layout.svelte.ts';
 
   interface Props {
     open: boolean;
@@ -49,7 +50,7 @@
           <button
             type="button"
             class={[
-              'flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-base hover:bg-muted active:bg-muted',
+              'flex min-h-9 w-full items-center gap-3 rounded-lg px-3 text-left hover:bg-muted active:bg-muted pointer-coarse:min-h-12 pointer-coarse:text-base',
               action.destructive && 'text-destructive',
             ]}
             onclick={() => {
@@ -78,10 +79,15 @@
     </DropdownMenu.Trigger>
     <DropdownMenu.Content
       {align}
-      collisionPadding={8}
+      collisionPadding={{
+        top: 8 + insets.top,
+        right: 8 + insets.right,
+        bottom: 8 + insets.bottom,
+        left: 8 + insets.left,
+      }}
       aria-label={title}
       data-testid="dropdown"
-      class="w-60 max-w-[calc(100vw-1rem)]"
+      class="w-60 max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))]"
     >
       {#each actions as action (action.id)}
         {@const Icon = action.icon}

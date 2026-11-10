@@ -5,32 +5,35 @@
  *   FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop
  *
  * Every screen and proposal is taken at two sizes: a phone (360×740, touch,
- * two device pixels to one) and a desktop (1280×800, mouse). The same input
- * gives the same picture: the data is written out, the clock is fixed, and a
- * picture is taken only after the fonts have arrived and nothing moves.
+ * two device pixels to one) and a desktop (1280×800, mouse). Four sizes in
+ * between are taken only where the layout differs there (`MORE`): the outer
+ * and the inner screen of a folding phone, the inner one both ways up, and a
+ * tablet held upright. Those four are rough figures, not measured devices.
+ *
+ * The same input gives the same picture: the data is written out, the clock
+ * is fixed, and a picture is taken only after the fonts have arrived and
+ * nothing moves.
  */
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { expect, test, type BrowserContextOptions } from '@playwright/test';
 
-import { SCREENS, addressOf, type ScreenId, type Variant } from './params.ts';
-import { DESKTOP, NOW, PAGE, PHONE, settled } from './support.ts';
+import { SCREENS, SIZES, addressOf, type ScreenId, type Variant } from './params.ts';
+import { DESKTOP, NOW, PAGE, settled } from './support.ts';
 
 const ENABLED = process.env.FVOCI_MOBILE_SHOTS === '1';
 const OUT = path.resolve(import.meta.dirname, '../../docs/mobile');
 
-type Size = 360 | 820 | 1280;
+type Size = keyof typeof SIZES;
 
+const FINGER = { deviceScaleFactor: 2, hasTouch: true, isMobile: true };
 const DEVICES: Record<Size, BrowserContextOptions> = {
-  360: { viewport: PHONE, deviceScaleFactor: 2, hasTouch: true, isMobile: true },
-  // A tablet held upright: wide enough for the fixed sidebar, and a finger.
-  820: {
-    viewport: { width: 820, height: 1180 },
-    deviceScaleFactor: 2,
-    hasTouch: true,
-    isMobile: true,
-  },
+  360: { viewport: SIZES[360], ...FINGER },
+  466: { viewport: SIZES[466], ...FINGER },
+  626: { viewport: SIZES[626], ...FINGER },
+  820: { viewport: SIZES[820], ...FINGER },
+  890: { viewport: SIZES[890], ...FINGER },
   1280: { viewport: DESKTOP, deviceScaleFactor: 1, hasTouch: false, isMobile: false },
 };
 
@@ -64,8 +67,26 @@ const MORE: [ScreenId, Variant, Size, tail: string, extra: string][] = [
   ['menu-card', 'a', 360, 'safe', '&safe=1'],
   ['menu-select', 'a', 360, 'keyboard', '&keyboard=1'],
   ['menu-select', 'b', 360, 'keyboard', '&keyboard=1'],
+  // Compact, and wider than a phone: one column still. With 84 pixels kept at the right edge only.
+  ['kanban', 'a', 466, '', ''],
+  ['kanban', 'a', 466, 'safe', '&safe=right'],
+  // Medium: a strip or nothing where the sidebar was, two columns, a card as a panel.
+  ['sidebar', 'a', 626, '', ''],
+  ['sidebar', 'b', 626, '', ''],
+  ['sidebar', 'b', 626, 'closed', '&open=0'],
+  ['kanban', 'a', 626, '', ''],
+  ['card', 'a', 626, '', ''],
   ['kanban', 'a', 820, '', ''],
   ['menu-select', 'a', 820, '', ''],
+  // Expanded, but short and not very wide: what the pane has depends on the sidebar.
+  ['kanban', 'a', 890, '', ''],
+  ['kanban', 'a', 890, 'strip', '&sidebar=strip'],
+  ['card', 'a', 890, '', ''],
+  ['card', 'b', 890, '', ''],
+  // The line down the middle, where such a screen may fold.
+  ['card', 'a', 890, 'fold', '&fold=1'],
+  ['card', 'b', 890, 'fold', '&fold=1'],
+  ['sidebar', 'b', 890, 'fold', '&fold=1'],
 ];
 
 const SHOTS: Shot[] = [
@@ -131,6 +152,64 @@ test.describe('screenshots of the mobile proposals', () => {
         caret: 'hide',
       });
       expect(errors).toEqual([]);
+      await context.close();
+    });
+  }
+});
+
+/**
+ * What a finger on the middle of the screen would hit, on the two sizes wide
+ * enough to be an unfolded screen. Printed, not judged: the table in
+ * docs/mobile-proposal.md is written from it.
+ *
+ *   FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop -g "middle line"
+ */
+test.describe('what lies on the middle line', () => {
+  test.skip(({ hasTouch }) => hasTouch, 'run with --project desktop');
+
+  for (const size of ENABLED ? ([890, 1280] as const) : []) {
+    test(`the middle line at ${size}`, async ({ browser, baseURL }) => {
+      test.setTimeout(120_000);
+      const context = await browser.newContext({
+        ...DEVICES[size],
+        baseURL,
+        locale: 'ko-KR',
+        timezoneId: 'Asia/Seoul',
+      });
+      const page = await context.newPage();
+      await page.clock.setFixedTime(NOW);
+
+      for (const screen of SCREENS) {
+        for (const variant of Object.keys(screen.variants) as Variant[]) {
+          await page.goto(PAGE + addressOf(screen.id, variant));
+          await expect(page.getByTestId('view-header')).toBeVisible();
+          await settled(page);
+          const found = await page.evaluate(() => {
+            const middle = window.innerWidth / 2;
+            const seen = new Map<Element, string>();
+            // Every fourth pixel down the line: whatever is on top there, and
+            // the control it belongs to, if any.
+            for (let y = 2; y < window.innerHeight; y += 4) {
+              const control = document
+                .elementFromPoint(middle, y)
+                ?.closest('button, input, [role="button"], [role="tab"], [role="option"]');
+              if (!control || seen.has(control)) continue;
+              const box = control.getBoundingClientRect();
+              const name =
+                control.getAttribute('aria-label') ??
+                control.getAttribute('placeholder') ??
+                (control.textContent.trim().replace(/\s+/g, ' ').slice(0, 24) || control.tagName);
+              const kind = control.matches('input') ? 'field' : 'button';
+              seen.set(
+                control,
+                `${name} [${kind}, ${Math.round(box.left)}–${Math.round(box.right)}]`,
+              );
+            }
+            return [...seen.values()];
+          });
+          console.warn(`${size} ${screen.id} ${variant}: ${found.join('; ') || 'nothing'}`);
+        }
+      }
       await context.close();
     });
   }

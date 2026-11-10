@@ -22,7 +22,7 @@
   interface Props {
     options: readonly Option[];
     selected: string | undefined;
-    /** In a sheet the lines are taller and the text is larger, whatever the pointer. */
+    /** In a sheet there is more room around the list, and a line for a finger is taller still. */
     roomy: boolean;
     onselect: (id: string | undefined) => void;
   }
@@ -61,8 +61,8 @@
           role="option"
           aria-selected={chosen === option.id}
           class={[
-            'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left hover:bg-muted active:bg-muted pointer-coarse:min-h-touch',
-            roomy ? 'min-h-12' : 'min-h-8',
+            'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left hover:bg-muted active:bg-muted',
+            roomy ? 'min-h-8 pointer-coarse:min-h-12' : 'min-h-8 pointer-coarse:min-h-touch',
           ]}
           onclick={() => {
             chosen = option.id;
@@ -88,8 +88,8 @@
     <button
       type="button"
       class={[
-        'flex w-full items-center rounded-lg px-2 text-left text-sm text-muted-foreground hover:bg-muted pointer-coarse:min-h-touch',
-        roomy ? 'min-h-12' : 'min-h-8',
+        'flex w-full items-center rounded-lg px-2 text-left text-sm text-muted-foreground hover:bg-muted',
+        roomy ? 'min-h-8 pointer-coarse:min-h-12' : 'min-h-8 pointer-coarse:min-h-touch',
       ]}
       onclick={() => {
         chosen = undefined;

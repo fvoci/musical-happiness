@@ -10,7 +10,7 @@
   import * as Popover from '$lib/ui/popover/index.js';
 
   import BottomSheet from './BottomSheet.svelte';
-  import { coarse } from './layout.svelte.ts';
+  import { coarse, insets } from './layout.svelte.ts';
 
   interface Props {
     open: boolean;
@@ -57,10 +57,18 @@
     </Popover.Trigger>
     <Popover.Content
       align="start"
-      collisionPadding={8}
+      collisionPadding={{
+        top: 8 + insets.top,
+        right: 8 + insets.right,
+        bottom: 8 + insets.bottom,
+        left: 8 + insets.left,
+      }}
       aria-label={title}
       data-testid="popover"
-      class={['max-w-[calc(100vw-1rem)] gap-0 p-0', popoverClass]}
+      class={[
+        'max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))] gap-0 p-0',
+        popoverClass,
+      ]}
       onOpenAutoFocus={(event: Event) => {
         // A finger has not asked for the keyboard yet.
         if (coarse.current) event.preventDefault();

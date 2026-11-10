@@ -1,6 +1,6 @@
 <!--
-  A sheet that rises from the bottom edge: what a menu or a picker becomes on a
-  narrow screen.
+  A sheet that rises from the bottom edge: what a menu or a picker becomes in
+  a compact window.
 
   - Never taller than the screen less a strip at the top, so that what is
     behind it stays recognisable and there is somewhere to tap to dismiss it.
@@ -48,7 +48,7 @@
     showCloseButton={false}
     data-testid="bottom-sheet"
     class={[
-      'max-h-[calc(100dvh-var(--safe-top)-var(--keyboard)-3rem)] gap-0 rounded-t-2xl pb-(--safe-bottom) outline-none data-[side=bottom]:bottom-(--keyboard)',
+      'max-h-[calc(100dvh-var(--safe-top)-var(--keyboard)-3rem)] gap-0 rounded-t-2xl pr-(--safe-right) pb-(--safe-bottom) pl-(--safe-left) outline-none data-[side=bottom]:bottom-(--keyboard)',
       tall && 'data-[side=bottom]:h-dvh',
     ]}
     onOpenAutoFocus={(event: Event) => {
@@ -71,7 +71,7 @@
         {/if}
       </div>
       <Sheet.Close
-        class="h-touch shrink-0 rounded-lg px-3 text-sm font-medium text-foreground hover:bg-muted"
+        class="h-8 shrink-0 rounded-lg px-3 text-sm font-medium text-foreground hover:bg-muted pointer-coarse:h-touch"
       >
         {T.done}
       </Sheet.Close>

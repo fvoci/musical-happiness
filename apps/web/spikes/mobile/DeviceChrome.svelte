@@ -1,6 +1,9 @@
 <!--
   Stand-ins for what a headless browser does not have: the notch and the home
-  indicator of a phone (`?safe=1`) and its on-screen keyboard (`?keyboard=1`).
+  indicator of a phone (`?safe=1`), a strip the device keeps at the right edge
+  only (`?safe=right`), its on-screen keyboard (`?keyboard=1`), and the line a
+  folding screen folds along (`?fold=1`, down the middle: an assumption, no
+  browser here reports where it is).
   They cover exactly the room that mobile.css reserves for them, so a
   screenshot shows whether anything is left underneath.
 -->
@@ -11,7 +14,31 @@
   const KEY_ROWS = [10, 9, 7];
 </script>
 
-{#if CURRENT.fakeSafeArea}
+{#if CURRENT.fakeSafeArea === 'right'}
+  <div
+    aria-hidden="true"
+    data-testid="fake-safe-right"
+    class="pointer-events-none fixed inset-y-0 right-0 z-[70] flex w-(--safe-right) items-center justify-center bg-foreground"
+  >
+    <span class="rotate-90 text-xs whitespace-nowrap text-background">{T.fakeSafeRight}</span>
+  </div>
+{/if}
+
+{#if CURRENT.foldLine}
+  <div
+    aria-hidden="true"
+    data-testid="fold-line"
+    class="pointer-events-none fixed inset-y-0 left-1/2 z-[70] w-4 -translate-x-1/2 border-x border-dashed border-destructive bg-destructive/15"
+  >
+    <span
+      class="absolute top-2 left-1/2 -translate-x-1/2 rounded-sm bg-destructive px-1.5 py-0.5 text-xs whitespace-nowrap text-background"
+    >
+      {T.foldLine}
+    </span>
+  </div>
+{/if}
+
+{#if CURRENT.fakeSafeArea === 'notch'}
   <div
     aria-hidden="true"
     class="pointer-events-none fixed inset-x-0 top-0 z-[70] flex h-(--safe-top) items-start justify-center"

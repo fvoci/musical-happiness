@@ -64,7 +64,9 @@
 </script>
 
 {#snippet property(Icon: IconComponent, name: string, value: Snippet)}
-  <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] items-center md:grid-cols-[9rem_minmax(0,1fr)]">
+  <div
+    class="@card-roomy/card:grid-cols-[9rem_minmax(0,1fr)] grid grid-cols-[6.5rem_minmax(0,1fr)] items-center"
+  >
     <dt class="flex items-center gap-2 text-muted-foreground">
       <Icon class="size-4 shrink-0" />
       <span class="truncate">{name}</span>
@@ -171,8 +173,10 @@
   </button>
 {/snippet}
 
-<article class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 pt-2 pb-6 md:px-8">
-  <h1 data-testid="card-title" class="text-xl font-semibold md:text-2xl">{card.title}</h1>
+<article class="@card-roomy/card:px-8 mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 pt-2 pb-6">
+  <h1 data-testid="card-title" class="@card-roomy/card:text-2xl text-xl font-semibold">
+    {card.title}
+  </h1>
 
   <div class="flex flex-col">
     <dl class="flex flex-col">

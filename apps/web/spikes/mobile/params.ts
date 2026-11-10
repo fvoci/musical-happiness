@@ -7,6 +7,21 @@
  * the browser tests read the same list.
  */
 
+/**
+ * The sizes the proposals are drawn at, in CSS pixels, by their width. All
+ * but the first and the last are rough figures for a folding phone (outer
+ * screen, inner screen upright and on its side) and a tablet held upright;
+ * none was measured on a device.
+ */
+export const SIZES = {
+  360: { width: 360, height: 740 },
+  466: { width: 466, height: 678 },
+  626: { width: 626, height: 890 },
+  820: { width: 820, height: 1180 },
+  890: { width: 890, height: 626 },
+  1280: { width: 1280, height: 800 },
+} as const;
+
 export type Variant = 'a' | 'b';
 
 export interface ScreenInfo {
@@ -20,7 +35,10 @@ export const SCREENS = [
   {
     id: 'sidebar',
     title: '사이드바',
-    variants: { a: '왼쪽에서 미는 서랍', b: '보드 전환 시트' },
+    variants: {
+      a: '서랍(좁음), 띠와 겹쳐 뜨는 서랍(중간)',
+      b: '보드 전환 시트(좁음), 띠 없이 겹쳐 뜨는 서랍(중간)',
+    },
   },
   {
     id: 'kanban',
@@ -35,7 +53,10 @@ export const SCREENS = [
   {
     id: 'card',
     title: '카드 상세',
-    variants: { a: '전체 화면 페이지', b: '거의 전체 높이의 바닥 시트' },
+    variants: {
+      a: '전체 화면(좁음), 옆 판(중간), 가운데 대화상자(넓음)',
+      b: '바닥 시트(좁음), 옆 판(중간), 보드 옆의 칸(넓음)',
+    },
   },
   {
     id: 'menu-view',
@@ -75,9 +96,17 @@ export interface Params {
   variant: Variant;
   opened: Opened;
   theme: 'dark' | 'light' | undefined;
-  /** Stand-ins for the notch and home indicator, and for the on-screen keyboard. */
-  fakeSafeArea: boolean;
+  /**
+   * Stand-ins for what a headless browser lacks. The edges a device keeps:
+   * `notch` at the top and bottom of a phone held upright, `right` at the
+   * right edge only. The on-screen keyboard. The line a screen folds along,
+   * drawn down the middle.
+   */
+  fakeSafeArea: 'none' | 'notch' | 'right';
   fakeKeyboard: boolean;
+  foldLine: boolean;
+  /** The fixed sidebar of a wide window starts as a strip. */
+  sidebarAsStrip: boolean;
   /** Kanban: the column in view. Table: how far it is scrolled sideways, in pixels. */
   column: number;
   scrollX: number;
@@ -92,13 +121,16 @@ export function readParams(search: string): Params {
   const screen = SCREENS.find((entry) => entry.id === query.get('screen'))?.id;
   const open = query.get('open');
   const theme = query.get('theme');
+  const safe = query.get('safe');
   return {
     screen,
     variant: query.get('variant') === 'b' ? 'b' : 'a',
     opened: open === '0' ? 'none' : open === 'more' || open === 'views' ? open : 'main',
     theme: theme === 'dark' || theme === 'light' ? theme : undefined,
-    fakeSafeArea: query.get('safe') === '1',
+    fakeSafeArea: safe === '1' ? 'notch' : safe === 'right' ? 'right' : 'none',
     fakeKeyboard: query.get('keyboard') === '1',
+    foldLine: query.get('fold') === '1',
+    sidebarAsStrip: query.get('sidebar') === 'strip',
     column: wholeNumber(query.get('column'), 1),
     scrollX: wholeNumber(query.get('x'), 0),
   };

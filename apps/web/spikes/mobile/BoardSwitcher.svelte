@@ -1,11 +1,15 @@
 <!--
-  Going to another board by its name. On a wide screen a command palette in
-  the middle (Ctrl K); on a narrow one a tall bottom sheet with the same
-  field and the same list, grouped by category.
+  Going to another board by its name. A command palette in the middle
+  (Ctrl K); in a compact window a tall bottom sheet with the same field and
+  the same list, grouped by category.
 
   As the second proposal for the sidebar this sheet is the only way to the
-  list of boards on a narrow screen: there is no drawer, and the name of the
-  board in the top bar opens it.
+  list of boards in a compact window: there is no drawer, and the name of
+  the board in the top bar opens it.
+
+  The palette is in the middle of the page, which on a folding screen is
+  where it folds. docs/mobile-proposal.md lists it among what lies on that
+  line.
 -->
 <script lang="ts">
   import CheckIcon from '@lucide/svelte/icons/check';
@@ -18,7 +22,7 @@
   import BoardIcon from './BoardIcon.svelte';
   import BottomSheet from './BottomSheet.svelte';
   import { BOARD, CATEGORIES } from './data.ts';
-  import { narrow } from './layout.svelte.ts';
+  import { app } from './layout.svelte.ts';
   import { T } from './text.ts';
 
   interface Props {
@@ -37,7 +41,7 @@
   );
 </script>
 
-{#if narrow.current}
+{#if app.stage === 'compact'}
   <BottomSheet bind:open title={T.switchBoard} tall>
     <div class="flex flex-col px-2 pb-2">
       <div class="sticky top-0 z-10 bg-popover px-2 pb-2">
@@ -62,7 +66,7 @@
               <button
                 type="button"
                 aria-current={board.id === BOARD.id ? 'page' : undefined}
-                class="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-base hover:bg-muted active:bg-muted aria-[current]:bg-muted aria-[current]:font-medium"
+                class="flex min-h-9 w-full items-center gap-3 rounded-lg px-3 text-left hover:bg-muted active:bg-muted aria-[current]:bg-muted aria-[current]:font-medium pointer-coarse:min-h-12 pointer-coarse:text-base"
                 onclick={() => {
                   open = false;
                 }}
@@ -82,7 +86,7 @@
       <div class="mt-2 border-t pt-1">
         <button
           type="button"
-          class="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-base hover:bg-muted"
+          class="flex min-h-9 w-full items-center gap-3 rounded-lg px-3 text-left hover:bg-muted pointer-coarse:min-h-12 pointer-coarse:text-base"
         >
           <PlusIcon class="size-5 shrink-0" />
           {T.addBoard}
@@ -95,7 +99,7 @@
     bind:open
     title={T.switchBoard}
     description={T.switchBoardHint}
-    class="sm:max-w-lg"
+    class="left-[calc(50%+(var(--safe-left)-var(--safe-right))/2)] max-w-[min(32rem,calc(100%-2rem-var(--safe-left)-var(--safe-right)))] sm:max-w-[min(32rem,calc(100%-2rem-var(--safe-left)-var(--safe-right)))]"
   >
     <Command.Input placeholder={T.findBoard} />
     <Command.List class="max-h-96">

@@ -1,15 +1,22 @@
 <!--
   The board as columns of cards.
 
-  On a wide screen the columns are 17rem wide and the board scrolls sideways
-  when there are more than fit. On a narrow one, two proposals (`paging`):
+  It follows the width of the pane it is in, not of the window: the same
+  board is one column wide beside an open card and four columns wide alone.
 
-  - `snap`: one column at a time. A column is nearly as wide as the screen, a
+  Where two columns fit side by side (`@columns/pane`) they are 16rem wide,
+  17rem in a roomy pane, and the board scrolls sideways freely when there are
+  more than fit. In a pane narrower than that, two proposals (`paging`):
+
+  - `snap`: one column at a time. A column is nearly as wide as the pane, a
     sliver of its neighbours shows on either side, and the board comes to rest
     on a column. A row of tabs above names the columns, says which is in view
     and jumps to one.
-  - `free`: columns a little narrower than on the desktop, scrolled freely.
-    One column and a third of the next are in view.
+  - `free`: the same 16rem columns, scrolled freely. One column and a third
+    of the next are in view.
+
+  The sizes are classes with container variants. Script only needs to know
+  whether the board is snapping, to put the right column in view.
 
   Nothing is dragged here; docs/spike-drag.md has that. What matters for it:
   a swipe that starts on a card scrolls, in both proposals.
@@ -39,7 +46,7 @@
     type Card,
   } from './data.ts';
   import IconButton from './IconButton.svelte';
-  import { narrow } from './layout.svelte.ts';
+  import { pane } from './layout.svelte.ts';
   import { T } from './text.ts';
 
   interface Props {
@@ -55,7 +62,7 @@
 
   let { paging, column, menuCard, sheet, onopen }: Props = $props();
 
-  const snapping = $derived(narrow.current && paging === 'snap');
+  const snapping = $derived(paging === 'snap' && pane.measured && !pane.columns);
 
   let scroller = $state<HTMLElement | null>(null);
   let current = $state(untrack(() => Math.min(column, STATUSES.length - 1)));
@@ -70,7 +77,8 @@
     return element.offsetLeft - (within.clientWidth - element.clientWidth) / 2;
   }
 
-  // The column asked for is in view from the first frame: no animation to wait for.
+  // The column asked for is in view from the first frame: no animation to wait
+  // for. Again whenever the pane narrows to one column: the one last looked at.
   $effect(() => {
     if (!snapping || !scroller) return;
     const element = columnElements()[untrack(() => current)];
@@ -113,19 +121,19 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-  {#if snapping}
+  {#if paging === 'snap'}
     <div
       role="tablist"
       aria-label={T.columns}
       data-testid="column-tabs"
-      class="no-scrollbar flex shrink-0 overflow-x-auto border-b px-2"
+      class="@columns/pane:hidden no-scrollbar flex shrink-0 overflow-x-auto border-b px-2"
     >
       {#each STATUSES as status, at (status.id)}
         <button
           type="button"
           role="tab"
           aria-selected={at === current}
-          class="flex h-touch shrink-0 items-center px-1"
+          class="flex h-9 shrink-0 items-center px-1 pointer-coarse:h-touch"
           onclick={() => {
             show(at);
           }}
@@ -151,7 +159,9 @@
     data-testid="kanban"
     class={[
       'flex min-h-0 flex-1 items-start gap-3 overflow-x-auto overflow-y-hidden py-3',
-      snapping ? 'snap-x snap-mandatory px-7' : 'px-3 md:px-4',
+      paging === 'snap'
+        ? '@columns/pane:snap-none @columns/pane:px-3 @header/pane:px-4 snap-x snap-mandatory px-7'
+        : '@header/pane:px-4 px-3',
     ]}
     onscroll={onScroll}
   >
@@ -162,7 +172,9 @@
         aria-label={status.label}
         class={[
           'flex max-h-full shrink-0 flex-col rounded-lg bg-muted',
-          snapping ? 'w-full max-w-sm snap-center' : 'w-64 md:w-68',
+          paging === 'snap'
+            ? '@columns/pane:w-64 @columns/pane:max-w-none @columns/pane:snap-align-none @header/pane:w-68 w-full max-w-sm snap-center'
+            : '@header/pane:w-68 w-64',
         ]}
       >
         <header class="flex items-center gap-2 pt-1 pr-1 pl-3">
@@ -207,8 +219,9 @@
                 </div>
               {/if}
               <!--
-                With a mouse the button appears when the card is pointed at. A
-                finger cannot point without pressing, so there it is always shown.
+                Where the device can hover, the button appears when the card
+                is pointed at. A finger cannot point without pressing, so
+                there it is always shown. Asked of the device, not of the width.
               -->
               <div
                 data-card-menu
@@ -227,7 +240,7 @@
                     <IconButton
                       {...props}
                       label={T.cardMenu}
-                      class="text-muted-foreground aria-expanded:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover/card:opacity-100 pointer-fine:focus-visible:opacity-100"
+                      class="can-hover:opacity-0 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100 text-muted-foreground"
                     >
                       <EllipsisIcon />
                     </IconButton>
@@ -248,7 +261,7 @@
     {/each}
     <button
       type="button"
-      class="hidden h-9 w-68 shrink-0 items-center gap-1.5 rounded-lg px-3 text-left text-sm text-muted-foreground hover:bg-muted md:flex"
+      class="@columns/pane:flex hidden h-9 w-68 shrink-0 items-center gap-1.5 rounded-lg px-3 text-left text-sm text-muted-foreground hover:bg-muted"
     >
       <PlusIcon class="size-4" />
       {T.addGroup}

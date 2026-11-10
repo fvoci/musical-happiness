@@ -7,6 +7,9 @@ export const T = {
 
   // Sidebar and board switcher
   openSidebar: '사이드바 열기',
+  closeSidebar: '사이드바 접기',
+  sidebar: '사이드바',
+  boards: '보드',
   findBoard: '보드 찾기',
   switchBoard: '보드 전환',
   switchBoardHint: '보드 이름으로 찾습니다.',
@@ -89,12 +92,15 @@ export const T = {
 
   // Stand-ins for the device
   fakeKeyboard: '가상 키보드 자리 (가짜)',
+  fakeSafeRight: '기기가 쓰는 자리 (가짜, 84px)',
+  foldLine: '접히는 자리 (가정)',
 
   // The chooser
   chooserTitle: '모바일 화면 안',
   chooserLead:
-    '화면을 고르면 좁은 화면(360×740)의 두 안이 나란히 보입니다. 넓은 화면은 "이 창에서 열기"로 엽니다. 창의 너비가 768px보다 좁으면 좁은 화면의 배치로, 넓으면 넓은 화면의 배치로 그려집니다.',
+    '화면과 크기를 고르면 두 안이 그 크기의 틀에 나란히 보입니다. 틀보다 큰 크기는 "이 창에서 열기"로 엽니다. 배치는 쓸 수 있는 너비를 따릅니다: 600px 미만은 좁음, 840px 미만은 중간, 그 이상은 넓음. 크기 가운데 360×740과 1280×800을 뺀 것은 어림값입니다.',
   chooserDark: '어두운 화면',
+  chooserSize: '틀의 크기',
   chooserOpen: '이 창에서 열기',
   chooserClosed: '닫힌 상태로 열기',
   chooserVariant: (variant: string) => `안 ${variant.toUpperCase()}`,
