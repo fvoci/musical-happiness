@@ -193,7 +193,7 @@ test('a card carried to another column and a place in it is moved on the server'
         })
       ).json()) as Schemas['Block'][];
       const order = (view?.fields.cardOrder ?? []) as string[];
-      return order.indexOf(sweep) >= 0 && order.indexOf(sweep) < order.indexOf(dust);
+      return order.includes(sweep) && order.indexOf(sweep) < order.indexOf(dust);
     })
     .toBe(true);
 
