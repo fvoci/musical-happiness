@@ -280,7 +280,7 @@ impl App {
         let mut destination: Option<Board> = None;
         for (block, file_id) in blocks
             .iter()
-            .flat_map(|block| files_of(block).into_iter().map(move |id| (block, id)))
+            .flat_map(|block| block.shown_files().into_iter().map(move |id| (block, id)))
         {
             // A file that two blocks show, or one body twice, is copied once.
             if new_file_names.contains_key(&file_id) {
@@ -344,33 +344,10 @@ impl App {
     }
 }
 
-/// The stored names of the files a block shows: the file of an image or attachment
-/// block, and the images of a card's body.
-fn files_of(block: &Block) -> Vec<String> {
-    if block.block_type == BlockType::Image || block.block_type == BlockType::Attachment {
-        return file_reference(&block.fields).into_iter().collect();
-    }
-    block
-        .body
-        .as_ref()
-        .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
-        .unwrap_or_default()
-}
-
 /// Points the images of a copied body at the copies of their files. An image whose file
 /// was not copied keeps the name it had: a body has no image without a file.
 fn rename_body_files(body: &mut Body, new_file_names: &HashMap<String, String>) {
     body.rename_files(|old| new_file_names.get(old).cloned());
-}
-
-/// The file a block points at: its `fileId`, or failing that its `attachmentId`.
-fn file_reference(fields: &JsonMap) -> Option<String> {
-    for key in ["fileId", "attachmentId"] {
-        if let Some(Value::String(value)) = fields.get(key) {
-            return Some(value.clone());
-        }
-    }
-    None
 }
 
 /// The last path segment of a client-supplied name, so that a name with directory parts

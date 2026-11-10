@@ -16,6 +16,7 @@ mod connect;
 mod db;
 mod error;
 mod file_info;
+mod file_refs;
 mod schema;
 mod sessions;
 mod sharing;

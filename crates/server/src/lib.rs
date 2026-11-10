@@ -403,6 +403,34 @@ async fn purge_trash(app: &App) {
     }
 }
 
+/// Removes the files that no block, live or in the trash, has shown for as long as the
+/// trash keeps what is deleted (`docs/s6-design.md` 5.7). A file whose record went but
+/// that cannot be removed from the storage is logged: nothing names it any more.
+async fn collect_unreferenced_files(app: &App) {
+    let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
+    let files = match app.store().collect_unreferenced_files(before).await {
+        Ok(files) => files,
+        Err(error) => {
+            tracing::error!(%error, "unable to collect the files no block shows");
+            return;
+        }
+    };
+    let mut files_left = 0_usize;
+    for file in &files {
+        if let Err(error) = app.files().delete(&file.path).await {
+            files_left += 1;
+            tracing::warn!(%error, "a file no block shows could not be removed");
+        }
+    }
+    if !files.is_empty() {
+        tracing::info!(
+            files = files.len(),
+            files_left,
+            "removed the files no block has shown for the grace period"
+        );
+    }
+}
+
 /// Starts the task that deletes the sessions that have ended. It runs once at the
 /// start, so that a server that is restarted often still gets to it, and then every
 /// interval.
@@ -414,12 +442,17 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
     })
 }
 
-/// Starts the task that purges the trash, as [`start_session_clean_up`] does.
+/// Starts the task that purges the trash and then collects the files no block shows,
+/// as [`start_session_clean_up`] does.
 fn start_trash_purge(app: &App) -> RecurringTask {
     let app = app.clone();
     RecurringTask::spawn_starting_now("purgeTrash", PURGE_TRASH_INTERVAL, move || {
         let app = app.clone();
-        async move { purge_trash(&app).await }
+        async move {
+            purge_trash(&app).await;
+            // After the purge: what it removed for good shows its files no more.
+            collect_unreferenced_files(&app).await;
+        }
     })
 }
 

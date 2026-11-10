@@ -17,6 +17,7 @@ use crate::Store;
 use crate::boards;
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
+use crate::file_refs;
 
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
@@ -555,7 +556,7 @@ async fn insert_block_at(
                 block.id, block.board_id
             )));
         }
-        Ok(())
+        file_refs::refresh(scope, block).await
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
@@ -586,7 +587,7 @@ pub(crate) async fn insert_block_row(
     push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
-    Ok(())
+    file_refs::refresh(scope, block).await
 }
 
 /// How [`push_body`] writes the body's columns.

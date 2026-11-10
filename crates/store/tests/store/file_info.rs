@@ -425,3 +425,160 @@ async fn a_file_record_goes_with_its_board_and_comes_back_with_it() {
 
     test.teardown().await;
 }
+
+/// The stored names of the files that no block has shown since before `before`, after
+/// they were collected.
+async fn collected(store: &fvoci_store::Store, before: i64) -> Vec<String> {
+    let mut names: Vec<String> = store
+        .collect_unreferenced_files(before)
+        .await
+        .expect("the files no block shows are collected")
+        .into_iter()
+        .map(|file| file.stored_name)
+        .collect();
+    names.sort();
+    names
+}
+
+/// A card whose body shows the files.
+fn card_showing(board_id: &str, names: &[&str]) -> Block {
+    let mut content =
+        vec![json!({"type": "paragraph", "content": [{"type": "text", "text": "x"}]})];
+    content.extend(
+        names
+            .iter()
+            .map(|name| json!({"type": "image", "attrs": {"fileId": name}})),
+    );
+    Block {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        block_type: BlockType::Card,
+        body: fvoci_model::Body::parse(json!({"type": "doc", "content": content}))
+            .expect("the body may be stored"),
+        ..Block::default()
+    }
+}
+
+/// Not in the original (`docs/s6-design.md` 5.7). A file that an image block or a card's
+/// body shows stays; one that no block shows, live or in the trash, is collected once
+/// the grace period has passed since it became so, and its record goes.
+#[tokio::test]
+async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "toby.flenderson").await;
+    let team_id = common::team(store).await;
+    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    let started = now_millis();
+    let later = started + 3_600_000;
+    for name in ["7image.png", "7body.png", "7none.png"] {
+        store
+            .save_file_info(&record_of(board_id, name))
+            .await
+            .expect("a file of the board is stored");
+    }
+    let mut image = Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: BlockType::Image,
+        fields: serde_json::from_value(json!({ "fileId": "7image.png" }))
+            .expect("the fields are a JSON object"),
+        ..Block::default()
+    };
+    let mut card = card_showing(board_id, &["7body.png"]);
+    common::insert_blocks(store, std::slice::from_mut(&mut image), &user_id).await;
+    common::insert_blocks(store, std::slice::from_mut(&mut card), &user_id).await;
+
+    assert_eq!(
+        collected(store, started - 1).await,
+        Vec::<String>::new(),
+        "within the grace period nothing is collected"
+    );
+    assert_eq!(
+        collected(store, later).await,
+        ["7none.png"],
+        "the file no block shows, counted from its upload"
+    );
+    let error = store
+        .get_file_info(board_id, "7none.png")
+        .await
+        .expect_err("the record of a collected file is gone");
+    assert!(matches!(error, StoreError::NotFound(_)), "{error:?}");
+
+    // The body no longer shows its file.
+    card.body = None;
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is changed");
+    // A block in the trash still shows its file: it can come back.
+    store
+        .delete_block(&image.id, &user_id)
+        .await
+        .expect("the image is deleted");
+    assert_eq!(collected(store, later).await, ["7body.png"]);
+
+    // Once the image is gone for good, so is what it showed.
+    store
+        .purge_trash(now_millis() + 60_000)
+        .await
+        .expect("the trash is purged");
+    assert_eq!(collected(store, started - 1).await, Vec::<String>::new());
+    assert_eq!(collected(store, later).await, ["7image.png"]);
+
+    test.teardown().await;
+}
+
+/// Not in the original. A block that comes back from the trash shows its files again,
+/// and a file of a restored board that no block shows is counted from the restoring,
+/// not from its upload: the trash kept no marks.
+#[tokio::test]
+async fn a_restored_block_or_board_shows_its_files_again() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "creed.bratton").await;
+    let team_id = common::team(store).await;
+    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    let mut old = record_of(board_id, "7old.png");
+    old.create_at = 1;
+    store.save_file_info(&old).await.expect("an old file");
+    store
+        .save_file_info(&record_of(board_id, "7shown.png"))
+        .await
+        .expect("a shown file");
+    let mut card = card_showing(board_id, &["7shown.png"]);
+    common::insert_blocks(store, std::slice::from_mut(&mut card), &user_id).await;
+
+    store
+        .delete_block(&card.id, &user_id)
+        .await
+        .expect("the card is deleted");
+    store
+        .undelete_block(&card.id, &user_id)
+        .await
+        .expect("the card is restored");
+    store
+        .delete_board(board_id, &user_id)
+        .await
+        .expect("the board is deleted");
+    let restored_at = now_millis();
+    store
+        .undelete_board(board_id, &user_id)
+        .await
+        .expect("the board is restored");
+
+    assert_eq!(
+        collected(store, restored_at - 1).await,
+        Vec::<String>::new(),
+        "the old file is counted from the restoring"
+    );
+    assert_eq!(
+        collected(store, now_millis() + 3_600_000).await,
+        ["7old.png"],
+        "the card that came back shows its file"
+    );
+
+    test.teardown().await;
+}

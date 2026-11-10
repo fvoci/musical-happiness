@@ -243,6 +243,26 @@ impl Block {
         }
         Ok(())
     }
+
+    /// The stored names of the files the block shows, each once: the file of an image
+    /// or attachment block (`fileId`, or failing that `attachmentId`), and the images
+    /// of a card's body.
+    #[must_use]
+    pub fn shown_files(&self) -> Vec<String> {
+        if self.block_type == BlockType::Image || self.block_type == BlockType::Attachment {
+            return ["fileId", "attachmentId"]
+                .iter()
+                .find_map(|key| self.fields.get(*key).and_then(serde_json::Value::as_str))
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned)
+                .into_iter()
+                .collect();
+        }
+        self.body
+            .as_ref()
+            .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default()
+    }
 }
 
 /// A partial update of a [`Block`]. Absent members leave the block unchanged.

@@ -203,7 +203,7 @@ fn strings<const N: usize>(strings: [&str; N]) -> Vec<String> {
     strings.into_iter().map(str::to_owned).collect()
 }
 
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     let since_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("the clock is past 1970");

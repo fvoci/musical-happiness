@@ -24,6 +24,7 @@ use crate::boards;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
+use crate::file_refs;
 use crate::users;
 
 /// A block in the trash.
@@ -174,6 +175,9 @@ impl Store {
                  AND board_id NOT IN (SELECT id FROM deleted_boards)",
             );
             records += scope.execute(sql).await?;
+            // What the blocks gone for good showed is shown no more.
+            file_refs::forget_gone_blocks(scope).await?;
+            file_refs::mark(scope, None).await?;
             Ok(Purged { records, files })
         })
         .await
@@ -477,6 +481,12 @@ pub(crate) async fn undelete_board(
         file_info::save_file_info(scope, &file).await?;
     }
     take_blocks_out_of_trash(scope, &deletion_id, user_id, now).await?;
+    // The trash kept no marks: a file that no block of the board shows is counted from
+    // now, as at a file's upload.
+    let mut sql = scope.sql("UPDATE file_info SET unreferenced_at = NULL WHERE board_id = ");
+    sql.bind(Id(board_id));
+    scope.execute(sql).await?;
+    file_refs::mark(scope, Some(board_id)).await?;
 
     let mut sql = scope.sql("DELETE FROM deleted_boards WHERE id = ");
     sql.bind(Id(board_id));

@@ -617,6 +617,111 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
     test.teardown().await;
 }
 
+/// The migration of file references puts down what the blocks show, live and in the
+/// trash, and counts a file that none shows from the migration: it is collected only
+/// once the grace period has passed from then.
+#[tokio::test]
+async fn the_file_reference_migration_finds_what_the_blocks_show() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    for name in [
+        "7image.png",
+        "7body.png",
+        "7trash.png",
+        "7trashbody.png",
+        "7none.png",
+    ] {
+        let file = fvoci_model::FileInfo {
+            id: new_id(),
+            board_id: board_id.clone(),
+            stored_name: name.to_owned(),
+            create_at: 1,
+            path: format!("{board_id}/{name}"),
+            ..fvoci_model::FileInfo::default()
+        };
+        test.save_file_info(&file).await.expect("a file is stored");
+    }
+    let image = |name: &str| Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: BlockType::Image,
+        fields: serde_json::from_value(serde_json::json!({ "fileId": name }))
+            .expect("the fields are a JSON object"),
+        ..Block::default()
+    };
+    let card = |name: &str| Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: BlockType::Card,
+        body: fvoci_model::Body::parse(serde_json::json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": "x"}]},
+            {"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "y"}]},
+            ]}]},
+            {"type": "image", "attrs": {"fileId": name}},
+        ]}))
+        .expect("the body may be stored"),
+        ..Block::default()
+    };
+    let mut blocks = [
+        image("7image.png"),
+        image("7trash.png"),
+        card("7body.png"),
+        card("7trashbody.png"),
+    ];
+    common::insert_blocks(&test, &mut blocks, &user_id).await;
+    for in_trash in [&blocks[1], &blocks[3]] {
+        test.delete_block(&in_trash.id, &user_id)
+            .await
+            .expect("an image and a card go to the trash");
+    }
+    test.store.close().await;
+    // Back to before the migration.
+    for statement in [
+        "DROP TABLE file_refs",
+        "DROP INDEX file_info_unreferenced_at_idx",
+        "ALTER TABLE file_info DROP COLUMN unreferenced_at",
+        "DELETE FROM _sqlx_migrations WHERE version = 3",
+    ] {
+        common::execute_raw(&test.dbconfig(), statement).await;
+    }
+    let migrated_at = crate::blocks::now_millis();
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store migrates the database");
+    let collected = |before: i64| {
+        let store = &store;
+        async move {
+            let mut names: Vec<String> = store
+                .collect_unreferenced_files(before)
+                .await
+                .expect("the files no block shows are collected")
+                .into_iter()
+                .map(|file| file.stored_name)
+                .collect();
+            names.sort();
+            names
+        }
+    };
+    assert_eq!(
+        collected(migrated_at - 1_000).await,
+        Vec::<String>::new(),
+        "counted from the migration, not from the upload"
+    );
+    assert_eq!(
+        collected(crate::blocks::now_millis() + 3_600_000).await,
+        ["7none.png"],
+        "the image, the body and the trash show theirs"
+    );
+    store.close().await;
+
+    test.teardown().await;
+}
+
 /// The two baseline files describe one schema: statement for statement the same, but
 /// for the column types that only PostgreSQL has, which are `TEXT` on SQLite. A table,
 /// column, key, default or index that one file has and the other lacks fails here.

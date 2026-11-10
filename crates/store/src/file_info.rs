@@ -10,7 +10,7 @@ use crate::Store;
 use crate::db::{Id, Row, Scope};
 use crate::error::StoreError;
 
-const FILE_INFO_COLUMNS: &str =
+pub(crate) const FILE_INFO_COLUMNS: &str =
     "id, board_id, name, original_name, extension, size, path, create_at";
 
 impl Store {
@@ -57,8 +57,9 @@ pub(crate) async fn save_file_info(
     scope: &mut Scope<'_>,
     file_info: &FileInfo,
 ) -> Result<(), StoreError> {
+    // A new file is shown by no block until one is written that shows it.
     let mut sql = scope.sql(&format!(
-        "INSERT INTO file_info ({FILE_INFO_COLUMNS}) VALUES ("
+        "INSERT INTO file_info ({FILE_INFO_COLUMNS}, unreferenced_at) VALUES ("
     ));
     sql.bind(Id(&file_info.id))
         .push_bind(", ", Id(&file_info.board_id))
@@ -67,6 +68,7 @@ pub(crate) async fn save_file_info(
         .push_bind(", ", &file_info.extension)
         .push_bind(", ", file_info.size)
         .push_bind(", ", &file_info.path)
+        .push_bind(", ", file_info.create_at)
         .push_bind(", ", file_info.create_at)
         .push(")");
     scope
@@ -93,7 +95,7 @@ pub(crate) async fn file_infos_of_board(
         .collect()
 }
 
-fn file_info_from_row(row: &Row) -> Result<FileInfo, StoreError> {
+pub(crate) fn file_info_from_row(row: &Row) -> Result<FileInfo, StoreError> {
     Ok(FileInfo {
         id: row.id(0)?,
         board_id: row.id(1)?,
