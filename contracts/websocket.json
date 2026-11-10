@@ -1,5 +1,5 @@
 {
-  "description": "The messages of the websocket endpoint /ws, as the server reads and sends them; contracts/websocket.md says who sends which and when. A member's value is a JSON type (\"string\", \"boolean\"), the name of a schema of contracts/openapi.json after a \"#\" (\"#Block\"), an object of members for an inline object, or a list of one of these for a JSON list of it. Every member listed is always there, and no other is. crates/server/tests/api/websocket.rs compares what the server sends with this file.",
+  "description": "The messages of the websocket endpoint /ws, as the server reads and sends them; contracts/websocket.md says who sends which and when. A member's value is a JSON type (\"string\", \"boolean\", \"integer\"), the name of a schema of contracts/openapi.json after a \"#\" (\"#Block\"), an object of members for an inline object, or a list of one of these for a JSON list of it. Every member listed is always there, and no other is. A command's \"session\" says whether the connection needs a signed-in session for it; a message's \"sent\": false says the server never sends it today. crates/server/tests/api/websocket.rs compares the messages the server sends with this file; the commands are not checked by a test.",
   "commands": {
     "SUBSCRIBE_TEAM": {
       "session": true,

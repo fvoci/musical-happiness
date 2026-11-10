@@ -706,10 +706,8 @@ fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
             let object = value
                 .as_object()
                 .unwrap_or_else(|| panic!("{at}: an object, not {value}"));
-            let mut expected: Vec<&String> = members.keys().collect();
-            let mut actual: Vec<&String> = object.keys().collect();
-            expected.sort();
-            actual.sort();
+            let expected: BTreeSet<&String> = members.keys().collect();
+            let actual: BTreeSet<&String> = object.keys().collect();
             assert_eq!(actual, expected, "{at}: the members of {value}");
             for (key, member) in members {
                 check_against(openapi, member, &object[key], &format!("{at}.{key}"));

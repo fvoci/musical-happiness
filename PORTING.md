@@ -874,6 +874,20 @@ K절을 할 때는 `/hello`와 `/ping`을 상태 확인용이라 보고 접두�
 
 **알아 둘 것.** 바깥의 상태 확인(로드 밸런서 등)이 `/hello`나 `/ping`을 보고 있었다면 주소를 바꿔야 한다. 저장소 안에는 그런 설정이 없다(`docker/`, `docs/fvoci-cdn.md`에 없음).
 
+### R. 다음 묶음(`fvoci/server-next`)의 tracer-bullet 리뷰 (2026-11-11 04:32 KST)
+
+tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전트(`general-purpose`)가 그 diff와 문서의 자리만 받아 `beautiful-rust:rust-review`를 부르고 설계·계약과 견주어 검토한다. 지적은 이 세션이 코드에서 확인한 뒤 받아들이거나 아래에 까닭을 적고 받지 않는다. tracer-bullet 목록은 `docs/handoff.md`의 "지금 상태"에 있다.
+
+| tracer-bullet | 범위 | 지적 | 반영 |
+|---|---|---|---|
+| 0 WebSocket 문서 | `12c22af..0803dd6` | Must 4, Should 7, Consider 9 | Must 4와 Should 6, Consider 6을 문서·테스트에 반영. `deleteBoardsAndBlocks`가 읽기 토큰 연결을 닫지 않는 것은 코드의 결함이라 `docs/contract-pending.md` 8절에 올리고 남은 결함을 고치는 tracer-bullet(12)에서 고친다 |
+
+**받지 않은 지적.**
+
+- TB0, 명령(`commands`)을 테스트가 보지 않음(Should): 명령은 답이 없어 받았는지를 메시지로만 볼 수 있고, 네 명령의 효과는 이미 `websocket.rs`의 다른 테스트가 본다. 문서와 `websocket.json`의 설명에 "명령은 테스트가 보지 않는다"고 적는 것으로 그쳤다.
+- TB0, 빈 `boardCategories`를 빼는 직렬화(Consider): 빈 목록을 보내는 호출이 없다. 모양을 바꾸지 않는다는 이 묶음의 규칙에 따라 그대로 둔다.
+- TB0, 구독 탐침의 150 ms(Consider): 부하에서 늦을 수 있다는 추정이고 일어난 적이 없다. 실패하면 그때 늘린다.
+
 ## 작성 모델
 
 주 세션과 하위 에이전트는 Claude Fable 5.2로 돌았다. 예외는 파일·아카이브·템플릿·온보딩 영역을 맡은 하위 에이전트 하나로, 작업 도중(안전 분류기가 응답을 한 번 중단시킨 뒤) Claude Opus 4.8로 바뀌어 끝까지 갔다. 그 에이전트가 쓴 파일은 다음과 같다.

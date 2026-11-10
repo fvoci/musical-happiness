@@ -15,14 +15,14 @@
   | 서버 | `cargo xtask check`, `cargo xtask test` | 이 문서의 1절 |
   | 웹앱 | `pnpm install --frozen-lockfile` 뒤에 `pnpm --filter web run check`, `test`, `build`, `e2e` | `apps/web/PORTING.md`의 "검증 명령"과 "마지막 검증". `pnpm`을 놓는 법은 `apps/web/docs/handoff.md`의 "도구가 있는 곳" |
 
-- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 `~/atlas/musical-happiness-carry/` 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브를 놓아야 컴파일되고, 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
+- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브를 놓아야 컴파일되고, 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
 - **무시 규칙.** 저장소 루트의 `.gitignore`가 `target/`, `node_modules/`, 템플릿 아카이브를 무시한다. 웹앱의 빌드 산출물과 글꼴은 `apps/web/.gitignore`가 맡는다.
 - **컨테이너.** 필요할 때 만들고 그 일이 끝나면 닫는다. `cargo xtask test`가 PostgreSQL과 S3 컨테이너를 스스로 준비하고, 돌린 세션이 일을 마칠 때 멈춘다(2절). 웹앱의 검증은 컨테이너를 쓰지 않는다.
 
 ## 지금 상태
 
 - **서버.** 설계(`docs/s6-design.md`)의 "구현 순서" 1–7단계가 끝났다. 끝난 것은 오류 응답과 경로 규칙, 요청 크기 한도, 새 기준 스키마, 쿠키 인증, 로그인 시도 제한, 접두어 `/api/v1`, 계약 파일이다. 남은 것은 8단계와 9단계이고 6절에 적었다.
-- **지금의 작업 묶음(브랜치 `fvoci/server-next`, 2026-11-11 04:08 KST에 시작).** 지시는 이 기기의 `~/atlas/musical-happiness-carry/PROMPT-server-next.md`다. 일을 tracer-bullet(기능 하나가 스키마부터 계약·테스트·스냅샷까지 끝에서 끝까지 도는 것) 하나씩으로 끊고, 하나가 끝날 때마다 검증하고 커밋해 올린 뒤 아래 목록에 표시한다. 올리기 전마다 그 diff에 `beautiful-rust:rust-review`를 돌린다.
+- **지금의 작업 묶음(브랜치 `fvoci/server-next`, 2026-11-11 04:08 KST에 시작).** 지시는 보관 폴더의 `PROMPT-server-next.md`다. 일을 tracer-bullet(기능 하나가 스키마부터 계약·테스트·스냅샷까지 끝에서 끝까지 도는 것) 하나씩으로 끊고, 하나가 끝날 때마다 검증하고 커밋해 올린 뒤 아래 목록에 표시한다. 올리기 전마다 새 하위 에이전트가 그 diff를 `beautiful-rust:rust-review`와 설계·계약에 견주어 검토하고, 받아들인 지적은 같은 tracer-bullet에서 고친다. 받아들이지 않은 지적은 `PORTING.md`에 까닭과 함께 적는다.
 
   | # | tracer-bullet | 상태 |
   |---|---|---|
@@ -45,7 +45,7 @@
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
-- **새 워크트리에서는 서버가 컴파일되지 않는다.** 내장 템플릿의 아카이브 `server/assets/templates.boardarchive`가 저장소에 없기 때문이다(`crates/server/src/app/templates.rs`가 빌드할 때 읽는다). 이 파일은 커밋하지 않는다. 이 기기의 보관 폴더 `~/atlas/musical-happiness-carry/server/`에서 워크트리마다 제자리에 놓아 쓴다. 명령은 그 폴더의 `README.md` 3절에 있다. 다음 작업 묶음이 이 의존을 끊는다(6절).
+- **새 워크트리에서는 서버가 컴파일되지 않는다.** 내장 템플릿의 아카이브 `server/assets/templates.boardarchive`가 저장소에 없기 때문이다(`crates/server/src/app/templates.rs`가 빌드할 때 읽는다). 이 파일은 커밋하지 않는다. 이 기기의 보관 폴더 `server/`에서 워크트리마다 제자리에 놓아 쓴다. 명령은 그 폴더의 `README.md` 3절에 있다. 다음 작업 묶음이 이 의존을 끊는다(6절).
 - **CI.** 이 저장소에는 워크플로 파일이 없다. 검증은 1절의 명령을 손으로 돌린다.
 
 ## 이 문서가 담는 것
