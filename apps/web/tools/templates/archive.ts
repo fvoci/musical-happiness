@@ -2,24 +2,22 @@
  * Reads the built-in templates of the original and turns the content of each
  * card into one document body.
  *
- * The archive (server/assets/templates.boardarchive, read only) holds each
- * card's content as separate blocks: text blocks written in Markdown, image,
- * checkbox and divider blocks, in the order of the card's `contentOrder`.
- * Nothing here changes what the texts say; convert.ts does that, and counts.
+ * The archive (read only; tools/original.ts says where it is looked for)
+ * holds each card's content as separate blocks: text blocks written in
+ * Markdown, image, checkbox and divider blocks, in the order of the card's
+ * `contentOrder`. Nothing here changes what the texts say; output.ts does
+ * that, and convert.ts counts.
  */
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
 
 import { marked } from 'marked';
 
 import { addNotes, markdownToBlocks, type ConversionNotes } from '../../src/lib/editor/markdown.ts';
 import type { DocNode } from '../../src/lib/editor/schema.ts';
+import { hasTemplateArchive, skipNotice, TEMPLATE_ARCHIVE } from '../original.ts';
 import { listZipMembers, readZipMember } from '../zip.ts';
 
-export const ARCHIVE = path.resolve(
-  import.meta.dirname,
-  '../../../../server/assets/templates.boardarchive',
-);
+import { committedDocuments } from './committed.ts';
 
 /** A block as the archive has it. */
 export interface ArchivedBlock {
@@ -79,7 +77,7 @@ function readBoardLine(type: string, data: Record<string, unknown>): ArchivedBoa
 }
 
 /** The templates of the archive, in the order of the archive. */
-export function readArchive(file: string = ARCHIVE): ArchivedTemplate[] {
+export function readArchive(file: string = TEMPLATE_ARCHIVE): ArchivedTemplate[] {
   const archive = readFileSync(file);
   const members = listZipMembers(archive);
   const templates: ArchivedTemplate[] = [];
@@ -224,14 +222,15 @@ export function cardBody(card: ArchivedBlock, blocks: readonly ArchivedBlock[]):
   return body;
 }
 
-/**
- * Every document the templates hold: one per card that has content. For
- * tests that want real documents to work on.
- */
-export function templateDocuments(
-  file: string = ARCHIVE,
-): { template: string; card: string; doc: DocNode }[] {
-  const documents: { template: string; card: string; doc: DocNode }[] = [];
+export interface TemplateDocument {
+  template: string;
+  card: string;
+  doc: DocNode;
+}
+
+/** Every document an archive holds: one per card that has content. */
+export function archivedDocuments(file: string = TEMPLATE_ARCHIVE): TemplateDocument[] {
+  const documents: TemplateDocument[] = [];
   for (const template of readArchive(file)) {
     for (const card of template.blocks.filter((block) => block.type === 'card')) {
       const { doc } = cardBody(card, template.blocks);
@@ -239,4 +238,19 @@ export function templateDocuments(
     }
   }
   return documents;
+}
+
+/**
+ * Every document the templates hold, for tests that want real documents to
+ * work on: those of the archive where it is there, and where it is not, the
+ * ones the conversion wrote from it (tools/templates/output). The two sets
+ * are the same cards; the committed ones have been through the rules that
+ * change texts.
+ */
+export function templateDocuments(): TemplateDocument[] {
+  if (hasTemplateArchive()) return archivedDocuments();
+  console.warn(
+    skipNotice('reading the documents of the template archive; the committed ones are used'),
+  );
+  return committedDocuments();
 }

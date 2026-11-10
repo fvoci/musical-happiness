@@ -3,6 +3,10 @@
  * `convertAll` reads the sources and returns the message files and a report.
  * `convert.ts` is the command around it.
  *
+ * This is the conversion where the original is there. Where it is not, the
+ * message files written here earlier stand in for it (standalone.ts), and
+ * the other sources are read the same way.
+ *
  * Sources, per locale:
  *
  * - `webapp/i18n/<file>.json`: the original, ICU MessageFormat. Read only.
@@ -57,8 +61,13 @@ const OLD_COMPANY_SPELLINGS: Record<string, string[]> = { ko: [['메터', '머�
  */
 const COMPANY_MEANS_PRODUCT = new Set(['OnboardingTour.AddComments.Body']);
 
-const OUTSIDE_URL = /https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|org|net|io|html)\b/i;
-const OWN_KEY = /^[a-z][a-z0-9_]*$/;
+export const OUTSIDE_URL = /https?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|org|net|io|html)\b/i;
+/**
+ * What a key of this app's own messages looks like. No id of the original
+ * looks like it (the conversion stops at one that does), so that the two
+ * kinds can be told apart in a message file without the original.
+ */
+export const OWN_KEY = /^[a-z][a-z0-9_]*$/;
 
 /** Replaces the old names in a message text. */
 export function renameProduct(text: string, locale: string, id: string): string {
@@ -194,6 +203,14 @@ export interface Report {
 }
 
 export interface Outcome {
+  /**
+   * What the texts of the original were read from: the original itself, or,
+   * where it is not there, the message files converted from it earlier. With
+   * `messages`, the report says nothing about the original: its counts
+   * (`original`, `removed`, `dead`, `notConverted`, `stale`, `renamed`, the
+   * survey, `bundled`, `usedIn`) are empty.
+   */
+  base: 'original' | 'messages';
   /** Path under the web app → content. */
   files: Map<string, string>;
   /** Locale → id → the ICU text the message was converted from; the app's own messages are not in it. */
@@ -211,7 +228,7 @@ function readOriginal(originalRoot: string, locale: Locale): Messages {
   return readJson(path.join(originalRoot, 'i18n', `${locale.file}.json`)) as Messages;
 }
 
-function readOptional<T>(file: string): Record<string, T> {
+export function readOptional<T>(file: string): Record<string, T> {
   return existsSync(file) ? (readJson(file) as Record<string, T>) : {};
 }
 
@@ -220,7 +237,7 @@ function readOptional<T>(file: string): Record<string, T> {
  * `messages-own/<group>/<tag>.json` for each group folder in name order. A
  * key that two files define stops the conversion.
  */
-function readOwn(webRoot: string, tag: string): Record<string, InlangMessage> {
+export function readOwn(webRoot: string, tag: string): Record<string, InlangMessage> {
   const root = path.join(webRoot, 'messages-own');
   const merged: Record<string, InlangMessage> = {};
   const add = (file: string, name: string): void => {
@@ -241,7 +258,11 @@ function readOwn(webRoot: string, tag: string): Record<string, InlangMessage> {
   return merged;
 }
 
-function readOverrides(webRoot: string, tag: string, isBase: boolean): Record<string, Override> {
+export function readOverrides(
+  webRoot: string,
+  tag: string,
+  isBase: boolean,
+): Record<string, Override> {
   const name = `messages-override/${tag}.json`;
   const entries = readOptional<unknown>(path.join(webRoot, name));
   const kinds: readonly unknown[] = OVERRIDE_KINDS;
@@ -267,17 +288,43 @@ function readOverrides(webRoot: string, tag: string, isBase: boolean): Record<st
   return entries as Record<string, Override>;
 }
 
+/** Stops at a file in `messages-override/` that is not the file of a locale. */
+export function checkOverrideFiles(webRoot: string): void {
+  const overrideDirectory = path.join(webRoot, 'messages-override');
+  if (!existsSync(overrideDirectory)) return;
+  const unknown = readdirSync(overrideDirectory)
+    .sort()
+    .filter((name) => !LOCALES.some((locale) => `${locale.tag}.json` === name));
+  if (unknown.length > 0) {
+    throw new Error(`messages-override: not the file of a locale: ${unknown.join(', ')}`);
+  }
+}
+
+/** The ids `removed.json` lists, each with the name of its group. */
+export function removedIdsByReason(): Map<string, string> {
+  const removed = new Map<string, string>();
+  for (const [reason, { ids: list }] of Object.entries(removedIds)) {
+    for (const id of list) {
+      if (removed.has(id)) throw new Error(`removed.json: ${id} is listed twice`);
+      removed.set(id, reason);
+    }
+  }
+  return removed;
+}
+
+export const emptySurvey = (): Survey => ({
+  messages: 0,
+  plain: 0,
+  constructs: {},
+  apostrophePairs: [],
+  quoted: [],
+  apostrophes: [],
+  syntaxErrors: [],
+  shapeDiffers: [],
+});
+
 function survey(messages: Messages, shapes: Map<string, Shape>): Survey {
-  const result: Survey = {
-    messages: 0,
-    plain: 0,
-    constructs: {},
-    apostrophePairs: [],
-    quoted: [],
-    apostrophes: [],
-    syntaxErrors: [],
-    shapeDiffers: [],
-  };
+  const result = emptySurvey();
   for (const [id, text] of Object.entries(messages)) {
     result.messages += 1;
     if (text.includes("''")) result.apostrophePairs.push(id);
@@ -333,19 +380,21 @@ export function convertAll(
   const english = readOriginal(originalRoot, base);
   const ids = Object.keys(english);
   const usage = scanUsage(ids, path.join(originalRoot, 'src'), repositoryRoot);
-  const removed = new Map<string, string>();
-  for (const [reason, { ids: list }] of Object.entries(removedIds)) {
-    for (const id of list) {
-      if (!(id in english)) throw new Error(`removed.json: ${id} is not in the English file`);
-      if (removed.has(id)) throw new Error(`removed.json: ${id} is listed twice`);
-      if (usage.get(id)?.length === 0) {
-        throw new Error(`removed.json: ${id} is used nowhere; it is left out as dead already`);
-      }
-      removed.set(id, reason);
+  const removed = removedIdsByReason();
+  for (const id of removed.keys()) {
+    if (!(id in english)) throw new Error(`removed.json: ${id} is not in the English file`);
+    if (usage.get(id)?.length === 0) {
+      throw new Error(`removed.json: ${id} is used nowhere; it is left out as dead already`);
     }
   }
   const dead = new Set(ids.filter((id) => usage.get(id)?.length === 0));
   const kept = ids.filter((id) => !removed.has(id) && !dead.has(id));
+  const ownLooking = kept.filter((id) => OWN_KEY.test(id));
+  if (ownLooking.length > 0) {
+    throw new Error(
+      `ids of the original that look like keys of this app's own: ${ownLooking.join(', ')}`,
+    );
+  }
 
   // The English messages come first: translations are held against their shape.
   const shapes = new Map<string, Shape>();
@@ -359,15 +408,7 @@ export function convertAll(
 
   // Translations are held against the English text as it is shown, which is
   // the override where there is one.
-  const overrideDirectory = path.join(webRoot, 'messages-override');
-  if (existsSync(overrideDirectory)) {
-    const unknown = readdirSync(overrideDirectory)
-      .sort()
-      .filter((name) => !LOCALES.some((locale) => `${locale.tag}.json` === name));
-    if (unknown.length > 0) {
-      throw new Error(`messages-override: not the file of a locale: ${unknown.join(', ')}`);
-    }
-  }
+  checkOverrideFiles(webRoot);
   const baseOverrides = readOverrides(webRoot, base.tag, true);
   const shown = new Map(shapes);
   const stale = new Set<string>();
@@ -523,6 +564,7 @@ export function convertAll(
   }
 
   return {
+    base: 'original',
     files,
     texts,
     report: {

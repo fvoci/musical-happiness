@@ -1,23 +1,46 @@
 /**
  * The conversion of the built-in templates: the rules that change texts, and
  * the output the server takes in.
+ *
+ * The output is committed (tools/templates/output), and what has to hold of
+ * it is tested on the committed files, with or without the original. That
+ * the files are what the conversion writes from the archive today is tested
+ * only where the archive is; elsewhere those tests are skipped, and a line
+ * says so.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { validateDoc, type DocNode } from '$lib/editor/schema.ts';
 import { parseDateValue } from '$lib/logic/wire.ts';
 
-import { templateDocuments } from '../../tools/templates/archive.ts';
-import { convertTemplates, outputFiles, type Output } from '../../tools/templates/output.ts';
+import { hasTemplateArchive, skipNotice, TEMPLATE_ARCHIVE } from '../../tools/original.ts';
+import { archivedDocuments, templateDocuments } from '../../tools/templates/archive.ts';
 import {
+  committedDocuments,
+  OUTPUT_FOLDER,
+  readCommitted,
+  staleFiles,
+} from '../../tools/templates/committed.ts';
+import {
+  CHANGE_RULES,
+  convertTemplates,
+  outputFiles,
+  outputProblems,
+  promiseProblems,
+  type Output,
+  type Template,
+} from '../../tools/templates/output.ts';
+import {
+  isExampleAddress,
   leadsOutside,
   maskOldNames,
   removeOutsideLinks,
   rename,
   renameInDoc,
+  rewriteLinkValue,
   sentenceRanges,
   valueLeadsOutside,
 } from '../../tools/templates/rewrite.ts';
@@ -103,6 +126,78 @@ describe('links that lead outside', () => {
     expect(valueLeadsOutside('  ')).toBe(false);
   });
 
+  it('as the value of a link property, go when they lead to the company of the original', () => {
+    const company = COMPANY.toLowerCase();
+    for (const value of [
+      `https://${company}.com/boards/`,
+      `https://docs.${company}.com/boards/work-with-cards.html#mention-people`,
+      `http://WWW.${COMPANY}.com`,
+      `${company}.org`,
+      `https://${PRODUCT.toLowerCase()}.com/download`,
+    ]) {
+      expect(rewriteLinkValue(value), value).toEqual({ to: 'removed' });
+    }
+  });
+
+  it('as the value of a link property, move under the example domain otherwise', () => {
+    const moved = (value: string): string | undefined => {
+      const link = rewriteLinkValue(value);
+      return link.to === 'example' ? link.value : undefined;
+    };
+    // A company that was made up: the site, by its name.
+    expect(moved('liminarycorp.com')).toBe('https://liminarycorp.example.com');
+    expect(moved('www.liminarycorp.com/')).toBe('https://liminarycorp.example.com');
+    expect(moved('//liminarycorp.com')).toBe('https://liminarycorp.example.com');
+    // A page somewhere: the path, the query and the fragment stay.
+    expect(moved('https://www.toolbox.com/tech/devops/articles/best-devops-tools/')).toBe(
+      'https://toolbox.example.com/tech/devops/articles/best-devops-tools/',
+    );
+    expect(moved('http://user-images.site.com:8080/a/b.gif?x=1#top')).toBe(
+      'https://user-images.site.example.com/a/b.gif?x=1#top',
+    );
+    // The company is told by the host alone. Named in a path, it is replaced like in any text.
+    expect(moved(`https://twitter.com/${COMPANY.toLowerCase()}/status/1?s=20`)).toBe(
+      'https://twitter.example.com/fvoci/status/1?s=20',
+    );
+    expect(moved('http://docs.example.com/x')).toBe('https://docs.example.com/x');
+    expect(moved('localhost')).toBe('https://localhost.example.com');
+  });
+
+  it('as the value of a link property, stay when they lead nowhere outside or are an example already', () => {
+    for (const value of ['/board/1', '  ', 'https://example.com', 'https://a.example.com/x?y#z']) {
+      expect(rewriteLinkValue(value), value).toEqual({ to: 'kept' });
+    }
+  });
+
+  it('as the value of a link property, go when they are not the address of a site', () => {
+    for (const value of ['mailto:someone@email.com', 'ftp://files.site.com/x', 'https://']) {
+      expect(rewriteLinkValue(value), value).toEqual({ to: 'removed' });
+    }
+  });
+
+  it('are an example address only under the example domain, over https, naming no other site', () => {
+    for (const value of [
+      'https://example.com',
+      'https://example.com/',
+      'https://liminarycorp.example.com',
+      'https://a.b.example.com/x?y=1#z',
+    ]) {
+      expect(isExampleAddress(value), value).toBe(true);
+    }
+    for (const value of [
+      'http://example.com',
+      'example.com',
+      'https://example.com.evil.site',
+      'https://notexample.com',
+      'https://example.org',
+      'https://example.com:8080/',
+      'https://example.com/?next=https://real.site',
+      'https://example.com/www.real.site',
+    ]) {
+      expect(isExampleAddress(value), value).toBe(false);
+    }
+  });
+
   it('cut a text into sentences that cover all of it', () => {
     const sample = 'One. Two! Three?\nFour';
     const ranges = sentenceRanges(sample);
@@ -183,8 +278,21 @@ describe('links that lead outside', () => {
   });
 });
 
-describe('the converted templates', () => {
-  const output: Output = convertTemplates();
+/** The values of the link properties of a template's cards. */
+const linkValues = (template: Template): string[] => {
+  const linkIds = template.board.cardProperties
+    .filter((property) => property.type === 'url')
+    .map((property) => property.id);
+  return template.cards.flatMap((card) =>
+    linkIds.flatMap((id) => {
+      const value = card.fields.properties[id];
+      return typeof value === 'string' ? [value] : [];
+    }),
+  );
+};
+
+describe('the committed templates', () => {
+  const output: Output = readCommitted();
   const everything = JSON.stringify(output.templates);
 
   it('are the thirteen of the archive, one of them for onboarding', () => {
@@ -213,16 +321,70 @@ describe('the converted templates', () => {
     expect(cards).toHaveLength(77);
     const bodies = cards.filter((card) => card.body !== null);
     expect(bodies).toHaveLength(58);
+    expect(committedDocuments()).toHaveLength(58);
     expect(templateDocuments()).toHaveLength(58);
     for (const card of bodies) expect(validateDoc(card.body), card.title).toEqual([]);
     expect(output.templates.flatMap((template) => template.views)).toHaveLength(38);
   });
 
-  it('name neither the original nor an address outside', () => {
+  it('name neither the original nor an address outside, but for example addresses in link values', () => {
     expect(everything.toLowerCase()).not.toContain(PRODUCT.toLowerCase());
     expect(everything.toLowerCase()).not.toContain(COMPANY.toLowerCase());
-    expect(everything).not.toMatch(/https?:\/\/|\bwww\./i);
     expect(JSON.stringify(output.changes).toLowerCase()).not.toContain(COMPANY.toLowerCase());
+    expect(promiseProblems(output.templates)).toEqual([]);
+
+    // Every address in the output is the whole value of a link property, and an example.
+    const addresses = everything.match(/https?:\/\/|\bwww\./gi) ?? [];
+    const values = output.templates.flatMap(linkValues).filter(valueLeadsOutside);
+    expect(values).toHaveLength(11);
+    expect(addresses).toHaveLength(values.length);
+    for (const value of values) expect(isExampleAddress(value), value).toBe(true);
+    // No body of a card has a link that leads outside, example or not.
+    const bodies = JSON.stringify(
+      output.templates.flatMap((t) => t.cards.map((card) => card.body)),
+    );
+    expect(bodies).not.toMatch(/https?:\/\/|\bwww\./i);
+  });
+
+  it('would be refused with an address that is not an example, or with one outside a link value', () => {
+    const copy = (): Template[] => JSON.parse(everything) as Template[];
+    const withLink = (templates: Template[]): Template => {
+      const found = templates.find((template) => linkValues(template).length > 0);
+      if (!found) throw new Error('no template with a link value');
+      return found;
+    };
+
+    const real = copy();
+    const template = withLink(real);
+    const linkId = template.board.cardProperties.find((property) => property.type === 'url')?.id;
+    const card = template.cards.find(
+      (one) => typeof one.fields.properties[linkId ?? ''] === 'string',
+    );
+    if (!card || linkId === undefined) throw new Error('no card with a link value');
+    card.fields.properties[linkId] = 'https://liminarycorp.com';
+    expect(promiseProblems(real).join()).toMatch(/a link value leads outside/);
+
+    const bare = copy();
+    const bareCard = withLink(bare).cards.find(
+      (one) => typeof one.fields.properties[linkId] === 'string',
+    );
+    if (!bareCard) throw new Error('no card with a link value');
+    bareCard.fields.properties[linkId] = 'liminarycorp.com';
+    expect(promiseProblems(bare).join()).toMatch(/a link value leads outside/);
+
+    const elsewhere = copy();
+    const first = elsewhere[0];
+    if (!first) throw new Error('no template');
+    first.board.description = 'See https://example.com for more.';
+    expect(promiseProblems(elsewhere)).toEqual([
+      'an address that leads outside is left in the output',
+    ]);
+
+    const named = copy();
+    const second = named[0];
+    if (!second) throw new Error('no template');
+    second.board.title = `${PRODUCT} tasks`;
+    expect(promiseProblems(named)).toEqual(['a name of the original is left in the output']);
   });
 
   it('list every change: 47 texts, by rule', () => {
@@ -230,8 +392,10 @@ describe('the converted templates', () => {
       'old-name': 9,
       'product-word': 5,
       'outside-link': 1,
-      'outside-link-value': 32,
+      'outside-link-value': 21,
+      'example-link-value': 11,
     });
+    expect(Object.keys(output.index.changes)).toEqual([...CHANGE_RULES]);
     expect(output.changes).toHaveLength(47);
     for (const change of output.changes) {
       expect(change.before, `${change.template} ${change.title}`).not.toBe(change.after);
@@ -246,6 +410,35 @@ describe('the converted templates', () => {
       before: 'Welcome to Boards!',
       after: 'Welcome to fvoci!',
     });
+  });
+
+  it('removed the link values that led to the company of the original, and moved the others', () => {
+    const removed = output.changes.filter((change) => change.rule === 'outside-link-value');
+    for (const change of removed) {
+      expect(change.after).toBe('');
+      // The host has the masked name as one of its labels.
+      expect(change.before, change.title).toMatch(
+        /^https:\/\/(?:[a-z0-9-]+\.)*\{old company name\}\.com\//,
+      );
+    }
+    const moved = output.changes.filter((change) => change.rule === 'example-link-value');
+    for (const change of moved) {
+      expect(isExampleAddress(change.after), change.after).toBe(true);
+      expect(change.before, change.title).not.toMatch(/^(?:https?:\/\/)?[^/]*\{old/);
+    }
+    // The five companies of the competitive analysis were made up; each keeps a site of its own.
+    expect(
+      moved.filter((change) => change.template === 'competitive-analysis').map((c) => c.after),
+    ).toEqual([
+      'https://liminarycorp.example.com',
+      'https://helxindustries.example.com',
+      'https://kaderaglobal.example.com',
+      'https://ositionsinc.example.com',
+      'https://afformanceltd.example.com',
+    ]);
+    // The values are in the cards.
+    const values = output.templates.flatMap(linkValues);
+    for (const change of moved) expect(values).toContain(change.after);
   });
 
   it('write date values the way the wire has them', () => {
@@ -297,17 +490,94 @@ describe('the converted templates', () => {
     }
   });
 
-  it('are what the committed folder holds, byte for byte', () => {
-    const folder = path.resolve(import.meta.dirname, '../../tools/templates/output');
+  it('hold together: the counts say what the lists hold, and each file is what the tool writes from the others', () => {
+    expect(outputProblems(output)).toEqual([]);
+    // The page of changes and the index are written from the lists and the
+    // templates, so an edit by hand to any file shows here, archive or not.
     const files = outputFiles(output);
-    expect(readdirSync(folder).sort()).toEqual([...files.keys(), 'README.md'].sort());
-    for (const [name, content] of files) {
-      expect(existsSync(path.join(folder, name)), name).toBe(true);
-      expect(readFileSync(path.join(folder, name), 'utf8') === content, `${name} is stale`).toBe(
-        true,
-      );
-    }
-    // The same input gives the same bytes.
-    expect([...outputFiles(convertTemplates())]).toEqual([...files]);
+    expect(readdirSync(OUTPUT_FOLDER).sort()).toEqual([...files.keys(), 'README.md'].sort());
+    expect(staleFiles(OUTPUT_FOLDER, files)).toEqual([]);
+  });
+
+  describe('a folder that was edited by hand', () => {
+    let folder = '';
+
+    beforeAll(() => {
+      const cache = path.resolve(import.meta.dirname, '../../node_modules/.cache');
+      mkdirSync(cache, { recursive: true });
+      folder = mkdtempSync(path.join(cache, 'templates-output-'));
+      for (const [name, content] of outputFiles(output)) {
+        writeFileSync(path.join(folder, name), content);
+      }
+    });
+
+    afterAll(() => {
+      if (folder !== '') rmSync(folder, { recursive: true, force: true });
+    });
+
+    it('is found out by the files that no longer agree', () => {
+      expect(staleFiles(folder, outputFiles(readCommitted(folder)))).toEqual([]);
+
+      const page = path.join(folder, 'CHANGES.md');
+      writeFileSync(page, readFileSync(page, 'utf8').replace('| 합계 | 47 |', '| 합계 | 46 |'));
+      expect(staleFiles(folder, outputFiles(readCommitted(folder)))).toEqual(['CHANGES.md']);
+
+      writeFileSync(path.join(folder, 'notes.txt'), 'kept by hand');
+      expect(staleFiles(folder, outputFiles(readCommitted(folder)))).toEqual([
+        'CHANGES.md',
+        'notes.txt (not written by the tool)',
+      ]);
+    });
+
+    it('is found out by the counts when a change is taken off the list', () => {
+      const lists = path.join(folder, 'changes.json');
+      const parsed = JSON.parse(readFileSync(lists, 'utf8')) as { changes: unknown[] };
+      parsed.changes.pop();
+      writeFileSync(lists, `${JSON.stringify(parsed, null, 2)}\n`);
+      expect(outputProblems(readCommitted(folder)).join()).toMatch(/the index counts \d+ changes/);
+    });
+  });
+});
+
+// Where the archive is, the committed folder has to be what the conversion
+// writes from it. This is the only part that reads the original.
+const withArchive = hasTemplateArchive();
+if (!withArchive) {
+  console.warn(skipNotice(`converting the template archive again (${TEMPLATE_ARCHIVE})`));
+}
+
+describe.skipIf(!withArchive)('the conversion of the archive', () => {
+  // Only converted when the tests run: the archive is not there otherwise.
+  let output: Output;
+  beforeAll(() => {
+    output = convertTemplates();
+  });
+
+  it('writes what the committed folder holds, byte for byte', () => {
+    const files = outputFiles(output);
+    expect(readdirSync(OUTPUT_FOLDER).sort()).toEqual([...files.keys(), 'README.md'].sort());
+    expect(staleFiles(OUTPUT_FOLDER, files)).toEqual([]);
+    expect(output).toEqual(readCommitted());
+  });
+
+  it('writes the same bytes when run again', () => {
+    expect([...outputFiles(convertTemplates())]).toEqual([...outputFiles(output)]);
+  });
+
+  it('keeps what it promises about the result', () => {
+    expect(outputProblems(output)).toEqual([]);
+  });
+
+  it('reads the 58 documents the committed cards were made from', () => {
+    const archived = archivedDocuments();
+    expect(archived).toHaveLength(58);
+    expect(templateDocuments()).toEqual(archived);
+    // The same cards in the same order; the committed ones went through the rules.
+    expect(committedDocuments()).toHaveLength(archived.length);
+  });
+
+  it('names the archive by its place in the original, wherever it was read from', () => {
+    expect(output.index.source.path).toBe('server/assets/templates.boardarchive');
+    expect(output.index.source.sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 });

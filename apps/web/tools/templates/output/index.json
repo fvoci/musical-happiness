@@ -149,7 +149,8 @@
     "old-name": 9,
     "product-word": 5,
     "outside-link": 1,
-    "outside-link-value": 32
+    "outside-link-value": 21,
+    "example-link-value": 11
   },
   "reviewNotes": {
     "example-email": 10,

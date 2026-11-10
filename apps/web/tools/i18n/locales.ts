@@ -11,9 +11,11 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-export const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
-export const REPOSITORY_ROOT = path.resolve(WEB_ROOT, '../..');
-export const ORIGINAL_ROOT = path.join(REPOSITORY_ROOT, 'webapp');
+import { ORIGINAL_WEBAPP, REPOSITORY_ROOT, WEB_ROOT } from '../original.ts';
+
+export { REPOSITORY_ROOT, WEB_ROOT };
+/** The original web app, where it is there: see tools/original.ts. */
+export const ORIGINAL_ROOT = ORIGINAL_WEBAPP;
 
 export const BASE_LOCALE = 'en';
 /** Has to have every key the base locale has. */

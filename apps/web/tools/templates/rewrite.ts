@@ -1,12 +1,15 @@
 /**
  * What the conversion changes in the texts of the built-in templates.
  *
- * Two things, by decision: links that lead outside the app go, together with
- * the sentence that explains them (they are not rewritten), and the names of
- * the original product become `fvoci`. Every change is recorded, with the
- * text before and after, for the person who reviews the wording later.
+ * Three things, by decision: in the body of a card, links that lead outside
+ * the app go, together with the sentence that explains them (they are not
+ * rewritten); the value of a link property goes when it leads to the
+ * original's company and moves under `example.com` when it leads anywhere
+ * else outside (`rewriteLinkValue`); and the names of the original product
+ * become `fvoci`. Every change is recorded, with the text before and after,
+ * for the person who reviews the wording later.
  *
- * Nothing here reads the archive or decides where a text sits; build.ts
+ * Nothing here reads the archive or decides where a text sits; output.ts
  * walks the templates and calls these.
  */
 import type { DocNode } from '../../src/lib/editor/schema.ts';
@@ -33,8 +36,10 @@ export type ChangeRule =
   | 'product-word'
   /** A sentence that explained a link leading outside the app, removed with the link. */
   | 'outside-link'
-  /** The value of a link property that led outside the app, removed. */
-  | 'outside-link-value';
+  /** The value of a link property that led to the original's company, removed. */
+  | 'outside-link-value'
+  /** The value of a link property that led anywhere else outside, moved under `example.com`. */
+  | 'example-link-value';
 
 export interface Change {
   /** The key of the template. */
@@ -103,6 +108,69 @@ export function leadsOutside(href: string): boolean {
 export function valueLeadsOutside(value: string): boolean {
   const address = value.trim();
   return address !== '' && !/^\/(?!\/)/.test(address);
+}
+
+/** The domain reserved for examples (RFC 2606): nothing of anyone's is reached through it. */
+export const EXAMPLE_DOMAIN = 'example.com';
+
+const EXAMPLE_ADDRESS = new RegExp(
+  `^https://(?:[a-z0-9-]+\\.)*${EXAMPLE_DOMAIN.replace('.', '\\.')}(?![^/?#])`,
+  'i',
+);
+
+/**
+ * Whether a value is an address under the example domain and names no other
+ * site: the only kind of address that leads outside and may stay in a
+ * template.
+ */
+export function isExampleAddress(value: string): boolean {
+  const host = EXAMPLE_ADDRESS.exec(value)?.[0];
+  return host !== undefined && !/:\/\/|\bwww\./i.test(value.slice(host.length));
+}
+
+/**
+ * What becomes of the value of a link property:
+ *
+ * - `kept`: a path inside the app, or an example address already.
+ * - `removed`: an address of the original's company, told by its domain: one
+ *   of the two old names is a label of the host (`docs.<company>.com`). An
+ *   address that is not a site's (`mailto:`, or one that cannot be read) goes
+ *   the same way, there being nothing to move.
+ * - `example`: any other address. The sample data keeps a link that looks
+ *   like one but leads nowhere real: the host moves under `example.com`
+ *   without its `www.` and its last label (`liminarycorp.com` becomes
+ *   `liminarycorp.example.com`), the scheme becomes `https`, and the path,
+ *   the query and the fragment stay, with the old names replaced in them.
+ */
+export type LinkValue = { to: 'kept' } | { to: 'removed' } | { to: 'example'; value: string };
+
+export function rewriteLinkValue(value: string): LinkValue {
+  const address = value.trim();
+  if (!valueLeadsOutside(address) || isExampleAddress(address)) return { to: 'kept' };
+
+  const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(address);
+  let url: URL;
+  try {
+    url = new URL(hasScheme ? address : `https://${address.replace(/^\/\//, '')}`);
+  } catch {
+    return { to: 'removed' };
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return { to: 'removed' };
+
+  const labels = url.hostname.toLowerCase().split('.');
+  if (labels.some((label) => label === OLD_PRODUCT || label === OLD_COMPANY)) {
+    return { to: 'removed' };
+  }
+  // The host is under the example domain already; only the scheme or a port was in the way.
+  const isExample = url.hostname === EXAMPLE_DOMAIN || url.hostname.endsWith(`.${EXAMPLE_DOMAIN}`);
+  if (!isExample) {
+    if (labels[0] === 'www') labels.shift();
+    if (labels.length > 1) labels.pop();
+    labels.push(...EXAMPLE_DOMAIN.split('.'));
+  }
+  const host = labels.filter((label) => /^[a-z0-9-]+$/.test(label)).join('.');
+  const rest = `${url.pathname === '/' ? '' : url.pathname}${url.search}${url.hash}`;
+  return { to: 'example', value: `https://${host}${rest.replace(OLD_NAMES, NEW_NAME)}` };
 }
 
 /** The ranges of the sentences of a text; together they cover all of it. */

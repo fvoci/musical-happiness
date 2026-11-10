@@ -77,81 +77,81 @@
       "part": "card",
       "title": "Frank Nash",
       "field": "value of \"Recording URL\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
-      "after": ""
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
     },
     {
       "template": "user-research-sessions",
       "part": "card",
       "title": "Richard Parsons",
       "field": "value of \"Recording URL\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
-      "after": ""
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
     },
     {
       "template": "user-research-sessions",
       "part": "card",
       "title": "Claire Hart",
       "field": "value of \"Recording URL\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
-      "after": ""
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
     },
     {
       "template": "user-research-sessions",
       "part": "card",
       "title": "Olivia Alsop",
       "field": "value of \"Recording URL\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "https://user-images.githubusercontent.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif",
-      "after": ""
+      "after": "https://user-images.githubusercontent.example.com/46905241/121941290-ee355280-cd03-11eb-9b9f-f6f524e4103e.gif"
     },
     {
       "template": "competitive-analysis",
       "part": "card",
       "title": "Liminary Corp.",
       "field": "value of \"Website\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "liminarycorp.com",
-      "after": ""
+      "after": "https://liminarycorp.example.com"
     },
     {
       "template": "competitive-analysis",
       "part": "card",
       "title": "Helx Industries",
       "field": "value of \"Website\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "helxindustries.com",
-      "after": ""
+      "after": "https://helxindustries.example.com"
     },
     {
       "template": "competitive-analysis",
       "part": "card",
       "title": "Kadera Global",
       "field": "value of \"Website\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "kaderaglobal.com",
-      "after": ""
+      "after": "https://kaderaglobal.example.com"
     },
     {
       "template": "competitive-analysis",
       "part": "card",
       "title": "Ositions Inc.",
       "field": "value of \"Website\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "ositionsinc.com",
-      "after": ""
+      "after": "https://ositionsinc.example.com"
     },
     {
       "template": "competitive-analysis",
       "part": "card",
       "title": "Afformance Ltd.",
       "field": "value of \"Website\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "afformanceltd.com",
-      "after": ""
+      "after": "https://afformanceltd.example.com"
     },
     {
       "template": "content-calendar",
@@ -185,18 +185,18 @@
       "part": "card",
       "title": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci",
       "field": "value of \"Link\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "https://twitter.com/{old company name}/status/1463145633162969097?s=20",
-      "after": ""
+      "after": "https://twitter.example.com/fvoci/status/1463145633162969097?s=20"
     },
     {
       "template": "content-calendar",
       "part": "card",
       "title": "Top 10 Must-Have DevOps Tools in 2021",
       "field": "value of \"Link\"",
-      "rule": "outside-link-value",
+      "rule": "example-link-value",
       "before": "https://www.toolbox.com/tech/devops/articles/best-devops-tools/",
-      "after": ""
+      "after": "https://toolbox.example.com/tech/devops/articles/best-devops-tools/"
     },
     {
       "template": "content-calendar",

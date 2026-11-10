@@ -16,6 +16,12 @@
  * `ko-review.json` holds what the conversion cannot know: the rows of the
  * table of odd Korean texts the review started from, and the first wording of
  * the filled translations that were changed since.
+ *
+ * Where the original is not there, the tables are written from the message
+ * files and the hand-edited sources (standalone.ts), which is enough for all
+ * of `ko-review.md` and for the overrides of the other locales. The parts
+ * that count the original (`ORIGINAL_ONLY`) are left as they are, and a line
+ * says so.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -23,9 +29,12 @@ import path from 'node:path';
 
 import type * as Prettier from 'prettier';
 
-import { convertAll, type Outcome, OVERRIDE_KINDS, type OverrideKind } from './conversion.ts';
+import { hasOriginalWebapp, skipNotice } from '../original.ts';
+
+import { type Outcome, OVERRIDE_KINDS, type OverrideKind } from './conversion.ts';
 import notes from './ko-review.json' with { type: 'json' };
 import { BASE_LOCALE, ORIGINAL_ROOT, WEB_ROOT } from './locales.ts';
+import { convertAvailable } from './standalone.ts';
 
 // Loaded the way Node resolves it. Imported as a module, the test runner
 // would hand over the build for browsers, which cannot read the configuration.
@@ -181,8 +190,28 @@ export function koReview({ report, texts }: Outcome): Record<string, string> {
 /** The groups of `removed.json` that were left out by a later decision. */
 const REMOVED_BY_DECISION = ['guest-accounts', 'old-notice', 'upgrade-tour-step'];
 
+/**
+ * The generated parts of `docs/i18n-conversion.md` that say what the original
+ * held. They can be written only where the original is there.
+ */
+export const ORIGINAL_ONLY = ['stats', 'removed-by-decision', 'stale'];
+
 /** The generated parts of `docs/i18n-conversion.md`, by name. */
-export function conversionTables({ report }: Outcome): Record<string, string> {
+export function conversionTables({ base, report }: Outcome): Record<string, string> {
+  const rows = report.locales
+    .filter((locale) => locale.tag !== 'ko')
+    .flatMap((locale) =>
+      locale.overridden.map((entry) => [
+        `\`${locale.tag}\``,
+        `\`${entry.id}\``,
+        kindsOf(entry.kind) + (entry.stale ? ' (번역을 내지 않음)' : ''),
+        cell(entry.was),
+        cell(entry.now),
+      ]),
+    );
+  const overrides = table(['로케일', 'id', '구분', '이전', '이후'], rows);
+  if (base === 'messages') return { overrides };
+
   // Nothing here counts the app's own messages: other work adds to those, and
   // the document must not go stale with them.
   const kept = new Set(report.kept);
@@ -209,17 +238,6 @@ export function conversionTables({ report }: Outcome): Record<string, string> {
       cell(originalEnglish[id] ?? ''),
       usedIn.map((file) => `\`${file.replace(/^webapp\/src\//, '')}\``).join(', '),
     ]);
-  const rows = report.locales
-    .filter((locale) => locale.tag !== 'ko')
-    .flatMap((locale) =>
-      locale.overridden.map((entry) => [
-        `\`${locale.tag}\``,
-        `\`${entry.id}\``,
-        kindsOf(entry.kind) + (entry.stale ? ' (번역을 내지 않음)' : ''),
-        cell(entry.was),
-        cell(entry.now),
-      ]),
-    );
   const stale = report.locales
     .filter((locale) => locale.stale.length > 0)
     .map((locale) => [`\`${locale.tag}\``, locale.stale.map((id) => `\`${id}\``).join(', ')]);
@@ -241,7 +259,7 @@ export function conversionTables({ report }: Outcome): Record<string, string> {
       stats.map((row) => row.map(String)),
     ),
     'removed-by-decision': table(['id', '영어 문구', '쓰던 파일 (`webapp/src/` 아래)'], removed),
-    overrides: table(['로케일', 'id', '구분', '이전', '이후'], rows),
+    overrides,
     stale: table(['로케일', '번역을 내지 않은 id'], stale),
   };
 }
@@ -253,7 +271,7 @@ const DOCUMENTS: [string, (outcome: Outcome) => Record<string, string>][] = [
 
 /** Path under the web app → the document with its generated parts written anew. */
 export async function reviewDocuments(
-  outcome: Outcome = convertAll(),
+  outcome: Outcome = convertAvailable(),
 ): Promise<Map<string, string>> {
   const documents = new Map<string, string>();
   for (const [name, generate] of DOCUMENTS) {
@@ -277,6 +295,13 @@ if (import.meta.main) {
   if (mode !== undefined && mode !== '--check') {
     console.error(`unknown argument ${mode}`);
     process.exit(2);
+  }
+  if (!hasOriginalWebapp()) {
+    console.log(
+      skipNotice(
+        `writing the parts of docs/i18n-conversion.md that count the original (${ORIGINAL_ONLY.join(', ')}); they are left as they are`,
+      ),
+    );
   }
   const documents = await reviewDocuments();
   if (mode === '--check') {

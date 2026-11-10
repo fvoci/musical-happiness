@@ -6,27 +6,62 @@
  *   node tools/templates/convert.ts --write <folder>   also writes the templates
  *   node tools/templates/convert.ts --check <folder>   fails when <folder> is not what --write would write
  *
- * The archive (server/assets/templates.boardarchive, read only) holds each
- * card's content as separate blocks; here every card becomes one document
- * (archive.ts). The count printed is of that step alone: how many blocks of
- * each kind went in, what could not be carried over, how large the documents
- * are.
+ * `--archive <file>` names the archive to read. Without it the archive is
+ * looked for where tools/original.ts says (the original's place in the
+ * repository, or `FVOCI_TEMPLATE_ARCHIVE`).
+ *
+ * The archive (read only) holds each card's content as separate blocks; here
+ * every card becomes one document (archive.ts). The count printed is of that
+ * step alone: how many blocks of each kind went in, what could not be
+ * carried over, how large the documents are.
  *
  * `--write` produces what the server takes in as its built-in templates
  * (output.ts): per template the board, its views and its cards with their
- * bodies, with links that lead outside removed and the original's names
- * replaced (rewrite.ts), and the list of every text that changed. The folder
- * tools/templates/output holds the result and is committed; a test fails
- * when it is stale.
+ * bodies, with links that lead outside removed or moved to an example
+ * address and the original's names replaced (rewrite.ts), and the list of
+ * every text that changed. The folder tools/templates/output holds the result
+ * and is committed; a test fails when it is stale.
+ *
+ * Where there is no archive, `--check` says that it skips the conversion and
+ * holds the folder against itself instead: the promises about the texts, the
+ * counts, and that every file is what the tool writes from the others.
+ * Counting and `--write` need the archive and fail without it.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { addNotes, type ConversionNotes } from '../../src/lib/editor/markdown.ts';
 import { storedSize, validateDoc, type DocNode } from '../../src/lib/editor/schema.ts';
+import { argumentAfter, hasTemplateArchive, skipNotice, TEMPLATE_ARCHIVE } from '../original.ts';
 
 import { CONTENT_TYPES, cardBody, readArchive, textOf } from './archive.ts';
-import { convertTemplates, outputFiles } from './output.ts';
+import { HAND_WRITTEN, readCommitted, staleFiles } from './committed.ts';
+import { convertTemplates, outputFiles, outputProblems } from './output.ts';
+
+const archive = path.resolve(argumentAfter('--archive') ?? TEMPLATE_ARCHIVE);
+const writeTo = argumentAfter('--write');
+const checkAgainst = argumentAfter('--check');
+
+if (!hasTemplateArchive(archive)) {
+  if (checkAgainst === undefined || writeTo !== undefined) {
+    console.error(`no archive at ${archive}: name it with --archive <file>`);
+    process.exit(2);
+  }
+  console.log(skipNotice(`converting the template archive again (${archive})`));
+  const committed = readCommitted(checkAgainst);
+  const problems = [
+    ...outputProblems(committed),
+    ...staleFiles(checkAgainst, outputFiles(committed)).map((name) => `stale: ${name}`),
+  ];
+  if (problems.length > 0) {
+    console.error(`${checkAgainst} does not hold together:\n  ${problems.join('\n  ')}`);
+    process.exit(1);
+  }
+  console.log(
+    `templates: ${checkAgainst} holds together (${committed.templates.length} templates)`,
+  );
+  process.exit(0);
+}
 
 interface CardResult {
   template: string;
@@ -70,7 +105,7 @@ function countLinks(node: DocNode, hosts: Map<string, number>): void {
   for (const child of node.content ?? []) countLinks(child, hosts);
 }
 
-const templates = readArchive();
+const templates = readArchive(archive);
 
 const totals = {
   templates: templates.length,
@@ -194,32 +229,21 @@ const report = {
   })),
 };
 
-function folderAfter(flag: string): string | undefined {
-  const index = process.argv.indexOf(flag);
-  return index === -1 ? undefined : process.argv[index + 1];
-}
-
-const writeTo = folderAfter('--write');
-const checkAgainst = folderAfter('--check');
 if (writeTo !== undefined || checkAgainst !== undefined) {
-  const files = outputFiles(convertTemplates());
+  const files = outputFiles(convertTemplates(archive));
   if (writeTo !== undefined) {
     mkdirSync(writeTo, { recursive: true });
     for (const name of readdirSync(writeTo)) {
       // Files of an earlier run that this one no longer writes.
-      if (!files.has(name) && name !== 'README.md') rmSync(path.join(writeTo, name));
+      if (!files.has(name) && name !== HAND_WRITTEN) rmSync(path.join(writeTo, name));
     }
     for (const [name, content] of files) writeFileSync(path.join(writeTo, name), content);
     console.error(`wrote ${files.size} files to ${writeTo}`);
   }
   if (checkAgainst !== undefined) {
-    const stale = [...files].filter(
-      ([name, content]) =>
-        !existsSync(path.join(checkAgainst, name)) ||
-        readFileSync(path.join(checkAgainst, name), 'utf8') !== content,
-    );
+    const stale = staleFiles(checkAgainst, files);
     if (stale.length > 0) {
-      console.error(`stale in ${checkAgainst}: ${stale.map(([name]) => name).join(', ')}`);
+      console.error(`stale in ${checkAgainst}: ${stale.join(', ')}`);
       process.exit(1);
     }
   }

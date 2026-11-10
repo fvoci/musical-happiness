@@ -3,19 +3,35 @@
  * conversion of each construct to the inlang message format, what the
  * converted messages return once paraglide has compiled them, and the texts
  * written by hand that replace one of the original.
+ *
+ * The message files are committed, and what has to hold of them is tested
+ * with or without the original: where it is not there, the files themselves
+ * stand in for it (tools/i18n/standalone.ts). The tests that read the
+ * translations of the original again run only where it is; elsewhere they
+ * are skipped, and a line says so.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { compile } from '@inlang/paraglide-js';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   convertAll,
   convertMessage,
   type LocaleReport,
   type Outcome,
+  type Override,
+  OWN_KEY,
   renameProduct,
 } from '../../tools/i18n/conversion.ts';
 import { IcuSyntaxError, parseIcu } from '../../tools/i18n/icu.ts';
@@ -23,14 +39,33 @@ import { type InlangMessage, shapeOf, toInlang } from '../../tools/i18n/inlang.t
 import { compareKeys, keyErrors, messageKeys } from '../../tools/i18n/keys.ts';
 import {
   bundledFiles,
+  COMPLETE_LOCALES,
   LOCALES,
   ORIGINAL_ROOT,
   REPOSITORY_ROOT,
   WEB_ROOT,
 } from '../../tools/i18n/locales.ts';
-import { koReview, reviewDocuments } from '../../tools/i18n/review.ts';
+import {
+  conversionTables,
+  koReview,
+  ORIGINAL_ONLY,
+  reviewDocuments,
+} from '../../tools/i18n/review.ts';
+import {
+  convertAvailable,
+  convertStandalone,
+  icuTextOf,
+  NotReadable,
+} from '../../tools/i18n/standalone.ts';
+import { hasOriginalWebapp, skipNotice } from '../../tools/original.ts';
 
 const convert = (icu: string): InlangMessage => toInlang(parseIcu(icu));
+
+// Only where the original is there can its translations be converted again.
+const withOriginal = hasOriginalWebapp();
+if (!withOriginal) {
+  console.warn(skipNotice(`converting the translations of the original again (${ORIGINAL_ROOT})`));
+}
 
 describe('key sets', () => {
   it('names what is missing and what is extra, in the order of the files', () => {
@@ -540,47 +575,11 @@ describe('converted messages, compiled by paraglide', () => {
   });
 });
 
-describe('the conversion of the original files', () => {
-  const { files, report } = convertAll();
+describe('the message files, as the conversion writes them here', () => {
+  // From the original where it is there, from the message files where it is not.
+  const { files, report } = convertAvailable();
   const keys = (tag: string): string[] =>
     messageKeys(JSON.parse(files.get(`messages/${tag}.json`) ?? '{}'));
-
-  it('converts the locales the original offers, and Korean', () => {
-    expect(bundledFiles()).toHaveLength(17);
-    expect(report.locales.map((locale) => locale.tag)).toEqual(LOCALES.map(({ tag }) => tag));
-    expect(LOCALES.filter((locale) => locale.originalCode === undefined)).toMatchObject([
-      { tag: 'ko' },
-    ]);
-  });
-
-  it('gives Korean every key of English and no locale a key English lacks', () => {
-    const english = keys('en');
-    expect(compareKeys(english, keys('ko'))).toEqual({ missing: [], extra: [] });
-    for (const { tag } of LOCALES) expect(compareKeys(english, keys(tag)).extra).toEqual([]);
-  });
-
-  it('keeps the messages only this app has, and the ids of the original as they are', () => {
-    const english = keys('en');
-    expect(english).toContain('ui_close');
-    expect(english).toContain('BoardComponent.add-a-group');
-    expect(english.indexOf('app_name')).toBe(0);
-  });
-
-  it('leaves out what is removed and what the original does not use', () => {
-    const english = keys('en');
-    expect(report.removed.length).toBeGreaterThan(0);
-    expect(report.dead.length).toBeGreaterThan(0);
-    for (const { id, usedIn } of report.removed) {
-      expect(english).not.toContain(id);
-      expect(usedIn.length).toBeGreaterThan(0);
-    }
-    for (const id of report.dead) expect(english).not.toContain(id);
-  });
-
-  it('writes the same files when run again', () => {
-    expect([...convertAll().files]).toEqual([...files]);
-  });
-
   const text = (tag: string, id: string): unknown =>
     (JSON.parse(files.get(`messages/${tag}.json`) ?? '{}') as Record<string, unknown>)[id];
   const of = (tag: string): LocaleReport => {
@@ -589,7 +588,51 @@ describe('the conversion of the original files', () => {
     return locale;
   };
 
-  it('names the product where the English text named it "Boards", and only there', () => {
+  it('are those of the locales the original offers, and Korean', () => {
+    expect(report.locales.map((locale) => locale.tag)).toEqual(LOCALES.map(({ tag }) => tag));
+    expect(LOCALES).toHaveLength(18);
+    expect(LOCALES.filter((locale) => locale.originalCode === undefined)).toMatchObject([
+      { tag: 'ko' },
+    ]);
+  });
+
+  it('are what the committed files hold, byte for byte', () => {
+    for (const [name, content] of files) {
+      expect(readFileSync(path.join(WEB_ROOT, name), 'utf8') === content, `${name} is stale`).toBe(
+        true,
+      );
+    }
+  });
+
+  it('give Korean every key of English and no locale a key English lacks', () => {
+    const english = keys('en');
+    expect(compareKeys(english, keys('ko'))).toEqual({ missing: [], extra: [] });
+    for (const { tag } of LOCALES) expect(compareKeys(english, keys(tag)).extra).toEqual([]);
+  });
+
+  it('keep the messages only this app has, and the ids of the original as they are', () => {
+    const english = keys('en');
+    expect(english).toContain('ui_close');
+    expect(english).toContain('BoardComponent.add-a-group');
+    expect(english.indexOf('app_name')).toBe(0);
+    // The app's own keys come first, and the two kinds are told apart by their look.
+    const own = english.filter((key) => OWN_KEY.test(key));
+    expect(english.slice(0, own.length)).toEqual(own);
+    expect(report.kept).toEqual(english.slice(own.length));
+    expect(report.kept).toHaveLength(376);
+  });
+
+  it('leave out what is removed', () => {
+    const english = keys('en');
+    expect(report.removed).toHaveLength(34);
+    for (const { id } of report.removed) expect(english).not.toContain(id);
+  });
+
+  it('are the same files when written again', () => {
+    expect([...convertAvailable().files]).toEqual([...files]);
+  });
+
+  it('name the product where the English text named it "Boards", and only there', () => {
     for (const id of [
       'BoardPage.newVersion',
       'OnboardingTour.OpenACard.Body',
@@ -606,11 +649,61 @@ describe('the conversion of the original files', () => {
     );
   });
 
-  it('shows the English text where the English message was rewritten, except in Korean', () => {
+  it('show the English text where the English message was rewritten, except in Korean', () => {
     for (const id of ['ShareBoard.searchPlaceholder', 'OnboardingTour.CopyLink.Body']) {
       expect(of('en').overridden.find((entry) => entry.id === id)).toMatchObject({ stale: true });
       expect(of('ko').overridden.map((entry) => entry.id)).toContain(id);
       expect(text('de', id)).toBeUndefined();
+      expect(of('de').missing).toContain(id);
+    }
+  });
+
+  it('have no Korean particle right after a value, where it would depend on how the value ends', () => {
+    const particle = /\}(?:<\/b>)?["”]?(?:은|는|이|가|을|를|로|으로|와|과)(?:\s|$)/;
+    const risky = Object.entries(convertAvailable().texts.get('ko') ?? {}).filter(([, source]) =>
+      particle.test(source),
+    );
+    expect(risky.map(([id]) => id)).toEqual([]);
+  });
+});
+
+describe.skipIf(!withOriginal)('the conversion of the original files', () => {
+  let outcome: Outcome;
+  beforeAll(() => {
+    outcome = convertAll();
+  });
+  const of = (tag: string): LocaleReport => {
+    const locale = outcome.report.locales.find((one) => one.tag === tag);
+    if (!locale) throw new Error(`no locale ${tag}`);
+    return locale;
+  };
+
+  it('converts the locales the original offers, and Korean', () => {
+    expect(outcome.base).toBe('original');
+    expect(bundledFiles()).toHaveLength(17);
+    expect(outcome.report.locales.map((locale) => locale.tag)).toEqual(
+      LOCALES.map(({ tag }) => tag),
+    );
+  });
+
+  it('leaves out what is removed and what the original does not use', () => {
+    const { files, report } = outcome;
+    const english = messageKeys(JSON.parse(files.get('messages/en.json') ?? '{}'));
+    expect(report.removed.length).toBeGreaterThan(0);
+    expect(report.dead.length).toBeGreaterThan(0);
+    for (const { id, usedIn } of report.removed) {
+      expect(english).not.toContain(id);
+      expect(usedIn.length).toBeGreaterThan(0);
+    }
+    for (const id of report.dead) expect(english).not.toContain(id);
+  });
+
+  it('writes the same files when run again', () => {
+    expect([...convertAll().files]).toEqual([...outcome.files]);
+  });
+
+  it('reports the translations it left out because the English message was rewritten', () => {
+    for (const id of ['ShareBoard.searchPlaceholder', 'OnboardingTour.CopyLink.Body']) {
       expect(of('de').stale).toContain(id);
     }
     // Italian never translated the first of the two: nothing was left out there.
@@ -618,7 +711,7 @@ describe('the conversion of the original files', () => {
   });
 
   it('accounts for every message of an original file', () => {
-    for (const locale of report.locales) {
+    for (const locale of outcome.report.locales) {
       const counted =
         locale.converted +
         locale.notConverted.length +
@@ -629,16 +722,36 @@ describe('the conversion of the original files', () => {
     }
   });
 
-  it('has no Korean particle right after a value, where it would depend on how the value ends', () => {
-    const particle = /\}(?:<\/b>)?["”]?(?:은|는|이|가|을|를|로|으로|와|과)(?:\s|$)/;
-    const risky = Object.entries(convertAll().texts.get('ko') ?? {}).filter(([, source]) =>
-      particle.test(source),
+  // What lets the original be taken away: read as a source, the message
+  // files give what the original gave.
+  it('is what the message files give without the original: files, texts, and what was written by hand', () => {
+    const alone = convertStandalone();
+    expect(alone.base).toBe('messages');
+    expect([...alone.files]).toEqual([...outcome.files]);
+    expect([...alone.texts]).toEqual([...outcome.texts]);
+    expect(alone.report.kept).toEqual(outcome.report.kept);
+    expect(alone.report.removed.map(({ id, reason }) => [id, reason])).toEqual(
+      outcome.report.removed.map(({ id, reason }) => [id, reason]),
     );
-    expect(risky.map(([id]) => id)).toEqual([]);
+    for (const locale of alone.report.locales) {
+      const full = of(locale.tag);
+      expect([locale.tag, locale.overridden]).toEqual([locale.tag, full.overridden]);
+      expect([locale.tag, locale.filled]).toEqual([locale.tag, full.filled]);
+      expect([locale.tag, locale.missing]).toEqual([locale.tag, full.missing]);
+      expect([locale.tag, locale.own]).toEqual([locale.tag, full.own]);
+      expect([locale.tag, locale.converted]).toEqual([locale.tag, full.converted]);
+    }
+  });
+
+  it('writes the documents about the messages as the message files alone would', async () => {
+    const alone = convertStandalone();
+    expect(koReview(alone)).toEqual(koReview(outcome));
+    expect(conversionTables(alone)).toEqual({ overrides: conversionTables(outcome).overrides });
+    expect([...(await reviewDocuments(alone))]).toEqual([...(await reviewDocuments(outcome))]);
   });
 });
 
-describe('texts that replace one of the original', () => {
+describe.skipIf(!withOriginal)('texts that replace one of the original', () => {
   let root = '';
 
   /** Converts the original with only these override files, each locale → id → entry. */
@@ -870,6 +983,352 @@ describe('texts that replace one of the original', () => {
   });
 });
 
+describe('a message read back into the text it was converted from', () => {
+  it('is that text, for text, arguments and tags', () => {
+    for (const icu of [
+      'Plain text.',
+      "It's {count} of {total}",
+      'Delete <b>{name}</b>?',
+      '<b>Bold</b> and <i>nested <b>deep</b></i>',
+      '100% {done}',
+    ]) {
+      expect(icuTextOf(convert(icu)), icu).toBe(icu);
+    }
+  });
+
+  it('quotes what ICU would read as syntax', () => {
+    const message = convert("Type '{'name'}' here");
+    expect(message).toBe('Type \\{name\\} here');
+    const text = icuTextOf(message);
+    expect(convert(text)).toBe(message);
+  });
+
+  it('is every message of the message files', () => {
+    for (const { tag } of LOCALES) {
+      const file = JSON.parse(
+        readFileSync(path.join(WEB_ROOT, 'messages', `${tag}.json`), 'utf8'),
+      ) as Record<string, InlangMessage>;
+      for (const [id, message] of Object.entries(file)) {
+        if (OWN_KEY.test(id)) continue;
+        expect(convert(icuTextOf(message)), `${tag} ${id}`).toBe(message);
+      }
+    }
+  });
+
+  it('refuses what the conversion does not write for those', () => {
+    const variants: InlangMessage = [{ declarations: [], selectors: [], match: {} }];
+    expect(() => icuTextOf(variants)).toThrow(NotReadable);
+    expect(() => icuTextOf('an open { brace')).toThrow(NotReadable);
+    expect(() => icuTextOf('{count: number}')).toThrow(NotReadable);
+    expect(() => icuTextOf('{/b} closes nothing')).toThrow(NotReadable);
+    expect(() => icuTextOf('a <b>tag</b> written as markup')).toThrow(NotReadable);
+  });
+});
+
+describe('the conversion without the original', () => {
+  let cache = '';
+  let root = '';
+  const SOURCES = ['messages', 'messages-own', 'messages-fill', 'messages-override'];
+
+  type Json = Record<string, unknown>;
+  const read = (name: string): Json =>
+    JSON.parse(readFileSync(path.join(root, name), 'utf8')) as Json;
+  const write = (name: string, content: unknown): void => {
+    mkdirSync(path.dirname(path.join(root, name)), { recursive: true });
+    writeFileSync(path.join(root, name), `${JSON.stringify(content, null, 2)}\n`);
+  };
+  /** Changes one source file of the copy. */
+  const edit = (name: string, change: (content: Json) => void): void => {
+    const content = read(name);
+    change(content);
+    write(name, content);
+  };
+  const messages = (outcome: Outcome, tag: string): Json =>
+    JSON.parse(outcome.files.get(`messages/${tag}.json`) ?? '{}') as Json;
+  const reportOf = (outcome: Outcome, tag: string): LocaleReport => {
+    const locale = outcome.report.locales.find((one) => one.tag === tag);
+    if (!locale) throw new Error(`no locale ${tag}`);
+    return locale;
+  };
+  /** The message files of the copy that a run would change. */
+  const changed = (outcome: Outcome): string[] =>
+    [...outcome.files]
+      .filter(([name, content]) => readFileSync(path.join(root, name), 'utf8') !== content)
+      .map(([name]) => name);
+
+  // Ids of the committed files to work on: one with a Korean override, one
+  // with a Korean filling, and one that German has from the original as it was.
+  const koreanOverrides = JSON.parse(
+    readFileSync(path.join(WEB_ROOT, 'messages-override/ko.json'), 'utf8'),
+  ) as Record<string, Override>;
+  const overridden = 'Sidebar.import';
+  const filled = Object.keys(
+    JSON.parse(readFileSync(path.join(WEB_ROOT, 'messages-fill/ko.json'), 'utf8')) as Json,
+  )[0];
+  const plain = 'BoardComponent.add-a-group';
+  if (filled === undefined) throw new Error('no filled Korean message');
+
+  beforeAll(() => {
+    cache = path.join(WEB_ROOT, 'node_modules/.cache');
+    mkdirSync(cache, { recursive: true });
+  });
+
+  // Every test starts from a copy of the committed sources, without the original.
+  beforeEach(() => {
+    if (root !== '') rmSync(root, { recursive: true, force: true });
+    root = mkdtempSync(path.join(cache, 'i18n-standalone-'));
+    for (const folder of SOURCES) {
+      cpSync(path.join(WEB_ROOT, folder), path.join(root, folder), { recursive: true });
+    }
+  });
+
+  afterAll(() => {
+    if (root !== '') rmSync(root, { recursive: true, force: true });
+  });
+
+  it('writes the committed message files again, byte for byte', () => {
+    const outcome = convertStandalone(root);
+    expect(outcome.base).toBe('messages');
+    expect(changed(outcome)).toEqual([]);
+    expect([...outcome.files.keys()]).toEqual(LOCALES.map(({ tag }) => `messages/${tag}.json`));
+    expect(readdirSync(path.join(root, 'messages')).sort()).toEqual(
+      LOCALES.map(({ tag }) => `${tag}.json`).sort(),
+    );
+  });
+
+  it("takes a key added in a group folder of the app's own messages into the message files", () => {
+    write('messages-own/zz_added/en.json', { zz_added_title: 'Added {count}' });
+    write('messages-own/zz_added/ko.json', { zz_added_title: '{count}개 더함' });
+    const outcome = convertStandalone(root);
+    expect(changed(outcome)).toEqual(LOCALES.map(({ tag }) => `messages/${tag}.json`).slice(0, 2));
+    expect(messages(outcome, 'en').zz_added_title).toBe('Added {count}');
+    expect(messages(outcome, 'ko').zz_added_title).toBe('{count}개 더함');
+    expect(messages(outcome, 'de').zz_added_title).toBeUndefined();
+    expect(reportOf(outcome, 'de').missing).toContain('zz_added_title');
+
+    // After the app's other keys, before the ids of the original.
+    const english = Object.keys(messages(outcome, 'en'));
+    const own = english.filter((key) => OWN_KEY.test(key));
+    expect(own.at(-1)).toBe('zz_added_title');
+    expect(english.slice(0, own.length)).toEqual(own);
+    // Nothing else moved or changed.
+    const before = read('messages/en.json');
+    expect(english.filter((key) => key !== 'zz_added_title')).toEqual(Object.keys(before));
+    expect(messages(outcome, 'en')[plain]).toBe(before[plain]);
+  });
+
+  it("takes a changed and a removed key of the app's own messages into the message files", () => {
+    edit('messages-own/en.json', (own) => {
+      own.ui_close = 'Shut';
+      delete own.ui_back;
+    });
+    edit('messages-own/ko.json', (own) => {
+      delete own.ui_back;
+    });
+    const outcome = convertStandalone(root);
+    expect(messages(outcome, 'en').ui_close).toBe('Shut');
+    expect(Object.keys(messages(outcome, 'en'))).not.toContain('ui_back');
+    expect(Object.keys(messages(outcome, 'ko'))).not.toContain('ui_back');
+    expect(changed(outcome)).toEqual(['messages/en.json', 'messages/ko.json']);
+  });
+
+  it('leaves a locale that has to be complete short of a key only English got, for the key check to refuse', () => {
+    write('messages-own/zz_added/en.json', { zz_added_title: 'Added' });
+    const outcome = convertStandalone(root);
+    expect(reportOf(outcome, 'ko').missing).toEqual(['zz_added_title']);
+    const differences = new Map(
+      LOCALES.filter(({ tag }) => tag !== 'en').map(({ tag }) => [
+        tag,
+        compareKeys(messageKeys(messages(outcome, 'en')), messageKeys(messages(outcome, tag))),
+      ]),
+    );
+    expect(keyErrors(differences, COMPLETE_LOCALES)).toEqual([
+      'ko: 1 key(s) missing; this locale has to be complete',
+    ]);
+  });
+
+  it("stops at a key of the app's own that is defined twice, misnamed, or not in English", () => {
+    write('messages-own/zz_added/en.json', { ui_close: 'Close' });
+    expect(() => convertStandalone(root)).toThrow(/"ui_close" is defined in another file/);
+
+    write('messages-own/zz_added/en.json', { 'Added.title': 'Added' });
+    expect(() => convertStandalone(root)).toThrow(/"Added.title" is not lower_snake_case/);
+
+    write('messages-own/zz_added/en.json', {});
+    write('messages-own/zz_added/ko.json', { zz_added_title: '더함' });
+    expect(() => convertStandalone(root)).toThrow(/messages-own \(ko\): not in English/);
+  });
+
+  it('takes the new wording of an overridden text from the override file, in that locale only', () => {
+    expect(koreanOverrides[overridden]).toBeDefined();
+    edit('messages-override/ko.json', (overrides) => {
+      (overrides[overridden] as Override).now = '보드 가져오기';
+    });
+    const outcome = convertStandalone(root);
+    expect(messages(outcome, 'ko')[overridden]).toBe('보드 가져오기');
+    expect(changed(outcome)).toEqual(['messages/ko.json']);
+    expect(reportOf(outcome, 'ko').overridden.find(({ id }) => id === overridden)).toMatchObject({
+      was: koreanOverrides[overridden]?.was,
+      now: '보드 가져오기',
+    });
+    expect(outcome.texts.get('ko')?.[overridden]).toBe('보드 가져오기');
+  });
+
+  it('takes a new override of a text nothing replaced before, and cannot hold "was" against anything', () => {
+    const before = read('messages/de.json')[plain];
+    edit('messages-override/de.json', (overrides) => {
+      overrides[plain] = { was: 'not what the file says', now: 'Neue Gruppe', kind: ['term'] };
+    });
+    const outcome = convertStandalone(root);
+    expect(messages(outcome, 'de')[plain]).toBe('Neue Gruppe');
+    expect(messages(outcome, 'de')[plain]).not.toBe(before);
+    expect(changed(outcome)).toEqual(['messages/de.json']);
+  });
+
+  it('holds an override to what it was held to with the original, but for "was"', () => {
+    const set = (entry: unknown): void => {
+      edit('messages-override/de.json', (overrides) => {
+        overrides[plain] = entry;
+      });
+    };
+    set({ was: 'x', now: 'x', kind: ['term'] });
+    expect(() => convertStandalone(root)).toThrow(/"now" is the text of the original/);
+    set({ was: 'x', now: 'See www.example.com', kind: ['term'] });
+    expect(() => convertStandalone(root)).toThrow(/address of an outside site/);
+    set({ was: 'x', now: 'Neu {unbekannt}', kind: ['term'] });
+    expect(() => convertStandalone(root)).toThrow(/not in the English message: \{unbekannt\}/);
+    set({ was: 'x', now: 'Neu', kind: ['whim'] });
+    expect(() => convertStandalone(root)).toThrow(/"kind" has to be a list of/);
+    set({ was: 'x', now: 'Neu', kind: ['term'] });
+    edit('messages-override/de.json', (overrides) => {
+      overrides['No.such-id'] = { was: 'x', now: 'y', kind: ['term'] };
+    });
+    expect(() => convertStandalone(root)).toThrow(/not a kept id: No.such-id/);
+  });
+
+  it('takes a changed filling from the fill file', () => {
+    edit('messages-fill/ko.json', (fill) => {
+      fill[filled] = '새로 채운 문구';
+    });
+    const outcome = convertStandalone(root);
+    expect(messages(outcome, 'ko')[filled]).toBe('새로 채운 문구');
+    expect(reportOf(outcome, 'ko').filled).toContain(filled);
+    expect(changed(outcome)).toEqual(['messages/ko.json']);
+  });
+
+  it('keeps a text edited in a message file, where no other source names the id', () => {
+    edit('messages/de.json', (file) => {
+      file[plain] = 'Von Hand geändert';
+    });
+    const outcome = convertStandalone(root);
+    expect(changed(outcome)).toEqual([]);
+    expect(messages(outcome, 'de')[plain]).toBe('Von Hand geändert');
+    expect(outcome.texts.get('de')?.[plain]).toBe('Von Hand geändert');
+  });
+
+  it('writes over a text edited in a message file, where an override names the id', () => {
+    const before = read('messages/ko.json')[overridden];
+    edit('messages/ko.json', (file) => {
+      file[overridden] = '손으로 고친 문구';
+    });
+    const outcome = convertStandalone(root);
+    expect(messages(outcome, 'ko')[overridden]).toBe(before);
+    expect(changed(outcome)).toEqual(['messages/ko.json']);
+  });
+
+  it('stops at a text edited into something the conversion would not have written', () => {
+    const set = (message: unknown): void => {
+      edit('messages/de.json', (file) => {
+        file[plain] = message;
+      });
+    };
+    set([{ declarations: [], selectors: [], match: {} }]);
+    expect(() => convertStandalone(root)).toThrow(
+      /messages\/de\.json: BoardComponent\.add-a-group: a message with variants/,
+    );
+    set('Gruppe {unbekannt}');
+    expect(() => convertStandalone(root)).toThrow(/not in the English message: \{unbekannt\}/);
+    set('Mehr auf www.example.com');
+    expect(() => convertStandalone(root)).toThrow(/address of an outside site/);
+    set(`Neu in ${['Focal', 'board'].join('')}`);
+    expect(() => convertStandalone(root)).toThrow(/one of the old names/);
+  });
+
+  it('stops at an id a locale has and English lacks', () => {
+    edit('messages/de.json', (file) => {
+      file['No.such-id'] = 'Text';
+    });
+    expect(() => convertStandalone(root)).toThrow(
+      /messages\/de\.json has ids the English file lacks: No\.such-id/,
+    );
+  });
+
+  it('stops at a message file that is missing', () => {
+    rmSync(path.join(root, 'messages/de.json'));
+    expect(() => convertStandalone(root)).toThrow(/messages\/de\.json is missing/);
+  });
+
+  it('shows the English text for an id a locale lost, and counts it as missing', () => {
+    edit('messages/de.json', (file) => {
+      Reflect.deleteProperty(file, plain);
+    });
+    const outcome = convertStandalone(root);
+    expect(Object.keys(messages(outcome, 'de'))).not.toContain(plain);
+    expect(reportOf(outcome, 'de').missing).toContain(plain);
+  });
+
+  it('leaves an id out of every locale once it is listed as removed', () => {
+    const removed = new Map([[plain, 'not-ported-after-all']]);
+    // An override of a removed id has nothing to replace: it has to go first.
+    expect(() => convertStandalone(root, removed)).toThrow(
+      /messages-override\/ko\.json: not a kept id: BoardComponent\.add-a-group/,
+    );
+    for (const name of readdirSync(path.join(root, 'messages-override'))) {
+      edit(`messages-override/${name}`, (overrides) => {
+        Reflect.deleteProperty(overrides, plain);
+      });
+    }
+
+    const outcome = convertStandalone(root, removed);
+    for (const { tag } of LOCALES) {
+      expect(Object.keys(messages(outcome, tag)), tag).not.toContain(plain);
+    }
+    expect(outcome.report.kept).not.toContain(plain);
+    expect(outcome.report.removed).toEqual([
+      { id: plain, reason: 'not-ported-after-all', usedIn: [] },
+    ]);
+    // Nothing else went, and nothing that was removed before came back.
+    expect(Object.keys(messages(outcome, 'en'))).toEqual(
+      Object.keys(read('messages/en.json')).filter((key) => key !== plain),
+    );
+  });
+
+  it('leaves the translations out when an English text is rewritten to mean something else', () => {
+    const english = read('messages/en.json')[plain] as string;
+    edit('messages-override/en.json', (overrides) => {
+      overrides[plain] = { was: english, now: 'Add a column', kind: ['rewrite'], stale: true };
+    });
+    edit('messages-override/ko.json', (overrides) => {
+      overrides[plain] = { was: 'x', now: '열 추가', kind: ['rewrite'] };
+    });
+    const outcome = convertStandalone(root);
+    expect(messages(outcome, 'en')[plain]).toBe('Add a column');
+    expect(messages(outcome, 'ko')[plain]).toBe('열 추가');
+    expect(Object.keys(messages(outcome, 'de'))).not.toContain(plain);
+    expect(reportOf(outcome, 'de').missing).toContain(plain);
+  });
+
+  it('writes the same bytes when run on its own result', () => {
+    write('messages-own/zz_added/en.json', { zz_added_title: 'Added' });
+    write('messages-own/zz_added/ko.json', { zz_added_title: '더함' });
+    const first = convertStandalone(root);
+    for (const [name, content] of first.files) writeFileSync(path.join(root, name), content);
+    const second = convertStandalone(root);
+    expect(changed(second)).toEqual([]);
+    expect([...second.files]).toEqual([...first.files]);
+  });
+});
+
 describe('the documents about the messages', () => {
   it('have the tables the review tool writes from the messages', async () => {
     for (const [name, content] of await reviewDocuments()) {
@@ -878,12 +1337,23 @@ describe('the documents about the messages', () => {
   });
 
   it('list every Korean text that is not the original one, once', () => {
-    const outcome = convertAll();
+    const outcome = convertAvailable();
     const korean = outcome.report.locales.find((locale) => locale.tag === 'ko');
     const rows = (koReview(outcome).table ?? '').split('\n').slice(2);
     const ids = rows.map((row) => /`([^`]+)`/.exec(row)?.[1] ?? '');
     expect(ids.toSorted()).toEqual(
       [...(korean?.overridden.map(({ id }) => id) ?? []), ...(korean?.filled ?? [])].toSorted(),
     );
+  });
+
+  it('can be written without the original, but for the parts that count it', async () => {
+    const alone = convertStandalone();
+    expect(Object.keys(koReview(alone)).sort()).toEqual(['counts', 'rows', 'table']);
+    expect(Object.keys(conversionTables(alone))).toEqual(['overrides']);
+    expect(ORIGINAL_ONLY).toEqual(['stats', 'removed-by-decision', 'stale']);
+    // The committed documents are what the message files alone give.
+    for (const [name, content] of await reviewDocuments(alone)) {
+      expect([name, readFileSync(path.join(WEB_ROOT, name), 'utf8')]).toEqual([name, content]);
+    }
   });
 });

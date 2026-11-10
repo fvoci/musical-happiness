@@ -20,13 +20,17 @@ import { validateDoc, type DocNode } from '../../src/lib/editor/schema.ts';
 import { dateOfUtc } from '../../src/lib/logic/dates.ts';
 import { formatDateValue, type StoredDateValue } from '../../src/lib/logic/wire.ts';
 
-import { ARCHIVE, cardBody, readArchive, textOf, type ArchivedBlock } from './archive.ts';
+import { TEMPLATE_ARCHIVE } from '../original.ts';
+
+import { cardBody, readArchive, textOf, type ArchivedBlock } from './archive.ts';
 import {
   hasOldName,
+  isExampleAddress,
   maskOldNames,
   removeOutsideLinks,
   rename,
   renameInDoc,
+  rewriteLinkValue,
   valueLeadsOutside,
   type Change,
   type ChangeRule,
@@ -141,6 +145,64 @@ export interface Output {
   reviewNotes: ReviewNote[];
 }
 
+/**
+ * Where the archive lay in the original's repository. Written into the
+ * output as the name of the source, wherever the archive was read from.
+ */
+const SOURCE_PATH = 'server/assets/templates.boardarchive';
+
+/** The rules, in the order the counts and the pages list them. */
+export const CHANGE_RULES: readonly ChangeRule[] = [
+  'old-name',
+  'product-word',
+  'outside-link',
+  'outside-link-value',
+  'example-link-value',
+];
+
+/**
+ * What the rules promise about the texts of the templates, checked on a
+ * whole result: one line per promise that is broken, none when all hold.
+ * The conversion stops at any, and a test holds the committed output
+ * against the same list.
+ */
+export function promiseProblems(templates: readonly Template[]): string[] {
+  const problems: string[] = [];
+  // The values of link properties may be example addresses; they are judged
+  // one by one, then left out of the search through everything else.
+  const rest = templates.map((template) => {
+    const linkIds = new Set(
+      template.board.cardProperties.filter(({ type }) => type === 'url').map(({ id }) => id),
+    );
+    const cards = template.cards.map((card) => {
+      const properties: Record<string, TemplatePropertyValue> = {};
+      for (const [id, value] of Object.entries(card.fields.properties)) {
+        if (!linkIds.has(id) || typeof value !== 'string') {
+          properties[id] = value;
+        } else if (valueLeadsOutside(value) && !isExampleAddress(value)) {
+          problems.push(
+            `${template.key} / ${card.title}: a link value leads outside: ${maskOldNames(value)}`,
+          );
+        }
+      }
+      return { ...card, fields: { ...card.fields, properties } };
+    });
+    return { ...template, cards };
+  });
+  if (hasOldName(JSON.stringify(templates))) {
+    problems.push('a name of the original is left in the output');
+  }
+  if (/https?:\/\/|\bwww\./i.test(JSON.stringify(rest))) {
+    problems.push('an address that leads outside is left in the output');
+  }
+  const keys = new Set(templates.map((template) => template.key));
+  if (keys.size !== templates.length) problems.push('two templates share a key');
+  if (templates.filter((template) => template.onboarding).length !== 1) {
+    problems.push('there is not exactly one onboarding template');
+  }
+  return problems;
+}
+
 /** The standalone product word was read in each of these places and is the product there. */
 const REVIEWED_PRODUCT_WORDS = 5;
 
@@ -199,7 +261,7 @@ function readProperties(raw: readonly unknown[]): TemplateProperty[] {
 }
 
 /** Converts the archive. Throws when the result is not what the rules promise. */
-export function convertTemplates(file: string = ARCHIVE): Output {
+export function convertTemplates(file: string = TEMPLATE_ARCHIVE): Output {
   const source = readFileSync(file);
   const changes: Change[] = [];
   const reviewNotes: ReviewNote[] = [];
@@ -319,8 +381,14 @@ export function convertTemplates(file: string = ARCHIVE): Output {
         }
         if (typeof value !== 'string' || value === '') continue;
         if (property?.type === 'url') {
-          if (valueLeadsOutside(value)) {
+          const link = rewriteLinkValue(value);
+          if (link.to === 'removed') {
             record('card', title, field, 'outside-link-value', value, '');
+            continue;
+          }
+          if (link.to === 'example') {
+            record('card', title, field, 'example-link-value', value, link.value);
+            properties[propertyId] = link.value;
             continue;
           }
         }
@@ -420,21 +488,13 @@ export function convertTemplates(file: string = ARCHIVE): Output {
   }
 
   // What the rules promise, checked on the whole result.
-  const everything = JSON.stringify(templates);
-  if (hasOldName(everything)) throw new Error('a name of the original is left in the output');
-  if (/https?:\/\/|\bwww\./i.test(everything)) {
-    throw new Error('an address that leads outside is left in the output');
-  }
+  const problems = promiseProblems(templates);
+  if (problems.length > 0) throw new Error(problems.join('; '));
   if (productWords !== REVIEWED_PRODUCT_WORDS) {
     throw new Error(
       `the product word was replaced ${productWords} times, not the ${REVIEWED_PRODUCT_WORDS} ` +
         'that were read and found to mean the product: read the new places, then change the number',
     );
-  }
-  const keys = new Set(templates.map((template) => template.key));
-  if (keys.size !== templates.length) throw new Error('two templates share a key');
-  if (templates.filter((template) => template.onboarding).length !== 1) {
-    throw new Error('there is not exactly one onboarding template');
   }
 
   const count = <Kind extends string>(kinds: readonly Kind[], of: readonly Kind[]) =>
@@ -446,7 +506,7 @@ export function convertTemplates(file: string = ARCHIVE): Output {
     index: {
       format: FORMAT,
       source: {
-        path: 'server/assets/templates.boardarchive',
+        path: SOURCE_PATH,
         sha256: createHash('sha256').update(source).digest('hex'),
         bytes: source.length,
       },
@@ -462,7 +522,7 @@ export function convertTemplates(file: string = ARCHIVE): Output {
       })),
       conversions,
       changes: count(
-        ['old-name', 'product-word', 'outside-link', 'outside-link-value'],
+        CHANGE_RULES,
         changes.map((change) => change.rule),
       ),
       reviewNotes: count(
@@ -476,6 +536,59 @@ export function convertTemplates(file: string = ARCHIVE): Output {
   };
 }
 
+/**
+ * What has to hold of any output, the one a conversion returns and the one
+ * read back from the committed folder alike: the promises about its texts,
+ * documents the validator accepts, and counts that say what the lists hold.
+ * One line per problem.
+ */
+export function outputProblems(output: Output): string[] {
+  const { index, templates, changes, reviewNotes } = output;
+  const problems = promiseProblems(templates);
+  if (index.format !== FORMAT) problems.push(`the format is ${index.format}, not ${FORMAT}`);
+  for (const template of templates) {
+    for (const card of template.cards) {
+      if (card.body === null) continue;
+      for (const problem of validateDoc(card.body)) {
+        problems.push(`${template.key} / ${card.title}: ${problem}`);
+      }
+    }
+  }
+  const listed = JSON.stringify(
+    templates.map((template, at) => ({
+      key: template.key,
+      file: templateFileName(at, template.key),
+      title: template.board.title,
+      onboarding: template.onboarding,
+      views: template.views.length,
+      cards: template.cards.length,
+      bodies: template.cards.filter((card) => card.body !== null).length,
+      files: template.files.length,
+    })),
+  );
+  if (JSON.stringify(index.templates) !== listed) {
+    problems.push('the list of templates in the index is not what the template files hold');
+  }
+  for (const rule of CHANGE_RULES) {
+    const counted = changes.filter((change) => change.rule === rule).length;
+    if (index.changes[rule] !== counted) {
+      problems.push(
+        `the index counts ${index.changes[rule]} changes by "${rule}", the list ${counted}`,
+      );
+    }
+  }
+  for (const [kind, count] of Object.entries(index.reviewNotes)) {
+    const counted = reviewNotes.filter((item) => item.kind === kind).length;
+    if (count !== counted) {
+      problems.push(`the index counts ${count} notes of the kind "${kind}", the list ${counted}`);
+    }
+  }
+  if (hasOldName(JSON.stringify([changes, reviewNotes]))) {
+    problems.push('a name of the original is left in the lists of changes and notes');
+  }
+  return problems;
+}
+
 export const templateFileName = (index: number, key: string): string =>
   `${String(index + 1).padStart(2, '0')}-${key}.json`;
 
@@ -486,7 +599,8 @@ const RULE_NAMES: Record<ChangeRule, string> = {
   'old-name': '원본 이름 → fvoci',
   'product-word': '제품을 가리키는 "Boards" → fvoci',
   'outside-link': '바깥 링크와 그 문장을 뺌',
-  'outside-link-value': '바깥 링크인 속성 값을 뺌',
+  'outside-link-value': '원본 회사로 가는 링크 속성 값을 뺌',
+  'example-link-value': '그 밖의 바깥 주소인 링크 속성 값을 example.com 아래로 옮김',
 };
 
 const NOTE_NAMES: Record<ReviewNote['kind'], string> = {
@@ -503,17 +617,16 @@ export function changesPage(output: Output): string {
     '',
     '`node tools/templates/convert.ts --write tools/templates/output`이 쓴 파일이다. 손으로 고치지 않는다.',
     '',
-    '원본의 내장 템플릿 13개를 새 형식으로 바꾸면서 글에서 바꾼 곳을 모두 적는다. 규칙은 넷이다. 글을 고쳐 쓰지는 않았다(검수는 나중에 사람이 한다). 이전 칸의 `{old product name}`, `{old company name}`은 원본의 두 이름이 있던 자리다(이 폴더에는 그 이름을 적지 않는다).',
+    '원본의 내장 템플릿 13개를 새 형식으로 바꾸면서 글에서 바꾼 곳을 모두 적는다. 규칙은 다섯이다. 글을 고쳐 쓰지는 않았다(검수는 나중에 사람이 한다). 이전 칸의 `{old product name}`, `{old company name}`은 원본의 두 이름이 있던 자리다(이 폴더에는 그 이름을 적지 않는다).',
     '',
     '| 규칙 | 건수 |',
     '| --- | --- |',
-    ...(Object.keys(RULE_NAMES) as ChangeRule[]).map(
-      (rule) => `| ${RULE_NAMES[rule]} | ${index.changes[rule]} |`,
-    ),
+    ...CHANGE_RULES.map((rule) => `| ${RULE_NAMES[rule]} | ${index.changes[rule]} |`),
     `| 합계 | ${changes.length} |`,
     '',
     '- **제품을 가리키는 "Boards"**는 결정문의 글자 그대로("원본 이름을 바꾼다")보다 한 걸음 나간 것이다. 번역에서 같은 낱말을 제품 이름일 때 fvoci로 바꾸기로 한 결정을 따랐다. 다섯 곳을 읽고 모두 제품을 가리킨다고 판단했다. 그대로 두려면 `rewrite.ts`의 규칙 하나를 끄면 된다.',
     '- 기계적으로 바꾼 결과가 어색한 곳이 있다(예: `fvoci plugin`, 한 문장에 fvoci가 두 번). 고쳐 쓰지 않고 그대로 두었다.',
+    '- **링크 속성의 값**은 도메인으로 갈랐다. 호스트의 한 조각이 원본의 두 이름 가운데 하나이면 원본 회사로 가는 주소로 보고 값을 뺐다. 그 밖의 바깥 주소(지어낸 회사의 사이트, 다른 사이트의 글·그림·게시물)는 `example.com` 아래로 옮겼다: 호스트에서 `www.`와 마지막 조각을 떼고 `.example.com`을 붙이고, 스킴은 `https`로, 경로·질의·조각은 그대로 둔다(그 안의 원본 이름은 fvoci로). 예시 데이터가 링크처럼 보이되 실제 사이트로는 가지 않는다. 규칙은 `rewrite.ts`의 `rewriteLinkValue` 하나다.',
     '',
   ];
   for (const template of index.templates) {
