@@ -104,3 +104,114 @@ export function watchErrors(page: Page): string[] {
   page.on('pageerror', (error) => errors.push(error.message));
   return errors;
 }
+
+/** What a test board is made of: one select property "Status", one kanban view grouped by it. */
+export interface BoardPlan {
+  title: string;
+  /** The options of "Status", in order. */
+  statuses?: string[];
+  cards?: { title: string; status?: string }[];
+  /** Other people to add, and the role each gets. */
+  members?: { who: Person; role: 'viewer' | 'commenter' | 'editor' }[];
+}
+
+export interface MadeBoard {
+  boardId: string;
+  viewId: string;
+  teamId: string;
+  /** Option identifiers of "Status" by name. */
+  options: Record<string, string>;
+  /** Card identifiers by title. */
+  cards: Record<string, string>;
+}
+
+async function json<T>(answer: Awaited<ReturnType<APIRequestContext['get']>>, what: string) {
+  await ok(answer, what);
+  return (await answer.json()) as T;
+}
+
+/** Makes a board through the API as the person `api` is signed in as, who becomes its admin. */
+export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promise<MadeBoard> {
+  const teams = await json<Schemas['Team'][]>(await api.get('/api/v1/teams'), 'teams');
+  const teamId = teams[0]?.id ?? '';
+  const statuses = plan.statuses ?? ['To do', 'Doing', 'Done'];
+  const options = Object.fromEntries(statuses.map((name, at) => [name, `opt-${at}`]));
+  const board = await json<Schemas['Board']>(
+    await api.post('/api/v1/boards', {
+      data: {
+        teamId,
+        type: 'P',
+        title: plan.title,
+        cardProperties: [
+          {
+            id: 'status',
+            name: 'Status',
+            type: 'select',
+            options: statuses.map((name) => ({
+              id: options[name],
+              value: name,
+              color: 'propColorBlue',
+            })),
+          },
+        ],
+      },
+    }),
+    'create board',
+  );
+  const [view] = await json<Schemas['Block'][]>(
+    await api.post(`/api/v1/boards/${board.id}/blocks`, {
+      data: [
+        {
+          boardId: board.id,
+          type: 'view',
+          title: 'By status',
+          createAt: 1,
+          updateAt: 1,
+          fields: {
+            viewType: 'board',
+            groupById: 'status',
+            visibleOptionIds: [...Object.values(options), ''],
+            hiddenOptionIds: [],
+            collapsedOptionIds: [],
+            sortOptions: [],
+            visiblePropertyIds: [],
+            cardOrder: [],
+            filter: { operation: 'and', filters: [] },
+          },
+        },
+      ],
+    }),
+    'create view',
+  );
+  const cards: Record<string, string> = {};
+  for (const card of plan.cards ?? []) {
+    const status = card.status === undefined ? undefined : options[card.status];
+    const made = await json<Schemas['Card']>(
+      await api.post(`/api/v1/boards/${board.id}/cards`, {
+        data: { title: card.title, properties: status ? { status } : {} },
+      }),
+      `create card ${card.title}`,
+    );
+    cards[card.title] = made.id;
+  }
+  for (const { who, role } of plan.members ?? []) {
+    const found = await json<Schemas['User'][]>(
+      await api.get(`/api/v1/teams/${teamId}/users`, { params: { search: who.username } }),
+      `find ${who.username}`,
+    );
+    const user = found.find((candidate) => candidate.username === who.username);
+    if (!user) throw new Error(`no user ${who.username}`);
+    await ok(
+      await api.post(`/api/v1/boards/${board.id}/members`, {
+        data: {
+          userId: user.id,
+          schemeViewer: true,
+          schemeCommenter: role !== 'viewer',
+          schemeEditor: role === 'editor',
+        },
+      }),
+      `add ${who.username}`,
+    );
+  }
+  return { boardId: board.id, viewId: view?.id ?? '', teamId, options, cards };
+}

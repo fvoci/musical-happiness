@@ -1391,6 +1391,13 @@
   - 데이터 폴더는 지우지 않는다. 실패한 뒤에 들여다볼 수 있게.
   - 다른 안: Playwright의 전역 준비에서 서버를 띄우기 / 테스트 파일마다 서버.
   - 바꾸려면: `playwright.live.config.ts`, `tools/live-server.ts`.
+- **연결 9.** 보드를 열 때 구성원 가운데 이름을 모르는 사람은 식별자로 따로 읽는다. 경계에 `usersById(teamId, userIds)`를 더했고(서버는 `POST /teams/{teamId}/users`), 보드를 다 읽은 뒤 `Workspace.learnUsers`가 부른다. 실패하면 이름이 "알 수 없는 사용자"로 남을 뿐이라 보드는 연다.
+  - 왜: 서버의 팀 목록은 열 명만 준다(`contract-assumptions.md`의 H1). 열한 번째 사람부터 보드의 얼굴과 이름이 비었다.
+  - 다른 안: 팀 목록을 검색어로 여러 번 읽기 / 사람 고르기 칸처럼 칸마다 따로 읽기.
+  - 바꾸려면: `state/backend.ts`의 `usersById`, `workspace.svelte.ts`의 `learnUsers`, `board.svelte.ts`의 `load`.
+- **연결 10.** 보드의 카드는 한 번에 다 읽는다(`getCards`의 `perPage` 0). 카드 상세는 `getCard`이고 본문은 없다(`body: null`): 서버가 본문을 아직 두지 않는다. 본문 쓰기는 연결 3대로 `not_wired`다.
+  - 왜: 화면의 저장소가 보드의 카드를 모두 들고 거르고 묶는다. 쪽을 나눠 읽으면 그 가정이 깨진다.
+  - 바꾸려면: `lib/api/backend.ts`의 `cards`, `card`.
 
 ## 검토에서 나온 것과 처리
 

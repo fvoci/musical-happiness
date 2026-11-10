@@ -211,6 +211,29 @@ export class Workspace {
     this.problems = this.problems.filter((problem) => problem.id !== id);
   }
 
+  /**
+   * Reads the people among `userIds` the workspace has no name for yet: the
+   * members of a board, say, when the list of the team did not bring them.
+   * Failing, the names stay unknown; nothing else depends on it.
+   */
+  async learnUsers(userIds: readonly string[]): Promise<void> {
+    const team = this.team;
+    const missing = userIds.filter(
+      (id, at) => userIds.indexOf(id) === at && this.#usersById[id] === undefined,
+    );
+    if (!team || missing.length === 0) return;
+    try {
+      const found = await this.backend.usersById(team.id, missing);
+      // Another read may have brought some of them meanwhile.
+      this.users = [
+        ...this.users,
+        ...found.filter((user) => this.#usersById[user.id] === undefined),
+      ];
+    } catch (error) {
+      this.report('load', error);
+    }
+  }
+
   // ----------------------------------------------------------- settings
 
   /** Changes settings. They apply at once and go back if the server refuses them. */

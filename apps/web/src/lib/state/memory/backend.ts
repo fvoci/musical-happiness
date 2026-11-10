@@ -275,6 +275,12 @@ export class MemoryBackend implements Backend {
     });
   }
 
+  async usersById(teamId: string, userIds: string[]): Promise<User[]> {
+    const users = await this.users(teamId);
+    if (userIds.some((id) => !this.world.users.has(id))) fail(404, 'no such user');
+    return users.filter((user) => userIds.includes(user.id));
+  }
+
   // ----------------------------------------------------------- settings
 
   #settings(): AccountSettings {

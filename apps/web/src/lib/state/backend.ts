@@ -298,6 +298,12 @@ export interface Backend {
   teams(): Promise<Team[]>;
   /** The people of a team: who can be mentioned or set as a person. */
   users(teamId: string): Promise<User[]>;
+  /**
+   * The people of a team with these identifiers: for the names `users`
+   * did not bring (the server's list of a team is short). Every identifier
+   * must be a user's.
+   */
+  usersById(teamId: string, userIds: string[]): Promise<User[]>;
 
   // Account settings (server design 5.8) and the pocket of screen state.
   settings(): Promise<AccountSettings>;

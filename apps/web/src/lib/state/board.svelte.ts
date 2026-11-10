@@ -170,6 +170,7 @@ export class BoardStore {
       this.cards = cards;
       this.members = members;
       this.status = 'ready';
+      void this.workspace.learnUsers(members.map((member) => member.userId));
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;

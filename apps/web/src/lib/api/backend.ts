@@ -36,11 +36,15 @@ import {
 
 import {
   boardOf,
+  cardDetailOf,
+  cardOf,
   categoryOf,
+  memberOf,
   settingsChangeOf,
   settingsOf,
   teamOf,
   userOf,
+  viewOf,
   type Schemas,
 } from './convert.ts';
 import { Http } from './http.ts';
@@ -111,6 +115,17 @@ export class ServerBackend implements Backend, Account {
     return users.map(userOf);
   }
 
+  async usersById(teamId: string, userIds: string[]): Promise<User[]> {
+    const ids = [...new Set(userIds)];
+    if (ids.length === 0) return [];
+    const users = await this.#http.request<Schemas['User'][]>(
+      '/api/v1/teams/{teamId}/users',
+      { teamId },
+      { method: 'POST', json: ids },
+    );
+    return users.map(userOf);
+  }
+
   async settings(): Promise<AccountSettings> {
     return settingsOf(
       await this.#http.request<Schemas['UserSettings']>('/api/v1/users/me/settings'),
@@ -147,8 +162,10 @@ export class ServerBackend implements Backend, Account {
     return boards.map(boardOf);
   }
 
-  board(_boardId: string): Promise<Board> {
-    return notWired('board');
+  async board(boardId: string): Promise<Board> {
+    return boardOf(
+      await this.#http.request<Schemas['Board']>('/api/v1/boards/{boardId}', { boardId }),
+    );
   }
 
   createBoard(_teamId: string, _draft: BoardDraft): Promise<Board> {
@@ -167,8 +184,12 @@ export class ServerBackend implements Backend, Account {
     return notWired('restoreBoard');
   }
 
-  members(_boardId: string): Promise<BoardMember[]> {
-    return notWired('members');
+  async members(boardId: string): Promise<BoardMember[]> {
+    const members = await this.#http.request<Schemas['BoardMember'][]>(
+      '/api/v1/boards/{boardId}/members',
+      { boardId },
+    );
+    return members.map(memberOf);
   }
 
   // ------------------------------------------------------------ sidebar
@@ -203,8 +224,13 @@ export class ServerBackend implements Backend, Account {
 
   // ------------------------------------------------------- views, cards
 
-  views(_boardId: string): Promise<BoardView[]> {
-    return notWired('views');
+  async views(boardId: string): Promise<BoardView[]> {
+    const blocks = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { query: { type: 'view' } },
+    );
+    return blocks.map(viewOf);
   }
 
   createView(_boardId: string, _draft: ViewDraft): Promise<BoardView> {
@@ -215,12 +241,21 @@ export class ServerBackend implements Backend, Account {
     return notWired('patchView');
   }
 
-  cards(_boardId: string): Promise<CardSummary[]> {
-    return notWired('cards');
+  /** Every card of the board, in one page (`perPage` 0 asks for all). */
+  async cards(boardId: string): Promise<CardSummary[]> {
+    const cards = await this.#http.request<Schemas['Card'][]>(
+      '/api/v1/boards/{boardId}/cards',
+      { boardId },
+      { query: { perPage: 0 } },
+    );
+    return cards.map(cardOf);
   }
 
-  card(_boardId: string, _cardId: string): Promise<CardDetail> {
-    return notWired('card');
+  /** A card without its body: the server keeps none yet (`docs/contract-pending.md`, 1). */
+  async card(_boardId: string, cardId: string): Promise<CardDetail> {
+    return cardDetailOf(
+      await this.#http.request<Schemas['Card']>('/api/v1/cards/{cardId}', { cardId }),
+    );
   }
 
   createCard(_boardId: string, _draft: CardDraft): Promise<CardSummary> {

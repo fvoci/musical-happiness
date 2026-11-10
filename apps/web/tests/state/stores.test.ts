@@ -112,6 +112,15 @@ describe('the workspace', () => {
     expect(workspace.problems).toEqual([]);
   });
 
+  it('reads the names of people the list of the team did not bring, once', async () => {
+    const { workspace } = setup();
+    await workspace.load();
+    const everyone = workspace.users.map((user) => user.id);
+    workspace.users = workspace.users.slice(0, 1);
+    await workspace.learnUsers([...everyone, ...everyone]);
+    expect(workspace.users.map((user) => user.id).sort()).toEqual([...everyone].sort());
+  });
+
   it('files a board under another category and keeps the order the reader gave', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
