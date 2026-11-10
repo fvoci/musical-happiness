@@ -21,7 +21,10 @@ import {
 import type {
   AccountSettings,
   AccountSettingsPatch,
+  Attachment,
   CardDetail,
+  CardDraft,
+  Comment,
   CardSummary,
   Category,
   Team,
@@ -129,6 +132,53 @@ export function cardOf(card: Schemas['Card']): CardSummary {
 
 export function cardDetailOf(card: Schemas['Card']): CardDetail {
   return { ...cardOf(card), body: null };
+}
+
+/**
+ * A card to make. A body cannot go along: the server keeps none yet
+ * (`docs/contract-pending.md`, 1), so a draft with one is refused before it
+ * is sent rather than made without it.
+ */
+export function newCardOf(draft: CardDraft): Schemas['NewCard'] {
+  return {
+    title: draft.title ?? '',
+    icon: draft.icon ?? '',
+    isTemplate: draft.isTemplate ?? false,
+    properties: draft.properties ?? {},
+  };
+}
+
+/**
+ * A comment as the server keeps it today: a block whose title is its text.
+ * The screens' comment is a document (`contract-assumptions.md`, B1); until
+ * the server keeps one, the text is one paragraph of plain text.
+ */
+export function commentOf(block: Schemas['Block']): Comment {
+  const text = block.title.trim();
+  return {
+    ...blockOf(block),
+    type: 'comment',
+    body: text
+      ? { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }
+      : null,
+  };
+}
+
+/**
+ * An attachment block. Its file is `fields.fileId` and its name the title;
+ * size and type are read from the fields when they are there
+ * (`contract-assumptions.md`, B2).
+ */
+export function attachmentOf(block: Schemas['Block']): Attachment {
+  const fields = block.fields;
+  return {
+    ...blockOf(block),
+    type: 'attachment',
+    fileId: typeof fields.fileId === 'string' ? fields.fileId : '',
+    name: block.title,
+    size: typeof fields.size === 'number' ? fields.size : 0,
+    contentType: typeof fields.contentType === 'string' ? fields.contentType : '',
+  };
 }
 
 /**

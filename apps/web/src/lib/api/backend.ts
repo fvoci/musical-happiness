@@ -35,11 +35,14 @@ import {
 } from '../state/backend.ts';
 
 import {
+  attachmentOf,
   boardOf,
   cardDetailOf,
   cardOf,
   categoryOf,
+  commentOf,
   memberOf,
+  newCardOf,
   settingsChangeOf,
   settingsOf,
   teamOf,
@@ -262,8 +265,14 @@ export class ServerBackend implements Backend, Account {
     return cardDetailOf(card);
   }
 
-  createCard(_boardId: string, _draft: CardDraft): Promise<CardSummary> {
-    return notWired('createCard');
+  async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
+    if (draft.body) notWired('writeCardBody');
+    const card = await this.#http.request<Schemas['Card']>(
+      '/api/v1/boards/{boardId}/cards',
+      { boardId },
+      { method: 'POST', json: newCardOf(draft) },
+    );
+    return cardOf(card);
   }
 
   patchCard(_boardId: string, _cardId: string, _patch: CardPatch): Promise<CardSummary> {
@@ -275,16 +284,27 @@ export class ServerBackend implements Backend, Account {
     return notWired('writeCardBody');
   }
 
-  comments(_boardId: string, _cardId: string): Promise<Comment[]> {
-    return notWired('comments');
+  /** The comments of a card, read only for now (`commentOf`). */
+  async comments(boardId: string, cardId: string): Promise<Comment[]> {
+    return (await this.#children(boardId, cardId, 'comment')).map(commentOf);
   }
 
   createComment(_boardId: string, _cardId: string, _body: DocNode): Promise<Comment> {
     return notWired('createComment');
   }
 
-  attachments(_boardId: string, _cardId: string): Promise<Attachment[]> {
-    return notWired('attachments');
+  /** The attachments of a card, read only for now (`attachmentOf`). */
+  async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
+    return (await this.#children(boardId, cardId, 'attachment')).map(attachmentOf);
+  }
+
+  /** The blocks of one type right under a block. */
+  async #children(boardId: string, parentId: string, type: string): Promise<Schemas['Block'][]> {
+    return this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { query: { parentId, type } },
+    );
   }
 
   createAttachment(_boardId: string, _cardId: string, _file: UploadedFile): Promise<Attachment> {
