@@ -2,7 +2,7 @@
  * An open card: its body is written whole with the version it was read at,
  * and a refused write never overwrites what somebody else wrote.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { BackendError } from '$lib/state/index.ts';
 
@@ -206,5 +206,65 @@ describe('comments and attachments', () => {
     await other.deleteBlock(board.boardId, cardId);
     await settle();
     expect(card.missing).toBe(true);
+  });
+});
+
+describe('deleted and brought back', () => {
+  it('an open card deleted by somebody else is missing, and is there again once restored', async () => {
+    const { card, other, board, cardId } = await openAlpha();
+    await other.deleteBlock(board.boardId, cardId);
+    await settle();
+    expect(card.missing).toBe(true);
+    await other.restoreBlock(board.boardId, cardId);
+    await settle();
+    await vi.waitFor(() => {
+      expect(card.missing).toBe(false);
+    });
+    expect(card.summary?.title).toBe('Alpha');
+  });
+
+  it('undo of a delete counts once the card is restored, even if reading it fails', async () => {
+    const { board, workspace, backend, cardId } = await openAlpha();
+    await board.deleteCards([cardId]);
+    vi.spyOn(backend, 'card').mockRejectedValueOnce(new BackendError(500, { message: 'down' }));
+    await workspace.undoLast();
+    expect(workspace.problems).toHaveLength(1);
+    // Not undone again: the next undo would restore it twice.
+    expect(workspace.undo.canUndo).toBe(false);
+    await settle();
+    expect(board.card(cardId)?.title).toBe('Alpha');
+  });
+
+  it('undo of a card made goes on when somebody else deleted it first', async () => {
+    const { board, workspace, other } = await openAlpha();
+    const made = await board.createCard({ title: 'Brief', fields: {} } as never);
+    if (!made) throw new Error('not made');
+    await other.deleteBlock(board.boardId, made.id);
+    await settle();
+    await workspace.undoLast();
+    expect(workspace.problems).toHaveLength(0);
+    expect(board.card(made.id)).toBeUndefined();
+  });
+});
+
+describe('who deletes a comment', () => {
+  it('an admin anyone’s, an editor their own, a commenter none', async () => {
+    const { board, workspace } = await openAlpha();
+    const me = workspace.me?.id ?? '';
+    const as = (
+      role: Partial<Record<'schemeAdmin' | 'schemeEditor' | 'schemeCommenter', boolean>>,
+    ) => {
+      board.members = board.members.map((member) =>
+        member.userId === me
+          ? { ...member, schemeAdmin: false, schemeEditor: false, schemeCommenter: false, ...role }
+          : member,
+      );
+    };
+    expect(board.role).toBe('admin');
+    expect(board.canDeleteComment('someone')).toBe(true);
+    as({ schemeEditor: true });
+    expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
+    as({ schemeCommenter: true });
+    expect(board.canDeleteComment(me)).toBe(false);
   });
 });

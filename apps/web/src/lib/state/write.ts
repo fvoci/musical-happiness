@@ -71,3 +71,33 @@ export function take<T extends Versioned>(items: readonly T[], version: T): T[] 
   if (existing && existing.updateAt > version.updateAt) return items as T[];
   return put(items, version);
 }
+
+/**
+ * A list read again over the one shown, after changes may have been missed:
+ * what was read, except where what is shown is newer, or a write under way
+ * holds it (`hold` false: keep what is shown); and what arrived while the
+ * list was being read. What was shown when the reading began (`before`) and
+ * is not in what was read is gone; so is what was shown then and was taken
+ * off meanwhile (a deletion arrived while reading), even if the reading,
+ * older, still has it.
+ */
+export function reread<T extends Versioned>(
+  shown: readonly T[],
+  read: readonly T[],
+  before: readonly string[],
+  hold: (item: T) => boolean = () => true,
+): T[] {
+  const wasRead = new Set(read.map((item) => item.id));
+  const wasShown = new Set(before);
+  const next: T[] = [];
+  for (const item of read) {
+    const current = shown.find((other) => other.id === item.id);
+    if (!current && wasShown.has(item.id)) continue;
+    if (!hold(item)) next.push(current ?? item);
+    else next.push(current && current.updateAt > item.updateAt ? current : item);
+  }
+  for (const item of shown) {
+    if (!wasRead.has(item.id) && !wasShown.has(item.id)) next.push(item);
+  }
+  return next;
+}

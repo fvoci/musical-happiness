@@ -3,15 +3,36 @@
  * implementation of the data boundary (`lib/state/backend.ts`); everything
  * else sees the interface only, and a lint rule keeps it so.
  *
- * Today that is the one in memory, seeded with the built-in templates. It is
- * fetched as a chunk of its own: the app that talks to the server will not
- * carry it. When the server's contract is published, the implementation that
- * calls the server is chosen here instead.
+ * Two are there: the server's API (`lib/api/`), and one in memory, seeded
+ * with the built-in templates, for looking at the screens without a server.
+ * The page says which (`chosenBackend`). Each is fetched as a chunk of its
+ * own, so the app the server serves does not carry the one in memory.
  */
-import type { Backend } from '$lib/state/index.ts';
+import type { Account, Backend } from '$lib/state/index.ts';
+
+import { readBasePath } from './router.svelte.ts';
+import { readDisplaySettings } from '$lib/logic/display.ts';
+import { readRegionalSettings } from '$lib/logic/regional.ts';
 
 export interface StartedBackend {
   backend: Backend;
+  /** Signing in and out; only a backend with accounts has it. */
+  account?: Account;
+}
+
+export type BackendName = 'server' | 'memory';
+
+/**
+ * The backend the page asks for in `<meta name="fvoci:backend">`. The
+ * development aids that serve the app without a server (tools/preview.ts,
+ * tools/serve.ts) write `memory` there; the server writes nothing, and a
+ * built app then calls it. The development server of Vite serves the
+ * source, without the tag, and runs in memory.
+ */
+export function chosenBackend(document: Document): BackendName {
+  const asked = document.querySelector<HTMLMetaElement>('meta[name="fvoci:backend"]')?.content;
+  if (asked === 'memory' || asked === 'server') return asked;
+  return import.meta.env.DEV ? 'memory' : 'server';
 }
 
 /** Where the in-memory backend keeps the reader's settings between visits. */
@@ -19,14 +40,21 @@ const SETTINGS_KEY = 'fvoci:memory-settings';
 
 /**
  * A world in memory starts from its seed on every visit, and with it the
- * reader's account settings. So that a brightness or a time zone chosen in
+ * reader's account settings. So that a theme or a time zone chosen in
  * the settings is still there after a reload, as it would be with a server,
  * the settings are kept on the device and given back to the new world.
  */
 async function keepSettings(backend: Backend): Promise<void> {
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null') as object | null;
-    if (saved) await backend.patchSettings(saved);
+    const saved: unknown = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    // Only the settings this version knows, each read as it would be from
+    // the server: a name it no longer has (one saved by an older version) is
+    // left out, not refused with all the others.
+    if (saved)
+      await backend.patchSettings({
+        ...readRegionalSettings(saved),
+        ...readDisplaySettings(saved),
+      });
   } catch {
     // Nothing kept, or something the backend refuses now: the defaults then.
   }
@@ -40,7 +68,18 @@ async function keepSettings(backend: Backend): Promise<void> {
   });
 }
 
+async function startServer(): Promise<StartedBackend> {
+  const { ServerBackend } = await import('$lib/api/backend.ts');
+  const base = readBasePath(document);
+  const backend = new ServerBackend(base === '' ? '' : `/${base}`);
+  return { backend, account: backend };
+}
+
 export async function startBackend(): Promise<StartedBackend> {
+  return chosenBackend(document) === 'server' ? startServer() : startMemory();
+}
+
+async function startMemory(): Promise<StartedBackend> {
   const [{ MemoryBackend }, { loadTemplates, seedWorld }] = await Promise.all([
     import('$lib/state/memory/backend.ts'),
     import('$lib/state/memory/seed.ts'),

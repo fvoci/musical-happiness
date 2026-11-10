@@ -172,19 +172,11 @@ describe('settings', () => {
     const { backend } = setup();
     const start = await backend.settings();
     expect(Object.keys(start).sort()).toEqual(
-      [
-        'brightness',
-        'cardOpen',
-        'density',
-        'hourCycle',
-        'timeZone',
-        'vibration',
-        'weekStart',
-      ].sort(),
+      ['theme', 'cardOpen', 'density', 'hourCycle', 'timeZone', 'haptics', 'weekStart'].sort(),
     );
-    const changed = await backend.patchSettings({ brightness: 'dark', timeZone: 'Asia/Seoul' });
-    expect(changed).toMatchObject({ brightness: 'dark', timeZone: 'Asia/Seoul', density: 'auto' });
-    expect((await backend.patchSettings({ brightness: null })).brightness).toBe('auto');
+    const changed = await backend.patchSettings({ theme: 'dark', timeZone: 'Asia/Seoul' });
+    expect(changed).toMatchObject({ theme: 'dark', timeZone: 'Asia/Seoul', density: 'auto' });
+    expect((await backend.patchSettings({ theme: null })).theme).toBe('auto');
   });
 
   it('refuses a time zone it does not know, and a value outside the set', async () => {

@@ -15,6 +15,6 @@ import { DRAG_SETTINGS } from '$lib/drag/settings.ts';
 
 export const readerPointer: Pick<PointerDragOptions, 'touchVibration'> = {
   get touchVibration(): number {
-    return display.resolved.vibration ? DRAG_SETTINGS.touchVibration : 0;
+    return display.resolved.haptics ? DRAG_SETTINGS.touchVibration : 0;
   },
 };

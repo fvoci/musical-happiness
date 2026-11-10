@@ -29,8 +29,10 @@ import {
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
 import { sidebarOf, type SidebarCategory } from './order.ts';
+import { reread } from './write.ts';
 
-export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed';
+/** `signedOut`: the backend has accounts and nobody is signed in (401). */
+export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut';
 
 /** Something a write or a read failed with, for the reader to be told. */
 export interface Problem {
@@ -89,6 +91,8 @@ export class Workspace {
   );
   #stopWatching: (() => void) | undefined;
   #problemCount = 0;
+  /** Readings again (`#refresh`) begun: the latest is the one that counts. */
+  #refreshing = 0;
 
   constructor(options: WorkspaceOptions) {
     this.backend = options.backend;
@@ -138,12 +142,19 @@ export class Workspace {
       this.boards = boards;
       this.categories = categories;
       this.#takeSettings(settings);
+      // The list of the team is short (ten): the open board's members it did
+      // not bring are read again, as when the board was opened.
+      if (this.board) void this.learnUsers(this.board.members.map((member) => member.userId));
       this.#stopWatching?.();
       this.#stopWatching = this.backend.watchSelf((change) => {
         this.#apply(change);
       });
       this.status = 'ready';
     } catch (error) {
+      if (isBackendError(error) && error.status === 401) {
+        this.status = 'signedOut';
+        return;
+      }
       this.status = 'failed';
       this.report('load', error);
     }
@@ -165,8 +176,9 @@ export class Workspace {
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board': {
+        // A template is no board of the sidebar, as the server's list of boards says.
         const others = this.boards.filter((board) => board.id !== change.board.id);
-        this.boards = [...others, change.board];
+        this.boards = change.board.isTemplate ? others : [...others, change.board];
         break;
       }
       case 'boardDeleted':
@@ -178,13 +190,53 @@ export class Workspace {
       case 'settings':
         this.#takeSettings(change.settings);
         break;
+      case 'resync':
+        void this.#refresh();
+        break;
       default:
         break;
     }
   }
 
-  /** Puts a failure where the shell shows it. Anything that is not a backend error is a bug and is thrown on. */
+  /**
+   * Reads the boards and the sidebar again after changes may have been
+   * missed (`resync`): the boards merged with what is shown (`reread`). Of
+   * two readings that overlap, the later one counts.
+   */
+  async #refresh(): Promise<void> {
+    const team = this.team;
+    if (this.status !== 'ready' || !team) return;
+    this.#refreshing += 1;
+    const reading = this.#refreshing;
+    const before = this.boards.map((board) => board.id);
+    try {
+      const [boards, categories] = await Promise.all([
+        this.backend.boards(team.id),
+        this.backend.categories(team.id),
+      ]);
+      if (reading !== this.#refreshing) return;
+      this.boards = reread(this.boards, boards, before);
+      this.categories = categories;
+    } catch (error) {
+      // A reading in the background: only a session that is over is told
+      // (as signing out). The next message, or the next load, brings the rest.
+      if (reading === this.#refreshing && isBackendError(error) && error.status === 401) {
+        this.report('load', error);
+      }
+    }
+  }
+
+  /**
+   * Puts a failure where the shell shows it. Anything that is not a backend
+   * error is a bug and is logged. A 401 is no failure to show: the session
+   * is over, and the status turns to `signedOut`.
+   */
   report(action: ProblemAction, error: unknown): void {
+    // The session is over (it went idle, or past its end): sign in again.
+    if (isBackendError(error) && error.status === 401) {
+      this.status = 'signedOut';
+      return;
+    }
     this.#problemCount += 1;
     this.problems = [
       ...this.problems,
@@ -195,6 +247,31 @@ export class Workspace {
 
   dismissProblem(id: number): void {
     this.problems = this.problems.filter((problem) => problem.id !== id);
+  }
+
+  /**
+   * Reads the people among `userIds` the workspace has no name for yet: the
+   * members of a board, say, when the list of the team did not bring them.
+   * Failing, the names stay unknown and nothing is told: nothing else
+   * depends on them. A session that is over still signs out.
+   */
+  async learnUsers(userIds: readonly string[]): Promise<void> {
+    const team = this.team;
+    const missing = userIds.filter(
+      (id, at) => userIds.indexOf(id) === at && this.#usersById[id] === undefined,
+    );
+    if (!team || missing.length === 0) return;
+    try {
+      const found = await this.backend.usersById(team.id, missing);
+      // Another read may have brought some of them meanwhile.
+      this.users = [
+        ...this.users,
+        ...found.filter((user) => this.#usersById[user.id] === undefined),
+      ];
+    } catch (error) {
+      if (isBackendError(error) && error.status === 401) this.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
+    }
   }
 
   // ----------------------------------------------------------- settings

@@ -5,7 +5,8 @@
  *
  * Every path that is not under `static/` answers with `index.html`, under a
  * content security policy (tools/build/inline-scripts.ts), with the
- * base path filled into the placeholder. Files under `static/` are sent with
+ * base path filled into the placeholder, and marked to run on the backend
+ * in memory (`src/app/backend.ts`): there is no API here. Files under `static/` are sent with
  * the cache rule the server uses, and a `.br`, `.zst` or `.gz` file next to
  * one is sent in its place when the client accepts it (build/encodings.ts
  * has the order). It is a development aid: the end-to-end tests of the
@@ -16,6 +17,7 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 
 import { chooseEncoding } from './build/encodings.ts';
+import { inMemory } from './build/in-memory.ts';
 import { contentSecurityPolicy } from './build/inline-scripts.ts';
 import { hasContentHash } from './build/output.ts';
 
@@ -86,7 +88,7 @@ createServer((request, response) => {
       // the browser tests notice anything the policy would stop.
       'Content-Security-Policy': policy(),
     })
-    .end(index.replaceAll('{{.BaseURL}}', basePath));
+    .end(inMemory(index.replaceAll('{{.BaseURL}}', basePath)));
 }).listen(port, '127.0.0.1', () => {
   console.log(`preview: http://127.0.0.1:${port}${basePath}/`);
 });

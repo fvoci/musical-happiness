@@ -4,8 +4,8 @@
  * does what it says. Runs at the three stages.
  *
  * The in-memory world is made anew on every load; of the settings only what
- * the device remembers (brightness, density, the way a card opens,
- * vibration) is there again after a reload.
+ * the device remembers (theme, density, the way a card opens,
+ * haptics) is there again after a reload.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -91,29 +91,29 @@ test('the settings open from the account, fill a compact screen, and close with 
   await expect(page.getByTestId('board-page')).toBeVisible();
 });
 
-test('brightness: "Dark" darkens the page at once, and a reload keeps it', async ({ page }) => {
+test('theme: "Dark" darkens the page at once, and a reload keeps it', async ({ page }) => {
   await openApp(page);
   const root = page.locator('html');
   await expect(root).not.toHaveClass(/\bdark\b/);
 
   await openSettings(page);
-  await expect(choice(page, 'brightness', 'Automatic')).toBeChecked();
-  await choice(page, 'brightness', 'Dark').click();
+  await expect(choice(page, 'theme', 'Automatic')).toBeChecked();
+  await choice(page, 'theme', 'Dark').click();
   await expect(root).toHaveClass(/\bdark\b/);
-  await expect(choice(page, 'brightness', 'Dark')).toBeChecked();
-  await expect.poll(async () => (await stored(page)).brightness).toBe('dark');
+  await expect(choice(page, 'theme', 'Dark')).toBeChecked();
+  await expect.poll(async () => (await stored(page)).theme).toBe('dark');
 
   await page.reload();
   await expect(page.getByTestId('board-page')).toBeVisible();
   await expect(root).toHaveClass(/\bdark\b/);
   await openSettings(page);
-  await expect(choice(page, 'brightness', 'Dark')).toBeChecked();
+  await expect(choice(page, 'theme', 'Dark')).toBeChecked();
 
-  await choice(page, 'brightness', 'Light').click();
+  await choice(page, 'theme', 'Light').click();
   await expect(root).not.toHaveClass(/\bdark\b/);
 
   // "Automatic" follows the device.
-  await choice(page, 'brightness', 'Automatic').click();
+  await choice(page, 'theme', 'Automatic').click();
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect(root).toHaveClass(/\bdark\b/);
   await page.emulateMedia({ colorScheme: 'light' });
@@ -164,18 +164,18 @@ test('how a card opens: the dialog is the one answer; the other two are shown an
   expect((await stored(page)).cardOpen).toBe('center');
 });
 
-test('vibration, the first day of the week and the way of writing hours are saved as they change', async ({
+test('haptics, the first day of the week and the way of writing hours are saved as they change', async ({
   page,
 }) => {
   await openApp(page);
   await openSettings(page);
 
-  const vibration = setting(page, 'vibration').getByRole('switch');
-  await expect(vibration).toBeChecked();
-  await expect(vibration).toHaveAccessibleName(/Vibration/);
-  await vibration.click();
-  await expect(vibration).not.toBeChecked();
-  await expect.poll(async () => (await stored(page)).vibration).toBe(false);
+  const haptics = setting(page, 'haptics').getByRole('switch');
+  await expect(haptics).toBeChecked();
+  await expect(haptics).toHaveAccessibleName(/Vibration/);
+  await haptics.click();
+  await expect(haptics).not.toBeChecked();
+  await expect.poll(async () => (await stored(page)).haptics).toBe(false);
 
   await choice(page, 'weekStart', 'Monday').click();
   await expect(choice(page, 'weekStart', 'Monday')).toBeChecked();
@@ -247,7 +247,7 @@ test('language: the page loads again in the chosen one, and the device remembers
   expect(await page.evaluate(() => localStorage.getItem('fvoci:locale'))).toBe('ko');
   await openSettings(page);
   await expect(dialog(page).getByRole('heading', { name: '설정' })).toBeVisible();
-  await expect(setting(page, 'brightness').getByRole('radio', { name: '어둡게' })).toBeVisible();
+  await expect(setting(page, 'theme').getByRole('radio', { name: '어둡게' })).toBeVisible();
   await expect(setting(page, 'language').getByRole('button')).toContainText('한국어');
 });
 

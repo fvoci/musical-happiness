@@ -84,6 +84,20 @@
     'aria-multiline': 'true',
   });
 
+  /**
+   * The editor's own events, run as from outside any effect. A focused
+   * editor that is taken out of the page (its card closes) blurs while
+   * Svelte removes it, inside the effect that removes it; a state change
+   * there is otherwise refused (`state_unsafe_mutation`).
+   */
+  const fromEditor =
+    <A extends unknown[]>(handle: (...args: A) => void) =>
+    (...args: A): void => {
+      untrack(() => {
+        handle(...args);
+      });
+    };
+
   onMount(() => {
     const first = loadable(doc);
     unreadable = first === undefined;
@@ -125,12 +139,14 @@
         }),
       ],
       editorProps: { attributes: rootAttributes() },
-      onTransaction: () => {
+      onTransaction: fromEditor(() => {
         changes += 1;
-      },
-      onUpdate: ({ editor: current }) => onChange?.(storedOf(current)),
-      onFocus: () => onFocus?.(),
-      onBlur: () => onBlur?.(),
+      }),
+      onUpdate: fromEditor(({ editor: current }: { editor: Editor }) =>
+        onChange?.(storedOf(current)),
+      ),
+      onFocus: fromEditor(() => onFocus?.()),
+      onBlur: fromEditor(() => onBlur?.()),
     });
     editor = created;
     onLoad?.(first === undefined ? undefined : storedOf(created));
