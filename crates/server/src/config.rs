@@ -15,6 +15,11 @@ use serde_json::{Map, Value};
 /// The prefix of the environment variables that override configuration keys.
 pub const ENV_PREFIX: &str = "FVOCI_";
 
+/// The default of `max_request_bytes`: 4 MiB. The largest block the model accepts, a
+/// title of 16,383 characters and fields of 800,000, takes up to about 3.3 MB as UTF-8,
+/// so every single valid block fits. Requests of the web app measured below 1 kB.
+pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
+
 /// The settings of the S3 file backend, the `filess3config` object.
 #[derive(Clone, Default, Deserialize)]
 #[serde(default)]
@@ -165,6 +170,10 @@ pub struct Configuration {
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
+    /// The largest body, in bytes, of a request to an API route that takes JSON. A
+    /// larger one is refused with 413. File uploads and archive imports have their own
+    /// limits.
+    pub max_request_bytes: u64,
     /// Whether to take the client address for logs from `X-Forwarded-For`. Turn on only
     /// behind a proxy that sets the header.
     pub trust_forwarded_for: bool,
@@ -209,6 +218,7 @@ impl Default for Configuration {
             audit_cfg_file: String::new(),
             audit_cfg_json: String::new(),
             websocket_ping_seconds: 30,
+            max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trust_forwarded_for: false,
             skip_template_init: false,
         }
@@ -248,6 +258,7 @@ impl std::fmt::Debug for Configuration {
             .field("show_full_name", &self.show_full_name)
             .field("auth_mode", &self.auth_mode)
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
+            .field("max_request_bytes", &self.max_request_bytes)
             .field("trust_forwarded_for", &self.trust_forwarded_for)
             .finish_non_exhaustive()
     }
@@ -265,7 +276,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_EXPIRE_TIME`.
-const ENV_KEYS: [(&str, EnvKind); 30] = [
+const ENV_KEYS: [(&str, EnvKind); 31] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -295,6 +306,7 @@ const ENV_KEYS: [(&str, EnvKind); 30] = [
     ("audit_cfg_file", EnvKind::Text),
     ("audit_cfg_json", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
+    ("max_request_bytes", EnvKind::Number),
     ("trust_forwarded_for", EnvKind::Flag),
 ];
 
@@ -358,6 +370,11 @@ impl Configuration {
                 "authMode {:?} is not supported; this server only has native authentication",
                 self.auth_mode
             );
+        }
+        // Zero does not mean "no limit": a server that takes bodies of any size is not
+        // something to end up with by leaving a number out.
+        if self.max_request_bytes == 0 {
+            bail!("max_request_bytes must be a positive number of bytes, not 0");
         }
         if !self.prometheus_address.is_empty() {
             bail!("prometheusaddress is set, but this server has no metrics endpoint");
@@ -547,6 +564,8 @@ mod tests {
         assert!(error(r#"{"authMode": "other"}"#).contains("authMode"));
         assert!(error(r#"{"prometheusaddress": ":9092"}"#).contains("prometheusaddress"));
         assert!(error(r#"{"filesdriver": "ftp"}"#).contains("filesdriver"));
+        // Zero would not mean "no limit" to anyone who reads it as "nothing".
+        assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
         assert!(
             error(r#"{"filesdriver": "amazons3", "filess3config": {"SignV2": true}}"#)
                 .contains("SignV2")
@@ -556,6 +575,29 @@ mod tests {
             .check()
             .expect("unsupported logging settings only warn");
         assert_eq!(warnings.len(), 2, "{warnings:?}");
+    }
+
+    #[test]
+    fn the_request_limit_defaults_to_four_mebibytes_and_can_be_set() {
+        let parse = |text: &str| Configuration::parse(text, no_env).expect("valid JSON");
+        assert_eq!(
+            parse("{}").max_request_bytes,
+            4 * 1024 * 1024,
+            "the default"
+        );
+        assert_eq!(
+            parse(r#"{"max_request_bytes": 1000}"#).max_request_bytes,
+            1000,
+            "from the file"
+        );
+        let from_env = |key: &str| (key == "FVOCI_MAX_REQUEST_BYTES").then(|| "2000".to_owned());
+        assert_eq!(
+            Configuration::parse("{}", from_env)
+                .expect("valid")
+                .max_request_bytes,
+            2000,
+            "from the environment"
+        );
     }
 
     #[test]

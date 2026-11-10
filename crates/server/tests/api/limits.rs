@@ -1,0 +1,313 @@
+//! The limits on what a request may send: the JSON body of an API route, the body of a
+//! route that needs no session, and a websocket message. What exceeds a limit is refused
+//! with 413 and the limit; on a websocket, which has no answers, the connection ends.
+
+use std::time::Duration;
+
+use futures_util::{SinkExt as _, StreamExt as _};
+use fvoci_model::BoardType;
+use reqwest::multipart::{Form, Part};
+use reqwest::{Method, StatusCode};
+use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::Message;
+
+use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+
+/// The default of `max_request_bytes`.
+const DEFAULT_JSON_LIMIT: usize = 4 * 1024 * 1024;
+/// The limit of the routes that need no session.
+const UNAUTHENTICATED_LIMIT: usize = 64 * 1024;
+/// The limit of a websocket message.
+const WEBSOCKET_LIMIT: usize = 64 * 1024;
+
+/// A JSON object of exactly `length` bytes: `{"pad":"xxx…"}`.
+fn json_of_length(length: usize) -> String {
+    let frame = r#"{"pad":""}"#.len();
+    assert!(length >= frame, "{length} bytes do not hold the object");
+    let body = format!(r#"{{"pad":"{}"}}"#, "x".repeat(length - frame));
+    assert_eq!(body.len(), length, "the body has the length asked for");
+    body
+}
+
+/// Checks the one answer to a body over its limit: 413, the code, and the limit.
+#[track_caller]
+fn check_too_large(response: &ApiResponse, limit: usize) {
+    response.check_error(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        &format!("the request body is larger than {limit} bytes"),
+    );
+    assert_eq!(
+        response.value()["limit"],
+        json!(limit),
+        "the answer names the limit: {}",
+        response.text()
+    );
+}
+
+/// Checks that a body was read and then refused for what it says, not for its size.
+#[track_caller]
+fn check_read_and_refused(response: &ApiResponse) {
+    assert_ne!(
+        response.status,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "{}",
+        response.text()
+    );
+    assert!(
+        response.status.is_client_error(),
+        "refused for what it says: {}",
+        response.text()
+    );
+}
+
+/// The boards the first user sees in the test team.
+async fn board_count(th: &TestServer) -> usize {
+    let boards: Vec<Value> = th
+        .client
+        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .await
+        .ok_json();
+    boards.len()
+}
+
+/// A JSON body of exactly the limit is read; one byte more is refused with 413, on every
+/// route that takes JSON and before the handler looks at anything.
+#[tokio::test]
+async fn a_json_body_over_the_default_limit_is_refused_with_413() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+
+    let at_the_limit = json_of_length(DEFAULT_JSON_LIMIT);
+    let response = th
+        .client
+        .send_raw_body(Method::POST, "/boards", &at_the_limit)
+        .await;
+    // It is no board.
+    check_read_and_refused(&response);
+
+    let over = json_of_length(DEFAULT_JSON_LIMIT + 1);
+    let routes = [
+        (Method::POST, "/boards".to_owned()),
+        (Method::PATCH, format!("/boards/{}", board.id)),
+        (Method::POST, format!("/boards/{}/blocks", board.id)),
+        (Method::PATCH, format!("/boards/{}/blocks", board.id)),
+        (Method::POST, "/boards-and-blocks".to_owned()),
+        (Method::POST, format!("/teams/{TEST_TEAM_ID}/categories")),
+        (Method::POST, "/subscriptions".to_owned()),
+        (Method::POST, "/users".to_owned()),
+        // A board nobody has: the body is refused before the board is looked for.
+        (Method::PATCH, "/boards/no-such-board".to_owned()),
+    ];
+    for (method, path) in routes {
+        let response = th.client.send_raw_body(method.clone(), &path, &over).await;
+        assert_eq!(
+            response.status,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{method} {path}: {}",
+            response.text()
+        );
+        check_too_large(&response, DEFAULT_JSON_LIMIT);
+    }
+
+    assert_eq!(board_count(&th).await, 1, "nothing was created");
+    th.teardown().await;
+}
+
+/// The limit is the `max_request_bytes` setting.
+#[tokio::test]
+async fn the_json_limit_is_the_configured_one() {
+    let th = Setup::native()
+        .configure(|config| config.max_request_bytes = 1000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+
+    let response = th
+        .client
+        .send_raw_body(Method::POST, "/boards", &json_of_length(1001))
+        .await;
+    check_too_large(&response, 1000);
+    let response = th
+        .client
+        .send_raw_body(Method::POST, "/boards", &json_of_length(1000))
+        .await;
+    check_read_and_refused(&response);
+
+    // A request that fits goes through as ever.
+    th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    assert_eq!(board_count(&th).await, 1, "the board was created");
+    th.teardown().await;
+}
+
+/// A session is not needed to be refused: the body is measured before it is asked who
+/// sends it, so nobody makes the server read more than the limit.
+#[tokio::test]
+async fn a_json_body_over_the_limit_is_refused_without_a_session_too() {
+    let th = Setup::native()
+        .configure(|config| config.max_request_bytes = 1000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+
+    let response = th
+        .anonymous()
+        .send_raw_body(Method::POST, "/boards", &json_of_length(1001))
+        .await;
+    check_too_large(&response, 1000);
+    th.teardown().await;
+}
+
+/// The login and the registration, which anyone can send, read 64 KiB and no more,
+/// whatever `max_request_bytes` says.
+#[tokio::test]
+async fn the_routes_without_a_session_have_a_smaller_limit() {
+    let th = Setup::native().start().await.init_basic().await;
+    let anonymous = th.anonymous();
+
+    for path in ["/login", "/register"] {
+        let response = anonymous
+            .send_raw_body(
+                Method::POST,
+                path,
+                &json_of_length(UNAUTHENTICATED_LIMIT + 1),
+            )
+            .await;
+        check_too_large(&response, UNAUTHENTICATED_LIMIT);
+
+        // At the limit the body is read, and refused for what it says.
+        let response = anonymous
+            .send_raw_body(Method::POST, path, &json_of_length(UNAUTHENTICATED_LIMIT))
+            .await;
+        check_read_and_refused(&response);
+    }
+
+    // The same size is no trouble for a route with a session.
+    let response = th
+        .client
+        .send_raw_body(
+            Method::POST,
+            "/boards",
+            &json_of_length(UNAUTHENTICATED_LIMIT + 1),
+        )
+        .await;
+    check_read_and_refused(&response);
+    th.teardown().await;
+}
+
+/// The other routes that need no session of their own doing take no body worth
+/// mentioning, but are measured all the same: the logout and the password change sit
+/// behind the JSON limit.
+#[tokio::test]
+async fn account_routes_with_a_session_are_behind_the_json_limit() {
+    let th = Setup::native()
+        .configure(|config| config.max_request_bytes = 1000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let me = th.client.me().await;
+
+    for path in [
+        "/logout".to_owned(),
+        format!("/users/{}/changepassword", me.id),
+    ] {
+        let response = th
+            .client
+            .send_raw_body(Method::POST, &path, &json_of_length(1001))
+            .await;
+        check_too_large(&response, 1000);
+    }
+    th.client.me().await;
+    th.teardown().await;
+}
+
+/// The routes that take files are not behind the JSON limit: uploads have a limit of
+/// their own, the `maxfilesize` setting.
+#[tokio::test]
+async fn uploads_are_not_behind_the_json_limit() {
+    let th = Setup::native()
+        .configure(|config| config.max_request_bytes = 1000)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+
+    let part = Part::bytes(vec![b'x'; 8000])
+        .file_name("larger.bin")
+        .mime_str("application/octet-stream")
+        .expect("a valid mime");
+    let request = th
+        .client
+        .request(
+            Method::POST,
+            &format!("/teams/{TEST_TEAM_ID}/{}/files", board.id),
+        )
+        .multipart(Form::new().part("file", part));
+    Client::send(request).await.check_ok();
+    th.teardown().await;
+}
+
+/// What a websocket connection yields within a moment.
+#[derive(Debug, PartialEq)]
+enum Outcome {
+    Open,
+    Closed,
+}
+
+/// Sends one text message of `length` bytes and says whether the connection is still
+/// there afterwards.
+async fn after_a_message_of(th: &TestServer, length: usize) -> Outcome {
+    let (mut stream, _) = tokio_tungstenite::connect_async(th.client.websocket_url())
+        .await
+        .expect("the websocket endpoint accepts the connection");
+    // No command, so the server has nothing to do with it but read it.
+    let text = json_of_length(length);
+    if stream.send(Message::Text(text.into())).await.is_err() {
+        return Outcome::Closed;
+    }
+    loop {
+        match tokio::time::timeout(Duration::from_secs(2), stream.next()).await {
+            // Nothing arrives on an idle connection that is still open.
+            Err(_) => return Outcome::Open,
+            Ok(None | Some(Err(_) | Ok(Message::Close(_)))) => return Outcome::Closed,
+            Ok(Some(Ok(_))) => {}
+        }
+    }
+}
+
+/// A websocket message over 64 KiB ends the connection: there is no answer to give on a
+/// websocket, and the server does not buffer what it will not read. Up to the limit a
+/// message is read, and one that is no command is ignored.
+#[tokio::test]
+async fn a_websocket_message_over_the_limit_ends_the_connection() {
+    let th = Setup::native()
+        // Pings would count as traffic on the idle connection.
+        .configure(|config| config.websocket_ping_seconds = 0)
+        .start()
+        .await
+        .init_basic()
+        .await;
+
+    assert_eq!(
+        after_a_message_of(&th, WEBSOCKET_LIMIT).await,
+        Outcome::Open,
+        "a message at the limit"
+    );
+    assert_eq!(
+        after_a_message_of(&th, WEBSOCKET_LIMIT + 1).await,
+        Outcome::Closed,
+        "a message over the limit"
+    );
+    assert_eq!(
+        after_a_message_of(&th, 8 * WEBSOCKET_LIMIT).await,
+        Outcome::Closed,
+        "a message far over the limit"
+    );
+
+    // Other connections, and the server, are not bothered.
+    th.client.me().await;
+    th.teardown().await;
+}

@@ -132,7 +132,7 @@ impl Server {
     ///
     /// Every request is logged, and a handler that panics answers with a 500.
     pub fn router(&self) -> Router {
-        let api = api::router()
+        let api = api::router(self.app.config().max_request_bytes)
             .route_layer(middleware::from_fn_with_state(
                 self.app.clone(),
                 api::run_to_completion,
@@ -370,7 +370,12 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
 }
 
 async fn handle_websocket(State(app): State<App>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade.on_upgrade(move |socket| async move { app.ws().serve(socket).await })
+    // The commands a connection sends are small; a larger message is a mistake or an
+    // attempt to make the server buffer it, and closes the connection.
+    upgrade
+        .max_message_size(api::WEBSOCKET_MESSAGE_LIMIT)
+        .max_frame_size(api::WEBSOCKET_MESSAGE_LIMIT)
+        .on_upgrade(move |socket| async move { app.ws().serve(socket).await })
 }
 
 async fn handle_static(State(app): State<App>, request: Request<Body>) -> Response {

@@ -16,6 +16,7 @@ mod categories;
 mod config;
 mod content_blocks;
 mod files;
+mod limits;
 mod members;
 mod onboarding;
 mod search;
@@ -44,7 +45,10 @@ pub(crate) use access::{
 pub(crate) use body::{
     decode_json, decode_object, decode_object_members, decode_object_with, json_object,
 };
+pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};
+
+use limits::{BodyLimit, UNAUTHENTICATED_BODY_LIMIT, limit_request_body};
 
 use crate::app::{App, ChangeNotification};
 use crate::error::{AppError, Reason};
@@ -61,13 +65,13 @@ pub(crate) type ApiResult = Result<Response, AppError>;
 /// The routes under `/api/v2`.
 ///
 /// Every route checks the cross-site request forgery header, and responses are marked as
-/// not cacheable unless a handler set its own policy.
-pub fn router() -> Router<App> {
-    Router::new()
+/// not cacheable unless a handler set its own policy. Request bodies are limited: to
+/// `max_request_bytes` where a route takes JSON, to less where no session is needed. The
+/// routes that take files have limits of their own.
+pub fn router(max_request_bytes: u64) -> Router<App> {
+    let json = Router::new()
         .merge(archive::routes())
-        .merge(archive::upload_routes())
         .merge(auth::routes())
-        .merge(auth::unauthenticated_routes())
         .merge(blocks::routes())
         .merge(boards::routes())
         .merge(boards_and_blocks::routes())
@@ -76,7 +80,6 @@ pub fn router() -> Router<App> {
         .merge(config::routes())
         .merge(content_blocks::routes())
         .merge(files::routes())
-        .merge(files::upload_routes())
         .merge(members::routes())
         .merge(onboarding::routes())
         .merge(search::routes())
@@ -85,10 +88,26 @@ pub fn router() -> Router<App> {
         .merge(teams::routes())
         .merge(templates::routes())
         .merge(users::routes())
-        // Request bodies of any size are read, and legitimate ones exceed the
-        // framework's default limit of 2 MB: the fields of one block may have 800 000
-        // characters, and archives and uploads are larger still. Uploads are bounded by
-        // the `maxfilesize` setting where they are read.
+        .layer(middleware::from_fn_with_state(
+            BodyLimit(max_request_bytes),
+            limit_request_body,
+        ));
+    let unauthenticated = auth::unauthenticated_routes().layer(middleware::from_fn_with_state(
+        UNAUTHENTICATED_BODY_LIMIT,
+        limit_request_body,
+    ));
+    // Uploads are bounded by the `maxfilesize` setting where they are read.
+    let uploads = Router::new()
+        .merge(files::upload_routes())
+        .merge(archive::upload_routes());
+
+    Router::new()
+        .merge(json)
+        .merge(unauthenticated)
+        .merge(uploads)
+        // The limits above are the ones that count, and they answer in the API's own
+        // shape; the framework's limit of 2 MB on what an extractor reads would cut in
+        // below them with an answer of its own.
         .layer(DefaultBodyLimit::disable())
         .route_layer(middleware::from_fn(require_csrf_header))
         .route_layer(middleware::from_fn(mark_not_cacheable))
