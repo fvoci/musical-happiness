@@ -1,6 +1,6 @@
 import { mount } from 'svelte';
 
-import '../../src/styles/app.css';
+import './spike.css';
 import '../../src/lib/editor/editor.css';
 
 import EditorSpike from './EditorSpike.svelte';

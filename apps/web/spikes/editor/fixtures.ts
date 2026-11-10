@@ -1,6 +1,8 @@
-/** Made-up data for the editor spike: people, emoji, files and two documents. */
+/** Made-up data for the editor spike: people, emoji, files and three documents. */
 import type { SuggestionEntry } from '$lib/editor/extensions.ts';
 import type { DocNode } from '$lib/editor/schema.ts';
+
+import { HAND_MADE } from '../../tests/support/body-docs.ts';
 
 export const USERS: SuggestionEntry[] = [
   { value: 'user-ada', label: 'Ada Lovelace' },
@@ -113,5 +115,11 @@ export const SAMPLES: Record<string, DocNode> = {
       { type: 'horizontalRule' },
       { type: 'image', attrs: { fileId: 'file-chart', alt: '진행 그래프' } },
     ],
+  },
+  // The corners: every document the tests compare the read-only view on
+  // (tests/support/body-docs.ts), one after the other.
+  corners: {
+    type: 'doc',
+    content: Object.values(HAND_MADE).flatMap((sample) => sample.content ?? []),
   },
 };
