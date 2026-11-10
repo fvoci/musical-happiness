@@ -185,9 +185,9 @@
       "part": "card",
       "title": "[Tweet] fvoci v6.1 includes card @-mention notifications in fvoci",
       "field": "value of \"Link\"",
-      "rule": "example-link-value",
+      "rule": "outside-link-value",
       "before": "https://twitter.com/{old company name}/status/1463145633162969097?s=20",
-      "after": "https://twitter.example.com/fvoci/status/1463145633162969097?s=20"
+      "after": ""
     },
     {
       "template": "content-calendar",

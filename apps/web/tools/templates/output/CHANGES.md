@@ -9,8 +9,8 @@
 | 원본 이름 → fvoci | 9 |
 | 제품을 가리키는 "Boards" → fvoci | 5 |
 | 바깥 링크와 그 문장을 뺌 | 1 |
-| 원본 회사로 가는 링크 속성 값을 뺌 | 21 |
-| 그 밖의 바깥 주소인 링크 속성 값을 example.com 아래로 옮김 | 11 |
+| 원본 회사로 가는 링크 속성 값을 뺌 | 22 |
+| 그 밖의 바깥 주소인 링크 속성 값을 example.com 아래로 옮김 | 10 |
 | 합계 | 47 |
 
 - **제품을 가리키는 "Boards"**는 결정문의 글자 그대로("원본 이름을 바꾼다")보다 한 걸음 나간 것이다. 번역에서 같은 낱말을 제품 이름일 때 fvoci로 바꾸기로 한 결정을 따랐다. 다섯 곳을 읽고 모두 제품을 가리킨다고 판단했다. 그대로 두려면 `rewrite.ts`의 규칙 하나를 끄면 된다.
@@ -80,7 +80,7 @@
 | card: New Project and Workflow Management Solutions for Developers | value of "Link" | 원본 회사로 가는 링크 속성 값을 뺌 | https://{old company name}.com/newsroom/press-releases/{old company name}-launches-new-project-and-workflow-management-solutions-for-developers/ | (없음) |
 | card: [Tweet] fvoci v6.1 includes card @-mention notifications in fvoci | title | 원본 이름 → fvoci | [Tweet] {old company name} v6.1 includes card @-mention notifications in Boards | [Tweet] fvoci v6.1 includes card @-mention notifications in fvoci |
 | card: [Tweet] fvoci v6.1 includes card @-mention notifications in fvoci | title | 제품을 가리키는 "Boards" → fvoci | [Tweet] {old company name} v6.1 includes card @-mention notifications in Boards | [Tweet] fvoci v6.1 includes card @-mention notifications in fvoci |
-| card: [Tweet] fvoci v6.1 includes card @-mention notifications in fvoci | value of "Link" | 그 밖의 바깥 주소인 링크 속성 값을 example.com 아래로 옮김 | https://twitter.com/{old company name}/status/1463145633162969097?s=20 | https://twitter.example.com/fvoci/status/1463145633162969097?s=20 |
+| card: [Tweet] fvoci v6.1 includes card @-mention notifications in fvoci | value of "Link" | 원본 회사로 가는 링크 속성 값을 뺌 | https://twitter.com/{old company name}/status/1463145633162969097?s=20 | (없음) |
 | card: Top 10 Must-Have DevOps Tools in 2021 | value of "Link" | 그 밖의 바깥 주소인 링크 속성 값을 example.com 아래로 옮김 | https://www.toolbox.com/tech/devops/articles/best-devops-tools/ | https://toolbox.example.com/tech/devops/articles/best-devops-tools/ |
 | card: Unblocking Workflows: The Guide to Developer Productivity | value of "Link" | 원본 회사로 가는 링크 속성 값을 뺌 | https://{old company name}.com/newsroom/press-releases/{old company name}-unveils-definitive-report-on-the-state-of-developer-productivity-unblocking-workflows-the-guide-to-developer-productivity-2022-edition/ | (없음) |
 

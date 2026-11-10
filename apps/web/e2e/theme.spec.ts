@@ -78,3 +78,36 @@ test('once the app runs, the account decides, and what it says is remembered for
   expect(JSON.parse(remembered ?? '{}')).toMatchObject({ brightness: 'dark' });
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0a0a0a');
 });
+
+test('the page runs under a content security policy that allows its one inline script by hash', async ({
+  page,
+}) => {
+  const violations: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().includes('Content Security Policy')) violations.push(message.text());
+  });
+  const response = await page.goto('/');
+  const policy = response?.headers()['content-security-policy'] ?? '';
+  expect(policy).toMatch(/script-src 'self' 'sha256-[A-Za-z0-9+/=]+'/);
+  expect(policy).not.toContain("'unsafe-inline' 'sha256");
+  expect(policy).not.toContain('unsafe-eval');
+  await expect(page.getByTestId('board-page')).toBeVisible();
+  // The app and everything it fetched ran without a refusal.
+  expect(violations).toEqual([]);
+  // Another inline script does not run.
+  const injected = await page.evaluate(() => {
+    const script = document.createElement('script');
+    script.textContent = 'window.__injected = true;';
+    document.head.append(script);
+    return (window as unknown as { __injected?: boolean }).__injected === true;
+  });
+  expect(injected).toBe(false);
+  expect(violations).toHaveLength(1);
+});
+
+test('under the policy, the inline script still sets the brightness before the app', async ({
+  page,
+}) => {
+  await remember(page, { brightness: 'dark' });
+  expect(await beforeTheApp(page)).toMatchObject({ dark: true, bar: '#0a0a0a' });
+});

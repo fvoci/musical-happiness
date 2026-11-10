@@ -132,15 +132,17 @@ export function isExampleAddress(value: string): boolean {
  * What becomes of the value of a link property:
  *
  * - `kept`: a path inside the app, or an example address already.
- * - `removed`: an address of the original's company, told by its domain: one
- *   of the two old names is a label of the host (`docs.<company>.com`). An
- *   address that is not a site's (`mailto:`, or one that cannot be read) goes
- *   the same way, there being nothing to move.
+ * - `removed`: an address that leads to the original's company. Its own
+ *   domain: one of the two old names is a label of the host
+ *   (`docs.<company>.com`). Or its page on somebody else's site: one of the
+ *   names is in the path (its account, a post of it). An address that is not
+ *   a site's (`mailto:`, or one that cannot be read) goes the same way, there
+ *   being nothing to move.
  * - `example`: any other address. The sample data keeps a link that looks
  *   like one but leads nowhere real: the host moves under `example.com`
  *   without its `www.` and its last label (`liminarycorp.com` becomes
  *   `liminarycorp.example.com`), the scheme becomes `https`, and the path,
- *   the query and the fragment stay, with the old names replaced in them.
+ *   the query and the fragment stay.
  */
 export type LinkValue = { to: 'kept' } | { to: 'removed' } | { to: 'example'; value: string };
 
@@ -161,6 +163,10 @@ export function rewriteLinkValue(value: string): LinkValue {
   if (labels.some((label) => label === OLD_PRODUCT || label === OLD_COMPANY)) {
     return { to: 'removed' };
   }
+  const rest = `${url.pathname === '/' ? '' : url.pathname}${url.search}${url.hash}`;
+  // The original's own page on somebody else's site (its account, a post of
+  // it) leads to the original as much as its own domain does.
+  if (rest.search(OLD_NAMES) !== -1) return { to: 'removed' };
   // The host is under the example domain already; only the scheme or a port was in the way.
   const isExample = url.hostname === EXAMPLE_DOMAIN || url.hostname.endsWith(`.${EXAMPLE_DOMAIN}`);
   if (!isExample) {
@@ -169,8 +175,7 @@ export function rewriteLinkValue(value: string): LinkValue {
     labels.push(...EXAMPLE_DOMAIN.split('.'));
   }
   const host = labels.filter((label) => /^[a-z0-9-]+$/.test(label)).join('.');
-  const rest = `${url.pathname === '/' ? '' : url.pathname}${url.search}${url.hash}`;
-  return { to: 'example', value: `https://${host}${rest.replace(OLD_NAMES, NEW_NAME)}` };
+  return { to: 'example', value: `https://${host}${rest}` };
 }
 
 /** The ranges of the sentences of a text; together they cover all of it. */

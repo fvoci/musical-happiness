@@ -3,7 +3,8 @@
  *
  *   node tools/preview.ts [port] [base path]
  *
- * Every path that is not under `static/` answers with `index.html`, with the
+ * Every path that is not under `static/` answers with `index.html`, under a
+ * content security policy (tools/build/inline-scripts.ts), with the
  * base path filled into the placeholder. Files under `static/` are sent with
  * the cache rule the server uses, and a `.br`, `.zst` or `.gz` file next to
  * one is sent in its place when the client accepts it (build/encodings.ts
@@ -15,6 +16,7 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 
 import { chooseEncoding } from './build/encodings.ts';
+import { contentSecurityPolicy } from './build/inline-scripts.ts';
 import { hasContentHash } from './build/output.ts';
 
 const DIST = path.resolve(import.meta.dirname, '../dist');
@@ -30,6 +32,15 @@ const TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.woff2': 'font/woff2',
 };
+
+/** The policy for the page, with the hashes the build wrote for its inline script. */
+function policy(): string {
+  const file = path.join(DIST, 'csp.json');
+  const hashes = existsSync(file)
+    ? (JSON.parse(readFileSync(file, 'utf8')) as { 'script-src': string[] })['script-src']
+    : [];
+  return contentSecurityPolicy(hashes);
+}
 
 createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
@@ -68,7 +79,13 @@ createServer((request, response) => {
 
   const index = readFileSync(path.join(DIST, 'index.html'), 'utf8');
   response
-    .writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' })
+    .writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      // The page runs under a policy here as it will on the server, so that
+      // the browser tests notice anything the policy would stop.
+      'Content-Security-Policy': policy(),
+    })
     .end(index.replaceAll('{{.BaseURL}}', basePath));
 }).listen(port, '127.0.0.1', () => {
   console.log(`preview: http://127.0.0.1:${port}${basePath}/`);

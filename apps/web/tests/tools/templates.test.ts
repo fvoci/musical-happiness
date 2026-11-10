@@ -155,10 +155,10 @@ describe('links that lead outside', () => {
     expect(moved('http://user-images.site.com:8080/a/b.gif?x=1#top')).toBe(
       'https://user-images.site.example.com/a/b.gif?x=1#top',
     );
-    // The company is told by the host alone. Named in a path, it is replaced like in any text.
-    expect(moved(`https://twitter.com/${COMPANY.toLowerCase()}/status/1?s=20`)).toBe(
-      'https://twitter.example.com/fvoci/status/1?s=20',
-    );
+    // Named in the path, the company is where the address leads: its account on another site.
+    expect(rewriteLinkValue(`https://twitter.com/${COMPANY.toLowerCase()}/status/1?s=20`)).toEqual({
+      to: 'removed',
+    });
     expect(moved('http://docs.example.com/x')).toBe('https://docs.example.com/x');
     expect(moved('localhost')).toBe('https://localhost.example.com');
   });
@@ -336,7 +336,7 @@ describe('the committed templates', () => {
     // Every address in the output is the whole value of a link property, and an example.
     const addresses = everything.match(/https?:\/\/|\bwww\./gi) ?? [];
     const values = output.templates.flatMap(linkValues).filter(valueLeadsOutside);
-    expect(values).toHaveLength(11);
+    expect(values).toHaveLength(10);
     expect(addresses).toHaveLength(values.length);
     for (const value of values) expect(isExampleAddress(value), value).toBe(true);
     // No body of a card has a link that leads outside, example or not.
@@ -392,8 +392,8 @@ describe('the committed templates', () => {
       'old-name': 9,
       'product-word': 5,
       'outside-link': 1,
-      'outside-link-value': 21,
-      'example-link-value': 11,
+      'outside-link-value': 22,
+      'example-link-value': 10,
     });
     expect(Object.keys(output.index.changes)).toEqual([...CHANGE_RULES]);
     expect(output.changes).toHaveLength(47);
@@ -416,9 +416,9 @@ describe('the committed templates', () => {
     const removed = output.changes.filter((change) => change.rule === 'outside-link-value');
     for (const change of removed) {
       expect(change.after).toBe('');
-      // The host has the masked name as one of its labels.
+      // The masked name is a label of the host, or is in the path.
       expect(change.before, change.title).toMatch(
-        /^https:\/\/(?:[a-z0-9-]+\.)*\{old company name\}\.com\//,
+        /^https:\/\/(?:(?:[a-z0-9-]+\.)*\{old company name\}\.com\/|[^/]+\/.*\{old company name\})/,
       );
     }
     const moved = output.changes.filter((change) => change.rule === 'example-link-value');
