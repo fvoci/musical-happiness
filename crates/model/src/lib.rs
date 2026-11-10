@@ -15,6 +15,7 @@ mod card;
 mod category;
 mod client_config;
 mod error_response;
+mod file_info;
 mod id;
 mod serde_util;
 mod sharing;
@@ -47,6 +48,7 @@ pub use category::{
 };
 pub use client_config::ClientConfig;
 pub use error_response::ErrorResponse;
+pub use file_info::FileInfo;
 pub use id::{IdKind, new_id};
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};

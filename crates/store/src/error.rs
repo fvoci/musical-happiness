@@ -1,0 +1,109 @@
+//! The error type of the store.
+
+use fvoci_model::{BlockError, BoardError, BoardsAndBlocksError, CategoryError, SubscriptionError};
+use thiserror::Error;
+
+/// An error from a [`Store`](crate::Store) operation.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum StoreError {
+    /// A record that the operation needs does not exist.
+    #[error("{{{0}}} not found")]
+    NotFound(String),
+
+    /// A lookup of a single session, team or sharing record matched no row.
+    ///
+    /// The original reports these with its database layer's message instead of naming the
+    /// record, and that message reaches HTTP clients, so it is kept.
+    #[error("sql: no rows in result set")]
+    NoRows,
+
+    /// An update addressed a user that does not exist, by identifier or by name.
+    ///
+    /// Unlike [`StoreError::NotFound`] this is not a "not found" for the HTTP layer: the
+    /// original reports it as a server error, or as part of a "bad request" message when
+    /// a user changes their own password.
+    #[error("user not found ({0})")]
+    UserNotFound(String),
+
+    /// Fewer records exist than the operation asked for.
+    #[error("not all instances of {{{entity}}} in {{{}}} found", .ids.join(", "))]
+    NotAllFound {
+        /// The kind of record, such as `block`.
+        entity: &'static str,
+        /// The identifiers that were asked for.
+        ids: Vec<String>,
+    },
+
+    /// A block failed validation before it was written.
+    #[error("error validating block {id}: {source}")]
+    InvalidBlock {
+        /// The identifier of the block.
+        id: String,
+        /// What is wrong with it.
+        source: BlockError,
+    },
+
+    /// A block operation was given unusable arguments.
+    #[error(transparent)]
+    Block(#[from] BlockError),
+
+    /// A board failed validation before it was written.
+    #[error(transparent)]
+    InvalidBoard(#[from] BoardError),
+
+    /// A boards-and-blocks request failed validation.
+    #[error(transparent)]
+    InvalidBoardsAndBlocks(#[from] BoardsAndBlocksError),
+
+    /// A block listed for deletion belongs to none of the boards listed with it.
+    #[error("block {block_id} doesn't belong to any of the boards in the delete request")]
+    BlockNotInDeletedBoards {
+        /// The identifier of the block.
+        block_id: String,
+    },
+
+    /// A category failed validation before it was written.
+    #[error(transparent)]
+    InvalidCategory(#[from] CategoryError),
+
+    /// A subscription failed validation before it was written.
+    #[error(transparent)]
+    InvalidSubscription(#[from] SubscriptionError),
+
+    /// The database configuration cannot be used.
+    #[error("invalid database configuration: {0}")]
+    Config(String),
+
+    /// The database holds a schema this server cannot use.
+    #[error("unsupported database schema: {0}")]
+    Schema(String),
+
+    /// A stored value cannot be decoded.
+    #[error("corrupt value in column {column}: {reason}")]
+    Corrupt {
+        /// The column, as named in the query.
+        column: &'static str,
+        /// Why the value was rejected.
+        reason: String,
+    },
+
+    /// The database reported an error.
+    #[error("database error: {0}")]
+    Database(#[from] sqlx::Error),
+}
+
+impl StoreError {
+    /// Returns `true` if the error means a record does not exist, which the HTTP layer
+    /// reports as "not found" rather than as a server error.
+    pub fn is_not_found(&self) -> bool {
+        matches!(
+            self,
+            Self::NotFound(_) | Self::NotAllFound { .. } | Self::NoRows
+        )
+    }
+
+    pub(crate) fn not_found(what: impl std::fmt::Display) -> Self {
+        Self::NotFound(what.to_string())
+    }
+}

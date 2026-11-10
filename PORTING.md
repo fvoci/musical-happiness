@@ -13,14 +13,15 @@
 | 크레이트 | 경로 | 원본 | 상태 |
 |---|---|---|---|
 | `fvoci-model` | `crates/model` | `server/model`, `server/utils/utils.go`, `server/services/auth/email.go` | 완료 (S1) |
-| `fvoci-store` | `crates/store` | `server/services/store` | S2 |
+| `fvoci-store` | `crates/store` | `server/services/store` | 완료 (S2) |
 | `fvoci-server` | `crates/server` | `server/api`, `server/app`, `server/auth`, `server/ws`, `server/web`, `server/services/*` | S3–S4 |
 
 ## 검증 도구
 
 | 도구 | 위치 | 용도 |
 |---|---|---|
-| 오라클 | `target/oracle/go-server` | 원본 서버를 Go 1.21.8, 태그 `json1 sqlite3`로 빌드한 바이너리. 차등 비교, 스키마 비교, DB 왕복에 쓴다 |
+| 오라클 | `target/oracle/go-server`, 실행은 `scripts/oracle-run.sh <name> <port> [single-user 토큰] [dbtype] [dbconfig]` | 원본 서버를 Go 1.21.8, 태그 `json1 sqlite3`로 빌드한 바이너리. 차등 비교, 스키마 비교, DB 왕복에 쓴다 |
+| PostgreSQL | 컨테이너 `hafgufa-pg` (127.0.0.1:15433, PostgreSQL 18.6) | 스토어·서버 테스트의 PostgreSQL 실행. `FVOCI_STORE_TEST_DB_TYPE=postgres`, `FVOCI_STORE_TEST_CONN_STRING=postgres://fvoci:fvoci-test@localhost:15433/fvoci?sslmode=disable` |
 | 원본 웹 번들 | `webapp/pack` | `npm ci && npm run pack` (Node 26.13.0에서 빌드됨) |
 | Cypress | `scripts/e2e-cypress.sh <label> <server>` | 원본 스펙 6개(테스트 11개)를 임의의 서버 바이너리에 실행. 결과는 `target/e2e/<label>/` |
 
@@ -43,4 +44,4 @@
 
 | # | 항목 | 현재 동작 | 단계 |
 |---|---|---|---|
-| (없음) | | | |
+| 1 | **사용자 설정(preferences)의 카테고리 값.** 원본은 `preferences` 테이블의 `category` 컬럼에 원본 제품 이름을 값으로 쓴다(`server/services/store/sqlstore/user.go:273,297,378`). 계획은 "DB에는 옛 이름이 없다"고 전제했지만 이 한 곳에는 있다. `crates/` 아래에 옛 이름을 두지 않는다는 조건과 Go 서버와의 DB 호환이 여기서 충돌한다 | 포트는 `fvoci`를 쓴다. 그래서 원본이 만든 DB를 포트로 열면 사용자 설정(온보딩 진행 상태 등)이 비어 보이고, 반대 방향도 같다. 데이터는 지워지지 않는다. 호환이 더 중요하면 상수 하나를 옛 값으로 바꾸면 되지만 그러면 `crates/` 검색에 1건이 남는다 | S2 |

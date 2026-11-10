@@ -32,6 +32,7 @@
 | `LoginRequest`, `LoginResponse`, `RegisterRequest`, `ChangePasswordRequest` | 같은 이름, `validate` → `AuthParamError` | |
 | `auth.IsEmailValid` | `is_email_valid` | 정규식 대신 같은 규칙을 직접 검사 |
 | `Team`, `Sharing`, `Subscription`, `Subscriber`, `ClientConfig`, `ArchiveHeader`, `ArchiveLine`, `ErrorResponse` | 같은 이름 | |
+| 호스트 애플리케이션의 파일 정보 구조체 (`GetFileInfo`가 돌려주는 값) | `FileInfo` | 원본 SQL이 읽고 쓰는 멤버와 `model.NewFileInfo`가 채우는 멤버만: `id`, `user_id`, `create_at`, `update_at`, `delete_at`, `name`, `extension`, `size`, `mime_type`, `archived`. `path`는 직렬화하지 않는다 |
 | `SingleUser`, `GlobalTeamID`, `SystemUserID` | `SINGLE_USER_ID`, `GLOBAL_TEAM_ID`, `SYSTEM_USER_ID` | |
 
 옮기지 않은 것:
@@ -90,6 +91,6 @@
 
 - `cargo fmt --check`: 통과
 - `cargo clippy -p fvoci-model --all-targets --all-features -- -D warnings`: 통과
-- `cargo test -p fvoci-model`: 67개 통과 (단위 3, `block_ids` 12, `boards_and_blocks` 12, `card` 11, `validation` 9, `wire_format` 20)
+- `cargo test -p fvoci-model`: 68개 통과 (단위 4, `block_ids` 12, `boards_and_blocks` 12, `card` 11, `validation` 9, `wire_format` 20)
 - `RUSTDOCFLAGS="-D warnings" cargo doc -p fvoci-model --no-deps`: 통과
 - 원본 Go 테스트는 이 단계에서 따로 돌리지 않았다. JSON 형식이 오라클과 일치하는지는 서버 트랙 S5의 차등 비교에서 확인한다.

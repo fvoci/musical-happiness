@@ -1,0 +1,270 @@
+//! Sidebar categories: a user's named groups of boards within a team.
+//!
+//! A category is never removed from its table. Deleting one sets its `delete_at`, after
+//! which it is still found by identifier but no longer listed.
+
+use fvoci_model::{Category, CategoryType};
+
+use crate::Store;
+use crate::db::{Row, Scope, now_millis};
+use crate::error::StoreError;
+
+/// The distance between the sort orders of consecutive categories. Categories are listed
+/// by ascending sort order, so it is also how far a new category pushes the others down.
+const CATEGORY_SORT_ORDER_GAP: i64 = 10;
+
+/// The columns of a category, in the order [`category_from_row`] reads them.
+const CATEGORY_COLUMNS: &str = "id, name, user_id, team_id, create_at, update_at, delete_at, \
+                                collapsed, COALESCE(sort_order, 0), type";
+
+impl Store {
+    /// Returns the category with the given identifier, deleted or not.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such category and
+    /// [`StoreError::Corrupt`] if its stored type is not one this server knows.
+    pub async fn get_category(&self, id: &str) -> Result<Category, StoreError> {
+        self.with_conn(async |scope| get_category(scope, id).await)
+            .await
+    }
+
+    /// Returns the categories of a user in a team that are not deleted, by ascending sort
+    /// order and then by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Corrupt`] if the stored type of one of them is not one this
+    /// server knows, and [`StoreError::Database`] if the query fails.
+    pub async fn get_user_categories(
+        &self,
+        user_id: &str,
+        team_id: &str,
+    ) -> Result<Vec<Category>, StoreError> {
+        self.with_conn(async |scope| get_user_categories(scope, user_id, team_id).await)
+            .await
+    }
+
+    /// Stores `category` as given and moves every category of its user and team that is
+    /// not deleted down by one place, so that a category created with sort order zero
+    /// ends up first.
+    ///
+    /// The category is not validated and its `sorting` is not stored. The category itself
+    /// is among those moved down: one that is not deleted is stored with a sort order ten
+    /// higher than given.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails, for instance because the
+    /// identifier is taken; nothing is written in that case.
+    pub async fn create_category(&self, category: &Category) -> Result<(), StoreError> {
+        self.transaction(async |scope| create_category(scope, category).await)
+            .await
+    }
+
+    /// Overwrites the name, the modification time and the collapsed state of the category
+    /// that has the identifier of `category`, with the values `category` holds.
+    ///
+    /// Every other member of `category` is ignored. Updating a category that does not
+    /// exist or is deleted succeeds and changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn update_category(&self, category: &Category) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!("UPDATE {} SET ", scope.table("categories")));
+            sql.push_bind("name = ", &category.name)
+                .push_bind(", update_at = ", category.update_at)
+                .push_bind(", collapsed = ", category.collapsed)
+                .push_bind(" WHERE id = ", &category.id)
+                .push(" AND delete_at = 0");
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Marks a category of a user in a team as deleted, as of now.
+    ///
+    /// Deleting a category that does not exist, belongs to another user or team, or is
+    /// deleted already succeeds and changes nothing. The boards in the category stay
+    /// assigned to it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn delete_category(
+        &self,
+        category_id: &str,
+        user_id: &str,
+        team_id: &str,
+    ) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "UPDATE {} SET delete_at = ",
+                scope.table("categories")
+            ));
+            sql.bind(now_millis())
+                .push_bind(" WHERE id = ", category_id)
+                .push_bind(" AND user_id = ", user_id)
+                .push_bind(" AND team_id = ", team_id)
+                .push(" AND delete_at = 0");
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Gives the categories of a user in a team the sort orders 0, 10, 20 and so on, in
+    /// the order of their identifiers in `new_order`, and returns `new_order`.
+    ///
+    /// Categories of the user and team that `new_order` does not name keep their sort
+    /// order, deleted categories that it names are moved too, and identifiers that are not
+    /// categories of the user and team are ignored. An empty order changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn reorder_categories(
+        &self,
+        user_id: &str,
+        team_id: &str,
+        new_order: Vec<String>,
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            if new_order.is_empty() {
+                return Ok(());
+            }
+            let mut sql = scope.sql(&format!(
+                "UPDATE {} SET sort_order = CASE id",
+                scope.table("categories")
+            ));
+            let sort_orders = (0..).map(|position: i64| position * CATEGORY_SORT_ORDER_GAP);
+            for (sort_order, category_id) in sort_orders.zip(&new_order) {
+                sql.push_bind(" WHEN ", category_id)
+                    .push_bind(" THEN ", sort_order);
+            }
+            // Preserved quirk: deleted categories are within reach of this statement,
+            // unlike every other write to the table
+            // (server/services/store/sqlstore/category.go:228).
+            sql.push(" ELSE sort_order END")
+                .push_bind(" WHERE user_id = ", user_id)
+                .push_bind(" AND team_id = ", team_id);
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await?;
+        Ok(new_order)
+    }
+}
+
+/// Reads the `type` column.
+///
+/// The column is nullable. The original gave every category that predates the column the
+/// type `custom` (its schema migration 29) and reads a blank type of an incoming category
+/// as `custom` (`server/model/category.go:82`), so a row without a type is a custom
+/// category.
+fn category_type_from_column(value: &str) -> Result<CategoryType, StoreError> {
+    let known = [CategoryType::System, CategoryType::Custom]
+        .into_iter()
+        .find(|category_type| category_type.as_str() == value);
+    match known {
+        Some(category_type) => Ok(category_type),
+        None if value.trim().is_empty() => Ok(CategoryType::Custom),
+        None => Err(StoreError::Corrupt {
+            column: "type",
+            reason: format!("unknown category type {value:?}"),
+        }),
+    }
+}
+
+fn category_from_row(row: &Row) -> Result<Category, StoreError> {
+    Ok(Category {
+        id: row.text(0)?,
+        name: row.text(1)?,
+        user_id: row.text(2)?,
+        team_id: row.text(3)?,
+        create_at: row.int(4)?,
+        update_at: row.int(5)?,
+        delete_at: row.int(6)?,
+        collapsed: row.bool(7)?,
+        sort_order: row.int(8)?,
+        // The table has no column for the sorting method.
+        sorting: String::new(),
+        category_type: category_type_from_column(&row.text(9)?)?,
+    })
+}
+
+pub(crate) async fn get_category(scope: &mut Scope<'_>, id: &str) -> Result<Category, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {CATEGORY_COLUMNS} FROM {} WHERE id = ",
+        scope.table("categories")
+    ));
+    sql.bind(id);
+    match scope.fetch_optional(sql).await? {
+        Some(row) => category_from_row(&row),
+        None => Err(StoreError::not_found(format_args!("category ID={id}"))),
+    }
+}
+
+pub(crate) async fn get_user_categories(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    team_id: &str,
+) -> Result<Vec<Category>, StoreError> {
+    let mut sql = scope.sql(&format!(
+        "SELECT {CATEGORY_COLUMNS} FROM {} WHERE user_id = ",
+        scope.table("categories")
+    ));
+    // Preserved quirk: the order is by the stored sort order, not by the one read. A
+    // category without one reads as zero, yet is listed before every other category on
+    // SQLite and after every other on PostgreSQL
+    // (server/services/store/sqlstore/category.go:174).
+    sql.bind(user_id)
+        .push_bind(" AND team_id = ", team_id)
+        .push(" AND delete_at = 0 ORDER BY sort_order, name");
+    scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(category_from_row)
+        .collect()
+}
+
+pub(crate) async fn create_category(
+    scope: &mut Scope<'_>,
+    category: &Category,
+) -> Result<(), StoreError> {
+    let mut sql = scope.sql(&format!(
+        "INSERT INTO {} (id, name, user_id, team_id, create_at, update_at, delete_at, \
+         collapsed, sort_order, type) VALUES (",
+        scope.table("categories")
+    ));
+    sql.bind(&category.id)
+        .push_bind(", ", &category.name)
+        .push_bind(", ", &category.user_id)
+        .push_bind(", ", &category.team_id)
+        .push_bind(", ", category.create_at)
+        .push_bind(", ", category.update_at)
+        .push_bind(", ", category.delete_at)
+        .push_bind(", ", category.collapsed)
+        .push_bind(", ", category.sort_order)
+        .push_bind(", ", category.category_type.as_str())
+        .push(")");
+    scope.execute(sql).await?;
+
+    // Preserved quirk: the row inserted above matches this statement too, so the new
+    // category moves down with the existing ones and keeps its place relative to them
+    // (server/services/store/sqlstore/category.go:96).
+    let mut sql = scope.sql(&format!(
+        "UPDATE {} SET sort_order = sort_order + ",
+        scope.table("categories")
+    ));
+    sql.bind(CATEGORY_SORT_ORDER_GAP)
+        .push_bind(" WHERE user_id = ", &category.user_id)
+        .push_bind(" AND team_id = ", &category.team_id)
+        .push(" AND delete_at = 0");
+    scope.execute(sql).await?;
+    Ok(())
+}
