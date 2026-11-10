@@ -223,7 +223,7 @@ async fn handle_post_blocks(
         serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
     for (block, body) in blocks.iter_mut().zip(bodies) {
         // Refused before anything is copied for it.
-        if body.is_some() && block.block_type != BlockType::Card {
+        if body.is_some() && !block.block_type.has_body() {
             return Err(BlockError::BodyNotAllowed.into());
         }
         block.body = body;

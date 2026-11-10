@@ -51,6 +51,13 @@ pub enum BlockType {
 }
 
 impl BlockType {
+    /// Returns `true` for the types that may have a body: a card and a comment
+    /// (`docs/s6-design.md` 5.7).
+    #[must_use]
+    pub fn has_body(&self) -> bool {
+        matches!(self, Self::Card | Self::Comment)
+    }
+
     /// Returns the wire string of this type.
     pub fn as_str(&self) -> &str {
         match self {
@@ -162,7 +169,7 @@ pub enum BlockError {
     #[error(transparent)]
     InvalidCardProperties(#[from] CardPropertyError),
     /// A block that is not a card has a body.
-    #[error("only a card has a body")]
+    #[error("only a card or a comment has a body")]
     BodyNotAllowed,
 }
 
@@ -197,9 +204,9 @@ pub struct Block {
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
-    /// The body of a card; `null` for a block without one. Only a card has one: a body
-    /// on another block is refused (400 naming `body`). Every image of it shows a file
-    /// of the block's board.
+    /// The body of a card or a comment; `null` for a block without one. Only those two
+    /// have one: a body on another block is refused (400 naming `body`). Every image of
+    /// it shows a file of the block's board.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
@@ -238,7 +245,7 @@ impl Block {
             _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
         validate_block_properties(&self.fields)?;
-        if self.body.is_some() && self.block_type != BlockType::Card {
+        if self.body.is_some() && !self.block_type.has_body() {
             return Err(BlockError::BodyNotAllowed);
         }
         Ok(())
@@ -290,7 +297,7 @@ pub struct BlockPatch {
     /// Keys of fields to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
-    /// The new body of a card; `null` takes the body away. Sent only with `readAt`
+    /// The new body of a card or a comment; `null` takes the body away. Sent only with `readAt`
     /// (400 naming `readAt` without it).
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]

@@ -567,11 +567,6 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
                    "createAt": 1, "updateAt": 1, "body": document()}),
             "body",
         ),
-        (
-            json!({"id": "c1", "boardId": board.id, "parentId": card_id, "type": "comment",
-                   "createAt": 1, "updateAt": 1, "body": document()}),
-            "body",
-        ),
     ] {
         let response = th.client.post(&blocks, &[block]).await;
         check_refused_member(&response, field);
@@ -783,6 +778,118 @@ async fn copied_files_are_shown_and_an_unused_upload_is_collected() {
             .await
             .check_ok();
     }
+
+    th.teardown().await;
+}
+
+/// The block of that identifier, as the routes of blocks list it.
+async fn block_of(client: &Client, board_id: &str, block_id: &str) -> Value {
+    let blocks: Vec<Value> = client
+        .get(&format!("/boards/{board_id}/blocks"))
+        .await
+        .ok_json();
+    blocks
+        .into_iter()
+        .find(|block| block["id"] == json!(block_id))
+        .expect("the block is listed")
+}
+
+/// A comment has a body as a card does (`docs/s6-design.md` 5.7): checked, changed only
+/// with `readAt`, its images files of its board, and copied with its card.
+#[tokio::test]
+async fn a_comment_has_a_body() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let blocks = format!("/boards/{}/blocks", board.id);
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
+    );
+    let elsewhere = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &other.id, "other.png", b"png").await,
+    );
+    let card: Card = new_card(&th.client, &board.id, &json!({"title": "Card"}))
+        .await
+        .created_json();
+    let comment = |body: &Value| {
+        json!([{"id": "c1", "boardId": board.id, "parentId": card.id, "type": "comment",
+                "createAt": 1, "updateAt": 1, "body": body}])
+    };
+
+    check_refused_member(
+        &th.client
+            .post(&blocks, &comment(&with_image(&elsewhere)))
+            .await,
+        "body",
+    );
+    check_refused_member(
+        &th.client
+            .post(
+                &blocks,
+                &comment(&json!({"type": "doc", "content": [{"type": "table"}]})),
+            )
+            .await,
+        "body",
+    );
+    let made: Vec<Value> = th
+        .client
+        .post(&blocks, &comment(&with_image(&file_id)))
+        .await
+        .created_json();
+    let comment_id = made[0]["id"].as_str().expect("an id").to_owned();
+    assert_eq!(made[0]["body"], with_image(&file_id), "{made:?}");
+    let stored = block_of(&th.client, &board.id, &comment_id).await;
+    assert_eq!(stored["body"], with_image(&file_id), "{stored}");
+
+    // Changed with the `updateAt` it was read at.
+    let path = format!("{blocks}/{comment_id}");
+    check_refused_member(
+        &th.client.patch(&path, &json!({"body": document()})).await,
+        "readAt",
+    );
+    th.client
+        .patch(
+            &path,
+            &json!({"body": document(), "readAt": stored["updateAt"]}),
+        )
+        .await
+        .check_no_content();
+    assert_eq!(
+        block_of(&th.client, &board.id, &comment_id).await["body"],
+        document()
+    );
+    let read = block_of(&th.client, &board.id, &comment_id).await;
+    th.client
+        .patch(
+            &path,
+            &json!({"body": with_image(&file_id), "readAt": read["updateAt"]}),
+        )
+        .await
+        .check_no_content();
+
+    // Copying and moving leave comments behind, as the original does; a comment made
+    // from another board's shows copies of that board's files.
+    let other_card: Card = new_card(&th.client, &other.id, &json!({"title": "Card"}))
+        .await
+        .created_json();
+    let made: Vec<Value> = th
+        .client
+        .post(
+            &format!("/boards/{}/blocks?sourceBoardId={}", other.id, board.id),
+            &json!([{"id": "c2", "boardId": other.id, "parentId": other_card.id,
+                     "type": "comment", "createAt": 1, "updateAt": 1,
+                     "body": with_image(&file_id)}]),
+        )
+        .await
+        .created_json();
+    let name = made[0]["body"]["content"][1]["attrs"]["fileId"]
+        .as_str()
+        .expect("a file");
+    assert_ne!(name, file_id, "a copy of the file");
+    th.client
+        .get(&format!("/boards/{}/files/{name}", other.id))
+        .await
+        .check_ok();
 
     th.teardown().await;
 }
