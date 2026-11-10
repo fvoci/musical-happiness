@@ -243,8 +243,27 @@ export class ServerBackend implements Backend, Account {
     return notWired('createView');
   }
 
-  patchView(_boardId: string, _viewId: string, _patch: BlockPatch): Promise<BoardView> {
-    return notWired('patchView');
+  /**
+   * Changes a view through its block: the server answers 204 and nothing
+   * else, so the view is read again. `updatedFields` replaces a field
+   * whole, as the screens' patch means.
+   */
+  async patchView(boardId: string, viewId: string, patch: BlockPatch): Promise<BoardView> {
+    const { deleteAt: _deleteAt, ...request } = patch;
+    await this.#http.request(
+      '/api/v1/boards/{boardId}/blocks/{blockId}',
+      { boardId, blockId: viewId },
+      { method: 'PATCH', json: request },
+    );
+    const [view] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { query: { blockId: viewId } },
+    );
+    if (view?.type !== 'view') {
+      throw new BackendError(404, { message: 'no such view on this board', reason: 'not_found' });
+    }
+    return viewOf(view);
   }
 
   /** Every card of the board, in one page (`perPage` 0 asks for all). */

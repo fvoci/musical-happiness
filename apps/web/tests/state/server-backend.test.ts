@@ -252,3 +252,27 @@ describe('changing a card on the server', () => {
     expect(answer.fields.properties).toEqual({});
   });
 });
+
+describe('changing a view on the server', () => {
+  it('patches its block without what the contract does not have, and reads it again', async () => {
+    const sent = serve([
+      {
+        ...BLOCK,
+        id: 'v',
+        parentId: 'b',
+        type: 'view',
+        title: 'Board',
+        fields: { cardOrder: ['c2', 'c1'] },
+      },
+    ]);
+    const view = await new ServerBackend('').patchView('b', 'v', {
+      updatedFields: { cardOrder: ['c2', 'c1'] },
+      deleteAt: 0,
+    });
+    expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
+      ['PATCH', '/api/v1/boards/b/blocks/v', { updatedFields: { cardOrder: ['c2', 'c1'] } }],
+      ['GET', '/api/v1/boards/b/blocks?blockId=v', undefined],
+    ]);
+    expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
+  });
+});

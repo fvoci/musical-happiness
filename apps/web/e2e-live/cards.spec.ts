@@ -138,3 +138,69 @@ test('a card’s title and values are changed on the server, the last value take
   await api.dispose();
   expect(errors).toEqual([]);
 });
+
+test('a card carried to another column and a place in it is moved on the server', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('mover');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Moves',
+    cards: [
+      { title: 'Sweep', status: 'To do' },
+      { title: 'Mop', status: 'To do' },
+      { title: 'Dust', status: 'Done' },
+    ],
+  });
+  const card = (title: string) =>
+    page.locator('[data-card]').filter({ has: page.getByText(title, { exact: true }) });
+  const titlesIn = (name: string) =>
+    column(page, name)
+      .locator('[data-card] [data-slot="card-title-text"]')
+      .evaluateAll((titles) => titles.map((element) => element.textContent.trim()));
+
+  const errors = watchErrors(page);
+  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await signInOnPage(page, owner);
+  await expect(card('Sweep')).toBeVisible();
+
+  // With the keyboard: To do, two columns to the right (Done), above Dust.
+  await card('Sweep').focus();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Space');
+  await expect.poll(() => titlesIn('Done')).toEqual(['Sweep', 'Dust']);
+
+  // On the server: the card's value, and its place in the view's order.
+  const sweep = board.cards.Sweep ?? '';
+  const dust = board.cards.Dust ?? '';
+  await expect
+    .poll(
+      async () =>
+        ((await (await api.get(`/api/v1/cards/${sweep}`)).json()) as Schemas['Card']).properties,
+    )
+    .toEqual({ status: board.options.Done });
+  await expect
+    .poll(async () => {
+      const [view] = (await (
+        await api.get(`/api/v1/boards/${board.boardId}/blocks`, {
+          params: { blockId: board.viewId },
+        })
+      ).json()) as Schemas['Block'][];
+      const order = (view?.fields.cardOrder ?? []) as string[];
+      return order.indexOf(sweep) >= 0 && order.indexOf(sweep) < order.indexOf(dust);
+    })
+    .toBe(true);
+
+  await page.reload();
+  await expect.poll(() => titlesIn('Done')).toEqual(['Sweep', 'Dust']);
+  expect(await titlesIn('To do')).toEqual(['Mop']);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
