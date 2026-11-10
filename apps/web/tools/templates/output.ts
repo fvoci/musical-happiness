@@ -260,6 +260,26 @@ function readProperties(raw: readonly unknown[]): TemplateProperty[] {
   });
 }
 
+/**
+ * The document without its image nodes, and how many there were. A node that held
+ * nothing but images goes with them, and a document left with nothing is no body.
+ * The built-in templates carry no pictures (server design 3.10, decision 18).
+ */
+export function withoutImages(doc: DocNode): { doc: DocNode | null; removed: number } {
+  let removed = 0;
+  const prune = (node: DocNode): DocNode | null => {
+    if (node.type === 'image') {
+      removed += 1;
+      return null;
+    }
+    if (!node.content) return node;
+    const content = node.content.map(prune).filter((child): child is DocNode => child !== null);
+    if (content.length === 0 && node.content.length > 0 && node.type !== 'paragraph') return null;
+    return { ...node, content };
+  };
+  return { doc: prune(doc), removed };
+}
+
 /** Converts the archive. Throws when the result is not what the rules promise. */
 export function convertTemplates(file: string = TEMPLATE_ARCHIVE): Output {
   const source = readFileSync(file);
@@ -278,6 +298,8 @@ export function convertTemplates(file: string = TEMPLATE_ARCHIVE): Output {
     orphanContentBlocks: 0,
     /** Titles that lost the marker `(NEW)` or outer spaces. */
     cleanedTitles: 0,
+    /** Image nodes left out of the bodies (server design 3.10, decision 18). */
+    removedImages: 0,
   };
   let productWords = 0;
   const templates: Template[] = [];
@@ -356,7 +378,6 @@ export function convertTemplates(file: string = TEMPLATE_ARCHIVE): Output {
         byId.get(block.parentId)?.type !== 'card',
     ).length;
 
-    const files = new Map<string, TemplateFileReference>();
     const cards: TemplateCard[] = [];
     for (const block of archived.blocks.filter((candidate) => candidate.type === 'card')) {
       const title = renamed('card', undefined, 'title', cleanTitle(block.title));
@@ -420,6 +441,11 @@ export function convertTemplates(file: string = TEMPLATE_ARCHIVE): Output {
         }
       }
       if (body) {
+        const pictureless = withoutImages(body);
+        conversions.removedImages += pictureless.removed;
+        body = pictureless.doc;
+      }
+      if (body) {
         const problems = validateDoc(body);
         if (problems.length > 0) {
           throw new Error(`${board.title} / ${title}: ${problems.join('; ')}`);
@@ -433,20 +459,6 @@ export function convertTemplates(file: string = TEMPLATE_ARCHIVE): Output {
           if (/\bChannels?\b|Direct Message/.test(text)) {
             note('other-product', `${title} / body`, text);
           }
-        }
-        const images = (node: DocNode): string[] =>
-          node.type === 'image'
-            ? [String(node.attrs?.fileId)]
-            : (node.content ?? []).flatMap(images);
-        for (const fileId of images(body)) {
-          const file = archived.files.find((candidate) => candidate.name === fileId);
-          if (!file) throw new Error(`${board.title} / ${title}: no file ${fileId} in the archive`);
-          files.set(fileId, {
-            fileId,
-            archiveMember: `${archived.folder}/${file.name}`,
-            bytes: file.bytes,
-          });
-          note('image', `${title} / body`, fileId);
         }
       }
 
@@ -484,7 +496,7 @@ export function convertTemplates(file: string = TEMPLATE_ARCHIVE): Output {
         return { id: block.id, type: 'view', title, fields };
       });
 
-    templates.push({ key, onboarding, board, views, cards, files: [...files.values()] });
+    templates.push({ key, onboarding, board, views, cards, files: [] });
   }
 
   // What the rules promise, checked on the whole result.

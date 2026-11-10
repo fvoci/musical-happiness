@@ -146,7 +146,7 @@ D절과 G절부터는 설계 문서(`docs/s6-design.md`)의 "구현 순서"를 �
 
 **xtask의 구성.** 형제 저장소 `fvoci/groundzero`의 xtask에서 뼈대만 참고했다: 별칭, 외부 서비스가 없는 `check`와 컨테이너를 준비하는 `test`의 구분, 모든 단계를 끝까지 돌리고 요약하는 것. 코드는 복사하지 않았다.
 
-**이름 검사가 찾은 것.** `cargo xtask check`의 이름 검사는 `crates/`와 `xtask/`의 코드에서 원본 제품의 두 이름이 0건임을 확인한다. 스냅샷에는 1건이 있다(`golden/templates.json`의 온보딩 보드 설명). 내장 템플릿의 아카이브(`server/assets/templates.boardarchive`)를 그대로 바이너리에 넣는데, 그 본문과 링크에 원본 이름이 37번 나오기 때문이다. 검사는 이것을 실패가 아니라 주석으로 보고한다. 템플릿을 새로 받을 때 없어진다(설계 3.10).
+**이름 검사가 찾은 것.** `cargo xtask check`의 이름 검사는 `crates/`와 `xtask/`의 코드에서 원본 제품의 두 이름이 0건임을 확인한다. 스냅샷에는 1건이 있다(`golden/templates.json`의 온보딩 보드 설명). 내장 템플릿의 아카이브(`server/assets/templates.boardarchive`)를 그대로 바이너리에 넣는데, 그 본문과 링크에 원본 이름이 37번 나오기 때문이다. 검사는 이것을 실패가 아니라 주석으로 보고한다. 템플릿을 새로 받을 때 없어진다(설계 3.10). S7의 tracer-bullet 5에서 템플릿을 변환기의 산출물로 바꾸면서 없어졌다(0건).
 
 **확인한 것과 하지 못한 것.**
 
@@ -889,6 +889,8 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 | 2c 파일 참조와 수거, 2b 반영분 | `e32d207..528e03f` | Must 1, Should 4, Consider 4 | Must: 수거가 읽은 뒤에 다시 보지 않고 지우던 것(조건과 삭제를 `DELETE … RETURNING` 하나로). Should 모두 반영: 블록을 쓸 때 그 블록이 가리켰거나 가리키는 이름만, 상태가 뒤집히는 기록만 표시, 휴지통 비우기의 `NOT IN`을 `NOT EXISTS`로, 남은 파일의 로그에 경로, 테스트(마이그레이션의 깊은 이미지와 `attachmentId`만 있는 블록, 복제·`sourceBoardId`의 사본이 수거되지 않고 쓰지 않은 업로드는 수거됨). Consider 가운데 둘 반영: `shown_files`의 문서에 마이그레이션이 같은 규칙을 베낀다고, 다시 읽을 블록을 집합으로 |
 | 3 댓글의 본문 | `af52de8..96aed37` | Must 1, Should 2, Consider 3 | Must: 댓글만 쓸 수 있는 멤버가 `sourceBoardId`로 다른 보드의 파일을 복사해 넣을 수 있던 것(파일을 복사하게 되는 댓글만의 요청에 편집 권한을 요구). Should 모두 반영: 문서의 어긋남 넷(`createBoardsAndBlocks`, 8절의 아카이브 결함에 댓글, `file_refs`의 설명, 설계 머리의 남은 일), 테스트(배치 경로, 새 보드, 휴지통, 종류 바꾸기, 수거, commenter의 만들기·고치기·복사). Consider 모두 반영: 모델의 문서 둘, 긴 줄, commenter가 새 그림을 넣지 못하는 것을 계약 문서에 |
 | 4 날짜 값 | `1efd204..1d39724` | Must 1, Should 3, Consider 5 | Must: 종류 검사가 카드의 모든 값을 보아 정의가 바뀐 뒤의 카드를 쓰지도 복제하지도 못하던 것(쓰기가 바꾸는 값만 검사하고, 복제와 가져오기는 맞지 않는 종류의 값을 `null`로). Should 모두 반영: 데이터 단계가 먼저 자기 줄을 `DELETE … RETURNING`으로 차지, 보드 하나씩 읽기, 테스트(정의가 바뀐 카드, 패치 경로, 예전 아카이브, 휴지통의 보드와 뷰). Consider 가운데 셋 반영: 시각의 `to`가 범위를 넘으면 `to`만 버림, 오류 문구, 모델 밖에서 쓰지 않는 이름을 `pub(crate)`로·`#[must_use]`, 정수만 받는다는 것을 계약 문서에 |
+
+**스냅샷이 바뀐 것(tracer-bullet 5).** `golden/templates.json` 하나다. 템플릿 제목 7개의 끝 공백이 빠졌고, welcome 보드의 제목·설명에서 옛 제품 이름이 빠졌다. `templateVersion`이 6에서 7이 됐다. welcome 보드의 콘텐츠 블록(`checkbox` 8, `image` 8, `text` 16)이 없어지고 블록이 46개에서 14개가 됐다. `templateKey`가 생겼고, 제목에서 만드는 `trackingTemplateId`가 바뀌었다. 시나리오는 welcome 보드를 제목이 아니라 `onboarding` 표식으로 찾게 고쳤다.
 
 **받지 않은 지적.**
 

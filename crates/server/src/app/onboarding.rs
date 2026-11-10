@@ -80,14 +80,29 @@ impl App {
     /// It is looked for among the built-in templates only. A template that a user gave
     /// the welcome board's title, or its mark, is never handed to new users as their
     /// first board.
+    ///
+    /// When there is none (the templates were removed, or storing them at the start
+    /// failed), the built-in templates are stored again: they always hold the marked
+    /// board.
     async fn onboarding_board_id(&self) -> Result<String, AppError> {
+        if let Some(board) = self.marked_template().await? {
+            return Ok(board);
+        }
+        tracing::warn!(
+            "no built-in template is marked for the onboarding tour: storing them again"
+        );
+        self.init_templates().await?;
+        self.marked_template()
+            .await?
+            .ok_or_else(|| AppError::internal("the built-in templates hold no welcome board"))
+    }
+
+    /// The identifier of the built-in template marked for the tour, if there is one.
+    async fn marked_template(&self) -> Result<Option<String>, AppError> {
         let boards = self.store().get_builtin_templates().await?;
-        boards
+        Ok(boards
             .into_iter()
             .find(is_onboarding_template)
-            .map(|board| board.id)
-            .ok_or_else(|| {
-                AppError::internal("unable to find welcome board in newly created blocks")
-            })
+            .map(|board| board.id))
     }
 }

@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::common::{Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
 
 /// The title of the built-in welcome board.
-const WELCOME_TITLE: &str = "Welcome to Boards!";
+const WELCOME_TITLE: &str = "Welcome to fvoci!";
 
 /// Makes an open template in the global team, as any signed-in user can, that looks as
 /// much like the built-in welcome board as a client can make it: the same title and the
@@ -72,7 +72,8 @@ async fn marked_template(client: &Client) -> Board {
 /// the welcome board's title, whoever made it. On a server without the built-in
 /// templates that handed a user's template to every new user (this test, before the
 /// change, got the card `hijacked`). The tour copies the template the system made and
-/// marked, and nothing else: here there is none, so onboarding fails.
+/// marked, and nothing else: here there is none, so the built-in templates are stored
+/// and their welcome board is copied.
 #[tokio::test]
 async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -82,25 +83,22 @@ async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template
         "a client does not choose who created its board"
     );
 
-    let response = ts
+    let value = ts
         .client2
         .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
-        .await;
-
-    response.check_status(reqwest::StatusCode::INTERNAL_SERVER_ERROR);
-    let boards: Vec<Board> = ts
-        .client2
-        .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
         .await
-        .ok_json();
-    assert_eq!(
-        boards
-            .iter()
-            .filter(|board| !board.is_template)
-            .map(|board| board.title.as_str())
-            .collect::<Vec<_>>(),
-        Vec::<&str>::new(),
-        "no board was made for the user"
+        .ok_json::<Value>();
+    let board_id = value["boardId"].as_str().expect("a board id");
+    let titles = card_titles(&ts, &ts.client2, board_id).await;
+    assert!(!titles.is_empty(), "the welcome board has cards");
+    assert!(
+        !titles.iter().any(|title| title == "hijacked"),
+        "not the user's template: {titles:?}"
+    );
+    assert_ne!(
+        marked_template(&ts.client2).await.id,
+        impostor.id,
+        "the marked template is the system's"
     );
     ts.teardown().await;
 }
@@ -159,10 +157,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
         .init_basic()
         .await;
     let built_in = marked_template(&ts.client).await;
-    assert_eq!(
-        built_in.title, WELCOME_TITLE,
-        "as it comes out of the archive"
-    );
+    assert_eq!(built_in.title, WELCOME_TITLE, "as the converter wrote it");
     let rename = fvoci_model::BoardPatch {
         title: Some("Bienvenue".to_owned()),
         ..fvoci_model::BoardPatch::default()
@@ -227,7 +222,7 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
         "the new board is private"
     );
     assert!(
-        board.title.contains("Welcome to Boards"),
+        board.title.contains("Welcome to fvoci"),
         "it is the welcome board: {}",
         board.title
     );
@@ -302,5 +297,37 @@ async fn onboard_without_a_session_is_refused() {
         .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
         .await
         .check_unauthorized();
+    ts.teardown().await;
+}
+
+/// Without a built-in welcome board, `onboard` stores the built-in templates again and
+/// copies the board they hold, instead of failing.
+#[tokio::test]
+async fn onboard_stores_the_templates_again_when_the_welcome_board_is_gone() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    ts.app
+        .store()
+        .remove_builtin_templates()
+        .await
+        .expect("the built-in templates are removed");
+
+    let value = ts
+        .client
+        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .await
+        .ok_json::<Value>();
+    let board_id = value["boardId"].as_str().expect("a board id");
+    let board: Board = ts
+        .client
+        .get(&format!("/boards/{board_id}"))
+        .await
+        .ok_json();
+    assert_eq!(board.title, WELCOME_TITLE, "the welcome board is copied");
+    marked_template(&ts.client).await;
     ts.teardown().await;
 }

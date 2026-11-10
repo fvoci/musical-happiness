@@ -48,7 +48,7 @@ node tools/templates/convert.ts --archive <파일> --write tools/templates/outpu
 - **`onboarding`**: 원본은 온보딩 보드를 제목(`Welcome to …!`)으로 찾았다. 그 제목은 이번에 바뀐 글의 하나라서 표식을 따로 두었다. 서버는 제목이 아니라 이 표식(또는 `key: "welcome"`)으로 찾아야 한다.
 - **보드에 넣지 않은 것**: `isTemplate`·`templateVersion`·보드 종류(공개 여부)·`trackingTemplateId`·만든 사람과 시각. 서버가 넣을 때 정한다(원본은 내장 템플릿을 `isTemplate: true`, 공개 보드로 넣었다). 판 번호가 필요하면 `index.json`의 `source.sha256`이나 이 폴더의 내용으로 정할 수 있다.
 - **카드의 `isTemplate`**은 보드 안의 카드 템플릿이다(5장). 뷰의 `defaultTemplateId`가 가리킨다.
-- **그림**(`files`): 본문의 `image` 노드가 `fileId`로 가리키는 파일 14개(노드는 15개)다. 바이트는 여기에 복사하지 않았고 `archiveMember`가 원본 아카이브 안의 위치를 가리킨다. 서버 설계 3.10의 "이미지를 뺄지"가 아직 미결이라 노드를 남겼다. 빼기로 하면 본문에서 `image` 노드를 걷어 내고 다시 만든다(도구에 그 옵션은 아직 없다).
+- **그림**(`files`): 늘 빈 목록이다. 원본의 본문에는 파일 14개를 가리키는 `image` 노드 15개가 있었는데, 서버 설계의 결정 18(3.10의 추가 안 B, 2026-11-11 04:06 KST 사용자 결정)대로 변환이 모두 뺀다(`withoutImages`, `index.json`의 `conversions.removedImages`). 그림만 담고 있던 노드는 함께 빠진다. 멤버는 모양을 바꾸지 않으려고 남겼다.
 
 ## 변환이 한 일
 
@@ -82,4 +82,4 @@ node tools/templates/convert.ts --archive <파일> --write tools/templates/outpu
 - "Boards"는 결정의 글자("원본 이름")보다 한 걸음 나간 판단이다. 번역에서 같은 낱말을 제품 이름일 때 `fvoci`로 바꾸기로 한 결정을 따랐다. 다섯 곳을 읽고 정했고, 도구는 그 수가 달라지면 멈춘다(`REVIEWED_PRODUCT_WORDS`).
 - 결과에 원본의 이름이 하나라도 남으면 도구가 멈춘다. `http://`·`https://`·`www.`는 링크 속성의 값이 통째로 `https://…example.com` 주소인 경우(위의 10건)에만 남을 수 있고, 그 밖의 자리(제목, 설명, 본문, 다른 속성)에 하나라도 있으면 도구가 멈춘다(`output.ts`의 `promiseProblems`). 본문의 링크 처리(바깥 링크와 그 문장을 뺌)는 그대로다.
 
-바꾸지 않았지만 검수할 것(`reviewNotes`): 예시 이메일 10건(`@email.com`은 실제로 있는 도메인이다), 그림 15건, 원본 회사의 다른 제품(채널, 다이렉트 메시지)을 말하는 문단 3건. 온보딩의 "Share cards on Channels" 카드는 카드 전체가 이 제품에 없는 기능을 설명한다.
+바꾸지 않았지만 검수할 것(`reviewNotes`): 예시 이메일 10건(`@email.com`은 실제로 있는 도메인이다), 그림은 빠져서 0건(앞에는 15건이었다), 원본 회사의 다른 제품(채널, 다이렉트 메시지)을 말하는 문단 3건. 온보딩의 "Share cards on Channels" 카드는 카드 전체가 이 제품에 없는 기능을 설명한다.

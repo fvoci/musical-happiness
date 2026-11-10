@@ -45,7 +45,7 @@ pub(crate) async fn templates(s: &mut Session) {
     s.note("template members", &json!(members));
     let welcome = listing
         .iter()
-        .find(|board| board["title"] == "Welcome to Boards!")
+        .find(|board| board["properties"]["onboarding"] == json!(true))
         .map(id_of)
         .expect("the welcome template exists");
     let welcome_blocks = s

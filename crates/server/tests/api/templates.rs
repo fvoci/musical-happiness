@@ -43,13 +43,13 @@ async fn get_templates_returns_the_built_in_templates() {
         "all are open"
     );
     assert!(
-        boards.iter().all(|board| board.template_version >= 6),
+        boards.iter().all(|board| board.template_version >= 7),
         "all are at least the current version"
     );
     assert!(
         boards
             .iter()
-            .any(|board| board.title == "Welcome to Boards!"),
+            .any(|board| board.title == "Welcome to fvoci!"),
         "the welcome board is present"
     );
 
@@ -322,4 +322,117 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .await
         .check_created();
     ts.teardown().await;
+}
+
+/// The built-in templates are the converter's output (`docs/s6-design.md` 3.10): the
+/// thirteen of its index, one marked for the onboarding tour, each with its key, the
+/// cards' bodies as documents, no pictures, and dates in the shape of 5.7.
+#[tokio::test]
+async fn the_built_in_templates_are_the_converted_ones() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let boards = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .await
+        .ok_json::<Vec<Board>>();
+    let index: Value = serde_json::from_str(include_str!("../../assets/templates/index.json"))
+        .expect("the index is JSON");
+    let mut keys: Vec<&str> = boards
+        .iter()
+        .filter_map(|board| board.properties.get("templateKey").and_then(Value::as_str))
+        .collect();
+    keys.sort_unstable();
+    let mut expected: Vec<&str> = index["templates"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter_map(|template| template["key"].as_str())
+        .collect();
+    expected.sort_unstable();
+    assert_eq!(keys.len(), 13, "{keys:?}");
+    assert_eq!(keys, expected, "the templates of the index, each once");
+    assert_eq!(
+        boards
+            .iter()
+            .filter(|board| board.properties.get("onboarding") == Some(&json!(true)))
+            .count(),
+        1,
+        "one is marked for the tour"
+    );
+
+    let (mut bodies, mut dates) = (0, 0);
+    for board in &boards {
+        let blocks = ts
+            .client
+            .get(&format!("/boards/{}/blocks", board.id))
+            .await
+            .ok_json::<Vec<Value>>();
+        for block in &blocks {
+            if block["body"].is_object() {
+                bodies += 1;
+                assert!(
+                    !block["body"].to_string().contains(r#""type":"image""#),
+                    "no picture: {}",
+                    block["title"]
+                );
+            }
+            for value in block["fields"]["properties"]
+                .as_object()
+                .into_iter()
+                .flat_map(serde_json::Map::values)
+            {
+                if value.is_object() {
+                    dates += 1;
+                }
+            }
+        }
+    }
+    assert!(bodies > 50, "the cards have their bodies: {bodies}");
+    assert_eq!(dates, 19, "the dates of the templates, in the new shape");
+    ts.teardown().await;
+}
+
+/// The server's copy of the templates is the converter's output as it is in the
+/// repository: a change there is taken over by copying the files again.
+#[test]
+fn the_server_copy_of_the_templates_is_the_converter_output() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let output = root.join("../../apps/web/tools/templates/output");
+    let copy = root.join("assets/templates");
+    let mut names: Vec<String> = std::fs::read_dir(&copy)
+        .expect("the server's copy")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    let mut expected: Vec<String> = std::fs::read_dir(&output)
+        .expect("the converter's output")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name == "index.json" || name.starts_with(|c: char| c.is_ascii_digit()))
+        .collect();
+    expected.sort();
+    assert_eq!(names, expected, "the same files");
+    for name in &names {
+        assert_eq!(
+            std::fs::read(copy.join(name)).expect("the copy"),
+            std::fs::read(output.join(name)).expect("the output"),
+            "{name} is copied as it is: copy index.json and the numbered files of apps/web/tools/templates/output/ into this crate's assets/templates/"
+        );
+    }
 }

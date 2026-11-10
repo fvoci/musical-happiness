@@ -615,12 +615,6 @@
                 ]
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "74uia99m9btr8peydw7oexn37tw.gif"
-            }
           }
         ]
       }
@@ -670,12 +664,6 @@
                 "text": " at the top right of the Board view. Copy the link to share the board internally with your team or generate public link that can be accessed by anyone externally."
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "7knxbyuiedtdafcgmropgkrtybr.gif"
-            }
           }
         ]
       }
@@ -811,12 +799,6 @@
                 ]
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "7iw4rxx7jj7bypmdotd9z469cyh.png"
-            }
           }
         ]
       }
@@ -895,12 +877,6 @@
                 "text": "After you've copied the link, paste it into any channel or Direct Message to share the card. A preview of the card will display within the channel with a link back to the card on fvoci."
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "7ek6wbpp19jfoujs1goh6kttbby.gif"
-            }
           }
         ]
       }
@@ -928,12 +904,6 @@
                 "text": "Organize and find the cards you're looking for with our filter, sort, and grouping options. From the Board header, you can quickly toggle on different properties, change the group display, set filters, and change how the cards are sorted."
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "7dybb6t8fj3nrdft7nerhuf784y.png"
-            }
           }
         ]
       }
@@ -1071,12 +1041,6 @@
                 ]
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "78jws5m1myf8pufewzkaa6i11sc.gif"
-            }
           }
         ]
       }
@@ -1244,12 +1208,6 @@
                 ]
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "7d6hrtig3zt8f9cnbo1um5oxx3y.gif"
-            }
           }
         ]
       }
@@ -1308,57 +1266,10 @@
                 "text": "Whenever any changes are made to the card, they'll automatically get notified on Channels."
               }
             ]
-          },
-          {
-            "type": "image",
-            "attrs": {
-              "fileId": "74nt9eqzea3ydjjpgjtsxcjgrxc.gif"
-            }
           }
         ]
       }
     }
   ],
-  "files": [
-    {
-      "fileId": "74uia99m9btr8peydw7oexn37tw.gif",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/74uia99m9btr8peydw7oexn37tw.gif",
-      "bytes": 1075628
-    },
-    {
-      "fileId": "7knxbyuiedtdafcgmropgkrtybr.gif",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/7knxbyuiedtdafcgmropgkrtybr.gif",
-      "bytes": 660888
-    },
-    {
-      "fileId": "7iw4rxx7jj7bypmdotd9z469cyh.png",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/7iw4rxx7jj7bypmdotd9z469cyh.png",
-      "bytes": 62702
-    },
-    {
-      "fileId": "7ek6wbpp19jfoujs1goh6kttbby.gif",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/7ek6wbpp19jfoujs1goh6kttbby.gif",
-      "bytes": 648291
-    },
-    {
-      "fileId": "7dybb6t8fj3nrdft7nerhuf784y.png",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/7dybb6t8fj3nrdft7nerhuf784y.png",
-      "bytes": 48635
-    },
-    {
-      "fileId": "78jws5m1myf8pufewzkaa6i11sc.gif",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/78jws5m1myf8pufewzkaa6i11sc.gif",
-      "bytes": 811674
-    },
-    {
-      "fileId": "7d6hrtig3zt8f9cnbo1um5oxx3y.gif",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/7d6hrtig3zt8f9cnbo1um5oxx3y.gif",
-      "bytes": 1043549
-    },
-    {
-      "fileId": "74nt9eqzea3ydjjpgjtsxcjgrxc.gif",
-      "archiveMember": "buixxjic3xjfkieees4iafdrznc/74nt9eqzea3ydjjpgjtsxcjgrxc.gif",
-      "bytes": 1194827
-    }
-  ]
+  "files": []
 }
