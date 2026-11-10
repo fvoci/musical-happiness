@@ -218,20 +218,19 @@ async fn json_stored_as_a_blob_by_the_original_on_sqlite_reads_back() {
         .unwrap()
         .as_millis();
     let now = i64::try_from(now).unwrap();
-    let prefix = common::TABLE_PREFIX;
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO {prefix}sessions \
+    sqlx::query(
+        "INSERT INTO sessions \
          (id, token, user_id, auth_service, props, create_at, update_at) \
-         VALUES ('s', 'blob-token', 'u', 'native', CAST('{{\"k\":\"v\"}}' AS BLOB), $1, $1)"
-    )))
+         VALUES ('s', 'blob-token', 'u', 'native', CAST('{\"k\":\"v\"}' AS BLOB), $1, $1)",
+    )
     .bind(now)
     .execute(&mut conn)
     .await
     .unwrap();
-    sqlx::query(sqlx::AssertSqlSafe(format!(
-        "INSERT INTO {prefix}teams (id, signup_token, settings, modified_by, update_at) \
-         VALUES ('0', 'token', CAST('{{\"on\":true}}' AS BLOB), 'u', $1)"
-    )))
+    sqlx::query(
+        "INSERT INTO teams (id, signup_token, settings, modified_by, update_at) \
+         VALUES ('0', 'token', CAST('{\"on\":true}' AS BLOB), 'u', $1)",
+    )
     .bind(now)
     .execute(&mut conn)
     .await

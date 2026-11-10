@@ -99,9 +99,6 @@ pub struct Configuration {
     /// How many times to try to reach the database at startup.
     #[serde(rename = "dbpingattempts")]
     pub db_ping_attempts: u32,
-    /// A prefix put before every table name.
-    #[serde(rename = "dbtableprefix")]
-    pub db_table_prefix: String,
     /// Whether to serve HTTPS, with `./cert/cert.pem` and `./cert/key.pem`.
     #[serde(rename = "usessl")]
     pub use_ssl: bool,
@@ -193,7 +190,6 @@ impl Default for Configuration {
             db_type: "sqlite3".to_owned(),
             db_config: "./fvoci.db".to_owned(),
             db_ping_attempts: 5,
-            db_table_prefix: String::new(),
             use_ssl: false,
             secure_cookie: false,
             web_path: "./pack".to_owned(),
@@ -233,7 +229,6 @@ impl std::fmt::Debug for Configuration {
             .field("server_root", &self.server_root)
             .field("port", &self.port)
             .field("db_type", &self.db_type)
-            .field("db_table_prefix", &self.db_table_prefix)
             .field("use_ssl", &self.use_ssl)
             .field("web_path", &self.web_path)
             .field("files_driver", &self.files_driver)
@@ -277,13 +272,12 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_EXPIRE_TIME`.
-const ENV_KEYS: [(&str, EnvKind); 31] = [
+const ENV_KEYS: [(&str, EnvKind); 30] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
     ("dbconfig", EnvKind::Text),
     ("dbpingattempts", EnvKind::Number),
-    ("dbtableprefix", EnvKind::Text),
     ("usessl", EnvKind::Flag),
     ("securecookie", EnvKind::Flag),
     ("webpath", EnvKind::Text),
@@ -311,6 +305,26 @@ const ENV_KEYS: [(&str, EnvKind); 31] = [
     ("trust_forwarded_for", EnvKind::Flag),
 ];
 
+/// Keys of the original server's configuration that this server no longer has, each with
+/// what to do instead. A file or an environment that sets one to something is refused:
+/// a server that silently ignored it would run differently from what its operator wrote.
+const REMOVED_KEYS: [(&str, &str); 1] = [(
+    "dbtableprefix",
+    "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
+     database, give the server a schema of its own with search_path in dbconfig",
+)];
+
+/// Whether a configuration value says nothing: what a removed key may still hold.
+fn is_unset(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => true,
+        Value::String(text) => text.is_empty(),
+        Value::Number(number) => number.as_i64() == Some(0),
+        Value::Array(items) => items.is_empty(),
+        Value::Bool(true) | Value::Object(_) => false,
+    }
+}
+
 impl Configuration {
     /// Reads the configuration file at `path` and applies environment overrides from the
     /// process environment.
@@ -331,7 +345,7 @@ impl Configuration {
     /// # Errors
     ///
     /// Returns an error if `text` is not a JSON object, holds a value of the wrong type,
-    /// or an environment override cannot be parsed.
+    /// sets a key this server no longer has, or an environment override cannot be parsed.
     pub fn parse(text: &str, env: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
         let Value::Object(file) =
             serde_json::from_str(text).context("the file is not valid JSON")?
@@ -350,6 +364,14 @@ impl Configuration {
             let name = format!("{ENV_PREFIX}{}", key.to_uppercase());
             if let Some(text) = env(&name) {
                 keys.insert(key.to_owned(), env_value(&name, &text, kind)?);
+            }
+        }
+
+        for (key, instead) in REMOVED_KEYS {
+            let name = format!("{ENV_PREFIX}{}", key.to_uppercase());
+            let from_env = env(&name).is_some_and(|text| !text.trim().is_empty());
+            if from_env || keys.get(key).is_some_and(|value| !is_unset(value)) {
+                bail!("{key} is no longer a setting: {instead}");
             }
         }
 
@@ -551,6 +573,25 @@ mod tests {
             Configuration::parse("{}", env).is_err(),
             "unparsable override"
         );
+    }
+
+    #[test]
+    fn a_removed_key_is_refused_when_it_is_set_to_something() {
+        let error = |text: &str| {
+            Configuration::parse(text, no_env)
+                .expect_err("a removed key that says something is refused")
+                .to_string()
+        };
+        assert!(error(r#"{"dbtableprefix": "fb_"}"#).contains("search_path"));
+        assert!(error(r#"{"DBTablePrefix": "fb_"}"#).contains("dbtableprefix"));
+        let env = |name: &str| (name == "FVOCI_DBTABLEPREFIX").then(|| "fb_".to_owned());
+        assert!(
+            Configuration::parse("{}", env).is_err(),
+            "the environment variable of a removed key is refused too"
+        );
+        // A file written for the original server usually carries the key, empty.
+        Configuration::parse(r#"{"dbtableprefix": ""}"#, no_env)
+            .expect("a removed key that says nothing is not in the way");
     }
 
     #[test]

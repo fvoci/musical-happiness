@@ -36,6 +36,7 @@ sqlx = { version = "0.9", default-features = false, features = [
     "sqlite",
     "postgres",
     "json",
+    "migrate",
 ] }
 subtle = "2"
 thiserror = "2"

@@ -340,7 +340,7 @@ async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
     let attempts = config.db_ping_attempts.max(1);
     let mut attempt = 1;
     loop {
-        match Store::connect(db_type, &config.db_config, &config.db_table_prefix).await {
+        match Store::connect(db_type, &config.db_config).await {
             Ok(store) => return Ok(store),
             Err(fvoci_store::StoreError::Database(error)) if attempt < attempts => {
                 tracing::warn!(%error, attempt, attempts, "the database is not reachable yet");

@@ -1,176 +1,140 @@
-//! Creating the schema of a new database and checking the schema of an existing one.
+//! Bringing a database to this server's schema, and refusing one it cannot use.
 //!
-//! The original server builds its schema with 40 migrations and records them in a
-//! bookkeeping table. This server does not carry those migrations. It creates the final
-//! schema in one step and writes the same bookkeeping, so either server can open a
-//! database the other created. A database that is not at version 40 is refused.
+//! The schema is a list of migrations per database kind, compiled into the binary and
+//! applied in order by sqlx's migrator, which records them in `_sqlx_migrations`. It
+//! checks the checksum of every applied migration, so an edited history is noticed; it
+//! refuses a database that holds a migration this binary does not know; and on
+//! PostgreSQL it takes an advisory lock, so two servers starting on one empty database
+//! do not both create it. Migrations only go forward.
+
+use sqlx::SqlSafeStr as _;
+use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
 
 use crate::db::{Dialect, Scope};
 use crate::error::StoreError;
+use crate::{Pool, Store};
 
-/// The schema version this server reads and writes.
-pub(crate) const SCHEMA_VERSION: i64 = 40;
+/// One migration: its version, its name, and its SQL for each database kind.
+struct Step {
+    version: i64,
+    description: &'static str,
+    sqlite: &'static str,
+    postgres: &'static str,
+}
 
-/// The names of the original migrations, in order. Version `n` is entry `n - 1`.
-const MIGRATION_NAMES: [&str; 40] = [
-    "init",
-    "system_settings_table",
-    "blocks_rootid",
-    "auth_table",
-    "blocks_modifiedby",
-    "sharing_table",
-    "workspaces_table",
-    "teams",
-    "blocks_history",
-    "blocks_created_by",
-    "match_collation",
-    "match_column_collation",
-    "millisecond_timestamps",
-    "add_not_null_constraint",
-    "blocks_history_no_nulls",
-    "subscriptions_table",
-    "add_file_info",
-    "add_teams_and_boards",
-    "populate_categories",
-    "populate_category_blocks",
-    "create_boards_members_history",
-    "create_default_board_role",
-    "persist_category_collapsed_state",
-    "mark_existsing_categories_collapsed",
-    "indexes_update",
-    "create_preferences_table",
-    "migrate_user_props_to_preferences",
-    "remove_template_channel_link",
-    "add_category_type_field",
-    "add_category_sort_order",
-    "add_category_boards_sort_order",
-    "move_boards_category_to_end",
-    "remove_deleted_category_boards",
-    "category_boards_remove_unused_delete_at_column",
-    "add_hidden_board_column",
-    "category_board_add_unique_constraint",
-    "hidden_boards_from_preferences",
-    "delete_hiddenBoardIDs_from_preferences",
-    "add_path_to_file_info",
-    "fix_fileinfo_soft_deletes",
-];
+/// Every migration, oldest first. Applied ones are never edited: add a new one.
+const STEPS: [Step; 1] = [Step {
+    version: 1,
+    description: "baseline",
+    sqlite: include_str!("../schema/sqlite/0001_baseline.sql"),
+    postgres: include_str!("../schema/postgres/0001_baseline.sql"),
+}];
 
-/// System settings by which the original server remembers that its data migrations have
-/// run. A new database has nothing to migrate, so they are set from the start, as the
-/// original does.
-const COMPLETED_DATA_MIGRATIONS: [&str; 3] = [
-    "UniqueIDsMigrationComplete",
-    "CategoryUuidIdMigrationComplete",
-    "DeDuplicateCategoryBoardTableComplete",
-];
+/// Tables that only a database of the original server has: the bookkeeping of its
+/// migration engine. On PostgreSQL the name follows that server's table prefix, so
+/// there it is matched by its ending.
+const ORIGINAL_BOOKKEEPING_SQLITE: &str = "db_migrations";
+const ORIGINAL_BOOKKEEPING_POSTGRES_SUFFIX: &str = "schema_migrations";
 
-/// An arbitrary constant identifying this crate's schema setup to PostgreSQL's advisory
-/// locks, so that two servers starting on one empty database do not both create it.
-const SETUP_LOCK_KEY: i64 = 0x6676_6f63_6900_0028;
+/// The table in which sqlx's migrator records what it applied.
+const MIGRATIONS_TABLE: &str = "_sqlx_migrations";
 
-/// Creates the schema if the database is empty, and otherwise checks that it is at
-/// [`SCHEMA_VERSION`]. Must run inside a transaction.
-pub(crate) async fn ensure(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    if scope.dialect() == Dialect::Postgres {
-        let mut lock = scope.sql("SELECT pg_advisory_xact_lock(");
-        lock.bind(SETUP_LOCK_KEY).push(")");
-        scope.execute(lock).await?;
+/// A table of this server's schema, by which a database that has tables but no
+/// migration record is told from an empty one.
+const A_SCHEMA_TABLE: &str = "blocks";
+
+/// Applies the migrations the database does not have yet.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Schema`] with the reason if the database was created by the
+/// original server, holds this server's tables without their migration record, was
+/// migrated by a newer server, or has a history that differs from this binary's; and
+/// [`StoreError::Database`] if a statement fails.
+pub(crate) async fn migrate(store: &Store) -> Result<(), StoreError> {
+    store.with_conn(refuse_foreign_databases).await?;
+
+    let migrator = migrator(store.dialect());
+    let result = match &store.inner.pool {
+        Pool::Sqlite(pool) => migrator.run(pool).await,
+        Pool::Postgres(pool) => migrator.run(pool).await,
+    };
+    result.map_err(|error| match error {
+        MigrateError::Execute(error) | MigrateError::ExecuteMigration(error, _) => {
+            StoreError::Database(error)
+        }
+        MigrateError::VersionMissing(version) => StoreError::Schema(format!(
+            "the database holds schema migration {version}, which this server does not \
+             know: it was last opened by a newer server"
+        )),
+        MigrateError::VersionMismatch(version) => StoreError::Schema(format!(
+            "schema migration {version} of the database differs from this server's: the \
+             database was created by a different build"
+        )),
+        other => StoreError::Schema(other.to_string()),
+    })
+}
+
+fn migrator(dialect: Dialect) -> Migrator {
+    let migrations = STEPS
+        .iter()
+        .map(|step| {
+            let sql = match dialect {
+                Dialect::Sqlite => step.sqlite,
+                Dialect::Postgres => step.postgres,
+            };
+            Migration::new(
+                step.version,
+                step.description.into(),
+                MigrationType::Simple,
+                sql.into_sql_str(),
+                false,
+            )
+        })
+        .collect();
+    Migrator::with_migrations(migrations)
+}
+
+/// Refuses a database that has tables which are not this server's to migrate.
+async fn refuse_foreign_databases(scope: &mut Scope<'_>) -> Result<(), StoreError> {
+    let tables = table_names(scope).await?;
+    let has = |name: &str| tables.iter().any(|table| table == name);
+
+    let original = match scope.dialect() {
+        Dialect::Sqlite => has(ORIGINAL_BOOKKEEPING_SQLITE),
+        Dialect::Postgres => tables.iter().any(|table| {
+            table != MIGRATIONS_TABLE && table.ends_with(ORIGINAL_BOOKKEEPING_POSTGRES_SUFFIX)
+        }),
+    };
+    if original {
+        return Err(StoreError::Schema(
+            "the database was created by the original server, whose schema this server \
+             does not read; start with an empty database"
+                .to_owned(),
+        ));
     }
-
-    let migrations_table = migrations_table(scope);
-    if table_exists(scope, &migrations_table).await? {
-        return check_version(scope, &migrations_table).await;
-    }
-    let blocks_table = scope.table("blocks");
-    if table_exists(scope, &blocks_table).await? {
+    if has(A_SCHEMA_TABLE) && !has(MIGRATIONS_TABLE) {
         return Err(StoreError::Schema(format!(
-            "the database has a {blocks_table} table but no {migrations_table} table; \
-             upgrade it to schema version {SCHEMA_VERSION} with the original server first"
+            "the database has a {A_SCHEMA_TABLE} table but no record of schema migrations \
+             ({MIGRATIONS_TABLE}); start with an empty database"
         )));
     }
-    create(scope, &migrations_table).await
+    Ok(())
 }
 
-/// The name of the migration bookkeeping table. The original's migration engine uses a
-/// fixed name on SQLite and a prefixed one on PostgreSQL.
-fn migrations_table(scope: &Scope<'_>) -> String {
-    match scope.dialect() {
-        Dialect::Sqlite => "db_migrations".to_owned(),
-        Dialect::Postgres => scope.table("schema_migrations"),
-    }
-}
-
-async fn table_exists(scope: &mut Scope<'_>, table: &str) -> Result<bool, StoreError> {
-    let mut sql = match scope.dialect() {
-        Dialect::Sqlite => {
-            scope.sql("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ")
-        }
+/// The names of the tables in the database (on PostgreSQL: in the current schema).
+async fn table_names(scope: &mut Scope<'_>) -> Result<Vec<String>, StoreError> {
+    let sql = match scope.dialect() {
+        Dialect::Sqlite => scope.sql("SELECT name FROM sqlite_master WHERE type = 'table'"),
         Dialect::Postgres => scope.sql(
-            "SELECT 1 FROM information_schema.tables \
-             WHERE table_schema = current_schema() AND table_name = ",
+            "SELECT table_name::text FROM information_schema.tables \
+             WHERE table_schema = current_schema()",
         ),
-    };
-    sql.bind(table);
-    Ok(scope.fetch_optional(sql).await?.is_some())
-}
-
-async fn check_version(scope: &mut Scope<'_>, migrations_table: &str) -> Result<(), StoreError> {
-    let sql = scope.sql(&format!(
-        "SELECT CAST(COALESCE(MAX(version), 0) AS BIGINT) FROM {migrations_table}"
-    ));
-    let version = match scope.fetch_optional(sql).await? {
-        Some(row) => row.int(0)?,
-        None => 0,
-    };
-    match version {
-        SCHEMA_VERSION => Ok(()),
-        older if older < SCHEMA_VERSION => Err(StoreError::Schema(format!(
-            "the database is at schema version {older}; upgrade it to version \
-             {SCHEMA_VERSION} with the original server first"
-        ))),
-        newer => Err(StoreError::Schema(format!(
-            "the database is at schema version {newer}, newer than version \
-             {SCHEMA_VERSION} that this server supports"
-        ))),
-    }
-}
-
-async fn create(scope: &mut Scope<'_>, migrations_table: &str) -> Result<(), StoreError> {
-    let template = match scope.dialect() {
-        Dialect::Sqlite => include_str!("../schema/sqlite.sql"),
-        Dialect::Postgres => include_str!("../schema/postgres.sql"),
     };
     scope
-        .execute_script(template.replace("{p}", &scope.table("")))
-        .await?;
-
-    let bookkeeping = match scope.dialect() {
-        Dialect::Sqlite => format!(
-            "CREATE TABLE {migrations_table} \
-             (Version bigint not null primary key, Name varchar not null)"
-        ),
-        Dialect::Postgres => format!(
-            "CREATE TABLE {migrations_table} \
-             (version bigint not null primary key, name varchar not null)"
-        ),
-    };
-    scope.execute_script(bookkeeping).await?;
-
-    for (version, name) in (1_i64..).zip(MIGRATION_NAMES) {
-        let mut sql = scope.sql(&format!(
-            "INSERT INTO {migrations_table} (version, name) VALUES ("
-        ));
-        sql.bind(version).push(", ").bind(name).push(")");
-        scope.execute(sql).await?;
-    }
-
-    let settings_table = scope.table("system_settings");
-    for key in COMPLETED_DATA_MIGRATIONS {
-        let mut sql = scope.sql(&format!(
-            "INSERT INTO {settings_table} (id, value) VALUES ("
-        ));
-        sql.bind(key).push(", 'true')");
-        scope.execute(sql).await?;
-    }
-    Ok(())
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.text(0))
+        .collect()
 }

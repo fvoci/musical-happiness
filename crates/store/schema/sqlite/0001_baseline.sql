@@ -1,10 +1,7 @@
--- The schema of a new SQLite database: what the original server's 40 migrations leave
--- behind, with tables and columns in the same order. `{p}` is the table prefix.
---
--- Unused columns (root_id, channel_id, workspace_id, ...) and the notification_hints
--- table are kept so that the original server can open the database too.
+-- The baseline schema of a SQLite database. Migrations that have been released are
+-- never edited; a change is a new file with the next number.
 
-CREATE TABLE {p}blocks (
+CREATE TABLE blocks (
     id VARCHAR(36),
     insert_at DATETIME NOT NULL DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
     parent_id VARCHAR(36),
@@ -22,9 +19,9 @@ CREATE TABLE {p}blocks (
     board_id VARCHAR(36),
     PRIMARY KEY (id)
 );
-CREATE INDEX idx_blocks_board_id_parent_id ON {p}blocks (board_id, parent_id);
+CREATE INDEX idx_blocks_board_id_parent_id ON blocks (board_id, parent_id);
 
-CREATE TABLE {p}blocks_history (
+CREATE TABLE blocks_history (
     id VARCHAR(36),
     insert_at DATETIME NOT NULL DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
     parent_id VARCHAR(36),
@@ -43,7 +40,7 @@ CREATE TABLE {p}blocks_history (
     PRIMARY KEY (id, insert_at)
 );
 
-CREATE TABLE {p}boards (
+CREATE TABLE boards (
     id VARCHAR(36) NOT NULL PRIMARY KEY,
     insert_at DATETIME NOT NULL DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
     team_id VARCHAR(36) NOT NULL,
@@ -64,10 +61,10 @@ CREATE TABLE {p}boards (
     delete_at BIGINT,
     minimum_role VARCHAR(36) NOT NULL DEFAULT ''
 );
-CREATE INDEX idx_boards_team_id_is_template ON {p}boards (team_id, is_template);
-CREATE INDEX idx_boards_channel_id ON {p}boards (channel_id);
+CREATE INDEX idx_boards_team_id_is_template ON boards (team_id, is_template);
+CREATE INDEX idx_boards_channel_id ON boards (channel_id);
 
-CREATE TABLE {p}boards_history (
+CREATE TABLE boards_history (
     id VARCHAR(36) NOT NULL,
     insert_at DATETIME NOT NULL DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
     team_id VARCHAR(36) NOT NULL,
@@ -90,7 +87,7 @@ CREATE TABLE {p}boards_history (
     PRIMARY KEY (id, insert_at)
 );
 
-CREATE TABLE {p}board_members (
+CREATE TABLE board_members (
     board_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     roles VARCHAR(64),
@@ -100,19 +97,19 @@ CREATE TABLE {p}board_members (
     scheme_viewer BOOLEAN,
     PRIMARY KEY (board_id, user_id)
 );
-CREATE INDEX idx_board_members_user_id ON {p}board_members (user_id);
+CREATE INDEX idx_board_members_user_id ON board_members (user_id);
 
-CREATE TABLE {p}board_members_history (
+CREATE TABLE board_members_history (
     board_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     action VARCHAR(10),
     insert_at DATETIME NOT NULL DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
     PRIMARY KEY (board_id, user_id, insert_at)
 );
-CREATE INDEX idx_board_members_history_user_id ON {p}board_members_history (user_id);
-CREATE INDEX idx_board_members_history_board_id_user_id ON {p}board_members_history (board_id, user_id);
+CREATE INDEX idx_board_members_history_user_id ON board_members_history (user_id);
+CREATE INDEX idx_board_members_history_board_id_user_id ON board_members_history (board_id, user_id);
 
-CREATE TABLE {p}categories (
+CREATE TABLE categories (
     id VARCHAR(36) NOT NULL,
     name VARCHAR(100) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
@@ -126,9 +123,9 @@ CREATE TABLE {p}categories (
     sort_order BIGINT,
     PRIMARY KEY (id)
 );
-CREATE INDEX idx_categories_user_id_team_id ON {p}categories (user_id, team_id);
+CREATE INDEX idx_categories_user_id_team_id ON categories (user_id, team_id);
 
-CREATE TABLE {p}category_boards (
+CREATE TABLE category_boards (
     id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     category_id VARCHAR(36) NOT NULL,
@@ -141,7 +138,7 @@ CREATE TABLE {p}category_boards (
     CONSTRAINT unique_user_category_board UNIQUE (user_id, board_id)
 );
 
-CREATE TABLE {p}file_info (
+CREATE TABLE file_info (
     id VARCHAR(26) NOT NULL,
     create_at BIGINT NOT NULL,
     delete_at BIGINT,
@@ -152,7 +149,7 @@ CREATE TABLE {p}file_info (
     path VARCHAR(512)
 );
 
-CREATE TABLE {p}notification_hints (
+CREATE TABLE notification_hints (
     block_type VARCHAR(10),
     block_id VARCHAR(36),
     workspace_id VARCHAR(36),
@@ -162,17 +159,17 @@ CREATE TABLE {p}notification_hints (
     PRIMARY KEY (block_id)
 );
 
-CREATE TABLE {p}preferences (
+CREATE TABLE preferences (
     userid VARCHAR(36) NOT NULL,
     category VARCHAR(32) NOT NULL,
     name VARCHAR(32) NOT NULL,
     value TEXT NULL,
     PRIMARY KEY (userid, category, name)
 );
-CREATE INDEX idx_preferences_category ON {p}preferences (category);
-CREATE INDEX idx_preferences_name ON {p}preferences (name);
+CREATE INDEX idx_preferences_category ON preferences (category);
+CREATE INDEX idx_preferences_name ON preferences (name);
 
-CREATE TABLE {p}sessions (
+CREATE TABLE sessions (
     id VARCHAR(100),
     token VARCHAR(100),
     user_id VARCHAR(100),
@@ -183,7 +180,7 @@ CREATE TABLE {p}sessions (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}sharing (
+CREATE TABLE sharing (
     id VARCHAR(36),
     enabled BOOLEAN,
     token VARCHAR(100),
@@ -193,7 +190,7 @@ CREATE TABLE {p}sharing (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}subscriptions (
+CREATE TABLE subscriptions (
     block_type VARCHAR(10),
     block_id VARCHAR(36),
     workspace_id VARCHAR(36),
@@ -204,15 +201,15 @@ CREATE TABLE {p}subscriptions (
     delete_at BIGINT,
     PRIMARY KEY (block_id, subscriber_id)
 );
-CREATE INDEX idx_subscriptions_subscriber_id ON {p}subscriptions (subscriber_id);
+CREATE INDEX idx_subscriptions_subscriber_id ON subscriptions (subscriber_id);
 
-CREATE TABLE {p}system_settings (
+CREATE TABLE system_settings (
     id VARCHAR(100),
     value TEXT,
     PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}teams (
+CREATE TABLE teams (
     id VARCHAR(36),
     signup_token VARCHAR(100) NOT NULL,
     settings TEXT,
@@ -221,7 +218,7 @@ CREATE TABLE {p}teams (
     PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}users (
+CREATE TABLE users (
     id VARCHAR(100),
     username VARCHAR(100),
     email VARCHAR(255),

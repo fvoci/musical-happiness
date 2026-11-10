@@ -5,18 +5,11 @@ use std::collections::BTreeMap;
 
 use crate::common;
 
-/// `dataMigrationSystemSettings`: the settings a new database starts with.
-const DATA_MIGRATION_SYSTEM_SETTINGS: [(&str, &str); 3] = [
-    ("UniqueIDsMigrationComplete", "true"),
-    ("CategoryUuidIdMigrationComplete", "true"),
-    ("DeDuplicateCategoryBoardTableComplete", "true"),
-];
-
-/// `addBaseSettings`.
+/// The settings as a map. A new database has none: the bookkeeping keys of the
+/// original's data migrations are gone with its schema.
 fn add_base_settings(settings: &[(&str, &str)]) -> BTreeMap<String, String> {
-    DATA_MIGRATION_SYSTEM_SETTINGS
+    settings
         .iter()
-        .chain(settings)
         .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
         .collect()
 }

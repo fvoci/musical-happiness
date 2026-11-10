@@ -7,12 +7,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{Category, CategoryBoardMetadata, CategoryType};
-use fvoci_store::{DbType, StoreError};
-use sqlx::Connection as _;
-use sqlx::postgres::PgConnection;
-use sqlx::sqlite::SqliteConnection;
+use fvoci_store::StoreError;
 
-use crate::common::{self, TABLE_PREFIX, TestStore};
+use crate::common::{self, TestStore};
 
 /// `utils.GetMillis`.
 pub(crate) fn now_millis() -> i64 {
@@ -43,40 +40,10 @@ fn category_ids(categories: &[Category]) -> Vec<&str> {
         .collect()
 }
 
-/// Runs one statement on the test's database, bypassing the store, to stage rows the
-/// store itself never writes.
+/// Runs statements on the test's database, bypassing the store, to stage rows the store
+/// itself never writes.
 async fn execute_raw(test: &TestStore, sql: &str) {
-    let dbconfig = test.dbconfig();
-    let sql = sqlx::AssertSqlSafe(sql.to_owned());
-    match common::db_type() {
-        DbType::Sqlite => {
-            let mut conn = SqliteConnection::connect(&format!("sqlite://{dbconfig}"))
-                .await
-                .expect("the test database file opens");
-            sqlx::raw_sql(sql)
-                .execute(&mut conn)
-                .await
-                .expect("the statement runs");
-            conn.close().await.expect("the connection closes");
-        }
-        DbType::Postgres => {
-            let (url, schema) = dbconfig
-                .rsplit_once("search_path=")
-                .expect("the test dbconfig names its schema");
-            let mut conn = PgConnection::connect(url.trim_end_matches(['?', '&']))
-                .await
-                .expect("the test PostgreSQL server accepts connections");
-            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
-                .execute(&mut conn)
-                .await
-                .expect("the schema is selected");
-            sqlx::raw_sql(sql)
-                .execute(&mut conn)
-                .await
-                .expect("the statement runs");
-            conn.close().await.expect("the connection closes");
-        }
-    }
+    common::execute_raw(&test.dbconfig(), sql).await;
 }
 
 /// `testGetCreateCategory`.
@@ -780,8 +747,8 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
 async fn categories_written_by_others() {
     let test = common::setup().await;
     let store = &test.store;
-    let categories = format!("{TABLE_PREFIX}categories");
-    let category_boards = format!("{TABLE_PREFIX}category_boards");
+    let categories = "categories";
+    let category_boards = "category_boards";
 
     execute_raw(
         &test,

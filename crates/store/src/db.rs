@@ -36,17 +36,13 @@ pub(crate) fn now_millis() -> i64 {
 /// State shared by every operation of one store.
 #[derive(Debug)]
 pub(crate) struct Shared {
-    /// The prefix of every table name. Validated at connect time to be a plain
-    /// identifier, which is what makes it safe to splice into SQL text.
-    pub(crate) table_prefix: String,
     /// The last millisecond handed out by [`Shared::next_history_millis`].
     last_history_millis: AtomicI64,
 }
 
 impl Shared {
-    pub(crate) fn new(table_prefix: String) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            table_prefix,
             last_history_millis: AtomicI64::new(0),
         }
     }
@@ -260,9 +256,13 @@ impl<'c> Scope<'c> {
         }
     }
 
-    /// The full name of a table: the configured prefix followed by `name`.
+    /// The name of a table as it goes into SQL text.
+    #[expect(
+        clippy::unused_self,
+        reason = "the statements that call it are rewritten with the identifier columns"
+    )]
     pub(crate) fn table(&self, name: &str) -> String {
-        format!("{}{name}", self.shared.table_prefix)
+        name.to_owned()
     }
 
     /// Starts a statement with the given text.
@@ -284,8 +284,8 @@ impl<'c> Scope<'c> {
 
     /// Runs a query and returns all its rows.
     pub(crate) async fn fetch_all(&mut self, sql: Sql) -> Result<Vec<Row>, StoreError> {
-        // The text is built from literals in this crate and the validated table prefix;
-        // every value is a bound parameter.
+        // The text is built from literals in this crate; every value is a bound
+        // parameter.
         let text = AssertSqlSafe(sql.text);
         match &mut self.conn {
             ConnRef::Sqlite(conn) => {
@@ -321,20 +321,6 @@ impl<'c> Scope<'c> {
                 .await?
                 .rows_affected()),
         }
-    }
-
-    /// Runs a script of several statements without parameters.
-    pub(crate) async fn execute_script(&mut self, script: String) -> Result<(), StoreError> {
-        let script = AssertSqlSafe(script);
-        match &mut self.conn {
-            ConnRef::Sqlite(conn) => {
-                sqlx::raw_sql(script).execute(&mut **conn).await?;
-            }
-            ConnRef::Postgres(conn) => {
-                sqlx::raw_sql(script).execute(&mut **conn).await?;
-            }
-        }
-        Ok(())
     }
 }
 

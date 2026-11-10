@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use fvoci_model::{Block, Board, BoardType, IdKind, new_id};
 use fvoci_store::testing::TestDatabase;
 use fvoci_store::{DbType, Store};
-
-/// The table prefix the original test suite runs with.
-pub(crate) const TABLE_PREFIX: &str = "test_";
+use sqlx::postgres::PgConnection;
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::{ConnectOptions as _, Connection as _};
 
 /// A store on a database that belongs to one test.
 pub(crate) struct TestStore {
@@ -34,29 +34,75 @@ pub(crate) fn db_type() -> DbType {
     }
 }
 
-/// Connects a store to a fresh database with the test table prefix.
+/// Connects a store to a fresh database.
 pub(crate) async fn setup() -> TestStore {
-    setup_with_prefix(TABLE_PREFIX).await
-}
-
-/// Connects a store to a fresh database with the given table prefix.
-pub(crate) async fn setup_with_prefix(table_prefix: &str) -> TestStore {
     let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
     let database = TestDatabase::create(&directory).await;
-    let store = Store::connect(database.db_type(), database.dbconfig(), table_prefix)
+    let store = Store::connect(database.db_type(), database.dbconfig())
         .await
         .expect("a store connects to a fresh database");
     TestStore { store, database }
+}
+
+/// Creates a fresh database without connecting a store to it, for tests of what
+/// [`Store::connect`] makes of a database that is not empty.
+pub(crate) async fn empty_database() -> TestDatabase {
+    let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
+    TestDatabase::create(&directory).await
+}
+
+/// What reaches a test database through a connection of the test's own: the path of the
+/// SQLite file, or the PostgreSQL URL with the test's schema.
+pub(crate) fn raw_dbconfig(database: &TestDatabase) -> String {
+    match database.sqlite_path() {
+        Some(path) => path.display().to_string(),
+        None => database.dbconfig().to_owned(),
+    }
+}
+
+/// Runs statements on a connection of its own, past the store.
+pub(crate) async fn execute_raw(dbconfig: &str, sql: &str) {
+    let sql = sqlx::AssertSqlSafe(sql.to_owned());
+    match db_type() {
+        DbType::Sqlite => {
+            let options = SqliteConnectOptions::new()
+                .filename(dbconfig)
+                .create_if_missing(true);
+            let mut conn = options
+                .connect()
+                .await
+                .expect("the test database file opens");
+            sqlx::raw_sql(sql)
+                .execute(&mut conn)
+                .await
+                .expect("the statement runs");
+            conn.close().await.expect("the connection closes");
+        }
+        DbType::Postgres => {
+            let (url, schema) = dbconfig
+                .rsplit_once("search_path=")
+                .expect("the test dbconfig names its schema");
+            let mut conn = PgConnection::connect(url.trim_end_matches(['?', '&']))
+                .await
+                .expect("the test PostgreSQL server accepts connections");
+            sqlx::raw_sql(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
+                .execute(&mut conn)
+                .await
+                .expect("the schema is selected");
+            sqlx::raw_sql(sql)
+                .execute(&mut conn)
+                .await
+                .expect("the statement runs");
+            conn.close().await.expect("the connection closes");
+        }
+    }
 }
 
 impl TestStore {
     /// What reaches this test's database again: the path of the SQLite file, or the
     /// PostgreSQL URL with the test's schema.
     pub(crate) fn dbconfig(&self) -> String {
-        match self.database.sqlite_path() {
-            Some(path) => path.display().to_string(),
-            None => self.database.dbconfig().to_owned(),
-        }
+        raw_dbconfig(&self.database)
     }
 
     /// Closes the store and removes its database.

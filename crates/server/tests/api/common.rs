@@ -148,7 +148,6 @@ impl Setup {
         let mut config = Configuration {
             db_type: database.db_type().as_str().to_owned(),
             db_config: database.dbconfig().to_owned(),
-            db_table_prefix: "test_".to_owned(),
             web_path: web_path.display().to_string(),
             files_driver: "local".to_owned(),
             files_path: directory.join("uploads").display().to_string(),

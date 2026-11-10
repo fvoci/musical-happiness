@@ -1,11 +1,7 @@
--- The schema of a new PostgreSQL database: what the original server's 40 migrations
--- leave behind, with the same column types, constraints and indexes. `{p}` is the table
--- prefix.
---
--- Unused columns (root_id, channel_id, workspace_id, ...) and the notification_hints
--- table are kept so that the original server can open the database too.
+-- The baseline schema of a PostgreSQL database. Migrations that have been released are
+-- never edited; a change is a new file with the next number.
 
-CREATE TABLE {p}blocks (
+CREATE TABLE blocks (
     id VARCHAR(36) NOT NULL,
     insert_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     parent_id VARCHAR(36),
@@ -21,11 +17,11 @@ CREATE TABLE {p}blocks (
     channel_id VARCHAR(36) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     board_id VARCHAR(36),
-    CONSTRAINT {p}blocks_pkey1 PRIMARY KEY (id)
+    CONSTRAINT blocks_pkey1 PRIMARY KEY (id)
 );
-CREATE INDEX idx_blocks_board_id_parent_id ON {p}blocks (board_id, parent_id);
+CREATE INDEX idx_blocks_board_id_parent_id ON blocks (board_id, parent_id);
 
-CREATE TABLE {p}blocks_history (
+CREATE TABLE blocks_history (
     id VARCHAR(36) NOT NULL,
     insert_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     parent_id VARCHAR(36),
@@ -41,10 +37,10 @@ CREATE TABLE {p}blocks_history (
     channel_id VARCHAR(36),
     created_by VARCHAR(36),
     board_id VARCHAR(36),
-    CONSTRAINT {p}blocks_pkey PRIMARY KEY (id, insert_at)
+    CONSTRAINT blocks_pkey PRIMARY KEY (id, insert_at)
 );
 
-CREATE TABLE {p}boards (
+CREATE TABLE boards (
     id VARCHAR(36) NOT NULL,
     insert_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     team_id VARCHAR(36) NOT NULL,
@@ -64,12 +60,12 @@ CREATE TABLE {p}boards (
     update_at BIGINT,
     delete_at BIGINT,
     minimum_role VARCHAR(36) NOT NULL DEFAULT '',
-    CONSTRAINT {p}boards_pkey PRIMARY KEY (id)
+    CONSTRAINT boards_pkey PRIMARY KEY (id)
 );
-CREATE INDEX idx_boards_team_id_is_template ON {p}boards (team_id, is_template);
-CREATE INDEX idx_boards_channel_id ON {p}boards (channel_id);
+CREATE INDEX idx_boards_team_id_is_template ON boards (team_id, is_template);
+CREATE INDEX idx_boards_channel_id ON boards (channel_id);
 
-CREATE TABLE {p}boards_history (
+CREATE TABLE boards_history (
     id VARCHAR(36) NOT NULL,
     insert_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
     team_id VARCHAR(36) NOT NULL,
@@ -89,10 +85,10 @@ CREATE TABLE {p}boards_history (
     update_at BIGINT,
     delete_at BIGINT,
     minimum_role VARCHAR(36) NOT NULL DEFAULT '',
-    CONSTRAINT {p}boards_history_pkey PRIMARY KEY (id, insert_at)
+    CONSTRAINT boards_history_pkey PRIMARY KEY (id, insert_at)
 );
 
-CREATE TABLE {p}board_members (
+CREATE TABLE board_members (
     board_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     roles VARCHAR(64),
@@ -100,21 +96,21 @@ CREATE TABLE {p}board_members (
     scheme_editor BOOLEAN,
     scheme_commenter BOOLEAN,
     scheme_viewer BOOLEAN,
-    CONSTRAINT {p}board_members_pkey PRIMARY KEY (board_id, user_id)
+    CONSTRAINT board_members_pkey PRIMARY KEY (board_id, user_id)
 );
-CREATE INDEX idx_board_members_user_id ON {p}board_members (user_id);
+CREATE INDEX idx_board_members_user_id ON board_members (user_id);
 
-CREATE TABLE {p}board_members_history (
+CREATE TABLE board_members_history (
     board_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     action VARCHAR(10),
     insert_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-    CONSTRAINT {p}board_members_history_pkey PRIMARY KEY (board_id, user_id, insert_at)
+    CONSTRAINT board_members_history_pkey PRIMARY KEY (board_id, user_id, insert_at)
 );
-CREATE INDEX idx_board_members_history_user_id ON {p}board_members_history (user_id);
-CREATE INDEX idx_board_members_history_board_id_user_id ON {p}board_members_history (board_id, user_id);
+CREATE INDEX idx_board_members_history_user_id ON board_members_history (user_id);
+CREATE INDEX idx_board_members_history_board_id_user_id ON board_members_history (board_id, user_id);
 
-CREATE TABLE {p}categories (
+CREATE TABLE categories (
     id VARCHAR(36) NOT NULL,
     name VARCHAR(100) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
@@ -126,11 +122,11 @@ CREATE TABLE {p}categories (
     collapsed BOOLEAN DEFAULT false,
     type VARCHAR(64),
     sort_order BIGINT,
-    CONSTRAINT {p}categories_pkey PRIMARY KEY (id)
+    CONSTRAINT categories_pkey PRIMARY KEY (id)
 );
-CREATE INDEX idx_categories_user_id_team_id ON {p}categories (user_id, team_id);
+CREATE INDEX idx_categories_user_id_team_id ON categories (user_id, team_id);
 
-CREATE TABLE {p}category_boards (
+CREATE TABLE category_boards (
     id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
     category_id VARCHAR(36) NOT NULL,
@@ -139,12 +135,12 @@ CREATE TABLE {p}category_boards (
     update_at BIGINT,
     sort_order BIGINT,
     hidden BOOLEAN,
-    CONSTRAINT {p}category_boards_pkey PRIMARY KEY (id),
+    CONSTRAINT category_boards_pkey PRIMARY KEY (id),
     CONSTRAINT unique_user_category_board UNIQUE (user_id, board_id)
 );
-CREATE INDEX idx_category_boards_category_id ON {p}category_boards (category_id);
+CREATE INDEX idx_category_boards_category_id ON category_boards (category_id);
 
-CREATE TABLE {p}file_info (
+CREATE TABLE file_info (
     id VARCHAR(26) NOT NULL,
     create_at BIGINT NOT NULL,
     delete_at BIGINT,
@@ -155,27 +151,27 @@ CREATE TABLE {p}file_info (
     path VARCHAR(512)
 );
 
-CREATE TABLE {p}notification_hints (
+CREATE TABLE notification_hints (
     block_type VARCHAR(10),
     block_id VARCHAR(36) NOT NULL,
     workspace_id VARCHAR(36),
     modified_by_id VARCHAR(36),
     create_at BIGINT,
     notify_at BIGINT,
-    CONSTRAINT {p}notification_hints_pkey PRIMARY KEY (block_id)
+    CONSTRAINT notification_hints_pkey PRIMARY KEY (block_id)
 );
 
-CREATE TABLE {p}preferences (
+CREATE TABLE preferences (
     userid VARCHAR(36) NOT NULL,
     category VARCHAR(32) NOT NULL,
     name VARCHAR(32) NOT NULL,
     value TEXT,
-    CONSTRAINT {p}preferences_pkey PRIMARY KEY (userid, category, name)
+    CONSTRAINT preferences_pkey PRIMARY KEY (userid, category, name)
 );
-CREATE INDEX idx_preferences_category ON {p}preferences (category);
-CREATE INDEX idx_preferences_name ON {p}preferences (name);
+CREATE INDEX idx_preferences_category ON preferences (category);
+CREATE INDEX idx_preferences_name ON preferences (name);
 
-CREATE TABLE {p}sessions (
+CREATE TABLE sessions (
     id VARCHAR(100) NOT NULL,
     token VARCHAR(100),
     user_id VARCHAR(100),
@@ -183,20 +179,20 @@ CREATE TABLE {p}sessions (
     create_at BIGINT,
     update_at BIGINT,
     auth_service VARCHAR(20),
-    CONSTRAINT {p}sessions_pkey PRIMARY KEY (id)
+    CONSTRAINT sessions_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}sharing (
+CREATE TABLE sharing (
     id VARCHAR(36) NOT NULL,
     enabled BOOLEAN,
     token VARCHAR(100),
     modified_by VARCHAR(36),
     update_at BIGINT,
     workspace_id VARCHAR(36),
-    CONSTRAINT {p}sharing_pkey PRIMARY KEY (id)
+    CONSTRAINT sharing_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}subscriptions (
+CREATE TABLE subscriptions (
     block_type VARCHAR(10),
     block_id VARCHAR(36) NOT NULL,
     workspace_id VARCHAR(36),
@@ -205,26 +201,26 @@ CREATE TABLE {p}subscriptions (
     notified_at BIGINT,
     create_at BIGINT,
     delete_at BIGINT,
-    CONSTRAINT {p}subscriptions_pkey PRIMARY KEY (block_id, subscriber_id)
+    CONSTRAINT subscriptions_pkey PRIMARY KEY (block_id, subscriber_id)
 );
-CREATE INDEX idx_subscriptions_subscriber_id ON {p}subscriptions (subscriber_id);
+CREATE INDEX idx_subscriptions_subscriber_id ON subscriptions (subscriber_id);
 
-CREATE TABLE {p}system_settings (
+CREATE TABLE system_settings (
     id VARCHAR(100) NOT NULL,
     value TEXT,
-    CONSTRAINT {p}system_settings_pkey PRIMARY KEY (id)
+    CONSTRAINT system_settings_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}teams (
+CREATE TABLE teams (
     id VARCHAR(36) NOT NULL,
     signup_token VARCHAR(100) NOT NULL,
     settings JSON,
     modified_by VARCHAR(36),
     update_at BIGINT,
-    CONSTRAINT {p}workspaces_pkey PRIMARY KEY (id)
+    CONSTRAINT workspaces_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE {p}users (
+CREATE TABLE users (
     id VARCHAR(100) NOT NULL,
     username VARCHAR(100),
     email VARCHAR(255),
@@ -236,5 +232,5 @@ CREATE TABLE {p}users (
     create_at BIGINT,
     update_at BIGINT,
     delete_at BIGINT,
-    CONSTRAINT {p}users_pkey PRIMARY KEY (id)
+    CONSTRAINT users_pkey PRIMARY KEY (id)
 );

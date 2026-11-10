@@ -4,8 +4,8 @@
 //! tasks. Every method that writes more than one statement runs in a transaction on both
 //! databases.
 //!
-//! The tables, columns and bookkeeping are those of the original server's schema version
-//! 40, so a database can be opened by either server.
+//! The schema is this server's own: a list of migrations applied by sqlx's migrator. A
+//! database of the original server is refused.
 
 mod blocks;
 mod boards;
@@ -66,29 +66,21 @@ enum Pool {
 }
 
 impl Store {
-    /// Connects to the database described by the server's `dbtype`, `dbconfig` and
-    /// `dbtableprefix` settings, creating the schema if the database is empty.
+    /// Connects to the database described by the server's `dbtype` and `dbconfig`
+    /// settings and brings its schema up to date: an empty database gets the whole
+    /// schema, an older one the migrations it lacks.
+    ///
+    /// The tables have fixed names. To keep them apart from other tables in one
+    /// PostgreSQL database, give the server a schema of its own with `search_path` in
+    /// `dbconfig`.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Config`] if `dbconfig` or `table_prefix` cannot be used,
-    /// [`StoreError::Schema`] if the database holds a schema other than version 40, and
-    /// [`StoreError::Database`] if the database cannot be reached.
-    pub async fn connect(
-        db_type: DbType,
-        dbconfig: &str,
-        table_prefix: &str,
-    ) -> Result<Self, StoreError> {
-        if !table_prefix
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-        {
-            return Err(StoreError::Config(format!(
-                "dbtableprefix {table_prefix:?} may only contain ASCII letters, digits and \
-                 underscores"
-            )));
-        }
-
+    /// Returns [`StoreError::Config`] if `dbconfig` cannot be used, [`StoreError::Schema`]
+    /// if the database is not this server's to open (one of the original server, one
+    /// migrated by a newer server), and [`StoreError::Database`] if the database cannot
+    /// be reached.
+    pub async fn connect(db_type: DbType, dbconfig: &str) -> Result<Self, StoreError> {
         let pool = match db_type {
             DbType::Sqlite => {
                 let settings = connect::sqlite_settings(dbconfig)?;
@@ -118,10 +110,10 @@ impl Store {
         let store = Self {
             inner: Arc::new(Inner {
                 pool,
-                shared: Shared::new(table_prefix.to_owned()),
+                shared: Shared::new(),
             }),
         };
-        store.transaction(schema::ensure).await?;
+        schema::migrate(&store).await?;
         Ok(store)
     }
 
@@ -130,6 +122,13 @@ impl Store {
         match self.inner.pool {
             Pool::Sqlite(_) => DbType::Sqlite,
             Pool::Postgres(_) => DbType::Postgres,
+        }
+    }
+
+    fn dialect(&self) -> Dialect {
+        match self.inner.pool {
+            Pool::Sqlite(_) => Dialect::Sqlite,
+            Pool::Postgres(_) => Dialect::Postgres,
         }
     }
 

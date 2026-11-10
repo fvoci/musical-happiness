@@ -249,11 +249,10 @@ async fn sqlite_connection(test: &common::TestStore) -> SqliteConnection {
 /// Writes a file-info row that is not deleted for each identifier.
 async fn insert_file_infos<const N: usize>(raw: &mut SqliteConnection, ids: [&str; N]) {
     for id in ids {
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO {}file_info (id, create_at, delete_at, name, extension, size) \
+        sqlx::query(
+            "INSERT INTO file_info (id, create_at, delete_at, name, extension, size) \
              VALUES ($1, 1, 0, 'file', 'png', 1)",
-            common::TABLE_PREFIX
-        )))
+        )
         .bind(id)
         .execute(&mut *raw)
         .await
@@ -263,13 +262,10 @@ async fn insert_file_infos<const N: usize>(raw: &mut SqliteConnection, ids: [&st
 
 /// The identifiers of the file-info rows that are marked deleted, sorted.
 async fn deleted_file_infos(raw: &mut SqliteConnection) -> Vec<String> {
-    sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT id FROM {}file_info WHERE delete_at != 0 ORDER BY id",
-        common::TABLE_PREFIX
-    )))
-    .fetch_all(raw)
-    .await
-    .expect("the file-info rows are read")
+    sqlx::query_scalar("SELECT id FROM file_info WHERE delete_at != 0 ORDER BY id")
+        .fetch_all(raw)
+        .await
+        .expect("the file-info rows are read")
 }
 
 /// `testInsertBlock`.
@@ -1620,7 +1616,7 @@ async fn rapid_writes_within_one_millisecond_never_collide_in_history() {
         return;
     }
     // Not `common::setup`, which makes a database file.
-    let store = Store::connect(DbType::Sqlite, "file::memory:", common::TABLE_PREFIX)
+    let store = Store::connect(DbType::Sqlite, "file::memory:")
         .await
         .expect("an in-memory database");
 
@@ -2348,8 +2344,7 @@ async fn sqlite_fields_stored_as_a_blob_are_read() {
     let mut raw = sqlite_connection(&test).await;
     for table in ["blocks", "blocks_history"] {
         let rewritten = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "UPDATE {}{table} SET fields = CAST(fields AS BLOB)",
-            common::TABLE_PREFIX
+            "UPDATE {table} SET fields = CAST(fields AS BLOB)"
         )))
         .execute(&mut raw)
         .await
