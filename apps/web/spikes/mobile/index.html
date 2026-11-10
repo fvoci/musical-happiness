@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      `viewport-fit=cover` lets the page reach under the notch and the home
+      indicator, where the `env(safe-area-inset-*)` values keep content clear.
+      `interactive-widget=resizes-content` makes the on-screen keyboard shrink
+      the layout viewport where the browser supports it.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <title>fvoci: 모바일 화면 안</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

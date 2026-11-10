@@ -1,0 +1,66 @@
+/*
+ * The app's style sheet, plus the classes this spike uses. The app's style
+ * sheet leaves the spikes folder out; naming the files brings these back in
+ * (naming the folder does not).
+ */
+@import '../../src/styles/app.css';
+@source './*.svelte';
+
+:root {
+  /*
+   * Room the device takes at the top and bottom of the screen (notch, home
+   * indicator) and the height of the on-screen keyboard. Everything pinned to
+   * an edge of the screen is placed with these.
+   */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --keyboard: 0px;
+
+  /* Fill of a select option or an avatar. Text on it is the foreground colour. */
+  --chip-gray: oklch(0.93 0 0);
+  --chip-blue: oklch(0.92 0.045 250);
+  --chip-green: oklch(0.92 0.06 155);
+  --chip-yellow: oklch(0.93 0.08 95);
+  --chip-orange: oklch(0.92 0.06 60);
+  --chip-red: oklch(0.91 0.055 20);
+  --chip-purple: oklch(0.92 0.05 305);
+}
+
+.dark {
+  --chip-gray: oklch(0.34 0 0);
+  --chip-blue: oklch(0.36 0.07 250);
+  --chip-green: oklch(0.36 0.06 155);
+  --chip-yellow: oklch(0.38 0.06 95);
+  --chip-orange: oklch(0.38 0.07 60);
+  --chip-red: oklch(0.37 0.08 20);
+  --chip-purple: oklch(0.36 0.08 305);
+}
+
+/*
+ * A headless browser has neither a notch nor a keyboard. These stand in for
+ * them in a screenshot: `?safe=1` and `?keyboard=1`.
+ */
+:root[data-fake-safe] {
+  --safe-top: 2.9375rem;
+  --safe-bottom: 2.125rem;
+}
+
+:root[data-fake-keyboard] {
+  --keyboard: 18.5rem;
+  --safe-bottom: 0px;
+}
+
+/* A long press on a card starts a drag, not the callout of iOS. */
+[data-card] {
+  -webkit-touch-callout: none;
+}
+
+/*
+ * The card as a panel at the right edge leaves the board readable beside it.
+ * The generated sheet always dims and blurs what is behind; here that layer
+ * is made clear. The product would need a panel that is not a modal sheet.
+ */
+[data-slot='sheet-overlay']:has(+ [data-testid='card-sheet'][data-side='right']) {
+  background-color: transparent;
+  backdrop-filter: none;
+}
