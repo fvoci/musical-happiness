@@ -96,6 +96,11 @@ export class Http {
     }
     if (!response.ok) throw await errorOf(response);
     if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+    try {
+      return (await response.json()) as T;
+    } catch {
+      // Something between answered in the server's place (a proxy's page, say).
+      throw new BackendError(0, { message: `${method} ${path}: not the server's answer` });
+    }
   }
 }

@@ -60,6 +60,8 @@ export class LiveChanges {
   #failures = 0;
   /** A connection was open before: the next one that opens is a reconnection. */
   #wasOpen = false;
+  /** Counts the sign-ins (`restart`): an opening begun before the latest is given up. */
+  #session = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #steady: ReturnType<typeof setTimeout> | undefined;
   #gathering: ReturnType<typeof setTimeout> | undefined;
@@ -83,6 +85,9 @@ export class LiveChanges {
    */
   restart(): void {
     this.#teamId = undefined;
+    // An opening still waiting for the old session's team gives up (#open).
+    this.#session += 1;
+    this.#failures = 0;
     // The old connection's close is not heard (it is no longer the one): its timer goes here.
     clearTimeout(this.#steady);
     const socket = this.#socket;
@@ -123,14 +128,19 @@ export class LiveChanges {
   }
 
   async #open(): Promise<void> {
+    const session = this.#session;
+    let teamId = this.#teamId;
     try {
-      this.#teamId ??= await this.#reads.teamId();
+      teamId ??= await this.#reads.teamId();
     } catch {
+      if (session !== this.#session) return;
       this.#failures += 1;
       this.#again();
       return;
     }
-    const teamId = this.#teamId;
+    // Signed in again meanwhile: that opening is the one that counts.
+    if (session !== this.#session) return;
+    this.#teamId = teamId;
     if (this.#listening.size === 0 || this.#socket) return;
     const socket = new WebSocket(this.#url);
     this.#socket = socket;

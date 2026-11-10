@@ -55,9 +55,9 @@ export class CardStore {
   readonly cardId: string;
 
   status = $state<LoadStatus>('idle');
-  /** The card is gone (deleted here or by somebody else), or never was. */
   /** Readings again (`refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
+  /** The card is gone (deleted here or by somebody else), or never was. */
   missing = $state(false);
   /** The body as it is stored, as far as this store knows. */
   body = $state.raw<DocNode | null>(null);

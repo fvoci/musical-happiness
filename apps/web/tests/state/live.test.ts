@@ -240,6 +240,29 @@ describe('changes from the server', () => {
     expect(board).toEqual([{ kind: 'resync' }]);
   });
 
+  it('gives up an opening that waits for the old session’s team when signing in again', async () => {
+    let oldTeam: (teamId: string) => void = () => undefined;
+    const teamId = vi
+      .spyOn(reads, 'teamId')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            oldTeam = resolve;
+          }),
+      )
+      .mockImplementationOnce(() => Promise.resolve('t2'));
+    const live = new LiveChanges('ws://here/ws', reads);
+    live.watch('b1', () => undefined);
+    live.restart();
+    await settle();
+    oldTeam('t');
+    await settle();
+    expect(FakeSocket.made).toHaveLength(1);
+    FakeSocket.made[0]?.open();
+    expect(FakeSocket.made[0]?.sent).toEqual([{ action: 'SUBSCRIBE_TEAM', teamId: 't2' }]);
+    teamId.mockRestore();
+  });
+
   it('waits from the first wait again only after a connection has held', async () => {
     const { socket } = await connected();
     socket.drop();

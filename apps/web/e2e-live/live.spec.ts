@@ -47,9 +47,15 @@ test('what one person does shows on the other’s page, and a dropped connection
 
   // The second page's connection goes through the test, which can drop it.
   // What the server sent it is kept, to tell later how a change arrived.
+  // While `away`, a new connection is closed at once: the page tries again later.
   let open: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
+  let away = false;
   const heard: string[] = [];
   await second.routeWebSocket(/\/ws$/, (socket) => {
+    if (away) {
+      void socket.close();
+      return;
+    }
     const server = socket.connectToServer();
     server.onMessage((message) => {
       heard.push(String(message));
@@ -83,10 +89,7 @@ test('what one person does shows on the other’s page, and a dropped connection
   // is made. Its message reaches the first page only.
   await expect.poll(() => open !== undefined).toBe(true);
   const dropped = open;
-  const readAgain = second.waitForRequest(
-    (request) =>
-      request.method() === 'GET' && request.url().includes(`/boards/${board.boardId}/cards`),
-  );
+  away = true;
   await dropped?.server.close();
   await dropped?.page.close();
   const made = (await (
@@ -95,9 +98,18 @@ test('what one person does shows on the other’s page, and a dropped connection
     })
   ).json()) as Schemas['Card'];
   await expect(column(first, 'Doing').getByText('Missed while away')).toBeVisible();
+  await expect(column(second, 'Doing').getByText('Missed while away')).toHaveCount(0);
 
-  // Back: the board is read again, and the card that was missed is there,
+  // Back (only now: no new connection could hear the card's message): the
+  // board is read again, and the card that was missed is there,
   // brought by the reading: no message of the server named it.
+  const readAgain = second.waitForRequest(
+    (request) =>
+      request.method() === 'GET' && request.url().includes(`/boards/${board.boardId}/cards`),
+    // The tries while away made the wait longer (0.5, 1, 2, 5 seconds…).
+    { timeout: 20_000 },
+  );
+  away = false;
   await readAgain;
   await expect(column(second, 'Doing').getByText('Missed while away')).toBeVisible();
   expect(heard.some((message) => message.includes('Missed while away'))).toBe(false);

@@ -45,6 +45,8 @@
     switch (error.reason) {
       case 'invalid_credentials':
         return m.account_invalid_credentials();
+      case 'session_not_kept':
+        return m.account_session_not_kept();
       case 'username_taken':
         return m.account_username_taken();
       case 'email_taken':

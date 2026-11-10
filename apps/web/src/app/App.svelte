@@ -10,7 +10,13 @@
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import AppShell from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { isBackendError, Workspace, type Account, type Registration } from '$lib/state/index.ts';
+  import {
+    BackendError,
+    isBackendError,
+    Workspace,
+    type Account,
+    type Registration,
+  } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { startBackend } from './backend.ts';
@@ -83,7 +89,22 @@
   <SignInPage
     onSignIn={async (login: string, password: string) => {
       await account?.signIn(login, password);
+      // A session that ended while working here: what is on the page (the
+      // open board, undo, problems) was the old session's. Start afresh, as
+      // signing out does.
+      if (workspace?.me) {
+        location.reload();
+        return;
+      }
       await workspace?.load();
+      // Signed in, yet the next request is not: the browser did not keep the
+      // session (a cookie for https on a page over http, or cookies blocked).
+      if (workspace?.status === 'signedOut') {
+        throw new BackendError(401, {
+          reason: 'session_not_kept',
+          message: 'the session was not kept',
+        });
+      }
     }}
     onRegister={async (registration: Registration) => {
       await account?.register(registration);

@@ -4,7 +4,15 @@
  */
 import { expect, test } from '@playwright/test';
 
-import { invitation, person, register, signInOnPage, watchErrors } from './support.ts';
+import {
+  invitation,
+  makeBoard,
+  person,
+  register,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+} from './support.ts';
 
 test.use({ locale: 'en-US' });
 
@@ -95,4 +103,48 @@ test('an account needs the invitation once the server has one', async ({ page, b
   await form.getByLabel(/^password$/i).fill(who.password);
   await form.getByRole('button', { name: /^create account$/i }).click();
   await expect(form.getByRole('alert')).toHaveText('This server needs an invitation code.');
+});
+
+test('a session that ends on an open board, and somebody else signs in on that page, shows only theirs', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('leaver');
+  const next = person('arriver');
+  await register(base, owner);
+  await register(base, next);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Private plans',
+    cards: [{ title: 'Secret step', status: 'To do' }],
+  });
+  await api.dispose();
+
+  const errors = watchErrors(page);
+  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await signInOnPage(page, owner);
+  await expect(page.getByText('Secret step')).toBeVisible();
+  // Something to undo, in this session.
+  await page.getByRole('button', { name: 'New card in To do' }).click();
+  await page.getByTestId('card-title').fill('Another step');
+  await page.goBack();
+  const undo = page.getByRole('button', { name: 'Undo' });
+  await expect(undo).toBeEnabled();
+
+  // The session ends (the cookie is gone); the next request tells, and the
+  // page asks to sign in.
+  await context.clearCookies();
+  await page.getByText('Secret step').click();
+  await expect(page.getByTestId('sign-in-form')).toBeVisible();
+
+  // Somebody else signs in on the same page: nothing of the first session stays.
+  await signInOnPage(page, next);
+  await expect(page.getByTestId('app-shell')).toBeVisible();
+  await expect(page.getByText('Secret step')).toHaveCount(0);
+  await expect(page.getByTestId('sidebar').getByText('Private plans')).toHaveCount(0);
+  // Nor what the first one could undo.
+  await expect(undo).toBeDisabled();
+  expect(errors).toEqual([]);
 });

@@ -21,6 +21,7 @@
   "account_bad_field": "“{field}” 칸을 확인해 주세요.",
   "account_rate_limited": "시도가 너무 많습니다. 잠시 뒤에 다시 해 주세요.",
   "account_failed": "되지 않았습니다. 다시 해 주세요.",
+  "account_session_not_kept": "로그인했지만 이 브라우저가 세션을 지니지 않았습니다. 쿠키가 막혀 있거나, 페이지가 서버의 주소로 열리지 않았을 수 있습니다.",
   "account_signed_in_as": "{name}(으)로 로그인함",
   "account_sign_out": "로그아웃"
 }
