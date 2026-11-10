@@ -36,11 +36,13 @@ test('a board of the server is listed and opens with its views, cards and member
 
   const errors = watchErrors(page);
   await page.goto('/');
-  await signInOnPage(page, reader);
+  // Waited for before signing in: the app opens the first board of the
+  // sidebar by itself, and with it reads its members' names.
   const byId = page.waitForRequest(
     (request) =>
       request.method() === 'POST' && /\/api\/v1\/teams\/[^/]+\/users$/.test(request.url()),
   );
+  await signInOnPage(page, reader);
 
   const sidebar = page.getByTestId('sidebar');
   await expect(sidebar.getByText('Garden plan')).toBeVisible();

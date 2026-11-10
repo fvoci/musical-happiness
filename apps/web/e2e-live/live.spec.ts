@@ -46,9 +46,16 @@ test('what one person does shows on the other’s page, and a dropped connection
   const errors = [...[first, second].map(watchErrors)];
 
   // The second page's connection goes through the test, which can drop it.
+  // What the server sent it is kept, to tell later how a change arrived.
   let open: { page: WebSocketRoute; server: WebSocketRoute } | undefined;
+  const heard: string[] = [];
   await second.routeWebSocket(/\/ws$/, (socket) => {
-    open = { page: socket, server: socket.connectToServer() };
+    const server = socket.connectToServer();
+    server.onMessage((message) => {
+      heard.push(String(message));
+      socket.send(message);
+    });
+    open = { page: socket, server };
   });
 
   for (const [page, who] of [
@@ -89,9 +96,12 @@ test('what one person does shows on the other’s page, and a dropped connection
   ).json()) as Schemas['Card'];
   await expect(column(first, 'Doing').getByText('Missed while away')).toBeVisible();
 
-  // Back: the board is read again, and the card that was missed is there.
+  // Back: the board is read again, and the card that was missed is there,
+  // brought by the reading: no message of the server named it.
   await readAgain;
   await expect(column(second, 'Doing').getByText('Missed while away')).toBeVisible();
+  expect(heard.some((message) => message.includes('Missed while away'))).toBe(false);
+  expect(heard.length).toBeGreaterThan(0);
   // And the new connection is a real one: a later change arrives by it.
   expect(open).not.toBe(dropped);
   await api.patch(`/api/v1/cards/${made.id}`, { data: { title: 'Caught up' } });

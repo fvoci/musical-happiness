@@ -141,6 +141,8 @@ export class BoardStore {
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
   #refreshing = 0;
+  /** Lists of members told by changes: a reading begun before the latest does not replace it. */
+  #membersTold = 0;
   #stopWatching: (() => void) | undefined;
 
   constructor(workspace: Workspace, boardId: string) {
@@ -248,6 +250,7 @@ export class BoardStore {
         this.status = 'failed';
         break;
       case 'members':
+        this.#membersTold += 1;
         this.members = change.members;
         void this.workspace.learnUsers(change.members.map((member) => member.userId));
         break;
@@ -284,6 +287,7 @@ export class BoardStore {
     const reading = this.#refreshing;
     const cardsBefore = this.cards.map((card) => card.id);
     const viewsBefore = this.views.map((view) => view.id);
+    const membersTold = this.#membersTold;
     try {
       const [board, views, cards, members] = await Promise.all([
         this.#backend.board(this.boardId),
@@ -297,8 +301,10 @@ export class BoardStore {
       this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
       const shown = this.cards;
       this.cards = reread(shown, cards, cardsBefore, (card) => this.#cardWrites.receive(card));
-      this.members = members;
-      void this.workspace.learnUsers(members.map((member) => member.userId));
+      if (membersTold === this.#membersTold) {
+        this.members = members;
+        void this.workspace.learnUsers(members.map((member) => member.userId));
+      }
       const open = this.openCard;
       if (open) {
         const card = this.card(open.cardId);

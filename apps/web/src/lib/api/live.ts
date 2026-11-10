@@ -83,6 +83,8 @@ export class LiveChanges {
    */
   restart(): void {
     this.#teamId = undefined;
+    // The old connection's close is not heard (it is no longer the one): its timer goes here.
+    clearTimeout(this.#steady);
     const socket = this.#socket;
     this.#socket = undefined;
     socket?.close();

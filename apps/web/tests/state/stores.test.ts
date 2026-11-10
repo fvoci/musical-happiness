@@ -542,9 +542,10 @@ describe('a list read again', () => {
   const item = (id: string, updateAt: number) => ({ id, updateAt });
 
   it('takes what was read, keeps what is newer on screen or held by a write, and what came meanwhile', () => {
+    // 'e' was shown, then deleted while the list was read: the older reading still has it.
     const shown = [item('a', 5), item('b', 1), item('c', 1), item('d', 1), item('new', 1)];
-    const before = ['a', 'b', 'c', 'd'];
-    const read = [item('a', 3), item('b', 2), item('c', 2)];
+    const before = ['a', 'b', 'c', 'd', 'e'];
+    const read = [item('a', 3), item('b', 2), item('c', 2), item('e', 1)];
     const next = reread(shown, read, before, (one) => one.id !== 'c');
     expect(next).toEqual([item('a', 5), item('b', 2), item('c', 1), item('new', 1)]);
   });

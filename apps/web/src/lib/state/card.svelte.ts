@@ -56,6 +56,8 @@ export class CardStore {
 
   status = $state<LoadStatus>('idle');
   /** The card is gone (deleted here or by somebody else), or never was. */
+  /** Readings again (`refresh`) begun: the latest is the one that counts. */
+  #refreshing = 0;
   missing = $state(false);
   /** The body as it is stored, as far as this store knows. */
   body = $state.raw<DocNode | null>(null);
@@ -275,6 +277,8 @@ export class CardStore {
    */
   async refresh(): Promise<void> {
     if (this.status !== 'ready' || this.#closed) return;
+    this.#refreshing += 1;
+    const reading = this.#refreshing;
     const commentsBefore = this.#comments.map((comment) => comment.id);
     const attachmentsBefore = this.#attachments.map((attachment) => attachment.id);
     try {
@@ -282,11 +286,13 @@ export class CardStore {
         this.#backend.comments(this.#boardId, this.cardId),
         this.#backend.attachments(this.#boardId, this.cardId),
       ]);
-      // Closed meanwhile (asked again: the check above was before the wait).
-      if (this.#isClosed()) return;
+      // Closed meanwhile, or a later reading has begun (asked again: the
+      // check above was before the wait, which TypeScript does not see).
+      if (this.#isClosed() || reading !== this.#refreshing) return;
       this.#comments = reread(this.#comments, comments, commentsBefore);
       this.#attachments = reread(this.#attachments, attachments, attachmentsBefore);
     } catch (error) {
+      if (this.#isClosed() || reading !== this.#refreshing) return;
       if (isBackendError(error) && error.status === 404) this.missing = true;
       // Otherwise the next change, or the next opening, brings them.
     }

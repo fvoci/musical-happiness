@@ -218,7 +218,11 @@ export class Workspace {
       this.boards = reread(this.boards, boards, before);
       this.categories = categories;
     } catch (error) {
-      if (reading === this.#refreshing) this.report('load', error);
+      // A reading in the background: only a session that is over is told
+      // (as signing out). The next message, or the next load, brings the rest.
+      if (reading === this.#refreshing && isBackendError(error) && error.status === 401) {
+        this.report('load', error);
+      }
     }
   }
 
