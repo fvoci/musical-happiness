@@ -189,7 +189,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 | `review-todo.md`, `review-final/todo.md` | 리뷰의 지적을 모은 목록. `PORTING.md` J절의 번호(M1, S1 등)가 앞의 것이다 | 지적의 원문을 볼 때 |
 
 - `research/raw/`에 든 것: 쿠키 규격 초안 6265bis, RFC 6455·7239, WHATWG WebSockets·Fetch, OWASP 문서 넷과 ASVS V7, NIST 800-63B, SQLite·PostgreSQL의 외래 키와 부분 색인, S3·R2의 멀티파트, Cloudflare와 CloudFront의 한도, tus, IETF 재개 업로드 초안, `chrono-tz`·`jiff`의 레지스트리 정보.
-- 보관 폴더로 옮기지 않은 것 가운데 다시 쓸 만한 것은 하나다. 내장 템플릿 아카이브를 푼 `tpl/`이고, 템플릿 산출물을 받을 때 대조하는 데 쓴다(설계 5.7). `python3 -m zipfile -e server/assets/templates.boardarchive target/s6/tpl`로 다시 만든다. 주인 없는 블록과 끊어진 참조를 센 스크립트는 남기지 않았다. 세는 법은 설계 5.7의 표에 적은 정의 그대로다.
+- 보관 폴더로 옮기지 않은 것 가운데 다시 쓸 만한 것은 하나다. 내장 템플릿 아카이브를 푼 `tpl/`이고, 템플릿 산출물을 받을 때 대조하는 데 쓴다(설계 5.7). `python3 -m zipfile -e server/assets/templates.boardarchive target/s6/tpl`로 다시 만든다. 주인 없는 블록과 끊어진 참조를 센 스크립트는 남기지 않았다. 세는 법은 설계 문서 맨 끝 "원본과 견준 것"의 표에 적은 정의 그대로다.
 - 그 밖에 옮기지 않은 것은 지워도 되는 것들이다: 계약에서 `openapi-typescript`로 뽑아 본 타입(`7d/ts/api.d.ts`), 단계 앞의 스냅샷 사본(`golden-*`), 요청 크기를 재려고 임시로 고친 빌드(`fvoci-server-measure`, 설계 4.1), 작업 중의 사본(`final/`, `s4/`).
 
 ## 6. 다음 세션이 먼저 볼 것
