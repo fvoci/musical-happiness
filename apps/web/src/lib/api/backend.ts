@@ -252,10 +252,14 @@ export class ServerBackend implements Backend, Account {
   }
 
   /** A card without its body: the server keeps none yet (`docs/contract-pending.md`, 1). */
-  async card(_boardId: string, cardId: string): Promise<CardDetail> {
-    return cardDetailOf(
-      await this.#http.request<Schemas['Card']>('/api/v1/cards/{cardId}', { cardId }),
-    );
+  async card(boardId: string, cardId: string): Promise<CardDetail> {
+    const card = await this.#http.request<Schemas['Card']>('/api/v1/cards/{cardId}', { cardId });
+    // The route finds a card on any board the reader may see; a card of
+    // another board is not this board's (as the memory backend says).
+    if (card.boardId !== boardId) {
+      throw new BackendError(404, { message: 'no such card on this board', reason: 'not_found' });
+    }
+    return cardDetailOf(card);
   }
 
   createCard(_boardId: string, _draft: CardDraft): Promise<CardSummary> {

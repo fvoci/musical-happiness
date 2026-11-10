@@ -139,6 +139,9 @@ export class Workspace {
       this.boards = boards;
       this.categories = categories;
       this.#takeSettings(settings);
+      // The list of the team is short (ten): the open board's members it did
+      // not bring are read again, as when the board was opened.
+      if (this.board) void this.learnUsers(this.board.members.map((member) => member.userId));
       this.#stopWatching?.();
       this.#stopWatching = this.backend.watchSelf((change) => {
         this.#apply(change);
@@ -214,7 +217,8 @@ export class Workspace {
   /**
    * Reads the people among `userIds` the workspace has no name for yet: the
    * members of a board, say, when the list of the team did not bring them.
-   * Failing, the names stay unknown; nothing else depends on it.
+   * Failing, the names stay unknown and nothing is told: nothing else
+   * depends on them. A session that is over still signs out.
    */
   async learnUsers(userIds: readonly string[]): Promise<void> {
     const team = this.team;
@@ -230,7 +234,8 @@ export class Workspace {
         ...found.filter((user) => this.#usersById[user.id] === undefined),
       ];
     } catch (error) {
-      this.report('load', error);
+      if (isBackendError(error) && error.status === 401) this.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
     }
   }
 

@@ -247,6 +247,7 @@ export class BoardStore {
         break;
       case 'members':
         this.members = change.members;
+        void this.workspace.learnUsers(change.members.map((member) => member.userId));
         break;
       case 'blocks':
         for (const block of change.blocks) {

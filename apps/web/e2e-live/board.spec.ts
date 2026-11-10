@@ -15,6 +15,9 @@ test('a board of the server is listed and opens with its views, cards and member
   baseURL,
 }) => {
   const base = baseURL ?? '';
+  // The server lists only the ten oldest people of a team: with ten before
+  // them, the owner and the reader are past that list.
+  for (let made = 0; made < 10; made += 1) await register(base, person('earlier'));
   const owner = person('owner');
   const reader = person('reader');
   await register(base, owner);
@@ -34,6 +37,10 @@ test('a board of the server is listed and opens with its views, cards and member
   const errors = watchErrors(page);
   await page.goto('/');
   await signInOnPage(page, reader);
+  const byId = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' && /\/api\/v1\/teams\/[^/]+\/users$/.test(request.url()),
+  );
 
   const sidebar = page.getByTestId('sidebar');
   await expect(sidebar.getByText('Garden plan')).toBeVisible();
@@ -57,8 +64,9 @@ test('a board of the server is listed and opens with its views, cards and member
   // Both people are members; the reader may only look.
   const members = page.getByTestId('board-members');
   await expect(members.locator('li')).toHaveCount(2);
-  // By name, though the server's list of the team is short (ten): the board's
-  // members are read by their identifiers.
+  // By name, though neither is on the server's list of the team: the
+  // board's members are read by their identifiers.
+  expect(((await byId).postDataJSON() as string[]).length).toBe(2);
   await expect(members.getByLabel(owner.username)).toBeVisible();
   await expect(members.getByLabel(reader.username)).toBeVisible();
   await expect(page.getByTestId('read-only')).toBeVisible();
