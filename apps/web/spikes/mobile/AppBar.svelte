@@ -37,7 +37,7 @@
 
 <header
   data-testid="app-bar"
-  class="@columns/pane:h-14 @columns/pane:gap-2 @columns/pane:border-b-0 @columns/pane:px-4 flex h-12 shrink-0 items-center gap-0.5 border-b px-1.5"
+  class="flex h-12 shrink-0 items-center gap-0.5 border-b px-1.5 @columns/pane:h-14 @columns/pane:gap-2 @columns/pane:border-b-0 @columns/pane:px-4"
 >
   {#if leading === 'menu'}
     <IconButton label={T.openSidebar} data-testid="open-sidebar" onclick={onmenu}>
@@ -69,24 +69,24 @@
       <ChevronsUpDownIcon class="text-muted-foreground" />
     </Button>
   {:else}
-    <div class="@columns/pane:px-0 flex min-w-0 shrink items-center gap-2 px-1">
+    <div class="flex min-w-0 shrink items-center gap-2 px-1 @columns/pane:px-0">
       <BoardIcon board={BOARD} />
-      <h1 class="@columns/pane:text-lg truncate font-semibold">{BOARD.name}</h1>
+      <h1 class="truncate font-semibold @columns/pane:text-lg">{BOARD.name}</h1>
     </div>
   {/if}
-  <p class="@header/pane:block hidden min-w-0 truncate text-muted-foreground">
+  <p class="hidden min-w-0 truncate text-muted-foreground @header/pane:block">
     {BOARD_DESCRIPTION}
   </p>
   <div class="flex-1"></div>
 
-  <div class="@columns/pane:flex hidden -space-x-1.5">
+  <div class="hidden -space-x-1.5 @columns/pane:flex">
     {#each PEOPLE.slice(0, 4) as person (person.id)}
       <Avatar {person} class="size-7 ring-2 ring-background" />
     {/each}
   </div>
   <!-- An icon alone in a narrow pane, a button with its word where there is room. -->
   <IconButton label={T.share} class="@columns/pane:hidden"><UsersIcon /></IconButton>
-  <Button variant="outline" class="@columns/pane:inline-flex hidden pointer-coarse:h-touch">
+  <Button variant="outline" class="hidden @columns/pane:inline-flex pointer-coarse:h-touch">
     <UsersIcon data-icon="inline-start" />
     {T.share}
   </Button>

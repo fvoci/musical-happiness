@@ -140,7 +140,7 @@
             >
               <button
                 type="button"
-                class="@columns/pane:w-56 @header/pane:w-88 block h-9 w-40 truncate px-3 text-left hover:bg-muted pointer-coarse:h-touch"
+                class="block h-9 w-40 truncate px-3 text-left hover:bg-muted @columns/pane:w-56 @header/pane:w-88 pointer-coarse:h-touch"
                 onclick={() => {
                   onopen(card);
                 }}

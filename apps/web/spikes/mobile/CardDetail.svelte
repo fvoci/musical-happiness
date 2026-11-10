@@ -118,7 +118,7 @@
 </script>
 
 {#snippet bar(leading: 'back' | 'close')}
-  <div class="@card-roomy/card:px-3 flex h-12 shrink-0 items-center gap-1 px-1.5">
+  <div class="flex h-12 shrink-0 items-center gap-1 px-1.5 @card-roomy/card:px-3">
     {#if leading === 'back'}
       <IconButton label={T.back} onclick={close}><ArrowLeftIcon /></IconButton>
     {/if}
@@ -157,7 +157,7 @@
     <CardBody {card} {editing} {sheet} />
   </div>
   <form
-    class="@card-roomy/card:px-6 flex shrink-0 items-center gap-2 border-t bg-background px-3 pt-2 pb-[calc(0.5rem+var(--safe-bottom))]"
+    class="flex shrink-0 items-center gap-2 border-t bg-background px-3 pt-2 pb-[calc(0.5rem+var(--safe-bottom))] @card-roomy/card:px-6"
     onsubmit={(event) => {
       event.preventDefault();
     }}

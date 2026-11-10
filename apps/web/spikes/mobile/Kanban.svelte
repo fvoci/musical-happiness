@@ -126,7 +126,7 @@
       role="tablist"
       aria-label={T.columns}
       data-testid="column-tabs"
-      class="@columns/pane:hidden no-scrollbar flex shrink-0 overflow-x-auto border-b px-2"
+      class="no-scrollbar flex shrink-0 overflow-x-auto border-b px-2 @columns/pane:hidden"
     >
       {#each STATUSES as status, at (status.id)}
         <button
@@ -160,8 +160,8 @@
     class={[
       'flex min-h-0 flex-1 items-start gap-3 overflow-x-auto overflow-y-hidden py-3',
       paging === 'snap'
-        ? '@columns/pane:snap-none @columns/pane:px-3 @header/pane:px-4 snap-x snap-mandatory px-7'
-        : '@header/pane:px-4 px-3',
+        ? 'snap-x snap-mandatory px-7 @columns/pane:snap-none @columns/pane:px-3 @header/pane:px-4'
+        : 'px-3 @header/pane:px-4',
     ]}
     onscroll={onScroll}
   >
@@ -173,8 +173,8 @@
         class={[
           'flex max-h-full shrink-0 flex-col rounded-lg bg-muted',
           paging === 'snap'
-            ? '@columns/pane:w-64 @columns/pane:max-w-none @columns/pane:snap-align-none @header/pane:w-68 w-full max-w-sm snap-center'
-            : '@header/pane:w-68 w-64',
+            ? 'w-full max-w-sm snap-center @columns/pane:w-64 @columns/pane:max-w-none @columns/pane:snap-align-none @header/pane:w-68'
+            : 'w-64 @header/pane:w-68',
         ]}
       >
         <header class="flex items-center gap-2 pt-1 pr-1 pl-3">
@@ -240,7 +240,7 @@
                     <IconButton
                       {...props}
                       label={T.cardMenu}
-                      class="can-hover:opacity-0 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100 text-muted-foreground"
+                      class="text-muted-foreground can-hover:opacity-0 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100"
                     >
                       <EllipsisIcon />
                     </IconButton>
@@ -261,7 +261,7 @@
     {/each}
     <button
       type="button"
-      class="@columns/pane:flex hidden h-9 w-68 shrink-0 items-center gap-1.5 rounded-lg px-3 text-left text-sm text-muted-foreground hover:bg-muted"
+      class="hidden h-9 w-68 shrink-0 items-center gap-1.5 rounded-lg px-3 text-left text-sm text-muted-foreground hover:bg-muted @columns/pane:flex"
     >
       <PlusIcon class="size-4" />
       {T.addGroup}
