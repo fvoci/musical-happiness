@@ -30,8 +30,12 @@ export async function startBackend(): Promise<StartedBackend> {
   // Long enough to see that a change shows before it is answered.
   backend.latency = 40;
   const otherId = [...world.users.keys()].find((id) => id !== readerId);
-  return {
+  const asSomeoneElse = otherId === undefined ? undefined : () => backend.as(otherId);
+  // A handle for the browser tests and for trying things by hand in the
+  // console: the same data as another person, and the next call failing.
+  (window as unknown as { fvociDev?: unknown }).fvociDev = {
     backend,
-    asSomeoneElse: otherId === undefined ? undefined : () => backend.as(otherId),
+    someoneElse: asSomeoneElse,
   };
+  return { backend, asSomeoneElse };
 }
