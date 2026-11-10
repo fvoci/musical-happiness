@@ -207,6 +207,50 @@ async fn a_session_ends_by_disuse_and_at_its_end_time() {
     test.teardown().await;
 }
 
+/// A session of a user who is deactivated has ended, whatever its times; it is valid
+/// again if the user is active again. Another user's session is not touched.
+#[tokio::test]
+async fn a_session_of_a_deactivated_user_is_not_found() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "leaving").await;
+    let other_id = common::user(&test, "staying").await;
+    for (id, digest) in [(&user_id, "digest-leaving"), (&other_id, "digest-staying")] {
+        test.create_session(&session_of(id), digest)
+            .await
+            .expect("the session is stored");
+    }
+    assert!(
+        is_valid(&test, "digest-leaving", T0 + 1, T0 - 1).await,
+        "valid while the user is active"
+    );
+
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE users SET delete_at = {T0} WHERE id = '{user_id}'"),
+    )
+    .await;
+    assert!(
+        !is_valid(&test, "digest-leaving", T0 + 1, T0 - 1).await,
+        "ended with the deactivation"
+    );
+    assert!(
+        is_valid(&test, "digest-staying", T0 + 1, T0 - 1).await,
+        "the other user's session is their own"
+    );
+
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE users SET delete_at = 0 WHERE id = '{user_id}'"),
+    )
+    .await;
+    assert!(
+        is_valid(&test, "digest-leaving", T0 + 1, T0 - 1).await,
+        "valid again once the user is active again"
+    );
+
+    test.teardown().await;
+}
+
 /// The clean-up deletes exactly the sessions that have ended: the idle ones and the
 /// ones past their end time.
 #[tokio::test]

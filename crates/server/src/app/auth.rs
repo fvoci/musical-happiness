@@ -63,12 +63,13 @@ impl App {
         }
 
         let token = new_secret();
+        let now = now_millis();
         let session = Session {
             id: new_id(),
             user_id: user.id.clone(),
-            created_at: now_millis(),
-            // No end other than by disuse yet.
-            expires_at: i64::MAX,
+            created_at: now,
+            // The absolute limit: the session ends then, however much it is used.
+            expires_at: now.saturating_add(self.config().session_max_millis()),
             user_agent: user_agent.to_owned(),
             ..Session::default()
         };

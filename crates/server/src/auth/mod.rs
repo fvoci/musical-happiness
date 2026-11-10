@@ -11,6 +11,11 @@ use subtle::ConstantTimeEq as _;
 use crate::config::Configuration;
 use crate::error::AppError;
 
+/// How long after the last recorded use of a session its next use is recorded: ten
+/// minutes. Requests in between do not write to the database, and the idle limit is
+/// that much less exact.
+const SESSION_USE_RECORDING_INTERVAL_MILLIS: i64 = 10 * 60 * 1000;
+
 /// Looks up sessions and checks read tokens.
 #[derive(Debug, Clone)]
 pub struct Authenticator {
@@ -25,26 +30,28 @@ impl Authenticator {
     pub fn new(store: Store, config: &Configuration) -> Self {
         Self {
             store,
-            session_idle_millis: config.session_expire_time.saturating_mul(1000),
+            session_idle_millis: config.session_idle_millis(),
             public_shared_boards: config.enable_public_shared_boards,
         }
     }
 
-    /// Returns the session a token belongs to, and records that it was used.
+    /// Returns the session a token belongs to, and records that it was used unless that
+    /// was recorded in the last ten minutes.
     ///
     /// The session is looked up by the digest of the token; the token itself is stored
-    /// nowhere.
+    /// nowhere. A session has ended, and is not found, when it has not been used for the
+    /// idle limit, when its absolute limit has passed, and when its user is deactivated.
     ///
     /// # Errors
     ///
-    /// Returns an unauthorized error if the token is empty, unknown or expired, and a
-    /// server error if the session cannot be looked up.
+    /// Returns an unauthorized error if the token is empty, unknown or of a session that
+    /// has ended, and a server error if the session cannot be looked up.
     pub async fn get_session(&self, token: &str) -> Result<Session, AppError> {
         if token.is_empty() {
             return Err(AppError::unauthorized("no session token"));
         }
         let now = now_millis();
-        let session = match self
+        let mut session = match self
             .store
             .get_session(
                 &secret::token_digest(token),
@@ -64,8 +71,12 @@ impl Authenticator {
             }
         };
 
-        if let Err(error) = self.store.touch_session(&session.id, now).await {
-            tracing::warn!(%error, "unable to record the use of the session");
+        if now.saturating_sub(session.last_used_at) >= SESSION_USE_RECORDING_INTERVAL_MILLIS {
+            // A session that cannot be marked as used is still the caller's session.
+            match self.store.touch_session(&session.id, now).await {
+                Ok(()) => session.last_used_at = now,
+                Err(error) => tracing::warn!(%error, "unable to record the use of the session"),
+            }
         }
         Ok(session)
     }

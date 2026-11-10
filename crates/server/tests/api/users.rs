@@ -4,11 +4,12 @@
 //! Not ported here: `TestGetUserList` (runs in the host-application mode this server does
 //! not have) and `TestTeamUploadFile` (in the `files` module).
 
-use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest, User, new_id};
+use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest, Session, User, new_id};
+use fvoci_server::auth::secret::new_secret;
 use reqwest::StatusCode;
 use serde_json::json;
 
-use crate::common::{PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, UNKNOWN_ID};
+use crate::common::{PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
 
 const FAKE_USERNAME: &str = "fakeUsername";
 const FAKE_EMAIL: &str = "mock@test.com";
@@ -767,6 +768,147 @@ async fn the_store_keeps_the_digest_of_a_session_token_and_not_the_token() {
         .get("/users/me")
         .await
         .check_unauthorized();
+
+    th.teardown().await;
+}
+
+// -- how long a session lasts ---------------------------------------------------------
+
+const MINUTE: i64 = 60 * 1000;
+const DAY: i64 = 24 * 60 * MINUTE;
+
+/// The stored session of the harness's first client, whatever its age.
+async fn stored_session(th: &TestServer) -> Session {
+    th.app
+        .store()
+        .get_session(
+            &fvoci_server::auth::secret::token_digest(&th.client.token),
+            0,
+            i64::MIN,
+        )
+        .await
+        .expect("the session is stored")
+}
+
+/// A session that nobody used for the idle limit has ended, and one that was used a
+/// little more recently has not. The limit is `session_idle_days`.
+#[tokio::test]
+async fn a_session_ends_when_it_was_not_used_for_the_idle_limit() {
+    let th = Setup::native()
+        .configure(|config| config.session_idle_days = 3)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let session = stored_session(&th).await;
+    let store = th.app.store();
+    let now = fvoci_server::auth::now_millis();
+
+    store
+        .touch_session(&session.id, now - 3 * DAY + MINUTE)
+        .await
+        .expect("the last use is moved back");
+    th.client.get("/users/me").await.check_ok();
+
+    store
+        .touch_session(&session.id, now - 3 * DAY - MINUTE)
+        .await
+        .expect("the last use is moved back further");
+    th.client.get("/users/me").await.check_unauthorized();
+    // The other client's session is its own.
+    th.client2.get("/users/me").await.check_ok();
+
+    th.teardown().await;
+}
+
+/// A session ends `session_max_days` after it began, however recently it was used.
+#[tokio::test]
+async fn a_session_ends_at_its_absolute_limit_however_much_it_is_used() {
+    let th = Setup::native()
+        .configure(|config| config.session_max_days = 7)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let session = stored_session(&th).await;
+    assert_eq!(
+        session.expires_at,
+        session.created_at + 7 * DAY,
+        "a new session ends seven days after it began"
+    );
+    assert_eq!(
+        session.last_used_at, session.created_at,
+        "and counts as used when it began"
+    );
+
+    // A session that began long enough ago, used a moment ago.
+    let user = th.client.me().await;
+    let now = fvoci_server::auth::now_millis();
+    let old_token = new_secret();
+    let old = Session {
+        id: new_id(),
+        user_id: user.id,
+        created_at: now - 7 * DAY - MINUTE,
+        expires_at: now - MINUTE,
+        ..Session::default()
+    };
+    let store = th.app.store();
+    store
+        .create_session(&old, &fvoci_server::auth::secret::token_digest(&old_token))
+        .await
+        .expect("the old session is stored");
+    store
+        .touch_session(&old.id, now)
+        .await
+        .expect("the old session was just used");
+
+    th.client_with_token(&old_token)
+        .get("/users/me")
+        .await
+        .check_unauthorized();
+    th.client.get("/users/me").await.check_ok();
+
+    th.teardown().await;
+}
+
+/// When a session was last used is written down at most every ten minutes: requests in
+/// between do not write to the database.
+#[tokio::test]
+async fn the_use_of_a_session_is_recorded_at_most_every_ten_minutes() {
+    let th = Setup::native().start().await.init_basic().await;
+    let session = stored_session(&th).await;
+    let store = th.app.store();
+
+    th.client.get("/users/me").await.check_ok();
+    assert_eq!(
+        stored_session(&th).await.last_used_at,
+        session.last_used_at,
+        "a use right after the last recorded one is not recorded"
+    );
+
+    let now = fvoci_server::auth::now_millis();
+    let nine_minutes_ago = now - 9 * MINUTE;
+    store
+        .touch_session(&session.id, nine_minutes_ago)
+        .await
+        .expect("the last use is moved back");
+    th.client.get("/users/me").await.check_ok();
+    assert_eq!(
+        stored_session(&th).await.last_used_at,
+        nine_minutes_ago,
+        "nor is a use nine minutes after it"
+    );
+
+    store
+        .touch_session(&session.id, now - 11 * MINUTE)
+        .await
+        .expect("the last use is moved back further");
+    th.client.get("/users/me").await.check_ok();
+    let recorded = stored_session(&th).await.last_used_at;
+    assert!(
+        recorded >= now,
+        "a use eleven minutes after it is: {recorded} against {now}"
+    );
 
     th.teardown().await;
 }

@@ -52,16 +52,12 @@ const CONNECTION_DRAIN_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long shutdown waits for notifications that are still being sent.
 const BACKGROUND_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How often sessions that are no longer used are deleted
-/// (`server/server/server.go:41`).
-const CLEAN_UP_SESSIONS_INTERVAL: Duration = Duration::from_mins(10);
+/// How often sessions that have ended are deleted. They are not accepted from the moment
+/// they end; removing them is housekeeping.
+const CLEAN_UP_SESSIONS_INTERVAL: Duration = Duration::from_hours(1);
 
 /// How often the trash is looked through for what has been in it for too long.
 const PURGE_TRASH_INTERVAL: Duration = Duration::from_hours(1);
-
-/// The shortest time a session stays in the database after its last use, in seconds: 31
-/// days (`server/server/server.go:44`).
-const MINIMUM_SESSION_CLEAN_UP_AGE: i64 = 60 * 60 * 24 * 31;
 
 /// A server that is set up and ready to accept connections.
 #[derive(Debug)]
@@ -349,27 +345,22 @@ async fn connect_store(config: &Configuration) -> anyhow::Result<Store> {
     }
 }
 
-/// How long a session must have been unused before the clean-up deletes it, in seconds.
-///
-/// Preserved quirk: never less than 31 days, whatever the configured session lifetime, so
-/// with a shorter lifetime sessions stay in the database after they stopped being
-/// accepted (`server/server/server.go:258-261`).
-fn session_clean_up_age(session_expire_time: i64) -> i64 {
-    session_expire_time.max(MINIMUM_SESSION_CLEAN_UP_AGE)
-}
-
-/// Starts the task that deletes sessions nobody has used for a long time. The first run
-/// is one interval after the start.
+/// Starts the task that deletes the sessions that have ended: unused for the idle limit,
+/// or past their absolute limit. The first run is one interval after the start.
 fn start_session_clean_up(app: &App) -> RecurringTask {
     let store = app.store().clone();
-    let age = session_clean_up_age(app.config().session_expire_time);
+    let idle_millis = app.config().session_idle_millis();
     RecurringTask::spawn("cleanUpSessions", CLEAN_UP_SESSIONS_INTERVAL, move || {
         let store = store.clone();
         async move {
             let now = auth::now_millis();
-            let idle_since = now.saturating_sub(age.saturating_mul(1000));
-            if let Err(error) = store.clean_up_sessions(now, idle_since).await {
-                tracing::error!(%error, "unable to clean up the sessions");
+            match store
+                .clean_up_sessions(now, now.saturating_sub(idle_millis))
+                .await
+            {
+                Ok(0) => {}
+                Ok(ended) => tracing::debug!(ended, "removed sessions that had ended"),
+                Err(error) => tracing::error!(%error, "unable to clean up the sessions"),
             }
         }
     })
@@ -379,8 +370,7 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
 /// `trash_retention_days`. The first run is one interval after the start.
 fn start_trash_purge(app: &App) -> RecurringTask {
     let store = app.store().clone();
-    let retention_millis =
-        i64::from(app.config().trash_retention_days).saturating_mul(24 * 60 * 60 * 1000);
+    let retention_millis = app.config().trash_retention_millis();
     RecurringTask::spawn("purgeTrash", PURGE_TRASH_INTERVAL, move || {
         let store = store.clone();
         async move {
@@ -518,21 +508,3 @@ mod admin_socket;
 #[cfg(not(unix))]
 #[path = "admin_socket_unsupported.rs"]
 mod admin_socket;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The clean-up age of `server/server/server.go:258-261`.
-    #[test]
-    fn sessions_are_cleaned_up_after_the_longer_of_31_days_and_their_lifetime() {
-        let day = 60 * 60 * 24;
-        assert_eq!(
-            session_clean_up_age(30 * day),
-            31 * day,
-            "the default lifetime"
-        );
-        assert_eq!(session_clean_up_age(60), 31 * day, "a short lifetime");
-        assert_eq!(session_clean_up_age(90 * day), 90 * day, "a long lifetime");
-    }
-}

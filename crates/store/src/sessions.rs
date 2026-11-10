@@ -47,7 +47,8 @@ impl Store {
     }
 
     /// Returns the session with the given token digest, if it is still valid at `now`:
-    /// not past its `expires_at`, and used after `idle_since`.
+    /// not past its `expires_at`, used after `idle_since`, and of a user who is not
+    /// deactivated.
     ///
     /// # Errors
     ///
@@ -64,7 +65,11 @@ impl Store {
             ));
             sql.bind(token_digest)
                 .push_bind(" AND expires_at > ", now)
-                .push_bind(" AND last_used_at > ", idle_since);
+                .push_bind(" AND last_used_at > ", idle_since)
+                .push(
+                    " AND EXISTS (SELECT 1 FROM users WHERE users.id = sessions.user_id \
+                     AND users.delete_at = 0)",
+                );
             let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
             session_from_row(&row)
         })

@@ -125,10 +125,10 @@ pub struct Configuration {
     pub prometheus_address: String,
     /// URLs that receive a POST with every changed block.
     pub webhook_update: Vec<String>,
-    /// How long an unused session stays valid, in seconds.
-    pub session_expire_time: i64,
-    /// How old a session's last refresh may be before it is refreshed again, in seconds.
-    pub session_refresh_time: i64,
+    /// How many days a session may go unused before it ends.
+    pub session_idle_days: u32,
+    /// How many days after signing in a session ends, however much it is used.
+    pub session_max_days: u32,
     /// Whether to listen on the loopback interface only.
     #[serde(rename = "localonly")]
     pub local_only: bool,
@@ -202,8 +202,8 @@ impl Default for Configuration {
             max_file_size: 0,
             prometheus_address: String::new(),
             webhook_update: Vec::new(),
-            session_expire_time: 60 * 60 * 24 * 30,
-            session_refresh_time: 60 * 60 * 5,
+            session_idle_days: 14,
+            session_max_days: 90,
             local_only: false,
             enable_local_mode: false,
             local_mode_socket_location: "/var/tmp/fvoci_local.socket".to_owned(),
@@ -240,8 +240,8 @@ impl std::fmt::Debug for Configuration {
             .field("files_path", &self.files_path)
             .field("max_file_size", &self.max_file_size)
             .field("webhook_update", &self.webhook_update)
-            .field("session_expire_time", &self.session_expire_time)
-            .field("session_refresh_time", &self.session_refresh_time)
+            .field("session_idle_days", &self.session_idle_days)
+            .field("session_max_days", &self.session_max_days)
             .field("local_only", &self.local_only)
             .field("enable_local_mode", &self.enable_local_mode)
             .field(
@@ -291,8 +291,8 @@ const ENV_KEYS: [(&str, EnvKind); 31] = [
     ("maxfilesize", EnvKind::Number),
     ("prometheusaddress", EnvKind::Text),
     ("webhook_update", EnvKind::List),
-    ("session_expire_time", EnvKind::Number),
-    ("session_refresh_time", EnvKind::Number),
+    ("session_idle_days", EnvKind::Number),
+    ("session_max_days", EnvKind::Number),
     ("localonly", EnvKind::Flag),
     ("enablelocalmode", EnvKind::Flag),
     ("localmodesocketlocation", EnvKind::Text),
@@ -311,14 +311,28 @@ const ENV_KEYS: [(&str, EnvKind); 31] = [
     ("trust_forwarded_for", EnvKind::Flag),
 ];
 
+const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
+
 /// Keys of the original server's configuration that this server no longer has, each with
 /// what to do instead. A file or an environment that sets one to something is refused:
 /// a server that silently ignored it would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 1] = [(
-    "dbtableprefix",
-    "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
-     database, give the server a schema of its own with search_path in dbconfig",
-)];
+const REMOVED_KEYS: [(&str, &str); 3] = [
+    (
+        "dbtableprefix",
+        "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
+         database, give the server a schema of its own with search_path in dbconfig",
+    ),
+    (
+        "session_expire_time",
+        "a session ends after session_idle_days without use and session_max_days after \
+         signing in, both in days",
+    ),
+    (
+        "session_refresh_time",
+        "when a session was last used is recorded at most every ten minutes; there is \
+         nothing to set",
+    ),
+];
 
 /// Whether a configuration value says nothing: what a removed key may still hold.
 fn is_unset(value: &Value) -> bool {
@@ -384,6 +398,21 @@ impl Configuration {
         serde_json::from_value(Value::Object(keys)).context("a key has a value of the wrong type")
     }
 
+    /// How long a session may go unused before it ends, in milliseconds.
+    pub fn session_idle_millis(&self) -> i64 {
+        i64::from(self.session_idle_days).saturating_mul(MILLIS_PER_DAY)
+    }
+
+    /// How long after signing in a session ends, in milliseconds.
+    pub fn session_max_millis(&self) -> i64 {
+        i64::from(self.session_max_days).saturating_mul(MILLIS_PER_DAY)
+    }
+
+    /// How long a deleted board or block stays in the trash, in milliseconds.
+    pub fn trash_retention_millis(&self) -> i64 {
+        i64::from(self.trash_retention_days).saturating_mul(MILLIS_PER_DAY)
+    }
+
     /// Checks that the configuration only asks for what this server supports.
     ///
     /// Returns the warnings for settings that are accepted but have no effect.
@@ -404,6 +433,10 @@ impl Configuration {
         // something to end up with by leaving a number out.
         if self.max_request_bytes == 0 {
             bail!("max_request_bytes must be a positive number of bytes, not 0");
+        }
+        // Zero would end every session as it starts.
+        if self.session_idle_days == 0 || self.session_max_days == 0 {
+            bail!("session_idle_days and session_max_days must be at least 1");
         }
         // Zero would empty the trash as it fills: deleting could not be undone.
         if self.trash_retention_days == 0 {
@@ -486,8 +519,11 @@ mod tests {
         assert_eq!(config.web_path, "./pack");
         assert_eq!(config.files_driver, "local");
         assert_eq!(config.files_path, "./files");
-        assert_eq!(config.session_expire_time, 2_592_000);
-        assert_eq!(config.session_refresh_time, 18_000);
+        assert_eq!(config.session_idle_days, 14);
+        assert_eq!(config.session_max_days, 90);
+        assert_eq!(config.session_idle_millis(), 14 * 24 * 60 * 60 * 1000);
+        assert_eq!(config.session_max_millis(), 90 * 24 * 60 * 60 * 1000);
+        assert_eq!(config.trash_retention_days, 30);
         assert_eq!(config.auth_mode, "native");
         assert_eq!(config.teammate_name_display, "username");
         assert_eq!(
@@ -503,9 +539,11 @@ mod tests {
         );
     }
 
-    /// The repository's own `config.json`, with its unknown keys.
+    /// A file written for the original server, with its unknown keys, but for the
+    /// settings this server replaced: those are refused, see
+    /// `a_removed_key_is_refused_when_it_is_set_to_something`.
     #[test]
-    fn reads_the_original_configuration_file() {
+    fn reads_a_configuration_file_of_the_original() {
         let text = r#"{
             "serverRoot": "http://localhost:8000",
             "port": 8000,
@@ -517,8 +555,6 @@ mod tests {
             "filespath": "./files",
             "telemetry": true,
             "prometheusaddress": "",
-            "session_expire_time": 2592000,
-            "session_refresh_time": 18000,
             "localOnly": false,
             "enableLocalMode": true,
             "localModeSocketLocation": "/var/tmp/boards_local.socket",
@@ -556,7 +592,7 @@ mod tests {
             "FVOCI_DBCONFIG" => Some("postgres://u@h/db".to_owned()),
             "FVOCI_ENABLEPUBLICSHAREDBOARDS" => Some("true".to_owned()),
             "FVOCI_WEBHOOK_UPDATE" => Some("http://a/hook, http://b/hook".to_owned()),
-            "FVOCI_SESSION_EXPIRE_TIME" => Some("60".to_owned()),
+            "FVOCI_SESSION_IDLE_DAYS" => Some("3".to_owned()),
             _ => None,
         };
         let config = Configuration::parse(r#"{"port": 8000}"#, env).expect("valid");
@@ -567,7 +603,7 @@ mod tests {
             "a flag is read from the environment"
         );
         assert_eq!(config.webhook_update, ["http://a/hook", "http://b/hook"]);
-        assert_eq!(config.session_expire_time, 60);
+        assert_eq!(config.session_idle_days, 3);
     }
 
     #[test]
@@ -599,6 +635,10 @@ mod tests {
             Configuration::parse("{}", env).is_err(),
             "the environment variable of a removed key is refused too"
         );
+        // The session settings of the original are seconds with another meaning; a file
+        // that sets them is told what there is instead.
+        assert!(error(r#"{"session_expire_time": 2592000}"#).contains("session_idle_days"));
+        assert!(error(r#"{"session_refresh_time": 18000}"#).contains("ten minutes"));
         // A file written for the original server usually carries the key, empty.
         Configuration::parse(r#"{"dbtableprefix": ""}"#, no_env)
             .expect("a removed key that says nothing is not in the way");
@@ -619,6 +659,8 @@ mod tests {
         // Zero would not mean "no limit" to anyone who reads it as "nothing".
         assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
         assert!(error(r#"{"trash_retention_days": 0}"#).contains("trash_retention_days"));
+        assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
+        assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(
             error(r#"{"filesdriver": "amazons3", "filess3config": {"SignV2": true}}"#)
                 .contains("SignV2")
