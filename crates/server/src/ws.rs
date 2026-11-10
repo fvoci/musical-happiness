@@ -114,6 +114,8 @@ type ListenerId = u64;
 struct Listener {
     /// Empty until the connection has authenticated.
     user_id: String,
+    /// The session the connection authenticated with; empty until then.
+    session_id: String,
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
     closed: CancellationToken,
@@ -209,6 +211,7 @@ impl Hub {
                 id,
                 Listener {
                     user_id: String::new(),
+                    session_id: String::new(),
                     outbox,
                     closed: closed.clone(),
                     teams: Vec::new(),
@@ -284,6 +287,15 @@ impl Hub {
     /// sessions are ended: a connection checks its token once, when it authenticates.
     pub fn close_user(&self, user_id: &str) {
         self.close_where(|listener| listener.user_id == user_id);
+    }
+
+    /// Closes the connections of the user that authenticated with another session than
+    /// the given one. For when a user changes their password: the session it was
+    /// changed through stays, and so do its connections.
+    pub fn close_other_sessions_of_user(&self, user_id: &str, kept_session_id: &str) {
+        self.close_where(|listener| {
+            listener.user_id == user_id && listener.session_id != kept_session_id
+        });
     }
 
     fn close_where(&self, closes: impl Fn(&Listener) -> bool) {
@@ -365,18 +377,12 @@ impl Hub {
             return true;
         }
 
-        let user_id = self
-            .inner
-            .auth
-            .get_session(token)
-            .await
-            .ok()
-            .map(|session| session.user_id);
-        let Some(user_id) = user_id.filter(|user_id| !user_id.is_empty()) else {
+        let Ok(session) = self.inner.auth.get_session(token).await else {
             return false;
         };
         if let Some(listener) = self.listeners().by_id.get_mut(&id) {
-            listener.user_id = user_id;
+            listener.user_id = session.user_id;
+            listener.session_id = session.id;
         }
         // The sessions of a user can be ended between the lookup above and the line that
         // made this a connection of that user; the closing of the user's connections
@@ -737,6 +743,7 @@ mod tests {
             id,
             Listener {
                 user_id: user_id.to_owned(),
+                session_id: String::new(),
                 outbox,
                 closed: CancellationToken::new(),
                 teams: Vec::new(),

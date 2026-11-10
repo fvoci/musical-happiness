@@ -3,6 +3,8 @@
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
+use axum::http::HeaderMap;
+use axum::http::header::USER_AGENT;
 use axum::routing::post;
 use fvoci_model::{ChangePasswordRequest, LoginRequest, LoginResponse, RegisterRequest};
 
@@ -12,6 +14,25 @@ use super::{
 use crate::app::App;
 use crate::auth::tokens_match;
 use crate::error::{AppError, Reason};
+
+/// The longest `User-Agent` kept with a session, in bytes. Browsers send a hundred or
+/// two; anything longer is cut, it is a label and nothing is decided by it.
+const USER_AGENT_MAX_BYTES: usize = 512;
+
+/// What the client says it is, cut to [`USER_AGENT_MAX_BYTES`] at a character boundary.
+fn user_agent(headers: &HeaderMap) -> String {
+    let Some(value) = headers
+        .get(USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return String::new();
+    };
+    let mut end = value.len().min(USER_AGENT_MAX_BYTES);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
+}
 
 /// The routes that need a session, or none of their own doing.
 pub(super) fn routes() -> Router<App> {
@@ -34,13 +55,18 @@ pub(super) fn unauthenticated_routes() -> Router<App> {
         .route("/register", post(handle_register))
 }
 
-async fn handle_login(State(app): State<App>, body: Bytes) -> ApiResult {
+async fn handle_login(State(app): State<App>, headers: HeaderMap, body: Bytes) -> ApiResult {
     let login: LoginRequest = decode_object(&body)?;
     if login.login_type != "normal" {
         return Err(AppError::bad_request("invalid login type").with_field("type"));
     }
     let token = app
-        .login(&login.username, &login.email, &login.password)
+        .login(
+            &login.username,
+            &login.email,
+            &login.password,
+            &user_agent(&headers),
+        )
         .await?;
     Ok(json_response(&LoginResponse { token }))
 }
@@ -107,7 +133,7 @@ async fn handle_change_password(
     let request: ChangePasswordRequest = decode_object(&body)?;
     request.validate()?;
 
-    app.change_password(&user_id, &request.old_password, &request.new_password)
+    app.change_password(&session, &request.old_password, &request.new_password)
         .await?;
     Ok(empty_response())
 }

@@ -252,7 +252,8 @@ S6에서 새로 본 것:
 |---|---|---|
 | `408faa63` | **마이그레이션 체계(3.9).** 스키마를 sqlx의 migrator가 적용한다(`crates/store/schema/{sqlite,postgres}/0001_baseline.sql`, 기록은 `_sqlx_migrations`). 테이블 접두사를 없앴다. 원본 서버의 DB(SQLite의 `db_migrations`, PostgreSQL의 `…schema_migrations`), 기록 없는 테이블, 더 새 서버가 올린 DB, 고쳐 쓴 이력을 이유와 함께 거절한다. `dbtableprefix`는 설정이 아니다(값이 있으면 시작 오류) | 변화 없음 |
 | `297a452b` | **single-user 모드 제거(5.1의 6번 (a)).** 플래그, 토큰 변수, 가상 사용자와 그 특례(세션, 사용자, 팀, 공유, 가져오기, WebSocket)를 걷어 냈다. 가상 사용자의 고정된 이름은 새 스키마의 식별자가 될 수 없어서, 사용자가 정한 순서(인증 전달 단계)보다 앞당겼다 | 변화 없음(시나리오는 이 모드를 쓰지 않았다) |
-| (이 커밋) | **UUIDv7과 비밀 값(3.2, 3.3).** 아래 | 382단계 가운데 221단계. 상태 코드는 2단계 |
+| `8cde3db3` | **UUIDv7과 비밀 값(3.2, 3.3).** 아래 | 382단계 가운데 221단계. 상태 코드는 2단계 |
+| (다음 커밋) | **Argon2id와 세션 토큰 해시(3.4, 3.5).** 아래 "Argon2id와 세션 토큰에서 바뀐 것" | 382 → 385단계(새 3단계), 본문만 7단계 |
 
 **UUIDv7과 비밀 값에서 바뀐 것.**
 
@@ -280,6 +281,21 @@ S6에서 새로 본 것:
 | `cargo xtask test` — SQLite | 782건 통과, 실패 0 |
 | `cargo xtask test` — PostgreSQL | 690건 통과, 실패 0 |
 | `cargo xtask test` — S3 | 1건 통과 |
+
+**Argon2id와 세션 토큰에서 바뀐 것 (2026-11-10 21:09 KST).**
+
+| 바뀐 것 | 왜 | 어디 |
+|---|---|---|
+| 비밀번호 해시가 Argon2id다: m=19456 KiB, t=2, p=1, PHC 문자열(`$argon2id$v=19$m=19456,t=2,p=1$…`)로 `users.password_hash`에. bcrypt와 그 검증 경로는 없다 | 결정 8, 설계 3.4. 매개변수는 OWASP Password Storage Cheat Sheet의 요약 값이자 `argon2` 0.6.0의 기본값이다(크레이트 소스 `src/params.rs`의 `DEFAULT_*`를 직접 읽었다) | `auth/password.rs` |
+| 로그인이 성공했는데 저장된 해시의 매개변수가 지금 기준과 다르면 새로 해시해 저장한다. 저장된 해시가 그사이 바뀌었으면(비밀번호 변경) 건드리지 않는다 | 기준을 올려도 사용자가 비밀번호를 다시 정하지 않아도 된다 | `App::login`, `Store::replace_password_hash`, 테스트 `users::a_login_renews_a_hash_made_with_other_parameters` |
+| 비밀번호의 길이: 최소 8**자**(유니코드 스칼라 수. 전에는 8바이트), 최대 1,024바이트. 가입, 변경, 관리자의 설정 모두 같은 규칙이다. 72바이트 제한과 그에 딸린 400, 64바이트 상한(`max-length`)은 없다. 한도를 넘는 비밀번호로 로그인하면 해시하지 않고 틀린 비밀번호와 같은 401이다 | 설계 3.4. bcrypt는 앞 72바이트만 봤다. 최대는 아주 긴 입력으로 해시 시간을 늘리는 것을 막는다 | `fvoci_model::check_new_password`, 테스트 `users::passwords_are_bounded_…`, `admin::socket::admin_set_password_applies_the_password_rules` |
+| 동시에 도는 해시는 4개다(전에는 프로세서 수) | 결정 8. 해시 하나가 19 MiB를 쓴다. 대기열과 대기 시간은 로그인 제한 단계에서 넣는다 | `app/auth.rs` |
+| **세션 토큰은 SHA-256 다이제스트로 저장한다**(`sessions.token_hash`, 유일). 토큰 자체는 로그인 응답으로 한 번 나가고 어디에도 저장되지 않는다. 가입 토큰과 공유 토큰은 평문이다 | 결정 9. DB나 백업을 읽은 것만으로는 세션을 쓸 수 없다. 토큰이 256비트 난수라 느린 해시는 필요 없다 | `auth::secret::token_digest`, `store/sessions.rs`, 테스트 `users::the_store_keeps_the_digest_…` |
+| 세션 행이 `id, token_hash, user_id, created_at, last_used_at, expires_at, user_agent`다. `auth_service`, `props`는 없다. 만료 규칙(한가함 한도, 절대 한도)과 기록 간격은 세션 수명 단계에서 바꾼다. 지금은 전처럼 마지막 사용에서 `session_expire_time`이 지나면 끝나고, 요청마다 사용 시각을 쓴다 | 설계 5.4의 행 모양을 한 번에 맞췄다 | 모델 `Session` |
+| **자기 비밀번호를 바꾸면 그 사용자의 다른 세션이 모두 끝난다.** 바꾼 세션은 남는다. 다른 세션으로 인증한 WebSocket 연결도 닫는다 | 설계 5.4의 3번 (b). 비밀번호 변경과 세션 삭제가 한 트랜잭션이라 여기서 함께 했다 | `Store::change_user_password`, `Hub::close_other_sessions_of_user`, 테스트 `users::changing_the_password_ends_the_other_sessions_of_the_user` |
+| 가입·비밀번호 요청의 검증 오류가 `field`를 싣는다(`username`, `email`, `password`, `oldPassword`, `newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field` |
+
+스냅샷: `auth` 시나리오에 세 단계를 더했다(다른 기기에서 로그인, 비밀번호 변경 뒤 그 기기의 401, 바꾼 세션의 200). 본문이 바뀐 일곱 단계는 `field`가 붙은 여섯과 길이 한도의 문구 하나다. 아카이브 항목 이름의 정렬이 무작위 파일 이름에 흔들리지 않게 하네스의 정렬 기준을 고쳤다. 의존성: `argon2` 0.6, `sha2` 0.11을 더하고 `bcrypt`를 뺐다(`NOTICE` 다시 생성, `cargo deny` 통과). 검증: `cargo xtask check` 여섯 단계 PASS, `cargo xtask test` SQLite 790건·PostgreSQL 697건·S3 1건, 실패 0.
 
 ## 플러그인 저장소의 수정 사항 점검
 

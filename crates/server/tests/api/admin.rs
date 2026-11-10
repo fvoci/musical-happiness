@@ -280,33 +280,41 @@ mod socket {
         th.teardown().await;
     }
 
-    /// Apart from that, the original has no rule for the passwords set here: what
-    /// registration would refuse as too short or too long is accepted.
+    /// The rules for a password are the same whoever sets it: at least eight characters,
+    /// at most 1024 bytes. (The original has no rule here, and its hashing stops at 72
+    /// bytes; with that limit gone, a long password is hashed whole.)
     #[tokio::test]
-    async fn admin_set_password_applies_no_password_rules() {
+    async fn admin_set_password_applies_the_password_rules() {
         let (th, socket) = start_with_admin_socket().await;
 
-        for password in ["a".to_owned(), "x".repeat(72)] {
+        for (password, message) in [
+            ("a".to_owned(), "password must be at least 8 characters"),
+            ("éééé".to_owned(), "password must be at least 8 characters"),
+            ("x".repeat(1025), "password must be at most 1024 bytes"),
+        ] {
+            let body = json!({ "password": password }).to_string();
+            let response = set_password(&socket, USER1_USERNAME, &body).await;
+            response.check_error(400, "bad_request", message);
+            assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
+        }
+
+        // What bcrypt could not hash, or hashed in part: 73 bytes, and the longest
+        // password there is.
+        for password in ["x".repeat(73), "x".repeat(1024)] {
             let body = json!({ "password": password }).to_string();
             set_password(&socket, USER1_USERNAME, &body)
                 .await
                 .check(200, "{}");
             assert!(can_log_in(&th, &password).await, "{} bytes", password.len());
+            let mut differs_at_the_end = password.clone();
+            differs_at_the_end.pop();
+            differs_at_the_end.push('y');
+            assert!(
+                !can_log_in(&th, &differs_at_the_end).await,
+                "every byte of a {}-byte password counts",
+                password.len()
+            );
         }
-        th.teardown().await;
-    }
-
-    /// The original cannot hash more than 72 bytes and drops the connection without an
-    /// answer when asked to. The port answers.
-    #[tokio::test]
-    async fn admin_set_password_refuses_more_than_72_bytes() {
-        let (th, socket) = start_with_admin_socket().await;
-
-        let body = json!({ "password": "x".repeat(73) }).to_string();
-        let response = set_password(&socket, USER1_USERNAME, &body).await;
-
-        response.check_error(400, "bad_request", "password length exceeds 72 bytes");
-        assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
         th.teardown().await;
     }
 

@@ -18,9 +18,6 @@ use crate::Peer;
 use crate::app::App;
 use crate::error::AppError;
 
-/// The longest password bcrypt hashes in full, in bytes.
-const BCRYPT_MAXIMUM_PASSWORD_BYTES: usize = 72;
-
 pub(super) fn routes() -> Router<App> {
     Router::new()
         .route(
@@ -66,19 +63,8 @@ async fn handle_admin_set_password(
     let data: Option<AdminSetPasswordData> = decode_json(&body)?;
     let password = data.and_then(|data| data.password).unwrap_or_default();
 
-    // The original means to refuse an empty password here, but its check
-    // (`server/api/admin.go:41`) can never fail, so it stores the hash of the empty
-    // password, which locks the user out. This is the refusal it intended.
-    if password.is_empty() {
-        return Err(AppError::bad_request("password is required"));
-    }
-    // The original's hashing fails beyond this length and takes the connection down with
-    // it (`server/services/auth/password.go:29-36`). No other rule applies here.
-    if password.len() > BCRYPT_MAXIMUM_PASSWORD_BYTES {
-        return Err(AppError::bad_request(format_args!(
-            "password length exceeds {BCRYPT_MAXIMUM_PASSWORD_BYTES} bytes"
-        )));
-    }
+    // The rules for a password are the same whoever sets it.
+    fvoci_model::check_new_password(&password)?;
 
     app.reset_user_password(&username, &password).await?;
     tracing::debug!(username, "AdminSetPassword");

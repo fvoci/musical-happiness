@@ -14,7 +14,7 @@ use crate::error::StoreError;
 use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
-const USER_COLUMNS: &str = "id, username, email, password, create_at, update_at, delete_at";
+const USER_COLUMNS: &str = "id, username, email, password_hash, create_at, update_at, delete_at";
 
 /// The category under which this server files its user preferences.
 ///
@@ -155,39 +155,68 @@ impl Store {
     pub async fn reset_user_password(
         &self,
         username: &str,
-        password: &str,
-    ) -> Result<Vec<String>, StoreError> {
+        password_hash: &str,
+    ) -> Result<String, StoreError> {
         self.transaction(async |scope| {
             let lookup = Lookup::Username(username);
-            update_password(scope, lookup, password).await?;
+            update_password(scope, lookup, password_hash).await?;
             let mut sql = scope.sql("SELECT id FROM users WHERE ");
             lookup.push_condition(&mut sql);
-            let user_ids: Vec<String> = scope
-                .fetch_all(sql)
+            let row = scope
+                .fetch_optional(sql)
                 .await?
-                .iter()
-                .map(|row| row.id(0))
-                .collect::<Result<_, _>>()?;
-            for user_id in &user_ids {
-                sessions::delete_sessions_of_user(scope, user_id).await?;
-            }
-            Ok(user_ids)
+                .ok_or_else(|| StoreError::UserNotFound(username.to_owned()))?;
+            let user_id = row.id(0)?;
+            sessions::delete_sessions_of_user(scope, &user_id).await?;
+            Ok(user_id)
         })
         .await
     }
 
-    /// Sets the password hash of the user with the given identifier.
+    /// Sets the password hash of the user with the given identifier and deletes their
+    /// sessions, except the one named: the session the password was changed through
+    /// stays, every other device has to sign in again with the new password.
+    ///
+    /// Either both happen or neither does.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::UserNotFound`] if there is no such user.
-    pub async fn update_user_password_by_id(
+    pub async fn change_user_password(
         &self,
         user_id: &str,
-        password: &str,
+        password_hash: &str,
+        kept_session_id: &str,
     ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| update_password(scope, Lookup::Id(user_id), password).await)
-            .await
+        self.transaction(async |scope| {
+            update_password(scope, Lookup::Id(user_id), password_hash).await?;
+            sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await
+        })
+        .await
+    }
+
+    /// Replaces a user's password hash by one made from the same password with other
+    /// parameters, provided the stored hash is still `old_hash`. Sessions stay: the
+    /// password did not change. Returns whether the hash was replaced; it is not if the
+    /// password was changed in the meantime.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn replace_password_hash(
+        &self,
+        user_id: &str,
+        old_hash: &str,
+        new_hash: &str,
+    ) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE users SET ");
+            sql.push_bind("password_hash = ", new_hash)
+                .push_bind(" WHERE id = ", Id(user_id))
+                .push_bind(" AND password_hash = ", old_hash);
+            Ok(scope.execute(sql).await? > 0)
+        })
+        .await
     }
 
     /// Returns every user that is not deleted, in no particular order.
@@ -277,7 +306,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         id: row.id(0)?,
         username: row.text(1)?,
         email: row.text(2)?,
-        password: row.text(3)?,
+        password_hash: row.text(3)?,
         create_at: row.int(4)?,
         update_at: row.int(5)?,
         delete_at: row.int(6)?,
@@ -341,7 +370,7 @@ pub(crate) async fn create_user(scope: &mut Scope<'_>, user: &mut User) -> Resul
     sql.bind(Id(&user.id))
         .push_bind(", ", &user.username)
         .push_bind(", ", &user.email)
-        .push_bind(", ", &user.password)
+        .push_bind(", ", &user.password_hash)
         .push_bind(", ", user.create_at)
         .push_bind(", ", user.update_at)
         .push_bind(", ", user.delete_at)
@@ -377,10 +406,10 @@ fn unique_violation(error: sqlx::Error) -> StoreError {
 async fn update_password(
     scope: &mut Scope<'_>,
     lookup: Lookup<'_>,
-    password: &str,
+    password_hash: &str,
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql("UPDATE users SET ");
-    sql.push_bind("password = ", password)
+    sql.push_bind("password_hash = ", password_hash)
         .push_bind(", update_at = ", now_millis())
         .push(" WHERE ");
     lookup.push_condition(&mut sql);

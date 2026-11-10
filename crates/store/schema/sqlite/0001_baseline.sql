@@ -21,7 +21,8 @@ CREATE TABLE users (
     id TEXT NOT NULL PRIMARY KEY,
     username TEXT NOT NULL,
     email TEXT NOT NULL,
-    password TEXT NOT NULL,
+    -- An Argon2id PHC string.
+    password_hash TEXT NOT NULL,
     create_at BIGINT NOT NULL,
     update_at BIGINT NOT NULL,
     -- Zero while the account is in use.
@@ -34,14 +35,18 @@ CREATE UNIQUE INDEX users_email_key ON users (lower(email));
 
 CREATE TABLE sessions (
     id TEXT NOT NULL PRIMARY KEY,
-    token TEXT NOT NULL,
+    -- The SHA-256 digest of the session token, in hexadecimal. The token itself is not
+    -- stored: what is here does not sign anyone in.
+    token_hash TEXT NOT NULL,
     user_id TEXT NOT NULL,
-    auth_service TEXT NOT NULL,
-    props TEXT NOT NULL,
-    create_at BIGINT NOT NULL,
-    update_at BIGINT NOT NULL
+    created_at BIGINT NOT NULL,
+    -- Written when the session is used, but not on every request.
+    last_used_at BIGINT NOT NULL,
+    -- When the session ends whatever its use.
+    expires_at BIGINT NOT NULL,
+    user_agent TEXT NOT NULL
 );
-CREATE UNIQUE INDEX sessions_token_key ON sessions (token);
+CREATE UNIQUE INDEX sessions_token_hash_key ON sessions (token_hash);
 CREATE INDEX sessions_user_id_idx ON sessions (user_id);
 
 CREATE TABLE preferences (

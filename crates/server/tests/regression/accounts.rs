@@ -97,7 +97,7 @@ pub(crate) async fn auth(s: &mut Session) {
         ),
         (
             "long password",
-            json!({"username": "auth-y", "email": "auth-y@example.com", "password": "x".repeat(65)}),
+            json!({"username": "auth-y", "email": "auth-y@example.com", "password": "x".repeat(1025)}),
         ),
         (
             "taken username",
@@ -188,6 +188,12 @@ pub(crate) async fn auth(s: &mut Session) {
     .await;
 
     let change_password = format!("{API}/users/{alice_id}/changepassword");
+    // A second session of the same user, as on another device, opened before the change.
+    let other_device = s
+        .post("login on another device", &login)
+        .json(json!({"type": "normal", "username": alice, "password": "test-password"}))
+        .await
+        .string("token");
     s.post("change password: wrong old password", &change_password)
         .json(json!({"oldPassword": "nope", "newPassword": "new-password"}))
         .user(&alice)
@@ -200,6 +206,18 @@ pub(crate) async fn auth(s: &mut Session) {
         .json(json!({"oldPassword": "test-password", "newPassword": "new-password"}))
         .user(&alice)
         .await;
+    s.get(
+        "me on the other device after the change",
+        &format!("{API}/users/me"),
+    )
+    .token(&other_device)
+    .await;
+    s.get(
+        "me with the session that changed the password",
+        &format!("{API}/users/me"),
+    )
+    .user(&alice)
+    .await;
     s.post("login with the new password", &login)
         .json(json!({"type": "normal", "username": alice, "password": "new-password"}))
         .await;

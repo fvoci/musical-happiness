@@ -302,7 +302,8 @@ impl From<StoreError> for AppError {
 
 impl From<AuthParamError> for AppError {
     fn from(error: AuthParamError) -> Self {
-        Self::bad_request(error)
+        let field = error.field();
+        Self::bad_request(error).with_field(field)
     }
 }
 

@@ -440,7 +440,7 @@ fn user_json_hides_credentials_and_empty_members() {
         nickname: "al".to_owned(),
         first_name: "Alice".to_owned(),
         last_name: "A".to_owned(),
-        password: "hash".to_owned(),
+        password_hash: "hash".to_owned(),
         create_at: 0,
         update_at: 5,
         delete_at: 0,
@@ -466,7 +466,7 @@ fn user_json_hides_credentials_and_empty_members() {
     }))
     .expect("decodes");
     assert_eq!(
-        (decoded.email.as_str(), decoded.password.as_str()),
+        (decoded.email.as_str(), decoded.password_hash.as_str()),
         ("", "")
     );
 }

@@ -15,24 +15,25 @@ use crate::error::AppError;
 #[derive(Debug, Clone)]
 pub struct Authenticator {
     store: Store,
-    session_expire_seconds: i64,
-    session_refresh_seconds: i64,
+    session_idle_millis: i64,
     public_shared_boards: bool,
 }
 
 impl Authenticator {
-    /// Creates an authenticator with the session lifetimes and the sharing switch of the
+    /// Creates an authenticator with the session lifetime and the sharing switch of the
     /// configuration.
     pub fn new(store: Store, config: &Configuration) -> Self {
         Self {
             store,
-            session_expire_seconds: config.session_expire_time,
-            session_refresh_seconds: config.session_refresh_time,
+            session_idle_millis: config.session_expire_time.saturating_mul(1000),
             public_shared_boards: config.enable_public_shared_boards,
         }
     }
 
-    /// Returns the session a token belongs to, refreshing it if it is due.
+    /// Returns the session a token belongs to, and records that it was used.
+    ///
+    /// The session is looked up by the digest of the token; the token itself is stored
+    /// nowhere.
     ///
     /// # Errors
     ///
@@ -42,9 +43,14 @@ impl Authenticator {
         if token.is_empty() {
             return Err(AppError::unauthorized("no session token"));
         }
+        let now = now_millis();
         let session = match self
             .store
-            .get_session(token, self.session_expire_seconds)
+            .get_session(
+                &secret::token_digest(token),
+                now,
+                now.saturating_sub(self.session_idle_millis),
+            )
             .await
         {
             Ok(session) => session,
@@ -58,13 +64,8 @@ impl Authenticator {
             }
         };
 
-        // Preserved quirk: the store does not read a session's `update_at`, so it is zero
-        // here and the session is refreshed on every request.
-        let refresh_before = now_millis() - self.session_refresh_seconds.saturating_mul(1000);
-        if session.update_at < refresh_before
-            && let Err(error) = self.store.refresh_session(&session).await
-        {
-            tracing::warn!(%error, "unable to refresh the session");
+        if let Err(error) = self.store.touch_session(&session.id, now).await {
+            tracing::warn!(%error, "unable to record the use of the session");
         }
         Ok(session)
     }

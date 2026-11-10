@@ -307,7 +307,20 @@ fn archive_summary(raw: &[u8]) -> Value {
         }
         names.push(name);
     }
-    names.sort();
+    // Stored files have random names. They come before the files with fixed names, in
+    // the order of their extensions, so that the order is the same in every run.
+    names.sort_by_cached_key(|name: &String| {
+        let (directory, file) = name.rsplit_once('/').unwrap_or(("", name));
+        let (stem, extension) = file.split_once('.').unwrap_or((file, ""));
+        let is_fixed_name = stem.len() != fvoci_server::auth::secret::SECRET_LENGTH;
+        (
+            // The entries of the archive itself come after those of its boards.
+            directory.is_empty(),
+            directory.to_owned(),
+            is_fixed_name,
+            if is_fixed_name { file } else { extension }.to_owned(),
+        )
+    });
     json!({"names": names, "version": version, "lines": lines})
 }
 

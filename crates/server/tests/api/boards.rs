@@ -25,9 +25,9 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardPatch, BoardRole, BoardType, BoardsAndBlocks,
-    Category, CategoryBoards, JsonMap, Session, Sharing, Team, User, is_id, new_id,
+    Category, CategoryBoards, Session, Sharing, Team, User, is_id, new_id,
 };
-use fvoci_server::auth::secret::new_secret;
+use fvoci_server::auth::secret::{new_secret, token_digest};
 use fvoci_store::{BlockFilter, DuplicateAs, PublicBoards};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -3346,16 +3346,14 @@ async fn client_of_missing_user(th: &TestServer, user_id: &str) -> Client {
     let token = new_secret();
     let session = Session {
         id: new_id(),
-        token: token.clone(),
         user_id: user_id.to_owned(),
-        auth_service: "native".to_owned(),
-        props: JsonMap::new(),
-        create_at: 0,
-        update_at: 0,
+        created_at: fvoci_server::auth::now_millis(),
+        expires_at: i64::MAX,
+        ..Session::default()
     };
     th.app
         .store()
-        .create_session(&session)
+        .create_session(&session, &token_digest(&token))
         .await
         .expect("the session is stored");
     th.client_with_token(&token)

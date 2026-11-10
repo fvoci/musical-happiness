@@ -105,5 +105,5 @@ impl App {
 
 /// Blanks the secrets of a user record.
 pub fn sanitize(user: &mut User) {
-    user.password.clear();
+    user.password_hash.clear();
 }

@@ -26,8 +26,8 @@ mod user;
 
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
-    AuthParamError, ChangePasswordRequest, LoginRequest, LoginResponse, MINIMUM_PASSWORD_LENGTH,
-    RegisterRequest, is_email_valid,
+    AuthParamError, ChangePasswordRequest, LoginRequest, LoginResponse, MAXIMUM_PASSWORD_BYTES,
+    MINIMUM_PASSWORD_LENGTH, RegisterRequest, check_new_password, is_email_valid,
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,

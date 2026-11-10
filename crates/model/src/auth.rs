@@ -6,18 +6,42 @@ use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// The minimum length of a password, in bytes.
+/// The minimum length of a password, in characters (Unicode scalar values).
 pub const MINIMUM_PASSWORD_LENGTH: usize = 8;
+
+/// The maximum length of a password, in bytes. Far more than anyone types; it keeps a
+/// request from making the server hash megabytes.
+pub const MAXIMUM_PASSWORD_BYTES: usize = 1024;
 
 /// A request parameter of an authentication request is missing or malformed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("{0}")]
-pub struct AuthParamError(String);
+#[error("{message}")]
+pub struct AuthParamError {
+    field: &'static str,
+    message: String,
+}
 
 impl AuthParamError {
-    /// Creates an error with the given message, which is sent to the client as is.
-    pub fn new(message: &str) -> Self {
-        Self(message.to_owned())
+    /// Creates an error about the request member `field`, with a message that is sent to
+    /// the client as is.
+    pub fn new(field: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            field,
+            message: message.into(),
+        }
+    }
+
+    /// The name of the request member the error is about, as it is spelled on the wire.
+    pub fn field(&self) -> &'static str {
+        self.field
+    }
+
+    /// The same error about another request member: for a rule that several requests
+    /// apply to members of different names.
+    #[must_use]
+    pub fn about(mut self, field: &'static str) -> Self {
+        self.field = field;
+        self
     }
 }
 
@@ -97,18 +121,15 @@ impl RegisterRequest {
     /// [`MINIMUM_PASSWORD_LENGTH`].
     pub fn validate(&self) -> Result<(), AuthParamError> {
         if self.username.trim().is_empty() {
-            return Err(AuthParamError::new("username is required"));
+            return Err(AuthParamError::new("username", "username is required"));
         }
         if self.email.trim().is_empty() {
-            return Err(AuthParamError::new("email is required"));
+            return Err(AuthParamError::new("email", "email is required"));
         }
         if !is_email_valid(&self.email) {
-            return Err(AuthParamError::new("invalid email format"));
+            return Err(AuthParamError::new("email", "invalid email format"));
         }
-        if self.password.is_empty() {
-            return Err(AuthParamError::new("password is required"));
-        }
-        check_password_length(&self.password)
+        check_new_password(&self.password)
     }
 }
 
@@ -143,12 +164,18 @@ impl ChangePasswordRequest {
     /// than [`MINIMUM_PASSWORD_LENGTH`].
     pub fn validate(&self) -> Result<(), AuthParamError> {
         if self.old_password.is_empty() {
-            return Err(AuthParamError::new("old password is required"));
+            return Err(AuthParamError::new(
+                "oldPassword",
+                "old password is required",
+            ));
         }
         if self.new_password.is_empty() {
-            return Err(AuthParamError::new("new password is required"));
+            return Err(AuthParamError::new(
+                "newPassword",
+                "new password is required",
+            ));
         }
-        check_password_length(&self.new_password)
+        check_new_password(&self.new_password).map_err(|error| error.about("newPassword"))
     }
 }
 
@@ -160,11 +187,29 @@ impl fmt::Debug for ChangePasswordRequest {
     }
 }
 
-fn check_password_length(password: &str) -> Result<(), AuthParamError> {
-    if password.len() < MINIMUM_PASSWORD_LENGTH {
-        return Err(AuthParamError(format!(
-            "password must be at least {MINIMUM_PASSWORD_LENGTH} characters"
-        )));
+/// Checks a password that is about to be set: on registration, on a password change,
+/// and when an administrator sets one.
+///
+/// # Errors
+///
+/// Returns an [`AuthParamError`] if the password is empty, has fewer than
+/// [`MINIMUM_PASSWORD_LENGTH`] characters, or more than [`MAXIMUM_PASSWORD_BYTES`]
+/// bytes.
+pub fn check_new_password(password: &str) -> Result<(), AuthParamError> {
+    if password.is_empty() {
+        return Err(AuthParamError::new("password", "password is required"));
+    }
+    if password.chars().count() < MINIMUM_PASSWORD_LENGTH {
+        return Err(AuthParamError::new(
+            "password",
+            format!("password must be at least {MINIMUM_PASSWORD_LENGTH} characters"),
+        ));
+    }
+    if password.len() > MAXIMUM_PASSWORD_BYTES {
+        return Err(AuthParamError::new(
+            "password",
+            format!("password must be at most {MAXIMUM_PASSWORD_BYTES} bytes"),
+        ));
     }
     Ok(())
 }

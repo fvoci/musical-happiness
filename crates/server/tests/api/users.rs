@@ -251,8 +251,14 @@ async fn register_user_cases() {
         "the address is stored trimmed"
     );
     assert!(
-        user.password.starts_with("$2"),
-        "the password is stored hashed"
+        user.password_hash
+            .starts_with("$argon2id$v=19$m=19456,t=2,p=1$"),
+        "the password is stored as an Argon2id hash with the current parameters: {}",
+        user.password_hash
+    );
+    assert!(
+        !user.password_hash.contains("testPassword"),
+        "and not as itself"
     );
 
     // A wrong signup token is refused.
@@ -433,27 +439,36 @@ async fn user_change_password() {
 #[tokio::test]
 async fn app_change_password_cases() {
     let th = Setup::native().start().await.init_basic().await;
-    let me = th.client.me().await;
+    let session = th
+        .app
+        .authenticator()
+        .get_session(&th.client.token)
+        .await
+        .expect("the first client has a session");
 
-    assert!(
-        th.app.change_password("", "", "").await.is_err(),
-        "fail, missing login information"
-    );
-    assert!(
-        th.app.change_password("badID", "", "").await.is_err(),
-        "fail, invalid userId"
-    );
+    // "fail, missing login information" and "fail, invalid userId": a session of nobody,
+    // and one of a user who is not there.
+    for user_id in [String::new(), "badID".to_owned(), UNKNOWN_ID.to_owned()] {
+        let of_nobody = fvoci_model::Session {
+            user_id,
+            ..session.clone()
+        };
+        assert!(
+            th.app.change_password(&of_nobody, "", "").await.is_err(),
+            "a session without a user changes no password: {of_nobody:?}"
+        );
+    }
     assert!(
         th.app
-            .change_password(&me.id, "wrongPassword", "newPassword")
+            .change_password(&session, "wrongPassword", "newPassword")
             .await
             .is_err(),
         "fail, invalid password"
     );
     th.app
-        .change_password(&me.id, PASSWORD, "newPassword")
+        .change_password(&session, PASSWORD, "newPassword")
         .await
-        .expect("success, using username");
+        .expect("success, with the right old password");
 
     th.teardown().await;
 }
@@ -719,5 +734,214 @@ async fn app_get_root_team() {
         first.signup_token, second.signup_token,
         "reading does not change the token"
     );
+    th.teardown().await;
+}
+
+// -- password hashes and session tokens -----------------------------------------------
+
+/// The session token is handed out once, to whoever signed in. What the server keeps is
+/// its digest: nothing in the store is something a session could be opened with.
+#[tokio::test]
+async fn the_store_keeps_the_digest_of_a_session_token_and_not_the_token() {
+    let th = Setup::native().start().await.init_basic().await;
+    let token = th.client.token.clone();
+    let now = fvoci_server::auth::now_millis();
+    let store = th.app.store();
+
+    let session = store
+        .get_session(&fvoci_server::auth::secret::token_digest(&token), now, 0)
+        .await
+        .expect("the session is stored under the digest of its token");
+    assert_eq!(
+        session.user_id,
+        th.client.me().await.id,
+        "the user's session"
+    );
+    let by_token = store.get_session(&token, now, 0).await;
+    assert!(
+        by_token.is_err(),
+        "nothing is stored under the token itself: {by_token:?}"
+    );
+    // And the digest is no token: presenting it does not sign anyone in.
+    th.client_with_token(&fvoci_server::auth::secret::token_digest(&token))
+        .get("/users/me")
+        .await
+        .check_unauthorized();
+
+    th.teardown().await;
+}
+
+/// A password that is right, but stored with other hashing parameters than the current
+/// ones, is hashed anew at login: the parameters can be raised without asking anyone to
+/// set their password again.
+#[tokio::test]
+async fn a_login_renews_a_hash_made_with_other_parameters() {
+    let th = Setup::native().start().await.init_basic().await;
+    let store = th.app.store();
+    let user = store
+        .get_user_by_username(crate::common::USER1_USERNAME)
+        .await
+        .expect("the user is stored");
+
+    // A hash as an earlier version with cheaper parameters would have stored it.
+    let cheap = argon2_params(8, 1);
+    let old_hash = fvoci_server::auth::password::hash_password_with(PASSWORD, cheap)
+        .expect("a hash with other parameters");
+    assert!(
+        old_hash.starts_with("$argon2id$v=19$m=8,t=1,p=1$"),
+        "{old_hash}"
+    );
+    assert!(
+        store
+            .replace_password_hash(&user.id, &user.password_hash, &old_hash)
+            .await
+            .expect("the old hash is planted"),
+        "planted"
+    );
+
+    // A wrong password changes nothing.
+    th.anonymous()
+        .login(crate::common::USER1_USERNAME, "not the password")
+        .await
+        .check_unauthorized();
+    let stored = store.get_user_by_id(&user.id).await.expect("the user");
+    assert_eq!(
+        stored.password_hash, old_hash,
+        "a failed login renews nothing"
+    );
+
+    // The right one signs in and leaves a current hash behind.
+    th.login(crate::common::USER1_USERNAME, PASSWORD).await;
+    let stored = store.get_user_by_id(&user.id).await.expect("the user");
+    assert!(
+        stored
+            .password_hash
+            .starts_with("$argon2id$v=19$m=19456,t=2,p=1$"),
+        "the hash was renewed with the current parameters: {}",
+        stored.password_hash
+    );
+    // The session that was open stays: the password did not change.
+    th.client.get("/users/me").await.check_ok();
+    // And the password still is the password.
+    th.login(crate::common::USER1_USERNAME, PASSWORD).await;
+    let again = store.get_user_by_id(&user.id).await.expect("the user");
+    assert_eq!(
+        again.password_hash, stored.password_hash,
+        "a current hash is left alone"
+    );
+
+    th.teardown().await;
+}
+
+/// Argon2 parameters with the given memory (KiB) and iterations.
+fn argon2_params(memory_kib: u32, iterations: u32) -> argon2::Params {
+    argon2::Params::new(memory_kib, iterations, 1, None).expect("valid parameters")
+}
+
+/// A user who changes their password signs every other device out: whoever else knew
+/// the old password does not stay signed in. The session the change came through stays.
+#[tokio::test]
+async fn changing_the_password_ends_the_other_sessions_of_the_user() {
+    let th = Setup::native().start().await.init_basic().await;
+    let me = th.client.me().await;
+    let here = &th.client;
+    let phone = th.login(crate::common::USER1_USERNAME, PASSWORD).await;
+    let tablet = th.login(crate::common::USER1_USERNAME, PASSWORD).await;
+    for client in [here, &phone, &tablet] {
+        client.get("/users/me").await.check_ok();
+    }
+
+    // A refused change ends nothing.
+    here.post(
+        &format!("/users/{}/changepassword", me.id),
+        &json!({"oldPassword": "not the password", "newPassword": "another password"}),
+    )
+    .await
+    .check_bad_request();
+    phone.get("/users/me").await.check_ok();
+
+    here.post(
+        &format!("/users/{}/changepassword", me.id),
+        &json!({"oldPassword": PASSWORD, "newPassword": "another password"}),
+    )
+    .await
+    .check_ok();
+
+    here.get("/users/me").await.check_ok();
+    for (client, device) in [(&phone, "phone"), (&tablet, "tablet")] {
+        let response = client.get("/users/me").await;
+        assert_eq!(
+            response.status,
+            StatusCode::UNAUTHORIZED,
+            "the session on the {device} ended with the old password"
+        );
+    }
+    // The other user is not signed out by it.
+    th.client2.get("/users/me").await.check_ok();
+    // The old password opens nothing any more; the new one does.
+    th.anonymous()
+        .login(crate::common::USER1_USERNAME, PASSWORD)
+        .await
+        .check_unauthorized();
+    th.login(crate::common::USER1_USERNAME, "another password")
+        .await;
+
+    th.teardown().await;
+}
+
+/// A password is hashed whole, whatever its length up to the limit, and a password
+/// longer than the limit is refused where it is set and wrong where it is tried.
+#[tokio::test]
+async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
+    let th = Setup::native().start().await.init_basic().await;
+    let team = th.app.root_team().await.expect("the root team");
+    let register = |username: &str, password: &str| {
+        let body = json!({
+            "username": username,
+            "email": format!("{username}@sample.com"),
+            "password": password,
+            "token": team.signup_token,
+        });
+        let anonymous = th.anonymous();
+        async move { anonymous.post("/register", &body).await }
+    };
+
+    // Longer than the 72 bytes the previous hash looked at; every byte counts.
+    let long = "p".repeat(200);
+    register("long", &long).await.check_ok();
+    th.login("long", &long).await;
+    let mut other_end = "p".repeat(199);
+    other_end.push('q');
+    th.anonymous()
+        .login("long", &other_end)
+        .await
+        .check_unauthorized();
+
+    // The limits, where a password is set.
+    let longest = "가".repeat(341);
+    register("longest", &longest).await.check_ok();
+    th.login("longest", &longest).await;
+    for (username, password, message) in [
+        (
+            "toolong",
+            "x".repeat(1025),
+            "password must be at most 1024 bytes",
+        ),
+        (
+            "short",
+            "가나다라".to_owned(),
+            "password must be at least 8 characters",
+        ),
+    ] {
+        let response = register(username, &password).await;
+        response.check_error(StatusCode::BAD_REQUEST, message);
+    }
+
+    // A password longer than the limit was never set: trying it is a wrong password
+    // like any other, with the same answer.
+    let response = th.anonymous().login("long", &"x".repeat(10_000)).await;
+    response.check_error(StatusCode::UNAUTHORIZED, "incorrect login");
+    assert_eq!(response.error_reason(), "invalid_credentials");
+
     th.teardown().await;
 }

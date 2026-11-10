@@ -1,238 +1,195 @@
-//! Password hashing and password rules.
+//! Password hashing: Argon2id, stored as PHC strings.
+//!
+//! The parameters are the ones the OWASP Password Storage Cheat Sheet summarizes as its
+//! minimum for Argon2id: 19 MiB of memory, 2 iterations, 1 degree of parallelism. A hash
+//! carries the parameters it was made with, so they can be raised later: a password that
+//! verifies against a hash made with other parameters is reported as
+//! [`Verdict::MatchWithOutdatedHash`], and the caller stores a new hash while it still
+//! has the password.
+//!
+//! One hash takes that memory and tens of milliseconds of one processor. Callers run
+//! these functions off the async runtime and bound how many run at once.
 
+use argon2::password_hash::phc::PasswordHash;
+use argon2::password_hash::{PasswordHasher as _, PasswordVerifier as _};
+use argon2::{Algorithm, Argon2, Params, Version};
 use thiserror::Error;
 
-/// The cost of the bcrypt hashes this server creates.
-pub const PASSWORD_HASH_COST: u32 = 10;
+/// The memory one hash uses, in KiB.
+pub const MEMORY_KIB: u32 = 19_456;
 
-/// The longest accepted password, in bytes.
-pub const PASSWORD_MAXIMUM_LENGTH: usize = 64;
+/// The number of passes over that memory.
+pub const ITERATIONS: u32 = 2;
 
-/// The characters that count as symbols.
-const SYMBOLS: &str = "!\"\\#$%&'()*+,-./:;<=>?@[]^_`|~";
+/// The degree of parallelism.
+pub const PARALLELISM: u32 = 1;
 
-/// Hashes a password with bcrypt at [`PASSWORD_HASH_COST`].
-///
-/// # Errors
-///
-/// Returns the bcrypt error if the password cannot be hashed.
-pub fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
-    hash_password_with_cost(password, PASSWORD_HASH_COST)
-}
+/// A password could not be hashed. This is the server's failure, not the password's.
+#[derive(Debug, Error)]
+#[error("hashing a password failed: {0}")]
+pub struct HashPasswordError(argon2::password_hash::Error);
 
-/// Hashes a password with bcrypt at the given cost. Tests use a low cost to stay fast.
-///
-/// # Errors
-///
-/// Returns the bcrypt error if the cost is out of range or the password cannot be hashed.
-pub fn hash_password_with_cost(password: &str, cost: u32) -> Result<String, bcrypt::BcryptError> {
-    bcrypt::hash(password, cost)
-}
-
-/// Returns `true` if `password` matches the bcrypt `hash`.
-///
-/// An empty password or hash never matches, and neither does a malformed hash.
-pub fn compare_password(hash: &str, password: &str) -> bool {
-    if password.is_empty() || hash.is_empty() {
-        return false;
-    }
-    bcrypt::verify(password, hash).unwrap_or(false)
-}
-
-/// A kind of character a password can be required to contain.
+/// What checking a password against a stored hash found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CharacterClass {
-    /// An ASCII lower-case letter.
-    Lowercase,
-    /// An ASCII upper-case letter.
-    Uppercase,
-    /// An ASCII digit.
-    Number,
-    /// One of ``!"\#$%&'()*+,-./:;<=>?@[]^_`|~``.
-    Symbol,
+pub enum Verdict {
+    /// The password is not the one the hash was made from, or the hash is none.
+    Mismatch,
+    /// The password is right.
+    Match,
+    /// The password is right, and the hash was made with other parameters than the
+    /// current ones: it is time to store a new hash.
+    MatchWithOutdatedHash,
 }
 
-/// The rules a new password must meet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PasswordSettings<'a> {
-    /// The shortest accepted password, in bytes.
-    pub minimum_length: usize,
-    /// The kinds of character the password must contain.
-    pub required: &'a [CharacterClass],
+/// The current parameters.
+fn current_params() -> Params {
+    Params::new(MEMORY_KIB, ITERATIONS, PARALLELISM, None)
+        .expect("the constants are within the bounds of Argon2")
 }
 
-/// A password breaks one or more of the [`PasswordSettings`].
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-#[error("invalid password, failing criteria: {}", .failing_criteria.join(", "))]
-pub struct InvalidPasswordError {
-    /// The names of the rules that failed: `min-length`, `max-length`, `lowercase`,
-    /// `uppercase`, `number`, `symbol`.
-    pub failing_criteria: Vec<&'static str>,
+fn hasher(params: Params) -> Argon2<'static> {
+    Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
 }
 
-/// Checks `password` against `settings` and [`PASSWORD_MAXIMUM_LENGTH`].
+/// Hashes a password with the current parameters and a new random salt, into a PHC
+/// string (`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`).
 ///
 /// # Errors
 ///
-/// Returns an [`InvalidPasswordError`] listing every rule the password breaks, lengths
-/// first, then character classes in the order lowercase, uppercase, number, symbol.
-pub fn check_password(
-    password: &str,
-    settings: PasswordSettings<'_>,
-) -> Result<(), InvalidPasswordError> {
-    let mut failing_criteria = Vec::new();
-    if password.len() < settings.minimum_length {
-        failing_criteria.push("min-length");
-    }
-    if password.len() > PASSWORD_MAXIMUM_LENGTH {
-        failing_criteria.push("max-length");
-    }
-    let classes = [
-        (CharacterClass::Lowercase, "lowercase"),
-        (CharacterClass::Uppercase, "uppercase"),
-        (CharacterClass::Number, "number"),
-        (CharacterClass::Symbol, "symbol"),
-    ];
-    for (class, name) in classes {
-        if settings.required.contains(&class) && !password.chars().any(|c| is_in_class(c, class)) {
-            failing_criteria.push(name);
-        }
-    }
+/// Returns an error if the operating system supplies no salt or the hash cannot be
+/// computed.
+pub fn hash_password(password: &str) -> Result<String, HashPasswordError> {
+    hash_password_with(password, current_params())
+}
 
-    if failing_criteria.is_empty() {
-        Ok(())
+/// Hashes a password with the given parameters. For telling how the server treats a
+/// hash that was made before the parameters changed; everything else uses
+/// [`hash_password`].
+///
+/// # Errors
+///
+/// Returns an error if the operating system supplies no salt or the hash cannot be
+/// computed.
+pub fn hash_password_with(password: &str, params: Params) -> Result<String, HashPasswordError> {
+    hasher(params)
+        .hash_password(password.as_bytes())
+        .map(|hash| hash.to_string())
+        .map_err(HashPasswordError)
+}
+
+/// Checks a password against a stored PHC string. The hash is computed with the
+/// parameters the string names.
+///
+/// Anything that is no Argon2 PHC string matches no password, the empty password
+/// included.
+pub fn verify_password(hash: &str, password: &str) -> Verdict {
+    let Ok(parsed) = PasswordHash::new(hash) else {
+        return Verdict::Mismatch;
+    };
+    if hasher(current_params())
+        .verify_password(password.as_bytes(), &parsed)
+        .is_err()
+    {
+        return Verdict::Mismatch;
+    }
+    if is_current(&parsed) {
+        Verdict::Match
     } else {
-        Err(InvalidPasswordError { failing_criteria })
+        Verdict::MatchWithOutdatedHash
     }
 }
 
-fn is_in_class(character: char, class: CharacterClass) -> bool {
-    match class {
-        CharacterClass::Lowercase => character.is_ascii_lowercase(),
-        CharacterClass::Uppercase => character.is_ascii_uppercase(),
-        CharacterClass::Number => character.is_ascii_digit(),
-        CharacterClass::Symbol => SYMBOLS.contains(character),
-    }
+/// Whether a hash was made with the current algorithm, version and parameters.
+fn is_current(hash: &PasswordHash) -> bool {
+    let current = current_params();
+    hash.algorithm == Algorithm::Argon2id.ident()
+        && hash.version == Some(Version::V0x13.into())
+        && Params::try_from(hash).is_ok_and(|params| {
+            params.m_cost() == current.m_cost()
+                && params.t_cost() == current.t_cost()
+                && params.p_cost() == current.p_cost()
+        })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use CharacterClass::{Lowercase, Number, Symbol, Uppercase};
 
-    /// `TestPasswordHash` in `server/services/auth/password_test.go`.
+    /// Parameters at the lower bounds of Argon2, for hashes that are cheap to make.
+    fn cheap_params() -> Params {
+        Params::new(Params::MIN_M_COST, 1, 1, None).expect("the lower bounds are valid")
+    }
+
     #[test]
-    fn password_hash() {
-        let hash = hash_password_with_cost("Test", 4).expect("hashing succeeds");
-        assert!(compare_password(&hash, "Test"), "passwords don't match");
+    fn a_hash_is_a_phc_string_with_the_current_parameters() {
+        let hash = hash_password("correct horse").expect("hashing succeeds");
         assert!(
-            !compare_password(&hash, "Test2"),
-            "passwords should not have matched"
+            hash.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"),
+            "the hash names its algorithm and parameters: {hash}"
+        );
+        assert!(!hash.contains("correct horse"), "and not the password");
+        assert_ne!(
+            hash,
+            hash_password("correct horse").expect("hashing succeeds"),
+            "every hash has a salt of its own"
         );
     }
 
     #[test]
-    fn hashes_use_the_original_cost_and_verify_original_hashes() {
-        let hash = hash_password("Test").expect("hashing succeeds");
-        assert!(
-            hash.starts_with("$2b$10$"),
-            "unexpected hash prefix: {hash}"
-        );
-
-        // The hash the original server stored for a user registered with this password
-        // (taken from its database during porting; note the `$2a$` prefix).
-        let original = "$2a$10$DZVQxQn1EROpkOn480U6r.1kNvclgpYT9dEdvM7Xx3MdlV83Fn90G";
-        assert!(
-            compare_password(original, "test-password"),
-            "an original hash verifies"
-        );
-        assert!(
-            !compare_password(original, "test-passwore"),
-            "a wrong password does not"
-        );
-    }
-
-    #[test]
-    fn empty_or_malformed_input_never_matches() {
-        let hash = hash_password_with_cost("Test", 4).expect("hashing succeeds");
-        assert!(
-            !compare_password(&hash, ""),
-            "an empty password never matches"
-        );
-        assert!(!compare_password("", "Test"), "an empty hash never matches");
-        assert!(
-            !compare_password("not-a-hash", "Test"),
-            "a malformed hash never matches"
-        );
-    }
-
-    /// `TestIsPasswordValidWithSettings` in `server/services/auth/password_test.go`, one
-    /// row per case of its table.
-    #[test]
-    fn is_password_valid_with_settings() {
-        let long = "x".repeat(PASSWORD_MAXIMUM_LENGTH);
-        let too_long = "x".repeat(PASSWORD_MAXIMUM_LENGTH + 1);
-        let none: &[CharacterClass] = &[];
-        let cases: [(&str, &str, &[CharacterClass], &[&str]); 10] = [
-            ("Short", "xxx", none, &[]),
-            ("Long", &long, none, &[]),
-            ("TooShort", "xx", none, &["min-length"]),
-            ("TooLong", &too_long, none, &["max-length"]),
-            (
-                "MissingLower",
-                "AAAAAAAAAAASD123!@#",
-                &[Lowercase],
-                &["lowercase"],
-            ),
-            (
-                "MissingUpper",
-                "aaaaaaaaaaaaasd123!@#",
-                &[Uppercase],
-                &["uppercase"],
-            ),
-            ("MissingNumber", "asasdasdsadASD!@#", &[Number], &["number"]),
-            (
-                "MissingSymbol",
-                "asdasdasdasdasdASD123",
-                &[Symbol],
-                &["symbol"],
-            ),
-            (
-                "MissingMultiple",
-                "asdasdasdasdasdasd",
-                &[Lowercase, Uppercase, Number, Symbol],
-                &["uppercase", "number", "symbol"],
-            ),
-            (
-                "Everything",
-                "asdASD!@#123",
-                &[Lowercase, Uppercase, Number, Symbol],
-                &[],
-            ),
-        ];
-        for (name, password, required, want) in cases {
-            let settings = PasswordSettings {
-                minimum_length: 3,
-                required,
-            };
-            let got = match check_password(password, settings) {
-                Ok(()) => Vec::new(),
-                Err(error) => error.failing_criteria,
-            };
-            assert_eq!(got, want, "case {name}");
-        }
-    }
-
-    #[test]
-    fn error_message_lists_the_failing_criteria() {
-        let settings = PasswordSettings {
-            minimum_length: 6,
-            required: &[],
-        };
-        let error = check_password("abc", settings).expect_err("too short");
+    fn the_right_password_matches_and_no_other() {
+        let hash = hash_password("correct horse").expect("hashing succeeds");
+        assert_eq!(verify_password(&hash, "correct horse"), Verdict::Match);
+        assert_eq!(verify_password(&hash, "correct horsf"), Verdict::Mismatch);
+        assert_eq!(verify_password(&hash, ""), Verdict::Mismatch);
         assert_eq!(
-            error.to_string(),
-            "invalid password, failing criteria: min-length"
+            verify_password(&hash, "correct horse "),
+            Verdict::Mismatch,
+            "nothing is trimmed"
         );
+    }
+
+    #[test]
+    fn a_password_of_any_length_and_any_characters_is_hashed_whole() {
+        // bcrypt, which this replaces, looked at the first 72 bytes only.
+        let long = "가".repeat(300);
+        let hash = hash_password(&long).expect("hashing succeeds");
+        assert_eq!(verify_password(&hash, &long), Verdict::Match);
+        let mut differs_at_the_end = "가".repeat(299);
+        differs_at_the_end.push('나');
+        assert_eq!(
+            verify_password(&hash, &differs_at_the_end),
+            Verdict::Mismatch
+        );
+    }
+
+    #[test]
+    fn a_hash_made_with_other_parameters_matches_and_is_reported_as_outdated() {
+        let hash = hash_password_with("correct horse", cheap_params()).expect("hashing succeeds");
+        assert_eq!(
+            verify_password(&hash, "correct horse"),
+            Verdict::MatchWithOutdatedHash,
+            "the password is right, the hash is not the current kind: {hash}"
+        );
+        assert_eq!(verify_password(&hash, "wrong"), Verdict::Mismatch);
+    }
+
+    #[test]
+    fn what_is_no_argon2_hash_matches_nothing() {
+        for hash in [
+            "",
+            "not-a-hash",
+            "correct horse",
+            // A hash of the algorithm this server used to have.
+            "$2a$10$DZVQxQn1EROpkOn480U6r.1kNvclgpYT9dEdvM7Xx3MdlV83Fn90G",
+            "$argon2id$v=19$m=19456,t=2,p=1$",
+        ] {
+            for password in ["", "correct horse", "test-password"] {
+                assert_eq!(
+                    verify_password(hash, password),
+                    Verdict::Mismatch,
+                    "hash {hash:?}, password {password:?}"
+                );
+            }
+        }
     }
 }

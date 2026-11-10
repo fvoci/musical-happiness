@@ -1,315 +1,431 @@
-//! Port of `server/services/store/storetests/session.go`, followed by tests of the session
-//! operations that the original suite does not cover.
-//!
-//! The original's `testGetActiveUserCount` and `testUpdateSession` have no port: this
-//! store counts no active users and never rewrites a session.
+//! Sessions: found by the digest of their token, ended by disuse, by their end time, and
+//! with the password they were opened under.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use fvoci_model::{Session, User, new_id};
-use fvoci_store::{DbType, StoreError};
-use serde_json::json;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{ConnectOptions as _, Connection as _};
+use fvoci_model::{Session, new_id};
+use fvoci_store::{Store, StoreError};
 
 use crate::common;
+
+/// A time in milliseconds that the tests count from.
+const T0: i64 = 1_800_000_000_000;
+
+/// A session of the user that was made at [`T0`] and ends, whatever its use, at `T0 +
+/// 1000`.
+fn session_of(user_id: &str) -> Session {
+    Session {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        created_at: T0,
+        last_used_at: T0,
+        expires_at: T0 + 1000,
+        user_agent: "a browser".to_owned(),
+    }
+}
+
+/// Whether the store has a valid session under the digest at `now`, counting as idle
+/// what was not used after `idle_since`.
+async fn is_valid(store: &Store, digest: &str, now: i64, idle_since: i64) -> bool {
+    match store.get_session(digest, now, idle_since).await {
+        Ok(_) => true,
+        Err(StoreError::NoRows) => false,
+        Err(other) => panic!("looking a session up failed: {other:?}"),
+    }
+}
 
 /// `testCreateAndGetAndDeleteSession`.
 #[tokio::test]
 async fn create_and_get_and_delete_session() {
     let test = common::setup().await;
     let store = &test.store;
-    let user_id = common::user(store, "session.owner").await;
-
-    let session = Session {
-        id: new_id(),
-        token: "token".to_owned(),
-        user_id,
-        ..Session::default()
-    };
+    let user_id = common::user(store, "user").await;
 
     // "CreateAndGetSession"
-    store.create_session(&session).await.unwrap();
-
-    let got = store.get_session(&session.token, 60 * 60).await.unwrap();
-    assert_eq!(got, session);
+    let session = session_of(&user_id);
+    store
+        .create_session(&session, "digest")
+        .await
+        .expect("the session is stored");
+    let got = store
+        .get_session("digest", T0 + 1, T0 - 1)
+        .await
+        .expect("the session is found by its digest");
+    assert_eq!(got, session, "as it was stored");
 
     // "Get nonexistent session"
     let error = store
-        .get_session("nonexistent-token", 60 * 60)
+        .get_session("another-digest", T0 + 1, T0 - 1)
         .await
-        .unwrap_err();
-    assert!(error.is_not_found(), "got {error:?}");
+        .expect_err("no session has that digest");
+    assert!(matches!(error, StoreError::NoRows), "got {error:?}");
+    assert!(error.is_not_found(), "which counts as not found");
 
     // "DeleteAndGetSession"
-    store.delete_session(&session.id).await.unwrap();
-
-    let result = store.get_session(&session.token, 60 * 60).await;
-    assert!(result.is_err(), "got {result:?}");
-
-    test.teardown().await;
-}
-
-// The tests below are not in the original suite. They pin behavior of the original's
-// standalone store that its suite leaves untested, and what this store does differently.
-
-/// A session is read without its times, and one that is exactly at the expiry limit is
-/// already expired.
-#[tokio::test]
-async fn get_session_leaves_the_times_unset_and_honors_the_expiry() {
-    let test = common::setup().await;
-    let store = &test.store;
-    let user_id = common::user(store, "session.owner").await;
-
-    let session = Session {
-        id: new_id(),
-        token: "token".to_owned(),
-        user_id,
-        auth_service: "native".to_owned(),
-        props: serde_json::from_value(json!({ "nested": { "n": 1 } })).unwrap(),
-        create_at: 11,
-        update_at: 22,
-    };
-    store.create_session(&session).await.unwrap();
-
-    let got = store.get_session("token", 60).await.unwrap();
-    assert_eq!((got.create_at, got.update_at), (0, 0), "times are not read");
-    assert_eq!(
-        got,
-        Session {
-            create_at: 0,
-            update_at: 0,
-            ..session.clone()
-        }
-    );
-
-    let expired = store.get_session("token", 0).await.unwrap_err();
-    assert!(expired.is_not_found(), "got {expired:?}");
-    assert_eq!(expired.to_string(), "sql: no rows in result set");
-
-    // Deleting a session that does not exist, and refreshing one whose token is unknown,
-    // succeed without doing anything.
-    store.delete_session(&new_id()).await.unwrap();
-    let stranger = Session {
-        token: "no-such-token".to_owned(),
-        ..Session::default()
-    };
-    store.refresh_session(&stranger).await.unwrap();
-    let got = store.get_session("token", 60).await.unwrap();
-    assert_eq!(got.id, session.id, "the stored session is still there");
-
-    // Text that is not an identifier names no session, and a statement that writes
-    // says so instead of doing nothing.
-    let error = store.delete_session("no-such-session").await.unwrap_err();
-    assert!(
-        matches!(&error, StoreError::InvalidId(refused) if refused == "no-such-session"),
-        "got {error:?}"
-    );
-    // A token is one session's, and so is an identifier.
-    let same_token = Session {
-        id: new_id(),
-        ..session.clone()
-    };
-    let error = store.create_session(&same_token).await.unwrap_err();
-    assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
-    let same_id = Session {
-        token: "another-token".to_owned(),
-        ..session.clone()
-    };
-    let error = store.create_session(&same_id).await.unwrap_err();
-    assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
-    let error = store.get_session("another-token", 60).await.unwrap_err();
-    assert!(error.is_not_found(), "got {error:?}");
-    // A session is some user's: one without a user is not stored.
-    let nobodys = Session {
-        id: new_id(),
-        token: "nobodys-token".to_owned(),
-        ..Session::default()
-    };
-    let error = store.create_session(&nobodys).await.unwrap_err();
-    assert!(
-        matches!(&error, StoreError::InvalidId(refused) if refused.is_empty()),
-        "got {error:?}"
-    );
-
-    test.teardown().await;
-}
-
-/// Expiry and the cleanup go by the time of the last refresh, with limits given in
-/// seconds.
-#[tokio::test]
-async fn refresh_and_clean_up_sessions_go_by_the_update_time() {
-    let test = common::setup().await;
-    let store = &test.store;
-
-    let mut sessions = Vec::new();
-    for name in ["stale", "fresh"] {
-        let session = Session {
-            id: new_id(),
-            token: format!("token-{name}"),
-            user_id: common::user(store, name).await,
-            ..Session::default()
-        };
-        store.create_session(&session).await.unwrap();
-        sessions.push(session);
-    }
-    let [stale, fresh] = sessions
-        .try_into()
-        .expect("two sessions were created, a stale and a fresh one");
-    assert!(store.get_session(&stale.token, 1).await.is_ok());
-    assert!(store.get_session(&fresh.token, 1).await.is_ok());
-
-    tokio::time::sleep(Duration::from_millis(1100)).await;
-    assert!(store.get_session(&stale.token, 1).await.is_err());
-    assert!(store.get_session(&fresh.token, 1).await.is_err());
-
-    store.refresh_session(&fresh).await.unwrap();
-    assert!(store.get_session(&fresh.token, 1).await.is_ok());
-    assert!(store.get_session(&stale.token, 1).await.is_err());
-
-    // A second session of the user of the fresh one.
-    let second = Session {
-        id: new_id(),
-        token: "token-second".to_owned(),
-        ..fresh.clone()
-    };
-    store.create_session(&second).await.unwrap();
-
-    assert!(store.get_session(&stale.token, 60).await.is_ok());
-    store.clean_up_sessions(1).await.unwrap();
-    assert!(
-        store.get_session(&stale.token, 60).await.is_err(),
-        "the session last refreshed more than a second ago is gone"
-    );
-    assert!(store.get_session(&fresh.token, 60).await.is_ok());
-    assert!(store.get_session(&second.token, 60).await.is_ok());
-
-    test.teardown().await;
-}
-
-/// The original binds JSON as bytes on SQLite, which the database keeps as a BLOB even
-/// in a text column. This server writes JSON as text and refuses a database of the
-/// original, yet its reader still accepts either storage class; this pins that.
-#[tokio::test]
-async fn json_stored_as_a_blob_by_the_original_on_sqlite_reads_back() {
-    if common::db_type() != DbType::Sqlite {
-        return;
-    }
-    let test = common::setup().await;
-    let store = &test.store;
-    let user_id = common::user(store, "blob.owner").await;
-    let session_id = new_id();
-    let team_id = new_id();
-
-    let mut conn = SqliteConnectOptions::new()
-        .filename(test.dbconfig())
-        .connect()
+    store
+        .delete_session(&session.id)
         .await
-        .unwrap();
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let now = i64::try_from(now).unwrap();
-    sqlx::query(
-        "INSERT INTO sessions \
-         (id, token, user_id, auth_service, props, create_at, update_at) \
-         VALUES ($1, 'blob-token', $2, 'native', CAST('{\"k\":\"v\"}' AS BLOB), $3, $3)",
-    )
-    .bind(&session_id)
-    .bind(&user_id)
-    .bind(now)
-    .execute(&mut conn)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO teams (id, signup_token, settings, modified_by, create_at, update_at) \
-         VALUES ($1, 'token', CAST('{\"on\":true}' AS BLOB), $2, $3, $3)",
-    )
-    .bind(&team_id)
-    .bind(&user_id)
-    .bind(now)
-    .execute(&mut conn)
-    .await
-    .unwrap();
-    conn.close().await.unwrap();
-
-    let session = store.get_session("blob-token", 60).await.unwrap();
-    assert_eq!(session.id, session_id);
-    assert_eq!(session.props.get("k"), Some(&json!("v")));
-    let team = store.get_team(&team_id).await.unwrap();
-    assert_eq!(team.settings.get("on"), Some(&json!(true)));
-    assert_eq!(team.modified_by, user_id);
+        .expect("the session is deleted");
+    assert!(
+        !is_valid(store, "digest", T0 + 1, T0 - 1).await,
+        "a deleted session is gone"
+    );
+    store
+        .delete_session(&session.id)
+        .await
+        .expect("deleting it again succeeds");
+    store
+        .delete_session(&new_id())
+        .await
+        .expect("as does deleting one that never was");
 
     test.teardown().await;
 }
 
-/// Not in the original: a password set by name ends the sessions of the user with that
-/// name, and only theirs, together with the password change.
+/// A session is stored under what the caller gives as the digest, and a digest names
+/// one session.
 #[tokio::test]
-async fn reset_user_password_deletes_the_sessions_of_those_users_only() {
+async fn a_session_is_found_by_its_digest_and_two_cannot_share_one() {
     let test = common::setup().await;
     let store = &test.store;
-    let hour = 60 * 60;
-    let mut user_ids = Vec::new();
-    for username in ["anna", "bert"] {
-        let mut user = User {
-            id: new_id(),
-            username: username.to_owned(),
-            email: format!("{username}@example.com"),
-            password: "old-hash".to_owned(),
-            ..User::default()
-        };
-        store.create_user(&mut user).await.unwrap();
-        user_ids.push(user.id);
-    }
-    let (anna, bert) = (&user_ids[0], &user_ids[1]);
-    for (token, user_id) in [
-        ("anna-phone", anna),
-        ("anna-laptop", anna),
-        ("bert-phone", bert),
+    let user_id = common::user(store, "user").await;
+
+    store
+        .create_session(&session_of(&user_id), "digest-one")
+        .await
+        .expect("the first session is stored");
+    let error = store
+        .create_session(&session_of(&user_id), "digest-one")
+        .await
+        .expect_err("a second session under the same digest is refused");
+    assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
+    store
+        .create_session(&session_of(&user_id), "digest-two")
+        .await
+        .expect("a user has as many sessions as they sign in");
+
+    let same_id = session_of(&user_id);
+    store
+        .create_session(&same_id, "digest-three")
+        .await
+        .expect("a third session");
+    let error = store
+        .create_session(&same_id, "digest-four")
+        .await
+        .expect_err("a session identifier is used once");
+    assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
+
+    test.teardown().await;
+}
+
+/// A session that has no user, or text for one, is not stored.
+#[tokio::test]
+async fn a_session_needs_identifiers() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+
+    for (id, user) in [
+        (new_id(), String::new()),
+        (new_id(), "nobody".to_owned()),
+        ("no-identifier".to_owned(), user_id.clone()),
     ] {
         let session = Session {
-            id: new_id(),
-            token: token.to_owned(),
-            user_id: user_id.clone(),
-            ..Session::default()
+            id,
+            ..session_of(&user)
         };
-        store.create_session(&session).await.unwrap();
+        let error = store
+            .create_session(&session, &new_id())
+            .await
+            .expect_err("text that is no identifier is refused");
+        assert!(matches!(error, StoreError::InvalidId(_)), "got {error:?}");
     }
 
-    let reset = store.reset_user_password("anna", "new-hash").await.unwrap();
+    test.teardown().await;
+}
 
-    assert_eq!(
-        reset,
-        std::slice::from_ref(anna),
-        "the users whose password was set"
+/// A session ends when it was not used after the idle limit, and at its end time
+/// whatever its use. Using it moves the first and never the second.
+#[tokio::test]
+async fn a_session_ends_by_disuse_and_at_its_end_time() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let session = session_of(&user_id);
+    store
+        .create_session(&session, "digest")
+        .await
+        .expect("the session is stored");
+
+    // Used at T0. With "idle since" before that, it is in use; at or after, it is idle.
+    assert!(is_valid(store, "digest", T0 + 1, T0 - 1).await, "in use");
+    assert!(
+        !is_valid(store, "digest", T0 + 1, T0).await,
+        "not used after the limit: idle"
     );
-    assert_eq!(
-        store.get_user_by_id(anna).await.unwrap().password,
-        "new-hash"
+    assert!(!is_valid(store, "digest", T0 + 1, T0 + 5).await, "idle");
+
+    // Using it moves the time it was last used.
+    store
+        .touch_session(&session.id, T0 + 10)
+        .await
+        .expect("the use is recorded");
+    assert!(
+        is_valid(store, "digest", T0 + 11, T0 + 5).await,
+        "in use again"
     );
-    for token in ["anna-phone", "anna-laptop"] {
-        let error = store.get_session(token, hour).await.unwrap_err();
-        assert!(error.is_not_found(), "{token}: got {error:?}");
+    let touched = store
+        .get_session("digest", T0 + 11, T0 + 5)
+        .await
+        .expect("the session is found");
+    assert_eq!(touched.last_used_at, T0 + 10, "the recorded use");
+    assert_eq!(touched.created_at, T0, "the creation time stays");
+    assert_eq!(touched.expires_at, T0 + 1000, "and so does the end time");
+
+    // The end time is the end, however recently the session was used.
+    store
+        .touch_session(&session.id, T0 + 999)
+        .await
+        .expect("the use is recorded");
+    assert!(
+        is_valid(store, "digest", T0 + 999, T0 + 900).await,
+        "the moment before the end"
+    );
+    assert!(
+        !is_valid(store, "digest", T0 + 1000, T0 + 900).await,
+        "at its end time the session has ended"
+    );
+    assert!(
+        !is_valid(store, "digest", T0 + 5000, T0 + 900).await,
+        "and after"
+    );
+
+    // Recording the use of a session that is not there changes nothing.
+    store
+        .touch_session(&new_id(), T0)
+        .await
+        .expect("touching no session succeeds");
+
+    test.teardown().await;
+}
+
+/// The clean-up deletes exactly the sessions that have ended: the idle ones and the
+/// ones past their end time.
+#[tokio::test]
+async fn clean_up_deletes_the_sessions_that_have_ended() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+
+    let live = session_of(&user_id);
+    let idle = Session {
+        last_used_at: T0 - 500,
+        created_at: T0 - 500,
+        ..session_of(&user_id)
+    };
+    let past_its_end = Session {
+        expires_at: T0 + 50,
+        ..session_of(&user_id)
+    };
+    for (session, digest) in [(&live, "live"), (&idle, "idle"), (&past_its_end, "past")] {
+        store
+            .create_session(session, digest)
+            .await
+            .expect("the session is stored");
     }
-    assert_eq!(
-        store.get_session("bert-phone", hour).await.unwrap().user_id,
-        *bert,
-        "the session of a user with another name"
+
+    let now = T0 + 100;
+    let idle_since = T0 - 100;
+    let deleted = store
+        .clean_up_sessions(now, idle_since)
+        .await
+        .expect("the clean-up runs");
+    assert_eq!(deleted, 2, "the idle one and the one past its end");
+    assert!(
+        is_valid(store, "live", now, idle_since).await,
+        "the live one stays"
+    );
+    // Gone, not only refused: with limits that would accept them they are not found.
+    assert!(
+        !is_valid(store, "idle", now, T0 - 1000).await,
+        "the idle one"
+    );
+    assert!(
+        !is_valid(store, "past", T0, idle_since).await,
+        "the ended one"
     );
     assert_eq!(
-        store.get_user_by_id(bert).await.unwrap().password,
-        "old-hash",
-        "the password of a user with another name"
+        store
+            .clean_up_sessions(now, idle_since)
+            .await
+            .expect("the clean-up runs again"),
+        0,
+        "nothing is left to delete"
     );
 
-    // An unknown name changes nothing.
-    let error = store.reset_user_password("nobody", "x").await.unwrap_err();
-    assert_eq!(error.to_string(), "user not found (nobody)");
-    assert_eq!(
-        store.get_session("bert-phone", hour).await.unwrap().user_id,
-        *bert
+    test.teardown().await;
+}
+
+/// A password set by name ends the sessions of that user, and only theirs, together
+/// with the password change.
+#[tokio::test]
+async fn reset_user_password_deletes_the_sessions_of_that_user_only() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+    let bob = common::user(store, "bob").await;
+    for (user, digest) in [(&alice, "alice-1"), (&alice, "alice-2"), (&bob, "bob-1")] {
+        store
+            .create_session(&session_of(user), digest)
+            .await
+            .expect("the session is stored");
+    }
+
+    let reset = store
+        .reset_user_password("alice", "new-hash")
+        .await
+        .expect("the password is set");
+    assert_eq!(reset, alice, "the user whose password was set");
+
+    for digest in ["alice-1", "alice-2"] {
+        assert!(
+            !is_valid(store, digest, T0 + 1, T0 - 1).await,
+            "{digest} ended with the old password"
+        );
+    }
+    assert!(
+        is_valid(store, "bob-1", T0 + 1, T0 - 1).await,
+        "another user's session stays"
+    );
+    let stored = store
+        .get_user_by_id(&alice)
+        .await
+        .expect("the user is read");
+    assert_eq!(stored.password_hash, "new-hash", "the new hash is stored");
+
+    // No such user: nothing changes.
+    let error = store
+        .reset_user_password("nobody", "hash")
+        .await
+        .expect_err("no user has that name");
+    assert!(
+        matches!(error, StoreError::UserNotFound(_)),
+        "got {error:?}"
+    );
+    assert!(is_valid(store, "bob-1", T0 + 1, T0 - 1).await, "untouched");
+
+    test.teardown().await;
+}
+
+/// A password a user changes themselves ends their other sessions and keeps the one it
+/// was changed through.
+#[tokio::test]
+async fn change_user_password_keeps_one_session_and_ends_the_others() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+    let bob = common::user(store, "bob").await;
+    let kept = session_of(&alice);
+    store
+        .create_session(&kept, "alice-here")
+        .await
+        .expect("the session is stored");
+    for (user, digest) in [
+        (&alice, "alice-phone"),
+        (&alice, "alice-old"),
+        (&bob, "bob"),
+    ] {
+        store
+            .create_session(&session_of(user), digest)
+            .await
+            .expect("the session is stored");
+    }
+
+    store
+        .change_user_password(&alice, "new-hash", &kept.id)
+        .await
+        .expect("the password is changed");
+
+    assert!(
+        is_valid(store, "alice-here", T0 + 1, T0 - 1).await,
+        "the session the change came through stays"
+    );
+    for digest in ["alice-phone", "alice-old"] {
+        assert!(
+            !is_valid(store, digest, T0 + 1, T0 - 1).await,
+            "{digest} ended with the old password"
+        );
+    }
+    assert!(
+        is_valid(store, "bob", T0 + 1, T0 - 1).await,
+        "another user's session stays"
+    );
+    let stored = store
+        .get_user_by_id(&alice)
+        .await
+        .expect("the user is read");
+    assert_eq!(stored.password_hash, "new-hash", "the new hash is stored");
+
+    // A user who is not there: an error, and no session is touched.
+    let error = store
+        .change_user_password(&new_id(), "hash", &kept.id)
+        .await
+        .expect_err("no such user");
+    assert!(
+        matches!(error, StoreError::UserNotFound(_)),
+        "got {error:?}"
+    );
+    assert!(
+        is_valid(store, "alice-here", T0 + 1, T0 - 1).await,
+        "untouched"
+    );
+
+    test.teardown().await;
+}
+
+/// A hash is replaced by a newer one of the same password only while it is still the
+/// stored one, and sessions stay.
+#[tokio::test]
+async fn replace_password_hash_replaces_the_hash_it_was_made_from() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+    store
+        .reset_user_password("alice", "old-hash")
+        .await
+        .expect("a first hash");
+    store
+        .create_session(&session_of(&alice), "alice")
+        .await
+        .expect("the session is stored");
+
+    assert!(
+        store
+            .replace_password_hash(&alice, "old-hash", "current-hash")
+            .await
+            .expect("the statement runs"),
+        "the stored hash is the one named: replaced"
+    );
+    assert!(
+        !store
+            .replace_password_hash(&alice, "old-hash", "another-hash")
+            .await
+            .expect("the statement runs"),
+        "the password hash changed in the meantime: left alone"
+    );
+    assert!(
+        !store
+            .replace_password_hash(&new_id(), "old-hash", "another-hash")
+            .await
+            .expect("the statement runs"),
+        "no such user"
+    );
+    let stored = store
+        .get_user_by_id(&alice)
+        .await
+        .expect("the user is read");
+    assert_eq!(stored.password_hash, "current-hash");
+    assert!(
+        is_valid(store, "alice", T0 + 1, T0 - 1).await,
+        "the password did not change, the session stays"
     );
 
     test.teardown().await;

@@ -1,29 +1,34 @@
 //! Login, logout, registration and password changes.
 
-use std::num::NonZero;
 use std::sync::LazyLock;
 
-use fvoci_model::{JsonMap, Session, User, new_id};
+use fvoci_model::{MAXIMUM_PASSWORD_BYTES, Session, User, new_id};
+use fvoci_store::StoreError;
 use tokio::sync::Semaphore;
 
 use super::App;
-use crate::auth::password::{PasswordSettings, check_password, compare_password, hash_password};
-use crate::auth::secret::new_secret;
+use crate::auth::now_millis;
+use crate::auth::password::{Verdict, hash_password, verify_password};
+use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, Reason};
 
-/// How many passwords are hashed or checked at a time: one per processor. Hashing is
-/// deliberately expensive; without a limit, a burst of logins would fill the pool of
-/// blocking threads.
-static PASSWORD_WORK: LazyLock<Semaphore> =
-    LazyLock::new(|| Semaphore::new(std::thread::available_parallelism().map_or(2, NonZero::get)));
+/// How many passwords are hashed or checked at a time. One hash takes 19 MiB and tens of
+/// milliseconds of a processor; without a limit a burst of logins would take a
+/// processor each and the memory to go with it.
+const PASSWORD_WORK_AT_A_TIME: usize = 4;
 
-/// The shortest password accepted at registration, after the request's own check.
-const REGISTER_MINIMUM_PASSWORD_LENGTH: usize = 6;
+static PASSWORD_WORK: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(PASSWORD_WORK_AT_A_TIME));
 
 impl App {
-    /// Checks a user's password and returns the token of a new session.
+    /// Checks a user's password and returns the token of a new session. The token is
+    /// handed out here and nowhere else: the store keeps its digest only.
     ///
     /// The user is looked up by name and, if no user has that name, by email address.
+    /// `user_agent` is what the client said it is, kept with the session.
+    ///
+    /// A password that is right but stored with outdated hashing parameters is hashed
+    /// anew and stored again.
     ///
     /// # Errors
     ///
@@ -34,46 +39,41 @@ impl App {
         username: &str,
         email: &str,
         password: &str,
+        user_agent: &str,
     ) -> Result<String, AppError> {
+        // Nothing this long was ever set as a password; it is not worth a hash.
+        if password.len() > MAXIMUM_PASSWORD_BYTES {
+            return Err(incorrect_login());
+        }
         let mut user: Option<User> = None;
         if !username.is_empty() {
-            user = match self.store().get_user_by_username(username).await {
-                Ok(user) => Some(user),
-                Err(error) if error.is_not_found() => None,
-                Err(error) => {
-                    return Err(AppError::from(error).context("looking up a user for login"));
-                }
-            };
+            user = self.find_user_for_login(Lookup::Username(username)).await?;
         }
         if user.is_none() && !email.is_empty() {
-            user = match self.store().get_user_by_email(email).await {
-                Ok(user) => Some(user),
-                Err(error) if error.is_not_found() => None,
-                Err(error) => {
-                    return Err(AppError::from(error).context("looking up a user for login"));
-                }
-            };
+            user = self.find_user_for_login(Lookup::Email(email)).await?;
         }
         // One answer for an unknown user and for a wrong password.
         let Some(user) = user else {
             return Err(incorrect_login());
         };
-        if !password_matches(&user.password, password).await? {
+        let verdict = verify(&user.password_hash, password).await?;
+        if verdict == Verdict::Mismatch {
             tracing::debug!(user_id = %user.id, "invalid password for user");
             return Err(incorrect_login());
         }
 
+        let token = new_secret();
         let session = Session {
             id: new_id(),
-            token: new_secret(),
             user_id: user.id.clone(),
-            auth_service: self.config().auth_mode.clone(),
-            props: JsonMap::new(),
-            create_at: 0,
-            update_at: 0,
+            created_at: now_millis(),
+            // No end other than by disuse yet.
+            expires_at: i64::MAX,
+            user_agent: user_agent.to_owned(),
+            ..Session::default()
         };
         self.store()
-            .create_session(&session)
+            .create_session(&session, &token_digest(&token))
             .await
             .map_err(|error| AppError::from(error).context("unable to create session"))?;
 
@@ -86,21 +86,62 @@ impl App {
             .get_user_by_id(&user.id)
             .await
             .map_err(|error| AppError::from(error).context("reading the user after login"))?;
-        if current.password != user.password {
+        if current.password_hash != user.password_hash {
             self.store()
                 .delete_session(&session.id)
                 .await
                 .map_err(|error| AppError::from(error).context("ending a stale session"))?;
             return Err(incorrect_login());
         }
-        Ok(session.token)
+
+        if verdict == Verdict::MatchWithOutdatedHash {
+            self.store_current_hash(&user, password).await;
+        }
+        Ok(token)
+    }
+
+    /// Looks a user up for a login; a user who is not there is `None`.
+    async fn find_user_for_login(&self, lookup: Lookup<'_>) -> Result<Option<User>, AppError> {
+        let found = match lookup {
+            Lookup::Username(name) => self.store().get_user_by_username(name).await,
+            Lookup::Email(email) => self.store().get_user_by_email(email).await,
+        };
+        match found {
+            Ok(user) => Ok(Some(user)),
+            Err(error) if error.is_not_found() => Ok(None),
+            Err(error) => Err(AppError::from(error).context("looking up a user for login")),
+        }
+    }
+
+    /// Hashes the password a user just signed in with under the current parameters and
+    /// stores that in place of the outdated hash. A failure is logged and the login
+    /// stands: the old hash still verifies, and the next login tries again.
+    async fn store_current_hash(&self, user: &User, password: &str) {
+        let replaced = match hash(password).await {
+            Ok(new_hash) => self
+                .store()
+                .replace_password_hash(&user.id, &user.password_hash, &new_hash)
+                .await
+                .map_err(AppError::from),
+            Err(error) => Err(error),
+        };
+        match replaced {
+            Ok(true) => {
+                tracing::info!(user_id = %user.id, "stored a password hash with the current parameters");
+            }
+            // The password was changed in the meantime; the new one has a current hash.
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(user_id = %user.id, %error, "could not renew the password hash");
+            }
+        }
     }
 
     /// Ends a session.
     ///
     /// # Errors
     ///
-    /// Returns an error if the session cannot be deleted.
+    /// Returns the store's error if the session cannot be deleted.
     pub async fn logout(&self, session_id: &str) -> Result<(), AppError> {
         self.store()
             .delete_session(session_id)
@@ -108,142 +149,138 @@ impl App {
             .map_err(|error| AppError::from(error).context("unable to delete the session"))
     }
 
-    /// Returns the number of registered users.
+    /// Returns how many users are registered, deleted ones not counted.
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the query fails.
+    /// Returns the store's error if the count cannot be read.
     pub async fn registered_user_count(&self) -> Result<i64, AppError> {
         Ok(self.store().get_registered_user_count().await?)
     }
 
-    /// Creates a user account.
+    /// Creates a user. The caller has checked the request and the signup token.
     ///
     /// # Errors
     ///
-    /// Returns an error whose message is meant for the client if the name or the email
-    /// address is taken, the password breaks the rules, or the user cannot be stored.
+    /// Returns a conflict error if the name or the email address is taken, in any letter
+    /// case, and the store's error if the user cannot be stored.
     pub async fn register_user(
         &self,
         username: &str,
         email: &str,
         password: &str,
     ) -> Result<(), AppError> {
-        if !username.is_empty() {
-            match self.store().get_user_by_username(username).await {
-                Ok(_) => {
-                    return Err(AppError::conflict("the username already exists")
-                        .with_reason(Reason::UsernameTaken)
-                        .with_field("username"));
-                }
-                Err(error) if error.is_not_found() => {}
-                Err(error) => return Err(error.into()),
-            }
+        // Asked first so that a taken name costs no hash. Two registrations at once
+        // both pass these, and then the unique indexes decide: the same conflict.
+        if self
+            .find_user_for_login(Lookup::Username(username))
+            .await?
+            .is_some()
+        {
+            return Err(username_taken());
         }
-        if !email.is_empty() {
-            match self.store().get_user_by_email(email).await {
-                Ok(_) => {
-                    return Err(AppError::conflict("the email already exists")
-                        .with_reason(Reason::EmailTaken)
-                        .with_field("email"));
-                }
-                Err(error) if error.is_not_found() => {}
-                Err(error) => return Err(error.into()),
-            }
+        if self
+            .find_user_for_login(Lookup::Email(email))
+            .await?
+            .is_some()
+        {
+            return Err(email_taken());
         }
-
-        let settings = PasswordSettings {
-            minimum_length: REGISTER_MINIMUM_PASSWORD_LENGTH,
-            required: &[],
-        };
-        check_password(password, settings).map_err(|error| {
-            AppError::bad_request(format_args!("invalid password: {error}")).with_field("password")
-        })?;
 
         let mut user = User {
             id: new_id(),
             username: username.to_owned(),
             email: email.to_owned(),
-            password: hash(password).await?,
+            password_hash: hash(password).await?,
             ..User::default()
         };
-        // The two lookups above answer the usual case. Two registrations at once both
-        // pass them, and then the unique indexes decide: the second is the same conflict.
         match self.store().create_user(&mut user).await {
             Ok(()) => Ok(()),
-            Err(fvoci_store::StoreError::Conflict(what)) if what.contains("email") => {
-                Err(AppError::conflict("the email already exists")
-                    .with_reason(Reason::EmailTaken)
-                    .with_field("email"))
-            }
-            Err(fvoci_store::StoreError::Conflict(_)) => {
-                Err(AppError::conflict("the username already exists")
-                    .with_reason(Reason::UsernameTaken)
-                    .with_field("username"))
-            }
+            Err(StoreError::Conflict(what)) if what.contains("email") => Err(email_taken()),
+            Err(StoreError::Conflict(_)) => Err(username_taken()),
             Err(error) => Err(AppError::from(error).context("Unable to create the new user")),
         }
     }
 
-    /// Sets the password of every user with the given name and signs them out
-    /// everywhere: their sessions are deleted and their websocket connections closed.
-    /// For the administration socket.
-    ///
-    /// Whoever asks an administrator for a new password may have lost the old one to
-    /// someone else; a session opened with the old password must not outlive it.
+    /// Sets the password of the user with the given name, ends that user's sessions and
+    /// closes their websocket connections, so that nobody stays signed in with the old
+    /// password. For a password an administrator sets; the caller has checked it.
     ///
     /// # Errors
     ///
-    /// Returns an error if no user has that name or the password cannot be stored. The
-    /// sessions are then untouched.
+    /// Returns a not-found error if no user has that name; neither the password nor any
+    /// session changes then.
     pub async fn reset_user_password(
         &self,
         username: &str,
         password: &str,
     ) -> Result<(), AppError> {
-        let user_ids = self
+        let user_id = self
             .store()
             .reset_user_password(username, &hash(password).await?)
             .await?;
-        for user_id in &user_ids {
-            self.ws().close_user(user_id);
-        }
+        self.ws().close_user(&user_id);
         Ok(())
     }
 
-    /// Changes a user's password after checking the old one.
+    /// Changes a user's password after checking the old one, and ends the user's other
+    /// sessions: whoever else knew the old password is signed out. The session the
+    /// change came through stays.
     ///
     /// # Errors
     ///
-    /// Returns an error whose message is meant for the client if the user does not exist,
-    /// the old password is wrong, or the new one cannot be stored.
+    /// Returns a bad-request error if the old password is wrong, a not-found error if
+    /// there is no such user, or the store's error.
     pub async fn change_password(
         &self,
-        user_id: &str,
+        session: &Session,
         old_password: &str,
         new_password: &str,
     ) -> Result<(), AppError> {
-        let user = self.store().get_user_by_id(user_id).await?;
-        if !password_matches(&user.password, old_password).await? {
+        let user = self.store().get_user_by_id(&session.user_id).await?;
+        let right = old_password.len() <= MAXIMUM_PASSWORD_BYTES
+            && verify(&user.password_hash, old_password).await? != Verdict::Mismatch;
+        if !right {
             tracing::debug!(user_id = %user.id, "invalid password for user");
             return Err(AppError::bad_request("the old password is wrong")
                 .with_reason(Reason::InvalidCredentials)
                 .with_field("oldPassword"));
         }
         self.store()
-            .update_user_password_by_id(user_id, &hash(new_password).await?)
+            .change_user_password(&user.id, &hash(new_password).await?, &session.id)
             .await
-            .map_err(|error| AppError::from(error).context("unable to update password"))
+            .map_err(|error| AppError::from(error).context("unable to update password"))?;
+        self.ws()
+            .close_other_sessions_of_user(&user.id, &session.id);
+        Ok(())
     }
 }
 
-/// The refusal of a login, whichever of the name, the address and the password is wrong.
+/// What a login looks a user up by.
+#[derive(Debug, Clone, Copy)]
+enum Lookup<'a> {
+    Username(&'a str),
+    Email(&'a str),
+}
+
+/// The refusal of a login, whatever was wrong.
 fn incorrect_login() -> AppError {
     AppError::unauthorized("incorrect login").with_reason(Reason::InvalidCredentials)
 }
 
-/// Runs password work off the async worker threads, which it would otherwise block for
-/// tens of milliseconds per password.
+fn username_taken() -> AppError {
+    AppError::conflict("the username already exists")
+        .with_reason(Reason::UsernameTaken)
+        .with_field("username")
+}
+
+fn email_taken() -> AppError {
+    AppError::conflict("the email already exists")
+        .with_reason(Reason::EmailTaken)
+        .with_field("email")
+}
+
+/// Runs password work on the blocking pool, a bounded number at a time.
 async fn off_the_runtime<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, AppError> {
@@ -260,10 +297,10 @@ async fn hash(password: &str) -> Result<String, AppError> {
     let password = password.to_owned();
     off_the_runtime(move || hash_password(&password))
         .await?
-        .map_err(|error| AppError::internal(format_args!("hashing a password: {error}")))
+        .map_err(|error| AppError::internal(format_args!("{error}")))
 }
 
-async fn password_matches(hash: &str, password: &str) -> Result<bool, AppError> {
+async fn verify(hash: &str, password: &str) -> Result<Verdict, AppError> {
     let (hash, password) = (hash.to_owned(), password.to_owned());
-    off_the_runtime(move || compare_password(&hash, &password)).await
+    off_the_runtime(move || verify_password(&hash, &password)).await
 }

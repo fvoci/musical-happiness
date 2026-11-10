@@ -126,9 +126,40 @@ fn register_request_validate() {
 }
 
 #[test]
-fn password_length_is_counted_in_bytes() {
-    // Four two-byte characters are eight bytes, which meets the minimum.
-    assert_eq!(register("alice", "alice@example.com", "éééé"), Ok(()));
+fn the_minimum_password_length_is_counted_in_characters() {
+    // Four two-byte characters are eight bytes, and four characters: too short.
+    assert_eq!(
+        register("alice", "alice@example.com", "éééé"),
+        Err("password must be at least 8 characters".to_owned())
+    );
+    // Eight characters, of whatever width, meet the minimum.
+    assert_eq!(
+        register("alice", "alice@example.com", "비밀번호여덟글자"),
+        Ok(())
+    );
+    assert_eq!(register("alice", "alice@example.com", "éééééééé"), Ok(()));
+}
+
+#[test]
+fn the_maximum_password_length_is_counted_in_bytes() {
+    let longest = "a".repeat(fvoci_model::MAXIMUM_PASSWORD_BYTES);
+    assert_eq!(register("alice", "alice@example.com", &longest), Ok(()));
+    let too_long = "a".repeat(fvoci_model::MAXIMUM_PASSWORD_BYTES + 1);
+    assert_eq!(
+        register("alice", "alice@example.com", &too_long),
+        Err("password must be at most 1024 bytes".to_owned())
+    );
+    // 342 three-byte characters are 1026 bytes.
+    let wide = "가".repeat(342);
+    assert_eq!(
+        register("alice", "alice@example.com", &wide),
+        Err("password must be at most 1024 bytes".to_owned())
+    );
+    assert_eq!(
+        fvoci_model::check_new_password(&too_long).map_err(|error| error.to_string()),
+        Err("password must be at most 1024 bytes".to_owned()),
+        "the same rule for every way a password is set"
+    );
 }
 
 #[test]

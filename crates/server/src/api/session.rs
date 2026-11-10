@@ -44,9 +44,7 @@ impl FromRequestParts<App> for RequiredSession {
 /// Returns a 401 if the token is no session's, and the store's error if the session
 /// cannot be looked up.
 pub(crate) async fn session_of(app: &App, token: &str) -> Result<Session, AppError> {
-    let session = app.authenticator().get_session(token).await?;
-    check_auth_service(&session, app)?;
-    Ok(session)
+    app.authenticator().get_session(token).await
 }
 
 impl FromRequestParts<App> for OptionalSession {
@@ -55,10 +53,7 @@ impl FromRequestParts<App> for OptionalSession {
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
         let token = request_token(&parts.headers, parts.uri.query());
         match app.authenticator().get_session(&token).await {
-            Ok(session) => {
-                check_auth_service(&session, app)?;
-                Ok(Self(Some(session)))
-            }
+            Ok(session) => Ok(Self(Some(session))),
             // No session is an answer these routes can work with (a read token may do).
             // A store that failed is not "no session": answered as one, it would make
             // clients throw a valid session away.
@@ -66,19 +61,4 @@ impl FromRequestParts<App> for OptionalSession {
             Err(error) => Err(error),
         }
     }
-}
-
-/// A session belongs to the authentication mode that created it.
-fn check_auth_service(session: &Session, app: &App) -> Result<(), AppError> {
-    if session.auth_service == app.config().auth_mode {
-        return Ok(());
-    }
-    tracing::error!(
-        session_id = %session.id,
-        want = %app.config().auth_mode,
-        got = %session.auth_service,
-        "Session authService mismatch"
-    );
-    // The log says why; the client learns only that the session does not count.
-    Err(AppError::unauthorized("invalid session token"))
 }

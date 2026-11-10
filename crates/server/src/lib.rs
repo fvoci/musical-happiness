@@ -361,7 +361,9 @@ fn start_session_clean_up(app: &App) -> RecurringTask {
     RecurringTask::spawn("cleanUpSessions", CLEAN_UP_SESSIONS_INTERVAL, move || {
         let store = store.clone();
         async move {
-            if let Err(error) = store.clean_up_sessions(age).await {
+            let now = auth::now_millis();
+            let idle_since = now.saturating_sub(age.saturating_mul(1000));
+            if let Err(error) = store.clean_up_sessions(now, idle_since).await {
                 tracing::error!(%error, "unable to clean up the sessions");
             }
         }

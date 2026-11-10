@@ -5,7 +5,6 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::JsonMap;
 use crate::serde_util::{is_zero, null_as_default};
 
 /// A user account.
@@ -30,9 +29,9 @@ pub struct User {
     /// The last name.
     #[serde(rename = "lastname")]
     pub last_name: String,
-    /// The bcrypt hash of the password.
+    /// The hash of the password, as a PHC string.
     #[serde(skip)]
-    pub password: String,
+    pub password_hash: String,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(rename = "create_at", skip_serializing_if = "is_zero")]
     pub create_at: i64,
@@ -89,34 +88,21 @@ pub struct UserPreferencesPatch {
     pub deleted_fields: Vec<String>,
 }
 
-/// A login session.
-#[derive(Clone, PartialEq, Default)]
+/// A login session, as the server keeps it. The token the client presents is not part
+/// of it: only a digest of the token is stored, and that stays in the store.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Session {
     /// The session's identifier.
     pub id: String,
-    /// The secret token the client presents.
-    pub token: String,
-    /// The identifier of the logged-in user.
+    /// The identifier of the signed-in user.
     pub user_id: String,
-    /// The authentication service that created the session.
-    pub auth_service: String,
-    /// Free-form session properties.
-    pub props: JsonMap,
-    /// Creation time in milliseconds since the Unix epoch.
-    pub create_at: i64,
-    /// Last refresh time in milliseconds since the Unix epoch.
-    pub update_at: i64,
-}
-
-impl fmt::Debug for Session {
-    /// Leaves out the token.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Session")
-            .field("id", &self.id)
-            .field("user_id", &self.user_id)
-            .field("props", &self.props)
-            .field("create_at", &self.create_at)
-            .field("update_at", &self.update_at)
-            .finish_non_exhaustive()
-    }
+    /// When the session was made, in milliseconds since the Unix epoch.
+    pub created_at: i64,
+    /// When the session was last seen in use, in milliseconds since the Unix epoch. It
+    /// is not written on every request, so it may be a little behind.
+    pub last_used_at: i64,
+    /// When the session ends whatever its use, in milliseconds since the Unix epoch.
+    pub expires_at: i64,
+    /// The `User-Agent` the session was made by, for telling a user's sessions apart.
+    pub user_agent: String,
 }

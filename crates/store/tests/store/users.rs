@@ -256,18 +256,18 @@ async fn create_and_update_user() {
 
     let got = store.get_user_by_username(&user.username).await.unwrap();
     assert_eq!(got.username, user.username);
-    assert_eq!(got.password, new_password);
+    assert_eq!(got.password_hash, new_password);
 
-    // "UpdateUserPasswordByID"
+    // "UpdateUserPasswordByID": the password a user changes themselves.
     let new_password = new_id();
     store
-        .update_user_password_by_id(&user.id, &new_password)
+        .change_user_password(&user.id, &new_password, &new_id())
         .await
         .unwrap();
 
     let got = store.get_user_by_id(&user.id).await.unwrap();
     assert_eq!(got.id, user.id);
-    assert_eq!(got.password, new_password);
+    assert_eq!(got.password_hash, new_password);
 
     test.teardown().await;
 }
@@ -407,7 +407,7 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
         username: "leia".to_owned(),
         email: "leia@example.com".to_owned(),
         nickname: "not stored".to_owned(),
-        password: "hash".to_owned(),
+        password_hash: "hash".to_owned(),
         create_at: 1,
         update_at: 2,
         delete_at: 3,
@@ -575,6 +575,10 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
 /// Lookups by name and by email address ignore the case of ASCII letters on both
 /// databases, and find the user as stored.
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one store, looked up by every name and address in every letter case"
+)]
 async fn user_lookups_ignore_ascii_case() {
     let test = common::setup().await;
     let store = &test.store;
@@ -595,7 +599,7 @@ async fn user_lookups_ignore_ascii_case() {
             id: new_id(),
             username: "leia".to_owned(),
             email: "leia@example.com".to_owned(),
-            password: "leia-hash".to_owned(),
+            password_hash: "leia-hash".to_owned(),
             ..User::default()
         },
     )
@@ -642,11 +646,14 @@ async fn user_lookups_ignore_ascii_case() {
         .reset_user_password("hAN.sOLO", "new-hash")
         .await
         .unwrap();
-    assert_eq!(reset, std::slice::from_ref(&han.id));
+    assert_eq!(reset, han.id, "the user whose password was set");
     let found = store.get_user_by_id(&han.id).await.unwrap();
-    assert_eq!(found.password, "new-hash");
+    assert_eq!(found.password_hash, "new-hash");
     let found = store.get_user_by_id(&leia.id).await.unwrap();
-    assert_eq!(found.password, "leia-hash", "another user's password stays");
+    assert_eq!(
+        found.password_hash, "leia-hash",
+        "another user's password stays"
+    );
 
     // SQLite folds the ASCII letters only, so there a name that differs in the case of
     // another letter is another name. What PostgreSQL makes of it follows the locale of
@@ -773,7 +780,7 @@ async fn updates_of_missing_users_fail() {
 
     let ghost = new_id();
     let by_id = store
-        .update_user_password_by_id(&ghost, "hash")
+        .change_user_password(&ghost, "hash", &new_id())
         .await
         .unwrap_err();
     assert_eq!(by_id.to_string(), format!("user not found ({ghost})"));
@@ -781,7 +788,7 @@ async fn updates_of_missing_users_fail() {
 
     // Text that is not an identifier is refused as such before any user is looked for.
     let no_id = store
-        .update_user_password_by_id("ghost", "hash")
+        .change_user_password("ghost", "hash", &new_id())
         .await
         .unwrap_err();
     assert!(
