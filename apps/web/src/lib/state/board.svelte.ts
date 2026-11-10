@@ -10,6 +10,7 @@
  */
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
+import { propertyBehavior } from '../logic/properties.ts';
 import { manualComparator } from '../logic/sort.ts';
 import {
   createBoardView,
@@ -22,6 +23,7 @@ import {
   type BoardView,
   type Card,
   type MemberRole,
+  type PropertyTemplate,
   type PropertyValue,
 } from '../logic/wire.ts';
 
@@ -190,12 +192,23 @@ export class BoardStore {
     );
   }
 
+  /**
+   * The property a view groups its cards by: the one it names. A board view
+   * that names none, or one that cannot group, is grouped by the first
+   * property that can, as the original drew such a view.
+   */
+  groupingOf(view: BoardView): PropertyTemplate | undefined {
+    const properties = this.board?.cardProperties ?? [];
+    const named = properties.find((template) => template.id === view.fields.groupById);
+    if (view.fields.viewType !== 'board') return named;
+    if (named && propertyBehavior(named.type).canGroup) return named;
+    return properties.find((template) => propertyBehavior(template.type).canGroup);
+  }
+
   /** The columns of a view, visible and hidden, for cards already filtered and sorted. */
   groupsOf(view: BoardView, cards: readonly Card[], noValueLabel: NoValueLabel): BoardGroups {
     const grouping = viewGrouping(view);
-    const groupBy = this.board?.cardProperties.find(
-      (template) => template.id === grouping.groupById,
-    );
+    const groupBy = this.groupingOf(view);
     return getVisibleAndHiddenGroups(
       cards,
       grouping.visibleOptionIds,
@@ -415,7 +428,7 @@ export class BoardStore {
     const view = this.view(drop.viewId);
     if (!view) return;
     const groupId = newUndoGroup();
-    const groupById = view.fields.groupById;
+    const groupById = this.groupingOf(view)?.id;
     const optionId = drop.optionId;
     const valueOf = (card: Card): string => {
       const value = groupById ? card.fields.properties[groupById] : undefined;

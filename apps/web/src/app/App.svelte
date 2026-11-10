@@ -30,7 +30,7 @@
         made.board ? backend.fileUrl(made.board.boardId, fileId) : undefined,
       );
       workspace = made;
-      // For the browser tests, next to the backend: undo, which has no button yet.
+      // On the handle of the browser tests and the console too: a test undoes through it.
       Object.assign((window as unknown as { fvociDev: object }).fvociDev, { workspace: made });
       await made.load();
     });
