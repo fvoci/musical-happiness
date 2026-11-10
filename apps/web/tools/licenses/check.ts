@@ -54,6 +54,17 @@ const counts: [string, number, string][] = [];
 for (const [license, packages] of Object.entries(installedPackages())) {
   if (isAllowed(license, allowed)) {
     counts.push([license, packages.length, 'allowed']);
+    // The listing reads a licence out of the licence file when the manifest
+    // names none; the report of the build does not, and takes it from
+    // `stated`. So an entry for a package listed here is in use as well.
+    for (const item of packages) {
+      const inFile = item.paths.map((directory) =>
+        statedLicense(item.name, licenseFileText(directory)),
+      );
+      if (inFile.length > 0 && inFile.every((found) => found === license)) {
+        usedStated.add(item.name);
+      }
+    }
     continue;
   }
   let excepted = 0;
