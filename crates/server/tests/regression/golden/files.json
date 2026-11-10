@@ -1,0 +1,336 @@
+[
+  {
+    "name": "create board Board with files",
+    "request": "POST /api/v2/boards as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Board with files",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "upload",
+    "request": "POST /api/v2/teams/0/<id:2>/files as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "fileId": "<id:3>.png"
+    }
+  },
+  {
+    "name": "uploaded name has the extension",
+    "request": "(observation)",
+    "status": 0,
+    "body": true
+  },
+  {
+    "name": "upload: jpeg extension",
+    "request": "POST /api/v2/teams/0/<id:2>/files as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "fileId": "<id:4>.jpg"
+    }
+  },
+  {
+    "name": "upload: text",
+    "request": "POST /api/v2/teams/0/<id:2>/files as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "fileId": "<id:5>.txt"
+    }
+  },
+  {
+    "name": "upload: wrong field",
+    "request": "POST /api/v2/teams/0/<id:2>/files as files-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "http: no such file",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "upload: non-member",
+    "request": "POST /api/v2/teams/0/<id:2>/files as files-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to make board changes",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "upload: anonymous",
+    "request": "POST /api/v2/teams/0/<id:2>/files as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "no session token",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "upload: unknown board",
+    "request": "POST /api/v2/teams/0/unknown-board/files as files-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to make board changes",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "upload: not multipart",
+    "request": "POST /api/v2/teams/0/<id:2>/files as files-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "request Content-Type isn't multipart/form-data",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "download",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png as files-alice",
+    "status": 200,
+    "content_type": "application/octet-stream",
+    "headers": {
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, no-cache",
+      "Content-Disposition": "attachment;filename=\"<id:3>.png\"; filename*=UTF-8''<id:3>.png",
+      "Content-Length": "67",
+      "Content-Security-Policy": "Frame-ancestors 'none'",
+      "Content-Type": "application/octet-stream",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "body": "<67 bytes>"
+  },
+  {
+    "name": "download: text",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:5>.txt as files-alice",
+    "status": 200,
+    "content_type": "application/octet-stream",
+    "headers": {
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, no-cache",
+      "Content-Disposition": "attachment;filename=\"<id:5>.txt\"; filename*=UTF-8''<id:5>.txt",
+      "Content-Length": "5",
+      "Content-Security-Policy": "Frame-ancestors 'none'",
+      "Content-Type": "application/octet-stream",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "body": "<5 bytes>"
+  },
+  {
+    "name": "download: range",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png as files-alice",
+    "status": 206,
+    "content_type": "application/octet-stream",
+    "headers": {
+      "Content-Length": "8",
+      "Content-Range": "bytes 0-7/67"
+    },
+    "body": "<8 bytes>"
+  },
+  {
+    "name": "download: range past the end",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png as files-alice",
+    "status": 416,
+    "content_type": "text/plain",
+    "headers": {
+      "Content-Range": "bytes */67"
+    },
+    "body": "invalid range: failed to overlap\n"
+  },
+  {
+    "name": "download: non-member",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png as files-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "download: anonymous",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "download: unknown file",
+    "request": "GET /api/v2/files/teams/0/<id:2>/7unknownfile.png as files-alice",
+    "status": 500,
+    "content_type": "application/json",
+    "body": {
+      "error": "internal server error",
+      "errorCode": 500
+    }
+  },
+  {
+    "name": "download: traversal",
+    "request": "GET /api/v2/files/teams/0/<id:2>/..%2F..%2Fconfig.json as files-alice",
+    "status": 500,
+    "content_type": "application/json",
+    "body": {
+      "error": "internal server error",
+      "errorCode": 500
+    }
+  },
+  {
+    "name": "info",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png/info as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "archived": false,
+      "channel_id": "",
+      "create_at": "<ts>",
+      "delete_at": 0,
+      "extension": ".png",
+      "id": "<id:6>",
+      "mime_type": "",
+      "mini_preview": null,
+      "name": "pixel.png",
+      "remote_id": null,
+      "size": 67,
+      "update_at": 0,
+      "user_id": ""
+    }
+  },
+  {
+    "name": "info: non-member",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png/info as files-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "info: unknown file",
+    "request": "GET /api/v2/files/teams/0/<id:2>/7unknownfile.png/info as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": null
+  },
+  {
+    "name": "share",
+    "request": "POST /api/v2/boards/<id:2>/sharing as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "download with the read token",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png?read_token=file-token as anonymous",
+    "status": 200,
+    "content_type": "application/octet-stream",
+    "headers": {
+      "Content-Type": "application/octet-stream"
+    },
+    "body": "<67 bytes>"
+  },
+  {
+    "name": "download with a wrong read token",
+    "request": "GET /api/v2/files/teams/0/<id:2>/<id:3>.png?read_token=wrong as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "insert an image block",
+    "request": "POST /api/v2/boards/<id:2>/blocks as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": 1,
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "fileId": "<id:3>.png"
+        },
+        "id": "<id:7>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:8>",
+        "schema": 1,
+        "title": "",
+        "type": "image",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": 1,
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:2>",
+        "schema": 1,
+        "title": "Card with image",
+        "type": "card",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "delete the image block",
+    "request": "DELETE /api/v2/boards/<id:2>/blocks/<id:7> as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "blocks after deleting the image",
+    "request": "GET /api/v2/boards/<id:2>/blocks as files-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:2>",
+        "schema": 1,
+        "title": "Card with image",
+        "type": "card",
+        "updateAt": "<ts>"
+      }
+    ]
+  }
+]

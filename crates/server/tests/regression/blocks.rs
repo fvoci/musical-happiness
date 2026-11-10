@@ -1,0 +1,440 @@
+//! Scenarios: blocks, and cards with their content blocks.
+#![expect(
+    clippy::too_many_lines,
+    reason = "a scenario is one request sequence; cutting it up would hide the order it pins"
+)]
+
+use serde_json::json;
+
+use crate::fixtures::{add_member, block, new_blocks, new_board};
+use crate::harness::{API, Body, Session, id_by_title};
+
+pub(crate) async fn blocks(s: &mut Session) {
+    let [alice, bob, carol] = s.users("blocks", ["alice", "bob", "carol"]).await;
+    let board = new_board(s, &alice, "Blocks", "P", json!({})).await;
+    add_member(s, &alice, &board, &bob, "commenter").await;
+    let path = format!("{API}/boards/{board}/blocks");
+
+    s.get("list: empty", &path).user(&alice).await;
+    let created = new_blocks(
+        s,
+        &alice,
+        &board,
+        json!([
+            block(
+                "card1",
+                &board,
+                "card",
+                "First card",
+                "",
+                json!({"icon": "x", "contentOrder": ["text1"]})
+            ),
+            block("text1", &board, "text", "Some text", "card1", json!({})),
+            block(
+                "view1",
+                &board,
+                "view",
+                "Board view",
+                "",
+                json!({"viewType": "board"})
+            ),
+        ]),
+        "insert blocks",
+    )
+    .await;
+    let card = id_by_title(&created, "First card");
+    let text = id_by_title(&created, "Some text");
+    let view = id_by_title(&created, "Board view");
+
+    s.get("list", &path).user(&alice).await;
+    s.get("list: by type", &format!("{path}?type=card"))
+        .user(&alice)
+        .await;
+    s.get("list: by parent", &format!("{path}?parent_id={card}"))
+        .user(&alice)
+        .await;
+    s.get(
+        "list: by parent and type",
+        &format!("{path}?parent_id={card}&type=text"),
+    )
+    .user(&alice)
+    .await;
+    s.get("list: unknown type", &format!("{path}?type=h1"))
+        .user(&alice)
+        .await;
+    s.get("list: all", &format!("{path}?all=true"))
+        .user(&alice)
+        .await;
+    s.get("list: one block", &format!("{path}?block_id={card}"))
+        .user(&alice)
+        .await;
+    s.get(
+        "list: unknown block id",
+        &format!("{path}?block_id=unknown-block"),
+    )
+    .user(&alice)
+    .await;
+    s.get("list: paged", &format!("{path}?page=0&per_page=2"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    s.get("list: commenter", &path).user(&bob).await;
+    s.get("list: non-member", &path).user(&carol).await;
+    s.get("list: anonymous", &path).await;
+    s.get(
+        "list: unknown board",
+        &format!("{API}/boards/unknown-board/blocks"),
+    )
+    .user(&alice)
+    .await;
+
+    s.post("insert: empty list", &path)
+        .json(json!([]))
+        .user(&alice)
+        .await;
+    s.post("insert: malformed body", &path)
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    s.post("insert: no type", &path)
+        .json(json!([{"id": "x1", "boardId": board, "createAt": 1, "updateAt": 1}]))
+        .user(&alice)
+        .await;
+    s.post("insert: no createAt", &path)
+        .json(json!([{"id": "x1", "boardId": board, "type": "card", "updateAt": 1}]))
+        .user(&alice)
+        .await;
+    s.post("insert: no updateAt", &path)
+        .json(json!([{"id": "x1", "boardId": board, "type": "card", "createAt": 1}]))
+        .user(&alice)
+        .await;
+    s.post("insert: other board id", &path)
+        .json(json!([block(
+            "x1",
+            "another-board",
+            "card",
+            "x",
+            "",
+            json!({})
+        )]))
+        .user(&alice)
+        .await;
+    s.post("insert: long title", &path)
+        .json(json!([block(
+            "x1",
+            &board,
+            "card",
+            &"t".repeat(65_536),
+            "",
+            json!({})
+        )]))
+        .user(&alice)
+        .await;
+    s.post("insert: non-member", &path)
+        .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
+        .user(&carol)
+        .await;
+    s.post("insert: commenter inserts a card", &path)
+        .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
+        .user(&bob)
+        .await;
+    s.post("insert: commenter inserts a comment", &path)
+        .json(json!([block(
+            "cm1",
+            &board,
+            "comment",
+            "A comment",
+            &card,
+            json!({})
+        )]))
+        .user(&bob)
+        .await;
+    s.post(
+        "insert: keeping ids",
+        &format!("{path}?disable_notify=true"),
+    )
+    .json(json!([block(
+        "x2",
+        &board,
+        "card",
+        "Quiet card",
+        "",
+        json!({})
+    )]))
+    .user(&alice)
+    .await;
+
+    s.patch("patch", &format!("{path}/{card}"))
+        .json(json!({
+            "title": "Renamed card",
+            "updatedFields": {"icon": "y", "extra": [1, 2]},
+            "deletedFields": ["contentOrder"],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch: commenter", &format!("{path}/{card}"))
+        .json(json!({"title": "hijack"}))
+        .user(&bob)
+        .await;
+    s.patch("patch: non-member", &format!("{path}/{card}"))
+        .json(json!({"title": "hijack"}))
+        .user(&carol)
+        .await;
+    s.patch("patch: unknown block", &format!("{path}/unknown-block"))
+        .json(json!({"title": "x"}))
+        .user(&alice)
+        .await;
+    s.patch("patch: malformed body", &format!("{path}/{card}"))
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    s.patch("patch: long title", &format!("{path}/{card}"))
+        .json(json!({"title": "t".repeat(65_536)}))
+        .user(&alice)
+        .await;
+    s.patch("patch several", &path)
+        .json(json!({
+            "block_ids": [card, text],
+            "block_patches": [{"title": "Card again"}, {"title": "Text again"}],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch several: unknown block", &path)
+        .json(json!({
+            "block_ids": [card, "unknown-block"],
+            "block_patches": [{"title": "a"}, {"title": "b"}],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch several: commenter", &path)
+        .json(json!({"block_ids": [card], "block_patches": [{"title": "hijack"}]}))
+        .user(&bob)
+        .await;
+    s.get("list after patches", &path).user(&alice).await;
+
+    s.post("duplicate", &format!("{path}/{card}/duplicate"))
+        .user(&alice)
+        .await;
+    s.post(
+        "duplicate as template",
+        &format!("{path}/{card}/duplicate?asTemplate=true"),
+    )
+    .user(&alice)
+    .await;
+    s.post("duplicate: commenter", &format!("{path}/{card}/duplicate"))
+        .user(&bob)
+        .await;
+    s.post(
+        "duplicate: unknown block",
+        &format!("{path}/unknown-block/duplicate"),
+    )
+    .user(&alice)
+    .await;
+
+    s.delete("delete: commenter", &format!("{path}/{view}"))
+        .user(&bob)
+        .await;
+    s.delete("delete: non-member", &format!("{path}/{view}"))
+        .user(&carol)
+        .await;
+    s.delete("delete", &format!("{path}/{view}"))
+        .user(&alice)
+        .await;
+    s.delete("delete: again", &format!("{path}/{view}"))
+        .user(&alice)
+        .await;
+    s.delete("delete: unknown block", &format!("{path}/unknown-block"))
+        .user(&alice)
+        .await;
+    s.get("list: views after delete", &format!("{path}?type=view"))
+        .user(&alice)
+        .await;
+    s.post("undelete: commenter", &format!("{path}/{view}/undelete"))
+        .user(&bob)
+        .await;
+    s.post("undelete", &format!("{path}/{view}/undelete"))
+        .user(&alice)
+        .await;
+    s.post("undelete: again", &format!("{path}/{view}/undelete"))
+        .user(&alice)
+        .await;
+    s.post(
+        "undelete: unknown block",
+        &format!("{path}/unknown-block/undelete"),
+    )
+    .user(&alice)
+    .await;
+    s.get("list: views after undelete", &format!("{path}?type=view"))
+        .user(&alice)
+        .await;
+
+    s.delete("delete a card with content", &format!("{path}/{card}"))
+        .user(&alice)
+        .await;
+    s.get(
+        "list: children of the deleted card",
+        &format!("{path}?parent_id={card}"),
+    )
+    .user(&alice)
+    .await;
+}
+
+pub(crate) async fn cards(s: &mut Session) {
+    let [alice, bob] = s.users("cards", ["alice", "bob"]).await;
+    let board = new_board(s, &alice, "Cards", "P", json!({})).await;
+    add_member(s, &alice, &board, &bob, "viewer").await;
+    let path = format!("{API}/boards/{board}/cards");
+
+    let first = s
+        .post("create", &path)
+        .json(json!({
+            "title": "Card one", "icon": "🃏", "contentOrder": ["a", "b"], "properties": {"p1": "v1"},
+        }))
+        .user(&alice)
+        .await;
+    s.post("create: quiet", &format!("{path}?disable_notify=true"))
+        .json(json!({"title": "Card two"}))
+        .user(&alice)
+        .await;
+    s.post("create: viewer", &path)
+        .json(json!({"title": "x"}))
+        .user(&bob)
+        .await;
+    s.post("create: malformed body", &path)
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    s.post(
+        "create: unknown board",
+        &format!("{API}/boards/unknown-board/cards"),
+    )
+    .json(json!({"title": "x"}))
+    .user(&alice)
+    .await;
+    s.get("list", &path).user(&alice).await;
+    s.get("list: viewer", &path).user(&bob).await;
+    s.get("list: paged", &format!("{path}?page=0&per_page=1"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    // The original wrote the error and then, lacking a return, the list after it. The
+    // observation pins that the answer is the error alone.
+    let bad_page = s
+        .get("list: bad page", &format!("{path}?page=x"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    let text = match &bad_page.body {
+        Body::Json(value) => value.to_string(),
+        Body::Text(text) => text.clone(),
+        Body::Bytes(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+    };
+    let (first_object, rest) = match text.find('}') {
+        Some(end) => text.split_at(end + 1),
+        None => (text.as_str(), ""),
+    };
+    let what_follows = if rest.is_empty() {
+        "alone"
+    } else {
+        "followed by more"
+    };
+    s.note(
+        "list: bad page",
+        &json!([bad_page.status, first_object, what_follows]),
+    );
+    s.get(
+        "list: unknown board",
+        &format!("{API}/boards/unknown-board/cards"),
+    )
+    .user(&alice)
+    .await;
+    let card = first.string("id");
+    let card_path = format!("{API}/cards/{card}");
+    s.get("get", &card_path).user(&alice).await;
+    s.get("get: viewer", &card_path).user(&bob).await;
+    s.get("get: unknown card", &format!("{API}/cards/unknown-card"))
+        .user(&alice)
+        .await;
+    s.patch("patch", &card_path)
+        .json(json!({
+            "title": "Card one, renamed", "icon": "🂡", "contentOrder": ["b", "a"],
+            "updatedProperties": {"p2": "v2"},
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch: viewer", &card_path)
+        .json(json!({"title": "hijack"}))
+        .user(&bob)
+        .await;
+    s.patch("patch: unknown card", &format!("{API}/cards/unknown-card"))
+        .json(json!({"title": "x"}))
+        .user(&alice)
+        .await;
+    s.patch("patch: malformed body", &card_path)
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    s.get("get after patch", &card_path).user(&alice).await;
+
+    // Content blocks of the card, and moving one.
+    let content = new_blocks(
+        s,
+        &alice,
+        &board,
+        json!([
+            block("t1", &board, "text", "one", &card, json!({})),
+            block("t2", &board, "text", "two", &card, json!({})),
+            block("t3", &board, "text", "three", &card, json!({})),
+        ]),
+        "insert content",
+    )
+    .await;
+    let one = id_by_title(&content, "one");
+    let two = id_by_title(&content, "two");
+    let three = id_by_title(&content, "three");
+    s.patch("set content order", &card_path)
+        .json(json!({"contentOrder": [one, two, three]}))
+        .user(&alice)
+        .await;
+    let moving = format!("{API}/content-blocks");
+    s.post(
+        "move after",
+        &format!("{moving}/{one}/moveto/after/{three}"),
+    )
+    .user(&alice)
+    .await;
+    s.get("card after move", &card_path).user(&alice).await;
+    s.post(
+        "move before",
+        &format!("{moving}/{three}/moveto/before/{two}"),
+    )
+    .user(&alice)
+    .await;
+    s.get("card after second move", &card_path)
+        .user(&alice)
+        .await;
+    s.post(
+        "move: bad direction",
+        &format!("{moving}/{one}/moveto/sideways/{two}"),
+    )
+    .user(&alice)
+    .await;
+    s.post(
+        "move: unknown block",
+        &format!("{moving}/unknown-block/moveto/after/{two}"),
+    )
+    .user(&alice)
+    .await;
+    s.post(
+        "move: unknown target",
+        &format!("{moving}/{one}/moveto/after/unknown-block"),
+    )
+    .user(&alice)
+    .await;
+    s.post(
+        "move: viewer",
+        &format!("{moving}/{one}/moveto/after/{two}"),
+    )
+    .user(&bob)
+    .await;
+}

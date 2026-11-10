@@ -1,0 +1,98 @@
+[
+  {
+    "name": "hello",
+    "request": "GET /hello as anonymous",
+    "status": 200,
+    "content_type": "text/plain",
+    "body": "Hello"
+  },
+  {
+    "name": "ping members",
+    "request": "(observation)",
+    "status": 0,
+    "body": [
+      "build_date",
+      "build_number",
+      "commit",
+      "db_type",
+      "db_version",
+      "edition",
+      "os_arch",
+      "os_type",
+      "sku",
+      "version"
+    ]
+  },
+  {
+    "name": "ping version and sku",
+    "request": "(observation)",
+    "status": 0,
+    "body": [
+      "8.0.0",
+      "personal_server",
+      "<db>"
+    ]
+  },
+  {
+    "name": "client config",
+    "request": "GET /api/v2/clientConfig as anonymous",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "enablePublicSharedBoards": true,
+      "featureFlags": {},
+      "maxFileSize": 0,
+      "teammateNameDisplay": "username",
+      "telemetry": false,
+      "telemetryid": ""
+    }
+  },
+  {
+    "name": "client config without csrf header",
+    "request": "GET /api/v2/clientConfig as anonymous",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "checkCSRFToken FAILED",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "unknown api path",
+    "request": "GET /api/v2/no-such-route as anonymous",
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html>"
+  },
+  {
+    "name": "wrong method on a known path",
+    "request": "DELETE /api/v2/clientConfig as anonymous",
+    "status": 200,
+    "content_type": "text/html",
+    "body": "<html>"
+  },
+  {
+    "name": "index for an app route",
+    "request": "GET /board/abc as anonymous",
+    "status": 200,
+    "content_type": "text/html",
+    "headers": {
+      "Content-Type": "text/html; charset=utf-8"
+    },
+    "body": "<html>"
+  },
+  {
+    "name": "static without slash",
+    "request": "GET /static as anonymous",
+    "status": 404,
+    "content_type": "text/plain",
+    "body": "404 page not found\n"
+  },
+  {
+    "name": "missing static file",
+    "request": "GET /static/nope.js as anonymous",
+    "status": 404,
+    "content_type": "text/plain",
+    "body": "404 page not found\n"
+  }
+]

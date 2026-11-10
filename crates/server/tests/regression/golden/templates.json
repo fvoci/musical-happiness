@@ -1,0 +1,320 @@
+[
+  {
+    "name": "template titles",
+    "request": "(observation)",
+    "status": 0,
+    "body": [
+      "Company Goals & OKRs",
+      "Competitive Analysis",
+      "Content Calendar ",
+      "Meeting Agenda ",
+      "Personal Goals ",
+      "Personal Tasks ",
+      "Project Tasks ",
+      "Roadmap ",
+      "Sales Pipeline CRM",
+      "Sprint Planner ",
+      "Team Retrospective",
+      "User Research Sessions",
+      "Welcome to Boards!"
+    ]
+  },
+  {
+    "name": "template versions",
+    "request": "(observation)",
+    "status": 0,
+    "body": [
+      6
+    ]
+  },
+  {
+    "name": "template members",
+    "request": "(observation)",
+    "status": 0,
+    "body": [
+      "cardProperties",
+      "channelId",
+      "createAt",
+      "createdBy",
+      "deleteAt",
+      "description",
+      "icon",
+      "id",
+      "isTemplate",
+      "minimumRole",
+      "modifiedBy",
+      "properties",
+      "showDescription",
+      "teamId",
+      "templateVersion",
+      "title",
+      "type",
+      "updateAt"
+    ]
+  },
+  {
+    "name": "welcome template block counts",
+    "request": "(observation)",
+    "status": 0,
+    "body": {
+      "card": 10,
+      "checkbox": 8,
+      "image": 8,
+      "text": 16,
+      "view": 4
+    }
+  },
+  {
+    "name": "templates: anonymous",
+    "request": "GET /api/v2/teams/0/templates as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "no session token",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "create board My template",
+    "request": "POST /api/v2/boards as tpl-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isTemplate": true,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "trackingTemplateId": "b96ce93c61b856a0163c116820646b19"
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "My template",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "my template",
+    "request": "GET /api/v2/boards/<id:2> as tpl-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isTemplate": true,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "trackingTemplateId": "b96ce93c61b856a0163c116820646b19"
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "My template",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "onboard",
+    "request": "POST /api/v2/teams/0/onboard as tpl-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardID": "<id:3>",
+      "teamID": "0"
+    }
+  },
+  {
+    "name": "onboarding board",
+    "request": "GET /api/v2/boards/<id:3> as tpl-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "<id:4>",
+          "name": "Assignee",
+          "options": [],
+          "type": "person"
+        },
+        {
+          "id": "<id:5>",
+          "name": "Created by",
+          "options": [],
+          "type": "createdBy"
+        },
+        {
+          "id": "<id:6>",
+          "name": "Due Date",
+          "options": [],
+          "type": "date"
+        },
+        {
+          "id": "<id:7>",
+          "name": "Last updated time",
+          "options": [],
+          "type": "updatedTime"
+        },
+        {
+          "id": "<id:8>",
+          "name": "Priority",
+          "options": [
+            {
+              "color": "propColorBrown",
+              "id": "<id:9>",
+              "value": "2. Medium"
+            },
+            {
+              "color": "propColorGray",
+              "id": "<id:10>",
+              "value": "3. Low"
+            },
+            {
+              "color": "propColorOrange",
+              "id": "<id:11>",
+              "value": "1. High"
+            }
+          ],
+          "type": "select"
+        },
+        {
+          "id": "<id:12>",
+          "name": "Reference",
+          "options": [],
+          "type": "url"
+        },
+        {
+          "id": "<id:13>",
+          "name": "Reviewed",
+          "options": [],
+          "type": "checkbox"
+        },
+        {
+          "id": "a972dc7a-5f4c-45d2-8044-8c28c69717f1",
+          "name": "Status",
+          "options": [
+            {
+              "color": "propColorGreen",
+              "id": "<id:14>",
+              "value": "Completed 🙌"
+            },
+            {
+              "color": "propColorPurple",
+              "id": "<id:15>",
+              "value": "Later"
+            },
+            {
+              "color": "propColorRed",
+              "id": "<id:16>",
+              "value": "To do 🔥"
+            },
+            {
+              "color": "propColorYellow",
+              "id": "<id:17>",
+              "value": "Next up"
+            }
+          ],
+          "type": "select"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "Mattermost Boards is an open source project management tool that helps you organize, track, and manage work across teams. Select a card to learn more.",
+      "icon": "👋",
+      "id": "<id:3>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "trackingTemplateId": "65aba997282f3ac457cd66736fb86915"
+      },
+      "showDescription": true,
+      "teamId": "0",
+      "templateVersion": 6,
+      "title": "Welcome to Boards!",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "onboarding board block count",
+    "request": "(observation)",
+    "status": 0,
+    "body": 46
+  },
+  {
+    "name": "categories after onboarding",
+    "request": "GET /api/v2/teams/0/categories as tpl-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardMetadata": [
+          {
+            "boardID": "<id:3>",
+            "hidden": false
+          },
+          {
+            "boardID": "<id:18>",
+            "hidden": false
+          }
+        ],
+        "collapsed": false,
+        "createAt": "<ts>",
+        "deleteAt": 0,
+        "id": "<id:19>",
+        "name": "Boards",
+        "sortOrder": 0,
+        "sorting": "",
+        "teamID": "0",
+        "type": "system",
+        "updateAt": "<ts>",
+        "userID": "<id:1>"
+      }
+    ]
+  },
+  {
+    "name": "config after onboarding",
+    "request": "GET /api/v2/users/me/config as tpl-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "category": "fvoci",
+        "name": "onboardingTourStarted",
+        "user_id": "<id:1>",
+        "value": "1"
+      },
+      {
+        "category": "fvoci",
+        "name": "onboardingTourStep",
+        "user_id": "<id:1>",
+        "value": "0"
+      },
+      {
+        "category": "fvoci",
+        "name": "tourCategory",
+        "user_id": "<id:1>",
+        "value": "onboarding"
+      }
+    ]
+  }
+]

@@ -1,0 +1,506 @@
+//! Scenarios: templates and onboarding, files, and archives.
+#![expect(
+    clippy::too_many_lines,
+    reason = "a scenario is one request sequence; cutting it up would hide the order it pins"
+)]
+
+use std::collections::BTreeMap;
+use std::io::{Cursor, Read as _};
+
+use serde_json::{Value, json};
+
+use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board};
+use crate::harness::{API, OCTET_STREAM, Session, multipart, string_member};
+
+pub(crate) async fn templates(s: &mut Session) {
+    let [alice] = s.users("tpl", ["alice"]).await;
+    let listing = s
+        .get("templates", &format!("{API}/teams/0/templates"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    let listing = listing.json().as_array().expect("the templates are a list");
+    let mut titles: Vec<&str> = listing
+        .iter()
+        .filter_map(|board| board["title"].as_str())
+        .collect();
+    titles.sort_unstable();
+    s.note("template titles", &json!(titles));
+    let mut versions: Vec<i64> = listing
+        .iter()
+        .filter_map(|board| board["templateVersion"].as_i64())
+        .collect();
+    versions.sort_unstable();
+    versions.dedup();
+    s.note("template versions", &json!(versions));
+    let mut members: Vec<&String> = listing[0]
+        .as_object()
+        .expect("a template is an object")
+        .keys()
+        .collect();
+    members.sort();
+    s.note("template members", &json!(members));
+    let welcome = listing
+        .iter()
+        .find(|board| board["title"] == "Welcome to Boards!")
+        .map(id_of)
+        .expect("the welcome template exists");
+    let welcome_blocks = s
+        .get("welcome blocks", &format!("{API}/boards/{welcome}/blocks"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    let mut counts: BTreeMap<String, u32> = BTreeMap::new();
+    for item in welcome_blocks
+        .json()
+        .as_array()
+        .expect("the blocks are a list")
+    {
+        *counts.entry(string_member(item, "type")).or_default() += 1;
+    }
+    s.note("welcome template block counts", &json!(counts));
+    s.get("templates: anonymous", &format!("{API}/teams/0/templates"))
+        .await;
+    let custom = new_board(s, &alice, "My template", "P", json!({"isTemplate": true})).await;
+    s.get(
+        "templates include mine",
+        &format!("{API}/teams/0/templates"),
+    )
+    .user(&alice)
+    .unrecorded()
+    .await;
+    s.get("my template", &format!("{API}/boards/{custom}"))
+        .user(&alice)
+        .await;
+    let onboard = s
+        .post("onboard", &format!("{API}/teams/0/onboard"))
+        .user(&alice)
+        .await;
+    let tour_board = onboard.string("boardID");
+    s.get("onboarding board", &format!("{API}/boards/{tour_board}"))
+        .user(&alice)
+        .await;
+    let tour = s
+        .get(
+            "onboarding blocks",
+            &format!("{API}/boards/{tour_board}/blocks"),
+        )
+        .user(&alice)
+        .unrecorded()
+        .await;
+    let tour_blocks = tour.json().as_array().map_or(0, Vec::len);
+    s.note("onboarding board block count", &json!(tour_blocks));
+    s.post("onboard again", &format!("{API}/teams/0/onboard"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    s.get(
+        "categories after onboarding",
+        &format!("{API}/teams/0/categories"),
+    )
+    .user(&alice)
+    .await;
+    s.get("config after onboarding", &format!("{API}/users/me/config"))
+        .user(&alice)
+        .await;
+}
+
+pub(crate) async fn files(s: &mut Session) {
+    const DOWNLOAD_HEADERS: &[&str] = &[
+        "Content-Type",
+        "Content-Disposition",
+        "Cache-Control",
+        "X-Content-Type-Options",
+        "Content-Security-Policy",
+        "Accept-Ranges",
+        "Content-Length",
+    ];
+
+    let [alice, bob] = s.users("files", ["alice", "bob"]).await;
+    let board = new_board(s, &alice, "Board with files", "P", json!({})).await;
+    let upload = format!("{API}/teams/0/{board}/files");
+    let png = || multipart("file", "pixel.png", &PNG, "image/png");
+
+    let uploaded = s.post("upload", &upload).payload(png()).user(&alice).await;
+    let file_id = uploaded.string("fileId");
+    s.note(
+        "uploaded name has the extension",
+        &json!(has_extension(&file_id, "png")),
+    );
+    s.post("upload: jpeg extension", &upload)
+        .payload(multipart("file", "photo.JPEG", &PNG, "image/jpeg"))
+        .user(&alice)
+        .await;
+    let text_id = s
+        .post("upload: text", &upload)
+        .payload(multipart("file", "notes.txt", b"hello", "text/plain"))
+        .user(&alice)
+        .await
+        .string("fileId");
+    s.post("upload: wrong field", &upload)
+        .payload(multipart("other", "pixel.png", &PNG, "image/png"))
+        .user(&alice)
+        .await;
+    s.post("upload: non-member", &upload)
+        .payload(png())
+        .user(&bob)
+        .await;
+    s.post("upload: anonymous", &upload).payload(png()).await;
+    s.post(
+        "upload: unknown board",
+        &format!("{API}/teams/0/unknown-board/files"),
+    )
+    .payload(png())
+    .user(&alice)
+    .await;
+    s.post("upload: not multipart", &upload)
+        .json(json!({"file": "x"}))
+        .user(&alice)
+        .await;
+
+    let files = format!("{API}/files/teams/0/{board}");
+    let download = format!("{files}/{file_id}");
+    s.get("download", &download)
+        .user(&alice)
+        .keep_headers(DOWNLOAD_HEADERS)
+        .await;
+    s.get("download: text", &format!("{files}/{text_id}"))
+        .user(&alice)
+        .keep_headers(DOWNLOAD_HEADERS)
+        .await;
+    s.get("download: range", &download)
+        .user(&alice)
+        .header("Range", "bytes=0-7")
+        .keep_headers(&["Content-Range", "Content-Length"])
+        .await;
+    s.get("download: range past the end", &download)
+        .user(&alice)
+        .header("Range", "bytes=5000-")
+        .keep_headers(&["Content-Range"])
+        .await;
+    s.get("download: non-member", &download).user(&bob).await;
+    s.get("download: anonymous", &download).await;
+    s.get(
+        "download: unknown file",
+        &format!("{files}/7unknownfile.png"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "download: traversal",
+        &format!("{files}/..%2F..%2Fconfig.json"),
+    )
+    .user(&alice)
+    .await;
+    s.get("info", &format!("{download}/info"))
+        .user(&alice)
+        .await;
+    s.get("info: non-member", &format!("{download}/info"))
+        .user(&bob)
+        .await;
+    s.get(
+        "info: unknown file",
+        &format!("{files}/7unknownfile.png/info"),
+    )
+    .user(&alice)
+    .await;
+
+    // A shared board serves its files to holders of the read token.
+    s.post("share", &format!("{API}/boards/{board}/sharing"))
+        .json(json!({"id": board, "enabled": true, "token": "file-token"}))
+        .user(&alice)
+        .await;
+    s.get(
+        "download with the read token",
+        &format!("{download}?read_token=file-token"),
+    )
+    .keep_headers(&["Content-Type"])
+    .await;
+    s.get(
+        "download with a wrong read token",
+        &format!("{download}?read_token=wrong"),
+    )
+    .await;
+
+    // An image block that points at the file, then deleting it.
+    let created = new_blocks(
+        s,
+        &alice,
+        &board,
+        json!([
+            block("card1", &board, "card", "Card with image", "", json!({})),
+            block(
+                "img1",
+                &board,
+                "image",
+                "",
+                "card1",
+                json!({"fileId": file_id})
+            ),
+        ]),
+        "insert an image block",
+    )
+    .await;
+    let image = created
+        .as_array()
+        .expect("the created blocks are a list")
+        .iter()
+        .find(|block| block["type"] == "image")
+        .map(id_of)
+        .expect("the image block was created");
+    s.delete(
+        "delete the image block",
+        &format!("{API}/boards/{board}/blocks/{image}"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "blocks after deleting the image",
+        &format!("{API}/boards/{board}/blocks"),
+    )
+    .user(&alice)
+    .await;
+    s.post(
+        "duplicate the board with files",
+        &format!("{API}/boards/{board}/duplicate"),
+    )
+    .user(&alice)
+    .unrecorded()
+    .await;
+}
+
+/// What an archive holds: its entry names, its version entry, and every line of its
+/// `.jsonl` entries.
+fn archive_summary(raw: &[u8]) -> Value {
+    let mut bundle = zip::ZipArchive::new(Cursor::new(raw)).expect("the export is a ZIP archive");
+    let mut names = Vec::new();
+    let mut lines = Vec::new();
+    let mut version = Value::Null;
+    for index in 0..bundle.len() {
+        let mut entry = bundle.by_index(index).expect("an archive entry opens");
+        let name = entry
+            .name()
+            .expect("an archive entry has a readable name")
+            .into_owned();
+        let mut content = String::new();
+        if has_extension(&name, "jsonl") || name == "version.json" {
+            entry
+                .read_to_string(&mut content)
+                .expect("a JSON entry is text");
+        }
+        if has_extension(&name, "jsonl") {
+            for line in content.lines().filter(|line| !line.trim().is_empty()) {
+                lines.push(serde_json::from_str::<Value>(line).expect("an archive line is JSON"));
+            }
+        } else if name == "version.json" {
+            version = serde_json::from_str(&content).expect("the version entry is JSON");
+        }
+        names.push(name);
+    }
+    names.sort();
+    json!({"names": names, "version": version, "lines": lines})
+}
+
+pub(crate) async fn archive(s: &mut Session) {
+    let [alice, bob] = s.users("arch", ["alice", "bob"]).await;
+    let board = new_board(
+        s,
+        &alice,
+        "Exported board",
+        "P",
+        json!({
+            "description": "to export",
+            "cardProperties": [{"id": "p1", "name": "Status", "type": "select", "options": []}],
+        }),
+    )
+    .await;
+    let file_id = s
+        .post("upload", &format!("{API}/teams/0/{board}/files"))
+        .payload(multipart("file", "pixel.png", &PNG, "image/png"))
+        .user(&alice)
+        .unrecorded()
+        .await
+        .string("fileId");
+    new_blocks(
+        s,
+        &alice,
+        &board,
+        json!([
+            block(
+                "card1",
+                &board,
+                "card",
+                "Exported card",
+                "",
+                json!({"icon": "x"})
+            ),
+            block("text1", &board, "text", "Exported text", "card1", json!({})),
+            block(
+                "img1",
+                &board,
+                "image",
+                "",
+                "card1",
+                json!({"fileId": file_id})
+            ),
+            block(
+                "view1",
+                &board,
+                "view",
+                "Exported view",
+                "",
+                json!({"viewType": "table"})
+            ),
+        ]),
+        "insert content",
+    )
+    .await;
+
+    let export = format!("{API}/boards/{board}/archive/export");
+    let exported = s.get("export", &export).user(&alice).unrecorded().await;
+    s.note(
+        "export status and type",
+        &json!([exported.status, exported.header("Content-Type")]),
+    );
+    let exported = exported.bytes().to_vec();
+    s.note("export content", &archive_summary(&exported));
+    s.get("export: non-member", &export).user(&bob).await;
+    s.get("export: anonymous", &export).await;
+    s.get(
+        "export: unknown board",
+        &format!("{API}/boards/unknown-board/archive/export"),
+    )
+    .user(&alice)
+    .await;
+    let team_export = s
+        .get("team export", &format!("{API}/teams/0/archive/export"))
+        .user(&alice)
+        .unrecorded()
+        .await;
+    s.note(
+        "team export status and type",
+        &json!([team_export.status, team_export.header("Content-Type")]),
+    );
+    if team_export.status == 200 {
+        let entries = archive_summary(team_export.bytes())["names"]
+            .as_array()
+            .map_or(0, Vec::len);
+        s.note("team export entries", &json!(entries));
+    }
+
+    let import = format!("{API}/teams/0/archive/import");
+    s.post("import", &import)
+        .payload(multipart(
+            "file",
+            "export.boardarchive",
+            &exported,
+            OCTET_STREAM,
+        ))
+        .user(&bob)
+        .await;
+    s.post("import: anonymous", &import)
+        .payload(multipart(
+            "file",
+            "export.boardarchive",
+            &exported,
+            OCTET_STREAM,
+        ))
+        .await;
+    s.post("import: not an archive", &import)
+        .payload(multipart(
+            "file",
+            "broken.boardarchive",
+            b"this is not an archive",
+            OCTET_STREAM,
+        ))
+        .user(&bob)
+        .await;
+    s.post("import: wrong field", &import)
+        .payload(multipart(
+            "other",
+            "export.boardarchive",
+            &exported,
+            OCTET_STREAM,
+        ))
+        .user(&bob)
+        .await;
+    let imported = s
+        .get("boards after import", &format!("{API}/teams/0/boards"))
+        .user(&bob)
+        .await;
+    let copy = imported
+        .json()
+        .as_array()
+        .expect("the boards are a list")
+        .iter()
+        .find(|board| board["title"] == "Exported board")
+        .map(id_of)
+        .expect("the imported board is listed");
+    s.get("imported blocks", &format!("{API}/boards/{copy}/blocks"))
+        .user(&bob)
+        .await;
+    s.get("imported members", &format!("{API}/boards/{copy}/members"))
+        .user(&bob)
+        .await;
+    let images = s
+        .get(
+            "imported image block",
+            &format!("{API}/boards/{copy}/blocks?type=image"),
+        )
+        .user(&bob)
+        .unrecorded()
+        .await;
+    let imported_file = string_member(&images.json()[0]["fields"], "fileId");
+    s.get(
+        "imported file",
+        &format!("{API}/files/teams/0/{copy}/{imported_file}"),
+    )
+    .user(&bob)
+    .await;
+
+    // The original's older, line-based archive format.
+    let legacy_lines = [
+        json!({"version": 1, "date": 1}),
+        json!({"type": "block", "data": {
+            "id": "legacy-board", "type": "board", "title": "Legacy board", "schema": 1,
+            "fields": {"icon": "x", "cardProperties": []}, "createAt": 1, "updateAt": 1,
+            "deleteAt": 0, "parentId": "", "rootId": "legacy-board",
+        }}),
+        json!({"type": "block", "data": {
+            "id": "legacy-card", "type": "card", "title": "Legacy card", "schema": 1,
+            "fields": {}, "createAt": 1, "updateAt": 1, "deleteAt": 0,
+            "parentId": "legacy-board", "rootId": "legacy-board",
+        }}),
+    ];
+    let legacy = legacy_lines
+        .iter()
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    s.post("import: legacy format", &import)
+        .payload(multipart(
+            "file",
+            "legacy.boardarchive",
+            legacy.as_bytes(),
+            OCTET_STREAM,
+        ))
+        .user(&bob)
+        .await;
+    let boards = s
+        .get(
+            "boards after legacy import",
+            &format!("{API}/teams/0/boards"),
+        )
+        .user(&bob)
+        .unrecorded()
+        .await;
+    let mut titles: Vec<&str> = boards
+        .json()
+        .as_array()
+        .expect("the boards are a list")
+        .iter()
+        .filter_map(|board| board["title"].as_str())
+        .collect();
+    titles.sort_unstable();
+    s.note("board titles after legacy import", &json!(titles));
+}

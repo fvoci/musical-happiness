@@ -18,64 +18,90 @@
 
 ## 1. 검증을 다시 돌리는 순서
 
-모든 명령은 워크트리 루트(`hafgufa`)에서 실행한다. 3번부터는 원본 서버(오라클)가 필요하고, 2번과 6번은 컨테이너가 떠 있어야 한다(2절).
+S6(2026-11-10)에서 손으로 치던 명령을 `cargo xtask`로 바꿨다. 워크트리 안 어디서 실행해도 된다.
 
 ```bash
-cd /home/kinesis/atlas/focalboard-rs/hafgufa
+cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 라이선스·권고. 외부 서비스를 띄우지 않는다
+cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
+```
 
-# 1) 정적 검사와 SQLite 테스트 (API 테스트 약 11초)
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
+| 명령 | 하는 일 (순서대로, 하나가 실패해도 끝까지 돌리고 마지막에 요약) |
+|---|---|
+| `cargo xtask check` | `cargo fmt --all --check` → `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` → `cargo test --workspace --lib --bins --locked` → `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked` → 이름 검사(`crates/`, `xtask/`에 원본의 두 이름이 0건) → `cargo-deny check` |
+| `cargo xtask check --skip-licenses` | 위에서 `cargo-deny`만 뺀다(권고 DB를 네트워크에서 읽는다. CI는 따로 job으로 돌린다) |
+| `cargo xtask test` | `cargo test --workspace --locked`(SQLite) → `hafgufa-pg` 준비 뒤 `cargo test --locked -p fvoci-store -p fvoci-server`(PostgreSQL) → `hafgufa-s3`와 버킷 준비 뒤 `cargo test --locked -p fvoci-server --test storage -- --ignored` |
+| `cargo xtask test --database sqlite` | SQLite만. 컨테이너가 필요 없다 |
+| `cargo xtask test --database postgres` | PostgreSQL만 |
 
-# 2) PostgreSQL에서 스토어와 서버 테스트 (API 테스트 약 35초), S3 백엔드 테스트
-FVOCI_STORE_TEST_DB_TYPE=postgres \
-FVOCI_STORE_TEST_CONN_STRING='postgres://fvoci:fvoci-test@localhost:15433/fvoci?sslmode=disable' \
-  cargo test -p fvoci-store -p fvoci-server
-FVOCI_S3_TEST_ENDPOINT=localhost:18333 FVOCI_S3_TEST_BUCKET=fvoci-test \
-  cargo test -p fvoci-server --test storage -- --ignored
+컨테이너 준비: 떠 있으면 그대로 쓰고, 멈춰 있으면 `docker start`, 없으면 2절과 같은 설정으로 만든다(`postgres:18`, `chrislusf/seaweedfs:latest`, 127.0.0.1에만 게시). 받을 준비가 될 때까지 최대 90초 기다린다. **지우지는 않는다.** 환경 변수로 바꿀 수 있는 것:
 
-# 3) 차등 비교: 원본 대 포트 (요청 수백 건. 시간은 따로 재지 않았다)
+| 환경 변수 | 뜻 |
+|---|---|
+| `FVOCI_STORE_TEST_CONN_STRING` | 주어지면 그 PostgreSQL을 쓰고 컨테이너를 건드리지 않는다(CI) |
+| `FVOCI_S3_TEST_ENDPOINT` + `FVOCI_S3_TEST_BUCKET` | 주어지면 그 S3를 쓴다. 선택: `FVOCI_S3_TEST_ACCESS_KEY`, `FVOCI_S3_TEST_SECRET_KEY`, `FVOCI_S3_TEST_REGION`(기본 `us-east-1`), `FVOCI_S3_TEST_SSL` |
+| `FVOCI_TEST_PG_CONTAINER`, `FVOCI_TEST_PG_PORT` | 컨테이너 이름과 호스트 포트(기본 `hafgufa-pg`, 15433). 한 기기의 다른 체크아웃과 겹치지 않게 할 때 |
+| `FVOCI_TEST_S3_CONTAINER`, `FVOCI_TEST_S3_PORT` | 같은 것(기본 `hafgufa-s3`, 18333) |
+| `FVOCI_REGRESSION_UPDATE=1` | 회귀 테스트의 스냅샷을 비교하지 않고 다시 쓴다(아래) |
+
+기대하는 결과(2026-11-10, S6의 A 직후)는 `PORTING.md`의 "S6" 절에 있다.
+
+### 회귀 테스트 (차등 비교와 권한 표를 대체)
+
+`crates/server/tests/regression/`가 `scripts/differential/`의 시나리오 15개(382단계)와 권한 표(636칸)를 대체한다. Go 서버가 필요 없고 `cargo test --workspace`에 들어 있다. 테스트마다 서버를 따로 띄우며, SQLite와 PostgreSQL이 같은 스냅샷을 쓴다.
+
+- 스냅샷: `crates/server/tests/regression/golden/<시나리오>.json`(단계마다 이름, 요청, 상태 코드, 정규화한 본문), `permissions_private.txt`·`permissions_open.txt`(라우트 × 호출자별 상태 코드 표).
+- 기대값은 태그 `parity-s5`의 Rust 서버가 낸 응답이다.
+- **응답을 의도해서 바꿀 때:** `FVOCI_REGRESSION_UPDATE=1 cargo test -p fvoci-server --test regression`으로 스냅샷을 다시 쓰고, `git diff`로 바뀐 응답을 확인한 뒤 **같은 커밋에** 넣는다. 갱신 방법은 이것 하나다.
+- 스냅샷 라이브러리를 쓰지 않고 직접 비교하는 이유는 `PORTING.md`의 "S6" 절에 적었다.
+
+### xtask에 넣지 않은 것
+
+```bash
+# 제3자 고지 다시 만들기 (의존성이 바뀌었을 때)
+target/tools/bin/cargo-about generate --manifest-path crates/server/Cargo.toml -o NOTICE about.hbs
+# 이미지
+DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .
+```
+
+`cargo-deny`와 `cargo-about`은 `target/tools/bin`에 있다(없으면 5절의 설치 명령). `cargo xtask check`는 `target/tools/bin/cargo-deny`가 있으면 그것을, 없으면 경로의 `cargo-deny`를 쓴다.
+
+### 레거시: 원본 서버(오라클)가 필요한 검증
+
+`parity-s5`까지 쓰던 것이다. 호환을 끝냈으므로 이후의 변경은 이 검증을 통과하지 않는다(통과할 필요가 없다). 스크립트와 오라클은 아직 지우지 않았다. `parity-s5`를 체크아웃해 다시 확인할 때만 쓴다.
+
+```bash
+# 차등 비교: 원본 대 포트 (382단계)
 cargo build -p fvoci-server            # fvoci-run.sh는 기본으로 target/debug/fvoci-server를 띄운다
 P1=$(scripts/oracle-run.sh diff-left 18102 2>/dev/null | tail -1)
 P2=$(scripts/fvoci-run.sh diff-right 18103 | tail -1)
 python3 scripts/differential/run.py --left http://localhost:18102 --right http://localhost:18103
 kill $P1 $P2
 
-# 4) 권한 표 (서버마다 요청 수천 건. 원본 둘로 돌렸을 때 전체 2분 3초)
+# 권한 표 (636칸. 원본 둘로 돌렸을 때 전체 2분 3초)
 P1=$(scripts/oracle-run.sh perm-left 18104 2>/dev/null | tail -1)
 P2=$(scripts/fvoci-run.sh perm-right 18105 | tail -1)
 python3 scripts/differential/permissions.py --left http://localhost:18104 --right http://localhost:18105
 kill $P1 $P2
 
-# 5) DB 왕복 (포트 18131–18133을 쓴다)
+# DB 왕복 (포트 18131–18133을 쓴다)
 scripts/differential/roundtrip.sh sqlite
 scripts/differential/roundtrip.sh postgres 'postgres://fvoci:fvoci-test@localhost:15433'
 
-# 6) 브라우저 종단: 원본 Cypress 스펙을 Rust 서버에 (약 1분 30초, 포트 18088)
+# 브라우저 종단: 원본 Cypress 스펙을 Rust 서버에 (약 1분 30초, 포트 18088)
 scripts/e2e-cypress.sh rust-s5 target/debug/fvoci-server
-
-# 7) 라이선스, 고지, 이미지, 이름
-target/tools/bin/cargo-deny check
-target/tools/bin/cargo-about generate --manifest-path crates/server/Cargo.toml -o NOTICE about.hbs
-DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .
-grep -rniE "focalboard|mattermost" crates/ | wc -l      # 0이어야 한다
 ```
 
-기대하는 결과(2026-11-10): 테스트 702개(SQLite), 633개(PostgreSQL), 차등 비교 382단계에 예상 밖 0건·등록 21건, 권한 표 636칸에 예상 밖 0건·등록 11건, 왕복은 방향마다 관찰 22건에 차이 0건, Cypress 11/11.
+`parity-s5`에서의 결과: 차등 비교 382단계에 예상 밖 0건·등록 21건, 권한 표 636칸에 예상 밖 0건·등록 11건, 왕복은 방향마다 관찰 22건에 차이 0건, Cypress 11/11.
 
 알아 둘 것:
 
 - `oracle-run.sh`와 `fvoci-run.sh`는 호출할 때마다 `target/oracle/runs/<이름>/`, `target/fvoci/runs/<이름>/`을 지우고 새 DB로 띄운다. PID를 마지막 줄에 찍으므로 `tail -1`로 받는다. 오라클 쪽은 뜨기 전 `curl` 실패가 stderr로 나오니 `2>/dev/null`을 붙인다. 릴리스 빌드로 비교하려면 `FVOCI_SERVER_BIN=target/release/fvoci-server`.
 - `run.py`는 `--only <시나리오>`(여러 번 가능)와 `--verbose`를, `permissions.py`는 `--only "<라우트 이름 일부>"`와 `--table`(원본 쪽 표 전체 출력)을 받는다. 두 서버 모두 **빈 DB**여야 한다.
-- 시나리오나 권한 표를 고치면 먼저 **원본 두 개끼리**(`oracle-run.sh` 둘) 돌려 차이 0건인지 본다. 원본끼리 차이가 나면 시나리오가 순서나 무작위 값에 기대고 있는 것이다.
 - `roundtrip.sh postgres`는 컨테이너 `hafgufa-pg` 안에서 `psql`로 데이터베이스 `roundtrip_a`, `roundtrip_b`를 지우고 다시 만든다.
-- S3 테스트의 선택 환경 변수: `FVOCI_S3_TEST_ACCESS_KEY`, `FVOCI_S3_TEST_SECRET_KEY`, `FVOCI_S3_TEST_REGION`(기본 `us-east-1`), `FVOCI_S3_TEST_SSL`. SeaweedFS는 키 없이 받는다. R2나 AWS로 돌릴 때 채운다.
 
 ## 2. 컨테이너
 
-이 작업이 띄운 것은 둘뿐이다. 둘 다 재시작 정책이 없어 기기를 재부팅하면 멈춘다.
+이 작업이 띄운 것은 둘뿐이다. 둘 다 재시작 정책이 없어 기기를 재부팅하면 멈춘다. `cargo xtask test`가 멈춘 것은 다시 시작하고 없는 것은 만든다(1절). 아래는 손으로 할 때의 명령이다.
 
 | 컨테이너 | 이미지 | 주소 | 접속 정보 |
 |---|---|---|---|
@@ -88,7 +114,7 @@ docker start hafgufa-pg hafgufa-s3
 
 # 지워졌으면 처음부터
 docker run -d --name hafgufa-pg -e POSTGRES_USER=fvoci -e POSTGRES_PASSWORD=fvoci-test \
-  -e POSTGRES_DB=fvoci -p 127.0.0.1:15433:5432 postgres:latest
+  -e POSTGRES_DB=fvoci -p 127.0.0.1:15433:5432 postgres:18
 docker run -d --name hafgufa-s3 -p 127.0.0.1:18333:8333 chrislusf/seaweedfs:latest \
   server -s3 -s3.port=8333
 curl -s -o /dev/null -w '%{http_code}\n' -X PUT http://localhost:18333/fvoci-test    # 버킷 생성, 200

@@ -1,0 +1,436 @@
+//! Scenarios: sidebar categories, sharing, subscriptions, search and the routes a
+//! standalone server refuses.
+#![expect(
+    clippy::too_many_lines,
+    reason = "a scenario is one request sequence; cutting it up would hide the order it pins"
+)]
+
+use serde_json::json;
+
+use crate::fixtures::{add_member, block, id_of, merged, new_blocks, new_board};
+use crate::harness::{API, Session};
+
+pub(crate) async fn categories(s: &mut Session) {
+    let [alice, bob] = s.users("cat", ["alice", "bob"]).await;
+    let board = new_board(s, &alice, "Filed board", "P", json!({})).await;
+    let other = new_board(s, &alice, "Other board", "P", json!({})).await;
+    let alice_id = s.user_id(&alice).await;
+    let bob_id = s.user_id(&bob).await;
+    let path = format!("{API}/teams/0/categories");
+
+    s.get("list: default only", &path).user(&alice).await;
+    s.get("list: other user", &path).user(&bob).await;
+    let created = s
+        .post("create", &path)
+        .json(json!({"name": "Projects", "userID": alice_id, "teamID": "0"}))
+        .user(&alice)
+        .await
+        .json()
+        .clone();
+    let second = s
+        .post("create second", &path)
+        .json(json!({"name": "Archive", "userID": alice_id, "teamID": "0", "collapsed": true}))
+        .user(&alice)
+        .await
+        .json()
+        .clone();
+    s.post("create: no name", &path)
+        .json(json!({"name": "", "userID": alice_id, "teamID": "0"}))
+        .user(&alice)
+        .await;
+    s.post("create: for another user", &path)
+        .json(json!({"name": "x", "userID": bob_id, "teamID": "0"}))
+        .user(&alice)
+        .await;
+    s.post("create: for another team", &path)
+        .json(json!({"name": "x", "userID": alice_id, "teamID": "1"}))
+        .user(&alice)
+        .await;
+    s.post("create: bad type", &path)
+        .json(json!({"name": "x", "userID": alice_id, "teamID": "0", "type": "weird"}))
+        .user(&alice)
+        .await;
+    s.post("create: malformed body", &path)
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    let category = id_of(&created);
+    let archive = id_of(&second);
+    let listing = s.get("list", &path).user(&alice).await;
+    let default = listing
+        .json()
+        .as_array()
+        .expect("the categories are a list")
+        .iter()
+        .find(|category| category["name"] == "Boards")
+        .map(id_of)
+        .expect("the default category exists");
+
+    s.put("update", &format!("{path}/{category}"))
+        .json(merged(
+            &created,
+            json!({"name": "Projects 2", "collapsed": true}),
+        ))
+        .user(&alice)
+        .await;
+    s.put("update: id mismatch", &format!("{path}/{category}"))
+        .json(merged(&created, json!({"id": archive})))
+        .user(&alice)
+        .await;
+    s.put("update: other user", &format!("{path}/{category}"))
+        .json(merged(&created, json!({"name": "hijack"})))
+        .user(&bob)
+        .await;
+    s.put(
+        "update: unknown category",
+        &format!("{path}/unknown-category"),
+    )
+    .json(merged(&created, json!({"id": "unknown-category"})))
+    .user(&alice)
+    .await;
+    s.put("update: system category", &format!("{path}/{default}"))
+        .json(json!({
+            "id": default, "name": "Renamed", "userID": alice_id, "teamID": "0", "type": "system",
+        }))
+        .user(&alice)
+        .await;
+
+    s.post("file a board", &format!("{path}/{category}/boards/{board}"))
+        .user(&alice)
+        .await;
+    s.post(
+        "file the second board",
+        &format!("{path}/{category}/boards/{other}"),
+    )
+    .user(&alice)
+    .await;
+    s.get("list after filing", &path).user(&alice).await;
+    s.put("hide", &format!("{path}/{category}/boards/{board}/hide"))
+        .user(&alice)
+        .await;
+    s.put(
+        "hide: other user",
+        &format!("{path}/{category}/boards/{board}/hide"),
+    )
+    .user(&bob)
+    .await;
+    s.get("list after hiding", &path).user(&alice).await;
+    s.put(
+        "unhide",
+        &format!("{path}/{category}/boards/{board}/unhide"),
+    )
+    .user(&alice)
+    .await;
+
+    let reorder_boards = format!("{path}/{category}/boards/reorder");
+    s.put("reorder boards", &reorder_boards)
+        .json(json!([other, board]))
+        .user(&alice)
+        .await;
+    s.put("reorder boards: missing one", &reorder_boards)
+        .json(json!([other]))
+        .user(&alice)
+        .await;
+    s.put("reorder boards: unknown board", &reorder_boards)
+        .json(json!([other, "unknown"]))
+        .user(&alice)
+        .await;
+    s.put("reorder boards: other user", &reorder_boards)
+        .json(json!([other, board]))
+        .user(&bob)
+        .await;
+    let reorder = format!("{path}/reorder");
+    s.put("reorder categories", &reorder)
+        .json(json!([archive, category, default]))
+        .user(&alice)
+        .await;
+    s.put("reorder categories: missing one", &reorder)
+        .json(json!([archive, category]))
+        .user(&alice)
+        .await;
+    s.put("reorder categories: unknown id", &reorder)
+        .json(json!([archive, category, "unknown"]))
+        .user(&alice)
+        .await;
+    s.get("list after reorder", &path).user(&alice).await;
+
+    s.delete("delete: other user", &format!("{path}/{category}"))
+        .user(&bob)
+        .await;
+    s.delete("delete: system category", &format!("{path}/{default}"))
+        .user(&alice)
+        .await;
+    s.delete(
+        "delete: unknown category",
+        &format!("{path}/unknown-category"),
+    )
+    .user(&alice)
+    .await;
+    s.delete("delete", &format!("{path}/{category}"))
+        .user(&alice)
+        .await;
+    s.delete("delete: again", &format!("{path}/{category}"))
+        .user(&alice)
+        .await;
+    s.put("update: deleted category", &format!("{path}/{category}"))
+        .json(merged(&created, json!({"name": "back"})))
+        .user(&alice)
+        .await;
+    s.get("list at the end", &path).user(&alice).await;
+
+    // Last, because in the original these requests changed state while being refused.
+    s.post(
+        "file a board: other user's category",
+        &format!("{path}/{archive}/boards/{other}"),
+    )
+    .user(&bob)
+    .await;
+    s.get("list after the attempt on another user's category", &path)
+        .user(&alice)
+        .await;
+    s.post(
+        "file a board: unknown category",
+        &format!("{path}/unknown-category/boards/{other}"),
+    )
+    .user(&alice)
+    .await;
+    s.get("list after filing into an unknown category", &path)
+        .user(&alice)
+        .await;
+}
+
+pub(crate) async fn sharing(s: &mut Session) {
+    let [alice, bob] = s.users("share", ["alice", "bob"]).await;
+    let board = new_board(s, &alice, "Shared board", "P", json!({})).await;
+    add_member(s, &alice, &board, &bob, "editor").await;
+    let created = new_blocks(
+        s,
+        &alice,
+        &board,
+        json!([block("c1", &board, "card", "Visible card", "", json!({}))]),
+        "insert blocks",
+    )
+    .await;
+    let card = id_of(&created[0]);
+    let path = format!("{API}/boards/{board}/sharing");
+    let board_path = format!("{API}/boards/{board}");
+
+    s.get("get: none yet", &path).user(&alice).await;
+    s.post("post: editor", &path)
+        .json(json!({"id": board, "enabled": true, "token": "tok-editor"}))
+        .user(&bob)
+        .await;
+    s.post("post", &path)
+        .json(json!({"id": board, "enabled": true, "token": "share-token-1"}))
+        .user(&alice)
+        .await;
+    s.post("post: malformed body", &path)
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    s.get("get", &path).user(&alice).unrecorded().await;
+    s.get("get: editor", &path).user(&bob).unrecorded().await;
+    s.get(
+        "get: unknown board",
+        &format!("{API}/boards/unknown-board/sharing"),
+    )
+    .user(&alice)
+    .await;
+
+    s.get(
+        "board with the read token",
+        &format!("{board_path}?read_token=share-token-1"),
+    )
+    .await;
+    s.get(
+        "board with a wrong read token",
+        &format!("{board_path}?read_token=wrong"),
+    )
+    .await;
+    s.get(
+        "blocks with the read token",
+        &format!("{board_path}/blocks?read_token=share-token-1"),
+    )
+    .await;
+    s.get(
+        "blocks with a wrong read token",
+        &format!("{board_path}/blocks?read_token=wrong"),
+    )
+    .await;
+    s.get(
+        "members with the read token",
+        &format!("{board_path}/members?read_token=share-token-1"),
+    )
+    .await;
+    s.post(
+        "insert with the read token",
+        &format!("{board_path}/blocks?read_token=share-token-1"),
+    )
+    .json(json!([block("x1", &board, "card", "x", "", json!({}))]))
+    .await;
+    s.patch(
+        "patch with the read token",
+        &format!("{board_path}/blocks/{card}?read_token=share-token-1"),
+    )
+    .json(json!({"title": "hijack"}))
+    .await;
+
+    s.post("disable", &path)
+        .json(json!({"id": board, "enabled": false, "token": "share-token-1"}))
+        .user(&alice)
+        .await;
+    s.get(
+        "board with the token of a disabled share",
+        &format!("{board_path}?read_token=share-token-1"),
+    )
+    .await;
+}
+
+pub(crate) async fn subscriptions(s: &mut Session) {
+    let [alice, bob] = s.users("subs", ["alice", "bob"]).await;
+    let board = new_board(s, &alice, "Subscribed board", "P", json!({})).await;
+    let created = new_blocks(
+        s,
+        &alice,
+        &board,
+        json!([block("c1", &board, "card", "Watched card", "", json!({}))]),
+        "insert blocks",
+    )
+    .await;
+    let card = id_of(&created[0]);
+    let alice_id = s.user_id(&alice).await;
+    let bob_id = s.user_id(&bob).await;
+    let path = format!("{API}/subscriptions");
+    let subscription = |block_id: &str, subscriber_type: &str, subscriber: &str| {
+        json!({
+            "blockType": "card", "blockId": block_id,
+            "subscriberType": subscriber_type, "subscriberId": subscriber,
+        })
+    };
+
+    s.get("list: none", &format!("{path}/{alice_id}"))
+        .user(&alice)
+        .await;
+    s.post("create", &path)
+        .json(subscription(&card, "user", &alice_id))
+        .user(&alice)
+        .await;
+    s.post("create: again", &path)
+        .json(subscription(&card, "user", &alice_id))
+        .user(&alice)
+        .await;
+    s.post("create: for another user", &path)
+        .json(subscription(&card, "user", &bob_id))
+        .user(&alice)
+        .await;
+    s.post("create: no block", &path)
+        .json(subscription("", "user", &alice_id))
+        .user(&alice)
+        .await;
+    s.post("create: bad subscriber type", &path)
+        .json(subscription(&card, "robot", &alice_id))
+        .user(&alice)
+        .await;
+    s.post("create: malformed body", &path)
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    s.get("list", &format!("{path}/{alice_id}"))
+        .user(&alice)
+        .await;
+    s.get("list: another user's", &format!("{path}/{alice_id}"))
+        .user(&bob)
+        .await;
+    s.delete(
+        "delete: another user's",
+        &format!("{path}/{card}/{alice_id}"),
+    )
+    .user(&bob)
+    .await;
+    s.delete("delete", &format!("{path}/{card}/{alice_id}"))
+        .user(&alice)
+        .await;
+    s.delete("delete: again", &format!("{path}/{card}/{alice_id}"))
+        .user(&alice)
+        .await;
+    s.get("list at the end", &format!("{path}/{alice_id}"))
+        .user(&alice)
+        .await;
+}
+
+pub(crate) async fn search(s: &mut Session) {
+    let [alice, bob] = s.users("search", ["alice", "bob"]).await;
+    new_board(s, &alice, "Quarterly zebra plan", "P", json!({})).await;
+    new_board(s, &alice, "Open zebra notes", "O", json!({})).await;
+    new_board(s, &bob, "Private zebra diary", "P", json!({})).await;
+    let team_search = format!("{API}/teams/0/boards/search");
+
+    s.get("team search", &format!("{team_search}?q=zebra"))
+        .user(&alice)
+        .await;
+    s.get("team search: other user", &format!("{team_search}?q=zebra"))
+        .user(&bob)
+        .await;
+    s.get("team search: no match", &format!("{team_search}?q=giraffe"))
+        .user(&alice)
+        .await;
+    s.get("team search: empty term", &format!("{team_search}?q="))
+        .user(&alice)
+        .await;
+    s.get("team search: no term", &team_search)
+        .user(&alice)
+        .await;
+    s.get("team search: case", &format!("{team_search}?q=ZEBRA"))
+        .user(&alice)
+        .await;
+    s.get(
+        "team search: by field",
+        &format!("{team_search}?q=zebra&field=title"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "team search: bad field",
+        &format!("{team_search}?q=zebra&field=nope"),
+    )
+    .user(&alice)
+    .await;
+    s.get("team search: anonymous", &format!("{team_search}?q=zebra"))
+        .await;
+    s.get("all search", &format!("{API}/boards/search?q=zebra"))
+        .user(&alice)
+        .await;
+    s.get("all search: empty term", &format!("{API}/boards/search?q="))
+        .user(&alice)
+        .await;
+    s.get(
+        "linkable search",
+        &format!("{team_search}/linkable?q=zebra"),
+    )
+    .user(&alice)
+    .await;
+    s.get("channels", &format!("{API}/teams/0/channels?search=x"))
+        .user(&alice)
+        .await;
+    s.get("channel", &format!("{API}/teams/0/channels/some-channel"))
+        .user(&alice)
+        .await;
+    s.get("statistics", &format!("{API}/statistics"))
+        .user(&alice)
+        .await;
+    s.get("compliance boards", &format!("{API}/admin/boards"))
+        .user(&alice)
+        .await;
+    s.get(
+        "compliance boards history",
+        &format!("{API}/admin/boards_history?modified_since=1"),
+    )
+    .user(&alice)
+    .await;
+    s.get(
+        "compliance blocks history",
+        &format!("{API}/admin/blocks_history?modified_since=1"),
+    )
+    .user(&alice)
+    .await;
+}

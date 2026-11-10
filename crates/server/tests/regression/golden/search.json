@@ -1,0 +1,438 @@
+[
+  {
+    "name": "create board Quarterly zebra plan",
+    "request": "POST /api/v2/boards as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Quarterly zebra plan",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "create board Open zebra notes",
+    "request": "POST /api/v2/boards as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:3>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Open zebra notes",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "create board Private zebra diary",
+    "request": "POST /api/v2/boards as search-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:4>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:5>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:4>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Private zebra diary",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "team search",
+    "request": "GET /api/v2/teams/0/boards/search?q=zebra as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open zebra notes",
+        "type": "O",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:2>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Quarterly zebra plan",
+        "type": "P",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "team search: other user",
+    "request": "GET /api/v2/teams/0/boards/search?q=zebra as search-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open zebra notes",
+        "type": "O",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:4>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:5>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:4>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Private zebra diary",
+        "type": "P",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "team search: no match",
+    "request": "GET /api/v2/teams/0/boards/search?q=giraffe as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "team search: empty term",
+    "request": "GET /api/v2/teams/0/boards/search?q= as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "team search: no term",
+    "request": "GET /api/v2/teams/0/boards/search as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "team search: case",
+    "request": "GET /api/v2/teams/0/boards/search?q=ZEBRA as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open zebra notes",
+        "type": "O",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:2>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Quarterly zebra plan",
+        "type": "P",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "team search: by field",
+    "request": "GET /api/v2/teams/0/boards/search?q=zebra&field=title as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open zebra notes",
+        "type": "O",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:2>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Quarterly zebra plan",
+        "type": "P",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "team search: bad field",
+    "request": "GET /api/v2/teams/0/boards/search?q=zebra&field=nope as search-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "invalid board search field",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "team search: anonymous",
+    "request": "GET /api/v2/teams/0/boards/search?q=zebra as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "no session token",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "all search",
+    "request": "GET /api/v2/boards/search?q=zebra as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open zebra notes",
+        "type": "O",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:2>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Quarterly zebra plan",
+        "type": "P",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "all search: empty term",
+    "request": "GET /api/v2/boards/search?q= as search-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": []
+  },
+  {
+    "name": "linkable search",
+    "request": "GET /api/v2/teams/0/boards/search/linkable?q=zebra as search-alice",
+    "status": 501,
+    "content_type": "application/json",
+    "body": {
+      "error": "not permitted in standalone mode",
+      "errorCode": 501
+    }
+  },
+  {
+    "name": "channels",
+    "request": "GET /api/v2/teams/0/channels?search=x as search-alice",
+    "status": 501,
+    "content_type": "application/json",
+    "body": {
+      "error": "not permitted in standalone mode",
+      "errorCode": 501
+    }
+  },
+  {
+    "name": "channel",
+    "request": "GET /api/v2/teams/0/channels/some-channel as search-alice",
+    "status": 501,
+    "content_type": "application/json",
+    "body": {
+      "error": "not permitted in standalone mode",
+      "errorCode": 501
+    }
+  },
+  {
+    "name": "statistics",
+    "request": "GET /api/v2/statistics as search-alice",
+    "status": 501,
+    "content_type": "application/json",
+    "body": {
+      "error": "not permitted in standalone mode",
+      "errorCode": 501
+    }
+  },
+  {
+    "name": "compliance boards",
+    "request": "GET /api/v2/admin/boards as search-alice",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied Compliance Export getAllBoards",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "compliance boards history",
+    "request": "GET /api/v2/admin/boards_history?modified_since=1 as search-alice",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied Compliance Export getBoardsHistory",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "compliance blocks history",
+    "request": "GET /api/v2/admin/blocks_history?modified_since=1 as search-alice",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied Compliance Export getBlocksHistory",
+      "errorCode": 401
+    }
+  }
+]

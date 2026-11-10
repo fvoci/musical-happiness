@@ -1,0 +1,929 @@
+[
+  {
+    "name": "create: no type",
+    "request": "POST /api/v2/boards as boards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "invalid-board-type",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "create: bad type",
+    "request": "POST /api/v2/boards as boards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "invalid-board-type",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "create: no team",
+    "request": "POST /api/v2/boards as boards-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to create private boards",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "create: without session",
+    "request": "POST /api/v2/boards as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "no session token",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "create: malformed body",
+    "request": "POST /api/v2/boards as boards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "key must be a string at line 1 column 2",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "create board Roadmap",
+    "request": "POST /api/v2/boards as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop1",
+          "name": "Status",
+          "options": [],
+          "type": "select"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "plans",
+      "icon": "🎯",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "blue"
+      },
+      "showDescription": true,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "create board Open board",
+    "request": "POST /api/v2/boards as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:3>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Open board",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "get",
+    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop1",
+          "name": "Status",
+          "options": [],
+          "type": "select"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "plans",
+      "icon": "🎯",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "blue"
+      },
+      "showDescription": true,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "get: non-member, private",
+    "request": "GET /api/v2/boards/<id:2> as boards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "get: non-member, open",
+    "request": "GET /api/v2/boards/<id:3> as boards-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:3>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Open board",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "get: anonymous",
+    "request": "GET /api/v2/boards/<id:2> as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 401
+    }
+  },
+  {
+    "name": "get: unknown board",
+    "request": "GET /api/v2/boards/unknown-board as boards-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{boards} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "list: member",
+    "request": "GET /api/v2/teams/0/boards as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open board",
+        "type": "O",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [
+          {
+            "id": "prop1",
+            "name": "Status",
+            "options": [],
+            "type": "select"
+          }
+        ],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "plans",
+        "icon": "🎯",
+        "id": "<id:2>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {
+          "color": "blue"
+        },
+        "showDescription": true,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Roadmap",
+        "type": "P",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "list: other user",
+    "request": "GET /api/v2/teams/0/boards as boards-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open board",
+        "type": "O",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "metadata",
+    "request": "GET /api/v2/boards/<id:2>/metadata as boards-alice",
+    "status": 501,
+    "content_type": "application/json",
+    "body": {
+      "error": "appropriate license required",
+      "errorCode": 501
+    }
+  },
+  {
+    "name": "patch",
+    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop1",
+          "name": "Status",
+          "options": [],
+          "type": "select"
+        },
+        {
+          "id": "prop2",
+          "name": "Owner",
+          "options": [],
+          "type": "person"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "new plans",
+      "icon": "🚀",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "red",
+        "size": 3
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap 2",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "patch: delete properties",
+    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop2",
+          "name": "Owner",
+          "options": [],
+          "type": "person"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "new plans",
+      "icon": "🚀",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "red"
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap 2",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "patch: non-member",
+    "request": "PATCH /api/v2/boards/<id:2> as boards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to modifying board properties",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "patch: bad type",
+    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "invalid-board-type",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "patch: to open",
+    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop2",
+          "name": "Owner",
+          "options": [],
+          "type": "person"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "new plans",
+      "icon": "🚀",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "red"
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap 2",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "patch: back to private",
+    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop2",
+          "name": "Owner",
+          "options": [],
+          "type": "person"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "new plans",
+      "icon": "🚀",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "red"
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap 2",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "patch: minimum role",
+    "request": "PATCH /api/v2/boards/<id:3> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:3>",
+      "isTemplate": false,
+      "minimumRole": "editor",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Open board",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "patch: unknown board",
+    "request": "PATCH /api/v2/boards/unknown-board as boards-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{boards} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "patch: malformed body",
+    "request": "PATCH /api/v2/boards/<id:2> as boards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "EOF while parsing a list at line 1 column 1",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "get after patches",
+    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop2",
+          "name": "Owner",
+          "options": [],
+          "type": "person"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "new plans",
+      "icon": "🚀",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "red"
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap 2",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "insert a card",
+    "request": "POST /api/v2/boards/<id:2>/blocks as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": 1,
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "icon": "x"
+        },
+        "id": "<id:4>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:2>",
+        "schema": 1,
+        "title": "A card",
+        "type": "card",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "duplicate",
+    "request": "POST /api/v2/boards/<id:2>/duplicate as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "blocks": [
+        {
+          "boardId": "<id:5>",
+          "createAt": "<ts>",
+          "createdBy": "<id:1>",
+          "deleteAt": 0,
+          "fields": {
+            "icon": "x"
+          },
+          "id": "<id:6>",
+          "modifiedBy": "<id:1>",
+          "parentId": "<id:2>",
+          "schema": 1,
+          "title": "A card",
+          "type": "card",
+          "updateAt": "<ts>"
+        }
+      ],
+      "boards": [
+        {
+          "cardProperties": [
+            {
+              "id": "prop2",
+              "name": "Owner",
+              "options": [],
+              "type": "person"
+            }
+          ],
+          "channelId": "",
+          "createAt": "<ts>",
+          "createdBy": "<id:1>",
+          "deleteAt": 0,
+          "description": "new plans",
+          "icon": "🚀",
+          "id": "<id:5>",
+          "isTemplate": false,
+          "minimumRole": "",
+          "modifiedBy": "<id:1>",
+          "properties": {
+            "color": "red"
+          },
+          "showDescription": false,
+          "teamId": "0",
+          "templateVersion": 0,
+          "title": "Roadmap 2 copy",
+          "type": "P",
+          "updateAt": "<ts>"
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate as template",
+    "request": "POST /api/v2/boards/<id:2>/duplicate?asTemplate=true as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "blocks": [
+        {
+          "boardId": "<id:7>",
+          "createAt": "<ts>",
+          "createdBy": "<id:1>",
+          "deleteAt": 0,
+          "fields": {
+            "icon": "x"
+          },
+          "id": "<id:8>",
+          "modifiedBy": "<id:1>",
+          "parentId": "<id:2>",
+          "schema": 1,
+          "title": "A card",
+          "type": "card",
+          "updateAt": "<ts>"
+        }
+      ],
+      "boards": [
+        {
+          "cardProperties": [
+            {
+              "id": "prop2",
+              "name": "Owner",
+              "options": [],
+              "type": "person"
+            }
+          ],
+          "channelId": "",
+          "createAt": "<ts>",
+          "createdBy": "<id:1>",
+          "deleteAt": 0,
+          "description": "new plans",
+          "icon": "🚀",
+          "id": "<id:7>",
+          "isTemplate": true,
+          "minimumRole": "",
+          "modifiedBy": "<id:1>",
+          "properties": {
+            "color": "red",
+            "trackingTemplateId": "82ec02e689439e9e76ac9457a47ee125"
+          },
+          "showDescription": false,
+          "teamId": "0",
+          "templateVersion": 0,
+          "title": "New board template",
+          "type": "P",
+          "updateAt": "<ts>"
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate: non-member",
+    "request": "POST /api/v2/boards/<id:2>/duplicate as boards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "duplicate: unknown board",
+    "request": "POST /api/v2/boards/unknown-board/duplicate as boards-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{boards} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "blocks of the copy",
+    "request": "GET /api/v2/boards/<id:5>/blocks as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:5>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "icon": "x"
+        },
+        "id": "<id:6>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:2>",
+        "schema": 1,
+        "title": "A card",
+        "type": "card",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "delete: non-member",
+    "request": "DELETE /api/v2/boards/<id:2> as boards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to delete board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "delete",
+    "request": "DELETE /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "get deleted",
+    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{boards} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "delete again",
+    "request": "DELETE /api/v2/boards/<id:2> as boards-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{boards} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "undelete: other user",
+    "request": "POST /api/v2/boards/<id:2>/undelete as boards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to undelete board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "undelete",
+    "request": "POST /api/v2/boards/<id:2>/undelete as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "get undeleted",
+    "request": "GET /api/v2/boards/<id:2> as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop2",
+          "name": "Owner",
+          "options": [],
+          "type": "person"
+        }
+      ],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "new plans",
+      "icon": "🚀",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "red"
+      },
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Roadmap 2",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "blocks after undelete",
+    "request": "GET /api/v2/boards/<id:2>/blocks as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {
+          "icon": "x"
+        },
+        "id": "<id:4>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:2>",
+        "schema": 1,
+        "title": "A card",
+        "type": "card",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "list at the end",
+    "request": "GET /api/v2/teams/0/boards as boards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "cardProperties": [],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "",
+        "icon": "",
+        "id": "<id:3>",
+        "isTemplate": false,
+        "minimumRole": "editor",
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Open board",
+        "type": "O",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [
+          {
+            "id": "prop2",
+            "name": "Owner",
+            "options": [],
+            "type": "person"
+          }
+        ],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "new plans",
+        "icon": "🚀",
+        "id": "<id:5>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {
+          "color": "red"
+        },
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Roadmap 2 copy",
+        "type": "P",
+        "updateAt": "<ts>"
+      },
+      {
+        "cardProperties": [
+          {
+            "id": "prop2",
+            "name": "Owner",
+            "options": [],
+            "type": "person"
+          }
+        ],
+        "channelId": "",
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "description": "new plans",
+        "icon": "🚀",
+        "id": "<id:2>",
+        "isTemplate": false,
+        "minimumRole": "",
+        "modifiedBy": "<id:1>",
+        "properties": {
+          "color": "red"
+        },
+        "showDescription": false,
+        "teamId": "0",
+        "templateVersion": 0,
+        "title": "Roadmap 2",
+        "type": "P",
+        "updateAt": "<ts>"
+      }
+    ]
+  }
+]

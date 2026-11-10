@@ -18,17 +18,22 @@
 
 ## 검증 도구
 
+S6부터의 진입점은 `cargo xtask check`와 `cargo xtask test`다(아래 "S6" 절, 명령의 세부는 `docs/handoff-s5.md` 1절). 표에서 "레거시"라고 적은 것은 태그 `parity-s5`까지 원본과 비교하는 데 쓴 도구로, 이후의 변경에는 쓰지 않는다.
+
 | 도구 | 위치 | 용도 |
 |---|---|---|
-| 오라클 | `target/oracle/go-server`, 실행은 `scripts/oracle-run.sh <name> <port> [single-user 토큰] [dbtype] [dbconfig]` | 원본 서버를 Go 1.21.8, 태그 `json1 sqlite3`로 빌드한 바이너리. 차등 비교, 스키마 비교, DB 왕복에 쓴다 |
+| 검사 | `cargo xtask check` (`xtask/`) | 포맷, clippy, 단위 테스트, 문서, 이름, 라이선스·권고. 외부 서비스 없음 |
+| 테스트 | `cargo xtask test` | 컨테이너 준비 뒤 SQLite 전체, PostgreSQL(store, server), S3 저장소 테스트 |
+| 회귀 테스트 | `crates/server/tests/regression/` (스냅샷은 `golden/`) | `parity-s5`의 응답을 기대값으로 고정한 시나리오 15개(382단계)와 권한 표(636칸). `cargo test --workspace`에 포함. 갱신은 `FVOCI_REGRESSION_UPDATE=1` |
+| 오라클 (레거시) | `target/oracle/go-server`, 실행은 `scripts/oracle-run.sh <name> <port> [single-user 토큰] [dbtype] [dbconfig]` | 원본 서버를 Go 1.21.8, 태그 `json1 sqlite3`로 빌드한 바이너리. 차등 비교, 스키마 비교, DB 왕복에 쓴다 |
 | PostgreSQL | 컨테이너 `hafgufa-pg` (127.0.0.1:15433, PostgreSQL 18.6) | 스토어·서버 테스트의 PostgreSQL 실행. `FVOCI_STORE_TEST_DB_TYPE=postgres`, `FVOCI_STORE_TEST_CONN_STRING=postgres://fvoci:fvoci-test@localhost:15433/fvoci?sslmode=disable` |
-| 원본 웹 번들 | `webapp/pack` | `npm ci && npm run pack` (Node 26.13.0에서 빌드됨) |
-| Cypress | `scripts/e2e-cypress.sh <label> <server>` | 원본 스펙 6개(테스트 11개)를 임의의 서버 바이너리에 실행. 결과는 `target/e2e/<label>/` |
+| 원본 웹 번들 (레거시) | `webapp/pack` | `npm ci && npm run pack` (Node 26.13.0에서 빌드됨) |
+| Cypress (레거시) | `scripts/e2e-cypress.sh <label> <server>` | 원본 스펙 6개(테스트 11개)를 임의의 서버 바이너리에 실행. 결과는 `target/e2e/<label>/` |
 
 | 포트 실행 | `scripts/fvoci-run.sh <name> <port> [single-user 토큰] [dbtype] [dbconfig] [filespath]` | 오라클 실행 스크립트와 같은 인자로 Rust 서버를 띄운다 |
-| 차등 비교 | `scripts/differential/run.py --left <원본 URL> --right <포트 URL>` | 같은 요청 시퀀스(시나리오 15개)를 두 서버에 보내 상태 코드와 JSON을 비교한다. ID·시각·비밀값은 정규화한다 |
-| 권한 표 | `scripts/differential/permissions.py --left … --right …` | 라우트 × 역할 × 보드 종류별 상태 코드를 비교한다 |
-| DB 왕복 | `scripts/differential/roundtrip.sh sqlite` / `postgres <URL>` | 한 서버가 쓴 DB와 파일을 다른 서버로 읽고 쓴다 |
+| 차등 비교 (레거시) | `scripts/differential/run.py --left <원본 URL> --right <포트 URL>` | 같은 요청 시퀀스(시나리오 15개)를 두 서버에 보내 상태 코드와 JSON을 비교한다. ID·시각·비밀값은 정규화한다 |
+| 권한 표 (레거시) | `scripts/differential/permissions.py --left … --right …` | 라우트 × 역할 × 보드 종류별 상태 코드를 비교한다 |
+| DB 왕복 (레거시) | `scripts/differential/roundtrip.sh sqlite` / `postgres <URL>` | 한 서버가 쓴 DB와 파일을 다른 서버로 읽고 쓴다 |
 | S3 호환 서버 | 컨테이너 `hafgufa-s3` (SeaweedFS, 127.0.0.1:18333, 버킷 `fvoci-test`) | S3 파일 백엔드 테스트 |
 | 라이선스 | `cargo deny check`(`deny.toml`), `cargo about generate …`(`about.toml`, `about.hbs`) | 의존성 라이선스·권고 검사, `NOTICE` 생성. 도구는 `target/tools/bin`에 설치했다 |
 
@@ -67,6 +72,42 @@
 | S5 | 차등 비교 382단계·권한 표 636칸·DB 왕복(SQLite, PostgreSQL)·Cypress 11/11 통과. Dockerfile, CI 워크플로, CDN 문서, `NOTICE`, `deny.toml` |
 
 검증 명령과 결과, 미검증 항목은 `crates/server/PORTING.md`의 "검증" 절에 있다.
+
+## S6: 서버 정리 (2026-11-10~)
+
+계획은 저장소 밖 `~/.claude/plans/fvoci-web-svelte.md`의 "S6. 서버 정리"다. `parity-s5` 뒤로는 원본 서버·원본 웹 번들과의 호환을 지키지 않는다(사용자 결정 2026-11-10). 그래서 이 문서와 크레이트 문서에 적힌 "와이어 동작이 바뀌는 수정은 하지 않고 결정 대기에 올린다"는 규칙은 끝났고, S6부터는 **고치고 기록한다.** 사용자가 보는 기능이 달라지거나 설계 선택이 필요한 것만 먼저 안을 내고 확인받는다. "의도적 차이", "보안 결정 대기", "보존한 quirk"의 항목은 지우지 않고 "S6에서 정리됨"으로 표시한다.
+
+### A. 기준 고정
+
+원본이라는 외부 기준이 없어지므로, 서버를 고치기 전에 `parity-s5` 시점의 응답을 회귀 테스트의 기대값으로 고정했다.
+
+- **무엇을 옮겼나.** `scripts/differential/scenarios.py`의 시나리오 15개와 `permissions.py`의 권한 표를 `crates/server/tests/regression/`의 통합 테스트로 옮겼다. 정규화 규칙(식별자는 처음 나온 순서의 `<id:N>`, 밀리초 시각은 `<ts>`, 비밀 값은 `<secret>`, 객체 목록은 식별자를 가린 표현으로 정렬)도 같은 규칙으로 옮겼다. 시나리오마다 테스트 하나, 권한 표는 보드 종류마다 테스트 하나이고, 테스트마다 서버를 따로 띄운다.
+- **기대값.** HEAD가 `parity-s5`와 서버 코드가 같을 때(차이는 문서 한 개) 기록했다. SQLite에서 기록한 스냅샷이 PostgreSQL에서 그대로 통과한다.
+- **옮기기 전 대조(2026-11-10).** 같은 빌드의 Rust 서버에 기존 Python 하네스로 시나리오와 권한 표를 돌려 얻은 기록과 새 스냅샷을 단계·칸 단위로 비교했다.
+
+  | 대상 | Python 기록 | 새 스냅샷 | 차이 |
+  |---|---|---|---|
+  | 시나리오 15개 | 382단계 | 382단계 | 1건: `system`의 "ping version and sku"에서 DB 종류 `sqlite3`을 `<db>`로 적는다(두 DB가 한 스냅샷을 쓰게 하려는 의도한 차이. 값이 `sqlite3`·`postgres` 중 하나인지는 테스트가 따로 확인한다) |
+  | 권한 표 | 636칸 | 636칸 (비공개 318, 공개 318) | 0건 |
+
+  대조 직전에 원본 대 포트 비교도 다시 돌려 S5와 같은 결과임을 확인했다(382단계 예상 밖 0건·등록 21건, 636칸 예상 밖 0건·등록 11건). 스냅샷을 일부러 고쳐(본문 한 글자, 상태 코드 하나) 테스트가 실패하고 어느 단계의 무엇이 다른지 보고하는 것도 확인했다.
+- **갱신 방법은 하나다.** `FVOCI_REGRESSION_UPDATE=1 cargo test -p fvoci-server --test regression`이 스냅샷을 다시 쓴다. 응답을 의도해서 바꾸는 커밋은 바뀐 스냅샷을 함께 담는다. 리뷰어는 그 `git diff`에서 응답이 어떻게 달라졌는지 본다.
+- **스냅샷 라이브러리를 쓰지 않고 직접 비교한다.** 이유: (1) 손이 가는 부분은 비교가 아니라 정규화이고, 이 API에 맞춘 규칙(단계에 걸친 식별자 번호 매기기, 순서 없는 목록의 정렬)은 라이브러리가 주지 않아 어차피 직접 써야 한다. (2) 스냅샷이 보기 좋은 JSON과 텍스트 표라서 "바뀐 응답은 같은 커밋의 diff로 본다"는 흐름에 맞고, 대기 파일(`.snap.new`)이나 리뷰용 CLI를 따로 설치할 필요가 없다. (3) 실패 보고(단계 이름, 요청, JSON 경로별 차이)는 Python 하네스에 있던 것을 옮긴 100줄 남짓이다. (4) 의존성이 늘지 않는다. 잃는 것: 대화형 리뷰(`cargo insta review` 같은 것)와 인라인 스냅샷. 필요해지면 그때 바꾼다.
+- **조율은 xtask로 한다.** `cargo xtask check`와 `cargo xtask test`(`xtask/`, 별칭은 `.cargo/config.toml`). 명령 구성은 형제 저장소 `fvoci/groundzero`의 xtask에서 뼈대만 참고했다(별칭, 외부 서비스가 없는 `check`와 컨테이너를 준비하는 `test`의 구분, 모든 단계를 끝까지 돌리고 요약). 코드는 복사하지 않았고, 의존성은 이미 쓰던 `anyhow`와 `clap`뿐이다. CI 워크플로(`.github/workflows/fvoci-ci.yml`)도 같은 명령을 부르게 바꿨다(푸시가 필요해 실행하지 못했다).
+- **이름 검사가 찾은 것.** `cargo xtask check`의 이름 검사는 `crates/`와 `xtask/`의 코드에서 원본의 두 이름이 0건임을 확인한다. 스냅샷에는 1건이 있다(`golden/templates.json`의 온보딩 보드 설명). 내장 템플릿(`server/assets/templates.boardarchive`, 원본의 것을 그대로 바이너리에 넣는다)의 본문과 링크에 원본 이름이 37번 나오기 때문이다. 검사는 이것을 실패가 아니라 주석으로 보고한다. 템플릿을 새로 쓸 때 없어진다(`docs/s6-design.md`).
+
+검증(2026-11-10, rustc 1.99.1):
+
+| 검증 | 결과 |
+|---|---|
+| `cargo xtask check` | format, clippy, unit tests, documentation, names, licenses and advisories 모두 PASS |
+| `cargo xtask test` — SQLite | 741개 통과(모델 69, 스토어 121, 서버 537: 단위 78·API 423·회귀 25·저장소 2·웹 7·웹훅 2, xtask 14) |
+| `cargo xtask test` — PostgreSQL | 658개 통과(스토어 121, 서버 537) |
+| `cargo xtask test` — S3 | 1개 통과(SeaweedFS) |
+| Docker 이미지 | `docker build -f docker/fvoci/Dockerfile`이 워크스페이스에 `xtask`가 추가된 뒤에도 `--locked`로 빌드된다(빌드 캐시가 있는 상태에서 확인) |
+| 컨테이너 준비 경로 | 다른 이름과 포트의 임시 컨테이너로 "없음 → 생성", "멈춤 → 시작"을 확인하고 지웠다. 기존 `hafgufa-pg`·`hafgufa-s3`는 "떠 있음 → 그대로 사용" |
+
+걷어 낼 수 있게 된 것(아직 지우지 않았다. 사용자에게 알리고 지운다): `scripts/differential/`, `scripts/oracle-run.sh`, `scripts/fvoci-run.sh`, `scripts/e2e-cypress.sh`, `target/oracle/`. 태그 `parity-s5`에 모두 남아 있다.
 
 ## 플러그인 저장소의 수정 사항 점검
 

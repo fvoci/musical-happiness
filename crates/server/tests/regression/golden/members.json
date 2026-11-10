@@ -1,0 +1,455 @@
+[
+  {
+    "name": "create board Team board",
+    "request": "POST /api/v2/boards as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Team board",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "create board Open board",
+    "request": "POST /api/v2/boards as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:3>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Open board",
+      "type": "O",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "list",
+    "request": "GET /api/v2/boards/<id:2>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": true,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:1>"
+      }
+    ]
+  },
+  {
+    "name": "list: non-member",
+    "request": "GET /api/v2/boards/<id:2>/members as members-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board members",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "add: non-member adds",
+    "request": "POST /api/v2/boards/<id:2>/members as members-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to modify board members",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "add editor",
+    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": true,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:4>"
+    }
+  },
+  {
+    "name": "add: no user",
+    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "empty userID",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "add: unknown user",
+    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": false,
+      "schemeViewer": true,
+      "synthetic": false,
+      "userId": "unknown-user"
+    }
+  },
+  {
+    "name": "add: editor adds",
+    "request": "POST /api/v2/boards/<id:2>/members as members-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to modify board members",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "add viewer",
+    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": false,
+      "schemeViewer": true,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "add: already a member",
+    "request": "POST /api/v2/boards/<id:2>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": false,
+      "schemeViewer": true,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "list after adding",
+    "request": "GET /api/v2/boards/<id:2>/members as members-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": false,
+        "schemeViewer": true,
+        "synthetic": false,
+        "userId": "<id:5>"
+      },
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": false,
+        "schemeViewer": true,
+        "synthetic": false,
+        "userId": "unknown-user"
+      },
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:4>"
+      },
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": true,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:1>"
+      }
+    ]
+  },
+  {
+    "name": "memberships of the editor",
+    "request": "GET /api/v2/users/me/memberships as members-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:4>"
+      }
+    ]
+  },
+  {
+    "name": "update: to commenter",
+    "request": "PUT /api/v2/boards/<id:2>/members/<id:5> as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": true,
+      "schemeEditor": false,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "update: by editor",
+    "request": "PUT /api/v2/boards/<id:2>/members/<id:5> as members-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to modify board members",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "update: demote the last admin",
+    "request": "PUT /api/v2/boards/<id:2>/members/<id:1> as members-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "cannot leave a board with no admins",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "update: unknown member",
+    "request": "PUT /api/v2/boards/<id:2>/members/unknown-user as members-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{user} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "delete: by editor",
+    "request": "DELETE /api/v2/boards/<id:2>/members/<id:5> as members-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to modify board members",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "delete: the last admin",
+    "request": "DELETE /api/v2/boards/<id:2>/members/<id:1> as members-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "cannot leave a board with no admins",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "delete",
+    "request": "DELETE /api/v2/boards/<id:2>/members/<id:5> as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "delete: not a member",
+    "request": "DELETE /api/v2/boards/<id:2>/members/<id:5> as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "join: private board",
+    "request": "POST /api/v2/boards/<id:2>/join as members-carol",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "cannot join a non Open board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "join: open board",
+    "request": "POST /api/v2/boards/<id:3>/join as members-carol",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:3>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": true,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "join: again",
+    "request": "POST /api/v2/boards/<id:3>/join as members-carol",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:3>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": true,
+      "schemeViewer": false,
+      "synthetic": false,
+      "userId": "<id:5>"
+    }
+  },
+  {
+    "name": "join: unknown board",
+    "request": "POST /api/v2/boards/unknown-board/join as members-carol",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{boards} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "leave",
+    "request": "POST /api/v2/boards/<id:3>/leave as members-carol",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "leave: not a member",
+    "request": "POST /api/v2/boards/<id:3>/leave as members-carol",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to board",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "leave: the last admin",
+    "request": "POST /api/v2/boards/<id:3>/leave as members-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "cannot leave a board with no admins",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "members at the end",
+    "request": "GET /api/v2/boards/<id:2>/members as members-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": false,
+        "schemeViewer": true,
+        "synthetic": false,
+        "userId": "unknown-user"
+      },
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": false,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:4>"
+      },
+      {
+        "boardId": "<id:2>",
+        "minimumRole": "",
+        "roles": "",
+        "schemeAdmin": true,
+        "schemeCommenter": false,
+        "schemeEditor": true,
+        "schemeViewer": false,
+        "synthetic": false,
+        "userId": "<id:1>"
+      }
+    ]
+  }
+]

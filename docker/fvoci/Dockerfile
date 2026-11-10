@@ -21,6 +21,8 @@ FROM rust:${RUST_VERSION}-trixie AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY crates ./crates
+# A member of the workspace; cargo needs its manifest even though it is not built here.
+COPY xtask ./xtask
 # The built-in templates are embedded into the binary from the original's asset file.
 COPY server/assets ./server/assets
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

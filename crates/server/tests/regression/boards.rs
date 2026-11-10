@@ -1,0 +1,408 @@
+//! Scenarios: boards, board members, and the combined boards-and-blocks routes.
+#![expect(
+    clippy::too_many_lines,
+    reason = "a scenario is one request sequence; cutting it up would hide the order it pins"
+)]
+
+use serde_json::json;
+
+use crate::fixtures::{block, id_of, new_blocks, new_board};
+use crate::harness::{API, Session, id_by_title};
+
+pub(crate) async fn boards(s: &mut Session) {
+    let [alice, bob] = s.users("boards", ["alice", "bob"]).await;
+    let boards = format!("{API}/boards");
+    s.post("create: no type", &boards)
+        .json(json!({"teamId": "0", "title": "x"}))
+        .user(&alice)
+        .await;
+    s.post("create: bad type", &boards)
+        .json(json!({"teamId": "0", "type": "X", "title": "x"}))
+        .user(&alice)
+        .await;
+    s.post("create: no team", &boards)
+        .json(json!({"type": "P", "title": "x"}))
+        .user(&alice)
+        .await;
+    s.post("create: without session", &boards)
+        .json(json!({"teamId": "0", "type": "P"}))
+        .await;
+    s.post("create: malformed body", &boards)
+        .raw(b"{nope")
+        .user(&alice)
+        .await;
+    let board = new_board(
+        s,
+        &alice,
+        "Roadmap",
+        "P",
+        json!({
+            "description": "plans",
+            "icon": "🎯",
+            "showDescription": true,
+            "properties": {"color": "blue"},
+            "cardProperties": [{"id": "prop1", "name": "Status", "type": "select", "options": []}],
+        }),
+    )
+    .await;
+    let open_board = new_board(s, &alice, "Open board", "O", json!({})).await;
+    let path = format!("{API}/boards/{board}");
+    let open_path = format!("{API}/boards/{open_board}");
+    let unknown = format!("{API}/boards/unknown-board");
+
+    s.get("get", &path).user(&alice).await;
+    s.get("get: non-member, private", &path).user(&bob).await;
+    s.get("get: non-member, open", &open_path).user(&bob).await;
+    s.get("get: anonymous", &path).await;
+    s.get("get: unknown board", &unknown).user(&alice).await;
+    s.get("list: member", &format!("{API}/teams/0/boards"))
+        .user(&alice)
+        .await;
+    s.get("list: other user", &format!("{API}/teams/0/boards"))
+        .user(&bob)
+        .await;
+    s.get("metadata", &format!("{path}/metadata"))
+        .user(&alice)
+        .await;
+
+    s.patch("patch", &path)
+        .json(json!({
+            "title": "Roadmap 2", "description": "new plans", "icon": "🚀", "showDescription": false,
+            "updatedProperties": {"color": "red", "size": 3}, "deletedProperties": [],
+            "updatedCardProperties": [{"id": "prop2", "name": "Owner", "type": "person", "options": []}],
+            "deletedCardProperties": [],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch: delete properties", &path)
+        .json(json!({"deletedProperties": ["size"], "deletedCardProperties": ["prop1"]}))
+        .user(&alice)
+        .await;
+    s.patch("patch: non-member", &path)
+        .json(json!({"title": "hijack"}))
+        .user(&bob)
+        .await;
+    s.patch("patch: bad type", &path)
+        .json(json!({"type": "Z"}))
+        .user(&alice)
+        .await;
+    s.patch("patch: to open", &path)
+        .json(json!({"type": "O"}))
+        .user(&alice)
+        .await;
+    s.patch("patch: back to private", &path)
+        .json(json!({"type": "P"}))
+        .user(&alice)
+        .await;
+    s.patch("patch: minimum role", &open_path)
+        .json(json!({"minimumRole": "editor"}))
+        .user(&alice)
+        .await;
+    s.patch("patch: unknown board", &unknown)
+        .json(json!({"title": "x"}))
+        .user(&alice)
+        .await;
+    s.patch("patch: malformed body", &path)
+        .raw(b"[")
+        .user(&alice)
+        .await;
+    s.get("get after patches", &path).user(&alice).await;
+
+    new_blocks(
+        s,
+        &alice,
+        &board,
+        json!([block(
+            "c1",
+            &board,
+            "card",
+            "A card",
+            "",
+            json!({"icon": "x"})
+        )]),
+        "insert a card",
+    )
+    .await;
+    let duplicate = s
+        .post("duplicate", &format!("{path}/duplicate"))
+        .user(&alice)
+        .await;
+    s.post(
+        "duplicate as template",
+        &format!("{path}/duplicate?asTemplate=true"),
+    )
+    .user(&alice)
+    .await;
+    s.post("duplicate: non-member", &format!("{path}/duplicate"))
+        .user(&bob)
+        .await;
+    s.post("duplicate: unknown board", &format!("{unknown}/duplicate"))
+        .user(&alice)
+        .await;
+    let copy = id_of(&duplicate.json()["boards"][0]);
+    s.get("blocks of the copy", &format!("{API}/boards/{copy}/blocks"))
+        .user(&alice)
+        .await;
+
+    s.delete("delete: non-member", &path).user(&bob).await;
+    s.delete("delete", &path).user(&alice).await;
+    s.get("get deleted", &path).user(&alice).await;
+    s.delete("delete again", &path).user(&alice).await;
+    s.post("undelete: other user", &format!("{path}/undelete"))
+        .user(&bob)
+        .await;
+    s.post("undelete", &format!("{path}/undelete"))
+        .user(&alice)
+        .await;
+    s.get("get undeleted", &path).user(&alice).await;
+    s.get("blocks after undelete", &format!("{path}/blocks"))
+        .user(&alice)
+        .await;
+    s.get("list at the end", &format!("{API}/teams/0/boards"))
+        .user(&alice)
+        .await;
+}
+
+pub(crate) async fn members(s: &mut Session) {
+    let [alice, bob, carol] = s.users("members", ["alice", "bob", "carol"]).await;
+    let board = new_board(s, &alice, "Team board", "P", json!({})).await;
+    let open_board = new_board(s, &alice, "Open board", "O", json!({})).await;
+    let bob_id = s.user_id(&bob).await;
+    let carol_id = s.user_id(&carol).await;
+    let alice_id = s.user_id(&alice).await;
+    let members = format!("{API}/boards/{board}/members");
+
+    s.get("list", &members).user(&alice).await;
+    s.get("list: non-member", &members).user(&bob).await;
+    s.post("add: non-member adds", &members)
+        .json(json!({"boardId": board, "userId": carol_id, "schemeEditor": true}))
+        .user(&bob)
+        .await;
+    s.post("add editor", &members)
+        .json(json!({"boardId": board, "userId": bob_id, "schemeEditor": true}))
+        .user(&alice)
+        .await;
+    s.post("add: no user", &members)
+        .json(json!({"boardId": board}))
+        .user(&alice)
+        .await;
+    s.post("add: unknown user", &members)
+        .json(json!({"boardId": board, "userId": "unknown-user", "schemeViewer": true}))
+        .user(&alice)
+        .await;
+    s.post("add: editor adds", &members)
+        .json(json!({"boardId": board, "userId": carol_id, "schemeViewer": true}))
+        .user(&bob)
+        .await;
+    s.post("add viewer", &members)
+        .json(json!({"boardId": board, "userId": carol_id, "schemeViewer": true}))
+        .user(&alice)
+        .await;
+    s.post("add: already a member", &members)
+        .json(json!({"boardId": board, "userId": carol_id, "schemeAdmin": true}))
+        .user(&alice)
+        .await;
+    s.get("list after adding", &members).user(&bob).await;
+    s.get(
+        "memberships of the editor",
+        &format!("{API}/users/me/memberships"),
+    )
+    .user(&bob)
+    .await;
+
+    s.put("update: to commenter", &format!("{members}/{carol_id}"))
+        .json(json!({"boardId": board, "userId": carol_id, "schemeCommenter": true}))
+        .user(&alice)
+        .await;
+    s.put("update: by editor", &format!("{members}/{carol_id}"))
+        .json(json!({"boardId": board, "userId": carol_id, "schemeAdmin": true}))
+        .user(&bob)
+        .await;
+    s.put(
+        "update: demote the last admin",
+        &format!("{members}/{alice_id}"),
+    )
+    .json(json!({"boardId": board, "userId": alice_id, "schemeEditor": true}))
+    .user(&alice)
+    .await;
+    s.put("update: unknown member", &format!("{members}/unknown-user"))
+        .json(json!({"boardId": board, "userId": "unknown-user", "schemeEditor": true}))
+        .user(&alice)
+        .await;
+
+    s.delete("delete: by editor", &format!("{members}/{carol_id}"))
+        .user(&bob)
+        .await;
+    s.delete("delete: the last admin", &format!("{members}/{alice_id}"))
+        .user(&alice)
+        .await;
+    s.delete("delete", &format!("{members}/{carol_id}"))
+        .user(&alice)
+        .await;
+    s.delete("delete: not a member", &format!("{members}/{carol_id}"))
+        .user(&alice)
+        .await;
+
+    s.post("join: private board", &format!("{API}/boards/{board}/join"))
+        .user(&carol)
+        .await;
+    s.post(
+        "join: open board",
+        &format!("{API}/boards/{open_board}/join"),
+    )
+    .user(&carol)
+    .await;
+    s.post("join: again", &format!("{API}/boards/{open_board}/join"))
+        .user(&carol)
+        .await;
+    s.post(
+        "join: unknown board",
+        &format!("{API}/boards/unknown-board/join"),
+    )
+    .user(&carol)
+    .await;
+    s.post("leave", &format!("{API}/boards/{open_board}/leave"))
+        .user(&carol)
+        .await;
+    s.post(
+        "leave: not a member",
+        &format!("{API}/boards/{open_board}/leave"),
+    )
+    .user(&carol)
+    .await;
+    s.post(
+        "leave: the last admin",
+        &format!("{API}/boards/{open_board}/leave"),
+    )
+    .user(&alice)
+    .await;
+    s.get("members at the end", &members).user(&alice).await;
+}
+
+pub(crate) async fn boards_and_blocks(s: &mut Session) {
+    let [alice, bob] = s.users("bab", ["alice", "bob"]).await;
+    let path = format!("{API}/boards-and-blocks");
+    let body = json!({
+        "boards": [
+            {"id": "board-a", "teamId": "0", "type": "P", "title": "Board A"},
+            {"id": "board-b", "teamId": "0", "type": "O", "title": "Board B"},
+        ],
+        "blocks": [
+            block("blk-a", "board-a", "card", "Card A", "", json!({})),
+            block("blk-b", "board-b", "card", "Card B", "", json!({})),
+        ],
+    });
+    let created = s
+        .post("create", &path)
+        .json(body.clone())
+        .user(&alice)
+        .await;
+    let created = created.json();
+    let board_a = id_by_title(&created["boards"], "Board A");
+    let board_b = id_by_title(&created["boards"], "Board B");
+    let card_a = id_by_title(&created["blocks"], "Card A");
+    let card_b = id_by_title(&created["blocks"], "Card B");
+
+    s.post("create: no boards", &path)
+        .json(json!({"boards": [], "blocks": []}))
+        .user(&alice)
+        .await;
+    s.post("create: block of another board", &path)
+        .json(json!({
+            "boards": [{"id": "b1", "teamId": "0", "type": "P"}],
+            "blocks": [block("k1", "elsewhere", "card", "", "", json!({}))],
+        }))
+        .user(&alice)
+        .await;
+    s.post("create: boards of two teams", &path)
+        .json(json!({
+            "boards": [{"id": "b1", "teamId": "0", "type": "P"}, {"id": "b2", "teamId": "1", "type": "P"}],
+            "blocks": [],
+        }))
+        .user(&alice)
+        .await;
+    s.post("create: board without type", &path)
+        .json(json!({"boards": [{"id": "b1", "teamId": "0"}], "blocks": []}))
+        .user(&alice)
+        .await;
+    s.post("create: malformed body", &path)
+        .raw(b"{")
+        .user(&alice)
+        .await;
+    s.post("create: without session", &path).json(body).await;
+
+    s.patch("patch", &path)
+        .json(json!({
+            "boardIDs": [board_a, board_b],
+            "boardPatches": [{"title": "Board A2"}, {"description": "about B"}],
+            "blockIDs": [card_a, card_b],
+            "blockPatches": [{"title": "Card A2"}, {"updatedFields": {"icon": "z"}}],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch: counts differ", &path)
+        .json(json!({
+            "boardIDs": [board_a], "boardPatches": [], "blockIDs": [card_a], "blockPatches": [{"title": "x"}],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch: no boards", &path)
+        .json(json!({
+            "boardIDs": [], "boardPatches": [], "blockIDs": [card_a], "blockPatches": [{"title": "x"}],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch: block of an unlisted board", &path)
+        .json(json!({
+            "boardIDs": [board_a], "boardPatches": [{"title": "x"}],
+            "blockIDs": [card_b], "blockPatches": [{"title": "x"}],
+        }))
+        .user(&alice)
+        .await;
+    s.patch("patch: non-member", &path)
+        .json(json!({
+            "boardIDs": [board_a], "boardPatches": [{"title": "hijack"}],
+            "blockIDs": [card_a], "blockPatches": [{"title": "x"}],
+        }))
+        .user(&bob)
+        .await;
+    s.patch("patch: unknown board", &path)
+        .json(json!({
+            "boardIDs": ["unknown-board"], "boardPatches": [{"title": "x"}], "blockIDs": [], "blockPatches": [],
+        }))
+        .user(&alice)
+        .await;
+    s.get("board a after patch", &format!("{API}/boards/{board_a}"))
+        .user(&alice)
+        .await;
+    s.get(
+        "blocks of b after patch",
+        &format!("{API}/boards/{board_b}/blocks"),
+    )
+    .user(&alice)
+    .await;
+
+    s.delete("delete: non-member", &path)
+        .json(json!({"boards": [board_a], "blocks": [card_a]}))
+        .user(&bob)
+        .await;
+    s.delete("delete: no boards", &path)
+        .json(json!({"boards": [], "blocks": [card_a]}))
+        .user(&alice)
+        .await;
+    s.delete("delete: block of an unlisted board", &path)
+        .json(json!({"boards": [board_a], "blocks": [card_b]}))
+        .user(&alice)
+        .await;
+    s.delete("delete: unknown board", &path)
+        .json(json!({"boards": ["unknown-board"], "blocks": []}))
+        .user(&alice)
+        .await;
+    s.delete("delete", &path)
+        .json(json!({"boards": [board_a, board_b], "blocks": [card_a, card_b]}))
+        .user(&alice)
+        .await;
+    s.get("board a after delete", &format!("{API}/boards/{board_a}"))
+        .user(&alice)
+        .await;
+}

@@ -1,0 +1,544 @@
+[
+  {
+    "name": "create board Cards",
+    "request": "POST /api/v2/boards as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardProperties": [],
+      "channelId": "",
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isTemplate": false,
+      "minimumRole": "",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "0",
+      "templateVersion": 0,
+      "title": "Cards",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "add viewer",
+    "request": "POST /api/v2/boards/<id:2>/members as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "minimumRole": "",
+      "roles": "",
+      "schemeAdmin": false,
+      "schemeCommenter": false,
+      "schemeEditor": false,
+      "schemeViewer": true,
+      "synthetic": false,
+      "userId": "<id:3>"
+    }
+  },
+  {
+    "name": "create",
+    "request": "POST /api/v2/boards/<id:2>/cards as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "a",
+        "b"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🃏",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p1": "v1"
+      },
+      "title": "Card one",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "create: quiet",
+    "request": "POST /api/v2/boards/<id:2>/cards?disable_notify=true as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "",
+      "id": "<id:5>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "title": "Card two",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "create: viewer",
+    "request": "POST /api/v2/boards/<id:2>/cards as cards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to create card",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "create: malformed body",
+    "request": "POST /api/v2/boards/<id:2>/cards as cards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "EOF while parsing an object at line 1 column 1",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "create: unknown board",
+    "request": "POST /api/v2/boards/unknown-board/cards as cards-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to create card",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "list",
+    "request": "GET /api/v2/boards/<id:2>/cards as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "contentOrder": [
+          "a",
+          "b"
+        ],
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "icon": "🃏",
+        "id": "<id:4>",
+        "isTemplate": false,
+        "modifiedBy": "<id:1>",
+        "properties": {
+          "p1": "v1"
+        },
+        "title": "Card one",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "contentOrder": [],
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "icon": "",
+        "id": "<id:5>",
+        "isTemplate": false,
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "title": "Card two",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "list: viewer",
+    "request": "GET /api/v2/boards/<id:2>/cards as cards-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "contentOrder": [
+          "a",
+          "b"
+        ],
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "icon": "🃏",
+        "id": "<id:4>",
+        "isTemplate": false,
+        "modifiedBy": "<id:1>",
+        "properties": {
+          "p1": "v1"
+        },
+        "title": "Card one",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "contentOrder": [],
+        "createAt": "<ts>",
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "icon": "",
+        "id": "<id:5>",
+        "isTemplate": false,
+        "modifiedBy": "<id:1>",
+        "properties": {},
+        "title": "Card two",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "list: bad page",
+    "request": "(observation)",
+    "status": 0,
+    "body": [
+      400,
+      "{\"error\":\"invalid `page` parameter: strconv.Atoi: parsing \\\"x\\\": invalid syntax\",\"errorCode\":400}",
+      "alone"
+    ]
+  },
+  {
+    "name": "list: unknown board",
+    "request": "GET /api/v2/boards/unknown-board/cards as cards-alice",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to fetch cards",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "get",
+    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "a",
+        "b"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🃏",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p1": "v1"
+      },
+      "title": "Card one",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "get: viewer",
+    "request": "GET /api/v2/cards/<id:4> as cards-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "a",
+        "b"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🃏",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p1": "v1"
+      },
+      "title": "Card one",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "get: unknown card",
+    "request": "GET /api/v2/cards/unknown-card as cards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "could not fetch card unknown-card: {block ID=unknown-card} not found",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "patch",
+    "request": "PATCH /api/v2/cards/<id:4> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "b",
+        "a"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🂡",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p2": "v2"
+      },
+      "title": "Card one, renamed",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "patch: viewer",
+    "request": "PATCH /api/v2/cards/<id:4> as cards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to patch card",
+      "errorCode": 403
+    }
+  },
+  {
+    "name": "patch: unknown card",
+    "request": "PATCH /api/v2/cards/unknown-card as cards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "could not fetch card unknown-card: {block ID=unknown-card} not found",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "patch: malformed body",
+    "request": "PATCH /api/v2/cards/<id:4> as cards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "EOF while parsing an object at line 1 column 1",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "get after patch",
+    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "b",
+        "a"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🂡",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p2": "v2"
+      },
+      "title": "Card one, renamed",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "insert content",
+    "request": "POST /api/v2/boards/<id:2>/blocks as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "boardId": "<id:2>",
+        "createAt": 1,
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:6>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:4>",
+        "schema": 1,
+        "title": "one",
+        "type": "text",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": 1,
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:7>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:4>",
+        "schema": 1,
+        "title": "three",
+        "type": "text",
+        "updateAt": "<ts>"
+      },
+      {
+        "boardId": "<id:2>",
+        "createAt": 1,
+        "createdBy": "<id:1>",
+        "deleteAt": 0,
+        "fields": {},
+        "id": "<id:8>",
+        "modifiedBy": "<id:1>",
+        "parentId": "<id:4>",
+        "schema": 1,
+        "title": "two",
+        "type": "text",
+        "updateAt": "<ts>"
+      }
+    ]
+  },
+  {
+    "name": "set content order",
+    "request": "PATCH /api/v2/cards/<id:4> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "<id:6>",
+        "<id:8>",
+        "<id:7>"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🂡",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p2": "v2"
+      },
+      "title": "Card one, renamed",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "move after",
+    "request": "POST /api/v2/content-blocks/<id:6>/moveto/after/<id:7> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "card after move",
+    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "<id:8>",
+        "<id:7>",
+        "<id:6>"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🂡",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p2": "v2"
+      },
+      "title": "Card one, renamed",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "move before",
+    "request": "POST /api/v2/content-blocks/<id:7>/moveto/before/<id:8> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {}
+  },
+  {
+    "name": "card after second move",
+    "request": "GET /api/v2/cards/<id:4> as cards-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "boardId": "<id:2>",
+      "contentOrder": [
+        "<id:7>",
+        "<id:8>",
+        "<id:6>"
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "icon": "🂡",
+      "id": "<id:4>",
+      "isTemplate": false,
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "p2": "v2"
+      },
+      "title": "Card one, renamed",
+      "updateAt": "<ts>"
+    }
+  },
+  {
+    "name": "move: bad direction",
+    "request": "POST /api/v2/content-blocks/<id:6>/moveto/sideways/<id:8> as cards-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "invalid where parameter, use before or after",
+      "errorCode": 400
+    }
+  },
+  {
+    "name": "move: unknown block",
+    "request": "POST /api/v2/content-blocks/unknown-block/moveto/after/<id:8> as cards-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{block ID=unknown-block} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "move: unknown target",
+    "request": "POST /api/v2/content-blocks/<id:6>/moveto/after/unknown-block as cards-alice",
+    "status": 404,
+    "content_type": "application/json",
+    "body": {
+      "error": "{block ID=unknown-block} not found",
+      "errorCode": 404
+    }
+  },
+  {
+    "name": "move: viewer",
+    "request": "POST /api/v2/content-blocks/<id:6>/moveto/after/<id:8> as cards-bob",
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "error": "access denied to modify board cards",
+      "errorCode": 403
+    }
+  }
+]
