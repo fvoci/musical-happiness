@@ -25,7 +25,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 3. **SQLite에서도 트랜잭션.** 원본은 SQLite에서 `@withTransaction` 메서드도 트랜잭션 없이 실행한다(`sqlstore/public_methods.go`). 포트는 실패 시 전부 되돌린다.
 4. **history 행이 충돌하지 않는다.** history 테이블의 기본 키는 `(id, insert_at)`이고 SQLite의 기본 `insert_at`은 밀리초 해상도라, 원본은 같은 레코드를 1ms 안에 두 번 쓰면 기본 키 충돌로 실패한다(원본 테스트에 `time.Sleep(1ms)` 회피 코드가 있다). 포트는 SQLite에서 프로세스 안에서 단조 증가하는 밀리초를, PostgreSQL에서 `clock_timestamp()`를 `insert_at`에 직접 넣는다.
 5. **이미지·첨부 블록 삭제가 동작한다.** 원본은 블록을 지울 때 `FileInfo`라는 테이블을 갱신하는데(`sqlstore/blocks.go:430`, `:987`), standalone에는 그 테이블이 없다. 오라클 확인: 이미지 블록, 또는 이미지를 가진 카드를 지우면 500 `no such table: FileInfo`가 나고 블록은 남는다(SQLite에서는 history에 삭제 행만 남는다). 포트는 접두사가 붙은 `file_info`의 `delete_at`을 갱신하고 삭제를 끝낸다.
-6. **사용자 설정(preferences)의 카테고리 값이 다르다.** → 루트 `PORTING.md`의 결정 항목 1.
+6. **사용자 설정(preferences)의 카테고리 값이 다르다.** → 루트 `PORTING.md`의 결정 항목 1. S6에서 정리됨: `fvoci`로 확정되어 항목을 닫았다.
 7. **`dbconfig`에서 모르는 파라미터는 시작 오류다.** 원본 드라이버는 조용히 무시하거나 드라이버별로 다르게 처리한다.
 8. **인메모리 SQLite는 스토어마다 따로다.** 원본은 `file::memory:?cache=shared`를 여는 모든 연결이 한 DB를 본다.
 9. **부분 결과와 오류를 함께 돌려주지 않는다.** 원본의 `GetBlocksByIDs`, `GetBoardsInTeamByIds`, `GetUsersList`는 일부만 찾았을 때 찾은 목록과 `ErrNotAllFound`를 함께 돌려준다. 포트는 오류만 돌려준다. 호출하는 쪽은 오류일 때 목록을 쓰지 않는다(`server/app/blocks.go:106`, `server/app/auth.go:72-75`).
@@ -198,8 +198,8 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 
 ## 결정 대기
 
-- 사용자 설정(preferences)의 카테고리 값: 루트 `PORTING.md`의 결정 항목 1. 포트는 `fvoci`를 쓰므로 원본이 쓴 설정과 서로 보이지 않는다(S5의 DB 왕복에서 이 한 항목만 "옮겨지지 않음"으로 등록).
-- 번들 SQLite의 보안 권고(RUSTSEC-2026-0459): sqlx 0.9.0이 수정된 `libsqlite3-sys`를 아직 받지 않아 `deny.toml`에 사유와 함께 예외로 등록했다. 공격자가 DB 파일과 `-wal` 파일을 직접 심을 수 있어야 성립한다.
+- 사용자 설정(preferences)의 카테고리 값: 루트 `PORTING.md`의 결정 항목 1. 포트는 `fvoci`를 쓰므로 원본이 쓴 설정과 서로 보이지 않는다(S5의 DB 왕복에서 이 한 항목만 "옮겨지지 않음"으로 등록). **S6에서 정리됨(2026-11-10): `fvoci`로 확정, 닫힘.**
+- 번들 SQLite의 보안 권고(RUSTSEC-2026-0459): sqlx 0.9.0이 수정된 `libsqlite3-sys`를 아직 받지 않아 `deny.toml`에 사유와 함께 예외로 등록했다. 공격자가 DB 파일과 `-wal` 파일을 직접 심을 수 있어야 성립한다. 조사한 내용과 해소 시점은 루트 `PORTING.md`의 "결정 4의 조사"에 있다(여전히 예외).
 
 ## 검증
 
