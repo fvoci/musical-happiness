@@ -20,6 +20,32 @@ export interface StartedBackend {
   asSomeoneElse?: () => Backend;
 }
 
+/** Where the in-memory backend keeps the reader's settings between visits. */
+const SETTINGS_KEY = 'fvoci:memory-settings';
+
+/**
+ * A world in memory starts from its seed on every visit, and with it the
+ * reader's account settings. So that a brightness or a time zone chosen in
+ * the settings is still there after a reload, as it would be with a server,
+ * the settings are kept on the device and given back to the new world.
+ */
+async function keepSettings(backend: Backend): Promise<void> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null') as object | null;
+    if (saved) await backend.patchSettings(saved);
+  } catch {
+    // Nothing kept, or something the backend refuses now: the defaults then.
+  }
+  backend.watchSelf((change) => {
+    if (change.kind !== 'settings') return;
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(change.settings));
+    } catch {
+      // Without storage the settings last for the visit.
+    }
+  });
+}
+
 export async function startBackend(): Promise<StartedBackend> {
   const [{ MemoryBackend }, { loadTemplates, seedWorld }] = await Promise.all([
     import('$lib/state/memory/backend.ts'),
@@ -29,6 +55,7 @@ export async function startBackend(): Promise<StartedBackend> {
   const backend = new MemoryBackend(world, readerId);
   // Long enough to see that a change shows before it is answered.
   backend.latency = 40;
+  await keepSettings(backend);
   const otherId = [...world.users.keys()].find((id) => id !== readerId);
   const asSomeoneElse = otherId === undefined ? undefined : () => backend.as(otherId);
   // A handle for the browser tests and for trying things by hand in the

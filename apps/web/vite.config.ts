@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { svelteTesting } from '@testing-library/svelte/vite';
 import { defineConfig } from 'vitest/config';
 
+import { cspHashes } from './tools/build/inline-scripts.ts';
 import { checkHashedNames, precompress } from './tools/build/output.ts';
 import { thirdPartyNotices } from './tools/licenses/notices.ts';
 
@@ -26,6 +27,7 @@ export default defineConfig(({ command }) => ({
     thirdPartyNotices(),
     checkHashedNames(),
     precompress(),
+    cspHashes(),
   ],
   resolve: {
     alias: { $lib: path.resolve(import.meta.dirname, 'src/lib') },

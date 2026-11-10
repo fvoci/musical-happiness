@@ -19,6 +19,7 @@ import {
   DEFAULT_DISPLAY_SETTINGS,
   readDisplaySettings,
   resolveDisplay,
+  THEME_COLORS,
   type Display,
   type DisplaySettings,
 } from './logic/display.ts';
@@ -26,14 +27,6 @@ import { applyTheme } from './theme.svelte.ts';
 
 /** Where the device remembers the settings. index.html reads the same key. */
 export const DISPLAY_STORAGE_KEY = 'fvoci:display';
-
-/**
- * The colour of the page in each brightness, for the browser's bars
- * (`theme-color`). The same two values are in index.html, where the style
- * sheet is not there yet to ask; a test holds all of them to the
- * `--background` token.
- */
-export const THEME_COLORS = { light: '#ffffff', dark: '#0a0a0a' } as const;
 
 function remembered(): DisplaySettings {
   try {

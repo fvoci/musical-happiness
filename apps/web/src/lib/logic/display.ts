@@ -103,3 +103,11 @@ export function resolveDisplay(settings: DisplaySettings, device: DeviceTraits):
     vibration: settings.vibration,
   };
 }
+
+/**
+ * The colour of the page in each brightness, for the browser's own bars
+ * (`theme-color`). It has to be a plain colour: the element is read before
+ * and without the style sheet. The same two values are in index.html; a test
+ * holds all of them to the `--background` token.
+ */
+export const THEME_COLORS = { light: '#ffffff', dark: '#0a0a0a' } as const;
