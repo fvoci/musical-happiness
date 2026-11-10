@@ -214,6 +214,14 @@ impl AppError {
         self
     }
 
+    /// Names the limit the request went over: bytes for a body, a count for a
+    /// collection.
+    #[must_use]
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
     /// Says where the error came up, for the log. A server error carries it in its
     /// cause. What a client is told does not change: the words of the app layer about
     /// its own steps are not for clients.
@@ -273,6 +281,10 @@ impl From<StoreError> for AppError {
                 tracing::debug!(%error, "not found in the store");
                 Self::new(ErrorKind::NotFound, "not found")
             }
+            // More client state than one account keeps.
+            StoreError::TooManyPreferences { limit } => Self::bad_request(error)
+                .with_field("updatedFields")
+                .with_limit(u64::try_from(limit).unwrap_or(u64::MAX)),
             // A registration without the signup token that was not the first after all.
             StoreError::NotFirstUser => Self::forbidden("registration needs the signup token")
                 .with_reason(Reason::SignupTokenRequired)

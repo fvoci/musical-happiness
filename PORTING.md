@@ -257,7 +257,8 @@ S6에서 새로 본 것:
 | `909fb7eb` | **삭제와 복원(5.3), 외래 키.** 아래 "삭제와 복원에서 바뀐 것" | 385 → 426단계(새 시나리오 `trash` 41단계). 기존 385단계 가운데 26단계, 상태 코드는 1단계 |
 | `cb3fd0ce` | **세션 수명(5.4).** 한가함 한도 14일(`session_idle_days`)과 절대 한도 90일(`session_max_days`, 세션의 `expires_at`). 마지막 사용 시각은 마지막 기록에서 10분이 지났을 때만 쓴다(전에는 요청마다). 정리는 한 시간마다 돌고 끝난 세션을 바로 지운다(31일 하한이 없다). 비활성화된 사용자의 세션은 조회에서 걸러진다. `session_expire_time`, `session_refresh_time`은 설정이 아니다(값이 있으면 시작 오류로 새 키를 알려 준다). 테스트 `users::a_session_ends_when_it_was_not_used_for_the_idle_limit`, `…_at_its_absolute_limit_however_much_it_is_used`, `the_use_of_a_session_is_recorded_at_most_every_ten_minutes`, 스토어 `sessions::a_session_of_a_deactivated_user_is_not_found`. 자기 비밀번호를 바꿀 때 다른 세션을 끝내는 것은 `d4e10cb1`에 들어갔고, 지금의 세션에 새 토큰을 주는 것은 쿠키를 다시 줄 수 있는 인증 전달 단계에서 한다 | 변화 없음 |
 | `224ef584` | **관리자(3.6).** 아래 "관리자에서 바뀐 것" | 426 → 455단계(새 시나리오 `admins` 29단계). 기존 단계 가운데 8단계, 본문만 |
-| (이 커밋) | **서버가 만드는 공유 토큰(3.8).** 아래 "공유 토큰에서 바뀐 것" | 455 → 470단계(시나리오 `sharing`에 15단계). 기존 단계 가운데 11단계, 본문만 |
+| `b53d518e` | **서버가 만드는 공유 토큰(3.8).** 아래 "공유 토큰에서 바뀐 것" | 455 → 470단계(시나리오 `sharing`에 15단계). 기존 단계 가운데 11단계, 본문만 |
+| (이 커밋) | **사용자 표시 설정(5.8).** 아래 "표시 설정에서 바뀐 것" | 470 → 500단계(새 시나리오 `settings` 30단계). 기존 단계 가운데 4단계, 본문만 |
 
 **UUIDv7과 비밀 값에서 바뀐 것.**
 
@@ -300,6 +301,19 @@ S6에서 새로 본 것:
 | 가입·비밀번호 요청의 검증 오류가 `field`를 싣는다(`username`, `email`, `password`, `oldPassword`, `newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field` |
 
 스냅샷: `auth` 시나리오에 세 단계를 더했다(다른 기기에서 로그인, 비밀번호 변경 뒤 그 기기의 401, 바꾼 세션의 200). 본문이 바뀐 일곱 단계는 `field`가 붙은 여섯과 길이 한도의 문구 하나다. 아카이브 항목 이름의 정렬이 무작위 파일 이름에 흔들리지 않게 하네스의 정렬 기준을 고쳤다. 의존성: `argon2` 0.6, `sha2` 0.11을 더하고 `bcrypt`를 뺐다(`NOTICE` 다시 생성, `cargo deny` 통과). 검증: `cargo xtask check` 여섯 단계 PASS, `cargo xtask test` SQLite 790건·PostgreSQL 697건·S3 1건, 실패 0.
+
+**표시 설정에서 바뀐 것.** (2026-11-10 22:31 KST)
+
+| 바뀐 것 | 왜 | 어디 |
+|---|---|---|
+| **설정은 계정의 것이고 닫힌 집합이다.** `GET /users/me/settings`가 일곱 설정을 모두 답한다(저장된 값이 없으면 기본값): `timeZone`(`"auto"` 또는 IANA 이름), `weekStart`(auto·sunday·monday·saturday), `hourCycle`(auto·h12·h23), `theme`(auto·light·dark), `cardOpen`(center·side·full, 기본 center), `density`(auto·compact·comfortable), `haptics`(불리언, 기본 true). 뒤의 넷은 사용자가 구현 중에 더했다 | 설계 5.8의 C | `fvoci_model::{UserSettings, UserSettingsPatch}`(`crates/model/src/settings.rs`) |
+| `PATCH /users/me/settings`: 보낸 멤버만 바꾸고 모든 설정을 답한다. `null`은 기본값으로 되돌린다. 모르는 멤버(`locale`, `timezone`)와 그 설정이 가질 수 없는 값은 400이고 `field`가 그 멤버다. 한 멤버라도 틀리면 아무것도 저장되지 않는다. 값은 대소문자를 구별한다 | 같은 곳. 계약이 설정을 전부 말한다 | `api/users.rs` |
+| 시간대 이름은 바이너리에 넣은 IANA DB로 본다(`chrono-tz` 0.10). 옛 별칭(`Asia/Calcutta`)은 받아서 받은 그대로 저장한다. `"auto"`는 풀지 않는다 | 설계 5.8의 B. 배치마다 답이 같다 | `fvoci_model::TimeZone` |
+| **화면 상태의 주머니에 한도가 있다.** 지금의 `config` 라우트(`GET /users/me/config`, `PUT /users/{id}/config`)가 그 주머니다. 키는 `[A-Za-z0-9_.-]` 1–64자, 값은 4 KiB까지, 사용자당 100개. 넘으면 400(`field: updatedFields`, 개수는 `limit: 100`). 개수는 변경과 같은 트랜잭션에서 센다. 목록은 이름순이다(전에는 "건드리지 않은 것 먼저") | 설계 5.8. 전에는 아무 이름, 아무 크기, 아무 개수가 들어갔다 | `UserPreferencesPatch::validate`, `StoreError::TooManyPreferences` |
+| 저장: 둘 다 `preferences` 테이블, `category`가 `settings`와 `client`다(전에는 하나, `fvoci`). 같은 이름의 설정과 주머니 항목은 서로 다른 것이다. 이 빌드가 모르는 설정 이름이나 읽지 못하는 값의 행은 건너뛰고 그 설정은 기본값이다 | 설계 5.8. 다른 빌드가 쓴 값이 설정 전체를 깨뜨리지 않는다 | `Store::{get_user_settings, patch_user_settings}` |
+| 오류 본문의 `limit`는 바이트(413)뿐 아니라 개수에도 쓴다 | 주머니의 한도를 알려 준다 | `AppError::with_limit` |
+
+**스냅샷.** 470 → 500단계. 새 시나리오 `settings`(30단계)가 기본값, 일곱 설정의 변경과 되돌리기, 설정마다의 거절 문구, 주머니의 한도를 고정한다. 기존 단계 가운데 4단계의 본문이 바뀌었다(주머니 항목의 `category`가 `fvoci`에서 `client`로). 권한 표 636칸은 그대로다. 테스트: 모델 단위 `settings::tests` 8개, API `users::settings_*`와 `client_state_*` 3개, 스토어 2개.
 
 **공유 토큰에서 바뀐 것.** (2026-11-10 22:20 KST)
 

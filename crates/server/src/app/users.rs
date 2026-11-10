@@ -1,6 +1,6 @@
 //! Users and their preferences.
 
-use fvoci_model::{User, UserPreferencesPatch};
+use fvoci_model::{User, UserPreferencesPatch, UserSettings, UserSettingsPatch};
 use fvoci_store::{AdminChange, InstanceRole, Preference};
 
 use super::App;
@@ -106,6 +106,35 @@ impl App {
         Ok(self.store().search_users_by_team(search_query).await?)
     }
 
+    /// Returns what a user has set about how things are shown to them; what was never
+    /// set is at its default.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the settings cannot be read.
+    pub async fn user_settings(&self, user_id: &str) -> Result<UserSettings, AppError> {
+        let stored = self.store().get_user_settings(user_id).await?;
+        Ok(settings_from(&stored))
+    }
+
+    /// Changes some of a user's settings and returns all of them as they are afterwards.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the settings cannot be written.
+    pub async fn patch_user_settings(
+        &self,
+        user_id: &str,
+        patch: &UserSettingsPatch,
+    ) -> Result<UserSettings, AppError> {
+        let (set, reset) = patch.changes();
+        let stored = self
+            .store()
+            .patch_user_settings(user_id, &set, &reset)
+            .await?;
+        Ok(settings_from(&stored))
+    }
+
     /// Applies a patch to a user's preferences and returns all of them.
     ///
     /// # Errors
@@ -140,6 +169,14 @@ impl App {
             user.last_name.clear();
         }
     }
+}
+
+fn settings_from(stored: &[(String, String)]) -> UserSettings {
+    UserSettings::from_stored(
+        stored
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str())),
+    )
 }
 
 /// Blanks the secrets of a user record.

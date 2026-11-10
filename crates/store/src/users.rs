@@ -5,7 +5,7 @@
 //! standalone store ignores the team, the guest and the visibility flags it is given
 //! (`server/services/store/sqlstore/user.go:105`, `:217` and `:226`).
 
-use fvoci_model::{User, UserPreferencesPatch};
+use fvoci_model::{CLIENT_STATE_MAX_ENTRIES, User, UserPreferencesPatch};
 use serde::{Deserialize, Serialize};
 
 use crate::Store;
@@ -47,12 +47,13 @@ pub enum AdminChange {
     LastAdmin,
 }
 
-/// The category under which this server files its user preferences.
-///
-/// The original files them under its own product name. The rename is deliberate: a
-/// database written by the original shows no user preferences here, and a database
-/// written here shows none there.
-const PREFERENCES_CATEGORY: &str = "fvoci";
+/// The category of the bag of state a client keeps with the account: names and values
+/// the server stores without knowing what they mean.
+const CLIENT_CATEGORY: &str = "client";
+
+/// The category of the settings: names and values the server knows and checks. The
+/// checking is the caller's; see `fvoci_model::UserSettings`.
+const SETTINGS_CATEGORY: &str = "settings";
 
 /// The most users a search returns.
 const SEARCH_LIMIT: i64 = 10;
@@ -372,15 +373,17 @@ impl Store {
         .await
     }
 
-    /// Sets and removes preferences of a user and returns the resulting preferences.
+    /// Sets and removes entries of the bag of client state of a user and returns the
+    /// bag as it is afterwards, by name.
     ///
-    /// The result lists the preferences the patch did not set, followed by the ones it
-    /// set in the order of their names. A name that is both set and removed ends up
-    /// removed. Either all changes are stored or none.
+    /// A name that is both set and removed ends up removed. Either all changes are
+    /// stored or none. Whether the names and values are ones the bag takes is the
+    /// caller's to check; how many there are is checked here, with the change.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails.
+    /// Returns [`StoreError::TooManyPreferences`] if the bag would hold more than
+    /// `fvoci_model::CLIENT_STATE_MAX_ENTRIES` entries; nothing is stored then.
     pub async fn patch_user_preferences(
         &self,
         user_id: &str,
@@ -390,7 +393,43 @@ impl Store {
             .await
     }
 
-    /// Returns the preferences of a user, in no particular order.
+    /// Returns what the user has set, as the `(name, value)` pairs that were stored, by
+    /// name. What the names and values mean is the caller's; see
+    /// `fvoci_model::UserSettings::from_stored`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn get_user_settings(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        self.with_conn(async |scope| stored_settings(scope, user_id).await)
+            .await
+    }
+
+    /// Stores the settings of `set`, removes the stored values of the settings named in
+    /// `reset`, and returns what is stored for the user afterwards, as
+    /// [`Store::get_user_settings`] does. All or nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a statement fails, as it does when there is
+    /// no such user.
+    pub async fn patch_user_settings(
+        &self,
+        user_id: &str,
+        set: &[(&str, &str)],
+        reset: &[&str],
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        self.transaction(async |scope| {
+            change_preferences(scope, user_id, SETTINGS_CATEGORY, set, reset).await?;
+            stored_settings(scope, user_id).await
+        })
+        .await
+    }
+
+    /// Returns the bag of client state of a user, by name.
     ///
     /// # Errors
     ///
@@ -564,14 +603,28 @@ async fn update_password(
     Ok(())
 }
 
-pub(crate) async fn get_user_preferences(
+async fn stored_settings(
     scope: &mut Scope<'_>,
     user_id: &str,
+) -> Result<Vec<(String, String)>, StoreError> {
+    Ok(preferences_in(scope, user_id, SETTINGS_CATEGORY)
+        .await?
+        .into_iter()
+        .map(|preference| (preference.name, preference.value))
+        .collect())
+}
+
+/// The preferences of a user in one category, by name.
+async fn preferences_in(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    category: &'static str,
 ) -> Result<Vec<Preference>, StoreError> {
     let mut sql =
         scope.sql("SELECT user_id, category, name, value FROM preferences WHERE user_id = ");
     sql.bind(Id(user_id))
-        .push_bind(" AND category = ", PREFERENCES_CATEGORY);
+        .push_bind(" AND category = ", category)
+        .push(" ORDER BY name");
     scope
         .fetch_all(sql)
         .await?
@@ -587,41 +640,61 @@ pub(crate) async fn get_user_preferences(
         .collect()
 }
 
+/// Stores values and removes others in one category of a user's preferences.
+async fn change_preferences(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+    category: &'static str,
+    set: &[(&str, &str)],
+    removed: &[&str],
+) -> Result<(), StoreError> {
+    for &(name, value) in set {
+        let mut sql =
+            scope.sql("INSERT INTO preferences (user_id, category, name, value) VALUES (");
+        sql.bind(Id(user_id))
+            .push_bind(", ", category)
+            .push_bind(", ", name)
+            .push_bind(", ", value)
+            .push(") ON CONFLICT (user_id, category, name) DO UPDATE SET value = EXCLUDED.value");
+        scope.execute(sql).await?;
+    }
+    for &name in removed {
+        let mut sql = scope.sql("DELETE FROM preferences WHERE user_id = ");
+        sql.bind(Id(user_id))
+            .push_bind(" AND category = ", category)
+            .push_bind(" AND name = ", name);
+        scope.execute(sql).await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn get_user_preferences(
+    scope: &mut Scope<'_>,
+    user_id: &str,
+) -> Result<Vec<Preference>, StoreError> {
+    preferences_in(scope, user_id, CLIENT_CATEGORY).await
+}
+
 pub(crate) async fn patch_user_preferences(
     scope: &mut Scope<'_>,
     user_id: &str,
     patch: &UserPreferencesPatch,
 ) -> Result<Vec<Preference>, StoreError> {
-    let mut preferences = get_user_preferences(scope, user_id).await?;
+    let set: Vec<(&str, &str)> = patch
+        .updated_fields
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let removed: Vec<&str> = patch.deleted_fields.iter().map(String::as_str).collect();
+    change_preferences(scope, user_id, CLIENT_CATEGORY, &set, &removed).await?;
 
-    for (name, value) in &patch.updated_fields {
-        let mut sql =
-            scope.sql("INSERT INTO preferences (user_id, category, name, value) VALUES (");
-        sql.bind(Id(user_id))
-            .push_bind(", ", PREFERENCES_CATEGORY)
-            .push_bind(", ", name)
-            .push_bind(", ", value)
-            .push(") ON CONFLICT (user_id, category, name) DO UPDATE SET value = EXCLUDED.value");
-        scope.execute(sql).await?;
-
-        preferences.retain(|existing| existing.name != *name);
-        preferences.push(Preference {
-            user_id: user_id.to_owned(),
-            category: PREFERENCES_CATEGORY.to_owned(),
-            name: name.clone(),
-            value: value.clone(),
+    // Counted after the change, in the transaction of the change: what would make the
+    // bag too full is not stored.
+    let preferences = get_user_preferences(scope, user_id).await?;
+    if preferences.len() > CLIENT_STATE_MAX_ENTRIES {
+        return Err(StoreError::TooManyPreferences {
+            limit: CLIENT_STATE_MAX_ENTRIES,
         });
     }
-
-    for name in &patch.deleted_fields {
-        let mut sql = scope.sql("DELETE FROM preferences WHERE user_id = ");
-        sql.bind(Id(user_id))
-            .push_bind(" AND category = ", PREFERENCES_CATEGORY)
-            .push_bind(" AND name = ", name);
-        scope.execute(sql).await?;
-
-        preferences.retain(|existing| existing.name != *name);
-    }
-
     Ok(preferences)
 }

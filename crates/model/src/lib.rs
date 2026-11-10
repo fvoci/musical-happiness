@@ -19,6 +19,7 @@ mod error_response;
 mod file_info;
 mod id;
 mod serde_util;
+mod settings;
 mod sharing;
 mod subscription;
 mod team;
@@ -55,6 +56,11 @@ pub use client_config::ClientConfig;
 pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
+pub use settings::{
+    CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
+    ClientStateError, Density, HourCycle, SettingName, SettingsError, Theme, TimeZone,
+    UserSettings, UserSettingsPatch, WeekStart, check_client_state_name, check_client_state_value,
+};
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::Team;

@@ -1,0 +1,405 @@
+[
+  {
+    "name": "get: defaults",
+    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "center",
+      "density": "auto",
+      "haptics": true,
+      "hourCycle": "auto",
+      "theme": "auto",
+      "timeZone": "auto",
+      "weekStart": "auto"
+    }
+  },
+  {
+    "name": "get: no session",
+    "request": "GET /api/v2/users/me/settings as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: every setting",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "side",
+      "density": "compact",
+      "haptics": false,
+      "hourCycle": "h23",
+      "theme": "dark",
+      "timeZone": "Asia/Seoul",
+      "weekStart": "monday"
+    }
+  },
+  {
+    "name": "get: as set",
+    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "side",
+      "density": "compact",
+      "haptics": false,
+      "hourCycle": "h23",
+      "theme": "dark",
+      "timeZone": "Asia/Seoul",
+      "weekStart": "monday"
+    }
+  },
+  {
+    "name": "get: another user",
+    "request": "GET /api/v2/users/me/settings as settings-bob",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "center",
+      "density": "auto",
+      "haptics": true,
+      "hourCycle": "auto",
+      "theme": "auto",
+      "timeZone": "auto",
+      "weekStart": "auto"
+    }
+  },
+  {
+    "name": "patch: one setting, two back to their defaults",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "full",
+      "density": "compact",
+      "haptics": true,
+      "hourCycle": "h23",
+      "theme": "auto",
+      "timeZone": "Asia/Seoul",
+      "weekStart": "monday"
+    }
+  },
+  {
+    "name": "patch: nothing",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "full",
+      "density": "compact",
+      "haptics": true,
+      "hourCycle": "h23",
+      "theme": "auto",
+      "timeZone": "Asia/Seoul",
+      "weekStart": "monday"
+    }
+  },
+  {
+    "name": "patch: an old name of a time zone",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "full",
+      "density": "compact",
+      "haptics": true,
+      "hourCycle": "h23",
+      "theme": "auto",
+      "timeZone": "Asia/Calcutta",
+      "weekStart": "monday"
+    }
+  },
+  {
+    "name": "patch: no such time zone",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "timeZone",
+      "message": "timeZone must be \"auto\" or the name of an IANA time zone",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: a time zone in other letters",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "timeZone",
+      "message": "timeZone must be \"auto\" or the name of an IANA time zone",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: no such week start",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "weekStart",
+      "message": "weekStart must be one of \"auto\", \"sunday\", \"monday\", \"saturday\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: no such hour cycle",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "hourCycle",
+      "message": "hourCycle must be one of \"auto\", \"h12\", \"h23\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: no such theme",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "theme",
+      "message": "theme must be one of \"auto\", \"light\", \"dark\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: no such way to open a card",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "cardOpen",
+      "message": "cardOpen must be one of \"center\", \"side\", \"full\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: no such density",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "density",
+      "message": "density must be one of \"auto\", \"compact\", \"comfortable\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: haptics as a word",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "haptics",
+      "message": "haptics must be true or false",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: a number",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "theme",
+      "message": "theme must be one of \"auto\", \"light\", \"dark\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: no such setting",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "locale",
+      "message": "there is no setting \"locale\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: one valid, one not",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "theme",
+      "message": "theme must be one of \"auto\", \"light\", \"dark\"",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: not an object",
+    "request": "PATCH /api/v2/users/me/settings as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "message": "the request body is not a JSON object",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "patch: no session",
+    "request": "PATCH /api/v2/users/me/settings as anonymous",
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "error": "unauthorized",
+      "message": "no session token",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "get: after the refusals",
+    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "full",
+      "density": "compact",
+      "haptics": true,
+      "hourCycle": "h23",
+      "theme": "auto",
+      "timeZone": "Asia/Calcutta",
+      "weekStart": "monday"
+    }
+  },
+  {
+    "name": "client state: set",
+    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "category": "client",
+        "name": "theme",
+        "user_id": "<id:1>",
+        "value": "of-the-client"
+      },
+      {
+        "category": "client",
+        "name": "tour.step",
+        "user_id": "<id:1>",
+        "value": "2"
+      }
+    ]
+  },
+  {
+    "name": "client state: get",
+    "request": "GET /api/v2/users/me/config as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "category": "client",
+        "name": "theme",
+        "user_id": "<id:1>",
+        "value": "of-the-client"
+      },
+      {
+        "category": "client",
+        "name": "tour.step",
+        "user_id": "<id:1>",
+        "value": "2"
+      }
+    ]
+  },
+  {
+    "name": "get: untouched by the client state",
+    "request": "GET /api/v2/users/me/settings as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "cardOpen": "full",
+      "density": "compact",
+      "haptics": true,
+      "hourCycle": "h23",
+      "theme": "auto",
+      "timeZone": "Asia/Calcutta",
+      "weekStart": "monday"
+    }
+  },
+  {
+    "name": "client state: a name with a space",
+    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "updatedFields",
+      "message": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "client state: a name that is too long",
+    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "updatedFields",
+      "message": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "client state: a value that is too long",
+    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "updatedFields",
+      "message": "the value of an entry is at most 4096 bytes",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "client state: more entries than the bag holds",
+    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "error": "bad_request",
+      "field": "updatedFields",
+      "limit": 100,
+      "message": "a user keeps at most 100 entries of client state",
+      "request_id": "<request-id>"
+    }
+  },
+  {
+    "name": "client state: remove",
+    "request": "PUT /api/v2/users/<id:1>/config as settings-alice",
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "category": "client",
+        "name": "tour.step",
+        "user_id": "<id:1>",
+        "value": "2"
+      }
+    ]
+  }
+]

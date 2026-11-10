@@ -7,9 +7,11 @@
 use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest, Session, User, new_id};
 use fvoci_server::auth::secret::new_secret;
 use reqwest::StatusCode;
-use serde_json::json;
+use serde_json::{Value, json};
 
-use crate::common::{PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
+use crate::common::{
+    PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID, USER1_USERNAME,
+};
 
 const FAKE_USERNAME: &str = "fakeUsername";
 const FAKE_EMAIL: &str = "mock@test.com";
@@ -637,6 +639,233 @@ async fn user_preferences() {
             .await
             .check_error(StatusCode::NOT_FOUND, "user not found");
     }
+
+    th.teardown().await;
+}
+
+// -- settings and the bag of client state ----------------------------------------------
+
+const SETTINGS: &str = "/users/me/settings";
+
+/// `GET /users/me/settings` answers every setting; what was never set has its default.
+/// `PATCH` changes the settings it names, answers all of them, and `null` puts a setting
+/// back. Settings are the account's: another session of the user reads the same.
+#[tokio::test]
+async fn settings_are_read_changed_and_reset() {
+    let th = Setup::native().start().await.init_basic().await;
+    let defaults = json!({
+        "timeZone": "auto", "weekStart": "auto", "hourCycle": "auto",
+        "theme": "auto", "cardOpen": "center", "density": "auto", "haptics": true,
+    });
+
+    assert_eq!(th.client.get(SETTINGS).await.value(), defaults, "defaults");
+
+    let changed = th
+        .client
+        .patch(
+            SETTINGS,
+            &json!({
+                "timeZone": "Asia/Seoul", "weekStart": "monday", "hourCycle": "h23",
+                "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
+            }),
+        )
+        .await;
+    changed.check_ok();
+    let all_set = json!({
+        "timeZone": "Asia/Seoul", "weekStart": "monday", "hourCycle": "h23",
+        "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
+    });
+    assert_eq!(changed.value(), all_set, "the answer is every setting");
+    assert_eq!(th.client.get(SETTINGS).await.value(), all_set, "as stored");
+    let elsewhere = th.login(USER1_USERNAME, PASSWORD).await;
+    assert_eq!(
+        elsewhere.get(SETTINGS).await.value(),
+        all_set,
+        "another session of the user has the same settings"
+    );
+    assert_eq!(
+        th.client2.get(SETTINGS).await.value(),
+        defaults,
+        "another user has their own"
+    );
+
+    // What the change does not name stays; `null` puts a setting back to its default.
+    let partly = th
+        .client
+        .patch(
+            SETTINGS,
+            &json!({"theme": null, "haptics": null, "cardOpen": "full"}),
+        )
+        .await
+        .value();
+    assert_eq!(
+        partly,
+        json!({
+            "timeZone": "Asia/Seoul", "weekStart": "monday", "hourCycle": "h23",
+            "theme": "auto", "cardOpen": "full", "density": "compact", "haptics": true,
+        }),
+        "two put back, one changed, the rest as they were"
+    );
+    assert_eq!(
+        th.client.patch(SETTINGS, &json!({})).await.value(),
+        partly,
+        "a change of nothing answers the settings"
+    );
+
+    th.anonymous().get(SETTINGS).await.check_unauthorized();
+    th.anonymous()
+        .patch(SETTINGS, &json!({"theme": "dark"}))
+        .await
+        .check_unauthorized();
+
+    th.teardown().await;
+}
+
+/// The settings are a closed set, and so are their values. What is no setting, and what
+/// is no value of one, is refused with the member that is wrong, and changes nothing:
+/// not even the valid members of the same request.
+#[tokio::test]
+async fn settings_refuse_what_is_no_setting_or_no_value_of_one() {
+    let th = Setup::native().start().await.init_basic().await;
+    let before = th
+        .client
+        .patch(SETTINGS, &json!({"density": "comfortable"}))
+        .await
+        .value();
+
+    let refused = [
+        (json!({"timeZone": "Mars/Olympus_Mons"}), "timeZone"),
+        (json!({"timeZone": "asia/seoul"}), "timeZone"),
+        (json!({"timeZone": ""}), "timeZone"),
+        (json!({"weekStart": "tuesday"}), "weekStart"),
+        (json!({"hourCycle": "h24"}), "hourCycle"),
+        (json!({"theme": "sepia"}), "theme"),
+        (json!({"theme": "Dark"}), "theme"),
+        (json!({"cardOpen": "auto"}), "cardOpen"),
+        (json!({"density": "cozy"}), "density"),
+        (json!({"haptics": "true"}), "haptics"),
+        (json!({"haptics": 1}), "haptics"),
+        (json!({"theme": 3}), "theme"),
+        (json!({"locale": "ko"}), "locale"),
+        (json!({"timezone": "auto"}), "timezone"),
+        (json!({"density": "compact", "theme": "sepia"}), "theme"),
+    ];
+    for (body, field) in &refused {
+        let response = th.client.patch(SETTINGS, body).await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], json!(field), "{body}");
+    }
+    let response = th
+        .client
+        .patch(SETTINGS, &json!({"cardOpen": "auto"}))
+        .await;
+    response.check_error(
+        StatusCode::BAD_REQUEST,
+        "cardOpen must be one of \"center\", \"side\", \"full\"",
+    );
+    let response = th.client.patch(SETTINGS, &json!({"locale": "ko"})).await;
+    response.check_error(StatusCode::BAD_REQUEST, "there is no setting \"locale\"");
+    for body in ["[]", "null", "5", "{"] {
+        th.client
+            .send_raw_body(reqwest::Method::PATCH, SETTINGS, body)
+            .await
+            .check_bad_request();
+    }
+
+    assert_eq!(
+        th.client.get(SETTINGS).await.value(),
+        before,
+        "none of these changed anything"
+    );
+    // Names the time zone database keeps for compatibility are names, kept as given.
+    let old_name = th
+        .client
+        .patch(SETTINGS, &json!({"timeZone": "Asia/Calcutta"}))
+        .await
+        .value();
+    assert_eq!(old_name["timeZone"], json!("Asia/Calcutta"));
+
+    th.teardown().await;
+}
+
+/// The bag of client state takes names and values the server does not know, within
+/// bounds: the characters and length of a name, the size of a value, and how many
+/// entries there are. A setting and an entry of the bag do not touch each other.
+#[tokio::test]
+async fn client_state_is_bounded_and_apart_from_the_settings() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user = th.client.me().await;
+    let path = format!("/users/{}/config", user.id);
+    let put = async |updated: Value| {
+        th.client
+            .put(&path, &json!({"updatedFields": updated}))
+            .await
+    };
+
+    put(json!({"theme": "of-the-client", "tour.step-1_x": "1"}))
+        .await
+        .check_ok();
+    assert_eq!(
+        th.client.get(SETTINGS).await.value()["theme"],
+        json!("auto"),
+        "an entry of the bag named like a setting is no setting"
+    );
+    th.client
+        .patch(SETTINGS, &json!({"theme": "dark"}))
+        .await
+        .check_ok();
+    let bag = th.client.get("/users/me/config").await.value();
+    let names: Vec<&str> = bag
+        .as_array()
+        .expect("the bag is a list")
+        .iter()
+        .filter_map(|entry| entry["name"].as_str())
+        .collect();
+    assert_eq!(names, ["theme", "tour.step-1_x"], "the bag, by name: {bag}");
+    assert_eq!(bag[0]["value"], json!("of-the-client"), "untouched: {bag}");
+
+    for name in ["", "with space", "키", "a/b", &"n".repeat(65)] {
+        let response = put(json!({name: "v"})).await;
+        response.check_bad_request();
+        assert_eq!(
+            response.value()["field"],
+            json!("updatedFields"),
+            "{name:?}"
+        );
+    }
+    put(json!({"n".repeat(64): "v".repeat(4096)}))
+        .await
+        .check_ok();
+    let response = put(json!({"big": "v".repeat(4097)})).await;
+    response.check_error(
+        StatusCode::BAD_REQUEST,
+        "the value of an entry is at most 4096 bytes",
+    );
+
+    // The bag holds a hundred entries; three are there.
+    let many = |range: std::ops::Range<usize>| -> Value {
+        range
+            .map(|index| (format!("entry-{index}"), json!("v")))
+            .collect::<serde_json::Map<String, Value>>()
+            .into()
+    };
+    put(many(0..97)).await.check_ok();
+    let response = put(many(97..98)).await;
+    response.check_error(
+        StatusCode::BAD_REQUEST,
+        "a user keeps at most 100 entries of client state",
+    );
+    assert_eq!(response.value()["limit"], json!(100), "the limit is told");
+    assert_eq!(
+        th.client
+            .get("/users/me/config")
+            .await
+            .value()
+            .as_array()
+            .map(Vec::len),
+        Some(100),
+        "the refused entry was not stored"
+    );
 
     th.teardown().await;
 }

@@ -11,6 +11,13 @@ pub enum StoreError {
     #[error("{{{0}}} not found")]
     NotFound(String),
 
+    /// A change would leave a user with more entries of client state than there may be.
+    #[error("a user keeps at most {limit} entries of client state")]
+    TooManyPreferences {
+        /// The most entries a user may keep.
+        limit: usize,
+    },
+
     /// A user tried to register without the signup token although the instance has
     /// its first user already.
     #[error("the first user has registered already")]

@@ -295,19 +295,19 @@
     "content_type": "application/json",
     "body": [
       {
-        "category": "fvoci",
+        "category": "client",
         "name": "onboardingTourStarted",
         "user_id": "<id:2>",
         "value": "1"
       },
       {
-        "category": "fvoci",
+        "category": "client",
         "name": "onboardingTourStep",
         "user_id": "<id:2>",
         "value": "0"
       },
       {
-        "category": "fvoci",
+        "category": "client",
         "name": "tourCategory",
         "user_id": "<id:2>",
         "value": "onboarding"

@@ -802,8 +802,8 @@ async fn updates_of_missing_users_fail() {
     test.teardown().await;
 }
 
-/// Preferences are kept per user under one category, and a patch returns the untouched
-/// ones first, then the updated ones.
+/// The bag of client state is kept per user, and a patch returns the bag as it is
+/// afterwards, by name.
 #[tokio::test]
 async fn user_preferences_are_per_user_and_ordered() {
     let test = common::setup().await;
@@ -842,20 +842,20 @@ async fn user_preferences_are_per_user_and_ordered() {
         .iter()
         .map(|preference| preference.name.as_str())
         .collect();
-    assert_eq!(names, ["c", "a", "d"], "untouched first, then updated");
+    assert_eq!(names, ["a", "c", "d"], "by name");
     assert_eq!(value_of(&patched, "a"), Some("4"));
     assert!(
         patched
             .iter()
-            .all(|preference| preference.user_id == user_a && preference.category == "fvoci"),
+            .all(|preference| preference.user_id == user_a && preference.category == "client"),
         "got {patched:?}"
     );
 
-    let mut stored = store.get_user_preferences(&user_a).await.unwrap();
-    stored.sort_by(|left, right| left.name.cmp(&right.name));
-    let mut returned = patched;
-    returned.sort_by(|left, right| left.name.cmp(&right.name));
-    assert_eq!(stored, returned, "the patch returns what is stored");
+    let stored = store.get_user_preferences(&user_a).await.unwrap();
+    assert_eq!(
+        stored, patched,
+        "the patch returns what is stored, in the same order"
+    );
 
     let other = store.get_user_preferences(&user_b).await.unwrap();
     assert_eq!(value_of(&other, "a"), Some("other"));
@@ -1627,6 +1627,141 @@ async fn of_two_administrators_who_step_down_at_once_one_stays() {
             .count();
         assert_eq!(admins, 1, "round {round}: and one administrator is left");
     }
+
+    test.teardown().await;
+}
+
+// -- settings and the bag of client state ----------------------------------------------
+
+/// Settings are stored as names and values, per user, apart from the bag of client
+/// state: a setting and an entry of the bag may have the same name. Setting replaces,
+/// resetting removes, and what is stored afterwards is returned by name.
+#[tokio::test]
+async fn settings_are_stored_per_user_and_apart_from_client_state() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_a = common::user(store, "user-a").await;
+    let user_b = common::user(store, "user-b").await;
+    let pairs = |stored: &[(String, String)]| -> Vec<(String, String)> { stored.to_vec() };
+    let owned = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+
+    assert_eq!(
+        store.get_user_settings(&user_a).await.unwrap(),
+        [],
+        "nothing is set to begin with"
+    );
+    let after = store
+        .patch_user_settings(&user_a, &[("theme", "dark"), ("density", "compact")], &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        pairs(&after),
+        [owned("density", "compact"), owned("theme", "dark")],
+        "what is stored, by name"
+    );
+    let after = store
+        .patch_user_settings(&user_a, &[("theme", "light")], &["density", "haptics"])
+        .await
+        .unwrap();
+    assert_eq!(
+        pairs(&after),
+        [owned("theme", "light")],
+        "set replaces, reset removes, and resetting what is not stored does nothing"
+    );
+    assert_eq!(
+        store.get_user_settings(&user_a).await.unwrap(),
+        after,
+        "the patch returns what is stored"
+    );
+    assert_eq!(
+        store.get_user_settings(&user_b).await.unwrap(),
+        [],
+        "another user's settings are their own"
+    );
+
+    // An entry of the bag with the name of a setting is another thing.
+    let bag = UserPreferencesPatch {
+        updated_fields: BTreeMap::from([("theme".to_owned(), "of-the-client".to_owned())]),
+        ..UserPreferencesPatch::default()
+    };
+    let entries = store.patch_user_preferences(&user_a, &bag).await.unwrap();
+    assert_eq!(value_of(&entries, "theme"), Some("of-the-client"));
+    assert_eq!(
+        store.get_user_settings(&user_a).await.unwrap(),
+        [owned("theme", "light")],
+        "the setting is untouched by the bag"
+    );
+    store
+        .patch_user_settings(&user_a, &[], &["theme"])
+        .await
+        .unwrap();
+    let entries = store.get_user_preferences(&user_a).await.unwrap();
+    assert_eq!(
+        value_of(&entries, "theme"),
+        Some("of-the-client"),
+        "and the bag by the setting"
+    );
+
+    // Settings of a user that does not exist are not stored.
+    let error = store
+        .patch_user_settings(&new_id(), &[("theme", "dark")], &[])
+        .await
+        .unwrap_err();
+    assert!(common::refused_over_a_foreign_key(&error), "got {error:?}");
+
+    test.teardown().await;
+}
+
+/// The bag of client state holds a bounded number of entries. A change that would leave
+/// more is refused whole; replacing and removing entries of a full bag still works.
+#[tokio::test]
+async fn the_bag_of_client_state_is_bounded() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "collector").await;
+    let limit = fvoci_model::CLIENT_STATE_MAX_ENTRIES;
+    let entries = |range: std::ops::Range<usize>| UserPreferencesPatch {
+        updated_fields: range
+            .map(|index| (format!("entry-{index:03}"), "v".to_owned()))
+            .collect(),
+        ..UserPreferencesPatch::default()
+    };
+
+    let full = store
+        .patch_user_preferences(&user_id, &entries(0..limit))
+        .await
+        .expect("as many entries as the bag holds");
+    assert_eq!(full.len(), limit, "the bag is full");
+
+    let error = store
+        .patch_user_preferences(&user_id, &entries(limit - 1..limit + 1))
+        .await
+        .expect_err("one more than the bag holds");
+    assert!(
+        matches!(error, StoreError::TooManyPreferences { limit: said } if said == limit),
+        "got {error:?}"
+    );
+    let stored = store.get_user_preferences(&user_id).await.unwrap();
+    assert_eq!(stored, full, "nothing of the refused change was stored");
+
+    // Replacing an entry, and adding one while removing another, fit.
+    let mut swap = entries(limit..limit + 1);
+    swap.updated_fields
+        .insert("entry-000".to_owned(), "replaced".to_owned());
+    swap.deleted_fields.push("entry-001".to_owned());
+    let swapped = store
+        .patch_user_preferences(&user_id, &swap)
+        .await
+        .expect("as many entries as before");
+    assert_eq!(swapped.len(), limit, "still full");
+    assert_eq!(value_of(&swapped, "entry-000"), Some("replaced"));
+    assert_eq!(value_of(&swapped, "entry-001"), None);
+
+    // Settings are not entries of the bag: a full bag does not keep them out.
+    store
+        .patch_user_settings(&user_id, &[("theme", "dark")], &[])
+        .await
+        .expect("a setting is stored next to a full bag");
 
     test.teardown().await;
 }

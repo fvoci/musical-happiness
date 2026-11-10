@@ -6,6 +6,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::serde_util::{is_zero, null_as_default};
+use crate::settings::{ClientStateError, check_client_state_name, check_client_state_value};
 
 /// A user account.
 ///
@@ -81,16 +82,35 @@ impl fmt::Debug for User {
     }
 }
 
-/// A partial update of a user's preferences.
+/// A change to the bag of state a client keeps with the account: entries the server
+/// stores without knowing what they mean.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UserPreferencesPatch {
-    /// Preferences to set, by name.
+    /// Entries to set, by name.
     #[serde(deserialize_with = "null_as_default")]
     pub updated_fields: BTreeMap<String, String>,
-    /// Names of preferences to remove.
+    /// Names of entries to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_fields: Vec<String>,
+}
+
+impl UserPreferencesPatch {
+    /// Checks that every name the change sets and every value it sets it to is one the
+    /// bag takes. Names to remove are not checked: removing what cannot be there
+    /// removes nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns what is wrong with the first entry, in the order of the names, that the
+    /// bag does not take.
+    pub fn validate(&self) -> Result<(), ClientStateError> {
+        for (name, value) in &self.updated_fields {
+            check_client_state_name(name)?;
+            check_client_state_value(value)?;
+        }
+        Ok(())
+    }
 }
 
 /// A login session, as the server keeps it. The token the client presents is not part

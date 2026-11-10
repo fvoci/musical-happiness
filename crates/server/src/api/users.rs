@@ -4,11 +4,14 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::routing::{get, post, put};
-use fvoci_model::{User, UserPreferencesPatch};
+use fvoci_model::{User, UserPreferencesPatch, UserSettingsPatch};
 use fvoci_store::InstanceRole;
 use serde::Deserialize;
 
-use super::{ApiResult, RequiredSession, decode_json, decode_object, json_response, require_admin};
+use super::{
+    ApiResult, RequiredSession, decode_json, decode_object, json_object, json_response,
+    require_admin,
+};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -18,6 +21,10 @@ pub(super) fn routes() -> Router<App> {
         .route("/users/me", get(handle_get_me))
         .route("/users/me/memberships", get(handle_get_my_memberships))
         .route("/users/me/config", get(handle_get_user_preferences))
+        .route(
+            "/users/me/settings",
+            get(handle_get_user_settings).patch(handle_patch_user_settings),
+        )
         .route("/users/{user_id}", get(handle_get_user))
         .route("/users/{user_id}/admin", put(handle_set_user_admin))
         .route("/users/{user_id}/config", put(handle_update_user_config))
@@ -150,8 +157,38 @@ async fn handle_update_user_config(
         return Err(AppError::not_found(USER));
     }
     let patch: UserPreferencesPatch = decode_object(&body)?;
+    patch
+        .validate()
+        .map_err(|error| AppError::bad_request(error).with_field("updatedFields"))?;
     Ok(json_response(
         &app.update_user_config(&user_id, &patch).await?,
+    ))
+}
+
+/// `GET /users/me/settings`: what the user has set about how things are shown to them.
+/// Every setting is answered; what was never set has its default.
+async fn handle_get_user_settings(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+) -> ApiResult {
+    Ok(json_response(&app.user_settings(&session.user_id).await?))
+}
+
+/// `PATCH /users/me/settings`: changes the settings the body names and answers all of
+/// them. A member that is `null` puts its setting back to the default. A member that is
+/// no setting, or a value its setting cannot have, is refused and changes nothing.
+async fn handle_patch_user_settings(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    body: Bytes,
+) -> ApiResult {
+    let members = json_object(decode_json(&body)?)?;
+    let patch = UserSettingsPatch::from_members(&members).map_err(|error| {
+        let field = error.field().to_owned();
+        AppError::bad_request(error).with_field(&field)
+    })?;
+    Ok(json_response(
+        &app.patch_user_settings(&session.user_id, &patch).await?,
     ))
 }
 

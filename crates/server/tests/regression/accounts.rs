@@ -404,3 +404,105 @@ pub(crate) async fn admins(s: &mut Session) {
         .user(&bob)
         .await;
 }
+
+/// What a user has set about how things are shown to them, and the bag of client state
+/// next to it.
+pub(crate) async fn settings(s: &mut Session) {
+    let [alice, bob] = s.users("settings", ["alice", "bob"]).await;
+    let alice_id = s.user_id(&alice).await;
+    let path = format!("{API}/users/me/settings");
+    let bag = format!("{API}/users/{alice_id}/config");
+
+    s.get("get: defaults", &path).user(&alice).await;
+    s.get("get: no session", &path).await;
+    s.patch("patch: every setting", &path)
+        .json(json!({
+            "timeZone": "Asia/Seoul", "weekStart": "monday", "hourCycle": "h23",
+            "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
+        }))
+        .user(&alice)
+        .await;
+    s.get("get: as set", &path).user(&alice).await;
+    s.get("get: another user", &path).user(&bob).await;
+    s.patch("patch: one setting, two back to their defaults", &path)
+        .json(json!({"cardOpen": "full", "theme": null, "haptics": null}))
+        .user(&alice)
+        .await;
+    s.patch("patch: nothing", &path)
+        .json(json!({}))
+        .user(&alice)
+        .await;
+    s.patch("patch: an old name of a time zone", &path)
+        .json(json!({"timeZone": "Asia/Calcutta"}))
+        .user(&alice)
+        .await;
+
+    let refused: [(&str, Value); 12] = [
+        (
+            "no such time zone",
+            json!({"timeZone": "Mars/Olympus_Mons"}),
+        ),
+        (
+            "a time zone in other letters",
+            json!({"timeZone": "asia/seoul"}),
+        ),
+        ("no such week start", json!({"weekStart": "tuesday"})),
+        ("no such hour cycle", json!({"hourCycle": "h24"})),
+        ("no such theme", json!({"theme": "sepia"})),
+        ("no such way to open a card", json!({"cardOpen": "auto"})),
+        ("no such density", json!({"density": "cozy"})),
+        ("haptics as a word", json!({"haptics": "true"})),
+        ("a number", json!({"theme": 3})),
+        ("no such setting", json!({"locale": "ko"})),
+        (
+            "one valid, one not",
+            json!({"density": "comfortable", "theme": "sepia"}),
+        ),
+        ("not an object", json!(["theme"])),
+    ];
+    for (name, body) in refused {
+        s.patch(&format!("patch: {name}"), &path)
+            .json(body)
+            .user(&alice)
+            .await;
+    }
+    s.patch("patch: no session", &path)
+        .json(json!({"theme": "dark"}))
+        .await;
+    s.get("get: after the refusals", &path).user(&alice).await;
+
+    // The bag of client state: names and values the server does not know, within bounds.
+    s.put("client state: set", &bag)
+        .json(json!({"updatedFields": {"theme": "of-the-client", "tour.step": "2"}}))
+        .user(&alice)
+        .await;
+    s.get("client state: get", &format!("{API}/users/me/config"))
+        .user(&alice)
+        .await;
+    s.get("get: untouched by the client state", &path)
+        .user(&alice)
+        .await;
+    s.put("client state: a name with a space", &bag)
+        .json(json!({"updatedFields": {"with space": "1"}}))
+        .user(&alice)
+        .await;
+    s.put("client state: a name that is too long", &bag)
+        .json(json!({"updatedFields": {"n".repeat(65): "1"}}))
+        .user(&alice)
+        .await;
+    s.put("client state: a value that is too long", &bag)
+        .json(json!({"updatedFields": {"big": "v".repeat(4097)}}))
+        .user(&alice)
+        .await;
+    let many: serde_json::Map<String, Value> = (0..99)
+        .map(|index| (format!("entry-{index:02}"), json!("v")))
+        .collect();
+    s.put("client state: more entries than the bag holds", &bag)
+        .json(json!({"updatedFields": many}))
+        .user(&alice)
+        .await;
+    s.put("client state: remove", &bag)
+        .json(json!({"deletedFields": ["theme"]}))
+        .user(&alice)
+        .await;
+}
