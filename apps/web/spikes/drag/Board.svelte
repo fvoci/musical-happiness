@@ -32,6 +32,8 @@
   const ROW = 'board';
   /** The hidden column, which is a zone and not a list. */
   const ICEBOX = 'icebox';
+  /** No cards on their way: always this one array, so that nothing takes it for a change. */
+  const NONE: readonly string[] = [];
 
   const start = startFrom(location.search);
   const board = fakeBoard(start.sizes);
@@ -242,7 +244,7 @@
         <Column
           column={{ id, title: titles.get(id) ?? id }}
           cards={cardsOf(entry.list)}
-          draggedIds={cardDrag?.itemIds ?? []}
+          draggedIds={cardDrag?.itemIds ?? NONE}
           gapAt={cardDrag?.gap?.listId === id ? cardDrag.gap.index : -1}
           gapHeight={cardDrag?.height ?? 0}
           carried={cardDrag?.mode === 'keyboard' ? draggedCard : undefined}

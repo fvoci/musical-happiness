@@ -55,18 +55,31 @@
 
   type Entry = { kind: 'card'; card: Card } | { kind: 'gap' };
   const GAP_KEY = ' gap';
+  const GAP: Entry = { kind: 'gap' };
+
+  // One entry per card, the same object for as long as the cards are the
+  // same: when the gap moves, the list is put together again from these and
+  // no card is drawn anew.
+  const cardEntries = $derived(
+    cards.map((card): Entry & { kind: 'card' } => ({ kind: 'card', card })),
+  );
+  // Read through these, the list below is put together again only when the
+  // gap of this column or the dragged cards change, not on every move of a
+  // gap in another column.
+  const gap = $derived(gapAt);
+  const dragged = $derived(draggedIds);
 
   const entries = $derived.by(() => {
     const list: Entry[] = [];
     let others = 0;
-    for (const card of cards) {
-      if (!draggedIds.includes(card.id)) {
-        if (others === gapAt) list.push({ kind: 'gap' });
+    for (const entry of cardEntries) {
+      if (!dragged.includes(entry.card.id)) {
+        if (others === gap) list.push(GAP);
         others += 1;
       }
-      list.push({ kind: 'card', card });
+      list.push(entry);
     }
-    if (others === gapAt) list.push({ kind: 'gap' });
+    if (others === gap) list.push(GAP);
     return list;
   });
 </script>
