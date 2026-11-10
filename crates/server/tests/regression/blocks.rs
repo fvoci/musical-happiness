@@ -433,7 +433,8 @@ pub(crate) async fn cards(s: &mut Session) {
         .await;
     s.get("get after patch", &card_path).user(&alice).await;
 
-    // Content blocks of the card, and moving one.
+    // Blocks below the card. A content order is no member of a card any more: setting
+    // one changes nothing, and the route that moved content blocks is gone.
     let content = new_blocks(
         s,
         &alice,

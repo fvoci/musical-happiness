@@ -93,6 +93,22 @@ fn only_four_types_are_current() {
     }
 }
 
+/// The refusal shows at most 64 characters of the type a client wrote.
+#[test]
+fn a_refused_type_is_shown_shortened() {
+    assert_eq!(fvoci_model::TYPE_SHOWN_CHARS, 64);
+    let long = "é".repeat(100);
+    let BlockError::TypeNotCurrent(shown) = BlockError::type_not_current(&BlockType::from(long))
+    else {
+        panic!("a refusal of the type");
+    };
+    assert_eq!(shown, format!("{}…", "é".repeat(64)));
+    assert_eq!(
+        BlockError::type_not_current(&BlockType::Text),
+        BlockError::TypeNotCurrent("text".to_owned())
+    );
+}
+
 /// A patch may leave a block's type as it is, whatever it is, or change it to a current
 /// one; it may not make a block one of a type that no new block has.
 #[test]

@@ -73,7 +73,7 @@
             "type": "string"
           },
           "type": {
-            "description": "The block type: `card`, `view`, `comment` or `attachment`. A block stored before a\ncard's content became its body may have another (`text`, `image`, `checkbox`,\n`divider` and others the web app had); it keeps it, but no block is made one or\npatched into one (400 naming `type`).",
+            "description": "The block type: `card`, `view`, `comment` or `attachment`. A block stored before a\ncard's content became its body may have another (`text`, `image`, `checkbox`,\n`divider` and others the web app had); it keeps it. No request makes a block of\nsuch a type or patches one into it (400 naming `type`), except that duplicating a\nstored one, or the card or board it is on, copies it.",
             "type": "string"
           },
           "updateAt": {
@@ -455,7 +455,7 @@
         "type": "object"
       },
       "Card": {
-        "description": "A card: a titled group of properties and content blocks on a board.",
+        "description": "A card: a titled group of properties with a body on a board.",
         "properties": {
           "boardId": {
             "description": "The identifier of the board the card belongs to.",

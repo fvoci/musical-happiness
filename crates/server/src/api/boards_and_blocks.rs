@@ -138,7 +138,7 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'stat
     } else if !block.block_type.is_current() {
         Some((
             "type",
-            fvoci_model::BlockError::TypeNotCurrent(block.block_type.to_string()).to_string(),
+            fvoci_model::BlockError::type_not_current(&block.block_type).to_string(),
         ))
     } else if block.create_at < 1 {
         Some((

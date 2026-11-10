@@ -101,16 +101,22 @@ impl App {
             check_entry(&zip, index).await?;
         }
 
-        // First pass: the boards; a file entry needs its board already known.
-        let mut board_map: HashMap<String, Board> = HashMap::new();
+        // Every board is read and checked before the first is stored: an archive that
+        // one of them refuses stores nothing.
+        let mut parsed = Vec::new();
         for index in 0..zip.len() {
             let (dir, filename) = entry_name(&zip, index)?;
-            // Files are read in the second pass only.
             if filename == "board.jsonl" {
                 let bytes = read_entry(&zip, index).await?;
-                let board = self.import_board_jsonl(bytes, options).await?;
-                board_map.insert(dir, board);
+                parsed.push((dir, parse_board_jsonl(bytes, options).await?));
             }
+        }
+
+        // First pass: the boards; a file entry needs its board already known.
+        let mut board_map: HashMap<String, Board> = HashMap::new();
+        for (dir, board) in parsed {
+            let board = self.store_archive_board(board, options).await?;
+            board_map.insert(dir, board);
         }
 
         // Second pass: the files, placed under their board.
@@ -158,7 +164,11 @@ impl App {
             let blocks = match self.store().get_blocks(&board_blocks(&board.id)).await {
                 Ok(blocks) => blocks,
                 Err(error) => {
-                    tracing::error!(%error, board_id = board.id, "cannot retrieve imported blocks for board");
+                    tracing::error!(
+                        %error,
+                        board_id = board.id,
+                        "cannot retrieve imported blocks for board"
+                    );
                     continue;
                 }
             };
@@ -175,9 +185,7 @@ impl App {
                             body: fvoci_model::BodyChange::Set(body),
                             ..fvoci_model::BlockPatch::default()
                         }
-                    } else if block.block_type == BlockType::Image
-                        || block.block_type == BlockType::Attachment
-                    {
+                    } else if block.block_type == BlockType::Attachment {
                         let mut updated_fields = JsonMap::new();
                         for key in ["fileId", "attachmentId"] {
                             if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
@@ -218,77 +226,39 @@ impl App {
                 )
                 .await
             {
-                tracing::error!(%error, board_id = board.id, "the imported blocks could not be pointed at their files");
+                tracing::error!(
+                    %error,
+                    board_id = board.id,
+                    "the imported blocks could not be pointed at their files"
+                );
             }
         }
     }
 
-    /// Imports one board's `board.jsonl` and returns the stored board.
+    /// Stores one board of an archive as [`parse_board_jsonl`] read it, with its
+    /// members who are users of this server and the importing user as an admin, and
+    /// returns the stored board.
     ///
     /// # Errors
     ///
-    /// Returns a bad request if a line is malformed or of an unknown type, or the store's
-    /// error if the board cannot be stored.
-    async fn import_board_jsonl(
+    /// Returns the store's error if the board cannot be stored.
+    async fn store_archive_board(
         &self,
-        jsonl: Bytes,
+        board: ParsedBoard,
         options: &ImportOptions,
     ) -> Result<Board, AppError> {
-        if jsonl.len() > MAX_JSONL_BYTES {
-            return Err(AppError::bad_request(
-                "error parsing archive line 1: size limit exceeded",
-            ));
-        }
-        // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
-        let (team_id, modified_by) = (options.team_id.clone(), options.modified_by.clone());
-        let (mut boards_and_blocks, board_members) = tokio::task::spawn_blocking(move || {
-            parse_archive_lines(&jsonl, &team_id, &modified_by)
-        })
-        .await
-        .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
-
+        let ParsedBoard {
+            boards_and_blocks,
+            members,
+        } = board;
         // Keep only members who are users of this server.
-        let mut kept_members = Vec::with_capacity(board_members.len());
-        for member in board_members {
+        let mut kept_members = Vec::with_capacity(members.len());
+        for member in members {
             if self.store().get_user_by_id(&member.user_id).await.is_ok() {
                 kept_members.push(member);
             }
         }
 
-        // An archive of this server may hold blocks stored before a card's content
-        // became its body; none is made again (`docs/contract-pending.md` 8).
-        if let Some(block) = boards_and_blocks
-            .blocks
-            .iter()
-            .find(|block| !block.block_type.is_current())
-        {
-            return Err(AppError::bad_request(format_args!(
-                "the archive's block {}: {}",
-                block.id,
-                fvoci_model::BlockError::TypeNotCurrent(block.block_type.to_string())
-            )));
-        }
-        clear_values_of_another_kind(&mut boards_and_blocks);
-        let orphans = drop_orphans(&mut boards_and_blocks);
-        if orphans > 0 {
-            tracing::warn!(
-                orphans,
-                "skipped blocks of the archive whose parent is not in the archive"
-            );
-        }
-
-        let boards_and_blocks = match boards_and_blocks.validate() {
-            // A board without blocks is a board all the same, and what exporting one
-            // gives. The original refuses such an archive.
-            Ok(()) | Err(BoardsAndBlocksError::NoBlocks) => {
-                renew_boards_and_blocks_ids(boards_and_blocks)
-            }
-            Err(error) => {
-                return Err(AppError::bad_request(format_args!(
-                    "the archive's boards and blocks do not fit together: {error}"
-                )));
-            }
-        };
         let created = self
             .create_boards_and_blocks(boards_and_blocks, &options.modified_by)
             .await
@@ -317,6 +287,75 @@ impl App {
             .next()
             .ok_or_else(|| AppError::bad_request("missing board in archive"))
     }
+}
+
+/// One board of an archive, read and checked, with new identifiers, before it is
+/// stored.
+struct ParsedBoard {
+    boards_and_blocks: BoardsAndBlocks,
+    members: Vec<BoardMember>,
+}
+
+/// Reads and checks one board's `board.jsonl`: its lines, the types of its blocks and
+/// whether its boards and blocks fit together. Values of the other kind are cleared,
+/// blocks that nothing leads to are dropped, and everything gets a new identifier.
+///
+/// # Errors
+///
+/// Returns a bad request if the file is too large, a line is malformed or of an unknown
+/// type, a block has a type that no new block has, or the boards and blocks do not fit
+/// together.
+async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<ParsedBoard, AppError> {
+    if jsonl.len() > MAX_JSONL_BYTES {
+        return Err(AppError::bad_request(
+            "error parsing archive line 1: size limit exceeded",
+        ));
+    }
+    // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
+    let (team_id, modified_by) = (options.team_id.clone(), options.modified_by.clone());
+    let (mut boards_and_blocks, members) =
+        tokio::task::spawn_blocking(move || parse_archive_lines(&jsonl, &team_id, &modified_by))
+            .await
+            .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
+
+    // An archive of this server may hold blocks stored before a card's content became
+    // its body; none is made again (`docs/contract-pending.md` 1).
+    if let Some(block) = boards_and_blocks
+        .blocks
+        .iter()
+        .find(|block| !block.block_type.is_current())
+    {
+        return Err(AppError::bad_request(format_args!(
+            "the archive's block {}: {}",
+            block.id,
+            fvoci_model::BlockError::type_not_current(&block.block_type)
+        )));
+    }
+    clear_values_of_another_kind(&mut boards_and_blocks);
+    let orphans = drop_orphans(&mut boards_and_blocks);
+    if orphans > 0 {
+        tracing::warn!(
+            orphans,
+            "skipped blocks of the archive whose parent is not in the archive"
+        );
+    }
+
+    let boards_and_blocks = match boards_and_blocks.validate() {
+        // A board without blocks is a board all the same, and what exporting one gives.
+        // The original refuses such an archive.
+        Ok(()) | Err(BoardsAndBlocksError::NoBlocks) => {
+            renew_boards_and_blocks_ids(boards_and_blocks)
+        }
+        Err(error) => {
+            return Err(AppError::bad_request(format_args!(
+                "the archive's boards and blocks do not fit together: {error}"
+            )));
+        }
+    };
+    Ok(ParsedBoard {
+        boards_and_blocks,
+        members,
+    })
 }
 
 /// Removes the blocks that nothing in the archive leads to, and returns how many went:

@@ -291,7 +291,7 @@ async fn handle_post_blocks(
             );
         }
         if !block.block_type.is_current() {
-            return Err(BlockError::TypeNotCurrent(block.block_type.to_string()).into());
+            return Err(BlockError::type_not_current(&block.block_type).into());
         }
         if block.block_type == BlockType::Comment {
             has_comments = true;

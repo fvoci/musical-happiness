@@ -287,7 +287,8 @@ async fn import_of_a_traversing_entry_is_harmless() {
 
 /// Two blocks that name the same file: the original writes the file into the archive
 /// twice under one name; the port writes it once. Found when an export of such a board
-/// failed.
+/// failed. One of the two is an image block, as a server stored them before a card's
+/// content became its body: its file is exported too.
 #[tokio::test]
 async fn export_of_a_board_whose_blocks_share_a_file() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -309,14 +310,22 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
             ..fvoci_model::Block::default()
         }
     };
-    let blocks = vec![
-        image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png"),
-        image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png"),
-    ];
     ts.client
-        .insert_blocks(&board.id, &blocks)
+        .insert_blocks(&board.id, &[image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")])
         .await
         .check_created();
+    let mut older = [fvoci_model::Block {
+        block_type: fvoci_model::BlockType::Image,
+        ..image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")
+    }];
+    ts.app
+        .insert_blocks(
+            &mut older,
+            &ts.stranger().await,
+            fvoci_server::app::ChangeNotification::Send,
+        )
+        .await
+        .expect("the older image block is stored");
 
     let export = export_board(&ts.client, &board.id).await;
     export.check_ok();
@@ -549,17 +558,26 @@ async fn an_archive_reads_back_whatever_an_image_block_names() {
 #[tokio::test]
 async fn an_archive_with_a_block_of_another_type_stores_nothing() {
     let ts = Setup::native().start().await.init_basic().await;
-    let lines = [
+    // Two boards, as a team's export has them: the first is fine, the second holds the
+    // block. Neither is stored.
+    let board = |id: &str| {
         serde_json::json!({"type": "board", "data": {
-            "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Older", "createAt": 1,
+            "id": id, "teamId": TEST_TEAM_ID, "type": "P", "title": id, "createAt": 1,
             "updateAt": 1,
-        }}),
+        }})
+    };
+    let card = |id: &str, board_id: &str| {
         serde_json::json!({"type": "block", "data": {
-            "id": "c1", "boardId": "b1", "type": "card", "title": "card", "createAt": 1,
+            "id": id, "boardId": board_id, "type": "card", "title": "card", "createAt": 1,
             "updateAt": 1,
-        }}),
+        }})
+    };
+    let first = [board("b1"), card("c1", "b1")];
+    let second = [
+        board("b2"),
+        card("c2", "b2"),
         serde_json::json!({"type": "block", "data": {
-            "id": "t1", "boardId": "b1", "parentId": "c1", "type": "text", "title": "text",
+            "id": "t2", "boardId": "b2", "parentId": "c2", "type": "text", "title": "text",
             "createAt": 1, "updateAt": 1,
         }}),
     ];
@@ -569,11 +587,15 @@ async fn an_archive_with_a_block_of_another_type_stores_nothing() {
     writer
         .write_all(br#"{"version":3,"date":1}"#)
         .expect("write");
-    writer.start_file("b1/board.jsonl", options).expect("start");
-    for line in &lines {
+    for (dir, lines) in [("b1", &first[..]), ("b2", &second[..])] {
         writer
-            .write_all(format!("{line}\n").as_bytes())
-            .expect("write");
+            .start_file(format!("{dir}/board.jsonl"), options)
+            .expect("start");
+        for line in lines {
+            writer
+                .write_all(format!("{line}\n").as_bytes())
+                .expect("write");
+        }
     }
     let bytes = writer.finish().expect("finish").into_inner();
 

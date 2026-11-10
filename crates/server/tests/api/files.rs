@@ -39,40 +39,64 @@ pub(crate) fn uploaded_id(response: &crate::common::ApiResponse) -> String {
         .to_owned()
 }
 
-/// Makes an open board owned by the first client with one attachment block that refers to an
-/// uploaded file, and returns the board and the file identifier.
+/// Makes an open board owned by the first client with one attachment block that refers
+/// to an uploaded file, and returns the board and the file identifier.
 async fn board_with_attachment(ts: &TestServer) -> (Board, String) {
+    board_with_file_block(ts, BlockType::Attachment).await
+}
+
+/// Makes an open board owned by the first client with a card and one block of the given
+/// type below it that refers to an uploaded file, and returns the board and the file
+/// identifier. A block of a type that no new block has is stored as an older server
+/// stored it, past the route that makes blocks.
+async fn board_with_file_block(ts: &TestServer, block_type: BlockType) -> (Board, String) {
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let file_id =
         uploaded_id(&upload(&ts.client, &board.id, "pic.png", b"hello world, a file\n").await);
     let card_id = new_id();
     let mut image_fields = JsonMap::new();
     image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));
-    let blocks = vec![
-        Block {
-            id: card_id.clone(),
-            parent_id: board.id.clone(),
-            board_id: board.id.clone(),
-            block_type: BlockType::Card,
-            create_at: 1,
-            update_at: 1,
-            ..Block::default()
-        },
-        Block {
-            id: new_id(),
-            parent_id: card_id,
-            board_id: board.id.clone(),
-            block_type: BlockType::Attachment,
-            fields: image_fields,
-            create_at: 1,
-            update_at: 1,
-            ..Block::default()
-        },
-    ];
-    ts.client
+    let blocks = vec![Block {
+        id: card_id.clone(),
+        parent_id: board.id.clone(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        create_at: 1,
+        update_at: 1,
+        ..Block::default()
+    }];
+    // The server gives the card an identifier of its own.
+    let created: Vec<Block> = ts
+        .client
         .insert_blocks(&board.id, &blocks)
         .await
-        .check_created();
+        .created_json();
+    let card_id = created.into_iter().next().expect("the card is made").id;
+    let mut file_block = [Block {
+        id: new_id(),
+        parent_id: card_id,
+        board_id: board.id.clone(),
+        fields: image_fields,
+        create_at: 1,
+        update_at: 1,
+        block_type,
+        ..Block::default()
+    }];
+    if file_block[0].block_type.is_current() {
+        ts.client
+            .insert_blocks(&board.id, &file_block)
+            .await
+            .check_created();
+    } else {
+        ts.app
+            .insert_blocks(
+                &mut file_block,
+                &ts.stranger().await,
+                fvoci_server::app::ChangeNotification::Send,
+            )
+            .await
+            .expect("the older block is stored");
+    }
     (board, file_id)
 }
 
@@ -524,41 +548,44 @@ async fn duplicating_a_board_copies_its_files() {
 /// `TestCopyCard`: duplicating a single card copies the files its attachment blocks refer to.
 #[tokio::test]
 async fn duplicating_a_card_copies_its_files() {
-    let ts = Setup::native().start().await.init_basic().await;
-    let (board, _file_id) = board_with_attachment(&ts).await;
-    let card_id = ts
-        .client
-        .get(&format!("/boards/{}/blocks", board.id))
-        .await
-        .ok_json::<Vec<Block>>()
-        .into_iter()
-        .find(|block| block.block_type == BlockType::Card)
-        .expect("the board has a card")
-        .id;
+    // An attachment, and an image block as an older server stored it.
+    for block_type in [BlockType::Attachment, BlockType::Image] {
+        let ts = Setup::native().start().await.init_basic().await;
+        let (board, _file_id) = board_with_file_block(&ts, block_type.clone()).await;
+        let card_id = ts
+            .client
+            .get(&format!("/boards/{}/blocks", board.id))
+            .await
+            .ok_json::<Vec<Block>>()
+            .into_iter()
+            .find(|block| block.block_type == BlockType::Card)
+            .expect("the board has a card")
+            .id;
 
-    let copies = ts
-        .client
-        .post(
-            &format!("/boards/{}/blocks/{card_id}/duplicate", board.id),
-            &json!({}),
-        )
-        .await
-        .created_json::<Vec<Block>>();
-    let image = copies
-        .iter()
-        .find(|block| block.block_type == BlockType::Attachment)
-        .expect("a copied attachment block");
-    let new_file_id = image
-        .fields
-        .get("fileId")
-        .and_then(Value::as_str)
-        .expect("a copied file id");
-    let download = ts
-        .client
-        .get(&format!("/boards/{}/files/{new_file_id}", board.id))
-        .await;
-    download.check_ok();
-    ts.teardown().await;
+        let copies = ts
+            .client
+            .post(
+                &format!("/boards/{}/blocks/{card_id}/duplicate", board.id),
+                &json!({}),
+            )
+            .await
+            .created_json::<Vec<Block>>();
+        let image = copies
+            .iter()
+            .find(|block| block.block_type == block_type)
+            .unwrap_or_else(|| panic!("a copied {block_type} block"));
+        let new_file_id = image
+            .fields
+            .get("fileId")
+            .and_then(Value::as_str)
+            .expect("a copied file id");
+        let download = ts
+            .client
+            .get(&format!("/boards/{}/files/{new_file_id}", board.id))
+            .await;
+        download.check_ok();
+        ts.teardown().await;
+    }
 }
 
 // -- the legacy reader fallback (ported but unreachable from the route) -----------------
@@ -566,8 +593,8 @@ async fn duplicating_a_card_copies_its_files() {
 // -- files are tied to their board --------------------------------------------------------
 
 /// The private board of the first user with an uploaded file, and a private board of
-/// the second user who knows that file's name and has put it into an attachment block and an
-/// attachment block of their own board.
+/// the second user who knows that file's name and has put it into an attachment block of
+/// their own board.
 struct ForeignFile {
     owner_board: Board,
     file_id: String,

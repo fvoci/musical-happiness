@@ -82,7 +82,15 @@ impl BlockType {
     pub fn fields_max_chars(&self) -> usize {
         match self {
             Self::Card | Self::Comment | Self::Attachment => CARD_FIELDS_MAX_CHARS,
-            _ => BLOCK_FIELDS_MAX_CHARS,
+            // A block stored before a card's content became its body keeps the limit it
+            // was stored under.
+            Self::View
+            | Self::Board
+            | Self::Text
+            | Self::Checkbox
+            | Self::Image
+            | Self::Divider
+            | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
         }
     }
 
@@ -195,7 +203,8 @@ pub enum BlockError {
     #[error("block fields size limit exceeded")]
     FieldsSizeLimitExceeded,
     /// A new block, or a patch, gives a type that no new block has
-    /// ([`BlockType::is_current`]).
+    /// ([`BlockType::is_current`]). The type is as the client wrote it, at most
+    /// [`TYPE_SHOWN_CHARS`] characters of it; see [`BlockError::type_not_current`].
     #[error("a block of the type {0:?} is not made any more: a card's content is its body")]
     TypeNotCurrent(String),
     /// The `properties` among the fields are not well-formed card property values.
@@ -204,6 +213,23 @@ pub enum BlockError {
     /// A block that is neither a card nor a comment has a body.
     #[error("only a card or a comment has a body")]
     BodyNotAllowed,
+}
+
+/// How much of a type that is refused a [`BlockError::TypeNotCurrent`] shows: the
+/// client's own text, which may be long, is not echoed whole.
+pub const TYPE_SHOWN_CHARS: usize = 64;
+
+impl BlockError {
+    /// The refusal of `block_type` as the type of a new block or of a patch, with at most
+    /// [`TYPE_SHOWN_CHARS`] characters of it.
+    #[must_use]
+    pub fn type_not_current(block_type: &BlockType) -> Self {
+        let name = block_type.as_str();
+        Self::TypeNotCurrent(match name.char_indices().nth(TYPE_SHOWN_CHARS) {
+            Some((end, _)) => format!("{}…", &name[..end]),
+            None => name.to_owned(),
+        })
+    }
 }
 
 /// The basic data unit of a board.
@@ -227,8 +253,9 @@ pub struct Block {
     pub schema: i64,
     /// The block type: `card`, `view`, `comment` or `attachment`. A block stored before a
     /// card's content became its body may have another (`text`, `image`, `checkbox`,
-    /// `divider` and others the web app had); it keeps it, but no block is made one or
-    /// patched into one (400 naming `type`).
+    /// `divider` and others the web app had); it keeps it. No request makes a block of
+    /// such a type or patches one into it (400 naming `type`), except that duplicating a
+    /// stored one, or the card or board it is on, copies it.
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
@@ -265,7 +292,8 @@ impl Block {
     /// # Errors
     ///
     /// Returns a [`BlockError`] if the board identifier is empty, the title or the
-    /// serialized fields exceed their size limits (the latter by type), or the fields hold `properties` that
+    /// serialized fields exceed their size limits (the latter by type), or the fields
+    /// hold `properties` that
     /// are not well-formed card property values. The last applies to blocks of every
     /// type: `properties` among a block's fields always means card property values.
     pub fn validate(&self) -> Result<(), BlockError> {
@@ -383,7 +411,7 @@ impl BlockPatch {
     pub fn check_type(&self, stored: &BlockType) -> Result<(), BlockError> {
         match &self.block_type {
             Some(new_type) if new_type != stored && !new_type.is_current() => {
-                Err(BlockError::TypeNotCurrent(new_type.as_str().to_owned()))
+                Err(BlockError::type_not_current(new_type))
             }
             _ => Ok(()),
         }

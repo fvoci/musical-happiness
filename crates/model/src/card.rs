@@ -34,7 +34,7 @@ pub enum CardError {
     ReadAtMissing,
 }
 
-/// A card: a titled group of properties and content blocks on a board.
+/// A card: a titled group of properties with a body on a board.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Card {
