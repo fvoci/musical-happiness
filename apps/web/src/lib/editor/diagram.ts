@@ -174,20 +174,25 @@ class UnreadableColor extends Error {}
  * pixel is read back. A colour that is partly transparent is painted over
  * the background first.
  */
+function hexFromParts(parts: readonly number[]): string {
+  return `#${parts.map((part) => part.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function hexOf(context: CanvasRenderingContext2D, color: string, under?: string): string {
   context.clearRect(0, 0, 1, 1);
   if (under !== undefined) {
     context.fillStyle = under;
     context.fillRect(0, 0, 1, 1);
   }
-  // A colour the canvas cannot read leaves the one before it in place.
-  const before = `#0102${under === undefined ? '03' : '04'}`;
+  // A colour the canvas cannot read leaves the one before it in place. The
+  // one before is a marker that is never painted, not a colour of the page.
+  const before = hexFromParts([1, 2, under === undefined ? 3 : 4]);
   context.fillStyle = before;
   context.fillStyle = color;
   if (context.fillStyle === before) throw new UnreadableColor();
   context.fillRect(0, 0, 1, 1);
   const [red = 0, green = 0, blue = 0] = context.getImageData(0, 0, 1, 1).data;
-  return `#${[red, green, blue].map((part) => part.toString(16).padStart(2, '0')).join('')}`;
+  return hexFromParts([red, green, blue]);
 }
 
 /**

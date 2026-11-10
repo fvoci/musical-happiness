@@ -41,29 +41,6 @@ export interface FontLicense {
   text: string;
 }
 
-/**
- * The licence of a bundled package whose `package.json` does not name one.
- * Nothing is guessed: the package has to be listed under `unlabelled` in
- * exceptions.json with the licence a person read off its licence file, and
- * that file still has to begin with the line recorded there.
- */
-function labelled(item: PackageLicense, fail: (message: string) => never): PackageLicense {
-  const entry = exceptions.unlabelled.find((candidate) => candidate.name === item.name);
-  if (!entry) {
-    return fail(
-      `${item.name} ${item.version} is in the bundle and its package.json names no licence. Read its licence file and list it under "unlabelled" in tools/licenses/exceptions.json.`,
-    );
-  }
-  const shipped = readPackageLicense(item.name);
-  const firstLine = shipped.text.split('\n')[0]?.trim() ?? '';
-  if (firstLine !== entry.firstLine) {
-    return fail(
-      `${item.name} ${item.version}: its licence file begins with "${firstLine}", not "${entry.firstLine}" as recorded in tools/licenses/exceptions.json. Read it again.`,
-    );
-  }
-  return { ...item, identifier: entry.license, text: item.text || shipped.text };
-}
-
 /** Packages named by a bare `@import` in a style sheet of the app. */
 export function styleSheetPackages(css: string): string[] {
   const names = new Set<string>();
@@ -113,16 +90,17 @@ export function thirdPartyNotices(): Plugin {
         if (report?.type !== 'asset') {
           this.error(`${LICENSE_REPORT} is missing: set build.license.fileName to it`);
         }
-        const bundled = (JSON.parse(String(report.source)) as PackageLicense[]).map((item) =>
-          item.identifier ? item : labelled(item, (message) => this.error(message)),
-        );
+        // A package whose manifest names no licence takes what its licence
+        // file states, if it is listed under `stated` in exceptions.json;
+        // otherwise it has none and is refused below.
+        const bundled = (JSON.parse(String(report.source)) as PackageLicense[]).map((item) => {
+          if (item.identifier) return item;
+          const text = item.text || readPackageLicense(item.name).text;
+          return { ...item, text, identifier: statedLicense(item.name, text) ?? '' };
+        });
         // The raw report is an input of this step, not part of the product.
         Reflect.deleteProperty(bundle, LICENSE_REPORT);
 
-        // A package whose manifest names no licence: what its licence file states, if it is listed.
-        for (const item of bundled) {
-          item.identifier ||= statedLicense(item.name, item.text) ?? '';
-        }
         const byName = new Map(bundled.map((item) => [item.name, item]));
         const css = readFileSync(path.join(WEB_ROOT, 'src/styles/app.css'), 'utf8');
         const extra = [...styleSheetPackages(css), ...exceptions.vendored.map((item) => item.name)];
@@ -142,7 +120,7 @@ export function thirdPartyNotices(): Plugin {
         const refused = [...byName.values()].filter((item) => !isAllowed(item.identifier, allowed));
         if (refused.length > 0) {
           this.error(
-            `packages in the bundle with a licence that deny.toml does not allow:\n  ${refused
+            `packages in the bundle with a licence that deny.toml does not allow (a package whose package.json names none: read its licence file and list it under "stated" in tools/licenses/exceptions.json):\n  ${refused
               .map((item) => `${item.name} ${item.version}: ${item.identifier || '(none)'}`)
               .join('\n  ')}`,
           );

@@ -54,6 +54,10 @@ export default defineConfig(({ command }) => ({
   build: {
     outDir: 'dist',
     assetsDir: 'static',
+    // Every asset is a file of its own. Vite would otherwise write a small
+    // one (the smallest formula font) into the style sheet as a `data:`
+    // address, which the page's content security policy does not allow.
+    assetsInlineLimit: 0,
     // Raw data for tools/licenses: which packages ended up in the bundle.
     license: { fileName: '.vite/license.json' },
     rolldownOptions: {

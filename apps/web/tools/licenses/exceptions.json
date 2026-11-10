@@ -49,6 +49,12 @@
       "license": "MIT",
       "says": "The MIT License (MIT)",
       "reason": "Colour functions used by mermaid. Its package.json has no licence field; the licence file in the package is the MIT licence."
+    },
+    {
+      "name": "svelte-toolbelt",
+      "license": "MIT",
+      "says": "MIT License",
+      "reason": "Helpers of the generated UI components. Its package.json has no licence field; the LICENSE file in the package is the MIT text."
     }
   ],
   "vendored": [
@@ -59,14 +65,6 @@
     {
       "name": "@inlang/paraglide-js",
       "reason": "Its compiler writes the message runtime under src/lib/i18n/paraglide, which is compiled into the output."
-    }
-  ],
-  "unlabelled": [
-    {
-      "name": "svelte-toolbelt",
-      "license": "MIT",
-      "firstLine": "MIT License",
-      "reason": "Its package.json has no license member. The LICENSE file it ships is the MIT text; the build reads that file and stops if its first line is no longer this one."
     }
   ],
   "derived": [

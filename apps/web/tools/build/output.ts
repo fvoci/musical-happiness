@@ -7,6 +7,7 @@
  * accepts the encoding. `checkHashedNames` fails the build when a file would
  * miss the first rule, `precompress` writes the files for the second.
  */
+import { existsSync } from 'node:fs';
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -98,6 +99,9 @@ export function checkHashedNames(): Plugin {
     apply: 'build',
     async closeBundle() {
       const staticDirectory = path.join(outputDirectory(this), 'static');
+      // This hook also runs after a build that stopped before it wrote
+      // anything. Failing here then would hide the error that stopped it.
+      if (!existsSync(staticDirectory)) return;
       const unhashed = (await walk(staticDirectory))
         .map((file) => path.relative(staticDirectory, file))
         .filter((file) => !isCompressedForm(file))
@@ -200,7 +204,10 @@ export function precompress(): Plugin {
     apply: 'build',
     async closeBundle() {
       const started = performance.now();
-      const written = await precompressDirectory(path.join(outputDirectory(this), 'static'));
+      const staticDirectory = path.join(outputDirectory(this), 'static');
+      // As above: nothing to do after a build that wrote nothing.
+      if (!existsSync(staticDirectory)) return;
+      const written = await precompressDirectory(staticDirectory);
       const extensions = ENCODINGS.map((encoding) => encoding.extension).join('/');
       this.info(
         `precompress: wrote ${written.length} ${extensions} files in ${Math.round(performance.now() - started)} ms`,
