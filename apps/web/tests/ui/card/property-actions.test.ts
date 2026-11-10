@@ -4,7 +4,7 @@
  * the options of a select. Each is one step for "undo".
  *
  * These take over what the original tested in its property menu and its
- * card detail properties (docs/fragments/card-test-mapping.md).
+ * card detail properties (docs/card-test-mapping.md).
  */
 import { describe, expect, it } from 'vitest';
 

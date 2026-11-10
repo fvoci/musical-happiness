@@ -21,8 +21,8 @@ export interface Encoding {
  * wrote is sent.
  *
  * Brotli comes first because its files are the smallest: every text file of
- * the build is smaller at brotli 11 than at zstd 19 (docs/fragments/
- * build-notes.md has the table), and for a file compressed once and sent
+ * the build is smaller at brotli 11 than at zstd 19 (docs/build-notes.md has the
+ * table), and for a file compressed once and sent
  * many times the bytes are what counts. Zstandard comes before gzip for the
  * same reason. To prefer zstd, move it to the front: nothing else reads the
  * order.

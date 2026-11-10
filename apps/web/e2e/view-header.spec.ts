@@ -1019,7 +1019,7 @@ test.describe('while the window changes size', () => {
     await expect(text).toHaveValue('scope');
     // The field is another element than before, and the focus did not come along:
     // what the shared surface would have to do differently to keep those is in
-    // docs/fragments/view-header-decisions.md.
+    // docs/decisions.md.
     expect(
       await text.evaluate((element) => (window as unknown as { kept: Element }).kept === element),
     ).toBe(false);

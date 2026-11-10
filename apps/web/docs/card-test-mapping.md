@@ -1,6 +1,6 @@
 # 카드 상세: 원본 테스트와의 대응 (속성 정의의 메뉴와 조립)
 
-작성: 2026-11-10 23:55 KST. `docs/properties-test-mapping.md`가 "옮기지 않음: 범위 밖"으로 둔 17건 가운데, 속성 정의의 메뉴(6건)와 카드 상세의 속성 조립(8건)을 다시 본 것이다. 부른 쪽이 그 문서에 합친다.
+작성: 2026-11-10 23:55 KST. `docs/properties-test-mapping.md`가 "옮기지 않음: 범위 밖"으로 둔 17건 가운데, 속성 정의의 메뉴(6건)와 카드 상세의 속성 조립(8건)을 다시 본 것이다. 그 문서에 이어지는 기록이다.
 
 새 테스트의 자리:
 
@@ -22,7 +22,7 @@
 | `webapp/src/components/cardDetail/cardDetailProperties.test.tsx` | should allow change property types menu, confirm                           | 같은 종단 테스트(글 → 선택: 확인에 "from \"Text\" to \"Select\""와 유지·삭제되는 값의 수, "Change property"를 누르면 바뀐다). 순수 "changing the kind of a property" 21건이 값의 규칙을 고정한다 | 옮김. 다른 점: 확인 문구에 유지되는 값과 삭제되는 값의 수가 더해졌다. 선택을 글로 바꾸면 값이 선택지의 이름으로 남는다(원본은 사라졌다)         |
 | `webapp/src/components/cardDetail/cardDetailProperties.test.tsx` | rename select property and confirm button on dialog should rename property | 종단의 이름 바꾸기, 저장소 "naming a property › keeps the kind, the options and the values"                                                                                                      | 옮김. 이름만 바꿀 때는 원본도 실제로는 묻지 않았다(종류가 같으면 바로 바꾼다). 새 화면도 묻지 않는다                                            |
 | `webapp/src/components/cardDetail/cardDetailProperties.test.tsx` | should add new number property                                             | 저장소 "adding a property › puts a property named after its kind at the end, on the board and on the server"(숫자). 종단은 글 속성으로 같은 흐름을 본다                                          | 옮김. 다른 점: 같은 이름이 있으면 번호를 붙인다("Text 2")                                                                                       |
-| `webapp/src/components/cardDetail/cardDetailProperties.test.tsx` | confirmation on delete dialog should delete the property                   | 종단("Delete"를 누르면 줄이 사라지고 보드의 정의 수가 돌아온다), 저장소 "deleting a property" 3건                                                                                                | 옮김. 다른 점: 카드에 든 값은 지우지 않고 뷰만 정리한다(`docs/fragments/card-decisions.md`의 21번)                                              |
+| `webapp/src/components/cardDetail/cardDetailProperties.test.tsx` | confirmation on delete dialog should delete the property                   | 종단("Delete"를 누르면 줄이 사라지고 보드의 정의 수가 돌아온다), 저장소 "deleting a property" 3건                                                                                                | 옮김. 다른 점: 카드에 든 값은 지우지 않고 뷰만 정리한다(`docs/decisions.md`의 "카드 상세" 21번)                                                 |
 | `webapp/src/components/cardDetail/cardDetailProperties.test.tsx` | cancel on delete dialog should do nothing                                  | 종단("Cancel"을 누르면 줄이 그대로다)                                                                                                                                                            | 옮김                                                                                                                                            |
 
 14건 가운데 12건을 옮겼고 2건(스냅숏)은 그림으로 대신했다.

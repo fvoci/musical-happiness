@@ -10,7 +10,7 @@
   properties the view turned on, how its tasks stand. It does not show a
   preview of the body or a picture from it: a card list comes without
   bodies, and the gallery does not read every card on its own
-  (docs/fragments/kanban-contract.md has the question for the server).
+  (docs/contract-assumptions.md has the question for the server).
 
   The order is the view's. Cards are not dragged here: the grid runs along
   two axes and lib/drag sorts along one. A sort of the view orders them.
