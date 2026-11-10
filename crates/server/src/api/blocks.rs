@@ -19,7 +19,7 @@ use super::contract::tag;
 
 use super::{
     ApiResult, OptionalSession, RequiredSession, created, decode_json, decode_object,
-    has_valid_read_token, json_response, no_content, query_param,
+    has_valid_read_token, json_response, no_content, query_param, refuse_block_bodies,
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use crate::app::App;
@@ -212,6 +212,7 @@ async fn handle_post_blocks(
     )
     .await?;
     let mut blocks: Vec<Block> = decode_json(&body)?;
+    refuse_block_bodies(&blocks, [])?;
 
     let mut has_comments = false;
     let mut has_contents = false;
@@ -405,6 +406,7 @@ async fn handle_patch_block(
     .await?;
     block_on_board(&app, &block_id, &board_id).await?;
     let patch: BlockPatch = decode_object(&body)?;
+    refuse_block_bodies([], [&patch])?;
 
     app.patch_block(&block_id, &patch, user_id, notification)
         .await?;
@@ -444,6 +446,7 @@ async fn handle_patch_blocks(
     .await?;
     let board = app.board(&board_id).await?;
     let batch: BlockPatchBatch = decode_object(&body)?;
+    refuse_block_bodies([], &batch.block_patches)?;
     if batch.block_ids.len() != batch.block_patches.len() {
         return Err(
             AppError::bad_request("blockIds and blockPatches differ in length")

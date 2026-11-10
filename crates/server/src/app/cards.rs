@@ -107,19 +107,19 @@ impl App {
             CardRange::Page(paging) => filter.paging = Some(paging),
             CardRange::Nothing => return Ok(Vec::new()),
         }
-        let blocks = self.store().get_blocks(&filter).await?;
+        let blocks = self.store().get_listed_blocks(&filter).await?;
 
         let now = now_millis();
         blocks
             .iter()
-            .map(|block| {
+            .map(|(block, summary)| {
                 // Preserved quirk: one card block that is no well-formed card fails the
                 // whole list (server/app/cards.go:54-60). The original's web app writes
                 // such blocks: a `contentOrder` with side-by-side content has nested
                 // lists. What is stored is no card, so this is a server error.
                 // A list says whether a card has a body; the body is read with the card.
                 card_from_stored_block(block, now)
-                    .map(|card| Card { body: None, ..card })
+                    .map(|card| card.listed(*summary))
                     .map_err(|error| AppError::from(error).context("Block2Card fail"))
             })
             .collect()

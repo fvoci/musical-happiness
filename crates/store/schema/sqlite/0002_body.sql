@@ -1,7 +1,7 @@
 -- The body of a card or a comment: one document of the editor, checked by the server
 -- against its allowlist before it is stored (docs/s6-design.md 3.7, 5.7). NULL for a
 -- block without one; an empty document is stored as NULL too.
-ALTER TABLE blocks ADD COLUMN body JSON;
+ALTER TABLE blocks ADD COLUMN body TEXT;
 -- The version of the allowlist the body was checked against; NULL without a body.
 ALTER TABLE blocks ADD COLUMN body_version BIGINT;
 -- The text of the body, a line per paragraph, for searching; NULL without a body.

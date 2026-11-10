@@ -192,3 +192,117 @@ async fn a_body_that_is_no_document_is_refused() {
 
     th.teardown().await;
 }
+
+/// Every change of a card moves its `updateAt` on, so a `readAt` from before a change
+/// is refused even when the change came in the same millisecond, and also when the
+/// patch carries no body.
+#[tokio::test]
+async fn a_read_at_from_before_a_change_is_refused() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let created: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": null}),
+    )
+    .await
+    .created_json();
+    assert_eq!(created.body, None, "`null` is no body");
+    let path = format!("/cards/{}", created.id);
+
+    // Two patches made from the same read, one right after the other.
+    let first: Card = th
+        .client
+        .patch(
+            &path,
+            &json!({"body": document(), "readAt": created.update_at}),
+        )
+        .await
+        .ok_json();
+    assert!(
+        first.update_at > created.update_at,
+        "{} after {}",
+        first.update_at,
+        created.update_at
+    );
+    let second = th
+        .client
+        .patch(
+            &path,
+            &json!({"title": "Second", "readAt": created.update_at}),
+        )
+        .await;
+    second.check_status(StatusCode::CONFLICT);
+    assert_eq!(card(&th.client, &created.id).await, first, "unchanged");
+
+    // The routes of blocks check `readAt` too, and take no body yet.
+    let block_path = format!("/boards/{}/blocks/{}", board.id, created.id);
+    let stale = th
+        .client
+        .patch(
+            &block_path,
+            &json!({"title": "Stale", "readAt": created.update_at}),
+        )
+        .await;
+    stale.check_status(StatusCode::CONFLICT);
+    let response = th
+        .client
+        .patch(
+            &block_path,
+            &json!({"body": document(), "readAt": first.update_at}),
+        )
+        .await;
+    check_refused_member(&response, "body");
+    let response = th
+        .client
+        .post(
+            &format!("/boards/{}/blocks", board.id),
+            &json!([{"type": "card", "boardId": board.id, "createAt": 1, "updateAt": 1,
+                     "body": document()}]),
+        )
+        .await;
+    check_refused_member(&response, "body");
+    assert_eq!(card(&th.client, &created.id).await, first, "unchanged");
+
+    th.teardown().await;
+}
+
+/// A body goes to the trash with its card and comes back with it, and a copy of the
+/// card has it too.
+#[tokio::test]
+async fn a_body_comes_back_from_the_trash_and_is_copied() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let created: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": document()}),
+    )
+    .await
+    .created_json();
+    let block_path = format!("/boards/{}/blocks/{}", board.id, created.id);
+
+    th.client.delete(&block_path).await.check_no_content();
+    th.client
+        .post_empty(&format!("{block_path}/undelete"))
+        .await
+        .check_ok();
+    let restored = card(&th.client, &created.id).await;
+    assert_eq!(restored.body, created.body, "{restored:?}");
+    assert_eq!((restored.tasks_total, restored.tasks_done), (2, 1));
+
+    let copies: Vec<Value> = th
+        .client
+        .post_empty(&format!("{block_path}/duplicate"))
+        .await
+        .created_json();
+    let copy = copies
+        .iter()
+        .find(|block| block["type"] == json!("card"))
+        .expect("the copy of the card");
+    assert_eq!(copy["body"], document(), "{copy}");
+    let copy = card(&th.client, copy["id"].as_str().expect("an id")).await;
+    assert_eq!((copy.tasks_total, copy.tasks_done), (2, 1));
+
+    th.teardown().await;
+}

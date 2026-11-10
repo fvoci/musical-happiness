@@ -48,7 +48,7 @@ pub use boards_and_blocks::{
 };
 pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
-    TaskCount,
+    BodySummary, TaskCount,
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{

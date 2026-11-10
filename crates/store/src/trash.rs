@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{Block, Board, BoardMember, FileInfo, new_id};
+use fvoci_model::{Block, Board, BoardMember, Body, FileInfo, new_id};
 use serde::de::DeserializeOwned;
 
 use crate::Store;
@@ -73,7 +73,7 @@ impl Store {
                 .await?
                 .ok_or_else(block_not_in_trash)?;
             Ok(DeletedBlock {
-                block: from_json(&row, 0, "block")?,
+                block: block_from_json(&row, 0)?,
                 deleted_by: row.id(1)?,
             })
         })
@@ -198,6 +198,24 @@ fn board_not_in_trash() -> StoreError {
     StoreError::not_found("deleted board")
 }
 
+/// Reads a block of the trash. Its body is taken as it was stored: it was checked when
+/// it was written, against the allowlist of that time, which a later one may not
+/// accept.
+fn block_from_json(row: &Row, index: usize) -> Result<Block, StoreError> {
+    let corrupt = |error: serde_json::Error| StoreError::Corrupt {
+        column: "block",
+        reason: error.to_string(),
+    };
+    let mut value = row.json(index, "block")?;
+    let body = value
+        .as_object_mut()
+        .and_then(|members| members.remove("body"))
+        .filter(|body| !body.is_null());
+    let mut block: Block = serde_json::from_value(value).map_err(corrupt)?;
+    block.body = body.map(Body::from_stored);
+    Ok(block)
+}
+
 /// Reads a JSON column of the trash into the type it was written from.
 fn from_json<T: DeserializeOwned>(
     row: &Row,
@@ -299,7 +317,7 @@ async fn take_blocks_out_of_trash(
         .fetch_all(sql)
         .await?
         .iter()
-        .map(|row| from_json(row, 0, "block"))
+        .map(|row| block_from_json(row, 0))
         .collect::<Result<_, _>>()?;
     let mut known_users = KnownUsers::default();
     for block in &mut restored {

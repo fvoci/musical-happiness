@@ -18,7 +18,7 @@ use super::contract::tag;
 
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
-use super::{ApiResult, RequiredSession, json_response, no_content};
+use super::{ApiResult, RequiredSession, json_response, no_content, refuse_block_bodies};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
@@ -84,6 +84,7 @@ async fn handle_create_boards_and_blocks(
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
     }
+    refuse_block_bodies(&request.blocks, [])?;
 
     if request.boards.is_empty() {
         return Err(AppError::bad_request("at least one board is required"));
@@ -190,6 +191,7 @@ async fn handle_patch_boards_and_blocks(
                 .collect()
         })?;
     patches.validate().map_err(AppError::bad_request)?;
+    refuse_block_bodies([], &patches.block_patches)?;
 
     let mut team_id = String::new();
     let mut board_ids = HashSet::new();

@@ -3,7 +3,7 @@
 //! A body that is not the JSON a route expects is a bad request (400), whatever is wrong
 //! with it: not JSON at all, the wrong type, `null`, a member of the wrong type.
 
-use fvoci_model::{BodyChange, JsonMap};
+use fvoci_model::{Block, BlockPatch, BodyChange, JsonMap};
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 
@@ -59,6 +59,28 @@ pub(crate) fn decode_object_with<T: DeserializeOwned, R>(
     let prepared = prepare(&mut object);
     let decoded = serde_json::from_value(Value::Object(object)).map_err(AppError::bad_request)?;
     Ok((decoded, prepared))
+}
+
+/// Refuses a body sent through the routes of blocks. A body is written through the card
+/// routes (`createCard`, `patchCard`), which check it and ask for the time it was read
+/// at, until the routes of blocks do the same.
+///
+/// # Errors
+///
+/// Returns a bad request that names `body` if a block or a patch carries one.
+pub(crate) fn refuse_block_bodies<'a>(
+    blocks: impl IntoIterator<Item = &'a Block>,
+    patches: impl IntoIterator<Item = &'a BlockPatch>,
+) -> Result<(), AppError> {
+    let sent = blocks.into_iter().any(|block| block.body.is_some())
+        || patches.into_iter().any(|patch| !patch.body.is_keep());
+    if sent {
+        return Err(AppError::bad_request(
+            "a body is written through the routes of cards (createCard, patchCard)",
+        )
+        .with_field("body"));
+    }
+    Ok(())
 }
 
 /// Decodes a request body that must be a JSON object and may carry a document under

@@ -45,12 +45,16 @@
 
 **들어간 것(tracer-bullet 1, 2026-11-11 04:45 KST).** 아래는 계약 파일에 이미 있다. 표의 나머지는 아직이다.
 
-- `Card`에 `body`, `hasBody`, `tasksTotal`, `tasksDone`가 늘 있다. `getCard`와 `createCard`·`patchCard`의 답은 `body`에 문서를, `getCards`는 `body`에 `null`을 싣고 나머지 셋으로 본문이 있는지와 할 일 수를 알린다.
+- `Card`에 `body`, `hasBody`, `tasksTotal`, `tasksDone`가 늘 있다. `getCard`와 `createCard`·`patchCard`의 답은 `body`에 문서를, `getCards`는 `body`에 `null`을 싣고 나머지 셋으로 본문이 있는지와 할 일 수를 알린다. 목록은 본문을 읽지 않고 저장할 때 센 열을 읽는다.
 - `Block`에 `body`가 늘 있다(없으면 `null`). WebSocket의 `UPDATE_BLOCK`도 `Block` 전체이므로 본문을 싣는다(`contracts/websocket.md`).
 - `createCard`가 `body`를 받는다. 빠졌거나 `null`이거나 빈 문서(빈 문단 하나)면 본문이 없다.
 - `patchCard`가 `body`와 `readAt`을 받는다. `body`가 빠지면 본문은 그대로, `null`이나 빈 문서면 지운다. **`body`를 보내려면 `readAt`(그 카드를 읽었을 때의 `updateAt`)이 있어야 한다.** 없으면 400이고 `field`가 `readAt`이다. `readAt`이 지금의 `updateAt`과 다르면 409(`conflict`)이고 아무것도 바뀌지 않는다. `readAt`은 `body` 없이 보내도 검사한다.
 - 검증은 아직 **구조**만 본다: 맨 위가 `type: doc`이고 `content`가 비지 않은 목록, 노드의 멤버는 `type`·`attrs`·`content`·`marks`·`text`뿐이고 `null`인 멤버가 없으며, `text`는 빈 문자열이 아니고, 크기·깊이·노드 수의 한도. 노드와 마크의 종류, 속성, 포함 관계(허용 목록)는 다음 tracer-bullet이다. 어긋나면 400이고 `field`가 `body`다.
-- 블록의 경로(`createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`)의 `body`는 다음 tracer-bullet이다. 지금은 계약에 멤버가 보이지만 그 경로로 보내지 않는다.
+- 블록의 경로(`createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`)는 아직 본문을 받지 않는다. 계약에 `Block.body`와 `BlockPatch.body`가 보이지만, 블록이나 패치에 본문이 있으면 400이고 `field`가 `body`다(본문은 카드의 경로로 쓴다). 그 경로에서 본문을 받는 것은 다음 tracer-bullet이다.
+- `BlockPatch.readAt`은 지금 쓰인다: `patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`의 패치에 있으면 `patchCard`처럼 검사하고 어긋나면 409다.
+- 있는 블록을 고칠 때마다 `updateAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
+- 휴지통에서 되살린 카드와 복제한 카드는 본문과 할 일 수를 그대로 갖는다.
+- **사용자 결정 필요: 공유 보드의 익명 독자와 멘션.** 익명 독자(읽기 토큰)에게는 블록의 `createdBy`·`modifiedBy`를 비운다(결정 7: UUIDv7이 가입 시각을 드러낸다). 그런데 본문의 `mention.userId`도 같은 사용자 ID라 익명 독자에게 그대로 간다. 권고: 익명 독자에게 나가는 본문에서 `userId`를 비운 멘션으로 바꾼다(화면은 "알 수 없는 사용자"로 그린다). 결정 7의 범위를 넓히는 일이라 정하지 않았다.
 
 **허용 목록의 판.** 설계 5.7의 표는 `body_version` 1이다. 여기에 수식 노드 둘을 더해 `body_version`을 2로 하기로 정해졌고, 아직 구현되지 않았다(웹앱 쪽의 제안을 사용자가 받아들였다. 2026-11-11 03:13 KST의 작업 지시에 적힌 결정이다).
 

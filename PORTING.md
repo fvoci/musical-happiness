@@ -881,12 +881,17 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 | tracer-bullet | 범위 | 지적 | 반영 |
 |---|---|---|---|
 | 0 WebSocket 문서 | `12c22af..0803dd6` | Must 4, Should 7, Consider 9 | Must 4와 Should 6, Consider 6을 문서·테스트에 반영. `deleteBoardsAndBlocks`가 읽기 토큰 연결을 닫지 않는 것은 코드의 결함이라 `docs/contract-pending.md` 8절에 올리고 남은 결함을 고치는 tracer-bullet(12)에서 고친다 |
+| 1 카드의 본문 | `8134dc2..233431d` | Must 1, Should 6, Consider 7 | Must와 Should 모두 반영: 같은 밀리초의 두 쓰기가 `readAt`을 지나가던 것(고칠 때마다 `updateAt`이 커진다), 블록 경로가 검사 없이 본문을 받던 것(400 `field: body`), 카드 목록이 본문을 모두 읽던 것(요약 열을 읽는다), 휴지통 복원이 본문을 요청의 검증기로 다시 읽던 것, 설계와 다른 열 타입(PostgreSQL `JSONB`, SQLite `TEXT`. 올리기 전이라 `0002`를 고쳤다), 낡은 문서, 빠진 테스트(본문 없는 `readAt`, 블록 경로, 휴지통과 복제, 옛 DB의 이전, 1 MiB의 경계, `body: null`, 두 DB의 `0002` 일치). Consider 가운데 둘(파일 중간의 `use`, 모호한 주석) 반영. 멘션의 사용자 ID가 익명 독자에게 가는 것은 "사용자 결정 필요"로 `docs/contract-pending.md` 1절에 |
 
 **받지 않은 지적.**
 
 - TB0, 명령(`commands`)을 테스트가 보지 않음(Should): 명령은 답이 없어 받았는지를 메시지로만 볼 수 있고, 네 명령의 효과는 이미 `websocket.rs`의 다른 테스트가 본다. 문서와 `websocket.json`의 설명에 "명령은 테스트가 보지 않는다"고 적는 것으로 그쳤다.
 - TB0, 빈 `boardCategories`를 빼는 직렬화(Consider): 빈 목록을 보내는 호출이 없다. 모양을 바꾸지 않는다는 이 묶음의 규칙에 따라 그대로 둔다.
 - TB0, 구독 탐침의 150 ms(Consider): 부하에서 늦을 수 있다는 추정이고 일어난 적이 없다. 실패하면 그때 늘린다.
+- TB1, 빈 문서 판정이 맨 위의 다른 멤버를 보지 않음(Consider): 웹앱의 `isEmptyDoc`이 같은 규칙이다. 두 쪽의 판정을 맞추는 것이 먼저이고, 결과는 본문이 없는 것이라 해가 없다.
+- TB1, 노드마다 경로 문자열을 만드는 것과 크기를 재려고 직렬화하는 것(Consider): 검증기는 다음 tracer-bullet(허용 목록 전체)에서 다시 쓴다. 그때 오류가 날 때만 경로를 만들고, 직렬화 없이 센다.
+- TB1, 제목만 고쳐도 본문 열을 다시 씀(Consider): 블록 쓰기가 한 길(`insert_block_at`)이라 요약 열이 어긋날 수 없다. 1 MiB 한도 안의 비용이고, 재 보고 크면 바꾼다.
+- TB1, 휴지통의 JSON에 `body_version`이 없음(Consider): 판 1은 판 2에 들어가므로 되살릴 때 지금의 판을 적어도 틀리지 않는다. 판이 옛 문서를 받지 않게 바뀌면 그때 휴지통에 판을 싣는다.
 
 ## 작성 모델
 

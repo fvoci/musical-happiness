@@ -58,6 +58,16 @@ pub struct TaskCount {
     pub done: u32,
 }
 
+/// What a list of cards says about a card's body, without the body: whether there is
+/// one and its task items. The store keeps it beside the body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BodySummary {
+    /// Whether there is a body.
+    pub has_body: bool,
+    /// The task items of the body.
+    pub tasks: TaskCount,
+}
+
 /// A body that has been checked. Its JSON form is the document as it was received.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(transparent)]
@@ -89,6 +99,15 @@ impl Body {
     #[must_use]
     pub fn document(&self) -> &Value {
         &self.document
+    }
+
+    /// What a list says about the body.
+    #[must_use]
+    pub fn summary(&self) -> BodySummary {
+        BodySummary {
+            has_body: true,
+            tasks: self.tasks(),
+        }
     }
 
     /// Counts the task items of the body.
@@ -414,9 +433,18 @@ mod tests {
 
     #[test]
     fn the_size_is_limited() {
-        let long = "x".repeat(BODY_MAX_BYTES);
+        // The JSON of the document around the text of its one paragraph.
+        let frame = serde_json::to_vec(&document(&[paragraph("")]))
+            .expect("JSON")
+            .len();
+        let fits = "x".repeat(BODY_MAX_BYTES - frame);
+        assert!(
+            Body::parse(document(&[paragraph(&fits)])).is_ok(),
+            "{BODY_MAX_BYTES} bytes"
+        );
+        let over = "x".repeat(BODY_MAX_BYTES - frame + 1);
         assert_eq!(
-            Body::parse(document(&[paragraph(&long)])),
+            Body::parse(document(&[paragraph(&over)])),
             Err(BodyError::TooLarge)
         );
     }

@@ -28,7 +28,9 @@
   |---|---|---|
   | 0 | WebSocket 메시지를 지금 모양대로 적는다(`contracts/websocket.md`, `websocket.json`, 견주는 테스트), 웹앱의 G1–G6에 답한다 | 끝 |
   | 1 | 카드의 본문 하나를 쓰고 읽는다: `body` 열, `createCard`·`patchCard`·`getCard`, 목록의 본문 여부와 할 일 수, 읽은 판의 409, 검증의 최소한, 벡터 몇 개. 설계의 "답을 기다리는 것" 셋을 결정으로 옮긴다 | 끝 |
-  | 2 | 허용 목록과 한도 전체(판 2, 수식 노드, UTF-16), 블록 길(`createBlocks`, `patchBlock`, boards-and-blocks)의 `body`, 검색용 평문, 이미지의 `fileId`, 공유 벡터 전체 | 다음 |
+  | 1b | 설정의 문서와 예시 파일(지시문 9절): `docker/fvoci/config.json`을 지금의 키로 고치고 읽히는지 보는 테스트, `docs/configuration.md`에 키 전부(S3 하위 키, `FVOCI_*`, 명령줄 인자, 없앤 키), 문서와 코드의 키가 어긋나면 실패하는 검사. 쓰이지 않는 키와 S3 키의 환경 변수는 보고에 | 다음 |
+  | 2 | 허용 목록 전체: 노드·마크·속성·포함 관계, 판 2(수식 노드), 길이를 UTF-16으로, `href` 규칙, 검색용 평문(`body_text`), 공유 벡터 전체(웹앱 문서 4.4 포함) | |
+  | 2b | 블록 길의 본문: `createBlocks`·`patchBlock`·`patchBlocks`·boards-and-blocks의 `body`와 `field: body`, 본문을 가질 수 있는 블록 종류, 이미지 `fileId`가 같은 보드의 파일인지, 복제가 본문의 이미지를 새 파일로 바꾸는 것 | |
   | 3 | 댓글의 본문 | |
   | 4 | 템플릿 받기: 산출물을 저장소에, 이미지 빼기, 아카이브 판 3, 옛 형식 걷기, `onboarding` 표식, `onboard`의 500, Dockerfile | |
   | 5 | 콘텐츠 블록 걷어 내기: 콘텐츠 블록 종류, `contentOrder`, `moveContentBlock`, 종류별 `fields` 한도 | |

@@ -4,8 +4,10 @@
 
 use std::path::Path;
 
-use fvoci_model::{Block, BoardType, Category, CategoryType, FileInfo, new_id};
-use fvoci_store::{DbType, Store, StoreError};
+use fvoci_model::{
+    Block, BlockType, BoardType, BodySummary, Category, CategoryType, FileInfo, new_id,
+};
+use fvoci_store::{BlockFilter, DbType, Store, StoreError};
 use tokio::task::JoinSet;
 
 use crate::common;
@@ -467,10 +469,15 @@ const POSTGRES_ONLY_TYPES: [&str; 3] = ["UUID", "JSONB", "JSON"];
 
 /// Reads the baseline schema of a database kind.
 fn baseline_schema(directory: &str) -> String {
+    schema_file(directory, "0001_baseline.sql")
+}
+
+/// Reads a migration of a database kind.
+fn schema_file(directory: &str, name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("schema")
         .join(directory)
-        .join("0001_baseline.sql");
+        .join(name);
     std::fs::read_to_string(&path)
         .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()))
 }
@@ -540,6 +547,74 @@ fn schema_difference(postgres: &str, sqlite: &str) -> Option<String> {
         .map(|(number, line)| {
             format!("SQLite line {number} `{line}` is past the end of the PostgreSQL baseline")
         })
+}
+
+/// The two migrations that add the body describe one change, as the baselines do.
+#[test]
+fn the_two_body_migrations_differ_in_the_column_types_only() {
+    let postgres = schema_file("postgres", "0002_body.sql");
+    let sqlite = schema_file("sqlite", "0002_body.sql");
+    assert_eq!(
+        statement_lines(&postgres).len(),
+        5,
+        "five columns: {postgres}"
+    );
+    assert_eq!(
+        schema_difference(&postgres, &sqlite),
+        None,
+        "the body migrations of the two databases add different columns"
+    );
+}
+
+/// A database of the baseline alone, with blocks in it, takes the body migration: the
+/// blocks have no body and nothing to count.
+#[tokio::test]
+async fn blocks_stored_before_the_body_migration_have_no_body() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let mut card = Block {
+        id: new_id(),
+        board_id: boards[0].id.clone(),
+        block_type: BlockType::Card,
+        title: "from before".to_owned(),
+        ..Block::default()
+    };
+    test.insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is stored");
+    test.store.close().await;
+    // Back to the baseline, as a database the previous server left behind.
+    for statement in [
+        "ALTER TABLE blocks DROP COLUMN body",
+        "ALTER TABLE blocks DROP COLUMN body_version",
+        "ALTER TABLE blocks DROP COLUMN body_text",
+        "ALTER TABLE blocks DROP COLUMN body_tasks_total",
+        "ALTER TABLE blocks DROP COLUMN body_tasks_done",
+        "DELETE FROM _sqlx_migrations WHERE version = 2",
+    ] {
+        common::execute_raw(&test.dbconfig(), statement).await;
+    }
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store migrates the database");
+    let read = store.get_block(&card.id).await.expect("the card is read");
+    assert_eq!(read.body, None, "{read:?}");
+    assert_eq!(read.title, "from before");
+    let listed = store
+        .get_listed_blocks(&BlockFilter::board(&boards[0].id))
+        .await
+        .expect("the cards are listed");
+    assert_eq!(
+        listed,
+        [(read, BodySummary::default())],
+        "no body and no tasks"
+    );
+    store.close().await;
+
+    test.teardown().await;
 }
 
 /// The two baseline files describe one schema: statement for statement the same, but

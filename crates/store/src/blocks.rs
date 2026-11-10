@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use fvoci_model::{
-    BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body,
-    generate_block_ids,
+    BODY_VERSION, Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Body, BodySummary,
+    TaskCount, generate_block_ids,
 };
 use serde_json::Value;
 
@@ -25,6 +25,12 @@ pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, 
 /// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
 /// when it is stored.
 const BODY_SUMMARY_COLUMNS: &str = "body_version, body_text, body_tasks_total, body_tasks_done";
+
+/// The columns of a listed block: [`BLOCK_COLUMNS`] with no body, and what a list says
+/// about the body in its place.
+const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
+                             fields, create_at, update_at, board_id, NULL, \
+                             body IS NOT NULL, body_tasks_total, body_tasks_done";
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -98,6 +104,40 @@ impl Store {
     pub async fn get_blocks(&self, filter: &BlockFilter) -> Result<Vec<Block>, StoreError> {
         self.with_conn(async |scope| get_blocks(scope, filter).await)
             .await
+    }
+
+    /// Returns the blocks that match `filter` as [`Store::get_blocks`] does, but without
+    /// their bodies: each comes with what a list says about its body instead, read from
+    /// what was worked out when the body was stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database's error, or [`StoreError::Corrupt`] for a row that cannot be
+    /// read.
+    pub async fn get_listed_blocks(
+        &self,
+        filter: &BlockFilter,
+    ) -> Result<Vec<(Block, BodySummary)>, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = filtered_blocks(scope, filter, LISTED_BLOCK_COLUMNS);
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| {
+                    let tasks = TaskCount {
+                        total: count_column(row, 13, "body_tasks_total")?,
+                        done: count_column(row, 14, "body_tasks_done")?,
+                    };
+                    let summary = BodySummary {
+                        has_body: row.bool(12)?,
+                        tasks,
+                    };
+                    Ok((block_from_row(row)?, summary))
+                })
+                .collect()
+        })
+        .await
     }
 
     /// Returns the blocks with the given identifiers, oldest first.
@@ -335,7 +375,21 @@ pub(crate) async fn get_blocks(
     scope: &mut Scope<'_>,
     filter: &BlockFilter,
 ) -> Result<Vec<Block>, StoreError> {
-    let mut sql = select_blocks(scope);
+    let sql = filtered_blocks(scope, filter, BLOCK_COLUMNS);
+    fetch_blocks(scope, sql).await
+}
+
+/// A count the store wrote, read back.
+fn count_column(row: &Row, index: usize, column: &'static str) -> Result<u32, StoreError> {
+    u32::try_from(row.int(index)?).map_err(|error| StoreError::Corrupt {
+        column,
+        reason: error.to_string(),
+    })
+}
+
+/// The query for the blocks that match `filter`, reading `columns`.
+fn filtered_blocks(scope: &Scope<'_>, filter: &BlockFilter, columns: &str) -> Sql {
+    let mut sql = scope.sql(&format!("SELECT {columns} FROM blocks"));
     sql.push(" WHERE 1 = 1");
     if let Some(board_id) = &filter.board_id {
         sql.push_bind(" AND board_id = ", Id(board_id));
@@ -366,7 +420,7 @@ pub(crate) async fn get_blocks(
         sql.push_bind(" LIMIT ", i64::from(paging.per_page))
             .push_bind(" OFFSET ", offset);
     }
-    fetch_blocks(scope, sql).await
+    sql
 }
 
 pub(crate) async fn find_block(
@@ -463,6 +517,10 @@ async fn insert_block_at(
     user_id.clone_into(&mut block.modified_by);
 
     if let Some(existing) = find_block(scope, &block.id).await? {
+        // Every change of a block moves its `updateAt` on, also within one millisecond
+        // and when the clock steps back: a writer that read the block before this
+        // change is told so (`readAt`).
+        block.update_at = now.max(existing.update_at.saturating_add(1));
         // A block that moves must not end up below itself: nothing would lead to it
         // from its board any more.
         if !block.parent_id.is_empty()
@@ -481,7 +539,7 @@ async fn insert_block_at(
             .push_bind(", title = ", &block.title)
             .push_bind(", fields = ", Param::json(&block.fields)?)
             .push_bind(", update_at = ", block.update_at);
-        push_body(&mut sql, block.body.as_ref(), Assign)?;
+        push_body(&mut sql, block.body.as_ref(), BodyColumns::Assign)?;
         sql.push_bind(" WHERE id = ", Id(&block.id))
             .push_bind(" AND board_id = ", Id(&block.board_id));
         if scope.execute(sql).await? == 0 {
@@ -518,7 +576,7 @@ pub(crate) async fn insert_block_row(
         .push_bind(", ", block.create_at)
         .push_bind(", ", block.update_at)
         .push_bind(", ", Id(&block.board_id));
-    push_body(&mut sql, block.body.as_ref(), List)?;
+    push_body(&mut sql, block.body.as_ref(), BodyColumns::List)?;
     sql.push(")");
     scope.execute(sql).await?;
     Ok(())
@@ -533,13 +591,12 @@ enum BodyColumns {
     /// [`BODY_SUMMARY_COLUMNS`], for an `INSERT`.
     List,
 }
-use BodyColumns::{Assign, List};
 
 /// Appends the body and what is worked out from it.
 fn push_body(sql: &mut Sql, body: Option<&Body>, how: BodyColumns) -> Result<(), StoreError> {
     let tasks = body.map(Body::tasks).unwrap_or_default();
     let values = [
-        ("body", Param::opt_json(body.map(Body::document))?),
+        ("body", Param::opt_jsonb(body.map(Body::document))?),
         ("body_version", Param::OptInt(body.map(|_| BODY_VERSION))),
         // The text for searching comes with the full allowlist.
         ("body_text", Param::OptText(None)),
@@ -548,8 +605,8 @@ fn push_body(sql: &mut Sql, body: Option<&Body>, how: BodyColumns) -> Result<(),
     ];
     for (column, value) in values {
         match how {
-            Assign => sql.push_bind(&format!(", {column} = "), value),
-            List => sql.push_bind(", ", value),
+            BodyColumns::Assign => sql.push_bind(&format!(", {column} = "), value),
+            BodyColumns::List => sql.push_bind(", ", value),
         };
     }
     Ok(())

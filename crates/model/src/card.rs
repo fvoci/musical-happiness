@@ -7,7 +7,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType};
-use crate::body::{Body, BodyChange};
+use crate::body::{Body, BodyChange, BodySummary};
 use crate::id::new_id;
 use crate::serde_util::null_as_default;
 
@@ -90,6 +90,19 @@ pub struct Card {
 }
 
 impl Card {
+    /// The card as a list shows it: without its body, with what the list says about
+    /// the body instead.
+    #[must_use]
+    pub fn listed(self, summary: BodySummary) -> Self {
+        Self {
+            body: None,
+            has_body: summary.has_body,
+            tasks_total: summary.tasks.total,
+            tasks_done: summary.tasks.done,
+            ..self
+        }
+    }
+
     /// Fills in the members a new card may leave out: a fresh identifier, and `now`
     /// (milliseconds since the epoch) for a zero creation or modification time.
     pub fn populate(&mut self, now: i64) {
@@ -184,7 +197,7 @@ impl Card {
             }
         };
 
-        let tasks = block.body.as_ref().map(Body::tasks).unwrap_or_default();
+        let summary = block.body.as_ref().map(Body::summary).unwrap_or_default();
         let mut card = Self {
             id: block.id.clone(),
             board_id: block.board_id.clone(),
@@ -196,9 +209,9 @@ impl Card {
             is_template,
             properties,
             body: block.body.clone(),
-            has_body: block.body.is_some(),
-            tasks_total: tasks.total,
-            tasks_done: tasks.done,
+            has_body: summary.has_body,
+            tasks_total: summary.tasks.total,
+            tasks_done: summary.tasks.done,
             create_at: block.create_at,
             update_at: block.update_at,
             delete_at: block.delete_at,
