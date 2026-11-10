@@ -21,11 +21,6 @@ const FORMER_NAMES: [&str; 2] = [concat!("focal", "board"), concat!("matter", "m
 /// The directories whose files must not contain the former names.
 const NAME_CHECKED_DIRECTORIES: [&str; 2] = ["crates", "xtask"];
 
-/// Recorded answers of the server, which the check reports without failing. The built-in
-/// templates are the original's and still carry its name in their texts and links; the
-/// recordings show that until the templates are rewritten.
-const NAME_CHECK_RECORDINGS: &str = "crates/server/tests/regression/golden";
-
 /// Where `cargo install --root target/tools` puts the tools this workspace uses.
 const LOCAL_TOOLS: &str = "target/tools/bin";
 
@@ -111,16 +106,6 @@ fn former_names_are_absent(root: &Path) -> Result<()> {
     let mut hits = Vec::new();
     for directory in NAME_CHECKED_DIRECTORIES {
         collect_former_names(&root.join(directory), root, &mut hits)?;
-    }
-    let (recorded, hits): (Vec<String>, Vec<String>) = hits
-        .into_iter()
-        .partition(|hit| hit.starts_with(NAME_CHECK_RECORDINGS));
-    if !recorded.is_empty() {
-        steps::say(&format!(
-            "    note: {} lines of recorded answers carry a former name (built-in template texts): {}",
-            recorded.len(),
-            recorded.join(", ")
-        ));
     }
     if hits.is_empty() {
         steps::say(&format!(

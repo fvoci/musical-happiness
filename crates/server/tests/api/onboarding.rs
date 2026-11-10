@@ -95,11 +95,12 @@ async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template
         !titles.iter().any(|title| title == "hijacked"),
         "not the user's template: {titles:?}"
     );
-    assert_ne!(
-        marked_template(&ts.client2).await.id,
-        impostor.id,
-        "the marked template is the system's"
-    );
+    let built_in = marked_template(&ts.client2).await;
+    let mut expected = card_titles(&ts, &ts.client2, &built_in.id).await;
+    let mut titles = titles;
+    expected.sort();
+    titles.sort();
+    assert_eq!(titles, expected, "a copy of the built-in welcome board");
     ts.teardown().await;
 }
 
@@ -329,5 +330,40 @@ async fn onboard_stores_the_templates_again_when_the_welcome_board_is_gone() {
         .ok_json();
     assert_eq!(board.title, WELCOME_TITLE, "the welcome board is copied");
     marked_template(&ts.client).await;
+    ts.teardown().await;
+}
+
+/// Onboarding requests that find the welcome board gone at the same time store the
+/// built-in templates once between them: the decision and the storing are one
+/// transaction.
+#[tokio::test]
+async fn concurrent_onboarding_stores_the_templates_once() {
+    let ts = Setup::native()
+        .with_templates()
+        .start()
+        .await
+        .init_basic()
+        .await;
+    ts.app
+        .store()
+        .remove_builtin_templates()
+        .await
+        .expect("the built-in templates are removed");
+
+    let path = format!("/teams/{ROOT_TEAM_ID}/onboard");
+    let answers = futures_util::future::join_all(
+        [&ts.client, &ts.client2, &ts.client, &ts.client2].map(|client| client.post_empty(&path)),
+    )
+    .await;
+    for answer in answers {
+        answer.ok_json::<Value>();
+    }
+    let templates = ts
+        .app
+        .store()
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates are read");
+    assert_eq!(templates.len(), 13, "stored once");
     ts.teardown().await;
 }

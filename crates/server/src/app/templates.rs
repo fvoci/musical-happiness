@@ -23,6 +23,11 @@ const DEFAULT_TEMPLATE_VERSION: i64 = 7;
 /// boards; see [`is_onboarding_template`].
 pub(crate) const ONBOARDING_PROPERTY: &str = "onboarding";
 
+/// The board property that names a built-in template, as the converter does (`key`). It
+/// stays when the title changes; a copy carries it too, so it names a template only
+/// together with `isBuiltin`.
+const TEMPLATE_KEY_PROPERTY: &str = "templateKey";
+
 /// The template files, by name, in the order of the converter's `index.json`.
 const TEMPLATE_FILES: [(&str, &str); 13] = [
     (
@@ -118,7 +123,9 @@ fn builtin_templates(team_id: &str) -> Result<BoardsAndBlocks, AppError> {
     let mut boards_and_blocks = BoardsAndBlocks::default();
     for (name, text) in TEMPLATE_FILES {
         let template: TemplateFile = serde_json::from_str(text).map_err(|error| {
-            AppError::from(anyhow::anyhow!("the built-in template {name}: {error}"))
+            AppError::from(
+                anyhow::Error::new(error).context(format!("the built-in template {name}")),
+            )
         })?;
         if !template.files.is_empty() {
             return Err(AppError::from(anyhow::anyhow!(
@@ -146,9 +153,10 @@ fn builtin_templates(team_id: &str) -> Result<BoardsAndBlocks, AppError> {
             board_type: BoardType::Open,
             ..Board::default()
         };
-        board
-            .properties
-            .insert("templateKey".to_owned(), Value::String(template.key));
+        board.properties.insert(
+            TEMPLATE_KEY_PROPERTY.to_owned(),
+            Value::String(template.key),
+        );
         if template.onboarding {
             board
                 .properties
@@ -189,24 +197,39 @@ impl App {
     ///
     /// Returns the store's error if the templates cannot be read, removed or stored.
     pub async fn init_templates(&self) -> Result<bool, AppError> {
-        let boards = self.store().get_builtin_templates().await?;
-        tracing::debug!(count = boards.len(), "Fetched template boards");
-
-        let Some(reason) = initialization_reason(&boards) else {
+        if initialization_reason(&self.store().get_builtin_templates().await?).is_none() {
             tracing::debug!("Template import not needed, skipping");
             return Ok(false);
-        };
-        tracing::debug!(reason, "Storing the built-in templates");
+        }
 
         // A built-in template is offered to every team; it is filed under the root
         // team because a board has to be some team's.
-        let templates = builtin_templates(&self.root_team().await?.id)?;
-        self.store().remove_builtin_templates().await?;
-        // No user: what is stored on behalf of nobody is the system's own. One
-        // transaction: the templates are stored whole or not at all.
-        self.create_boards_and_blocks(templates, "")
+        let mut templates = builtin_templates(&self.root_team().await?.id)?;
+        // One transaction that decides again: of two servers, or onboarding requests,
+        // that found the templates missing, one stores them. What is stored on behalf of
+        // nobody is the system's own.
+        let replaced = self
+            .store()
+            .replace_builtin_templates(&mut templates, |stored| {
+                initialization_reason(stored).is_some_and(|reason| {
+                    tracing::debug!(reason, "Storing the built-in templates");
+                    true
+                })
+            })
             .await
-            .map_err(|error| error.context("cannot store the built-in templates"))?;
+            .map_err(|error| {
+                AppError::from(error).context("cannot store the built-in templates")
+            })?;
+        let Some(files) = replaced else {
+            return Ok(false);
+        };
+        // The records of the old templates' files went with them.
+        for file in &files {
+            if let Err(error) = self.files().delete(&file.path).await {
+                tracing::warn!(%error, path = file.path, "a file of a removed built-in template could not be removed");
+            }
+        }
+        self.announce_created(&templates, &[]).await;
         Ok(true)
     }
 

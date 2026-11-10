@@ -324,9 +324,18 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
     ts.teardown().await;
 }
 
+/// The converter's index of the templates (`apps/web/tools/templates/output/README.md`).
+fn converter_index() -> Value {
+    serde_json::from_str(include_str!(
+        "../../../../apps/web/tools/templates/output/index.json"
+    ))
+    .expect("the index is JSON")
+}
+
 /// The built-in templates are the converter's output (`docs/s6-design.md` 3.10): the
 /// thirteen of its index, one marked for the onboarding tour, each with its key, the
-/// cards' bodies as documents, no pictures, and dates in the shape of 5.7.
+/// cards' bodies as documents, no pictures, dates in the shape of 5.7, and views whose
+/// card order names cards of their board.
 #[tokio::test]
 async fn the_built_in_templates_are_the_converted_ones() {
     let ts = Setup::native()
@@ -340,16 +349,14 @@ async fn the_built_in_templates_are_the_converted_ones() {
         .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
-    let index: Value = serde_json::from_str(include_str!("../../assets/templates/index.json"))
-        .expect("the index is JSON");
+    let index = converter_index();
+    let listed = index["templates"].as_array().expect("a list");
     let mut keys: Vec<&str> = boards
         .iter()
         .filter_map(|board| board.properties.get("templateKey").and_then(Value::as_str))
         .collect();
     keys.sort_unstable();
-    let mut expected: Vec<&str> = index["templates"]
-        .as_array()
-        .expect("a list")
+    let mut expected: Vec<&str> = listed
         .iter()
         .filter_map(|template| template["key"].as_str())
         .collect();
@@ -365,13 +372,18 @@ async fn the_built_in_templates_are_the_converted_ones() {
         "one is marked for the tour"
     );
 
-    let (mut bodies, mut dates) = (0, 0);
+    let (mut bodies, mut dates, mut ordered) = (0, 0, 0);
     for board in &boards {
         let blocks = ts
             .client
             .get(&format!("/boards/{}/blocks", board.id))
             .await
             .ok_json::<Vec<Value>>();
+        let cards: Vec<&Value> = blocks
+            .iter()
+            .filter(|block| block["type"] == json!("card"))
+            .map(|block| &block["id"])
+            .collect();
         for block in &blocks {
             if block["body"].is_object() {
                 bodies += 1;
@@ -390,10 +402,35 @@ async fn the_built_in_templates_are_the_converted_ones() {
                     dates += 1;
                 }
             }
+            for card in block["fields"]["cardOrder"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                assert!(
+                    cards.contains(&card),
+                    "{card} in the order of {}",
+                    block["title"]
+                );
+                ordered += 1;
+            }
         }
     }
-    assert!(bodies > 50, "the cards have their bodies: {bodies}");
-    assert_eq!(dates, 19, "the dates of the templates, in the new shape");
+    let sum = |member: &str| -> u64 {
+        listed
+            .iter()
+            .filter_map(|template| template[member].as_u64())
+            .sum()
+    };
+    assert_eq!(bodies, sum("bodies"), "the cards have their bodies");
+    assert_eq!(
+        dates,
+        index["conversions"]["dateValues"]
+            .as_u64()
+            .expect("a count"),
+        "the dates of the templates, in the new shape"
+    );
+    assert!(ordered > 0, "the views have card orders");
     ts.teardown().await;
 }
 
@@ -415,24 +452,19 @@ fn the_server_copy_of_the_templates_is_the_converter_output() {
         })
         .collect();
     names.sort();
-    let mut expected: Vec<String> = std::fs::read_dir(&output)
-        .expect("the converter's output")
-        .map(|entry| {
-            entry
-                .expect("an entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .filter(|name| name == "index.json" || name.starts_with(|c: char| c.is_ascii_digit()))
+    let mut expected: Vec<String> = converter_index()["templates"]
+        .as_array()
+        .expect("a list")
+        .iter()
+        .filter_map(|template| template["file"].as_str().map(str::to_owned))
         .collect();
     expected.sort();
-    assert_eq!(names, expected, "the same files");
+    assert_eq!(names, expected, "the files of the index");
     for name in &names {
         assert_eq!(
             std::fs::read(copy.join(name)).expect("the copy"),
             std::fs::read(output.join(name)).expect("the output"),
-            "{name} is copied as it is: copy index.json and the numbered files of apps/web/tools/templates/output/ into this crate's assets/templates/"
+            "{name} is copied as it is: copy the template files that apps/web/tools/templates/output/index.json lists into this crate's assets/templates/"
         );
     }
 }
