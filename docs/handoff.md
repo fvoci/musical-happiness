@@ -22,6 +22,27 @@
 ## 지금 상태
 
 - **서버.** 설계(`docs/s6-design.md`)의 "구현 순서" 1–7단계가 끝났다. 끝난 것은 오류 응답과 경로 규칙, 요청 크기 한도, 새 기준 스키마, 쿠키 인증, 로그인 시도 제한, 접두어 `/api/v1`, 계약 파일이다. 남은 것은 8단계와 9단계이고 6절에 적었다.
+- **지금의 작업 묶음(브랜치 `fvoci/server-next`, 2026-11-11 04:08 KST에 시작).** 지시는 이 기기의 `~/atlas/musical-happiness-carry/PROMPT-server-next.md`다. 일을 tracer-bullet(기능 하나가 스키마부터 계약·테스트·스냅샷까지 끝에서 끝까지 도는 것) 하나씩으로 끊고, 하나가 끝날 때마다 검증하고 커밋해 올린 뒤 아래 목록에 표시한다. 올리기 전마다 그 diff에 `beautiful-rust:rust-review`를 돌린다.
+
+  | # | tracer-bullet | 상태 |
+  |---|---|---|
+  | 0 | WebSocket 메시지를 지금 모양대로 적는다(`contracts/websocket.md`, `websocket.json`, 견주는 테스트), 웹앱의 G1–G6에 답한다 | 끝 |
+  | 1 | 카드의 본문 하나를 쓰고 읽는다: `body` 열, `createCard`·`patchCard`·`getCard`, 목록의 본문 여부와 할 일 수, 읽은 판의 409, 검증의 최소한, 벡터 몇 개. 설계의 "답을 기다리는 것" 셋을 결정으로 옮긴다 | 다음 |
+  | 2 | 허용 목록과 한도 전체(판 2, 수식 노드, UTF-16), 블록 길(`createBlocks`, `patchBlock`, boards-and-blocks)의 `body`, 검색용 평문, 이미지의 `fileId`, 공유 벡터 전체 | |
+  | 3 | 댓글의 본문 | |
+  | 4 | 템플릿 받기: 산출물을 저장소에, 이미지 빼기, 아카이브 판 3, 옛 형식 걷기, `onboarding` 표식, `onboard`의 500, Dockerfile | |
+  | 5 | 콘텐츠 블록 걷어 내기: 콘텐츠 블록 종류, `contentOrder`, `moveContentBlock`, 종류별 `fields` 한도 | |
+  | 6 | 날짜 속성 값(5.7의 B) | |
+  | 7 | 파일 하나를 청크로 올리고 받는다(올리기 세션, 로컬 저장소) | |
+  | 8 | 업로드의 한도, 만료와 정리, 실패 때 지우기, S3 멀티파트, `uploadFile`의 스트리밍 | |
+  | 9 | 가져오기·내보내기의 스트리밍(디스크의 임시 파일), 가져오기를 올리기 세션으로 | |
+  | 10 | 응답 압축(정적 `.zst`, API의 gzip·brotli·zstd) | |
+  | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | |
+  | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | |
+  | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | |
+  | 14 | 빌드 크기(디버그 정보 수준) | |
+  | 끝 | 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | |
+
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
 - **새 워크트리에서는 서버가 컴파일되지 않는다.** 내장 템플릿의 아카이브 `server/assets/templates.boardarchive`가 저장소에 없기 때문이다(`crates/server/src/app/templates.rs`가 빌드할 때 읽는다). 이 파일은 커밋하지 않는다. 이 기기의 보관 폴더 `~/atlas/musical-happiness-carry/server/`에서 워크트리마다 제자리에 놓아 쓴다. 명령은 그 폴더의 `README.md` 3절에 있다. 다음 작업 묶음이 이 의존을 끊는다(6절).

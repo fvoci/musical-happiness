@@ -105,11 +105,10 @@
 
 ## 6. 계약 밖에 있는 것
 
-- **WebSocket(`/ws`)의 메시지.** OpenAPI는 WebSocket을 적지 못한다. 메시지의 모양도 계약 파일에 넣지 않았다.
-  - 어느 조작이 어느 메시지를 내는지와 메시지의 모양은 `crates/server/src/ws.rs`와 `crates/server/PORTING.md`가 기준이다.
+- **WebSocket(`/ws`)의 메시지.** OpenAPI는 WebSocket을 적지 못한다. 메시지는 계약 파일 밖의 `contracts/websocket.md`(사람이 읽는 것)와 `contracts/websocket.json`(멤버와 타입, 서버의 테스트가 실제 메시지를 견준다)에 적었다(2026-11-11 04:14 KST).
+  - 핸드셰이크의 인증, 명령 넷, 메시지 아홉, 어느 조작이 어느 메시지를 내는지, 서버가 연결을 닫는 때가 그 문서에 있다. 웹앱의 질문 G1–G6의 답도 그 문서의 5절에 있다.
   - 메시지가 싣는 보드, 블록, 카테고리, 멤버는 계약의 `Board`, `Block`, `Category`, `BoardMember`와 같은 모양이다.
   - 1절이 끝나면 `UPDATE_BLOCK`이 싣는 블록의 모양이 함께 바뀐다.
-  - 메시지를 계약처럼 고정하는 일은 남은 문제다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.
   - 모든 조작의 `default` 응답이 `ErrorBody`다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다.
   - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`.
@@ -184,4 +183,5 @@
 - **DB에 따라 다른 대소문자.** 제목 검색은 SQLite에서 ASCII 글자만 대소문자를 접는다. `getTeamUsers`의 `search`는 SQLite에서 ASCII 대소문자를 가리지 않고 PostgreSQL에서 가린다.
 - **기본 카테고리를 처음 만드는 `getCategories`.** 카테고리를 이미 가진 사용자의 기본 카테고리가 만들어지는 그 한 번의 답만 틀린다. 새 카테고리가 `sortOrder`와 상관없이 맨 끝에 오고, 다른 카테고리는 10씩 밀리기 전의 `sortOrder`를 싣는다. 다음 요청부터는 맞다.
 - **내장 환영 보드가 없을 때의 `onboard`.** 500이다.
+- **끝난 세션의 WebSocket.** 세션이 한가함 한도나 절대 한도로 끝나도, 그 세션으로 연 연결은 끝난 세션을 지우는 정리(한 시간마다)가 돌 때까지 남아 메시지를 받는다. 로그아웃, 비밀번호 재설정과 변경은 곧바로 닫는다.
 - **`setSharing`의 `token: null`.** 거절하지 않는다(`null`인 멤버를 먼저 버린다).

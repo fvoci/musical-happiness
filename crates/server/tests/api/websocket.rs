@@ -2,6 +2,8 @@
 //! told about which change, and pings. The original has no tests at this level; its unit
 //! tests of the listener table (`server/ws/server_test.go`) are ported next to the hub.
 
+use std::collections::BTreeSet;
+use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -651,5 +653,229 @@ async fn logging_out_closes_the_websocket_connections_of_that_session() {
         Event::Nothing,
         "the user's other session stays connected"
     );
+    th.teardown().await;
+}
+
+/// Checks a value against a member's description in `contracts/websocket.json`: a JSON
+/// type, a schema of `contracts/openapi.json` by name, an inline object, or a list.
+fn check_against(openapi: &Value, what: &Value, value: &Value, at: &str) {
+    match what {
+        Value::String(reference) if let Some(name) = reference.strip_prefix('#') => {
+            let schema = &openapi["components"]["schemas"][name];
+            let properties = schema["properties"]
+                .as_object()
+                .unwrap_or_else(|| panic!("{at}: openapi.json has the schema {name}"));
+            let object = value
+                .as_object()
+                .unwrap_or_else(|| panic!("{at}: an object, not {value}"));
+            for key in object.keys() {
+                assert!(
+                    properties.contains_key(key),
+                    "{at}: `{key}` is no member of {name} in openapi.json: {value}"
+                );
+            }
+            for key in schema["required"].as_array().into_iter().flatten() {
+                let key = key.as_str().expect("required names are strings");
+                assert!(
+                    object.contains_key(key),
+                    "{at}: {name} has `{key}`: {value}"
+                );
+            }
+        }
+        Value::String(kind) => {
+            let matches = match kind.as_str() {
+                "string" => value.is_string(),
+                "boolean" => value.is_boolean(),
+                "integer" => value.is_i64() || value.is_u64(),
+                other => panic!("{at}: unknown type {other} in websocket.json"),
+            };
+            assert!(matches, "{at}: a {kind}, not {value}");
+        }
+        Value::Array(items) => {
+            let [item] = items.as_slice() else {
+                panic!("{at}: a list is described by one item");
+            };
+            let list = value
+                .as_array()
+                .unwrap_or_else(|| panic!("{at}: a list, not {value}"));
+            for (index, element) in list.iter().enumerate() {
+                check_against(openapi, item, element, &format!("{at}[{index}]"));
+            }
+        }
+        Value::Object(members) => {
+            let object = value
+                .as_object()
+                .unwrap_or_else(|| panic!("{at}: an object, not {value}"));
+            let mut expected: Vec<&String> = members.keys().collect();
+            let mut actual: Vec<&String> = object.keys().collect();
+            expected.sort();
+            actual.sort();
+            assert_eq!(actual, expected, "{at}: the members of {value}");
+            for (key, member) in members {
+                check_against(openapi, member, &object[key], &format!("{at}.{key}"));
+            }
+        }
+        other => panic!("{at}: cannot read {other} in websocket.json"),
+    }
+}
+
+/// Checks one message the server sent against `contracts/websocket.json`.
+fn check_message(contract: &Value, openapi: &Value, message: &Value) {
+    let action = message["action"].as_str().expect("a message has an action");
+    let members = &contract["messages"][action]["members"];
+    assert!(
+        members.is_object(),
+        "contracts/websocket.json lists {action}"
+    );
+    check_against(openapi, members, message, action);
+}
+
+fn read_contract(name: &str) -> Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contracts")
+        .join(name);
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// Checks the messages a socket hears against the websocket contract, and remembers
+/// which kinds it heard.
+struct ContractCheck<'contract> {
+    contract: &'contract Value,
+    openapi: &'contract Value,
+    heard: BTreeSet<String>,
+}
+
+impl ContractCheck<'_> {
+    /// Waits for the next message, which must be an `action`, and checks it.
+    async fn hear(&mut self, socket: &mut Socket, action: &str) {
+        let message = socket.next_json(PATIENCE).await.expect("the message comes");
+        assert_eq!(message["action"], json!(action), "{message}");
+        check_message(self.contract, self.openapi, &message);
+        self.heard.insert(action.to_owned());
+    }
+}
+
+/// A private board of the user's with one card, stored.
+async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block) {
+    let mut board = Board {
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        title: "Roadmap".to_owned(),
+        ..Board::default()
+    };
+    th.app
+        .store()
+        .insert_board_with_admin(&mut board, user_id)
+        .await
+        .expect("the board is stored");
+    let mut block = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        title: "A card".to_owned(),
+        ..Block::default()
+    };
+    th.app
+        .store()
+        .insert_block(&mut block, user_id)
+        .await
+        .expect("the block is stored");
+    (board, block)
+}
+
+/// Every message the server sends has exactly the members `contracts/websocket.json`
+/// lists for it, and what it carries has the members of its schema in
+/// `contracts/openapi.json`. The messages come from the hub's broadcasts over a real
+/// connection, with stored boards, blocks and categories.
+#[tokio::test]
+async fn messages_match_the_websocket_contract() {
+    let contract = read_contract("websocket.json");
+    let openapi = read_contract("openapi.json");
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+
+    let (board, block) = board_with_a_card(&th, &user1.id).await;
+    let members = th
+        .app
+        .store()
+        .get_members_for_board(&board.id)
+        .await
+        .expect("the members are read");
+
+    let mut socket = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+
+    let ws = th.app.ws();
+    let category = category(ROOT_TEAM_ID, &user1.id, "Work");
+    let mut contract_check = ContractCheck {
+        contract: &contract,
+        openapi: &openapi,
+        heard: BTreeSet::new(),
+    };
+
+    ws.broadcast_board_change(ROOT_TEAM_ID, &board).await;
+    contract_check.hear(&mut socket, "UPDATE_BOARD").await;
+    ws.broadcast_block_change(ROOT_TEAM_ID, &block).await;
+    contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
+    ws.broadcast_block_delete(ROOT_TEAM_ID, &block.id, &board.id)
+        .await;
+    contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
+    let admin = members
+        .first()
+        .expect("the board has its admin as a member");
+    ws.broadcast_member_change(ROOT_TEAM_ID, &board.id, admin)
+        .await;
+    contract_check.hear(&mut socket, "UPDATE_MEMBER").await;
+    ws.broadcast_member_delete(ROOT_TEAM_ID, &board.id, &user1.id)
+        .await;
+    contract_check.hear(&mut socket, "DELETE_MEMBER").await;
+    ws.broadcast_category_change(&category);
+    contract_check.hear(&mut socket, "UPDATE_CATEGORY").await;
+    ws.broadcast_category_board_change(
+        ROOT_TEAM_ID,
+        &user1.id,
+        &[fvoci_model::BoardCategoryWebsocketData {
+            board_id: board.id.clone(),
+            category_id: category.id.clone(),
+            hidden: false,
+        }],
+    );
+    contract_check
+        .hear(&mut socket, "UPDATE_BOARD_CATEGORY")
+        .await;
+    ws.broadcast_category_reorder(ROOT_TEAM_ID, &user1.id, std::slice::from_ref(&category.id));
+    contract_check.hear(&mut socket, "REORDER_CATEGORIES").await;
+    ws.broadcast_category_boards_reorder(
+        ROOT_TEAM_ID,
+        &user1.id,
+        &category.id,
+        std::slice::from_ref(&board.id),
+    );
+    contract_check
+        .hear(&mut socket, "REORDER_CATEGORY_BOARDS")
+        .await;
+    ws.broadcast_config_change(&th.app.client_config());
+    contract_check
+        .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
+        .await;
+    // The board deletion goes to the former members, with the board's identifiers only.
+    ws.broadcast_board_delete(ROOT_TEAM_ID, &board.id, &members);
+    contract_check.hear(&mut socket, "UPDATE_BOARD").await;
+
+    // Every message of the contract was heard.
+    let listed: BTreeSet<&String> = contract["messages"]
+        .as_object()
+        .expect("the messages are an object")
+        .keys()
+        .collect();
+    let heard: BTreeSet<&String> = contract_check.heard.iter().collect();
+    assert_eq!(
+        heard, listed,
+        "the test hears every message the contract lists"
+    );
+
     th.teardown().await;
 }
