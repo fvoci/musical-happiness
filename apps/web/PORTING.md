@@ -328,6 +328,20 @@ Noto 계열은 가변 글꼴(wght 축)이라 굵기별 파일이 없다. Noto Sa
 | 편집기와 본문 저장 | `docs/spike-editor.md` | `src/lib/editor/`(허용 목록과 검증기, Tiptap 확장 구성, 마크다운 변환, 파일 주소) |
 | 드래그             | `docs/spike-drag.md`   | `src/lib/logic/drop-target.ts`, `src/lib/drag/`                                   |
 
+## 내장 템플릿의 변환 산출물 (2026-11-10 20:10 KST)
+
+서버 설계 5.7절의 "3.10의 갱신"대로, 내장 템플릿은 서버에서 다시 변환하지 않고 이쪽 변환기의 산출물을 서버가 받아 쓴다. `node tools/templates/convert.ts --write tools/templates/output`이 만들고, 결과는 `tools/templates/output/`에 커밋되어 있다(파일 17개: `index.json`, 템플릿 13개, `changes.json`, `CHANGES.md`, 손으로 쓴 `README.md`). 모양과 건수의 설명은 그 폴더의 `README.md`에 있다.
+
+- 도구는 셋으로 나뉜다: `archive.ts`(아카이브를 읽어 카드마다 문서 하나로), `rewrite.ts`(글을 바꾸는 규칙), `output.ts`(산출물의 모양과 조립). `convert.ts`는 집계를 찍고 `--write`·`--check`를 받는다.
+- 템플릿마다 보드, 뷰, 카드(본문 문서 포함)가 한 파일이다. 템플릿 13, 뷰 38, 카드 77, 본문 58.
+- **글에서 바뀐 곳은 47곳**이고 목록이 `CHANGES.md`·`changes.json`에 있다: 원본의 두 이름 → `fvoci` 9, 제품을 가리키는 "Boards" → `fvoci` 5, 본문의 바깥 링크와 그 문장 1, 바깥 주소인 링크 속성 값 32. 스파이크 문서가 센 "카드 본문의 원본 이름 7번, 바깥 링크 1개"는 본문만 본 수였다. 바깥 주소의 대부분은 본문이 아니라 `url` 속성의 값에 있었다.
+- "Boards" 다섯 곳은 결정 14의 글자보다 한 걸음 나간 판단이다(번역의 같은 결정을 따랐다). 목록에서 규칙이 따로 표시되어 있다.
+- 날짜 속성 값 19건은 새 와이어 모양(`{"from": "2022-11-22"}`)으로 바꿨다.
+- **타입은 임시다.** 서버의 계약(`contracts/openapi.json`)이 아직 없다. `output.ts`의 타입은 설계 문서와 아카이브를 보고 손으로 적었고, 계약이 나오면 거기서 생성한 타입에 맞춘 뒤 다시 만든다.
+- 테스트: `tests/tools/templates.test.ts` 20건(이름 바꾸기, 문장 빼기와 빈 것의 정리, 산출물의 수와 참조의 온전함, 원본 이름·바깥 주소가 남지 않음, 커밋된 폴더가 최신인지).
+- **서버 쪽에 전달할 것**: (1) 온보딩 보드를 제목이 아니라 `onboarding` 표식으로 찾아야 한다. 서버의 `crates/server/src/app/templates.rs`는 지금 제목 `Welcome to Boards!`로 찾는데 그 제목이 `Welcome to fvoci!`로 바뀌었다. (2) 식별자는 아카이브의 것이라 넣을 때 새로 만들어야 한다. (3) 그림은 노드와 파일 목록만 싣고 바이트는 원본 아카이브에 있다. "이미지를 뺄지"(3.10의 추가 안)가 정해지면 다시 만든다. (4) `isTemplate`, 보드 종류, 판 번호는 서버가 넣을 때 정한다.
+- 미결: 그림을 넣을지, 템플릿 수를 줄일지(서버 설계 3.10), 글의 검수(바뀐 47곳과 `reviewNotes`의 28건), 온보딩의 "Share cards on Channels" 카드처럼 이 제품에 없는 기능을 설명하는 카드를 둘지.
+
 ## 번역 (2026-11-10 19:00 KST)
 
 원본 `webapp/i18n/*.json`을 paraglide 메시지로 바꾸는 스크립트가 `tools/i18n/`에 있고 결과가 `messages/`에 있다. 통계, ICU 조사, 뺀 메시지, 채운 한국어 번역의 목록은 `docs/i18n-conversion.md`에 있다.
