@@ -505,7 +505,7 @@ test('a name typed into the menu is kept when a kind is chosen right after it', 
   await menu.getByRole('textbox', { name: 'Property name' }).fill('Source');
   await menu.locator('[data-action="type"]').click();
   await page.getByTestId('property-types').locator('[data-type="text"]').click();
-  await expect(page.getByTestId('confirm-dialog')).toBeHidden();
+  await expect(page.getByTestId('confirm-dialog')).toHaveCount(0);
   await expect(property(page, 'Source')).toHaveAttribute('data-property-type', 'text');
   await expect(property(page, 'Reference')).toHaveCount(0);
 });
@@ -1149,6 +1149,8 @@ test('the menu deletes the card without asking, the card closes, and undo brings
   await expect(onBoard).toHaveCount(1);
 
   await cardMenu(page, 'delete');
+  // No question in between: the card closes by the choice alone. (A question
+  // would keep the card open, and the next line would fail.)
   await expect(page.getByTestId('confirm-dialog')).toBeHidden();
   await expect(dialog(page)).toBeHidden();
   await expect(onBoard).toHaveCount(0);

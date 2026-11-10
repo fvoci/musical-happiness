@@ -81,6 +81,9 @@
   async function remove(): Promise<void> {
     const [store, cardId, close] = [board, card.cardId, onClose];
     deleting = true;
+    // What was typed is stored first, so that undo brings the card back with it
+    // and no write of the body meets the card in the trash.
+    await saver.flush();
     await store.deleteCards([cardId]);
     // Refused: the card is still there, and stays open.
     if (store.card(cardId)) deleting = false;
