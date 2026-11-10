@@ -5,7 +5,7 @@ use axum::extract::{Path, State};
 use axum::routing::post;
 
 use super::require_permission_through;
-use super::{ApiResult, RequiredSession, empty_response};
+use super::{ApiResult, RequiredSession, no_content};
 use crate::app::{App, MovePosition};
 use crate::permissions::BoardPermission;
 
@@ -61,5 +61,5 @@ async fn handle_move_block_to(
     app.move_content_block(&block, &dst_block, position, user_id)
         .await?;
     tracing::debug!(block_id, dst_block_id, "MoveBlockTo");
-    Ok(empty_response())
+    Ok(no_content())
 }

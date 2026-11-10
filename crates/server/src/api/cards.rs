@@ -9,7 +9,7 @@ use axum::routing::{get, post};
 use fvoci_model::{BlockType, Card, CardError, CardPatch};
 
 use super::change_notification;
-use super::{ApiResult, RequiredSession, json_response, query_param};
+use super::{ApiResult, RequiredSession, created, json_response, query_param};
 use super::{decode_object, require_board_permission, require_permission_through};
 use crate::app::App;
 use crate::auth::now_millis;
@@ -106,7 +106,7 @@ async fn handle_create_card(
         .create_card(card, &board_id, user_id, notification)
         .await?;
     tracing::debug!(board_id, card_id = %card.id, user_id, "CreateCard");
-    Ok(json_response(&card))
+    Ok(created(&card))
 }
 
 /// `GET /boards/{board_id}/cards`: one page of the board's cards, for everyone who may

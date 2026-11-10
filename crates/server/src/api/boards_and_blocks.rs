@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
-use super::{ApiResult, RequiredSession, empty_response, json_response};
+use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
@@ -104,7 +104,7 @@ async fn handle_create_boards_and_blocks(
     let created = app
         .create_boards_and_blocks_with_admin(request, user_id)
         .await?;
-    Ok(json_response(&created))
+    Ok(super::created(&created))
 }
 
 /// Returns what is wrong with a block that is to be created with the boards that have
@@ -261,5 +261,5 @@ async fn handle_delete_boards_and_blocks(
     require_blocks_of_boards(&app, user_id, &request.blocks, &board_ids).await?;
 
     app.delete_boards_and_blocks(&request, user_id).await?;
-    Ok(empty_response())
+    Ok(no_content())
 }

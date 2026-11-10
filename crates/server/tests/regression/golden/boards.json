@@ -58,7 +58,7 @@
   {
     "name": "create board Roadmap",
     "request": "POST /api/v1/boards as boards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [
@@ -93,7 +93,7 @@
   {
     "name": "create board Open board",
     "request": "POST /api/v1/boards as boards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -561,7 +561,7 @@
   {
     "name": "insert a card",
     "request": "POST /api/v1/boards/<id:2>/blocks as boards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -585,7 +585,7 @@
   {
     "name": "duplicate",
     "request": "POST /api/v1/boards/<id:2>/duplicate as boards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "blocks": [
@@ -642,7 +642,7 @@
   {
     "name": "duplicate as template",
     "request": "POST /api/v1/boards/<id:2>/duplicate?asTemplate=true as boards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "blocks": [
@@ -756,9 +756,8 @@
   {
     "name": "delete",
     "request": "DELETE /api/v1/boards/<id:2> as boards-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "get deleted",
@@ -798,7 +797,35 @@
     "request": "POST /api/v1/boards/<id:2>/undelete as boards-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": {}
+    "body": {
+      "cardProperties": [
+        {
+          "id": "prop2",
+          "name": "Owner",
+          "options": [],
+          "type": "person"
+        }
+      ],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "new plans",
+      "icon": "🚀",
+      "id": "<id:2>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "editor",
+      "modifiedBy": "<id:1>",
+      "properties": {
+        "color": "red"
+      },
+      "showDescription": false,
+      "teamId": "<id:3>",
+      "templateVersion": 0,
+      "title": "Roadmap 2",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
   },
   {
     "name": "get undeleted",

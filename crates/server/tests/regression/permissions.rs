@@ -458,7 +458,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
                 // and their cell says what ending a subscription one does not have
                 // answers.
                 let wanted = if MEMBER_ROLES.contains(name) {
-                    200
+                    201
                 } else {
                     404
                 };

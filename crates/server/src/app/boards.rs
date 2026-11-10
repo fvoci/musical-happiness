@@ -271,13 +271,18 @@ impl App {
     }
 
     /// Restores a board from the trash, with its blocks, its file records and the
-    /// memberships of the users who still exist, and tells the board's members.
+    /// memberships of the users who still exist, tells the board's members and returns
+    /// the board.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if the board is not in the trash, and the store's
     /// error if it cannot be restored.
-    pub async fn undelete_board(&self, board_id: &str, modified_by: &str) -> Result<(), AppError> {
+    pub async fn undelete_board(
+        &self,
+        board_id: &str,
+        modified_by: &str,
+    ) -> Result<Board, AppError> {
         let board = match self.store().undelete_board(board_id, modified_by).await {
             Ok(board) => board,
             Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
@@ -285,12 +290,13 @@ impl App {
         };
 
         let app = self.clone();
+        let restored = board.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_board_change(&board.team_id, &board)
+                .broadcast_board_change(&restored.team_id, &restored)
                 .await;
         });
-        Ok(())
+        Ok(board)
     }
 
     /// Copies a board and its blocks, except comments, into `to_team` for a user, who

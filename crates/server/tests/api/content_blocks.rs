@@ -48,8 +48,7 @@ async fn move_block(client: &Client, block_id: &str, position: &str, dst_id: &st
 /// `MoveContentBlock`, expecting success.
 async fn move_block_ok(client: &Client, block: &Block, position: &str, dst: &Block) {
     let response = move_block(client, &block.id, position, &dst.id).await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "a move answers the empty object");
+    response.check_no_content();
 }
 
 /// The content order of a card as it is stored.
@@ -84,7 +83,7 @@ async fn card_with_texts(client: &Client, board_id: &str, texts: usize) -> (Bloc
     let mut blocks = vec![with_fields(card, json!({"contentOrder": order}))];
     blocks.extend(texts);
 
-    let mut inserted: Vec<Block> = client.insert_blocks(board_id, &blocks).await.ok_json();
+    let mut inserted: Vec<Block> = client.insert_blocks(board_id, &blocks).await.created_json();
     let card = inserted.remove(0);
     (card, inserted)
 }
@@ -128,7 +127,7 @@ async fn two_cards() -> TwoCards {
         .client
         .insert_blocks(&board.id, &new_blocks)
         .await
-        .ok_json();
+        .created_json();
     assert_eq!(created.len(), 8, "all blocks were created");
     created.pop().expect("the second card");
     let card1 = created.pop().expect("the first card");
@@ -202,7 +201,7 @@ async fn move_content_block_valid_request_with_not_real_change() {
 
     let response = cards.run_cases(2).await;
 
-    response.check_ok();
+    response.check_no_content();
     cards.check_order([0, 1, 2]).await;
     cards.th.teardown().await;
 }
@@ -214,7 +213,7 @@ async fn move_content_block_valid_request_changing_order_with_before() {
 
     let response = cards.run_cases(3).await;
 
-    response.check_ok();
+    response.check_no_content();
     cards.check_order([1, 0, 2]).await;
     cards.th.teardown().await;
 }
@@ -226,7 +225,7 @@ async fn move_content_block_valid_request_changing_order_with_after() {
 
     let response = cards.run_cases(4).await;
 
-    response.check_ok();
+    response.check_no_content();
     cards.check_order([1, 0, 2]).await;
     cards.th.teardown().await;
 }
@@ -609,7 +608,7 @@ async fn move_content_block_changes_the_order_of_the_card() {
             }}),
         )
         .await
-        .check_ok();
+        .check_no_content();
     let response = move_block(&editor, &b.id, "after", &a.id).await;
     check_error(
         &response,
@@ -684,7 +683,7 @@ async fn move_content_block_next_to_a_block_of_a_board_without_permission_is_ref
             ..Board::default()
         })
         .await
-        .ok_json();
+        .created_json();
     let (_, own_texts) = card_with_texts(intruder, &own_board.id, 1).await;
 
     // The answer is the one for a block that does not exist.

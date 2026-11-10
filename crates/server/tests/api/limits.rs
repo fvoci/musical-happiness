@@ -308,7 +308,7 @@ async fn uploads_are_not_behind_the_json_limit() {
         .client
         .request(Method::POST, &format!("/boards/{}/files", board.id))
         .multipart(Form::new().part("file", part));
-    Client::send(request).await.check_ok();
+    Client::send(request).await.check_created();
     th.teardown().await;
 }
 

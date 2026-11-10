@@ -2,7 +2,7 @@
   {
     "name": "create",
     "request": "POST /api/v1/boards-and-blocks as bab-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "blocks": [
@@ -379,9 +379,8 @@
   {
     "name": "delete",
     "request": "DELETE /api/v1/boards-and-blocks as bab-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "board a after delete",

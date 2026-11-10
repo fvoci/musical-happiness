@@ -12,7 +12,7 @@ use axum::routing::{get, post};
 use fvoci_store::PublicBoards;
 
 use super::files::NOT_MULTIPART;
-use super::{ApiResult, RequiredSession, empty_response};
+use super::{ApiResult, RequiredSession, no_content};
 use super::{require_board_permission, require_team_access, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
@@ -100,7 +100,7 @@ async fn handle_import(
         .map_err(|message| AppError::bad_request(message).with_field(UPLOAD_FIELD))?;
 
     app.import_team_archive(bytes, &team_id, user_id).await?;
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// Reads the uploaded `file` field, or returns the message the original would write.

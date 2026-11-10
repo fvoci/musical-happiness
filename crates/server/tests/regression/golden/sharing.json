@@ -2,7 +2,7 @@
   {
     "name": "create board Shared board",
     "request": "POST /api/v1/boards as share-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -42,7 +42,7 @@
   {
     "name": "insert blocks",
     "request": "POST /api/v1/boards/<id:2>/blocks as share-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {

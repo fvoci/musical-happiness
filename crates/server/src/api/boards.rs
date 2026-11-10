@@ -10,8 +10,8 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, decode_json, empty_response, has_valid_read_token,
-    json_response, query_param,
+    ApiResult, OptionalSession, RequiredSession, created, decode_json, has_valid_read_token,
+    json_response, no_content, query_param,
 };
 use super::{
     duplicate_as, json_object, require_board_permission, require_team_access, require_team_in_body,
@@ -167,7 +167,7 @@ async fn handle_create_board(
     }
 
     let board = app.create_board_with_admin(board, user_id).await?;
-    Ok(json_response(&board))
+    Ok(created(&board))
 }
 
 /// `GET /boards/{board_id}`: a board, for a user who may see it or for anybody with the
@@ -265,7 +265,7 @@ async fn handle_delete_board(
     app.board(&board_id).await?;
 
     app.delete_board(&board_id, &session.user_id).await?;
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// `POST /boards/{board_id}/duplicate`: copies a board, as a board or a template
@@ -306,7 +306,7 @@ async fn handle_duplicate_board(
     let (boards_and_blocks, _members) = app
         .duplicate_board(&board_id, user_id, &to_team, duplicate_as)
         .await?;
-    Ok(json_response(&boards_and_blocks))
+    Ok(created(&boards_and_blocks))
 }
 
 /// `POST /boards/{board_id}/undelete`: restores a deleted board with its blocks.
@@ -331,6 +331,6 @@ async fn handle_undelete_board(
         return Err(AppError::forbidden("access denied to undelete board"));
     }
 
-    app.undelete_board(&board_id, &session.user_id).await?;
-    Ok(empty_response())
+    let board = app.undelete_board(&board_id, &session.user_id).await?;
+    Ok(json_response(&board))
 }

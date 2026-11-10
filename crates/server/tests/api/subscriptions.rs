@@ -48,7 +48,7 @@ async fn subscribe(client: &Client, block_id: &str, subscriber_id: &str) -> Subs
     client
         .post(PATH, &request(block_id, subscriber_id))
         .await
-        .ok_json()
+        .created_json()
 }
 
 /// `GetSubscriptions`
@@ -94,7 +94,7 @@ async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscr
         update_at: 1,
         ..Board::default()
     };
-    let board: Board = client.create_board(&board).await.ok_json();
+    let board: Board = client.create_board(&board).await.created_json();
 
     let mut subscriptions = Vec::with_capacity(count);
     for _ in 0..count {
@@ -108,7 +108,7 @@ async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscr
             create_at: 0,
             delete_at: 0,
         };
-        let created: Subscription = client.post(PATH, &subscription).await.ok_json();
+        let created: Subscription = client.post(PATH, &subscription).await.created_json();
         subscriptions.push(created);
     }
     (subscriptions, user.id)
@@ -208,8 +208,7 @@ async fn delete_subscription_delete_valid_subscription() {
     assert_eq!(subscriptions.len(), 3, "three subscriptions were created");
 
     let response = unsubscribe(&th.client, &subscriptions[1].block_id, &user_id).await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "the empty object");
+    response.check_no_content();
 
     // Fetch the subscriptions and ensure the list is correct.
     let found = subscriptions_of(&th.client, &user_id).await;
@@ -347,7 +346,7 @@ async fn create_subscription_answer_and_subscribing_again() {
     body["createAt"] = json!(6);
     body["deleteAt"] = json!(7);
     let response = th.client.post(PATH, &body).await;
-    let first: Subscription = response.ok_json();
+    let first: Subscription = response.created_json();
     assert!(
         first.create_at >= before,
         "created now: {}",
@@ -384,7 +383,9 @@ async fn create_subscription_answer_and_subscribing_again() {
     );
 
     // Unsubscribing ends the subscription; subscribing after that starts a new one.
-    unsubscribe(&th.client, &card.id, &me).await.check_ok();
+    unsubscribe(&th.client, &card.id, &me)
+        .await
+        .check_no_content();
     assert_eq!(subscriptions_of(&th.client, &me).await, [], "unsubscribed");
     tokio::time::sleep(Duration::from_millis(5)).await;
     let third = subscribe(&th.client, &card.id, &me).await;
@@ -402,7 +403,7 @@ async fn create_subscription_answer_and_subscribing_again() {
         body["blockType"] = json!(block_type);
         body["subscriberType"] = json!(subscriber_type);
         let response = th.client.post(PATH, &body).await;
-        response.check_ok();
+        response.check_created();
         let answer = response.value();
         assert_eq!(answer["blockType"], json!(block_type), "{answer}");
         assert_eq!(answer["subscriberType"], json!(subscriber_type), "{answer}");
@@ -464,7 +465,9 @@ async fn delete_subscription_twice() {
     check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
 
     subscribe(&th.client, &card.id, &me).await;
-    unsubscribe(&th.client, &card.id, &me).await.check_ok();
+    unsubscribe(&th.client, &card.id, &me)
+        .await
+        .check_no_content();
     let response = unsubscribe(&th.client, &card.id, &me).await;
     check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
 
@@ -481,7 +484,7 @@ async fn a_subscription_ends_with_its_block() {
     let card = insert_card(&th.client, &board.id).await;
     subscribe(&th.client, &card.id, &me).await;
     let block_path = format!("/boards/{}/blocks/{}", board.id, card.id);
-    th.client.delete(&block_path).await.check_ok();
+    th.client.delete(&block_path).await.check_no_content();
 
     assert_eq!(
         subscriptions_of(&th.client, &me).await,
@@ -523,7 +526,9 @@ async fn subscription_changes_are_not_broadcast() {
 
     subscribe(&th.client, &card.id, &me).await;
     subscribe(&th.client, &card.id, &me).await;
-    unsubscribe(&th.client, &card.id, &me).await.check_ok();
+    unsubscribe(&th.client, &card.id, &me)
+        .await
+        .check_no_content();
 
     assert!(
         th.app.finish_background(BACKGROUND).await,
@@ -607,7 +612,7 @@ async fn subscription_by_every_member_of_the_board_still_works() {
     th.client
         .delete(&format!("/boards/{}/members/{viewer_id}", board.id))
         .await
-        .check_ok();
+        .check_no_content();
     let response = viewer.post(PATH, &request(&card.id, &viewer_id)).await;
     check_error(&response, StatusCode::NOT_FOUND, NO_BLOCK);
     assert_eq!(
@@ -665,7 +670,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     th.client
         .delete(&format!("/boards/{}/members/{user2_id}", boards[0].id))
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         subscriptions_of(&th.client2, &user2_id).await,
         [on_second],
@@ -682,7 +687,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     th.client2
         .post_empty(&format!("/boards/{}/leave", boards[1].id))
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         subscriptions_of(&th.client2, &user2_id).await,
         [],

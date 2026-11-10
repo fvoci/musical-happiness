@@ -602,7 +602,7 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
     th.client
         .delete(&format!("/boards/{}", board.id))
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         with_new_link.next(PATIENCE).await,
         Event::Closed,
@@ -625,7 +625,7 @@ async fn logging_out_closes_the_websocket_connections_of_that_session() {
     subscribe_to_team(&th, &mut here, ROOT_TEAM_ID, &user1.id).await;
     let mut there = Socket::connect_as(&elsewhere).await;
 
-    th.client.post_empty("/logout").await.check_ok();
+    th.client.post_empty("/logout").await.check_no_content();
 
     assert_eq!(
         here.next(PATIENCE).await,

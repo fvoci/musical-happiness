@@ -86,7 +86,7 @@ async fn an_address_that_keeps_failing_at_an_account_is_made_to_wait() {
     }
     // The name in other letters is the same account; another account is not held up.
     retry_after(&login(&th, &USER1_USERNAME.to_uppercase(), PASSWORD).await);
-    login(&th, "user2", PASSWORD).await.check_ok();
+    login(&th, "user2", PASSWORD).await.check_no_content();
     // Signed in before the trouble: the session goes on.
     th.client.get("/users/me").await.check_ok();
 
@@ -120,7 +120,7 @@ async fn only_the_address_that_fails_waits() {
 
     login_from(&th, owner, USER1_USERNAME, PASSWORD)
         .await
-        .check_ok();
+        .check_no_content();
     retry_after(&login_from(&th, guesser, USER1_USERNAME, PASSWORD).await);
     // What the client writes at the left of the header is not what the proxy saw.
     retry_after(
@@ -139,7 +139,7 @@ async fn only_the_address_that_fails_waits() {
         PASSWORD,
     )
     .await
-    .check_ok();
+    .check_no_content();
 
     th.teardown().await;
 }
@@ -194,7 +194,7 @@ async fn an_account_is_locked_after_too_many_failures_from_anywhere() {
     );
     login_from(&th, "198.51.100.1", "user2", PASSWORD)
         .await
-        .check_ok();
+        .check_no_content();
 
     th.teardown().await;
 }
@@ -219,8 +219,8 @@ async fn an_address_makes_only_so_many_attempts_a_minute() {
     th.anonymous()
         .post("/register", &register("first"))
         .await
-        .check_ok();
-    login(&th, "first", PASSWORD).await.check_ok();
+        .check_created();
+    login(&th, "first", PASSWORD).await.check_no_content();
     login(&th, "one", "password1").await.check_unauthorized();
     login(&th, "two", "password1").await.check_unauthorized();
 
@@ -302,7 +302,9 @@ async fn logins_beyond_the_queue_of_password_work_are_told_to_come_back() {
             answer.text()
         );
     }
-    login(&th, USER1_USERNAME, PASSWORD).await.check_ok();
+    login(&th, USER1_USERNAME, PASSWORD)
+        .await
+        .check_no_content();
 
     th.teardown().await;
 }

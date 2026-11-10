@@ -12,7 +12,7 @@ use std::time::Duration;
 use fvoci_model::new_id;
 use fvoci_server::TlsFiles;
 use reqwest::{Method, StatusCode};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::common::{Client, PASSWORD, ROOT_TEAM_ID, Setup, TestServer};
 
@@ -61,10 +61,17 @@ mod socket {
     }
 
     impl SocketResponse {
+        /// Checks the answer of an operation without a result: status 204, no body, and
+        /// no `Content-Type` for the body that is not there.
         #[track_caller]
-        fn check(&self, status: u16, body: &str) {
-            assert_eq!(self.status, status, "the status; body: {}", self.body);
-            assert_eq!(self.body, body, "the body");
+        fn check_no_content(&self) {
+            assert_eq!(self.status, 204, "the status; body: {}", self.body);
+            assert_eq!(self.body, "", "a 204 has no body");
+            assert!(
+                !self.head.to_lowercase().contains("content-type:"),
+                "a 204 names no content type: {}",
+                self.head
+            );
         }
 
         /// Checks an error answer: the status, its code, the message, and that it is
@@ -141,7 +148,7 @@ mod socket {
         let mut client = th.anonymous();
         let response = client.login(USER1_USERNAME, password).await;
         match response.status {
-            StatusCode::OK => true,
+            StatusCode::NO_CONTENT => true,
             StatusCode::UNAUTHORIZED => {
                 assert_eq!(
                     response.error_message(),
@@ -155,7 +162,7 @@ mod socket {
     }
 
     /// `handleAdminSetPassword` (`server/api/admin.go`): the password is replaced without
-    /// asking for the old one, and the answer is an empty object.
+    /// asking for the old one, and the answer has no body.
     #[tokio::test]
     async fn admin_set_password_changes_the_password() {
         let (th, socket) = start_with_admin_socket().await;
@@ -163,8 +170,7 @@ mod socket {
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         let response = set_password(&socket, USER1_USERNAME, &body).await;
 
-        response.check(200, "{}");
-        assert!(response.is_json(), "{}", response.head);
+        response.check_no_content();
         assert!(can_log_in(&th, NEW_PASSWORD).await, "the new password");
         assert!(!can_log_in(&th, PASSWORD).await, "the old password");
         assert!(
@@ -185,7 +191,7 @@ mod socket {
         );
 
         let response = socket_request(&socket, "POST", "/api/v1/admin/users/USER2/admin", "").await;
-        response.check(200, "{}");
+        response.check_no_content();
         assert!(
             th.client2.me().await.is_admin,
             "user2 is one now, found by name in any letter case"
@@ -213,7 +219,7 @@ mod socket {
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         set_password(&socket, USER1_USERNAME, &body)
             .await
-            .check(200, "{}");
+            .check_no_content();
 
         for (client, device) in [(&th.client, "the first"), (&second_device, "a second")] {
             let response = client.get("/users/me").await;
@@ -241,7 +247,7 @@ mod socket {
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         set_password(&socket, USER1_USERNAME, &body)
             .await
-            .check(200, "{}");
+            .check_no_content();
 
         assert_eq!(
             th.client2.me().await.username,
@@ -283,7 +289,7 @@ mod socket {
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         set_password(&socket, "us%65r1", &body)
             .await
-            .check(200, "{}");
+            .check_no_content();
 
         assert!(can_log_in(&th, NEW_PASSWORD).await, "the new password");
         th.teardown().await;
@@ -328,7 +334,7 @@ mod socket {
             let body = json!({ "password": password }).to_string();
             set_password(&socket, USER1_USERNAME, &body)
                 .await
-                .check(200, "{}");
+                .check_no_content();
             assert!(can_log_in(&th, &password).await, "{} bytes", password.len());
             let mut differs_at_the_end = password.clone();
             differs_at_the_end.pop();
@@ -462,7 +468,7 @@ mod socket {
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         set_password(&socket, USER1_USERNAME, &body)
             .await
-            .check(200, "{}");
+            .check_no_content();
         th.teardown().await;
         assert!(!socket.exists(), "the socket file is removed");
     }
@@ -548,8 +554,10 @@ async fn use_ssl_serves_over_tls() {
         .send()
         .await
         .expect("the server answers over TLS");
-    assert_eq!(register.status(), StatusCode::OK);
-    assert_eq!(register.text().await.expect("the body is read"), "{}");
+    assert_eq!(register.status(), StatusCode::CREATED);
+    let registered: Value = serde_json::from_str(&register.text().await.expect("the body is read"))
+        .expect("the body is JSON");
+    assert_eq!(registered["username"], "user1", "the user that was made");
 
     assert!(
         reqwest::Client::new()

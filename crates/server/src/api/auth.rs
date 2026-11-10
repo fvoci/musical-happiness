@@ -10,7 +10,7 @@ use axum::routing::post;
 use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest};
 
 use super::{
-    ApiResult, RequiredSession, decode_object, empty_response, json_response, require_admin,
+    ApiResult, RequiredSession, created, decode_object, json_response, no_content, require_admin,
     require_team_access,
 };
 use crate::app::{Admission, App};
@@ -73,7 +73,7 @@ async fn handle_login(
         .await?;
     // The token goes out in the cookie only: a script of the page never sees it. A
     // client that is no browser reads it from the `Set-Cookie` header.
-    Ok(with_session_cookie(&app, &token, empty_response()))
+    Ok(with_session_cookie(&app, &token, no_content()))
 }
 
 /// Adds the session cookie with the token to a response.
@@ -88,7 +88,7 @@ async fn handle_logout(
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
     app.logout(&session.id).await?;
-    let mut response = empty_response();
+    let mut response = no_content();
     response
         .headers_mut()
         .insert(SET_COOKIE, app.authenticator().session_cookie().clear());
@@ -130,15 +130,16 @@ async fn handle_register(
     };
     register.validate()?;
 
-    app.register_user(
-        &register.username,
-        &register.email,
-        &register.password,
-        admission,
-        address_of(client),
-    )
-    .await?;
-    Ok(empty_response())
+    let user = app
+        .register_user(
+            &register.username,
+            &register.email,
+            &register.password,
+            admission,
+            address_of(client),
+        )
+        .await?;
+    Ok(created(&user))
 }
 
 /// `POST /teams/{team_id}/signup-token`: makes a new signup token for the team; the
@@ -171,5 +172,5 @@ async fn handle_change_password(
         .change_password(&session, &request.old_password, &request.new_password)
         .await?;
     // The session goes on under a new token, which replaces the old one in the cookie.
-    Ok(with_session_cookie(&app, &token, empty_response()))
+    Ok(with_session_cookie(&app, &token, no_content()))
 }

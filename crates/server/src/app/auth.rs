@@ -203,9 +203,9 @@ impl App {
         Ok(self.store().get_registered_user_count().await?)
     }
 
-    /// Creates a user. The caller has checked the request and, if the registration
-    /// came with a signup token, the token. The first user of the instance becomes its
-    /// administrator.
+    /// Creates a user and returns them. The caller has checked the request and, if the
+    /// registration came with a signup token, the token. The first user of the instance
+    /// becomes its administrator.
     ///
     /// # Errors
     ///
@@ -220,7 +220,7 @@ impl App {
         password: &str,
         admission: Admission,
         address: Option<IpAddr>,
-    ) -> Result<(), AppError> {
+    ) -> Result<User, AppError> {
         // A registration costs a hash like a login, and is counted against where it
         // comes from like one. The turn is held until the user is stored.
         let _attempt = self
@@ -260,7 +260,7 @@ impl App {
                 if user.is_admin {
                     tracing::info!(user_id = %user.id, "the first user is the administrator");
                 }
-                Ok(())
+                Ok(user)
             }
             Err(StoreError::Conflict(Taken::Email)) => Err(email_taken()),
             Err(StoreError::Conflict(Taken::Username)) => Err(username_taken()),

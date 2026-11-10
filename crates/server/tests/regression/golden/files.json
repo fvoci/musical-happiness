@@ -2,7 +2,7 @@
   {
     "name": "create board Board with files",
     "request": "POST /api/v1/boards as files-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -28,7 +28,7 @@
   {
     "name": "upload",
     "request": "POST /api/v1/boards/<id:2>/files as files-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "fileId": "<secret:1>.png"
@@ -43,7 +43,7 @@
   {
     "name": "upload: jpeg extension",
     "request": "POST /api/v1/boards/<id:2>/files as files-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "fileId": "<secret:2>.jpg"
@@ -52,7 +52,7 @@
   {
     "name": "upload: text",
     "request": "POST /api/v1/boards/<id:2>/files as files-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "fileId": "<secret:3>.txt"
@@ -314,7 +314,7 @@
   {
     "name": "insert an image block",
     "request": "POST /api/v1/boards/<id:2>/blocks as files-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -352,9 +352,8 @@
   {
     "name": "delete the image block",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as files-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "blocks after deleting the image",

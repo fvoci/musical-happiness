@@ -203,9 +203,8 @@
   {
     "name": "another account is not held up",
     "request": "POST /api/v1/login as anonymous",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "a session from before goes on",

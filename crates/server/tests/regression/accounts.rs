@@ -127,6 +127,18 @@ pub(crate) async fn auth(s: &mut Session) {
             .await;
     }
 
+    // A registration answers with the user it made and signs nobody in.
+    s.post("register", &register)
+        .json(json!({
+            "username": "auth-new", "email": "auth-new@example.com",
+            "password": "test-password", "token": token,
+        }))
+        .keep_headers(&["Set-Cookie"])
+        .await;
+    s.post("login: the registered user", &login)
+        .json(json!({"username": "auth-new", "password": "test-password"}))
+        .await;
+
     s.post("login", &login)
         .json(json!({"username": alice, "password": "test-password"}))
         .await;

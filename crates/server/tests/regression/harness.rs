@@ -337,7 +337,7 @@ impl Http {
                 &Caller::Anonymous,
             )
             .await;
-        assert_eq!(reply.status, 200, "register {user}: {:?}", reply.body);
+        assert_eq!(reply.status, 201, "register {user}: {:?}", reply.body);
         self.login(user).await
     }
 
@@ -352,7 +352,7 @@ impl Http {
                 &Caller::Anonymous,
             )
             .await;
-        assert_eq!(reply.status, 200, "login {user}: {:?}", reply.body);
+        assert_eq!(reply.status, 204, "login {user}: {:?}", reply.body);
         reply.session_token()
     }
 

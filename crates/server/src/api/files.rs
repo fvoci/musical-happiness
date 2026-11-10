@@ -19,7 +19,7 @@ use axum::routing::{get, post};
 use serde_json::json;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, board_refusal, has_valid_read_token,
+    ApiResult, OptionalSession, RequiredSession, board_refusal, created, has_valid_read_token,
     json_response, require_board_permission,
 };
 use crate::app::App;
@@ -161,7 +161,7 @@ async fn handle_upload_file(
         .await?;
     // The stored name is what a reader asks for the file by; it stays out of the log.
     tracing::debug!(filename, "uploadFile");
-    Ok(json_response(&json!({ "fileId": file_id })))
+    Ok(created(&json!({ "fileId": file_id })))
 }
 
 /// Reads the uploaded file field, bounding it to `max_file_size` when that is positive.

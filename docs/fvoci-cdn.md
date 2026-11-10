@@ -10,14 +10,15 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | --- | --- | --- | --- |
 | `/static/*`, 이름에 콘텐츠 해시가 있는 파일 | `Cache-Control: public, max-age=31536000, immutable` | 캐시한다. TTL은 오리진 헤더를 따른다. | 메서드 `GET`, `HEAD`. 헤더 `Accept-Encoding`. 쿼리 문자열과 쿠키는 필요 없다. |
 | `/static/*`, 그 밖의 파일 | `Cache-Control: no-cache`, `ETag`, `Last-Modified` | 저장하더라도 매번 오리진에 재검증한다. | 위와 같고, 조건부 요청 헤더(`If-None-Match`, `If-Modified-Since`). |
-| `/api/v1/*` | `Cache-Control: no-store` | 캐시하지 않는다. | 메서드 `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE`. 뷰어 헤더 전부(최소 `Authorization`, `X-Requested-With`, `Content-Type`). 쿼리 문자열 전부(`access_token`, `read_token` 포함). 쿠키 `FVOCIAUTHTOKEN`. |
-| `/api/v1/files/teams/{team}/{board}/{filename}` | `Cache-Control: private, no-cache`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
-| `/ws` | WebSocket(`101 Switching Protocols`) | 캐시하지 않는다. | 메서드 `GET`. 헤더 `Upgrade`, `Connection`, `Sec-WebSocket-*`. 인증은 소켓 안의 메시지로 하므로 인증 헤더는 필요 없다. |
+| `/api/v1/*` | `Cache-Control: no-store` | 캐시하지 않는다. | 메서드 `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE`. 뷰어 헤더 전부(최소 `Cookie`, `Origin`, `X-Requested-With`, `Content-Type`, 그리고 브라우저가 아닌 클라이언트가 쓰는 `Authorization`). 쿼리 문자열 전부(공유 보드의 `readToken` 포함). 쿠키 `__Host-fvoci_session`(HTTP로 서비스하면 `fvoci_session`). 응답의 `Set-Cookie`와 `Retry-After`를 그대로 돌려준다. |
+| `/api/v1/boards/{board}/files/{file}` | `Cache-Control: private, no-cache`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; frame-ancestors 'none'`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
+| `/ws` | WebSocket(`101 Switching Protocols`) | 캐시하지 않는다. | 메서드 `GET`. 헤더 `Upgrade`, `Connection`, `Sec-WebSocket-*`, 그리고 `Origin`과 `Cookie`. 인증은 핸드셰이크에서 세션 쿠키로 하고, `Origin`이 서버 자신의 것(`serverRoot`)이나 `allowed_origins`가 아니면 403으로 거절한다. CDN이 `Origin`을 고쳐 쓰거나 쿠키를 떼면 실시간 갱신이 되지 않는다. |
 | 그 밖의 모든 경로 | 웹 앱의 `index.html`, 상태 200, `Cache-Control: no-cache` | 캐시하지 않거나 매번 재검증한다. | 메서드 `GET`, `HEAD`. 그 외에는 필요 없다. |
 
 - 정적 파일 옆에 `<file>.br`이나 `<file>.gz`가 있고 클라이언트가 받아들이면, 서버는 미리 압축한 파일을 `Content-Encoding`, `Vary: Accept-Encoding`과 함께 보낸다. CDN 캐시 키에 `Accept-Encoding`이 반영되어야 한다.
-- 모든 API 요청에는 `X-Requested-With: XMLHttpRequest`가 있어야 한다. 없으면 서버가 400으로 답한다. CDN이 이 헤더를 떼면 API 전체가 400이 된다.
-- 웹 앱은 `Authorization: Bearer <token>`을 보낸다. 서버는 쿠키 `FVOCIAUTHTOKEN`과 쿼리 매개변수 `access_token`도 받는다. 공유 보드는 쿼리 매개변수 `read_token`을 쓴다.
+- 무언가를 바꾸는 API 요청(`GET`, `HEAD`, `OPTIONS`가 아닌 것)에는 `X-Requested-With: XMLHttpRequest`가 있어야 한다. 없으면 서버가 403(`reason`이 `csrf`)으로 답한다. `Origin` 헤더가 있으면 그 값이 서버 자신의 것이거나 `allowed_origins`에 있어야 하고, 아니면 403(`foreign_origin`)이다. CDN이 `X-Requested-With`를 떼거나 `Origin`을 바꾸면 로그인을 포함해 쓰는 요청 전체가 403이 된다. `Authorization: Bearer`를 단 요청은 `X-Requested-With` 없이도 받는다.
+- 세션은 로그인 응답의 `Set-Cookie`로 간다: `HttpOnly`, `SameSite=Lax`, `Path=/`이고, `serverRoot`가 `https`면 이름이 `__Host-fvoci_session`이고 `Secure`가 붙는다(`http`면 `fvoci_session`). 응답 본문에는 토큰이 없다. 브라우저가 아닌 클라이언트는 같은 토큰을 `Authorization: Bearer <token>`으로 보낼 수 있다. 쿼리 문자열로는 세션 토큰을 받지 않는다. 공유 보드는 쿼리 매개변수 `readToken`을 쓴다.
+- `__Host-` 쿠키는 브라우저가 `Secure`, `Path=/`, `Domain` 없음일 때만 받는다. CDN이나 프록시가 `Set-Cookie`에 `Domain`을 더하거나 `Path`를 고치면 브라우저가 쿠키를 버려 로그인이 되지 않는다.
 - 첨부 파일 경로는 `.png`, `.pdf` 같은 확장자로 끝날 수 있다. 확장자 기준으로 캐시하는 CDN에서는 `/api/*`를 명시적으로 캐시에서 빼야 한다.
 - 경로 접두사 아래에서 서비스하면(2장) 이 문서의 모든 경로 패턴 앞에 접두사가 붙는다. 예: `/boards/static/*`, `/boards/api/*`, `/boards/ws`.
 
@@ -29,12 +30,14 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | `FVOCI_HTTP_SERVER_BASEPATH` (환경 변수) | 경로 접두사 아래에서 서비스할 때 쓴다. |
 | `port`, `localOnly` | 수신 포트. `localOnly`가 true면 `localhost`에서만 받는다. 같은 호스트의 프록시나 터널 뒤에 둘 때 쓴다. |
 | `useSSL` | TLS는 보통 CDN에서 끝난다. 오리진은 사설망 안에서 HTTP로 두거나 `useSSL`로 HTTPS를 쓴다. `useSSL`을 켰는데 `./cert/cert.pem`이나 `./cert/key.pem`이 없으면 서버는 뜨지 않는다(평문으로 떨어지지 않는다). |
-| `trust_forwarded_for` | 기본값 false. true면 `X-Forwarded-For`의 첫 번째 주소를 로그의 클라이언트 주소로 쓴다. 서버에 CDN이나 프록시로만 도달할 수 있을 때만 켠다. |
+| `trusted_proxies` | 기본값은 빈 목록. 서버 앞에 있는 프록시의 주소와 주소 범위(`10.0.0.0/8` 같은)를 적는다. 그 주소에서 온 요청만 `X-Forwarded-For`를 믿고, 목록을 오른쪽에서부터 읽어 믿는 프록시가 아닌 첫 주소를 클라이언트로 본다. 요청 로그와 로그인 시도 제한이 같은 주소를 쓴다. |
+| `allowed_origins` | 기본값은 빈 목록. `serverRoot` 말고도 쓰는 요청과 WebSocket 핸드셰이크를 받을 출처(`https://host[:port]`). |
+| `session_idle_days`, `session_max_days` | 기본값 14, 90. 쿠키의 `Max-Age`는 한가함 한도와 같다. |
 | `websocket_ping_seconds` | 기본값 30. 서버가 이 간격으로 ping 프레임을 보낸다. 0이면 끈다. |
 | `maxfilesize` | 서버 자체의 업로드 한도(바이트). 0이면 제한이 없다. CDN의 한도와 별개로 적용된다. |
 
-- 서버에는 로그인 시도 제한이 없다(원본에도 없다). `POST /api/v1/login`과 `POST /api/v1/register`는 CDN이나 WAF에서 제한해야 한다(3.5, 4.4).
-- `trust_forwarded_for`를 켜도 로그의 주소는 클라이언트가 바꿀 수 있다. 클라이언트가 `X-Forwarded-For`를 직접 보내면 CloudFront는 뷰어 주소를 그 값의 끝에 덧붙이고([출처](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html), 2026-11-10 확인), Cloudflare도 기존 값에 덧붙인다([출처](https://developers.cloudflare.com/fundamentals/reference/http-headers/), 2026-11-10 확인). 따라서 첫 번째 주소는 클라이언트가 보낸 값일 수 있다. 이 주소를 접근 제어의 근거로 쓰지 않는다.
+- 서버가 로그인 시도를 제한한다: (계정, 주소) 쌍의 연속 실패, 계정 전체의 연속 실패, 주소당 분당 시도 수, 그리고 비밀번호 해시의 대기열. 넘으면 429와 `Retry-After`로 답한다(설정 `login_pair_*`, `login_account_*`, `login_address_attempts_per_minute`, `password_hash_*`). 주소별 제한은 서버가 보는 클라이언트 주소에 달렸으므로, CDN 뒤에서는 `trusted_proxies`를 맞게 적어야 한다. 비워 두면 모든 요청이 CDN의 주소에서 온 것으로 보여 주소당 제한이 모든 사용자에게 한꺼번에 걸린다. CDN이나 WAF의 rate limiting(3.5, 4.4)은 그 앞의 한 겹으로 둔다.
+- 클라이언트가 `X-Forwarded-For`를 직접 보내면 CloudFront는 뷰어 주소를 그 값의 끝에 덧붙이고([출처](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html), 2026-11-10 확인), Cloudflare도 기존 값에 덧붙인다([출처](https://developers.cloudflare.com/fundamentals/reference/http-headers/), 2026-11-10 확인). 따라서 목록의 왼쪽 끝은 클라이언트가 보낸 값일 수 있고, 서버는 그것을 믿지 않는다: 오른쪽에서부터 `trusted_proxies`에 있는 주소를 지나 처음 만나는 주소를 쓴다. CDN의 주소 범위가 바뀌면 `trusted_proxies`도 바꿔야 한다(범위가 빠지면 그 CDN 노드가 클라이언트로 보인다).
 - 오리진에는 CDN만 접근할 수 있게 막는다. 오리진이 직접 열려 있으면 CDN의 WAF 규칙을 우회할 수 있다.
 
 ## 3. Amazon CloudFront
@@ -67,7 +70,7 @@ Allowed HTTP methods에서 고를 수 있는 조합은 `GET, HEAD` / `GET, HEAD,
 **`/static/*`.** 오리진 헤더를 따르고 `Accept-Encoding`을 정규화하는 정책이 필요하다. 선택지는 세 가지다.
 
 - 사용자 정의 cache policy(권장): Minimum TTL 0, Default TTL 0, Maximum TTL 31536000, 헤더, 쿠키, 쿼리 문자열 없음, Gzip과 Brotli 켬. 캐시 키가 가장 작다. Minimum TTL이 0이면 CloudFront는 오리진의 `no-cache`, `no-store`, `private`을 따른다([출처](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html), 2026-11-10 확인).
-- `UseOriginCacheControlHeaders`: TTL은 같지만 모든 쿠키가 캐시 키에 들어간다. 브라우저가 `FVOCIAUTHTOKEN` 쿠키를 보내는 배포에서는 사용자마다 따로 캐시되어 적중률이 떨어진다.
+- `UseOriginCacheControlHeaders`: TTL은 같지만 모든 쿠키가 캐시 키에 들어간다. 브라우저가 세션 쿠키를 같은 호스트의 모든 요청에 보내므로 사용자마다 따로 캐시되어 적중률이 떨어진다.
 - `CachingOptimized`: 캐시 키는 작지만 Minimum TTL이 1초라서 `no-cache`인 파일도 최소 1초 동안 캐시한다. AWS 문서가 이 점을 경고한다.
 
 압축 설정(Gzip, Brotli)을 켠 cache policy는 정규화한 `Accept-Encoding`을 캐시 키와 오리진 요청에 넣는다. 오리진 응답에 `Content-Encoding`이 있으면 CloudFront는 다시 압축하지 않고 그대로 보내고 캐시한다([출처](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/ServingCompressedFiles.html), 2026-11-10 확인). 서버가 미리 압축한 `.br`, `.gz` 파일이 그대로 쓰인다.
@@ -157,7 +160,7 @@ Cloudflare의 기본 동작([출처](https://developers.cloudflare.com/cache/con
 - Edge TTL과 Browser TTL을 "Ignore cache-control header and use this TTL"이나 override로 두지 않는다. 그러면 `no-cache`인 파일이 오래 남는다.
 - 모든 경로를 "Eligible for cache"로 만드는 규칙을 추가하려면 우회 규칙이 `/api/*`와 `/ws`에 계속 적용되는지 확인한다.
 - Cloudflare는 오리진에 `accept-encoding: br, gzip`으로 요청하고, 오리진이 `content-encoding`과 함께 압축된 응답을 주면 방문자가 그 방식을 지원하고 응답을 바꾸는 기능이 꺼져 있을 때 같은 압축을 유지한다([출처](https://developers.cloudflare.com/speed/optimization/content/compression/), 2026-11-10 확인). 서버가 미리 압축한 파일이 쓰인다.
-- Cloudflare에는 CloudFront의 origin request policy에 해당하는 전달 설정이 없어서 `Authorization`, `X-Requested-With`, 쿼리 문자열, 쿠키를 위한 별도 설정을 적지 않았다. 이 전달 동작은 벤더 문서에서 따로 확인하지 않았으므로 5장의 4번 점검으로 확인한다. 요청 헤더를 지우는 Transform Rule을 쓰고 있다면 이 헤더들이 남는지 본다.
+- Cloudflare에는 CloudFront의 origin request policy에 해당하는 전달 설정이 없어서 `Origin`, `X-Requested-With`, `Authorization`, 쿼리 문자열, 쿠키를 위한 별도 설정을 적지 않았다. 이 전달 동작은 벤더 문서에서 따로 확인하지 않았으므로 5장의 4번 점검으로 확인한다. 요청 헤더를 지우는 Transform Rule을 쓰고 있다면 이 헤더들이 남는지 본다.
 
 ### 4.2 WebSocket
 
@@ -206,10 +209,11 @@ Cloudflare의 기본 동작([출처](https://developers.cloudflare.com/cache/con
 
 ## 5. 배포 확인
 
-`BASE`는 공개 URL, `TOKEN`은 로그인으로 받은 토큰이다. 파일 이름은 실제 값으로 바꾼다.
+`BASE`는 공개 URL, `JAR`는 `curl`이 쿠키를 두는 파일이다. 보드와 파일의 이름은 실제 값으로 바꾼다.
 
 ```sh
 BASE=https://boards.example.com
+JAR=$(mktemp)
 
 # 1. 해시가 있는 정적 파일. 두 번 실행한다.
 curl -sI -H 'Accept-Encoding: br' "$BASE/static/<해시가-있는-파일>.js"
@@ -227,29 +231,34 @@ curl -sI "$BASE/any/client/route"
 #    200, Content-Type: text/html, Cache-Control: no-cache. 캐시 적중 표시가 없어야 한다.
 
 # 4. API
-curl -si -H 'X-Requested-With: XMLHttpRequest' -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/users/me"
-#    200, JSON, Cache-Control: no-store
+#    로그인해 쿠키를 받는다. 204이고 Set-Cookie가 그대로 와야 한다(__Host-fvoci_session, Secure, HttpOnly, SameSite=Lax, Path=/).
+curl -si -c "$JAR" -H 'X-Requested-With: XMLHttpRequest' -H 'Content-Type: application/json' \
+  -d '{"username":"<name>","password":"<password>"}' "$BASE/api/v1/login"
+curl -si -b "$JAR" "$BASE/api/v1/users/me"
+#    200, JSON, Cache-Control: no-store. 401이면 Cookie가 오리진으로 전달되지 않는다.
 
-# 5. X-Requested-With가 없는 API 요청
-curl -si -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/users/me"
-#    400. 4번이 400이면 CDN이 헤더를 떼고 있다. 4번이 401이면 Authorization이 전달되지 않는다.
+# 5. X-Requested-With가 없는 쓰는 요청
+curl -si -b "$JAR" -X POST "$BASE/api/v1/logout"
+#    403, reason이 csrf. 헤더를 달았는데도 403이면 CDN이 헤더를 떼고 있거나(csrf) Origin을 바꾸고 있다(foreign_origin).
 
 # 6. 파일의 Range 요청
-curl -s -o /dev/null -D - -H 'X-Requested-With: XMLHttpRequest' -H "Authorization: Bearer $TOKEN" \
-  -H 'Range: bytes=0-99' "$BASE/api/v1/files/teams/<team>/<board>/<filename>"
+curl -s -o /dev/null -D - -b "$JAR" \
+  -H 'Range: bytes=0-99' "$BASE/api/v1/boards/<board>/files/<file>"
 #    206, Content-Range: bytes 0-99/<전체 크기>, Cache-Control: private, no-cache
 
 # 7. WebSocket 핸드셰이크. 101 뒤에는 연결이 열린 채로 있으므로 --max-time으로 끊는다.
 curl -si --http1.1 --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "$BASE/ws"
-#    HTTP/1.1 101 Switching Protocols
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  -H "Origin: $BASE" -b "$JAR" "$BASE/ws"
+#    HTTP/1.1 101 Switching Protocols. Origin을 다른 사이트로 바꾸면 403이어야 한다.
 ```
 
 추가로 확인할 것:
 
 - 웹 앱을 열어 둔 채 CDN의 유휴 타임아웃보다 오래 기다린 뒤, 다른 브라우저에서 보드를 고쳐 변경이 실시간으로 보이는지 본다.
 - 한도에 가까운 크기의 파일을 UI에서 올려 본다. 실패하면 응답 헤더로 CDN이 답했는지 서버가 답했는지 구분한다.
-- `POST /api/v1/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다.
+- `POST /api/v1/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다. CDN의 규칙보다 서버의 제한이 먼저 걸리면 429와 `Retry-After`가 서버에서 온다(응답에 `request_id`가 든 JSON 본문이 있다).
+- 서버의 요청 로그에 찍히는 클라이언트 주소가 CDN의 주소가 아니라 실제 클라이언트의 주소인지 본다. CDN의 주소면 `trusted_proxies`가 비었거나 범위가 틀렸다.
 
 ## 6. 자주 생기는 문제
 
@@ -263,9 +272,10 @@ curl -si --http1.1 --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket'
 
 1. `serverRoot`가 공개 URL과 같은지, base path가 CDN의 경로 패턴과 같은지 본다. 서버가 `index.html`에 채워 주는 주소가 틀리면 웹 앱이 다른 주소로 API를 부른다.
 2. 5장의 4번 요청이 JSON으로 오는지 본다. HTML이 오면 요청이 `/api/*` 동작이 아니라 기본 동작으로 가고 있거나, custom error response가 응답을 바꾸고 있다.
-3. CloudFront에서 `/api/*` 동작에 origin request policy가 붙어 있는지 본다. 없으면 `GET` 요청의 `Authorization`이 떨어져서 로그인은 성공하고 그 뒤의 모든 조회가 401이 된다.
-4. 쿠키 `FVOCIAUTHTOKEN`으로 인증하는 배포라면 쿠키가 전달되는지 본다.
-5. 공유 보드 링크만 실패하면 쿼리 문자열(`read_token`)이 전달되는지 본다.
+3. CloudFront에서 `/api/*` 동작에 origin request policy가 붙어 있는지 본다. 없으면 쿠키가 오리진으로 가지 않아 로그인은 성공하고 그 뒤의 모든 조회가 401이 된다.
+4. 로그인 응답의 `Set-Cookie`가 브라우저까지 그대로 오는지 본다. `Domain`이 붙었거나 `Path`가 `/`가 아니면 브라우저가 `__Host-` 쿠키를 버린다. `serverRoot`가 `http`인데 공개 주소가 `https`면 서버가 접두사 없는 이름을 쓰고 `Secure`를 붙이지 않는다.
+5. 로그인 자체가 403이면 `Origin`이 `serverRoot`와 같은지 본다(스킴, 호스트, 포트).
+6. 공유 보드 링크만 실패하면 쿼리 문자열(`readToken`)이 전달되는지 본다.
 
 ## 7. 검증 범위
 

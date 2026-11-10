@@ -32,11 +32,10 @@ use axum::Json;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::header::CACHE_CONTROL;
-use axum::http::{HeaderValue, Method};
+use axum::http::{HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
-use serde_json::json;
 
 pub(crate) use access::{
     board_refusal, require_admin, require_board_permission, require_board_visible,
@@ -248,9 +247,15 @@ pub(crate) fn json_response(value: &impl Serialize) -> Response {
     Json(value).into_response()
 }
 
-/// The empty JSON object that most operations without a result answer with.
-pub(crate) fn empty_response() -> Response {
-    Json(json!({})).into_response()
+/// What an operation that made something new answers with: status 201 and what it
+/// made, as JSON.
+pub(crate) fn created(value: &impl Serialize) -> Response {
+    (StatusCode::CREATED, Json(value)).into_response()
+}
+
+/// What an operation without a result answers with: status 204 and no body.
+pub(crate) fn no_content() -> Response {
+    StatusCode::NO_CONTENT.into_response()
 }
 
 /// Returns the percent-decoded value of a query parameter, or the empty string.

@@ -69,7 +69,10 @@ async fn board_with_image(ts: &TestServer) -> (Board, String) {
             ..Block::default()
         },
     ];
-    ts.client.insert_blocks(&board.id, &blocks).await.check_ok();
+    ts.client
+        .insert_blocks(&board.id, &blocks)
+        .await
+        .check_created();
     (board, file_id)
 }
 
@@ -100,7 +103,7 @@ async fn upload_file_with_permissions() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let response = upload(&ts.client, &board.id, "test.txt", b"test").await;
-    response.check_ok();
+    response.check_created();
     assert!(!uploaded_id(&response).is_empty(), "the file has an id");
     ts.teardown().await;
 }
@@ -145,7 +148,7 @@ async fn team_upload_file_a_board_admin_can_upload() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
     let response = upload(&ts.client, &board.id, "x.bin", &[1_u8; 64]).await;
-    response.check_ok();
+    response.check_created();
     assert!(!uploaded_id(&response).is_empty(), "the file has an id");
     ts.teardown().await;
 }
@@ -200,7 +203,7 @@ async fn upload_name_with_path_separators_is_reduced_to_its_base() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let response = upload(&ts.client, &board.id, "../../evil.sh", b"x").await;
-    response.check_ok();
+    response.check_created();
     let file_id = uploaded_id(&response);
     assert_eq!(
         file_id.rsplit_once('.').map(|(_, extension)| extension),
@@ -484,7 +487,7 @@ async fn duplicating_a_board_copies_its_files() {
         .client
         .post(&format!("/boards/{}/duplicate", board.id), &json!({}))
         .await;
-    let value = duplicate.ok_json::<Value>();
+    let value = duplicate.created_json::<Value>();
     let new_board_id = value["boards"][0]["id"]
         .as_str()
         .expect("a new board")
@@ -540,7 +543,7 @@ async fn duplicating_a_card_copies_its_files() {
             &json!({}),
         )
         .await
-        .ok_json::<Vec<Block>>();
+        .created_json::<Vec<Block>>();
     let image = copies
         .iter()
         .find(|block| block.block_type == BlockType::Image)
@@ -582,7 +585,7 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
         board_type: BoardType::Private,
         ..Board::default()
     };
-    let intruder_board: Board = ts.client2.create_board(&board).await.ok_json();
+    let intruder_board: Board = ts.client2.create_board(&board).await.created_json();
     let card_id = new_id();
     let named = |key: &str| {
         let mut fields = JsonMap::new();
@@ -617,7 +620,7 @@ async fn foreign_file(ts: &TestServer) -> ForeignFile {
     ts.client2
         .insert_blocks(&intruder_board.id, &blocks)
         .await
-        .check_ok();
+        .check_created();
     ForeignFile {
         owner_board,
         file_id,
@@ -708,7 +711,7 @@ async fn a_file_of_another_board_is_neither_copied_nor_exported() {
         .client2
         .post(&format!("/boards/{board_id}/duplicate"), &json!({}))
         .await
-        .ok_json::<Value>();
+        .created_json::<Value>();
     let copy_id = duplicate["boards"][0]["id"]
         .as_str()
         .expect("a copy")
@@ -775,7 +778,7 @@ async fn template_file(ts: &TestServer) -> TemplateFile {
         .client
         .post_empty(&format!("/boards/{}/duplicate?asTemplate=true", board.id))
         .await
-        .ok_json();
+        .created_json();
     let template: Board =
         serde_json::from_value(duplicated["boards"][0].clone()).expect("the template board");
     let blocks: Vec<Block> = ts
@@ -796,7 +799,7 @@ async fn template_file(ts: &TestServer) -> TemplateFile {
             ..Board::default()
         })
         .await
-        .ok_json();
+        .created_json();
     TemplateFile {
         template,
         file_id,
@@ -897,13 +900,16 @@ async fn duplicating_a_board_with_an_empty_file_reference_works() {
         block(new_id(), &card_id, BlockType::Image, empty),
         block(new_id(), &card_id, BlockType::Attachment, JsonMap::new()),
     ];
-    ts.client.insert_blocks(&board.id, &blocks).await.check_ok();
+    ts.client
+        .insert_blocks(&board.id, &blocks)
+        .await
+        .check_created();
 
     let duplicate = ts
         .client
         .post(&format!("/boards/{}/duplicate", board.id), &json!({}))
         .await
-        .ok_json::<Value>();
+        .created_json::<Value>();
     let copies = duplicate["blocks"].as_array().expect("the copied blocks");
     assert_eq!(copies.len(), 3, "all three blocks are copied: {duplicate}");
     let image = copies
@@ -931,7 +937,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         is_template: true,
         ..Board::default()
     };
-    let board: Board = ts.client.create_board(&board).await.ok_json();
+    let board: Board = ts.client.create_board(&board).await.created_json();
     let name = "사진.png";
     let file_id = uploaded_id(&upload(&ts.client, &board.id, name, b"wide").await);
     assert_ne!(
@@ -975,7 +981,10 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         block(card_id.clone(), &board.id, BlockType::Card, JsonMap::new()),
         block(new_id(), &card_id, BlockType::Image, fields),
     ];
-    ts.client.insert_blocks(&board.id, &blocks).await.check_ok();
+    ts.client
+        .insert_blocks(&board.id, &blocks)
+        .await
+        .check_created();
     ts.client
         .get(&format!("/boards/{}/archive/export", board.id))
         .await
@@ -984,7 +993,7 @@ async fn a_file_whose_name_begins_with_a_wide_character_is_served() {
         .client
         .post(&format!("/boards/{}/duplicate", board.id), &json!({}))
         .await
-        .ok_json::<Value>();
+        .created_json::<Value>();
     let copy_id = duplicate["boards"][0]["id"]
         .as_str()
         .expect("a copy")
@@ -1068,7 +1077,7 @@ async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
         )
         .await;
 
-    let answered: Vec<Block> = response.ok_json();
+    let answered: Vec<Block> = response.created_json();
     let image = answered
         .iter()
         .find(|block| block.block_type == BlockType::Image)

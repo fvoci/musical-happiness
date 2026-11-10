@@ -202,7 +202,7 @@ const NO_BLOCK: &str = "block not found";
 
 /// `InsertBlocks`, expecting success.
 async fn insert(client: &Client, board_id: &str, blocks: &[Block]) -> Vec<Block> {
-    client.insert_blocks(board_id, blocks).await.ok_json()
+    client.insert_blocks(board_id, blocks).await.created_json()
 }
 
 /// Inserts one block and returns it as the server answered.
@@ -223,15 +223,13 @@ async fn patch(client: &Client, block: &Block, patch: &BlockPatch) {
     let response = client
         .patch(&block_path(&block.board_id, &block.id), patch)
         .await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "a patch answers the empty object");
+    response.check_no_content();
 }
 
 /// `DeleteBlock`, expecting success.
 async fn delete(client: &Client, block: &Block) {
     let response = client.delete(&block_path(&block.board_id, &block.id)).await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "a deletion answers the empty object");
+    response.check_no_content();
 }
 
 fn ids(blocks: &[Block]) -> Vec<&str> {
@@ -1312,7 +1310,7 @@ async fn a_query_parameter_spelled_another_way_is_no_parameter() {
             .await;
         assert_eq!(
             response.status,
-            StatusCode::OK,
+            StatusCode::CREATED,
             "{name}: {}",
             response.text()
         );
@@ -1338,7 +1336,7 @@ async fn post_blocks_answer_and_stored_block() {
         .client
         .insert_blocks(&board.id, &[card.clone(), text])
         .await;
-    let answered: Vec<Block> = response.ok_json();
+    let answered: Vec<Block> = response.created_json();
 
     assert_eq!(answered.len(), 2, "both blocks are answered, in order");
     assert_ne!(answered[0].id, card.id, "the card has a new identifier");
@@ -1435,7 +1433,7 @@ async fn post_blocks_without_blocks() {
     let path = blocks_path(&board.id);
 
     let response = th.client.send_raw_body(Method::POST, &path, "[]").await;
-    response.check_ok();
+    response.check_created();
     assert_eq!(response.text(), "[]", "an empty list for a member");
     for (client, path) in [
         (&th.client2, path.as_str()),
@@ -1526,7 +1524,7 @@ async fn post_blocks_permissions_by_block_type() {
             response.check_forbidden();
             assert_eq!(response.error_message(), *message, "{case}");
         } else {
-            response.check_ok();
+            response.check_created();
             expected_count += blocks.len();
         }
     }
@@ -1734,7 +1732,7 @@ async fn patch_block_changes() {
     th.client
         .patch(&format!("{card_path}?disableNotify=true"), &foreign_members)
         .await
-        .check_ok();
+        .check_no_content();
     let stored = blocks_of(&th.client, &boards.board.id).await;
     let patched = find(&stored, &card.id);
     assert_eq!(patched.title, "by the editor", "the title stays");
@@ -1877,8 +1875,7 @@ async fn patch_blocks_batch_changes() {
         "the members of a batch on the wire"
     );
     let response = boards.editor.patch(&path, &patches).await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "a batch answers the empty object");
+    response.check_no_content();
     let stored = blocks_of(&th.client, &boards.board.id).await;
     assert_eq!(
         titles(&stored),
@@ -1898,8 +1895,8 @@ async fn patch_blocks_batch_changes() {
         json!({"block_ids": [card.id], "block_patches": [{"title": "snake"}]}),
     ] {
         let response = boards.editor.patch(&path, &body).await;
-        response.check_ok();
-        assert_eq!(response.text(), "{}", "{body}");
+        assert_eq!(response.status, StatusCode::NO_CONTENT, "{body}");
+        assert!(response.body.is_empty(), "{body}: {}", response.text());
     }
     let stored = blocks_of(&th.client, &boards.board.id).await;
     assert_eq!(
@@ -1912,7 +1909,7 @@ async fn patch_blocks_batch_changes() {
     th.client
         .patch(&quiet, &batch(&[(text, "text 2"), (card, "card 2")]))
         .await
-        .check_ok();
+        .check_no_content();
     let stored = blocks_of(&th.client, &boards.board.id).await;
     assert_eq!(titles(&stored), ["card 2", "comment", "text 2"], "patched");
     let other = blocks_of(&th.client, &boards.other_board.id).await;
@@ -2022,7 +2019,7 @@ async fn delete_block_takes_the_children_along() {
             block_path(board_id, &content.card.id)
         ))
         .await;
-    response.check_ok();
+    response.check_no_content();
     let stored = blocks_of(&th.client, board_id).await;
     assert_eq!(titles(&stored), ["card 2"], "only the other card is left");
 
@@ -2215,7 +2212,7 @@ async fn duplicate_block_copies() {
     let (board_id, card) = (&boards.board.id, &content.card);
     let path = duplicate_path(board_id, &card.id);
 
-    let copies: Vec<Block> = boards.editor.post_empty(&path).await.ok_json();
+    let copies: Vec<Block> = boards.editor.post_empty(&path).await.created_json();
     assert_eq!(
         titles(&copies),
         ["card", "text"],
@@ -2248,7 +2245,7 @@ async fn duplicate_block_copies() {
         .client
         .post_empty(&format!("{path}?asTemplate=true"))
         .await
-        .ok_json();
+        .created_json();
     assert_eq!(copies[0].fields["isTemplate"], json!(true), "a template");
 
     let stored = blocks_of(&th.client, board_id).await;
@@ -2294,7 +2291,7 @@ async fn block_changes_are_broadcast() {
         .client
         .post(&format!("{path}?disableNotify=true"), &[quiet_card])
         .await
-        .ok_json();
+        .created_json();
     let announced = member.next_block().await;
     assert_eq!(announced["id"], json!(quiet[0].id), "{announced}");
 
@@ -2309,7 +2306,7 @@ async fn block_changes_are_broadcast() {
             &title_patch("patched quietly"),
         )
         .await
-        .check_ok();
+        .check_no_content();
     let announced = member.next_block().await;
     assert_eq!(announced["title"], json!("patched quietly"), "{announced}");
 
@@ -2318,7 +2315,7 @@ async fn block_changes_are_broadcast() {
     th.client
         .patch(&path, &batch(&[(card, "batch 1"), (text, "batch 2")]))
         .await
-        .check_ok();
+        .check_no_content();
     let mut announced = vec![member.next_block().await, member.next_block().await];
     announced.sort_by_key(|block| block["title"].as_str().map(str::to_owned));
     assert_eq!(announced[0]["id"], json!(card.id), "{announced:?}");
@@ -2331,7 +2328,7 @@ async fn block_changes_are_broadcast() {
         .client
         .post_empty(&duplicate_path(&board.id, &card.id))
         .await
-        .ok_json();
+        .created_json();
     assert_eq!(copies.len(), 2, "the card and its text");
     for copy in &copies {
         let announced = member.next_block().await;
@@ -2441,7 +2438,7 @@ async fn block_changes_call_the_webhook() {
             &title_patch("patched"),
         )
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         take_posted().await,
         [pair(card, "patched")],
@@ -2454,7 +2451,7 @@ async fn block_changes_call_the_webhook() {
             &batch(&[(card, "batch 1"), (text, "batch 2")]),
         )
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         take_posted().await,
         [pair(card, "batch 1"), pair(text, "batch 2")],
@@ -2464,7 +2461,7 @@ async fn block_changes_call_the_webhook() {
     th.client
         .post_empty(&duplicate_path(&board.id, &text.id))
         .await
-        .check_ok();
+        .check_created();
     assert_eq!(take_posted().await, nothing, "duplicates are not posted");
 
     delete(&th.client, text).await;
@@ -2559,7 +2556,7 @@ async fn post_blocks_with_a_source_board_the_user_can_read_still_works() {
         .expect("the server answers");
     assert_eq!(
         response.status(),
-        StatusCode::OK,
+        StatusCode::CREATED,
         "a member copies from their own board"
     );
     let inserted: Vec<Block> = response.json().await.expect("the inserted blocks");

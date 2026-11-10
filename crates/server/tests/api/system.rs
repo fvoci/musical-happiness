@@ -2,10 +2,12 @@
 //! `server/app/clientConfig_test.go`, plus tests of the routing around the API: the
 //! request-forgery header, cache headers, the web app fallback and the base path.
 
+use fvoci_model::BoardType;
+use reqwest::header::CONTENT_TYPE;
 use reqwest::{Method, StatusCode};
-use serde_json::json;
+use serde_json::{Value, json};
 
-use crate::common::{Client, ROOT_TEAM_ID, Setup};
+use crate::common::{Client, PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, USER1_USERNAME};
 
 /// `TestHello/"Returns 'Hello' on success"`
 #[tokio::test]
@@ -144,6 +146,75 @@ async fn api_responses_are_not_cacheable() {
         "application/json",
         "is JSON too"
     );
+    th.teardown().await;
+}
+
+/// An operation without a result answers 204: no body, and no `Content-Type` for the
+/// body that is not there, whichever route it is and whatever else its answer carries
+/// (a login and a logout set a cookie).
+#[tokio::test]
+async fn an_answer_without_a_result_has_no_body_and_no_content_type() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await.id;
+    let card: Value = th
+        .client
+        .post(&format!("/boards/{board}/cards"), &json!({"title": "card"}))
+        .await
+        .created_json();
+    let card = card["id"].as_str().expect("the card has an identifier");
+
+    // In an order in which each finds what it needs: the logout ends the session the
+    // others are sent with.
+    let requests = [
+        (
+            Method::PATCH,
+            format!("/boards/{board}/blocks/{card}"),
+            json!({"title": "patched"}),
+        ),
+        (
+            Method::PATCH,
+            format!("/boards/{board}/blocks"),
+            json!({"blockIds": [card], "blockPatches": [{"title": "patched in a batch"}]}),
+        ),
+        (
+            Method::DELETE,
+            format!("/boards/{board}/blocks/{card}"),
+            Value::Null,
+        ),
+        (Method::DELETE, format!("/boards/{board}"), Value::Null),
+        (
+            Method::POST,
+            "/login".to_owned(),
+            json!({"username": USER1_USERNAME, "password": PASSWORD}),
+        ),
+        (Method::POST, "/logout".to_owned(), Value::Null),
+    ];
+    for (method, path, body) in requests {
+        let request = th.client.request(method.clone(), &path);
+        let request = if body.is_null() {
+            request
+        } else {
+            request.json(&body)
+        };
+        let response = Client::send(request).await;
+
+        assert_eq!(
+            response.status,
+            StatusCode::NO_CONTENT,
+            "{method} {path}: {}",
+            response.text()
+        );
+        assert!(
+            response.body.is_empty(),
+            "{method} {path}: no body, but {:?}",
+            response.text()
+        );
+        assert!(
+            !response.headers.contains_key(CONTENT_TYPE),
+            "{method} {path}: no content type, but {:?}",
+            response.header("content-type")
+        );
+    }
     th.teardown().await;
 }
 

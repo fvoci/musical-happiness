@@ -133,7 +133,7 @@ async fn create_category(client: &Client, category: &Category) -> Category {
     client
         .post(&categories_path(&category.team_id), category)
         .await
-        .ok_json()
+        .created_json()
 }
 
 /// `UpdateCategoryBoard`
@@ -143,8 +143,7 @@ async fn file_board(client: &Client, team_id: &str, category_id: &str, board_id:
             "/teams/{team_id}/categories/{category_id}/boards/{board_id}"
         ))
         .await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "the answer is the empty object");
+    response.check_no_content();
 }
 
 async fn put_empty(client: &Client, path: &str) -> ApiResponse {
@@ -238,7 +237,7 @@ async fn sidebar() {
     th.client
         .delete(&format!("{}/{}", categories_path(TEST_TEAM_ID), created.id))
         .await
-        .check_ok();
+        .check_no_content();
     let listed = category_boards(&th.client, TEST_TEAM_ID).await;
     assert_eq!(names(&listed), ["Boards"], "the default category is left");
     assert_eq!(listed[0].board_metadata.len(), 2, "both boards are in it");
@@ -292,7 +291,7 @@ async fn sidebar_with_boards_from_the_store() {
     th.client
         .delete(&format!("{}/{}", categories_path(TEST_TEAM_ID), created.id))
         .await
-        .check_ok();
+        .check_no_content();
     let listed = category_boards(&th.client, TEST_TEAM_ID).await;
     assert_eq!(names(&listed), ["Boards"], "the default category is left");
     assert_eq!(
@@ -337,25 +336,23 @@ async fn hide_unhide_board() {
         async || category_boards(&th.client, TEST_TEAM_ID).await[0].board_metadata[0].hidden;
 
     let response = put_empty(&th.client, &format!("{place}/hide")).await;
-    response.check_ok();
-    assert_eq!(response.value(), json!({}), "the answer is an empty object");
+    response.check_no_content();
     assert!(hidden().await, "hidden now");
 
     // Hiding a hidden board has no effect.
     put_empty(&th.client, &format!("{place}/hide"))
         .await
-        .check_ok();
+        .check_no_content();
     assert!(hidden().await, "still hidden");
 
     let response = put_empty(&th.client, &format!("{place}/unhide")).await;
-    response.check_ok();
-    assert_eq!(response.value(), json!({}), "the answer is an empty object");
+    response.check_no_content();
     assert!(!hidden().await, "shown again");
 
     // Showing a visible board has no effect.
     put_empty(&th.client, &format!("{place}/unhide"))
         .await
-        .check_ok();
+        .check_no_content();
     assert!(!hidden().await, "still shown");
 
     th.teardown().await;
@@ -1496,7 +1493,7 @@ async fn create_category_answers_the_stored_category() {
             &json!({"name": "Cat A", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         )
         .await;
-    let created: Category = response.ok_json();
+    let created: Category = response.created_json();
     assert_eq!(
         response.value(),
         json!({
@@ -1536,7 +1533,7 @@ async fn create_category_answers_the_stored_category() {
             }),
         )
         .await;
-    let answered = response.ok_json::<Value>();
+    let answered = response.created_json::<Value>();
     let made_id = answered["id"].as_str().expect("an identifier").to_owned();
     assert!(is_id(&made_id), "a generated identifier: {made_id}");
     assert_eq!(
@@ -1566,7 +1563,7 @@ async fn create_category_answers_the_stored_category() {
             )
             .await;
         assert_eq!(
-            response.ok_json::<Category>().category_type,
+            response.created_json::<Category>().category_type,
             CategoryType::Custom,
             "type {blank} is read as custom"
         );
@@ -1676,7 +1673,7 @@ async fn create_category_refuses_invalid_requests() {
             &json!({"name": "x", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         )
         .await
-        .check_ok();
+        .check_created();
 
     let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(
@@ -1819,7 +1816,7 @@ async fn update_category_refuses_invalid_requests() {
     assert_eq!(stored, created, "none of these changed the category");
 
     // A deleted category cannot be updated.
-    th.client.delete(&path).await.check_ok();
+    th.client.delete(&path).await.check_no_content();
     let response = th.client.put(&path, &body(json!({}))).await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
@@ -1867,25 +1864,15 @@ async fn delete_category_over_the_api() {
     let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(names(&listed), ["Cat A", "Boards"], "nothing was deleted");
 
+    // A deletion has no result to answer with.
     let response = th.client.delete(&path).await;
-    let deleted: Category = response.ok_json();
-    assert!(deleted.delete_at > 0, "marked as deleted");
-    assert_eq!(
-        response.value(),
-        json!({
-            "id": created.id,
-            "name": "Cat A",
-            "userId": user.id,
-            "teamId": ROOT_TEAM_ID,
-            "createAt": created.create_at,
-            "updateAt": created.update_at,
-            "deleteAt": deleted.delete_at,
-            "collapsed": false,
-            "sortOrder": created.sort_order,
-            "type": "custom",
-        }),
-        "the deleted category"
-    );
+    response.check_no_content();
+    let error = th
+        .app
+        .category(&created.id)
+        .await
+        .expect_err("the category is gone from the store");
+    assert!(error.is_not_found(), "not found: {error:?}");
 
     // It is gone: there is nothing to delete a second time.
     let response = th.client.delete(&path).await;
@@ -2067,7 +2054,7 @@ async fn reorder_category_boards_over_the_api() {
     th.client
         .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id))
         .await
-        .check_ok();
+        .check_no_content();
     let response = th.client.put(&path, &new_order).await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
@@ -2115,13 +2102,7 @@ async fn update_category_board_over_the_api() {
         .client
         .post_empty(&board_path(ROOT_TEAM_ID, &created.id))
         .await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "the body");
-    assert_eq!(
-        response.header("content-type"),
-        "application/json",
-        "the label"
-    );
+    response.check_no_content();
     assert_eq!(
         places().await,
         (vec![board.id.clone()], vec![]),
@@ -2135,7 +2116,7 @@ async fn update_category_board_over_the_api() {
     th.client
         .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", deleted.id))
         .await
-        .check_ok();
+        .check_no_content();
     for path in [
         board_path(ROOT_TEAM_ID, UNKNOWN_ID),
         board_path(ROOT_TEAM_ID, "nope"),
@@ -2228,8 +2209,7 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
         ),
     )
     .await;
-    response.check_ok();
-    assert_eq!(response.value(), json!({}), "the answer");
+    response.check_no_content();
 
     let after = category_boards(&th.client, ROOT_TEAM_ID).await;
     assert_eq!(after, before, "nothing changed");
@@ -2422,7 +2402,7 @@ async fn filing_a_board_into_an_own_category_works() {
 async fn another_users_deleted_category_is_not_handed_out() {
     let two = TwoUsers::start().await;
     let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", two.category.id);
-    two.th.client.delete(&path).await.check_ok();
+    two.th.client.delete(&path).await.check_no_content();
 
     for client in [&two.th.client2, &two.th.client] {
         let response = client.delete(&path).await;
@@ -2492,7 +2472,7 @@ async fn another_users_category_cannot_be_changed() {
     );
     put_empty(&two.th.client, &format!("{place}/hide"))
         .await
-        .check_ok();
+        .check_no_content();
     let hidden_by_owner = two.owner_view().await;
     assert_ne!(hidden_by_owner, before, "the owner hides the board");
     let response = put_empty(intruder, &format!("{place}/unhide")).await;
@@ -2504,7 +2484,7 @@ async fn another_users_category_cannot_be_changed() {
     );
     put_empty(&two.th.client, &format!("{place}/unhide"))
         .await
-        .check_ok();
+        .check_no_content();
 
     assert_eq!(
         two.owner_view().await,
@@ -2854,17 +2834,30 @@ async fn category_changes_are_sent_to_the_users_connection() {
     let board_id = open_board(&th, ROOT_TEAM_ID).await;
     file_board(&th.client, ROOT_TEAM_ID, &created.id, &board_id).await;
     expect_message(&mut socket, "filing a board").await;
-    let deleted: Category = th.client.delete(&path).await.ok_json();
+    let stored = th
+        .app
+        .category(&created.id)
+        .await
+        .expect("the category is stored");
+    th.client.delete(&path).await.check_no_content();
     let moved = json!({"boardId": board_id, "categoryId": default_id, "hidden": false});
     assert_eq!(
         expect_message(&mut socket, "deleting a category").await,
         json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "boardCategories": [moved]}),
         "after deleting a category: its board is in the default category"
     );
+    // The answer has no body: the message is where the deleted category is told.
+    let message = expect_message(&mut socket, "deleting a category").await;
+    let delete_at = message["category"]["deleteAt"].as_i64().unwrap_or_default();
+    assert!(delete_at > 0, "marked as deleted: {message}");
+    let deleted = Category {
+        delete_at,
+        ..stored
+    };
     assert_eq!(
-        expect_message(&mut socket, "deleting a category").await,
+        message,
         json!({"action": "UPDATE_CATEGORY", "teamId": ROOT_TEAM_ID, "category": deleted}),
-        "after deleting a category: the category"
+        "after deleting a category: the category as it was"
     );
 
     th.teardown().await;
@@ -2904,7 +2897,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     // Hiding and showing send the one board.
     put_empty(&th.client, &format!("{path}/boards/{first}/hide"))
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         expect_message(&mut socket, "hiding a board").await,
         board_change(json!([hidden])),
@@ -2912,7 +2905,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     );
     put_empty(&th.client, &format!("{path}/boards/{first}/unhide"))
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         expect_message(&mut socket, "showing a board").await,
         board_change(json!([shown])),
@@ -2956,7 +2949,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
     let responses =
         futures_util::future::join_all((0..12).map(|n| board(format!("board {n}")))).await;
     for response in &responses {
-        response.check_ok();
+        response.check_created();
     }
 
     let categories = th

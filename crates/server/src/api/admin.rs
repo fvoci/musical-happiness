@@ -14,7 +14,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use serde::Deserialize;
 
-use super::{ApiResult, decode_json, empty_response};
+use super::{ApiResult, decode_json, no_content};
 use crate::Peer;
 use crate::app::App;
 use crate::error::AppError;
@@ -73,7 +73,7 @@ async fn handle_admin_set_password(
 
     app.reset_user_password(&username, &password).await?;
     tracing::debug!(username, "AdminSetPassword");
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// Makes a user an administrator of the instance: the way back in when no
@@ -84,7 +84,7 @@ async fn handle_admin_make_admin(
 ) -> ApiResult {
     let user = app.make_admin_by_username(&username).await?;
     tracing::info!(user_id = %user.id, "made an administrator through the administration socket");
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 #[cfg(test)]

@@ -68,7 +68,7 @@ async fn get_templates_returns_the_built_in_templates() {
             &json!({}),
         )
         .await
-        .ok_json::<Value>();
+        .created_json::<Value>();
     let copy = &duplicate["boards"][0];
     assert_eq!(
         copy["isTemplate"],
@@ -320,6 +320,6 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
     ts.client
         .post_empty(&format!("/boards/{}/duplicate", welcome.id))
         .await
-        .check_ok();
+        .check_created();
     ts.teardown().await;
 }

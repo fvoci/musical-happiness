@@ -6,7 +6,7 @@ use axum::extract::{Path, State};
 use axum::routing::{get, post, put};
 use fvoci_model::{BoardMember, BoardRole, BoardType};
 
-use super::{ApiResult, RequiredSession, empty_response, json_response};
+use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{
     board_refusal, decode_object, require_board_permission, require_team_access, user_is_guest,
 };
@@ -207,7 +207,7 @@ async fn handle_leave_board(
     app.board(&board_id).await?;
 
     app.delete_board_member(&board_id, user_id).await?;
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// `PUT /boards/{board_id}/members/{user_id}`: replaces the roles of a member.
@@ -253,5 +253,5 @@ async fn handle_delete_member(
 
     app.board(&board_id).await?;
     app.delete_board_member(&board_id, &member_user_id).await?;
-    Ok(empty_response())
+    Ok(no_content())
 }

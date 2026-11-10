@@ -97,7 +97,10 @@ fn card_path(card_id: &str) -> String {
 
 /// `CreateCard`, expecting success. Returns the card, which is stored as answered.
 async fn create_card(client: &Client, board_id: &str, card: &impl serde::Serialize) -> Card {
-    let created: Card = client.post(&cards_path(board_id), card).await.ok_json();
+    let created: Card = client
+        .post(&cards_path(board_id), card)
+        .await
+        .created_json();
     let read: Card = client.get(&card_path(&created.id)).await.ok_json();
     assert_eq!(read, created, "the card is stored as answered");
     read
@@ -139,7 +142,7 @@ async fn create_board_and_cards(th: &TestServer, count: usize) -> (Board, Vec<Ca
                 &card,
             )
             .await
-            .ok_json();
+            .created_json();
         cards.push(created);
     }
     (board, cards)
@@ -163,7 +166,7 @@ pub(crate) async fn insert_block(client: &Client, block: &Block) -> Block {
     let mut inserted: Vec<Block> = client
         .insert_blocks(&block.board_id, std::slice::from_ref(block))
         .await
-        .ok_json();
+        .created_json();
     inserted.pop().expect("one block was inserted")
 }
 
@@ -199,7 +202,7 @@ async fn get_cards_fixture(th: &TestServer) -> Board {
             ..Card::default()
         };
         let path = format!("{}?disableNotify=true", cards_path(&board.id));
-        let created: Card = th.client.post(&path, &card).await.ok_json();
+        let created: Card = th.client.post(&path, &card).await.created_json();
 
         let texts: Vec<Block> = (0..3)
             .map(|text| Block {
@@ -216,7 +219,7 @@ async fn get_cards_fixture(th: &TestServer) -> Board {
                 &texts,
             )
             .await
-            .check_ok();
+            .check_created();
     }
     board
 }
@@ -775,7 +778,7 @@ async fn create_card_answer_and_stored_block() {
             }),
         )
         .await;
-    let card: Card = response.ok_json();
+    let card: Card = response.created_json();
     assert!(
         is_id(&card.id),
         "a new identifier, not the client's: {}",
@@ -847,7 +850,7 @@ async fn create_card_without_members() {
         json!({"title": null, "contentOrder": null, "properties": null, "icon": null}),
     ] {
         let response = th.client.post(&cards_path(&board.id), &body).await;
-        let card: Card = response.ok_json();
+        let card: Card = response.created_json();
         assert_eq!(
             response.value(),
             json!({
@@ -1111,7 +1114,7 @@ async fn get_cards_fails_on_a_malformed_card() {
         th.client
             .delete(&format!("/boards/{}/blocks/{}", board.id, block.id))
             .await
-            .check_ok();
+            .check_no_content();
         assert_eq!(
             cards_of(&th.client, &board.id, "").await.len(),
             1,
@@ -1397,7 +1400,7 @@ async fn card_changes_are_broadcast() {
             .client
             .post(&path, &json!({"title": title}))
             .await
-            .ok_json();
+            .created_json();
         let message = member.expect("UPDATE_BLOCK", "/block/id", &card.id).await;
         assert_eq!(message["teamId"], json!(TEST_TEAM_ID), "{message}");
         assert_eq!(message["block"]["type"], json!("card"), "{message}");
@@ -1529,7 +1532,7 @@ async fn card_changes_call_the_webhook() {
             text1.id, text2.id
         ))
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(
         take_posted().await,
         [card_triple(&card, "patched")],
@@ -1547,11 +1550,11 @@ async fn card_changes_call_the_webhook() {
             }),
         )
         .await
-        .check_ok();
+        .check_created();
     th.client
         .delete(&format!("/subscriptions/{}/{}", card.id, me.id))
         .await
-        .check_ok();
+        .check_no_content();
     assert_eq!(take_posted().await, nothing, "subscriptions are not posted");
 
     th.teardown().await;

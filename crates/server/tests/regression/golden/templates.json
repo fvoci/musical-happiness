@@ -78,7 +78,7 @@
   {
     "name": "create board My template",
     "request": "POST /api/v1/boards as tpl-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],

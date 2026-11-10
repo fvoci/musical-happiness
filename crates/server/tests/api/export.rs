@@ -43,7 +43,7 @@ async fn board_with_card(ts: &TestServer, team_id: &str) -> Board {
     ts.client
         .insert_blocks(&board.id, std::slice::from_ref(&card))
         .await
-        .check_ok();
+        .check_created();
     board
 }
 
@@ -60,7 +60,7 @@ async fn export_single_board_round_trips() {
 
     import(&ts.client, ROOT_TEAM_ID, &exported.body)
         .await
-        .check_ok();
+        .check_no_content();
 
     let user_id = ts.client.me().await.id;
     let boards = ts
@@ -95,7 +95,7 @@ async fn export_of_a_board_without_blocks_round_trips() {
     exported.check_ok();
     import(&ts.client, ROOT_TEAM_ID, &exported.body)
         .await
-        .check_ok();
+        .check_no_content();
 
     let user_id = ts.client.me().await.id;
     let boards = ts
@@ -207,7 +207,9 @@ async fn import_is_allowed_for_any_signed_in_user() {
     let board = board_with_card(&ts, ROOT_TEAM_ID).await;
     let archive = export_board(&ts.client, &board.id).await.body;
 
-    import(&ts.client2, ROOT_TEAM_ID, &archive).await.check_ok();
+    import(&ts.client2, ROOT_TEAM_ID, &archive)
+        .await
+        .check_no_content();
     import(&ts.anonymous(), ROOT_TEAM_ID, &archive)
         .await
         .check_unauthorized();
@@ -275,9 +277,11 @@ async fn import_of_a_traversing_entry_is_harmless() {
     writer.write_all(b"pwned").expect("write");
     let bytes = writer.finish().expect("finish").into_inner();
 
-    // No board directory matches the orphan file, so it is skipped and the import is a
-    // clean 200.
-    import(&ts.client, ROOT_TEAM_ID, &bytes).await.check_ok();
+    // No board directory matches the orphan file, so it is skipped and the import
+    // succeeds.
+    import(&ts.client, ROOT_TEAM_ID, &bytes)
+        .await
+        .check_no_content();
     ts.teardown().await;
 }
 
@@ -309,7 +313,10 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png"),
         image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png"),
     ];
-    ts.client.insert_blocks(&board.id, &blocks).await.check_ok();
+    ts.client
+        .insert_blocks(&board.id, &blocks)
+        .await
+        .check_created();
 
     let export = export_board(&ts.client, &board.id).await;
     export.check_ok();

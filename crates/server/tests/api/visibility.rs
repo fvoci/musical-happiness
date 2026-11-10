@@ -61,13 +61,13 @@ impl Hidden {
             .client
             .insert_blocks(&board.id, &[block(BlockType::Card, &board.id)])
             .await
-            .ok_json();
+            .created_json();
         let card = created.pop().expect("the card is created");
         let mut created: Vec<Block> = th
             .client
             .insert_blocks(&board.id, &[block(BlockType::Text, &card.id)])
             .await
-            .ok_json();
+            .created_json();
         let text = created.pop().expect("the text is created");
 
         let part = Part::bytes(b"hidden".to_vec()).file_name("hidden.txt");
@@ -76,7 +76,7 @@ impl Hidden {
             .request(Method::POST, &format!("/boards/{}/files", board.id))
             .multipart(Form::new().part("file", part));
         let uploaded = Client::send(request).await;
-        uploaded.check_ok();
+        uploaded.check_created();
         let file = uploaded.value()["fileId"]
             .as_str()
             .expect("the upload names the file")
@@ -94,7 +94,7 @@ impl Hidden {
                 &json!({"name": "Hidden", "userId": owner.id, "teamId": TEST_TEAM_ID}),
             )
             .await
-            .ok_json();
+            .created_json();
         th.client
             .post(
                 "/subscriptions",
@@ -106,7 +106,7 @@ impl Hidden {
                 }),
             )
             .await
-            .check_ok();
+            .check_created();
         th.client
             .post(
                 &format!("/boards/{}/sharing", board.id),
@@ -124,7 +124,7 @@ impl Hidden {
                 ..fvoci_model::Board::default()
             })
             .await
-            .ok_json::<fvoci_model::Board>();
+            .created_json::<fvoci_model::Board>();
         let own_block = |block_type: BlockType, parent_id: &str| Block {
             id: new_id(),
             board_id: own_board.id.clone(),
@@ -138,13 +138,13 @@ impl Hidden {
             .client2
             .insert_blocks(&own_board.id, &[own_block(BlockType::Card, &own_board.id)])
             .await
-            .ok_json();
+            .created_json();
         let own_card = created.pop().expect("the card is created");
         let mut created: Vec<Block> = th
             .client2
             .insert_blocks(&own_board.id, &[own_block(BlockType::Text, &own_card.id)])
             .await
-            .ok_json();
+            .created_json();
         let own_text = created.pop().expect("the text is created");
         th.client2
             .get(&format!("/teams/{TEST_TEAM_ID}/categories"))
@@ -157,7 +157,7 @@ impl Hidden {
                 &json!({"name": "Own", "userId": outsider, "teamId": TEST_TEAM_ID}),
             )
             .await
-            .ok_json();
+            .created_json();
 
         Self {
             own_board: own_board.id,
@@ -605,6 +605,10 @@ fn mixed_cases() -> Vec<Case> {
 
 /// The parts of an answer a client could tell two requests apart by.
 fn told(response: &ApiResponse) -> (StatusCode, Value) {
+    if response.body.is_empty() {
+        // An answer without a body tells its status and nothing else.
+        return (response.status, Value::Null);
+    }
     let mut body = response.value();
     if let Some(body) = body.as_object_mut() {
         // Every request has its own identifier.

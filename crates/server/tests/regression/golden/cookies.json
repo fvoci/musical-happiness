@@ -2,12 +2,11 @@
   {
     "name": "login: the cookie and an empty body",
     "request": "POST /api/v1/login as anonymous",
-    "status": 200,
-    "content_type": "application/json",
+    "status": 204,
     "headers": {
       "Set-Cookie": "fvoci_session=<secret:1>; Max-Age=1209600; Path=/; HttpOnly; SameSite=Lax"
     },
-    "body": {}
+    "body": "<0 bytes>"
   },
   {
     "name": "login: wrong password sets no cookie",
@@ -138,7 +137,7 @@
   {
     "name": "change: cookie and header",
     "request": "POST /api/v1/boards as token (cookie)",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -164,7 +163,7 @@
   {
     "name": "change: bearer, no header",
     "request": "POST /api/v1/boards as token",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -190,7 +189,7 @@
   {
     "name": "change: cookie and header, the own origin",
     "request": "POST /api/v1/boards as token (cookie)",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -275,12 +274,11 @@
   {
     "name": "logout: clears the cookie",
     "request": "POST /api/v1/logout as token (cookie)",
-    "status": 200,
-    "content_type": "application/json",
+    "status": 204,
     "headers": {
       "Set-Cookie": "fvoci_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"
     },
-    "body": {}
+    "body": "<0 bytes>"
   },
   {
     "name": "read: after the logout",

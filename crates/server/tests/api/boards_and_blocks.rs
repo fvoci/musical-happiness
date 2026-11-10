@@ -282,7 +282,7 @@ async fn create_boards_and_blocks_creating_boards_and_blocks() {
         ],
     };
 
-    let created: BoardsAndBlocks = th.client.post(PATH, &request).await.ok_json();
+    let created: BoardsAndBlocks = th.client.post(PATH, &request).await.created_json();
 
     assert_eq!(created.boards.len(), 2, "two boards");
     assert_eq!(created.blocks.len(), 2, "two blocks");
@@ -478,7 +478,7 @@ async fn create_boards_and_blocks_accepts_a_template() {
             }),
         )
         .await
-        .ok_json();
+        .created_json();
     assert!(created.boards[0].is_template, "a template");
     let categories = th
         .app
@@ -546,7 +546,7 @@ async fn create_boards_and_blocks_is_broadcast() {
         blocks: vec![request_block("block-id-1", "board-id-1", "block 1")],
     };
 
-    let created: BoardsAndBlocks = th.client.post(PATH, &request).await.ok_json();
+    let created: BoardsAndBlocks = th.client.post(PATH, &request).await.created_json();
 
     let board_id = &created.boards[0].id;
     // The board and block messages are sent before the creator is a member in the eyes
@@ -1155,8 +1155,7 @@ async fn delete_boards_and_blocks_all_boards_and_blocks_should_be_deleted() {
         },
     )
     .await;
-    response.check_ok();
-    assert_eq!(response.text(), "{}", "an empty object");
+    response.check_no_content();
 
     // ensure that the entities have been successfully deleted
     for board_id in &board_ids {
@@ -1249,7 +1248,7 @@ async fn delete_boards_and_blocks_checks() {
     // Boards only: the board goes, with its blocks.
     delete(&th.client, &json!({"boards": [first_id]}))
         .await
-        .check_ok();
+        .check_no_content();
     let error = th.app.board(first_id).await.expect_err("the board is gone");
     assert!(error.is_not_found(), "{error:?}");
     assert_eq!(blocks_of(&th, first_id).await, vec![], "and its block");

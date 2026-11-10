@@ -90,9 +90,14 @@ async fn of_registrations_without_a_token_that_arrive_at_once_one_gets_in() {
     let answers = futures_util::future::join_all(attempts).await;
 
     let accepted: Vec<usize> = (0..answers.len())
-        .filter(|index| answers[*index].status == StatusCode::OK)
+        .filter(|index| answers[*index].status == StatusCode::CREATED)
         .collect();
     assert_eq!(accepted.len(), 1, "one registration is the first");
+    assert_eq!(
+        answers[accepted[0]].value()["isAdmin"],
+        json!(true),
+        "the answer says so"
+    );
     for (index, answer) in answers.iter().enumerate() {
         if index != accepted[0] {
             answer.check_status(StatusCode::FORBIDDEN);
@@ -260,7 +265,7 @@ async fn an_administrator_renews_the_signup_token() {
     th.anonymous()
         .post("/register", &registration("late", &renewed.signup_token))
         .await
-        .check_ok();
+        .check_created();
 
     th.teardown().await;
 }

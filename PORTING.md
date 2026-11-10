@@ -620,6 +620,34 @@ S6에서 새로 본 것:
 
 **스냅샷.** 571단계 그대로. 56단계가 바뀌었고 바뀐 것은 목록 안의 순서와 그에 따라 매겨지는 `<id:N>` 번호뿐이다(전·후를 정렬하고 번호를 지워 비교하면 다른 단계가 0). 시나리오별로는 `trash` 19, `cards` 9, `blocks` 5, `archive` 4, `categories` 4, `search` 4, `files` 3, `members` 3, `boards` 2, `templates` 2, `boards_and_blocks` 1. 권한 표는 그대로다(636칸).
 
+### N. 구현 7b단계: 201과 204 (2026-11-11 01:23 KST)
+
+설계 1.5의 결정 B다: 결과가 없으면 204(본문 없음), 새로 만든 것은 201과 그 객체, 그 밖은 200. 전에는 결과가 없는 작업이 200과 `{}`로 답했다. 라우트마다의 적용은 설계가 하나씩 적지 않아 아래 표대로 내가 정했다.
+
+| 답 | 라우트 |
+|---|---|
+| 201과 만든 것 | `POST /boards`, `POST /boards/{board}/duplicate`, `POST /boards/{board}/blocks`, `POST /boards/{board}/blocks/{block}/duplicate`, `POST /boards/{board}/cards`, `POST /teams/{team}/categories`, `POST /subscriptions`, `POST /boards/{board}/files`, `POST /boards-and-blocks`, `POST /register` |
+| 204 | `POST /login`, `POST /logout`, `POST /users/me/password`(셋 다 `Set-Cookie`는 그대로), `DELETE /boards/{board}`, 블록의 `DELETE`·`PATCH`(하나, 여럿), `DELETE /teams/{team}/categories/{category}`, 카테고리에 보드 넣기와 `hide`·`unhide`, `POST /boards/{board}/leave`, `DELETE /boards/{board}/members/{user}`, `DELETE /subscriptions/...`, `DELETE /boards-and-blocks`, 콘텐츠 블록 옮기기, `POST /teams/{team}/archive/import`, 관리자 소켓의 두 라우트 |
+| 200(그대로) | 모든 `GET`, 고친 것을 돌려주는 수정(`PATCH /boards/{board}`, `PATCH /cards/{card}`, 카테고리 수정과 순서, 멤버 수정, 설정), 이미 있을 수 있는 것을 정하는 요청(`POST /boards/{board}/members`, `join`, `sharing`), 복원(`undelete`), 온보딩, 가입 토큰 갱신 |
+
+본문이 바뀐 곳:
+
+| 라우트 | 전 | 지금 | 왜 |
+|---|---|---|---|
+| `POST /register` | 200 `{}` | 201과 만든 사용자 | 만든 것을 돌려준다는 규칙. 가입은 로그인시키지 않는다(쿠키 없음, 회귀 `auth`의 `register`가 고정) |
+| `POST /boards/{board}/undelete` | 200 `{}` | 200과 되살린 보드 | 블록 복원이 블록을 돌려주는 것과 같게. 값이 손에 있었다 |
+| `DELETE /teams/{team}/categories/{category}` | 200과 지운 카테고리 | 204 | 다른 `DELETE`와 같게 |
+
+판단이 갈릴 수 있는 곳(남은 문제에도 적는다): 빈 목록을 넣는 `POST /boards/{board}/blocks`는 201과 `[]`다. 이미 있는 구독을 다시 만드는 `POST /subscriptions`도 201이다(라우트마다 성공 코드를 하나로 뒀다).
+
+**스냅샷.** 571 → 573단계. 새 단계는 `auth`의 `register`(201, 사용자, `Set-Cookie` 없음)와 `login: the registered user`(204)다. 성공한 가입을 기록한 단계가 전에는 없었다. 기존 단계에서 200 → 201이 49개, 200 → 204가 34개이고 204는 본문과 `Content-Type`이 없다. 상태가 그대로인데 바뀐 단계는 9개다: 보드 복원 둘(본문이 보드가 됐다)과, `auth`에 사용자가 하나 늘어 `<id:N>` 번호가 밀린 일곱. 오류 응답은 하나도 바뀌지 않았다.
+
+권한 표 두 장은 636칸 그대로이고 그 가운데 108칸의 값이 바뀌었다: 200 → 204가 58칸, 200 → 201이 50칸. 거절 칸(401, 403, 404)은 하나도 바뀌지 않았다(칸 단위로 비교했다).
+
+**API 테스트.** 482 → 484건(하위 에이전트, Fable 5.2, 테스트 디렉터리만 고쳤다). 성공을 확인하는 자리 약 220곳이 `check_created`(201)와 `check_no_content`로 갈렸고, `check_no_content`는 상태 204, 빈 본문, `Content-Type` 없음 셋을 함께 본다. 새 테스트 둘: `a_registration_answers_the_user_that_was_made`(가입의 답이 멤버 여섯 개의 사용자이고 `GET /users/me`와 같으며 `Set-Cookie`가 없다), `an_answer_without_a_result_has_no_body_and_no_content_type`(블록 수정·삭제, 보드 삭제, 로그인, 로그아웃). 보드 복원은 200과 저장된 보드를, 카테고리 삭제는 204와 스토어에서 사라진 것을 고정한다. 카테고리 삭제가 답으로 주던 `deleteAt`은 이제 WebSocket의 `UPDATE_CATEGORY`에서만 보인다. 사라진 단언은 "카테고리에 보드 넣기의 답이 `application/json`이다" 하나다(204에는 본문이 없다).
+
+`docs/fvoci-cdn.md`를 지금 동작에 맞췄다(쿠키 이름, `Origin`·`X-Requested-With` 규칙, `readToken`, `trusted_proxies`, `allowed_origins`, 로그인 204, 새 파일 경로).
+
 ## 플러그인 저장소의 수정 사항 점검
 
 원본에서 갈라진 플러그인 저장소가 분리 뒤에 넣은 보안·검증 수정 15건(서버 쪽)을 원본 standalone 경로에 대해 하나씩 확인했다. 원본에 같은 결함이 있는지는 오라클에서 재현해 판단했고, 처리 결과는 `crates/server/PORTING.md`의 보안 수정 표, 의도적 차이, 보안 결정 대기 표에 PR 번호와 함께 적었다.

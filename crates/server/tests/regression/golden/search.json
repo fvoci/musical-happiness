@@ -2,7 +2,7 @@
   {
     "name": "create board Quarterly zebra plan",
     "request": "POST /api/v1/boards as search-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -28,7 +28,7 @@
   {
     "name": "create board Open zebra notes",
     "request": "POST /api/v1/boards as search-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -54,7 +54,7 @@
   {
     "name": "create board Private zebra diary",
     "request": "POST /api/v1/boards as search-bob",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],

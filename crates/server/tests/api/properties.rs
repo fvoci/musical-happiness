@@ -95,7 +95,7 @@ async fn board_with_card(th: &TestServer) -> (Board, Card) {
         json!([{"id": "p1", "name": "Status", "type": "select", "options": []}]),
     )
     .await
-    .ok_json();
+    .created_json();
     let card: Card = th
         .client
         .post(
@@ -103,7 +103,7 @@ async fn board_with_card(th: &TestServer) -> (Board, Card) {
             &json!({"title": "Card", "properties": {"p1": "open"}}),
         )
         .await
-        .ok_json();
+        .created_json();
     (board, card)
 }
 
@@ -184,7 +184,9 @@ async fn well_formed_card_property_definitions_are_stored_as_sent() {
         {"id": "p3", "name": "", "type": "text", "options": null, "extra": {"kept": [1, true]}},
     ]);
 
-    let board: Value = new_board(&th.client, definitions.clone()).await.ok_json();
+    let board: Value = new_board(&th.client, definitions.clone())
+        .await
+        .created_json();
     assert_eq!(board["cardProperties"], definitions, "created as sent");
 
     let added = json!({"id": "p4", "name": "Owner", "type": "person", "options": []});
@@ -208,7 +210,7 @@ async fn well_formed_card_property_definitions_are_stored_as_sent() {
 #[tokio::test]
 async fn a_block_with_malformed_properties_is_not_inserted() {
     let th = Setup::native().start().await.init_basic().await;
-    let board: Board = new_board(&th.client, json!([])).await.ok_json();
+    let board: Board = new_board(&th.client, json!([])).await.created_json();
     let path = format!("/boards/{}/blocks", board.id);
 
     for (what, value) in malformed_values() {
@@ -245,7 +247,7 @@ async fn a_block_patch_with_malformed_properties_changes_nothing() {
             &json!({"title": "Second"}),
         )
         .await
-        .ok_json();
+        .created_json();
 
     for (what, value) in malformed_values() {
         let response = th
@@ -353,7 +355,7 @@ async fn well_formed_property_values_are_stored_as_sent() {
             &json!({"title": "Another", "properties": values}),
         )
         .await
-        .ok_json();
+        .created_json();
     assert_eq!(created["properties"], values, "a card is created with them");
 
     let patched: Value = th
@@ -376,14 +378,14 @@ async fn well_formed_property_values_are_stored_as_sent() {
             ]),
         )
         .await;
-    inserted.check_ok();
+    inserted.check_created();
     th.client
         .patch(
             &format!("/boards/{}/blocks/{}", board.id, card.id),
             &json!({"updatedFields": {"properties": {"p1": ["x"]}}}),
         )
         .await
-        .check_ok();
+        .check_no_content();
     th.teardown().await;
 }
 
@@ -427,7 +429,7 @@ async fn boards_and_blocks_with_malformed_property_data_are_refused_as_a_whole()
             &request(json!([{"id": "p1"}]), json!({"p1": "v"})),
         )
         .await
-        .ok_json();
+        .created_json();
     let board_id = created["boards"][0]["id"].as_str().expect("a board id");
     let block_id = created["blocks"][0]["id"].as_str().expect("a block id");
 
@@ -518,6 +520,6 @@ async fn an_archive_with_malformed_property_data_is_refused() {
         &archive(json!([{"id": "p1"}]), json!({"p1": "v"})),
     )
     .await
-    .check_ok();
+    .check_no_content();
     th.teardown().await;
 }

@@ -2,7 +2,7 @@
   {
     "name": "create board Blocks",
     "request": "POST /api/v1/boards as blocks-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -49,7 +49,7 @@
   {
     "name": "insert blocks",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -448,7 +448,7 @@
   {
     "name": "insert: empty list",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": []
   },
@@ -547,7 +547,7 @@
   {
     "name": "insert: commenter inserts a comment",
     "request": "POST /api/v1/boards/<id:2>/blocks as blocks-bob",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -569,7 +569,7 @@
   {
     "name": "insert: keeping ids",
     "request": "POST /api/v1/boards/<id:2>/blocks?disableNotify=true as blocks-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -591,9 +591,8 @@
   {
     "name": "patch",
     "request": "PATCH /api/v1/boards/<id:2>/blocks/<id:6> as blocks-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "patch: commenter",
@@ -653,9 +652,8 @@
   {
     "name": "patch several",
     "request": "PATCH /api/v1/boards/<id:2>/blocks as blocks-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "patch several: unknown block",
@@ -768,7 +766,7 @@
   {
     "name": "duplicate",
     "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/duplicate as blocks-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -811,7 +809,7 @@
   {
     "name": "duplicate as template",
     "request": "POST /api/v1/boards/<id:2>/blocks/<id:6>/duplicate?asTemplate=true as blocks-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -898,9 +896,8 @@
   {
     "name": "delete",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as blocks-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "delete: again",
@@ -1013,9 +1010,8 @@
   {
     "name": "delete a card with content",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as blocks-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "list: children of the deleted card",

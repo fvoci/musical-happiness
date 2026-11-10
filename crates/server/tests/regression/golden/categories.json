@@ -2,7 +2,7 @@
   {
     "name": "create board Filed board",
     "request": "POST /api/v1/boards as cat-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -28,7 +28,7 @@
   {
     "name": "create board Other board",
     "request": "POST /api/v1/boards as cat-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -105,7 +105,7 @@
   {
     "name": "create",
     "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "collapsed": false,
@@ -123,7 +123,7 @@
   {
     "name": "create second",
     "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "collapsed": true,
@@ -324,16 +324,14 @@
   {
     "name": "file a board",
     "request": "POST /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2> as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "file the second board",
     "request": "POST /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:4> as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "list after filing",
@@ -394,9 +392,8 @@
   {
     "name": "hide",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "hide: other user",
@@ -468,9 +465,8 @@
   {
     "name": "unhide",
     "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2>/unhide as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "reorder boards",
@@ -662,20 +658,8 @@
   {
     "name": "delete",
     "request": "DELETE /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {
-      "collapsed": true,
-      "createAt": "<ts>",
-      "deleteAt": "<ts>",
-      "id": "<id:8>",
-      "name": "Projects 2",
-      "sortOrder": 10,
-      "teamId": "<id:3>",
-      "type": "custom",
-      "updateAt": "<ts>",
-      "userId": "<id:1>"
-    }
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "delete: again",

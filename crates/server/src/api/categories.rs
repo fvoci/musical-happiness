@@ -9,7 +9,7 @@ use fvoci_store::BoardVisibility;
 use serde_json::Value;
 
 use super::decode_object_members;
-use super::{ApiResult, RequiredSession, decode_json, empty_response, json_response};
+use super::{ApiResult, RequiredSession, decode_json, json_response, no_content};
 use super::{require_board_visible, require_team_access};
 use crate::app::App;
 use crate::auth::now_millis;
@@ -141,7 +141,7 @@ async fn handle_create_category(
     }
 
     let created = app.create_category(request.into_category()?).await?;
-    Ok(json_response(&created))
+    Ok(super::created(&created))
 }
 
 async fn handle_update_category(
@@ -181,10 +181,9 @@ async fn handle_delete_category(
     Path((team_id, category_id)): Path<(String, String)>,
 ) -> ApiResult {
     require_team_access(&app, &session.user_id, &team_id, ACCESS_DENIED_TO_TEAM).await?;
-    let deleted = app
-        .delete_category(&category_id, &session.user_id, &team_id)
+    app.delete_category(&category_id, &session.user_id, &team_id)
         .await?;
-    Ok(json_response(&deleted))
+    Ok(no_content())
 }
 
 async fn handle_get_user_category_boards(
@@ -208,7 +207,7 @@ async fn handle_update_category_board(
     require_board_visible(&app, &session.user_id, &board_id).await?;
     app.add_update_user_category_board(&team_id, &session.user_id, &category_id, &[board_id])
         .await?;
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 async fn handle_reorder_categories(
@@ -268,5 +267,5 @@ async fn set_board_visibility(
     require_board_visible(app, user_id, board_id).await?;
     app.set_board_visibility(team_id, user_id, category_id, board_id, visibility)
         .await?;
-    Ok(empty_response())
+    Ok(no_content())
 }

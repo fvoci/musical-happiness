@@ -24,7 +24,7 @@ async fn impostor_template(client: &Client) -> Board {
             }),
         )
         .await
-        .ok_json();
+        .created_json();
     let card = Block {
         id: new_id(),
         board_id: board.id.clone(),
@@ -35,7 +35,10 @@ async fn impostor_template(client: &Client) -> Board {
         update_at: 1,
         ..Block::default()
     };
-    client.insert_blocks(&board.id, &[card]).await.check_ok();
+    client
+        .insert_blocks(&board.id, &[card])
+        .await
+        .check_created();
     board
 }
 

@@ -39,7 +39,7 @@ async fn user_register() {
     let th = Setup::native().start().await;
     let request = register_request(&new_id());
 
-    th.client.post("/register", &request).await.check_ok();
+    th.client.post("/register", &request).await.check_created();
 
     // The same user a second time: the first user exists, so a signup token is needed.
     let again = th.client.post("/register", &request).await;
@@ -86,7 +86,7 @@ async fn user_login_with_registered_user() {
     th.client
         .post("/register", &register_request(&password))
         .await
-        .check_ok();
+        .check_created();
 
     let response = th
         .client
@@ -96,12 +96,8 @@ async fn user_login_with_registered_user() {
         )
         .await;
 
-    response.check_ok();
-    assert_eq!(
-        response.value(),
-        json!({}),
-        "the body of a login carries no token: a script of the page never sees it"
-    );
+    // A login has no body, so no token in one: a script of the page never sees it.
+    response.check_no_content();
     let token = response
         .session_cookie()
         .expect("the token comes in the session cookie");
@@ -125,7 +121,7 @@ async fn login_cases() {
     th.client
         .post("/register", &register_request("testPassword"))
         .await
-        .check_ok();
+        .check_created();
 
     let failures = [
         ("fail, missing login information", "", "", ""),
@@ -153,7 +149,7 @@ async fn login_cases() {
             .await;
         assert_eq!(
             response.status,
-            StatusCode::OK,
+            StatusCode::NO_CONTENT,
             "{title}: {}",
             response.text()
         );
@@ -172,7 +168,7 @@ async fn login_cases() {
         let response = th.client.post("/login", &with_type("testPassword")).await;
         assert_eq!(
             response.status,
-            StatusCode::OK,
+            StatusCode::NO_CONTENT,
             "type {login_type}: {}",
             response.text()
         );
@@ -263,7 +259,8 @@ async fn register_user_cases() {
 
     // "success"
     let body = json!({"username": " newUsername ", "email": " new@example.com ", "password": "testPassword"});
-    th.client.post("/register", &body).await.check_ok();
+    let made: User = th.client.post("/register", &body).await.created_json();
+    assert_eq!(made.username, "newUsername", "the name is answered trimmed");
     let user = th
         .app
         .store()
@@ -291,6 +288,71 @@ async fn register_user_cases() {
     response.check_error(StatusCode::FORBIDDEN, "the signup token is not valid");
     assert_eq!(response.error_reason(), "signup_token_invalid");
 
+    th.teardown().await;
+}
+
+/// A registration answers the user that was made: the members a profile has and no
+/// others, so neither the address nor anything of the password. Only the first user of
+/// an instance is its administrator. Registering signs nobody in: no cookie is set.
+#[tokio::test]
+async fn a_registration_answers_the_user_that_was_made() {
+    let th = Setup::native().start().await;
+    let register = async |username: &str, token: &str| {
+        th.anonymous()
+            .post(
+                "/register",
+                &json!({
+                    "username": username,
+                    "email": format!("{username}@sample.com"),
+                    "password": PASSWORD,
+                    "token": token,
+                }),
+            )
+            .await
+    };
+
+    let first = register("first", "").await;
+    let signup_token = th.app.root_team().await.expect("root team").signup_token;
+    let second = register("second", &signup_token).await;
+
+    for (response, username, is_admin) in [(&first, "first", true), (&second, "second", false)] {
+        response.check_created();
+        let made = response.value();
+        let mut members: Vec<&str> = made
+            .as_object()
+            .expect("the answer is an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        members.sort_unstable();
+        assert_eq!(
+            members,
+            [
+                "createAt", "deleteAt", "id", "isAdmin", "updateAt", "username"
+            ],
+            "{username}: the members of the answer, sorted: {made}"
+        );
+        assert_eq!(made["username"], json!(username), "{made}");
+        assert_eq!(made["isAdmin"], json!(is_admin), "{made}");
+        assert_eq!(made["deleteAt"], json!(0), "{made}");
+        assert!(
+            made["id"].as_str().is_some_and(fvoci_model::is_id),
+            "{username}: the identifier the server gave: {made}"
+        );
+        assert_eq!(
+            response.set_cookies(),
+            Vec::<&str>::new(),
+            "{username}: a registration opens no session"
+        );
+
+        // The answer is the user as the API tells it afterwards.
+        let client = th.login(username, PASSWORD).await;
+        assert_eq!(
+            client.get("/users/me").await.value(),
+            made,
+            "{username}: the same as the user reads about themselves"
+        );
+    }
     th.teardown().await;
 }
 
@@ -469,7 +531,10 @@ async fn user_change_password() {
         old_password: password.clone(),
         new_password: new_password.clone(),
     };
-    client.post("/users/me/password", &request).await.check_ok();
+    client
+        .post("/users/me/password", &request)
+        .await
+        .check_no_content();
 
     // The new password signs in and the old one no longer does.
     th.login(FAKE_USERNAME, &new_password).await;
@@ -586,7 +651,7 @@ async fn a_password_is_changed_for_the_session_and_for_no_user_named_in_the_path
 async fn logout_ends_the_session() {
     let th = Setup::native().start().await.init_basic().await;
 
-    th.client.post_empty("/logout").await.check_ok();
+    th.client.post_empty("/logout").await.check_no_content();
 
     th.client.get("/users/me").await.check_unauthorized();
     // The other user's session is untouched.
@@ -1284,7 +1349,7 @@ async fn changing_the_password_ends_the_other_sessions_of_the_user() {
             &json!({"oldPassword": PASSWORD, "newPassword": "another password"}),
         )
         .await;
-    changed.check_ok();
+    changed.check_no_content();
 
     // The session the change came through goes on, under a new token.
     let new_token = changed
@@ -1336,7 +1401,7 @@ async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
 
     // Longer than the 72 bytes the previous hash looked at; every byte counts.
     let long = "p".repeat(200);
-    register("long", &long).await.check_ok();
+    register("long", &long).await.check_created();
     th.login("long", &long).await;
     let mut other_end = "p".repeat(199);
     other_end.push('q');
@@ -1347,7 +1412,7 @@ async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
 
     // The limits, where a password is set.
     let longest = "가".repeat(341);
-    register("longest", &longest).await.check_ok();
+    register("longest", &longest).await.check_created();
     th.login("longest", &longest).await;
     for (username, password, message) in [
         (

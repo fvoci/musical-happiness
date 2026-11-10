@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::decode_object_members;
 use super::require_permission_through;
-use super::{ApiResult, RequiredSession, empty_response, json_response};
+use super::{ApiResult, RequiredSession, created, json_response, no_content};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
@@ -132,7 +132,7 @@ async fn handle_create_subscription(
         block_id = %subscription.block_id,
         "CREATE subscription"
     );
-    Ok(json_response(&subscription))
+    Ok(created(&subscription))
 }
 
 /// `DELETE /subscriptions/{block_id}/{subscriber_id}`: ends the subscription of the
@@ -158,7 +158,7 @@ async fn handle_delete_subscription(
             }
         })?;
     tracing::debug!(block_id, subscriber_id, "DELETE subscription");
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// `GET /subscriptions/{subscriber_id}`: the subscriptions of the session's user.

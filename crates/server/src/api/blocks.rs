@@ -10,8 +10,8 @@ use fvoci_model::{
 };
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, decode_json, decode_object, empty_response,
-    has_valid_read_token, json_response, query_param,
+    ApiResult, OptionalSession, RequiredSession, created, decode_json, decode_object,
+    has_valid_read_token, json_response, no_content, query_param,
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use crate::app::App;
@@ -257,7 +257,7 @@ async fn handle_post_blocks(
     app.insert_blocks(&mut blocks, user_id, notification)
         .await?;
     tracing::debug!(block_count = blocks.len(), "POST Blocks");
-    Ok(json_response(&blocks))
+    Ok(created(&blocks))
 }
 
 /// `DELETE /boards/{board_id}/blocks/{block_id}`: deletes a block and its direct
@@ -299,7 +299,7 @@ async fn handle_delete_block(
     }
     app.delete_block(&block_id, user_id, notification).await?;
     tracing::debug!(board_id, block_id, "DELETE Block");
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// `POST /boards/{board_id}/blocks/{block_id}/undelete`: restores a deleted block and
@@ -358,7 +358,7 @@ async fn handle_patch_block(
     app.patch_block(&block_id, &patch, user_id, notification)
         .await?;
     tracing::debug!(board_id, block_id, "PATCH Block");
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// `PATCH /boards/{board_id}/blocks`: partially updates several blocks of the board,
@@ -402,7 +402,7 @@ async fn handle_patch_blocks(
     app.patch_blocks(&board.team_id, &batch, user_id, notification)
         .await?;
     tracing::debug!(patches = batch.block_ids.len(), "PATCH Blocks");
-    Ok(empty_response())
+    Ok(no_content())
 }
 
 /// `POST /boards/{board_id}/blocks/{block_id}/duplicate`: copies a block and its direct
@@ -453,5 +453,5 @@ async fn handle_duplicate_block(
     let blocks = app
         .duplicate_block(&board_id, &block_id, user_id, duplicate_as)
         .await?;
-    Ok(json_response(&blocks))
+    Ok(created(&blocks))
 }

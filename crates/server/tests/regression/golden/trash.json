@@ -2,7 +2,7 @@
   {
     "name": "create board Trash",
     "request": "POST /api/v1/boards as trash-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -56,7 +56,7 @@
   {
     "name": "insert a card and a view",
     "request": "POST /api/v1/boards/<id:2>/blocks as trash-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -94,7 +94,7 @@
   {
     "name": "insert a comment and a text on the card",
     "request": "POST /api/v1/boards/<id:2>/blocks as trash-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -130,7 +130,7 @@
   {
     "name": "insert a block below the comment",
     "request": "POST /api/v1/boards/<id:2>/blocks as trash-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -152,7 +152,7 @@
   {
     "name": "subscribe to the card",
     "request": "POST /api/v1/subscriptions as trash-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "blockId": "<id:6>",
@@ -167,9 +167,8 @@
   {
     "name": "delete the card",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as trash-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "blocks: the card took everything below it",
@@ -367,16 +366,14 @@
   {
     "name": "delete the text",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:9> as trash-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "delete the card again",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:6> as trash-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "undelete the text: its card is in the trash",
@@ -490,16 +487,14 @@
   {
     "name": "delete the view on its own",
     "request": "DELETE /api/v1/boards/<id:2>/blocks/<id:7> as trash-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "delete the board",
     "request": "DELETE /api/v1/boards/<id:2> as trash-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "board: gone",
@@ -597,7 +592,26 @@
     "request": "POST /api/v1/boards/<id:2>/undelete as trash-alice",
     "status": 200,
     "content_type": "application/json",
-    "body": {}
+    "body": {
+      "cardProperties": [],
+      "createAt": "<ts>",
+      "createdBy": "<id:1>",
+      "deleteAt": 0,
+      "description": "",
+      "icon": "",
+      "id": "<id:2>",
+      "isBuiltin": false,
+      "isTemplate": false,
+      "minimumRole": "editor",
+      "modifiedBy": "<id:1>",
+      "properties": {},
+      "showDescription": false,
+      "teamId": "<id:3>",
+      "templateVersion": 0,
+      "title": "Trash",
+      "type": "P",
+      "updateAt": "<ts>"
+    }
   },
   {
     "name": "board: back",

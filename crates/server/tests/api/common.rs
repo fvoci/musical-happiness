@@ -309,14 +309,14 @@ impl TestServer {
         self.anonymous()
             .post("/register", &request)
             .await
-            .check_ok();
+            .check_created();
         self.login(username, password).await
     }
 
     /// `Login`: returns a client signed in as an existing user.
     pub(crate) async fn login(&self, username: &str, password: &str) -> Client {
         let mut client = self.anonymous();
-        client.login(username, password).await.check_ok();
+        client.login(username, password).await.check_no_content();
         client
     }
 
@@ -349,7 +349,7 @@ impl TestServer {
             board_type,
             ..Board::default()
         };
-        self.client.post("/boards", &board).await.ok_json()
+        self.client.post("/boards", &board).await.created_json()
     }
 
     /// Stops the server, removes its database and files, and returns how serving ended.
@@ -592,7 +592,7 @@ impl Client {
             password: password.to_owned(),
         };
         let response = self.post("/login", &request).await;
-        if response.status == StatusCode::OK {
+        if response.status == StatusCode::NO_CONTENT {
             self.token = response
                 .session_cookie()
                 .expect("a login answers with the session cookie");
@@ -750,6 +750,25 @@ impl ApiResponse {
         self.check_status(StatusCode::OK);
     }
 
+    /// Checks for status 201, the answer of an operation that made something new.
+    #[track_caller]
+    pub(crate) fn check_created(&self) {
+        self.check_status(StatusCode::CREATED);
+    }
+
+    /// Checks for status 204, the answer of an operation without a result, and for what
+    /// belongs to it: no body, and no `Content-Type` for the body that is not there.
+    #[track_caller]
+    pub(crate) fn check_no_content(&self) {
+        self.check_status(StatusCode::NO_CONTENT);
+        assert!(self.body.is_empty(), "a 204 has no body: {:?}", self.text());
+        assert!(
+            !self.headers.contains_key(reqwest::header::CONTENT_TYPE),
+            "a 204 names no content type: {:?}",
+            self.header("content-type")
+        );
+    }
+
     /// `CheckBadRequest`.
     #[track_caller]
     pub(crate) fn check_bad_request(&self) {
@@ -790,6 +809,13 @@ impl ApiResponse {
     #[track_caller]
     pub(crate) fn ok_json<T: DeserializeOwned>(&self) -> T {
         self.check_ok();
+        self.json()
+    }
+
+    /// Checks for status 201 and decodes the body: what the operation made.
+    #[track_caller]
+    pub(crate) fn created_json<T: DeserializeOwned>(&self) -> T {
+        self.check_created();
         self.json()
     }
 }

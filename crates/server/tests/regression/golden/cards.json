@@ -2,7 +2,7 @@
   {
     "name": "create board Cards",
     "request": "POST /api/v1/boards as cards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -42,7 +42,7 @@
   {
     "name": "create",
     "request": "POST /api/v1/boards/<id:2>/cards as cards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
@@ -67,7 +67,7 @@
   {
     "name": "create: quiet",
     "request": "POST /api/v1/boards/<id:2>/cards?disableNotify=true as cards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "boardId": "<id:2>",
@@ -372,7 +372,7 @@
   {
     "name": "insert content",
     "request": "POST /api/v1/boards/<id:2>/blocks as cards-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": [
       {
@@ -448,9 +448,8 @@
   {
     "name": "move after",
     "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:9> as cards-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "card after move",
@@ -481,9 +480,8 @@
   {
     "name": "move before",
     "request": "POST /api/v1/content-blocks/<id:9>/moveto/before/<id:8> as cards-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "card after second move",

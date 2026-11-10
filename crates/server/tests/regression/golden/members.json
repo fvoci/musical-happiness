@@ -2,7 +2,7 @@
   {
     "name": "create board Team board",
     "request": "POST /api/v1/boards as members-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -28,7 +28,7 @@
   {
     "name": "create board Open board",
     "request": "POST /api/v1/boards as members-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],
@@ -288,16 +288,14 @@
   {
     "name": "delete",
     "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "delete: not a member",
     "request": "DELETE /api/v1/boards/<id:2>/members/<id:6> as members-alice",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "join: private board",
@@ -352,9 +350,8 @@
   {
     "name": "leave",
     "request": "POST /api/v1/boards/<id:4>/leave as members-carol",
-    "status": 200,
-    "content_type": "application/json",
-    "body": {}
+    "status": 204,
+    "body": "<0 bytes>"
   },
   {
     "name": "leave: not a member",
@@ -406,7 +403,7 @@
   {
     "name": "create board Role board",
     "request": "POST /api/v1/boards as members-alice",
-    "status": 200,
+    "status": 201,
     "content_type": "application/json",
     "body": {
       "cardProperties": [],

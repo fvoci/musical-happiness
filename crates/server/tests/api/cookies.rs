@@ -57,8 +57,7 @@ async fn login_sets_the_session_cookie_and_the_body_carries_no_token() {
 
     let response = th.anonymous().post("/login", &login_body()).await;
 
-    response.check_ok();
-    assert_eq!(response.value(), json!({}), "no token in the body");
+    response.check_no_content();
     let cookies = response.set_cookies();
     assert_eq!(cookies.len(), 1, "one cookie: {cookies:?}");
     let token = response.session_cookie().expect("the session cookie");
@@ -114,7 +113,7 @@ async fn over_https_the_cookie_is_secure_and_bound_to_the_host() {
         .await;
 
     let response = th.anonymous().post("/login", &login_body()).await;
-    response.check_ok();
+    response.check_no_content();
     let token = response.session_cookie().expect("the session cookie");
     assert_eq!(
         response.set_cookies(),
@@ -148,7 +147,7 @@ async fn logout_ends_the_session_and_clears_the_cookie() {
 
     let response = browser.post_empty("/logout").await;
 
-    response.check_ok();
+    response.check_no_content();
     assert_eq!(
         response.set_cookies(),
         ["fvoci_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax"],
@@ -192,7 +191,7 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
             .check_ok();
     }
     // With the cookie and the header: the server's own pages.
-    let made: Board = browser.post("/boards", &board_body()).await.ok_json();
+    let made: Board = browser.post("/boards", &board_body()).await.created_json();
     assert_eq!(made.board_type, BoardType::Private, "the board was made");
 
     // With the token in the `Authorization` header: no header of the check needed.
@@ -200,7 +199,7 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
         .client
         .bare_request(Method::POST, "/boards")
         .json(&board_body());
-    Client::send(request).await.check_ok();
+    Client::send(request).await.check_created();
 
     // Nobody's request is checked like a browser's: a forged login would sign the
     // browser in to an account of the forger's.
@@ -259,7 +258,7 @@ async fn a_change_from_another_origin_is_refused() {
         check_foreign_origin(&post_from(&th.client, origin).await);
     }
     for origin in [OWN_ORIGIN, "HTTP://LOCALHOST:8000", "http://localhost:5173"] {
-        post_from(&browser, origin).await.check_ok();
+        post_from(&browser, origin).await.check_created();
     }
     // The origin check comes first: a foreign login is refused as foreign, with or
     // without the header.
@@ -376,7 +375,7 @@ async fn the_cookie_is_renewed_when_the_use_of_the_session_is_recorded() {
             }),
         )
         .await;
-    large.check_ok();
+    large.check_created();
     assert_eq!(large.set_cookies().len(), 1, "renewed with a large request");
 
     th.teardown().await;
@@ -396,8 +395,7 @@ async fn a_changed_password_puts_a_new_token_in_the_cookie() {
         )
         .await;
 
-    response.check_ok();
-    assert_eq!(response.value(), json!({}), "no token in the body");
+    response.check_no_content();
     let token = response.session_cookie().expect("the cookie is set anew");
     assert_ne!(token, browser.token, "a new token");
     assert_eq!(
@@ -434,7 +432,7 @@ async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
             ),
         );
     let uploaded = Client::send(uploaded).await;
-    uploaded.check_ok();
+    uploaded.check_created();
     let file_id = uploaded.value()["fileId"]
         .as_str()
         .expect("the upload answers the file's name")
