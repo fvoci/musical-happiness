@@ -4,7 +4,8 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{
-    AuthParamError, BlockError, CardError, CategoryError, ErrorResponse, SubscriptionError,
+    AuthParamError, BlockError, BoardError, CardError, CategoryError, ErrorResponse,
+    SubscriptionError,
 };
 use fvoci_store::StoreError;
 use thiserror::Error;
@@ -114,11 +115,16 @@ impl From<StoreError> for AppError {
             StoreError::NotFound(_) | StoreError::NotAllFound { .. } | StoreError::NoRows => {
                 Self::NotFound(error.to_string())
             }
-            // Only the two size limits are client errors; an empty board id is not.
+            // The size limits and malformed property data are client errors; an empty
+            // board id is not.
             StoreError::InvalidBlock {
-                source: BlockError::TitleSizeLimitExceeded | BlockError::FieldsSizeLimitExceeded,
+                source:
+                    BlockError::TitleSizeLimitExceeded
+                    | BlockError::FieldsSizeLimitExceeded
+                    | BlockError::InvalidCardProperties(_),
                 ..
             }
+            | StoreError::InvalidBoard(BoardError::InvalidCardProperty(_))
             | StoreError::InvalidCategory(_) => Self::BadRequest(error.to_string()),
             other => Self::Internal(other.into()),
         }
@@ -140,9 +146,9 @@ impl From<CategoryError> for AppError {
 impl From<BlockError> for AppError {
     fn from(error: BlockError) -> Self {
         match error {
-            BlockError::TitleSizeLimitExceeded | BlockError::FieldsSizeLimitExceeded => {
-                Self::BadRequest(error.to_string())
-            }
+            BlockError::TitleSizeLimitExceeded
+            | BlockError::FieldsSizeLimitExceeded
+            | BlockError::InvalidCardProperties(_) => Self::BadRequest(error.to_string()),
             BlockError::EmptyBoardId => Self::Internal(error.into()),
         }
     }

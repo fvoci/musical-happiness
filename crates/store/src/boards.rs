@@ -8,8 +8,8 @@
 use std::fmt::Write as _;
 
 use fvoci_model::{
-    Board, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType, GLOBAL_TEAM_ID,
-    JsonMap, SYSTEM_USER_ID,
+    Board, BoardError, BoardMember, BoardPatch, BoardRole, BoardSearchField, BoardType,
+    GLOBAL_TEAM_ID, JsonMap, SYSTEM_USER_ID,
 };
 use md5::{Digest as _, Md5};
 use serde_json::Value;
@@ -520,6 +520,9 @@ pub(crate) async fn insert_board(
     board: &mut Board,
     user_id: &str,
 ) -> Result<(), StoreError> {
+    // Every way a board is stored comes through here: created, patched, duplicated,
+    // imported.
+    board.validate_card_properties().map_err(BoardError::from)?;
     // The built-in templates are told apart by a hash of their title.
     if board.is_template && board.team_id == GLOBAL_TEAM_ID {
         board.properties.insert(
@@ -652,6 +655,9 @@ pub(crate) async fn patch_board(
     patch: &BoardPatch,
     user_id: &str,
 ) -> Result<Board, StoreError> {
+    // Before the board is looked at: applying the patch would drop a definition without
+    // an identifier silently.
+    patch.validate().map_err(BoardError::from)?;
     let mut board = get_board(scope, board_id).await?;
     patch.apply(&mut board);
     insert_board(scope, &mut board, user_id).await?;

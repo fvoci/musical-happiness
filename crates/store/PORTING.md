@@ -192,6 +192,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 
 호환을 끝낸 뒤의 변경이다(루트 `PORTING.md`의 "S6" 절).
 
+- **보드와 블록의 속성 검증.** `insert_board`·`patch_board`가 카드 속성 정의를, `insert_block`(패치·복제·가져오기도 여기를 지난다)이 `fields.properties`를 검증하고, 잘못된 모양이면 `StoreError::InvalidBoard`·`InvalidBlock`으로 거절한다(서버 문서의 S14). 원본 스위트의 테스트 데이터 가운데 `id` 없는 속성 정의(`{"prop2": "val2"}`) 둘을 `id`가 있는 정의로 바꿨다(`boards::patch_board`, `boards::undelete_board`). 테스트 `boards::boards_with_malformed_card_property_definitions_are_not_stored`, `blocks::blocks_with_malformed_properties_are_not_stored`.
 - **`delete_member`**: 멤버십을 지우면서 그 사용자가 그 보드의 블록(지워진 블록 포함)에 건 구독을 같은 트랜잭션에서 끝낸다(서버 문서의 S12). 테스트 `subscriptions::delete_member_ends_the_subscriptions_of_that_user_to_the_blocks_of_that_board`.
 - **`reset_user_password`** (옛 `update_user_password`): 이름으로 비밀번호를 바꾸면서 그 사용자들의 세션을 같은 트랜잭션에서 지운다. 관리자의 비밀번호 재설정용이다(서버 문서의 S3). 테스트 `sessions::reset_user_password_deletes_the_sessions_of_those_users_only`.
 

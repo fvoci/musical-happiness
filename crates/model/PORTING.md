@@ -90,9 +90,16 @@
 - **요청 JSON의 `null` 멤버는 빈 값으로 읽는다.** 원본의 디코더는 `null`을 만나면 그 멤버를 영값으로 둔다(오라클 확인: `POST /boards/{id}/blocks`에 `"title": null`을 보내면 200). 요청에서 디코드되는 타입(`Block`, `Board`, `BoardMember`, `Category`, `Sharing`, `Subscription`, `Card`, 인증 요청 등)의 스칼라·컬렉션 멤버에 `null_as_default`를 붙였다. 테스트 `wire_format::null_members_decode_as_empty_values`.
 - 모델의 닫힌 enum(`BoardType`, `BoardRole` 등)은 원본이 저장을 허용하던 잘못된 값을 담지 못한다. 그 결과 생기는 차이는 서버 문서의 의도적 차이 33·55에 적었다.
 
+## S6에서 바뀐 것
+
+호환을 끝낸 뒤의 변경이다(루트 `PORTING.md`의 "S6" 절).
+
+- **카드 속성의 모양 검증(`card_property.rs`).** `validate_card_property_values`(값은 문자열, 문자열 목록, `null`), `validate_block_properties`(블록의 `fields.properties`는 있으면 그런 값들의 객체), `validate_card_property_definitions`(정의의 `id`·`name`·`type`·`options`). 오류는 `CardPropertyError`. `Block::validate`가 `fields.properties`를, `Board::validate`와 새 `Board::validate_card_properties`·`BoardPatch::validate`가 정의를 본다. 서버 문서의 S14.
+- `BlockError`와 `BoardError`는 속성 오류(문자열을 담는다)를 담게 되어 더는 `Copy`가 아니다.
+
 ## 보안 수정과 결정 대기
 
-이 크레이트에는 I/O가 없어 보안 수정이 없다. 모델의 검증과 관련된 결정 대기 항목은 `crates/server/PORTING.md`의 S14(카드 속성 데이터의 쓰기 검증)다.
+이 크레이트에는 I/O가 없어 보안 수정이 없다. 모델의 검증과 관련된 결정 대기 항목은 `crates/server/PORTING.md`의 S14(카드 속성 데이터의 쓰기 검증)였고, S6에서 정리됐다(위).
 
 ## 검증
 

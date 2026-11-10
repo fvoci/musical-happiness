@@ -458,7 +458,9 @@ async fn patch_board() {
     {
         let board_id = new_id(IdKind::Board);
         let properties = object(json!({ "prop1": "val1" }));
-        let card_properties = vec![object(json!({ "prop2": "val2" }))];
+        // The original's test data is `{"prop2": "val2"}`, a definition without an
+        // identifier, which is no longer stored.
+        let card_properties = vec![object(json!({ "id": "prop2", "name": "val2" }))];
 
         let mut board = Board {
             properties: properties.clone(),
@@ -584,7 +586,8 @@ async fn undelete_board() {
             show_description: true,
             is_template: false,
             properties: object(json!({ "prop_1": "value_1" })),
-            card_properties: vec![object(json!({ "prop_1": "value_1" }))],
+            // The original's test data has no `id`; see `patch_board`.
+            card_properties: vec![object(json!({ "id": "prop_1", "name": "value_1" }))],
             ..new_board(&board_id, TEST_TEAM_ID, BoardType::Open)
         };
         test.insert_board(&mut board, user_id)
@@ -616,7 +619,7 @@ async fn undelete_board() {
         assert!(!board.is_template);
         assert_eq!(board.properties["prop_1"], json!("value_1"));
         assert_eq!(1, board.card_properties.len());
-        assert_eq!(board.card_properties[0]["prop_1"], json!("value_1"));
+        assert_eq!(board.card_properties[0]["name"], json!("value_1"));
     }
 
     // "existing id multiple times"
@@ -1757,6 +1760,67 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_with
         .await
         .expect("the history is read");
     assert_eq!(block_history.len(), 1, "got {block_history:?}");
+
+    test.teardown().await;
+}
+
+/// Not in the original: a board is not stored with a malformed card property
+/// definition, whether it is inserted or patched, and the stored board stays as it was.
+#[tokio::test]
+async fn boards_with_malformed_card_property_definitions_are_not_stored() {
+    let test = common::setup().await;
+    let user_id = TEST_USER_ID;
+    let board_id = new_id(IdKind::Board);
+    let well_formed = vec![object(
+        json!({ "id": "p1", "name": "Status", "options": [] }),
+    )];
+
+    let mut malformed = Board {
+        card_properties: vec![object(json!({ "name": "no id" }))],
+        ..new_board(&board_id, TEST_TEAM_ID, BoardType::Open)
+    };
+    let error = test
+        .insert_board(&mut malformed, user_id)
+        .await
+        .expect_err("a definition without an identifier");
+    assert_eq!(
+        error.to_string(),
+        "a card property definition needs a non-empty string as id"
+    );
+    assert!(
+        test.get_board(&board_id).await.unwrap_err().is_not_found(),
+        "nothing was stored"
+    );
+
+    let mut board = Board {
+        card_properties: well_formed.clone(),
+        ..new_board(&board_id, TEST_TEAM_ID, BoardType::Open)
+    };
+    test.insert_board(&mut board, user_id)
+        .await
+        .expect("a well-formed board is inserted");
+
+    let patch = BoardPatch {
+        title: Some("renamed".to_owned()),
+        updated_card_properties: vec![object(json!({ "id": "p2", "options": "none" }))],
+        ..BoardPatch::default()
+    };
+    let error = test
+        .patch_board(&board_id, &patch, user_id)
+        .await
+        .expect_err("options that are no list");
+    assert!(
+        error
+            .to_string()
+            .contains("options of card property \"p2\""),
+        "got {error}"
+    );
+    let stored = test.get_board(&board_id).await.unwrap();
+    assert_eq!(
+        stored.card_properties, well_formed,
+        "the definitions are unchanged"
+    );
+    assert_ne!(stored.title, "renamed", "and so is the rest of the board");
 
     test.teardown().await;
 }

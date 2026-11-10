@@ -12,6 +12,7 @@ mod block_ids;
 mod board;
 mod boards_and_blocks;
 mod card;
+mod card_property;
 mod category;
 mod client_config;
 mod error_response;
@@ -42,6 +43,10 @@ pub use boards_and_blocks::{
     generate_boards_and_blocks_ids,
 };
 pub use card::{Card, CardError, CardPatch};
+pub use card_property::{
+    CardPropertyError, validate_block_properties, validate_card_property_definitions,
+    validate_card_property_values,
+};
 pub use category::{
     BoardCategoryWebsocketData, CATEGORY_BOARDS_SORT_ORDER_GAP, Category, CategoryBoardMetadata,
     CategoryBoards, CategoryError, CategoryType,

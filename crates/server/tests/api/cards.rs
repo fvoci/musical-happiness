@@ -776,7 +776,7 @@ async fn create_card_answer_and_stored_block() {
                 "contentOrder": ["a", "b"],
                 "icon": "👨‍👩‍👧",
                 "isTemplate": true,
-                "properties": {"p": "v", "q": [1, 2]},
+                "properties": {"p": "v", "q": ["1", "2"]},
                 "createAt": 5,
                 "updateAt": 6,
                 "deleteAt": 7,
@@ -807,7 +807,7 @@ async fn create_card_answer_and_stored_block() {
             "contentOrder": ["a", "b"],
             "icon": "👨‍👩‍👧",
             "isTemplate": true,
-            "properties": {"p": "v", "q": [1, 2]},
+            "properties": {"p": "v", "q": ["1", "2"]},
             "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
@@ -830,7 +830,7 @@ async fn create_card_answer_and_stored_block() {
                 "contentOrder": ["a", "b"],
                 "icon": "👨‍👩‍👧",
                 "isTemplate": true,
-                "properties": {"p": "v", "q": [1, 2]},
+                "properties": {"p": "v", "q": ["1", "2"]},
             },
             "createAt": card.update_at,
             "updateAt": card.update_at,
@@ -1127,59 +1127,6 @@ async fn get_cards_fails_on_a_malformed_card() {
     th.teardown().await;
 }
 
-/// Nothing checks what is written to a card block's `properties`. The original fails the
-/// whole list of cards if one card has something else than an object there (verified on
-/// the original with a string: the list answers 500). The port gives such a card out
-/// with no properties, in the list and alone.
-#[tokio::test]
-async fn cards_whose_properties_are_no_object_are_read_without_properties() {
-    let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let fine = create_card(
-        &th.client,
-        &board.id,
-        &json!({"title": "fine", "properties": {"p1": "v1"}}),
-    )
-    .await;
-
-    let malformed = [json!("a string"), json!([1, 2]), json!(42), json!(null)];
-    let mut expected = 1;
-    for properties in malformed {
-        let block =
-            insert_card_block(&th.client, &board.id, json!({"properties": properties})).await;
-        expected += 1;
-
-        let listed = cards_of(&th.client, &board.id, "").await;
-        assert_eq!(listed.len(), expected, "the list is read: {properties}");
-        let card = listed
-            .iter()
-            .find(|card| card.id == block.id)
-            .expect("the malformed card is in the list");
-        assert!(
-            card.properties.is_empty(),
-            "without properties: {properties}"
-        );
-        let kept = listed
-            .iter()
-            .find(|card| card.id == fine.id)
-            .expect("the well-formed card is in the list");
-        assert_eq!(kept.properties, fine.properties, "other cards keep theirs");
-
-        let alone: Card = th.client.get(&card_path(&block.id)).await.ok_json();
-        assert!(alone.properties.is_empty(), "alone too: {properties}");
-
-        // The stored block is not changed by reading it.
-        let stored = th.app.block(&block.id).await.expect("the block is stored");
-        assert_eq!(
-            stored.fields.get("properties"),
-            Some(&properties),
-            "the block keeps what was written"
-        );
-    }
-
-    th.teardown().await;
-}
-
 // -- GET /cards/{card_id} -----------------------------------------------------------------
 
 /// Reading one card takes the permission to view the board, like the board's list of
@@ -1366,7 +1313,7 @@ async fn patch_card_changes() {
             "contentOrder": ["a", "b"],
             "icon": "😱",
             "isTemplate": true,
-            "properties": {"p": "v", "q": [1, 2]},
+            "properties": {"p": "v", "q": ["1", "2"]},
         }),
     )
     .await;

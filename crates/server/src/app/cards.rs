@@ -165,10 +165,10 @@ impl App {
 
 /// Builds the card view of a stored block.
 ///
-/// Nothing checks what is written to a card block's `properties`, so a stored card may
-/// hold something else than an object there. The original then fails to read that card,
-/// and with it the whole card list of its board. Here such a card is given out with no
-/// properties, and a warning is logged.
+/// A block cannot be stored with `properties` that are no object any more, but a block
+/// written straight to the database may still hold something else there. The original
+/// fails to read such a card, and with it the whole card list of its board. Here the
+/// card is given out with no properties, and a warning is logged.
 fn card_from_stored_block(block: &Block, now: i64) -> Result<Card, CardError> {
     match block.fields.get("properties") {
         None | Some(Value::Object(_)) => Card::from_block(block, now),
@@ -191,6 +191,47 @@ mod tests {
 
     fn page(page: u32, per_page: u32) -> CardRange {
         CardRange::Page(Paging { page, per_page })
+    }
+
+    /// The API and the store refuse to write such a block, so this is the one place
+    /// that can still show what reading one does.
+    #[test]
+    fn a_stored_card_whose_properties_are_no_object_is_read_without_properties() {
+        use serde_json::json;
+
+        let card_block = |properties: Value| {
+            let mut block = Block {
+                id: "c-card".to_owned(),
+                board_id: "b-board".to_owned(),
+                block_type: fvoci_model::BlockType::Card,
+                title: "a card".to_owned(),
+                create_at: 1,
+                update_at: 1,
+                ..Block::default()
+            };
+            block.fields.insert("properties".to_owned(), properties);
+            block.fields.insert("icon".to_owned(), json!("x"));
+            block
+        };
+
+        let fine = card_from_stored_block(&card_block(json!({"p1": "v1"})), 5)
+            .expect("a well-formed card is read");
+        assert_eq!(
+            fine.properties.get("p1"),
+            Some(&json!("v1")),
+            "a well-formed card keeps its properties"
+        );
+
+        for properties in [json!("a string"), json!([1, 2]), json!(42), json!(null)] {
+            let card = card_from_stored_block(&card_block(properties.clone()), 5)
+                .expect("the malformed card is read all the same");
+            assert!(
+                card.properties.is_empty(),
+                "without properties: {properties}"
+            );
+            assert_eq!(card.title, "a card", "the rest of the card: {properties}");
+            assert_eq!(card.icon, "x", "the rest of the card: {properties}");
+        }
     }
 
     #[test]

@@ -15,6 +15,7 @@ mod content_blocks;
 mod export;
 mod files;
 mod onboarding;
+mod properties;
 mod search;
 mod sharing;
 mod sidebar;

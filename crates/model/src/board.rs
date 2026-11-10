@@ -8,6 +8,7 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::card_property::{CardPropertyError, validate_card_property_definitions};
 use crate::serde_util::null_as_default;
 
 /// Who may see and join a board.
@@ -67,11 +68,14 @@ impl BoardRole {
 }
 
 /// Reasons a [`Board`] is rejected before it is stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BoardError {
     /// The board names no team.
     #[error("empty-team-id")]
     EmptyTeamId,
+    /// A card property definition of the board is malformed.
+    #[error(transparent)]
+    InvalidCardProperty(#[from] CardPropertyError),
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
@@ -157,12 +161,24 @@ impl Board {
     ///
     /// # Errors
     ///
-    /// Returns [`BoardError::EmptyTeamId`] if the board names no team.
+    /// Returns [`BoardError::EmptyTeamId`] if the board names no team, or
+    /// [`BoardError::InvalidCardProperty`] if a card property definition is malformed.
     pub fn validate(&self) -> Result<(), BoardError> {
         if self.team_id.is_empty() {
             return Err(BoardError::EmptyTeamId);
         }
+        self.validate_card_properties()?;
         Ok(())
+    }
+
+    /// Checks the card property definitions of the board alone, for where a board is
+    /// stored that came no way that checks the rest.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of [`validate_card_property_definitions`].
+    pub fn validate_card_properties(&self) -> Result<(), CardPropertyError> {
+        validate_card_property_definitions(&self.card_properties)
     }
 }
 
@@ -206,6 +222,16 @@ pub struct BoardPatch {
 }
 
 impl BoardPatch {
+    /// Checks the card property definitions the patch sets. Applying the patch would
+    /// drop a definition without an `id` silently; a client that sends one is told.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of [`validate_card_property_definitions`].
+    pub fn validate(&self) -> Result<(), CardPropertyError> {
+        validate_card_property_definitions(&self.updated_card_properties)
+    }
+
     /// Applies the patch to `board`.
     ///
     /// Card properties keep their existing order; replaced definitions stay in place and

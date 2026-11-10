@@ -18,7 +18,7 @@ async fn export_board(client: &Client, board_id: &str) -> ApiResponse {
 }
 
 /// Imports archive bytes into a team.
-async fn import(client: &Client, team_id: &str, bytes: &[u8]) -> ApiResponse {
+pub(crate) async fn import(client: &Client, team_id: &str, bytes: &[u8]) -> ApiResponse {
     let part = Part::bytes(bytes.to_vec()).file_name("archive.boardarchive".to_owned());
     let form = Form::new().part("file", part);
     let request = client

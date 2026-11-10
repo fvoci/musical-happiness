@@ -147,9 +147,9 @@ fn assert_not_found(error: &StoreError) {
 
 /// `require.ErrorIs(t, err, <a block validation error>)`.
 #[track_caller]
-fn assert_invalid_block(error: &StoreError, expected: BlockError) {
+fn assert_invalid_block(error: &StoreError, expected: &BlockError) {
     assert!(
-        matches!(error, StoreError::InvalidBlock { source, .. } if *source == expected),
+        matches!(error, StoreError::InvalidBlock { source, .. } if source == expected),
         "expected the validation error {expected:?}, got {error:?}"
     );
 }
@@ -304,7 +304,7 @@ async fn insert_block() {
         .insert_block(&mut without_board, "user-id-1")
         .await
         .expect_err("a block without a board is rejected");
-    assert_invalid_block(&error, BlockError::EmptyBoardId);
+    assert_invalid_block(&error, &BlockError::EmptyBoardId);
     let blocks = board_blocks(store, board_id).await;
     assert_eq!(
         blocks.len(),
@@ -326,7 +326,7 @@ async fn insert_block() {
         .insert_block(&mut long_title, "user-id-1")
         .await
         .expect_err("a title over the limit is rejected");
-    assert_invalid_block(&error, BlockError::TitleSizeLimitExceeded);
+    assert_invalid_block(&error, &BlockError::TitleSizeLimitExceeded);
 
     // "block with aggregated fields size too large"
     let mut large_fields = Block {
@@ -337,7 +337,7 @@ async fn insert_block() {
         .insert_block(&mut large_fields, "user-id-2")
         .await
         .expect_err("fields over the limit are rejected");
-    assert_invalid_block(&error, BlockError::FieldsSizeLimitExceeded);
+    assert_invalid_block(&error, &BlockError::FieldsSizeLimitExceeded);
 
     // "insert new block"
     let mut new_block = block("", TEST_BOARD_ID);
@@ -403,7 +403,7 @@ async fn insert_block() {
         .insert_block(&mut long_title, "user-id-3")
         .await
         .expect_err("an update with a title over the limit is rejected");
-    assert_invalid_block(&error, BlockError::TitleSizeLimitExceeded);
+    assert_invalid_block(&error, &BlockError::TitleSizeLimitExceeded);
 
     // "update existing block with aggregated fields size too large"
     let mut existing = Block {
@@ -429,7 +429,7 @@ async fn insert_block() {
         .insert_block(&mut large_fields, "user-id-3")
         .await
         .expect_err("an update with fields over the limit is rejected");
-    assert_invalid_block(&error, BlockError::FieldsSizeLimitExceeded);
+    assert_invalid_block(&error, &BlockError::FieldsSizeLimitExceeded);
 
     // "data tamper attempt"
     // `01 Jan 90 01:00` and `02 Jan 90 01:00`; the original parses them with a zone
@@ -480,7 +480,7 @@ async fn insert_blocks() {
         .insert_blocks(&mut new_blocks, "user-id-1")
         .await
         .expect_err("a batch with an invalid block is rejected");
-    assert_invalid_block(&error, BlockError::EmptyBoardId);
+    assert_invalid_block(&error, &BlockError::EmptyBoardId);
 
     let blocks = board_blocks(store, "id-test").await;
     assert_eq!(
@@ -2395,6 +2395,72 @@ async fn sqlite_fields_stored_as_a_blob_are_read() {
         restored.fields, card.fields,
         "the fields survive a delete and an undelete"
     );
+
+    test.teardown().await;
+}
+
+/// Not in the original: a block is not stored with `properties` that are no well-formed
+/// card property values, whether it is inserted or patched, and the stored block stays
+/// as it was.
+#[tokio::test]
+async fn blocks_with_malformed_properties_are_not_stored() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let block = |id: &str, properties: Value| {
+        let mut block = Block {
+            id: id.to_owned(),
+            board_id: TEST_BOARD_ID.to_owned(),
+            block_type: BlockType::Card,
+            ..Block::default()
+        };
+        block.fields.insert("properties".to_owned(), properties);
+        block
+    };
+
+    for (id, properties) in [
+        ("a-number", json!({"p1": 3})),
+        ("an-object", json!({"p1": {"nested": true}})),
+        ("a-string", json!("no object")),
+    ] {
+        let error = store
+            .insert_block(&mut block(id, properties.clone()), TEST_USER_ID)
+            .await
+            .expect_err("malformed properties");
+        assert!(
+            matches!(
+                error,
+                StoreError::InvalidBlock {
+                    source: BlockError::InvalidCardProperties(_),
+                    ..
+                }
+            ),
+            "properties {properties}: got {error:?}"
+        );
+        assert!(
+            store.get_block(id).await.unwrap_err().is_not_found(),
+            "{id}: nothing was stored"
+        );
+    }
+
+    let well_formed = json!({"p1": "open", "p2": ["a", "b"], "p3": null});
+    store
+        .insert_block(&mut block("fine", well_formed.clone()), TEST_USER_ID)
+        .await
+        .expect("well-formed properties are stored");
+    let mut updated_fields = fvoci_model::JsonMap::new();
+    updated_fields.insert("properties".to_owned(), json!({"p1": 3}));
+    let patch = BlockPatch {
+        title: Some("renamed".to_owned()),
+        updated_fields,
+        ..BlockPatch::default()
+    };
+    store
+        .patch_block("fine", &patch, TEST_USER_ID)
+        .await
+        .expect_err("a patch to malformed properties");
+    let stored = store.get_block("fine").await.unwrap();
+    assert_eq!(stored.fields["properties"], well_formed, "unchanged");
+    assert_eq!(stored.title, "", "and so is the rest of the block");
 
     test.teardown().await;
 }

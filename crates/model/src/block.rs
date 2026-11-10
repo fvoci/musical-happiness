@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::JsonMap;
+use crate::card_property::{CardPropertyError, validate_block_properties};
 use crate::id::IdKind;
 use crate::serde_util::null_as_default;
 use crate::user::SINGLE_USER_ID;
@@ -153,7 +154,7 @@ impl FromStr for BlockType {
 }
 
 /// Reasons a [`Block`] is rejected before it is stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BlockError {
     /// The block names no board.
     #[error("boardID is empty")]
@@ -164,6 +165,9 @@ pub enum BlockError {
     /// The serialized fields are longer than [`BLOCK_FIELDS_MAX_CHARS`].
     #[error("block fields size limit exceeded")]
     FieldsSizeLimitExceeded,
+    /// The `properties` among the fields are not well-formed card property values.
+    #[error(transparent)]
+    InvalidCardProperties(#[from] CardPropertyError),
 }
 
 /// The basic data unit of a board.
@@ -214,8 +218,10 @@ impl Block {
     ///
     /// # Errors
     ///
-    /// Returns a [`BlockError`] if the board identifier is empty, or the title or the
-    /// serialized fields exceed their size limits.
+    /// Returns a [`BlockError`] if the board identifier is empty, the title or the
+    /// serialized fields exceed their size limits, or the fields hold `properties` that
+    /// are not well-formed card property values. The last applies to blocks of every
+    /// type: `properties` among a block's fields always means card property values.
     pub fn validate(&self) -> Result<(), BlockError> {
         if self.board_id.is_empty() {
             return Err(BlockError::EmptyBoardId);
@@ -226,9 +232,11 @@ impl Block {
         // Serializing a map with string keys cannot fail; if it ever did, the fields would
         // not be storable either.
         match serde_json::to_string(&self.fields) {
-            Ok(fields_json) if fields_json.chars().count() <= BLOCK_FIELDS_MAX_CHARS => Ok(()),
-            _ => Err(BlockError::FieldsSizeLimitExceeded),
+            Ok(fields_json) if fields_json.chars().count() <= BLOCK_FIELDS_MAX_CHARS => {}
+            _ => return Err(BlockError::FieldsSizeLimitExceeded),
         }
+        validate_block_properties(&self.fields)?;
+        Ok(())
     }
 }
 
