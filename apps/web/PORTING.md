@@ -514,7 +514,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 - **모바일 안의 결정 36건**은 `docs/mobile-proposal.md`의 "결정" 절에 답마다 "바꾸려면 어디를"과 함께 있다. 권고와 다르게 만든 곳은 그 표에 굵게 적었다: 모바일 안의 Q16의 "보이는 열에 만들기"(만들지 않았다), Q22의 표의 "열기", Q24의 터치 드래그 범위, Q34의 단계가 바뀔 때. 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동)도 그때 정해졌고, 설정은 `src/lib/logic/display.ts`와 설정 대화상자에 있다.
 - **스스로 정한 것**은 `docs/decisions.md` 한 곳에 있다: 맨 앞의 번호 매긴 항목 58개, 화면별 절 일곱(틀, 뷰 머리글, 칸반과 갤러리, 테이블, 카드 상세, 편집기, 빌드), 검토에서 나온 것과 그 처리.
 - **서버에 대해 가정한 것과 물을 것**은 `docs/contract-assumptions.md`에 있다. 서버 쪽에 그대로 넘기는 문서다. 본문의 허용 목록이 판 2가 된 것(수식 노드 둘)이 그 4절이다.
-- **화면의 그림**은 `docs/screens/<화면>/`에 있다. 조립된 앱에서 세 단계(좁음·중간·넓음), 밝음과 어두움으로 찍었다. 다시 찍으면 커밋하지 않는 `target/screens/<화면>/`(저장소의 맨 위, `e2e/screens.ts`)에 생긴다. 문서의 그림을 바꾸려면 거기서 옮긴다. 다시 찍는 명령: `FVOCI_SCREENS=1 pnpm exec playwright test e2e/<화면>.spec.ts -g "pictures|screens|screenshots"`(`apps/web`에서, `build` 뒤에). 다음부터는 커밋하지 않는 폴더에 찍기로 정해졌다(`docs/handoff.md`).
+- **화면의 그림**은 `docs/screens/<화면>/`에 있다. 조립된 앱에서 세 단계(좁음·중간·넓음), 밝음과 어두움으로 찍었다. 다시 찍으면 커밋하지 않는 `target/screens/<화면>/`(저장소의 맨 위, `e2e/screens.ts`)에 생긴다. 문서의 그림을 바꾸려면 거기서 옮긴다. 다시 찍는 명령: `FVOCI_SCREENS=1 pnpm exec playwright test e2e/<화면>.spec.ts -g "pictures|screens|screenshots"`(`apps/web`에서, `build` 뒤에).
 - **만들지 않은 것**(범위 밖으로 정해진 것): 서버를 실제로 부르는 구현, 로그인·가입 화면의 서버 연결, 캘린더 뷰의 구현, 공유 대화상자, 템플릿 선택기, 아카이브 가져오기·내보내기, 온보딩 투어.
 
 조립된 앱을 띄워 보는 법은 `docs/handoff.md`의 "화면을 띄우는 법과 포트"에 있다.
@@ -605,7 +605,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
   - 질문 8개.
 - 이 크기들은 어림값이고 실제 기기에서 확인하지 않았다.
 - 한가운데 세로선 점검의 결과로, 카드 상세의 넓은 화면 권고(가운데 대화상자)를 거두고 질문으로 돌렸다(모바일 안의 Q8). 가운데 대화상자는 속성 값과 댓글 입력 칸이 모두 접히는 자리(가정)에 온다. 그 뒤의 결정은 A(가운데 대화상자)다. 접히는 자리에 걸리는 것(모바일 안의 Q35)은 받아들이고, 실제 기기에서 본 뒤 다시 정하기로 했다.
-- 그림을 다시 찍는 명령: `FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop`. 약 1분 25초가 걸리고, 평소의 `spikes:e2e`에서는 건너뛴다. 같은 입력이면 같은 바이트가 나온다.
+- 그림을 다시 찍는 명령: `FVOCI_MOBILE_SHOTS=1 pnpm --filter web run spikes:e2e shots --project desktop`. 그림은 커밋하지 않는 `target/screens/spikes/mobile/`에 생긴다. 약 1분 25초가 걸리고, 평소의 `spikes:e2e`에서는 건너뛴다. 같은 입력이면 같은 바이트가 나온다.
 
 ### 본문 읽기 전용 표시기
 

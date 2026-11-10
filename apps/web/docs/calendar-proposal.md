@@ -39,7 +39,7 @@ pnpm --filter web run spikes        # 개발 서버. 포트를 바꾸려면 뒤�
 FVOCI_CALENDAR_SHOTS=1 pnpm --filter web run spikes:e2e calendar/shots --project desktop
 ```
 
-- `spikes/calendar/shots.spec.ts`가 PNG 61장을 쓴다. 이 문서의 그림은 `docs/calendar/`에 있고, 다시 찍으면 커밋하지 않는 `target/screens/spikes/calendar/`(저장소의 맨 위)에 생긴다(2026-11-11부터)(1분 20초에서 2분. 기기가 바쁘면 더 걸린다). 환경 변수가 없으면 건너뛴다. 포트가 겹치면 앞에 `FVOCI_SPIKES_PORT=<번호>`를 붙인다. 같은 명령이 끝에 "한가운데 세로선에 무엇이 오는가"를 화면·안마다 한 줄씩 찍어 낸다.
+- `spikes/calendar/shots.spec.ts`가 PNG 61장을 쓴다(1분 20초에서 2분. 기기가 바쁘면 더 걸린다). 이 문서의 그림은 `docs/calendar/`에 있고, 2026-11-11부터 다시 찍으면 커밋하지 않는 `target/screens/spikes/calendar/`(저장소의 맨 위)에 생긴다. 환경 변수가 없으면 건너뛴다. 포트가 겹치면 앞에 `FVOCI_SPIKES_PORT=<번호>`를 붙인다. 같은 명령이 끝에 "한가운데 세로선에 무엇이 오는가"를 화면·안마다 한 줄씩 찍어 낸다.
 - 360, 626, 820, 890은 터치 기기 설정(`hasTouch`, `isMobile`, 기기 픽셀 비율 2), 1280×800은 데스크톱(마우스)이다.
 - 브라우저의 시계도 같은 순간으로 고정하고(생성된 날짜 선택기가 브라우저에 "오늘"을 묻는다), 애니메이션과 전환을 끈 페이지에서, 한글 글꼴이 실린 뒤에 찍는다. 그림이 찍을 때마다 같은지는 아래 "그림"에 적었다.
 
