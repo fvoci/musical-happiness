@@ -189,9 +189,10 @@ impl Server {
     /// Serves connections from `listener` until `shutdown` completes, then waits for
     /// notifications in flight and closes the database.
     ///
-    /// Connections are served over TLS if the configuration has `usessl`. While serving, the administration socket is open
-    /// if the configuration has `enablelocalmode`, and sessions that are no longer used
-    /// are deleted every ten minutes.
+    /// Connections are served over TLS if the configuration has `usessl`. While serving,
+    /// the administration socket is open if the configuration has `enablelocalmode`,
+    /// and once at the start and then every hour the sessions that have ended are
+    /// deleted and the trash is purged of what has been in it for too long.
     ///
     /// # Errors
     ///
@@ -357,44 +358,69 @@ async fn send_no_referrer(request: Request, next: middleware::Next) -> Response 
     response
 }
 
-/// Starts the task that deletes the sessions that have ended: unused for the idle limit,
-/// or past their absolute limit. The first run is one interval after the start.
-fn start_session_clean_up(app: &App) -> RecurringTask {
-    let store = app.store().clone();
-    let idle_millis = app.config().session_idle_millis();
-    RecurringTask::spawn("cleanUpSessions", CLEAN_UP_SESSIONS_INTERVAL, move || {
-        let store = store.clone();
-        async move {
-            let now = auth::now_millis();
-            match store
-                .clean_up_sessions(now, now.saturating_sub(idle_millis))
-                .await
-            {
-                Ok(0) => {}
-                Ok(ended) => tracing::debug!(ended, "removed sessions that had ended"),
-                Err(error) => tracing::error!(%error, "unable to clean up the sessions"),
+/// Deletes the sessions that have ended: unused for the idle limit, or past their
+/// absolute limit. What such a session still has open is closed.
+async fn clean_up_sessions(app: &App) {
+    let now = auth::now_millis();
+    let idle_since = now.saturating_sub(app.config().session_idle_millis());
+    match app.store().clean_up_sessions(now, idle_since).await {
+        Ok(ended) => {
+            for session_id in &ended {
+                app.ws().close_session(session_id);
+            }
+            if !ended.is_empty() {
+                tracing::debug!(ended = ended.len(), "removed sessions that had ended");
             }
         }
+        Err(error) => tracing::error!(%error, "unable to clean up the sessions"),
+    }
+}
+
+/// Removes for good what has been in the trash for longer than `trash_retention_days`,
+/// and the files of the boards that go: nothing says where they are afterwards.
+async fn purge_trash(app: &App) {
+    let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
+    let purged = match app.store().purge_trash(deleted_before).await {
+        Ok(purged) => purged,
+        Err(error) => {
+            tracing::error!(%error, "unable to purge the trash");
+            return;
+        }
+    };
+    let mut files_left = 0_usize;
+    for file in &purged.files {
+        if let Err(error) = app.files().delete(&file.path).await {
+            files_left += 1;
+            tracing::warn!(%error, "a file of a purged board could not be removed");
+        }
+    }
+    if purged.records > 0 || !purged.files.is_empty() {
+        tracing::info!(
+            records = purged.records,
+            files = purged.files.len(),
+            files_left,
+            "removed old boards and blocks from the trash"
+        );
+    }
+}
+
+/// Starts the task that deletes the sessions that have ended. It runs once at the
+/// start, so that a server that is restarted often still gets to it, and then every
+/// interval.
+fn start_session_clean_up(app: &App) -> RecurringTask {
+    let app = app.clone();
+    RecurringTask::spawn_starting_now("cleanUpSessions", CLEAN_UP_SESSIONS_INTERVAL, move || {
+        let app = app.clone();
+        async move { clean_up_sessions(&app).await }
     })
 }
 
-/// Starts the task that removes for good what has been in the trash for longer than
-/// `trash_retention_days`. The first run is one interval after the start.
+/// Starts the task that purges the trash, as [`start_session_clean_up`] does.
 fn start_trash_purge(app: &App) -> RecurringTask {
-    let store = app.store().clone();
-    let retention_millis = app.config().trash_retention_millis();
-    RecurringTask::spawn("purgeTrash", PURGE_TRASH_INTERVAL, move || {
-        let store = store.clone();
-        async move {
-            let deleted_before = auth::now_millis().saturating_sub(retention_millis);
-            match store.purge_trash(deleted_before).await {
-                Ok(0) => {}
-                Ok(purged) => {
-                    tracing::info!(purged, "removed old boards and blocks from the trash");
-                }
-                Err(error) => tracing::error!(%error, "unable to purge the trash"),
-            }
-        }
+    let app = app.clone();
+    RecurringTask::spawn_starting_now("purgeTrash", PURGE_TRASH_INTERVAL, move || {
+        let app = app.clone();
+        async move { purge_trash(&app).await }
     })
 }
 

@@ -127,21 +127,22 @@ impl Authenticator {
     ///
     /// # Errors
     ///
-    /// Returns an error if the board has a sharing record but public sharing is turned
-    /// off in the configuration, or if the lookup fails.
+    /// Returns the store's error if the lookup fails.
     pub async fn is_valid_read_token(
         &self,
         board_id: &str,
         read_token: &str,
     ) -> Result<bool, AppError> {
+        // With sharing turned off in the configuration no read token opens anything,
+        // whatever is stored: an everyday "no", and nothing for the log.
+        if !self.public_shared_boards {
+            return Ok(false);
+        }
         let sharing = match self.store.get_sharing(board_id).await {
             Ok(sharing) => sharing,
             Err(error) if error.is_not_found() => return Ok(false),
             Err(error) => return Err(error.into()),
         };
-        if !self.public_shared_boards {
-            return Err(AppError::internal("public shared boards disabled"));
-        }
         // A board that is not shared has no token; nothing matches that, not even
         // nothing.
         Ok(

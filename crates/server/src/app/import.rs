@@ -302,40 +302,41 @@ impl App {
     }
 }
 
-/// Removes the blocks whose parent is neither a block nor a board of the archive, and
-/// the blocks below them, and returns how many went.
+/// Removes the blocks that nothing in the archive leads to, and returns how many went:
+/// those whose parent is neither a block nor a board of the archive, the blocks below
+/// them, and blocks that are each other's parents without any of them being on a board.
 ///
 /// Such a block belongs to nothing that is imported: no card lists it, and its parent
 /// would be a reference to something outside the import.
+///
+/// One walk down from the blocks that are directly on a board; the time it takes grows
+/// with the number of blocks and not with how deep they are nested.
 fn drop_orphans(boards_and_blocks: &mut BoardsAndBlocks) -> usize {
-    let before = boards_and_blocks.blocks.len();
-    loop {
-        let known: HashSet<&str> = boards_and_blocks
-            .boards
-            .iter()
-            .map(|board| board.id.as_str())
-            .chain(
-                boards_and_blocks
-                    .blocks
-                    .iter()
-                    .map(|block| block.id.as_str()),
-            )
-            .collect();
-        let orphans: HashSet<String> = boards_and_blocks
-            .blocks
-            .iter()
-            .filter(|block| {
-                !block.parent_id.is_empty() && !known.contains(block.parent_id.as_str())
-            })
-            .map(|block| block.id.clone())
-            .collect();
-        if orphans.is_empty() {
-            return before - boards_and_blocks.blocks.len();
+    let BoardsAndBlocks { boards, blocks } = boards_and_blocks;
+    let board_ids: HashSet<&str> = boards.iter().map(|board| board.id.as_str()).collect();
+    let mut below: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut reached: Vec<usize> = Vec::new();
+    for (index, block) in blocks.iter().enumerate() {
+        if block.parent_id.is_empty() || board_ids.contains(block.parent_id.as_str()) {
+            reached.push(index);
+        } else {
+            below
+                .entry(block.parent_id.as_str())
+                .or_default()
+                .push(index);
         }
-        boards_and_blocks
-            .blocks
-            .retain(|block| !orphans.contains(&block.id));
     }
+    let mut keep = vec![false; blocks.len()];
+    while let Some(index) = reached.pop() {
+        if !std::mem::replace(&mut keep[index], true) {
+            reached.extend(below.get(blocks[index].id.as_str()).into_iter().flatten());
+        }
+    }
+
+    let before = blocks.len();
+    let mut kept = keep.into_iter();
+    blocks.retain(|_| kept.next().unwrap_or(false));
+    before - blocks.len()
 }
 
 /// Parses a board's `board.jsonl` into its boards, blocks and members, with fresh
@@ -655,6 +656,73 @@ fn with_a_minimum_role(mut board: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn block(id: &str, parent_id: &str) -> Block {
+        Block {
+            id: id.to_owned(),
+            parent_id: parent_id.to_owned(),
+            ..Block::default()
+        }
+    }
+
+    fn ids_after_dropping(blocks: Vec<Block>) -> (Vec<String>, usize) {
+        let mut archive = BoardsAndBlocks {
+            boards: vec![Board {
+                id: "board".to_owned(),
+                ..Board::default()
+            }],
+            blocks,
+        };
+        let dropped = drop_orphans(&mut archive);
+        let ids = archive.blocks.into_iter().map(|block| block.id).collect();
+        (ids, dropped)
+    }
+
+    #[test]
+    fn blocks_that_nothing_leads_to_are_dropped_with_what_is_below_them() {
+        let (kept, dropped) = ids_after_dropping(vec![
+            block("text", "card"),
+            block("card", "board"),
+            block("view", ""),
+            block("lost", "gone"),
+            block("below-lost", "lost"),
+            block("deeper", "below-lost"),
+            block("ring-a", "ring-b"),
+            block("ring-b", "ring-a"),
+            block("own", "own"),
+            block("reply", "text"),
+        ]);
+        assert_eq!(
+            kept,
+            ["text", "card", "view", "reply"],
+            "what a board leads to stays, in the order it came"
+        );
+        assert_eq!(
+            dropped, 6,
+            "the lost ones, and the rings that hang off nothing"
+        );
+    }
+
+    /// A chain as long as an archive may be: the walk is one pass, where taking the
+    /// orphans away level by level took one pass per level.
+    #[test]
+    fn a_long_chain_of_orphans_is_dropped_in_one_walk() {
+        let length = 200_000;
+        let mut blocks = vec![block("0", "missing")];
+        blocks.extend((1..length).map(|index| block(&index.to_string(), &(index - 1).to_string())));
+        blocks.push(block("card", "board"));
+
+        let started = std::time::Instant::now();
+        let (kept, dropped) = ids_after_dropping(blocks);
+
+        assert_eq!(kept, ["card"]);
+        assert_eq!(dropped, length);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn clean_dir_resolves_dot_segments() {

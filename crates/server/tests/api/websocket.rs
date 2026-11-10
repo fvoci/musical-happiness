@@ -473,3 +473,169 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
     assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
     th.teardown().await;
 }
+
+/// A board, a card on it, and the read token the board is shared under.
+async fn shared_board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block, String) {
+    let mut board = Board {
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        ..Board::default()
+    };
+    th.app
+        .store()
+        .insert_board_with_admin(&mut board, user_id)
+        .await
+        .expect("the board is stored");
+    let mut block = Block {
+        id: new_id(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Card,
+        ..Block::default()
+    };
+    th.app
+        .store()
+        .insert_block(&mut block, user_id)
+        .await
+        .expect("the block is stored");
+    let token = th.share(&board.id).await;
+    (board, block, token)
+}
+
+/// Subscribes a connection without a session to a block with a read token and waits
+/// until a change of the block comes through; returns that message.
+async fn follow_block(th: &TestServer, block: &Block, read_token: &str) -> (Socket, Value) {
+    let mut reader = Socket::connect(th).await;
+    reader
+        .send(json!({
+            "action": "SUBSCRIBE_BLOCKS",
+            "teamId": ROOT_TEAM_ID,
+            "readToken": read_token,
+            "blockIds": [block.id],
+        }))
+        .await;
+    for _ in 0..50 {
+        th.app
+            .ws()
+            .broadcast_block_change(ROOT_TEAM_ID, block)
+            .await;
+        if let Some(message) = reader.next_json(Duration::from_millis(100)).await {
+            // Later broadcasts may still be queued; let them drain.
+            while reader.next_json(Duration::from_millis(150)).await.is_some() {}
+            return (reader, message);
+        }
+    }
+    panic!("the reader was never told about the block");
+}
+
+/// Whoever follows a board by its read token alone is not told who made or changed a
+/// block, over the websocket as over HTTP. A member is.
+#[tokio::test]
+async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let (_board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    assert_eq!(block.created_by, user1.id, "the block has an author");
+
+    let (_reader, message) = follow_block(&th, &block, &token).await;
+    assert_eq!(message["block"]["id"], json!(block.id), "{message}");
+    assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
+    assert_eq!(message["block"]["modifiedBy"], json!(""), "{message}");
+
+    let mut member = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut member, ROOT_TEAM_ID, &user1.id).await;
+    th.app
+        .ws()
+        .broadcast_block_change(ROOT_TEAM_ID, &block)
+        .await;
+    let message = member
+        .next_json(PATIENCE)
+        .await
+        .expect("the member is told");
+    assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
+
+    th.teardown().await;
+}
+
+/// A read token that stops opening its board stops feeding connections: turning
+/// sharing off, sharing under a new token and deleting the board each end the
+/// connections that followed the board with the old link.
+#[tokio::test]
+async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connection() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let sharing = |board_id: &str| format!("/boards/{board_id}/sharing");
+
+    // Sharing turned off.
+    let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (mut reader, _) = follow_block(&th, &block, &token).await;
+    // Sharing what is shared changes nothing for who follows it.
+    th.client
+        .post(&sharing(&board.id), &json!({"enabled": true}))
+        .await
+        .check_ok();
+    assert_eq!(reader.next(QUIET).await, Event::Nothing, "still connected");
+    th.client
+        .post(&sharing(&board.id), &json!({"enabled": false}))
+        .await
+        .check_ok();
+    assert_eq!(reader.next(PATIENCE).await, Event::Closed, "sharing off");
+
+    // A new token: the old link is dead, the new one is followed.
+    let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (mut reader, _) = follow_block(&th, &block, &token).await;
+    let renewed = th
+        .client
+        .post(
+            &sharing(&board.id),
+            &json!({"enabled": true, "regenerate": true}),
+        )
+        .await
+        .value()["token"]
+        .as_str()
+        .expect("the new token is answered")
+        .to_owned();
+    assert_eq!(reader.next(PATIENCE).await, Event::Closed, "a new token");
+    let (mut with_new_link, _) = follow_block(&th, &block, &renewed).await;
+
+    // The board deleted: its sharing went with it.
+    th.client
+        .delete(&format!("/boards/{}", board.id))
+        .await
+        .check_ok();
+    assert_eq!(
+        with_new_link.next(PATIENCE).await,
+        Event::Closed,
+        "the board is gone"
+    );
+
+    th.teardown().await;
+}
+
+/// A session that ends takes its websocket connections with it: logging out closes the
+/// connection of that session and leaves the user's other session connected.
+#[tokio::test]
+async fn logging_out_closes_the_websocket_connections_of_that_session() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let elsewhere = th
+        .login(crate::common::USER1_USERNAME, crate::common::PASSWORD)
+        .await;
+    let mut here = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut here, ROOT_TEAM_ID, &user1.id).await;
+    let mut there = Socket::connect_as(&elsewhere).await;
+
+    th.client.post_empty("/logout").await.check_ok();
+
+    assert_eq!(
+        here.next(PATIENCE).await,
+        Event::Closed,
+        "the session ended"
+    );
+    assert_eq!(
+        there.next(QUIET).await,
+        Event::Nothing,
+        "the user's other session stays connected"
+    );
+    th.teardown().await;
+}

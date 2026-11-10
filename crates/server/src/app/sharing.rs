@@ -43,7 +43,14 @@ impl App {
             .set_sharing(board_id, change, &new_secret(), user_id)
             .await
         {
-            Ok(sharing) => Ok(sharing),
+            Ok(sharing) => {
+                // A token that no longer opens the board no longer feeds a connection:
+                // whoever followed the board's blocks with the old link is cut off.
+                if change != SharingChange::On {
+                    self.ws().close_readers_of_board(board_id);
+                }
+                Ok(sharing)
+            }
             Err(error) if error.is_not_found() => Err(AppError::not_found("board")),
             Err(error) => Err(error.into()),
         }

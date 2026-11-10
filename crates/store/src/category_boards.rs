@@ -48,8 +48,9 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the statement fails; nothing is written in
-    /// that case.
+    /// Returns [`StoreError::NotFound`] if the category, a board or the user does not
+    /// exist, and [`StoreError::InvalidId`] for text that is no identifier; nothing is
+    /// written in either case.
     pub async fn add_update_category_board(
         &self,
         user_id: &str,
@@ -207,6 +208,9 @@ pub(crate) async fn add_update_category_board(
         " ON CONFLICT (user_id, board_id) DO UPDATE SET category_id = EXCLUDED.category_id, \
          update_at = EXCLUDED.update_at",
     );
-    scope.execute(sql).await?;
+    scope
+        .execute(sql)
+        .await
+        .map_err(|error| error.missing_reference("category, board or user"))?;
     Ok(())
 }

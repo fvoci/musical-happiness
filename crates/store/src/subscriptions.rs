@@ -242,7 +242,10 @@ pub(crate) async fn create_subscription(
             ") ON CONFLICT (block_id, subscriber_id) DO UPDATE SET \
              notified_at = EXCLUDED.notified_at",
         );
-    scope.execute(sql).await?;
+    scope
+        .execute(sql)
+        .await
+        .map_err(|error| error.missing_reference("block or subscriber"))?;
 
     let mut sql = select_subscriptions(scope);
     sql.push_bind(" AND block_id = ", Id(&subscription.block_id))

@@ -1,8 +1,11 @@
 //! Sessions: found by the digest of their token, ended by disuse, by their end time, and
 //! with the password they were opened under.
 
+use std::sync::Arc;
+
 use fvoci_model::{Session, new_id};
 use fvoci_store::{Store, StoreError};
+use tokio::sync::Barrier;
 
 use crate::common;
 
@@ -20,6 +23,22 @@ fn session_of(user_id: &str) -> Session {
         expires_at: T0 + 1000,
         user_agent: "a browser".to_owned(),
     }
+}
+
+/// The password hash of a user made by [`common::user`]: none.
+const NO_HASH: &str = "";
+
+/// Stores the session under the digest, for a user whose password hash is still
+/// [`NO_HASH`].
+async fn open(store: &Store, session: &Session, digest: &str) {
+    let stored = store
+        .create_session(session, digest, NO_HASH)
+        .await
+        .expect("the session is stored");
+    assert!(
+        stored,
+        "{digest}: the password hash is the one seen, so the session is stored"
+    );
 }
 
 /// Whether the store has a valid session under the digest at `now`, counting as idle
@@ -41,10 +60,7 @@ async fn create_and_get_and_delete_session() {
 
     // "CreateAndGetSession"
     let session = session_of(&user_id);
-    store
-        .create_session(&session, "digest")
-        .await
-        .expect("the session is stored");
+    open(store, &session, "digest").await;
     let got = store
         .get_session("digest", T0 + 1, T0 - 1)
         .await
@@ -88,27 +104,18 @@ async fn a_session_is_found_by_its_digest_and_two_cannot_share_one() {
     let store = &test.store;
     let user_id = common::user(store, "user").await;
 
-    store
-        .create_session(&session_of(&user_id), "digest-one")
-        .await
-        .expect("the first session is stored");
+    open(store, &session_of(&user_id), "digest-one").await;
     let error = store
-        .create_session(&session_of(&user_id), "digest-one")
+        .create_session(&session_of(&user_id), "digest-one", NO_HASH)
         .await
         .expect_err("a second session under the same digest is refused");
     assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
-    store
-        .create_session(&session_of(&user_id), "digest-two")
-        .await
-        .expect("a user has as many sessions as they sign in");
+    open(store, &session_of(&user_id), "digest-two").await;
 
     let same_id = session_of(&user_id);
-    store
-        .create_session(&same_id, "digest-three")
-        .await
-        .expect("a third session");
+    open(store, &same_id, "digest-three").await;
     let error = store
-        .create_session(&same_id, "digest-four")
+        .create_session(&same_id, "digest-four", NO_HASH)
         .await
         .expect_err("a session identifier is used once");
     assert!(matches!(error, StoreError::Database(_)), "got {error:?}");
@@ -116,28 +123,45 @@ async fn a_session_is_found_by_its_digest_and_two_cannot_share_one() {
     test.teardown().await;
 }
 
-/// A session that has no user, or text for one, is not stored.
+/// A session that has no user, text for one or a user who does not exist is not stored:
+/// nobody has the password hash that was seen. A session whose own identifier is text
+/// that is none is refused as such.
 #[tokio::test]
 async fn a_session_needs_identifiers() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
 
-    for (id, user) in [
-        (new_id(), String::new()),
-        (new_id(), "nobody".to_owned()),
-        ("no-identifier".to_owned(), user_id.clone()),
-    ] {
-        let session = Session {
-            id,
-            ..session_of(&user)
-        };
-        let error = store
-            .create_session(&session, &new_id())
+    for user in [String::new(), "nobody".to_owned(), new_id()] {
+        let digest = new_id();
+        let stored = store
+            .create_session(&session_of(&user), &digest, NO_HASH)
             .await
-            .expect_err("text that is no identifier is refused");
-        assert!(matches!(error, StoreError::InvalidId(_)), "got {error:?}");
+            .expect("a session of nobody is answered");
+        assert!(!stored, "{user:?} is no user: the session is not stored");
+        assert!(
+            !is_valid(store, &digest, T0 + 1, T0 - 1).await,
+            "{user:?}: nothing is found under the digest"
+        );
     }
+
+    let session = Session {
+        id: "no-identifier".to_owned(),
+        ..session_of(&user_id)
+    };
+    let digest = new_id();
+    let error = store
+        .create_session(&session, &digest, NO_HASH)
+        .await
+        .expect_err("text that is no identifier is refused");
+    assert!(
+        matches!(&error, StoreError::InvalidId(refused) if refused == "no-identifier"),
+        "got {error:?}"
+    );
+    assert!(
+        !is_valid(store, &digest, T0 + 1, T0 - 1).await,
+        "nothing is found under the digest of the refused session"
+    );
 
     test.teardown().await;
 }
@@ -150,10 +174,7 @@ async fn a_session_ends_by_disuse_and_at_its_end_time() {
     let store = &test.store;
     let user_id = common::user(store, "user").await;
     let session = session_of(&user_id);
-    store
-        .create_session(&session, "digest")
-        .await
-        .expect("the session is stored");
+    open(store, &session, "digest").await;
 
     // Used at T0. With "idle since" before that, it is in use; at or after, it is idle.
     assert!(is_valid(store, "digest", T0 + 1, T0 - 1).await, "in use");
@@ -215,9 +236,7 @@ async fn a_session_of_a_deactivated_user_is_not_found() {
     let user_id = common::user(&test, "leaving").await;
     let other_id = common::user(&test, "staying").await;
     for (id, digest) in [(&user_id, "digest-leaving"), (&other_id, "digest-staying")] {
-        test.create_session(&session_of(id), digest)
-            .await
-            .expect("the session is stored");
+        open(&test, &session_of(id), digest).await;
     }
     assert!(
         is_valid(&test, "digest-leaving", T0 + 1, T0 - 1).await,
@@ -270,19 +289,19 @@ async fn clean_up_deletes_the_sessions_that_have_ended() {
         ..session_of(&user_id)
     };
     for (session, digest) in [(&live, "live"), (&idle, "idle"), (&past_its_end, "past")] {
-        store
-            .create_session(session, digest)
-            .await
-            .expect("the session is stored");
+        open(store, session, digest).await;
     }
 
     let now = T0 + 100;
     let idle_since = T0 - 100;
-    let deleted = store
+    let mut deleted = store
         .clean_up_sessions(now, idle_since)
         .await
         .expect("the clean-up runs");
-    assert_eq!(deleted, 2, "the idle one and the one past its end");
+    deleted.sort();
+    let mut ended = [idle.id.clone(), past_its_end.id.clone()];
+    ended.sort();
+    assert_eq!(deleted, ended, "the idle one and the one past its end");
     assert!(
         is_valid(store, "live", now, idle_since).await,
         "the live one stays"
@@ -301,7 +320,7 @@ async fn clean_up_deletes_the_sessions_that_have_ended() {
             .clean_up_sessions(now, idle_since)
             .await
             .expect("the clean-up runs again"),
-        0,
+        [""; 0],
         "nothing is left to delete"
     );
 
@@ -317,10 +336,7 @@ async fn reset_user_password_deletes_the_sessions_of_that_user_only() {
     let alice = common::user(store, "alice").await;
     let bob = common::user(store, "bob").await;
     for (user, digest) in [(&alice, "alice-1"), (&alice, "alice-2"), (&bob, "bob-1")] {
-        store
-            .create_session(&session_of(user), digest)
-            .await
-            .expect("the session is stored");
+        open(store, &session_of(user), digest).await;
     }
 
     let reset = store
@@ -368,25 +384,20 @@ async fn change_user_password_keeps_one_session_and_ends_the_others() {
     let alice = common::user(store, "alice").await;
     let bob = common::user(store, "bob").await;
     let kept = session_of(&alice);
-    store
-        .create_session(&kept, "alice-here")
-        .await
-        .expect("the session is stored");
+    open(store, &kept, "alice-here").await;
     for (user, digest) in [
         (&alice, "alice-phone"),
         (&alice, "alice-old"),
         (&bob, "bob"),
     ] {
-        store
-            .create_session(&session_of(user), digest)
-            .await
-            .expect("the session is stored");
+        open(store, &session_of(user), digest).await;
     }
 
-    store
-        .change_user_password(&alice, "new-hash", &kept.id, "alice-here-anew")
+    let changed = store
+        .change_user_password(&alice, NO_HASH, "new-hash", &kept.id, "alice-here-anew")
         .await
         .expect("the password is changed");
+    assert!(changed, "the hash was still the one seen");
 
     assert!(
         is_valid(store, "alice-here-anew", T0 + 1, T0 - 1).await,
@@ -417,15 +428,13 @@ async fn change_user_password_keeps_one_session_and_ends_the_others() {
         .expect("the user is read");
     assert_eq!(stored.password_hash, "new-hash", "the new hash is stored");
 
-    // A user who is not there: an error, and no session is touched.
-    let error = store
-        .change_user_password(&new_id(), "hash", &kept.id, "unused")
+    // A user who is not there has no hash to replace: nothing is changed, and no
+    // session is touched.
+    let changed = store
+        .change_user_password(&new_id(), NO_HASH, "hash", &kept.id, "unused")
         .await
-        .expect_err("no such user");
-    assert!(
-        matches!(error, StoreError::UserNotFound(_)),
-        "got {error:?}"
-    );
+        .expect("a change for no user is answered");
+    assert!(!changed, "no such user");
     assert!(
         is_valid(store, "alice-here-anew", T0 + 1, T0 - 1).await,
         "untouched: the session is where it was"
@@ -449,10 +458,11 @@ async fn replace_password_hash_replaces_the_hash_it_was_made_from() {
         .reset_user_password("alice", "old-hash")
         .await
         .expect("a first hash");
-    store
-        .create_session(&session_of(&alice), "alice")
+    let stored = store
+        .create_session(&session_of(&alice), "alice", "old-hash")
         .await
         .expect("the session is stored");
+    assert!(stored, "the hash is the one the password was set to");
 
     assert!(
         store
@@ -484,6 +494,273 @@ async fn replace_password_hash_replaces_the_hash_it_was_made_from() {
         is_valid(store, "alice", T0 + 1, T0 - 1).await,
         "the password did not change, the session stays"
     );
+
+    test.teardown().await;
+}
+
+/// The time a session was last used, as the store has it.
+async fn last_used(store: &Store, digest: &str) -> i64 {
+    store
+        .get_session(digest, T0 + 1, i64::MIN)
+        .await
+        .expect("the session is found")
+        .last_used_at
+}
+
+/// A session is stored only while the password hash of its user is the one the password
+/// was checked against. With another hash nothing is stored, and the answer says so.
+#[tokio::test]
+async fn create_session_with_a_hash_that_is_not_the_users_stores_nothing() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+    store
+        .reset_user_password("alice", "current-hash")
+        .await
+        .expect("the password is set");
+
+    let session = session_of(&alice);
+    for seen in ["stale-hash", NO_HASH, "CURRENT-HASH", "current-hash "] {
+        let stored = store
+            .create_session(&session, "digest", seen)
+            .await
+            .expect("a session opened with another hash is answered");
+        assert!(!stored, "{seen:?} is not the user's hash");
+        assert!(
+            !is_valid(store, "digest", T0 + 1, T0 - 1).await,
+            "{seen:?}: no session is found under the digest"
+        );
+    }
+
+    // The same session under the same digest is stored with the hash that is the
+    // user's: none of the refused calls left a row with its identifier or its digest.
+    let stored = store
+        .create_session(&session, "digest", "current-hash")
+        .await
+        .expect("a session opened with the user's hash is answered");
+    assert!(stored, "the hash is the user's");
+    let found = store
+        .get_session("digest", T0 + 1, T0 - 1)
+        .await
+        .expect("the session is found by its digest");
+    assert_eq!(found, session, "as it was given");
+
+    test.teardown().await;
+}
+
+/// A user who is deactivated gets no new session, whatever hash was seen.
+#[tokio::test]
+async fn create_session_for_a_deactivated_user_stores_nothing() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "leaving").await;
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE users SET delete_at = {T0} WHERE id = '{user_id}'"),
+    )
+    .await;
+
+    let session = session_of(&user_id);
+    let stored = store
+        .create_session(&session, "digest", NO_HASH)
+        .await
+        .expect("a session of a deactivated user is answered");
+    assert!(!stored, "the user is deactivated");
+
+    // Active again, the user gets the same session: the refused call stored nothing.
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE users SET delete_at = 0 WHERE id = '{user_id}'"),
+    )
+    .await;
+    assert!(
+        !is_valid(store, "digest", T0 + 1, T0 - 1).await,
+        "nothing waits under the digest for the user to come back"
+    );
+    open(store, &session, "digest").await;
+
+    test.teardown().await;
+}
+
+/// A password is set anew while a session is opened with the old one. Whichever comes
+/// first, no session that was opened with the old password is there afterwards: it was
+/// refused, or the reset ended it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_session_opened_with_the_old_password_does_not_outlive_a_reset() {
+    const ROUNDS: usize = 100;
+
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+
+    let mut old_hash = NO_HASH.to_owned();
+    let (mut refused, mut ended) = (0, 0);
+    for round in 0..ROUNDS {
+        let new_hash = format!("hash-{round}");
+        let digest = format!("digest-{round}");
+
+        let start = Arc::new(Barrier::new(2));
+        let opening = tokio::spawn({
+            let (store, start) = (store.clone(), Arc::clone(&start));
+            let (session, digest, seen) = (session_of(&alice), digest.clone(), old_hash.clone());
+            async move {
+                start.wait().await;
+                store.create_session(&session, &digest, &seen).await
+            }
+        });
+        let resetting = tokio::spawn({
+            let (store, start) = (store.clone(), Arc::clone(&start));
+            let new_hash = new_hash.clone();
+            async move {
+                start.wait().await;
+                store.reset_user_password("alice", &new_hash).await
+            }
+        });
+        let stored = opening
+            .await
+            .expect("the opening task runs to its end")
+            .unwrap_or_else(|error| panic!("round {round}: opening a session: {error:?}"));
+        resetting
+            .await
+            .expect("the resetting task runs to its end")
+            .unwrap_or_else(|error| panic!("round {round}: setting the password: {error:?}"));
+
+        assert!(
+            !is_valid(store, &digest, T0 + 1, T0 - 1).await,
+            "round {round}: a session opened with the old password (stored: {stored}) is \
+             there after the reset"
+        );
+        if stored {
+            ended += 1;
+        } else {
+            refused += 1;
+        }
+        old_hash = new_hash;
+    }
+
+    // No session of any round is left under any digest: a clean-up that would take
+    // every session finds none.
+    let left = store
+        .clean_up_sessions(i64::MAX, i64::MAX)
+        .await
+        .expect("the clean-up runs");
+    assert_eq!(
+        left, [""; 0],
+        "{refused} sessions were refused and {ended} ended by the reset: none is left"
+    );
+
+    test.teardown().await;
+}
+
+/// The time a session was last used only moves forward: an older use, or the same one
+/// again, changes nothing.
+#[tokio::test]
+async fn touch_session_does_not_move_the_time_backwards() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let user_id = common::user(store, "user").await;
+    let session = session_of(&user_id);
+    open(store, &session, "digest").await;
+
+    for (now, expected, what) in [
+        (T0 + 50, T0 + 50, "a later use is recorded"),
+        (T0 + 20, T0 + 50, "an older use changes nothing"),
+        (T0 - 20, T0 + 50, "nor does one from before the session"),
+        (T0 + 50, T0 + 50, "nor the same use again"),
+        (T0 + 51, T0 + 51, "the next later use is recorded"),
+    ] {
+        store
+            .touch_session(&session.id, now)
+            .await
+            .expect("the use is recorded");
+        assert_eq!(
+            last_used(store, "digest").await,
+            expected,
+            "touched at T0 {:+}: {what}",
+            now - T0
+        );
+    }
+
+    // A test may set the time to anything, also back; from there it moves forward again.
+    store
+        .set_session_last_used(&session.id, T0 + 5)
+        .await
+        .expect("the time is set");
+    assert_eq!(last_used(store, "digest").await, T0 + 5, "set back");
+    store
+        .touch_session(&session.id, T0 + 10)
+        .await
+        .expect("the use is recorded");
+    assert_eq!(
+        last_used(store, "digest").await,
+        T0 + 10,
+        "forward from there"
+    );
+
+    test.teardown().await;
+}
+
+/// The clean-up says which sessions it deleted: their identifiers, each once, and no
+/// session that it left. A session that ends at this very moment has ended.
+#[tokio::test]
+async fn clean_up_returns_the_identifiers_of_the_sessions_it_deleted() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+    let bob = common::user(store, "bob").await;
+    let now = T0 + 100;
+    let idle_since = T0 + 40;
+
+    // The name of each session is its digest; `last_used_at` is set after it is stored.
+    let cases = [
+        ("in-use", &alice, T0 + 90, T0 + 1000, false),
+        ("used-at-the-limit", &alice, idle_since, T0 + 1000, true),
+        (
+            "used-after-the-limit",
+            &alice,
+            idle_since + 1,
+            T0 + 1000,
+            false,
+        ),
+        ("ends-now", &alice, T0 + 90, now, true),
+        ("ends-next", &alice, T0 + 90, now + 1, false),
+        ("idle-and-ended", &alice, T0, T0 + 50, true),
+        ("of-another-user-idle", &bob, T0 + 10, T0 + 1000, true),
+        ("of-another-user-in-use", &bob, T0 + 90, T0 + 1000, false),
+    ];
+    let mut ended = Vec::new();
+    for (digest, user_id, last_used_at, expires_at, has_ended) in cases {
+        let session = Session {
+            expires_at,
+            ..session_of(user_id)
+        };
+        open(store, &session, digest).await;
+        store
+            .set_session_last_used(&session.id, last_used_at)
+            .await
+            .expect("the time of the last use is set");
+        if has_ended {
+            ended.push(session.id);
+        }
+    }
+    ended.sort();
+
+    let mut deleted = store
+        .clean_up_sessions(now, idle_since)
+        .await
+        .expect("the clean-up runs");
+    deleted.sort();
+    assert_eq!(deleted, ended, "exactly the sessions that have ended");
+
+    // What it named is gone and what it did not name is there, under limits that would
+    // accept every session.
+    for (digest, _, _, _, has_ended) in cases {
+        assert_eq!(
+            is_valid(store, digest, i64::MIN, i64::MIN).await,
+            !has_ended,
+            "{digest}"
+        );
+    }
 
     test.teardown().await;
 }

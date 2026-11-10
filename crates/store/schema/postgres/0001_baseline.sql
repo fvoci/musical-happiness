@@ -79,7 +79,8 @@ CREATE TABLE boards (
     -- stays.
     created_by UUID REFERENCES users (id),
     modified_by UUID REFERENCES users (id),
-    type TEXT NOT NULL,
+    -- Open ('O') to its team or private ('P') to its members.
+    type TEXT NOT NULL CHECK (type IN ('O', 'P')),
     -- The role whoever joins the board, or is added by somebody who does not manage its
     -- roles, gets. Never empty, and never admin: nobody becomes an administrator by
     -- joining.
@@ -177,7 +178,8 @@ CREATE TABLE categories (
     create_at BIGINT NOT NULL,
     update_at BIGINT NOT NULL,
     collapsed BOOLEAN NOT NULL DEFAULT false,
-    type TEXT NOT NULL,
+    -- One the server made for the user ('system') or one of the user's own ('custom').
+    type TEXT NOT NULL CHECK (type IN ('system', 'custom')),
     sort_order BIGINT NOT NULL DEFAULT 0
 );
 CREATE INDEX categories_user_id_team_id_idx ON categories (user_id, team_id);

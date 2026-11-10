@@ -330,7 +330,13 @@ pub(crate) async fn get_blocks(
         sql.push_bind(" AND board_id = ", Id(board_id));
     }
     if let Some(parent_id) = &filter.parent_id {
-        sql.push_bind(" AND parent_id = ", Id(parent_id));
+        // A block directly on its board has no parent, and whoever writes one may name
+        // the board there. Asking for the blocks "on the board" finds them the same way.
+        if filter.board_id.as_deref() == Some(parent_id.as_str()) {
+            sql.push(" AND parent_id IS NULL");
+        } else {
+            sql.push_bind(" AND parent_id = ", Id(parent_id));
+        }
     }
     // The empty type and the type `unknown` do not filter, so the blocks of type
     // `unknown` cannot be asked for.
@@ -553,6 +559,10 @@ pub(crate) async fn patch_block(
     patch: &BlockPatch,
     user_id: &str,
 ) -> Result<(), StoreError> {
+    // The block says which board to hold; what is patched is read under the lock, so
+    // that of two patches at once the second is applied to what the first left.
+    let board_id = get_block(scope, block_id).await?.board_id;
+    boards::lock_board(scope, &board_id).await?;
     let mut block = get_block(scope, block_id).await?;
     patch.apply(&mut block);
     insert_block(scope, &mut block, user_id).await

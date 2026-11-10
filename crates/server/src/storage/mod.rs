@@ -141,6 +141,19 @@ impl FileBackend {
         }
     }
 
+    /// Removes the file at `path`. Removing a file that is not there succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
+    /// root, and the backend's error if the file cannot be removed.
+    pub async fn delete(&self, path: &str) -> Result<(), StorageError> {
+        match self {
+            Self::Local(files) => files.delete(path).await,
+            Self::S3(files) => files.delete(path).await,
+        }
+    }
+
     /// Moves the file at `from` to `to`, replacing any existing file.
     ///
     /// # Errors

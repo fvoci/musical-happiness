@@ -161,6 +161,14 @@ impl S3Files {
             .map_err(|error| convert(error, from))
     }
 
+    pub(super) async fn delete(&self, path: &str) -> Result<(), StorageError> {
+        match self.store.delete(&self.key(path)?).await {
+            // What is gone is deleted.
+            Ok(()) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+            Err(error) => Err(StorageError::ObjectStore(error)),
+        }
+    }
+
     pub(super) async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         self.store
             .rename(&self.key(from)?, &self.key(to)?)

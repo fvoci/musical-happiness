@@ -9,26 +9,51 @@
 use fvoci_model::Session;
 
 use crate::Store;
-use crate::db::{Id, Row, Scope, Sql};
+use crate::db::{Dialect, Id, Row, Scope, Sql};
 use crate::error::StoreError;
 
 const SESSION_COLUMNS: &str = "id, user_id, created_at, last_used_at, expires_at, user_agent";
 
 impl Store {
-    /// Stores a new session under the digest of its token. Its `last_used_at` is stored
-    /// as its `created_at`.
+    /// Stores a new session under the digest of its token, provided the password hash of
+    /// its user is still `seen_password_hash`: the hash the password was checked
+    /// against. Returns whether the session was stored. Its `last_used_at` is stored as
+    /// its `created_at`.
+    ///
+    /// Checking a password takes a while. If the password is set anew in that time, the
+    /// reset ends the user's sessions, and a session opened with the old password must
+    /// not appear after it. The check and the insertion are one step, and a reset that
+    /// is under way is waited for.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::InvalidId`] if the session's or the user's identifier is
-    /// not one, and [`StoreError::Database`] if a session with the same identifier or
-    /// the same token digest exists.
+    /// Returns [`StoreError::InvalidId`] if the session's identifier is not one, and
+    /// [`StoreError::Database`] if a session with the same identifier or the same token
+    /// digest exists. A user that does not exist, also one named by text that is no
+    /// identifier, has no password hash to be the seen one: the answer is `false`.
     pub async fn create_session(
         &self,
         session: &Session,
         token_digest: &str,
-    ) -> Result<(), StoreError> {
-        self.with_conn(async |scope| {
+        seen_password_hash: &str,
+    ) -> Result<bool, StoreError> {
+        self.transaction(async |scope| {
+            // The user's row is held: a reset of the password waits for this, or this
+            // for it. On SQLite a transaction that writes holds the whole database.
+            let mut sql =
+                scope.sql("SELECT password_hash FROM users WHERE delete_at = 0 AND id = ");
+            sql.bind(Id(&session.user_id));
+            if scope.dialect() == Dialect::Postgres {
+                sql.push(" FOR SHARE");
+            }
+            let unchanged = match scope.fetch_optional(sql).await? {
+                Some(row) => row.text(0)? == seen_password_hash,
+                None => false,
+            };
+            if !unchanged {
+                return Ok(false);
+            }
+
             let mut sql = scope.sql(&format!(
                 "INSERT INTO sessions (token_hash, {SESSION_COLUMNS}) VALUES ("
             ));
@@ -41,7 +66,7 @@ impl Store {
                 .push_bind(", ", &session.user_agent)
                 .push(")");
             scope.execute(sql).await?;
-            Ok(())
+            Ok(true)
         })
         .await
     }
@@ -76,7 +101,9 @@ impl Store {
         .await
     }
 
-    /// Records that a session was in use at `now`. A session that is gone is left gone.
+    /// Records that a session was in use at `now`. A session that is gone is left gone,
+    /// and the record only ever moves forward: a use that is older than what is recorded
+    /// changes nothing.
     ///
     /// # Errors
     ///
@@ -84,7 +111,31 @@ impl Store {
     pub async fn touch_session(&self, session_id: &str, now: i64) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("UPDATE sessions SET last_used_at = ");
-            sql.bind(now).push_bind(" WHERE id = ", Id(session_id));
+            sql.bind(now)
+                .push_bind(" WHERE id = ", Id(session_id))
+                .push_bind(" AND last_used_at < ", now);
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Sets when a session was last in use, to any time: for tests that need a session
+    /// of an age.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    #[cfg(feature = "test-util")]
+    pub async fn set_session_last_used(
+        &self,
+        session_id: &str,
+        last_used_at: i64,
+    ) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE sessions SET last_used_at = ");
+            sql.bind(last_used_at)
+                .push_bind(" WHERE id = ", Id(session_id));
             scope.execute(sql).await?;
             Ok(())
         })
@@ -108,16 +159,30 @@ impl Store {
     }
 
     /// Deletes every session that has ended at `now`: past its `expires_at`, or not
-    /// used after `idle_since`. Returns how many went.
+    /// used after `idle_since`. Returns the identifiers of the sessions that went, for
+    /// whoever holds something open on their behalf.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn clean_up_sessions(&self, now: i64, idle_since: i64) -> Result<u64, StoreError> {
-        self.with_conn(async |scope| {
+    /// Returns [`StoreError::Database`] if a statement fails.
+    pub async fn clean_up_sessions(
+        &self,
+        now: i64,
+        idle_since: i64,
+    ) -> Result<Vec<String>, StoreError> {
+        self.transaction(async |scope| {
+            let mut sql = scope.sql("SELECT id FROM sessions WHERE expires_at <= ");
+            sql.bind(now).push_bind(" OR last_used_at <= ", idle_since);
+            let ended: Vec<String> = scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.id(0))
+                .collect::<Result<_, _>>()?;
             let mut sql = scope.sql("DELETE FROM sessions WHERE expires_at <= ");
             sql.bind(now).push_bind(" OR last_used_at <= ", idle_since);
-            scope.execute(sql).await
+            scope.execute(sql).await?;
+            Ok(ended)
         })
         .await
     }

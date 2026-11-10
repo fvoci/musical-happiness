@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use fvoci_model::{Block, Board, BoardType, Team, User, new_id};
 use fvoci_store::testing::TestDatabase;
-use fvoci_store::{DbType, Store};
+use fvoci_store::{DbType, Purged, Store};
 use sqlx::postgres::PgConnection;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions as _, Connection as _};
@@ -195,6 +195,15 @@ pub(crate) async fn create_test_boards(
         boards.push(board);
     }
     boards
+}
+
+/// What a purge of the trash answers when that many boards and blocks went for good and
+/// no board among them had a file.
+pub(crate) fn purged_without_files(records: u64) -> Purged {
+    Purged {
+        records,
+        files: Vec::new(),
+    }
 }
 
 /// Whether the database refused a statement over a foreign key: a row that refers to

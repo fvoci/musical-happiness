@@ -251,6 +251,8 @@ impl App {
 
         self.ws()
             .broadcast_board_delete(&board.team_id, &board.id, &members);
+        // The board's sharing went with it; so does whoever followed it by its link.
+        self.ws().close_readers_of_board(&board.id);
         Ok(())
     }
 
@@ -308,7 +310,7 @@ impl App {
         to_team: &str,
         duplicate_as: DuplicateAs,
     ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
-        let (copies, members) = self
+        let (mut copies, members) = self
             .store()
             .duplicate_board(
                 board_id,
@@ -320,7 +322,7 @@ impl App {
 
         // The copied blocks get files of their own.
         if let Err(error) = self
-            .copy_and_update_card_files(board_id, user_id, &copies.blocks)
+            .copy_and_update_card_files(board_id, user_id, &mut copies.blocks)
             .await
         {
             let delete = DeleteBoardsAndBlocks::from(&copies);
@@ -443,6 +445,8 @@ impl App {
             return Ok(Some(existing));
         }
 
+        // The membership is stored: it is announced whatever becomes of the filing.
+        self.broadcast_member_change_in_background(board.team_id.clone(), member.clone());
         if !board.is_template {
             self.add_boards_to_default_category(
                 &member.user_id,
@@ -451,8 +455,6 @@ impl App {
             )
             .await?;
         }
-
-        self.broadcast_member_change_in_background(board.team_id, member.clone());
         Ok(Some(member.clone()))
     }
 
@@ -475,6 +477,9 @@ impl App {
         };
         match joined {
             Joined::New(member) => {
+                // The membership is stored: it is announced whatever becomes of the
+                // filing.
+                self.broadcast_member_change_in_background(board.team_id.clone(), member.clone());
                 if !board.is_template {
                     self.add_boards_to_default_category(
                         user_id,
@@ -483,7 +488,6 @@ impl App {
                     )
                     .await?;
                 }
-                self.broadcast_member_change_in_background(board.team_id, member.clone());
                 Ok(member)
             }
             Joined::Raised(member) => {

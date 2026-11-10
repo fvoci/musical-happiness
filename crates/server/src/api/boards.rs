@@ -179,7 +179,7 @@ async fn handle_get_board(
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let user_id = session.user_id();
-    let has_valid_read_token = has_valid_read_token(&app, query.as_deref(), &board_id).await;
+    let has_valid_read_token = has_valid_read_token(&app, query.as_deref(), &board_id).await?;
     if user_id.is_empty() && !has_valid_read_token {
         return Err(AppError::unauthorized("access denied to board"));
     }
@@ -261,7 +261,7 @@ async fn handle_delete_board(
         "access denied to delete board",
     )
     .await?;
-    // Memberships outlive a deleted board; its members are told that it is gone.
+    // The board may be deleted between the two lookups; then it is gone for everybody.
     app.board(&board_id).await?;
 
     app.delete_board(&board_id, &session.user_id).await?;

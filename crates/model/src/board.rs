@@ -142,7 +142,8 @@ pub struct Board {
     /// Whether the board is open or private.
     #[serde(rename = "type")]
     pub board_type: BoardType,
-    /// The role every member has at least, whatever their own role.
+    /// The role a user gets who joins the board, or is added by somebody who does not
+    /// manage its roles. Never empty and never admin.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
     pub minimum_role: MinimumRole,

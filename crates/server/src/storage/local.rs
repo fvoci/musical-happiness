@@ -101,6 +101,15 @@ impl LocalFiles {
         Ok(())
     }
 
+    pub(super) async fn delete(&self, path: &str) -> Result<(), StorageError> {
+        match fs::remove_file(self.resolve(path)?).await {
+            Ok(()) => Ok(()),
+            // What is gone is deleted.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(StorageError::Io(error)),
+        }
+    }
+
     pub(super) async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         let (source, target) = (self.resolve(from)?, self.resolve(to)?);
         if let Some(parent) = target.parent() {

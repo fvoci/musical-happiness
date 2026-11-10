@@ -2,13 +2,19 @@
 //! operations that the original suite does not cover.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardPatch, Category, Session, SubscriberType,
-    Subscription, User, UserPreferencesPatch, new_id,
+    Block, BlockType, Board, BoardMember, BoardPatch, Category, Density, Session, SubscriberType,
+    Subscription, Theme, User, UserPreferencesPatch, UserSettings, UserSettingsPatch, new_id,
 };
-use fvoci_store::{AdminChange, BlockFilter, DbType, InstanceRole, Preference, Store, StoreError};
+use fvoci_store::{
+    AdminChange, BlockFilter, DbType, InstanceRole, Preference, Store, StoreError, Taken,
+};
+use serde_json::{Value, json};
+use tokio::sync::Barrier;
+use tokio::task::JoinSet;
 
 use crate::common::{self, TestStore};
 
@@ -261,12 +267,21 @@ async fn create_and_update_user() {
     assert_eq!(got.username, user.username);
     assert_eq!(got.password_hash, new_password);
 
-    // "UpdateUserPasswordByID": the password a user changes themselves.
+    // "UpdateUserPasswordByID": the password a user changes themselves, from the one
+    // that was just set.
+    let old_password = new_password;
     let new_password = new_id();
-    store
-        .change_user_password(&user.id, &new_password, &new_id(), "unused-digest")
+    let changed = store
+        .change_user_password(
+            &user.id,
+            &old_password,
+            &new_password,
+            &new_id(),
+            "unused-digest",
+        )
         .await
         .unwrap();
+    assert!(changed, "the hash was still the one seen");
 
     let got = store.get_user_by_id(&user.id).await.unwrap();
     assert_eq!(got.id, user.id);
@@ -448,7 +463,10 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
         ..user.clone()
     };
     let taken = store.create_user(&mut namesake).await.unwrap_err();
-    assert!(matches!(taken, StoreError::Conflict(_)), "got {taken:?}");
+    assert!(
+        matches!(taken, StoreError::Conflict(Taken::Username)),
+        "got {taken:?}"
+    );
     assert_eq!(taken.to_string(), "the user name is taken");
     let mut same_address = User {
         id: new_id(),
@@ -456,7 +474,10 @@ async fn create_user_stamps_times_and_reads_back_the_stored_members() {
         ..user.clone()
     };
     let taken = store.create_user(&mut same_address).await.unwrap_err();
-    assert!(matches!(taken, StoreError::Conflict(_)), "got {taken:?}");
+    assert!(
+        matches!(taken, StoreError::Conflict(Taken::Email)),
+        "got {taken:?}"
+    );
     assert_eq!(taken.to_string(), "the email address is taken");
     assert_eq!(
         store.get_registered_user_count().await.unwrap(),
@@ -501,12 +522,12 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
     .await;
 
     let cases = [
-        ("han.solo", "smuggler@example.com", "the user name"),
-        ("HAN.SOLO", "smuggler@example.com", "the user name"),
-        ("hAN.sOLO", "smuggler@example.com", "the user name"),
-        ("smuggler", "han@example.com", "the email address"),
-        ("smuggler", "HAN@EXAMPLE.COM", "the email address"),
-        ("smuggler", "hAN@eXAMPLE.COM", "the email address"),
+        ("han.solo", "smuggler@example.com", Taken::Username),
+        ("HAN.SOLO", "smuggler@example.com", Taken::Username),
+        ("hAN.sOLO", "smuggler@example.com", Taken::Username),
+        ("smuggler", "han@example.com", Taken::Email),
+        ("smuggler", "HAN@EXAMPLE.COM", Taken::Email),
+        ("smuggler", "hAN@eXAMPLE.COM", Taken::Email),
     ];
     for (username, email, taken) in cases {
         let mut second = User {
@@ -517,14 +538,14 @@ async fn a_name_or_an_address_in_another_letter_case_is_taken() {
         };
         let error = store.create_user(&mut second).await.unwrap_err();
         assert!(
-            matches!(error, StoreError::Conflict(_)),
-            "{username} <{email}>: got {error:?}"
+            matches!(error, StoreError::Conflict(of) if of == taken),
+            "{username} <{email}>: {taken:?} is taken: got {error:?}"
         );
-        assert_eq!(
-            error.to_string(),
-            format!("{taken} is taken"),
-            "{username} <{email}>"
-        );
+        let said = match taken {
+            Taken::Username => "the user name is taken",
+            Taken::Email => "the email address is taken",
+        };
+        assert_eq!(error.to_string(), said, "{username} <{email}>");
         assert!(
             !error.is_not_found(),
             "{username} <{email}>: a conflict is not a missing record"
@@ -768,7 +789,9 @@ async fn search_users_by_team_matches_substrings_of_the_user_name() {
     test.teardown().await;
 }
 
-/// Updates of users that do not exist fail with an error that is not a "not found".
+/// Updates of users that do not exist change nothing. A password set by name fails with
+/// an error that is not a "not found"; a password changed by identifier answers that
+/// nothing was changed, as it does when the password is another one by now.
 #[tokio::test]
 async fn updates_of_missing_users_fail() {
     let test = common::setup().await;
@@ -783,15 +806,16 @@ async fn updates_of_missing_users_fail() {
 
     let ghost = new_id();
     let by_id = store
-        .change_user_password(&ghost, "hash", &new_id(), "unused-digest")
+        .change_user_password(&ghost, "", "hash", &new_id(), "unused-digest")
         .await
-        .unwrap_err();
-    assert_eq!(by_id.to_string(), format!("user not found ({ghost})"));
-    assert!(!by_id.is_not_found(), "reported as a server error");
+        .expect("a change for no user is answered");
+    assert!(!by_id, "nobody has a hash to replace: nothing was changed");
+    let error = store.get_user_by_id(&ghost).await.unwrap_err();
+    assert!(error.is_not_found(), "and no user was made: got {error:?}");
 
     // Text that is not an identifier is refused as such before any user is looked for.
     let no_id = store
-        .change_user_password("ghost", "hash", &new_id(), "unused-digest")
+        .change_user_password("ghost", "", "hash", &new_id(), "unused-digest")
         .await
         .unwrap_err();
     assert!(
@@ -879,9 +903,11 @@ async fn user_preferences_are_per_user_and_ordered() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&error, StoreError::InvalidId(refused) if refused == "not-a-user"),
+        matches!(&error, StoreError::UserNotFound(user) if user == "not-a-user"),
         "got {error:?}"
     );
+    let none = store.get_user_preferences("not-a-user").await.unwrap();
+    assert!(none.is_empty(), "got {none:?}");
 
     test.teardown().await;
 }
@@ -927,8 +953,9 @@ async fn member_ids(store: &Store, board_id: &str) -> Vec<String> {
 const SESSION_MADE: i64 = 1_800_000_000_000;
 const SESSION_VALID: i64 = SESSION_MADE + 1;
 
-/// Stores a session of the user under a digest that is the user's identifier.
-async fn open_session(store: &Store, user_id: &str) {
+/// Stores a session of the user under the digest, opened with the password hash that
+/// was `seen`, which must be the user's. Returns the identifier of the session.
+async fn open_session_under(store: &Store, user_id: &str, digest: &str, seen: &str) -> String {
     let session = Session {
         id: new_id(),
         user_id: user_id.to_owned(),
@@ -937,16 +964,28 @@ async fn open_session(store: &Store, user_id: &str) {
         expires_at: SESSION_MADE + 1000,
         user_agent: "a browser".to_owned(),
     };
-    store
-        .create_session(&session, user_id)
+    let stored = store
+        .create_session(&session, digest, seen)
         .await
         .expect("the session is stored");
+    assert!(
+        stored,
+        "{digest}: the user has the password hash that was seen"
+    );
+    session.id
 }
 
-/// Whether the session [`open_session`] stored for the user is still there.
-async fn has_session(store: &Store, user_id: &str) -> bool {
+/// Stores a session of the user under a digest that is the user's identifier. The user
+/// is one [`common::user`] made: without a password hash.
+async fn open_session(store: &Store, user_id: &str) {
+    open_session_under(store, user_id, user_id, "").await;
+}
+
+/// Whether a session is found under the digest; [`open_session`] stores a user's under
+/// the user's identifier.
+async fn has_session(store: &Store, digest: &str) -> bool {
     match store
-        .get_session(user_id, SESSION_VALID, SESSION_MADE - 1)
+        .get_session(digest, SESSION_VALID, SESSION_MADE - 1)
         .await
     {
         Ok(_) => true,
@@ -1633,40 +1672,59 @@ async fn of_two_administrators_who_step_down_at_once_one_stays() {
 
 // -- settings and the bag of client state ----------------------------------------------
 
-/// Settings are stored as names and values, per user, apart from the bag of client
-/// state: a setting and an entry of the bag may have the same name. Setting replaces,
-/// resetting removes, and what is stored afterwards is returned by name.
+/// The change to the settings that the members of a request make.
+fn settings_patch(members: Value) -> UserSettingsPatch {
+    let Value::Object(members) = members else {
+        panic!("a change to the settings is an object, not {members}");
+    };
+    UserSettingsPatch::from_members(&members).expect("a valid change to the settings")
+}
+
+/// Settings are stored per user, apart from the bag of client state: a setting and an
+/// entry of the bag may have the same name. Setting replaces, resetting puts the default
+/// back, and every setting as it is afterwards is returned.
 #[tokio::test]
 async fn settings_are_stored_per_user_and_apart_from_client_state() {
     let test = common::setup().await;
     let store = &test.store;
     let user_a = common::user(store, "user-a").await;
     let user_b = common::user(store, "user-b").await;
-    let pairs = |stored: &[(String, String)]| -> Vec<(String, String)> { stored.to_vec() };
-    let owned = |name: &str, value: &str| (name.to_owned(), value.to_owned());
 
     assert_eq!(
         store.get_user_settings(&user_a).await.unwrap(),
-        [],
+        UserSettings::default(),
         "nothing is set to begin with"
     );
     let after = store
-        .patch_user_settings(&user_a, &[("theme", "dark"), ("density", "compact")], &[])
+        .patch_user_settings(
+            &user_a,
+            &settings_patch(json!({ "theme": "dark", "density": "compact" })),
+        )
         .await
         .unwrap();
     assert_eq!(
-        pairs(&after),
-        [owned("density", "compact"), owned("theme", "dark")],
-        "what is stored, by name"
+        after,
+        UserSettings {
+            theme: Theme::Dark,
+            density: Density::Compact,
+            ..UserSettings::default()
+        },
+        "what was set, and the defaults for the rest"
     );
     let after = store
-        .patch_user_settings(&user_a, &[("theme", "light")], &["density", "haptics"])
+        .patch_user_settings(
+            &user_a,
+            &settings_patch(json!({ "theme": "light", "density": null, "haptics": null })),
+        )
         .await
         .unwrap();
+    let light = UserSettings {
+        theme: Theme::Light,
+        ..UserSettings::default()
+    };
     assert_eq!(
-        pairs(&after),
-        [owned("theme", "light")],
-        "set replaces, reset removes, and resetting what is not stored does nothing"
+        after, light,
+        "set replaces, reset puts the default back, and resetting what is not stored does nothing"
     );
     assert_eq!(
         store.get_user_settings(&user_a).await.unwrap(),
@@ -1675,7 +1733,7 @@ async fn settings_are_stored_per_user_and_apart_from_client_state() {
     );
     assert_eq!(
         store.get_user_settings(&user_b).await.unwrap(),
-        [],
+        UserSettings::default(),
         "another user's settings are their own"
     );
 
@@ -1688,26 +1746,46 @@ async fn settings_are_stored_per_user_and_apart_from_client_state() {
     assert_eq!(value_of(&entries, "theme"), Some("of-the-client"));
     assert_eq!(
         store.get_user_settings(&user_a).await.unwrap(),
-        [owned("theme", "light")],
+        light,
         "the setting is untouched by the bag"
     );
-    store
-        .patch_user_settings(&user_a, &[], &["theme"])
+    let after = store
+        .patch_user_settings(&user_a, &settings_patch(json!({ "theme": null })))
         .await
         .unwrap();
+    assert_eq!(after, UserSettings::default(), "the setting is reset");
     let entries = store.get_user_preferences(&user_a).await.unwrap();
     assert_eq!(
         value_of(&entries, "theme"),
         Some("of-the-client"),
-        "and the bag by the setting"
+        "and the bag is untouched by the setting"
     );
 
-    // Settings of a user that does not exist are not stored.
+    // Neither is stored for a user that does not exist, and the refusal says so.
+    let nobody = new_id();
     let error = store
-        .patch_user_settings(&new_id(), &[("theme", "dark")], &[])
+        .patch_user_settings(&nobody, &settings_patch(json!({ "theme": "dark" })))
         .await
         .unwrap_err();
-    assert!(common::refused_over_a_foreign_key(&error), "got {error:?}");
+    assert!(
+        matches!(&error, StoreError::UserNotFound(user) if *user == nobody),
+        "got {error:?}"
+    );
+    let error = store
+        .patch_user_preferences(&nobody, &bag)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, StoreError::UserNotFound(user) if *user == nobody),
+        "got {error:?}"
+    );
+    assert_eq!(
+        store.get_user_settings(&nobody).await.unwrap(),
+        UserSettings::default(),
+        "nothing was stored for nobody"
+    );
+    let entries = store.get_user_preferences(&nobody).await.unwrap();
+    assert!(entries.is_empty(), "got {entries:?}");
 
     test.teardown().await;
 }
@@ -1758,10 +1836,213 @@ async fn the_bag_of_client_state_is_bounded() {
     assert_eq!(value_of(&swapped, "entry-001"), None);
 
     // Settings are not entries of the bag: a full bag does not keep them out.
-    store
-        .patch_user_settings(&user_id, &[("theme", "dark")], &[])
+    let settings = store
+        .patch_user_settings(&user_id, &settings_patch(json!({ "theme": "dark" })))
         .await
         .expect("a setting is stored next to a full bag");
+    assert_eq!(settings.theme, Theme::Dark, "as it was set");
+
+    test.teardown().await;
+}
+
+// -- a password that changed in the meantime ---------------------------------------------
+
+/// A password is changed from the hash the old password was checked against. If the
+/// stored hash is another one by then, nothing is changed: not the hash, not when the
+/// user was last changed, not a session, and no session answers to the new digest.
+#[tokio::test]
+async fn change_user_password_from_a_stale_hash_changes_nothing() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+    store
+        .reset_user_password("alice", "current-hash")
+        .await
+        .expect("the password is set");
+    let here = open_session_under(store, &alice, "alice-here", "current-hash").await;
+    open_session_under(store, &alice, "alice-phone", "current-hash").await;
+    let before = store
+        .get_user_by_id(&alice)
+        .await
+        .expect("the user is read");
+
+    for stale in ["stale-hash", "", "CURRENT-HASH"] {
+        let changed = store
+            .change_user_password(&alice, stale, "new-hash", &here, "alice-here-anew")
+            .await
+            .expect("a change from another hash is answered");
+        assert!(!changed, "{stale:?} is not the stored hash");
+
+        let after = store
+            .get_user_by_id(&alice)
+            .await
+            .expect("the user is read");
+        assert_eq!(
+            after, before,
+            "{stale:?}: the user is as it was, hash included"
+        );
+        for digest in ["alice-here", "alice-phone"] {
+            assert!(
+                has_session(store, digest).await,
+                "{stale:?}: the session {digest} is where it was"
+            );
+        }
+        assert!(
+            !has_session(store, "alice-here-anew").await,
+            "{stale:?}: no session answers to the digest of the refused change"
+        );
+    }
+
+    test.teardown().await;
+}
+
+/// Two changes of one password that start from the same hash: one is made, and the
+/// other is told that the password is another one by now. The hash, and the session
+/// that is left, are those of the change that was made.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn of_two_password_changes_from_the_same_hash_one_is_made() {
+    const ROUNDS: usize = 40;
+
+    let test = common::setup().await;
+    let store = &test.store;
+    let alice = common::user(store, "alice").await;
+
+    let mut seen = String::new();
+    for round in 0..ROUNDS {
+        let start = Arc::new(Barrier::new(2));
+        let mut racers = JoinSet::new();
+        for device in ["laptop", "phone"] {
+            let digest = format!("{device}-{round}");
+            let session_id = open_session_under(store, &alice, &digest, &seen).await;
+            let (store, start) = (store.clone(), Arc::clone(&start));
+            let (alice, seen) = (alice.clone(), seen.clone());
+            racers.spawn(async move {
+                let new_hash = format!("hash-{digest}");
+                let new_digest = format!("{digest}-anew");
+                start.wait().await;
+                let changed = store
+                    .change_user_password(&alice, &seen, &new_hash, &session_id, &new_digest)
+                    .await
+                    .expect("a change of the password is answered");
+                (changed, digest, new_hash, new_digest)
+            });
+        }
+        let outcomes = racers.join_all().await;
+
+        let made = outcomes.iter().filter(|(changed, ..)| *changed).count();
+        assert_eq!(
+            made, 1,
+            "round {round}: exactly one change is made: {outcomes:?}"
+        );
+        let stored = store
+            .get_user_by_id(&alice)
+            .await
+            .expect("the user is read");
+        for (changed, digest, new_hash, new_digest) in &outcomes {
+            assert_eq!(
+                stored.password_hash == *new_hash,
+                *changed,
+                "round {round}: the stored hash {} is that of the change that was made, \
+                 {digest}: {changed}",
+                stored.password_hash
+            );
+            assert_eq!(
+                has_session(store, new_digest).await,
+                *changed,
+                "round {round}: only the session of the change that was made is left, under \
+                 its new digest: {digest}: {changed}"
+            );
+            assert!(
+                !has_session(store, digest).await,
+                "round {round}: no session is found under the old digest {digest}"
+            );
+        }
+        seen = stored.password_hash;
+    }
+
+    test.teardown().await;
+}
+
+/// Many changes at once that each add entries under names of their own never leave the
+/// bag with more entries than it holds: the room that is left is given out once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn changes_at_once_never_overfill_the_bag_of_client_state() {
+    const ROUNDS: usize = 12;
+    /// How many changes add an entry at once.
+    const ADDERS: usize = 12;
+    /// How many entries fit when they start.
+    const ROOM: usize = 5;
+
+    let test = common::setup().await;
+    let store = &test.store;
+    let limit = fvoci_model::CLIENT_STATE_MAX_ENTRIES;
+    let entries = |names: Vec<String>| UserPreferencesPatch {
+        updated_fields: names
+            .into_iter()
+            .map(|name| (name, "v".to_owned()))
+            .collect(),
+        ..UserPreferencesPatch::default()
+    };
+
+    for round in 0..ROUNDS {
+        let user_id = common::user(store, &format!("collector-{round}")).await;
+        let before = (0..limit - ROOM)
+            .map(|index| format!("before-{index:03}"))
+            .collect();
+        store
+            .patch_user_preferences(&user_id, &entries(before))
+            .await
+            .expect("the bag takes what leaves room");
+
+        let start = Arc::new(Barrier::new(ADDERS));
+        let mut adders = JoinSet::new();
+        for adder in 0..ADDERS {
+            let (store, start) = (store.clone(), Arc::clone(&start));
+            let user_id = user_id.clone();
+            let patch = entries(vec![format!("added-{adder:02}")]);
+            adders.spawn(async move {
+                start.wait().await;
+                store.patch_user_preferences(&user_id, &patch).await
+            });
+        }
+        let outcomes = adders.join_all().await;
+
+        let mut added = 0;
+        for outcome in &outcomes {
+            match outcome {
+                Ok(bag) => {
+                    added += 1;
+                    assert!(
+                        bag.len() <= limit,
+                        "round {round}: a change answered a bag of {} entries",
+                        bag.len()
+                    );
+                }
+                Err(StoreError::TooManyPreferences { limit: said }) => {
+                    assert_eq!(*said, limit, "round {round}: the limit the refusal names");
+                }
+                Err(other) => panic!("round {round}: a change failed otherwise: {other:?}"),
+            }
+        }
+        let stored = store
+            .get_user_preferences(&user_id)
+            .await
+            .expect("the bag is read");
+        assert!(
+            stored.len() <= limit,
+            "round {round}: the bag holds {} entries, more than {limit}",
+            stored.len()
+        );
+        assert_eq!(
+            stored.len(),
+            limit - ROOM + added,
+            "round {round}: what was there and what the {added} changes that succeeded added"
+        );
+        assert_eq!(
+            added, ROOM,
+            "round {round}: the room that was left is used, and no more"
+        );
+    }
 
     test.teardown().await;
 }

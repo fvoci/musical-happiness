@@ -898,9 +898,10 @@ async fn a_category_of_a_user_or_a_team_that_does_not_exist_is_refused() {
     test.teardown().await;
 }
 
-/// Not in the original. Rows the store does not write itself: columns left to their
-/// defaults, a blank type, and a type this server does not know. (The original's schema
-/// also admits a row without a type; here the column is `NOT NULL`.)
+/// Not in the original. Rows the store does not write itself, with columns left to
+/// their defaults: such a category is not collapsed and has the sort order zero, and a
+/// board filed under it is visible. (A type is not among what may be left out, and is
+/// one of the two the schema knows: the schema tests have the refusals.)
 #[tokio::test]
 async fn categories_written_by_others() {
     let test = common::setup().await;
@@ -908,14 +909,14 @@ async fn categories_written_by_others() {
     let user_id = common::user(store, "user").await;
     let team_id = common::team(store).await;
     let [board_id] = create_boards(store, &team_id, &user_id).await;
-    let [blank_type, system_type, odd_type] = new_ids();
+    let [custom_type, system_type] = new_ids();
 
     execute_raw(
         &test,
         &format!(
             "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, type) \
              VALUES \
-             ('{blank_type}', 'A', '{user_id}', '{team_id}', 1, 1, ''), \
+             ('{custom_type}', 'A', '{user_id}', '{team_id}', 1, 1, 'custom'), \
              ('{system_type}', 'B', '{user_id}', '{team_id}', 1, 1, 'system')"
         ),
     )
@@ -924,14 +925,12 @@ async fn categories_written_by_others() {
         &test,
         &format!(
             "INSERT INTO category_boards (id, user_id, category_id, board_id, create_at, \
-             update_at) VALUES ('{}', '{user_id}', '{blank_type}', '{board_id}', 1, 1)",
+             update_at) VALUES ('{}', '{user_id}', '{custom_type}', '{board_id}', 1, 1)",
             new_id()
         ),
     )
     .await;
 
-    // A blank type reads as a custom category. A row that leaves them out is not
-    // deleted, not collapsed and has the sort order zero, and its board is visible.
     let listed = store
         .get_user_category_boards(&user_id, &team_id)
         .await
@@ -951,43 +950,19 @@ async fn categories_written_by_others() {
     }
     let with_board = listed
         .iter()
-        .find(|entry| entry.category.id == blank_type)
+        .find(|entry| entry.category.id == custom_type)
         .expect("the category is listed");
     assert_eq!(
         with_board.board_metadata,
         [visible(&board_id)],
         "the board of the category"
     );
-
-    // An unknown type is an error for every read that meets the row.
-    execute_raw(
-        &test,
-        &format!(
-            "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, type) \
-             VALUES ('{odd_type}', 'D', '{user_id}', '{team_id}', 1, 1, 'odd')"
-        ),
-    )
-    .await;
-    let error = store
-        .get_category(&odd_type)
-        .await
-        .expect_err("the type is not one this server knows");
-    assert!(
-        matches!(error, StoreError::Corrupt { column: "type", .. }),
-        "got {error:?}"
-    );
-    let error = store
-        .get_user_categories(&user_id, &team_id)
-        .await
-        .expect_err("the listing meets the row");
-    assert!(
-        matches!(error, StoreError::Corrupt { column: "type", .. }),
-        "got {error:?}"
-    );
-    assert!(
-        store.get_category(&system_type).await.is_ok(),
-        "other rows are still readable"
-    );
+    for category_id in [&custom_type, &system_type] {
+        store
+            .get_category(category_id)
+            .await
+            .expect("each row is read on its own too");
+    }
 
     test.teardown().await;
 }

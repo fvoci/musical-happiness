@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use fvoci_model::{MAXIMUM_PASSWORD_BYTES, Session, User, new_id};
-use fvoci_store::StoreError;
+use fvoci_store::{StoreError, Taken};
 
 use super::App;
 use crate::auth::hash_queue::QueueError;
@@ -97,25 +97,27 @@ impl App {
             user_agent: user_agent.to_owned(),
             ..Session::default()
         };
-        self.store()
-            .create_session(&session, &token_digest(&token))
-            .await
-            .map_err(|error| AppError::from(error).context("unable to create session"))?;
-
-        // Checking a password takes a while. If the password was set anew in that time,
-        // the reset has ended the user's sessions before this one existed, and this one
-        // was opened with the old password: it must not outlive the reset. Whichever of
-        // the two wrote last, the session is gone: here, or by the reset.
-        let current = self
-            .store()
-            .get_user_by_id(&user.id)
-            .await
-            .map_err(|error| AppError::from(error).context("reading the user after login"))?;
-        if current.password_hash != user.password_hash {
-            self.store()
-                .delete_session(&session.id)
+        // Checking a password takes a while. The session is stored only if the hash the
+        // password was checked against is still the user's: if the password was set anew
+        // in that time, a session opened with the old one must not appear after the
+        // reset that ended the others.
+        let mut seen_hash = user.password_hash.clone();
+        let mut stored = self.create_session(&session, &token, &seen_hash).await?;
+        if !stored {
+            // The hash changed. That is also what a login does that renews an outdated
+            // hash, at the same moment, for the same password: checked against the hash
+            // there is now, the password may still be right.
+            let current = self
+                .store()
+                .get_user_by_id(&user.id)
                 .await
-                .map_err(|error| AppError::from(error).context("ending a stale session"))?;
+                .map_err(|error| AppError::from(error).context("reading the user after login"))?;
+            if self.verify(&current.password_hash, password).await? != Verdict::Mismatch {
+                seen_hash = current.password_hash;
+                stored = self.create_session(&session, &token, &seen_hash).await?;
+            }
+        }
+        if !stored {
             return Err(incorrect_login());
         }
 
@@ -124,6 +126,20 @@ impl App {
             self.store_current_hash(&user, password).await;
         }
         Ok(token)
+    }
+
+    /// Stores a session under its token if the user's password hash is still
+    /// `seen_hash`; says whether it was stored.
+    async fn create_session(
+        &self,
+        session: &Session,
+        token: &str,
+        seen_hash: &str,
+    ) -> Result<bool, AppError> {
+        self.store()
+            .create_session(session, &token_digest(token), seen_hash)
+            .await
+            .map_err(|error| AppError::from(error).context("unable to create session"))
     }
 
     /// Looks a user up for a login; a user who is not there is `None`.
@@ -172,7 +188,10 @@ impl App {
         self.store()
             .delete_session(session_id)
             .await
-            .map_err(|error| AppError::from(error).context("unable to delete the session"))
+            .map_err(|error| AppError::from(error).context("unable to delete the session"))?;
+        // What the session had open ends with it.
+        self.ws().close_session(session_id);
+        Ok(())
     }
 
     /// Returns how many users are registered, deleted ones not counted.
@@ -243,8 +262,8 @@ impl App {
                 }
                 Ok(())
             }
-            Err(StoreError::Conflict(what)) if what.contains("email") => Err(email_taken()),
-            Err(StoreError::Conflict(_)) => Err(username_taken()),
+            Err(StoreError::Conflict(Taken::Email)) => Err(email_taken()),
+            Err(StoreError::Conflict(Taken::Username)) => Err(username_taken()),
             // Another registration without a token was first after all.
             Err(error @ StoreError::NotFirstUser) => Err(error.into()),
             Err(error) => Err(AppError::from(error).context("Unable to create the new user")),
@@ -280,7 +299,8 @@ impl App {
     /// # Errors
     ///
     /// Returns a bad-request error if the old password is wrong, a not-found error if
-    /// there is no such user, or the store's error.
+    /// there is no such user, a conflict if the password was set anew while this change
+    /// was under way, or the store's error.
     pub async fn change_password(
         &self,
         session: &Session,
@@ -297,15 +317,25 @@ impl App {
                 .with_field("oldPassword"));
         }
         let token = new_secret();
-        self.store()
+        let changed = self
+            .store()
             .change_user_password(
                 &user.id,
+                &user.password_hash,
                 &self.hash(new_password).await?,
                 &session.id,
                 &token_digest(&token),
             )
             .await
             .map_err(|error| AppError::from(error).context("unable to update password"))?;
+        if !changed {
+            // Hashing takes a while. The password that was checked above is not the
+            // user's any more: an administrator set another one, or another request
+            // changed it. This change must not undo that.
+            return Err(AppError::conflict(
+                "the password was changed in the meantime; sign in again",
+            ));
+        }
         self.ws()
             .close_other_sessions_of_user(&user.id, &session.id);
         Ok(token)

@@ -90,7 +90,7 @@ async fn check_read_access(
     board_id: &str,
     query: Option<&str>,
 ) -> Result<(), AppError> {
-    let has_read_token = has_valid_read_token(app, query, board_id).await;
+    let has_read_token = has_valid_read_token(app, query, board_id).await?;
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to board"));
     }
@@ -165,7 +165,8 @@ async fn handle_upload_file(
     let file_id = app
         .save_file(&mut bytes.as_slice(), &board_id, &filename)
         .await?;
-    tracing::debug!(filename, file_id, "uploadFile");
+    // The stored name is what a reader asks for the file by; it stays out of the log.
+    tracing::debug!(filename, "uploadFile");
     Ok(json_response(&json!({ "fileId": file_id })))
 }
 

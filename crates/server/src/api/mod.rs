@@ -283,20 +283,21 @@ pub(crate) fn duplicate_as(query: Option<&str>) -> DuplicateAs {
 pub(crate) const TRUE: &str = "true";
 
 /// Returns whether the request carries a read token that is valid for the board.
-pub(crate) async fn has_valid_read_token(app: &App, query: Option<&str>, board_id: &str) -> bool {
+///
+/// # Errors
+///
+/// Returns the store's error if the board's sharing cannot be read: that is no "no",
+/// and answered as one it would tell a reader with a good link that the link is dead.
+pub(crate) async fn has_valid_read_token(
+    app: &App,
+    query: Option<&str>,
+    board_id: &str,
+) -> Result<bool, AppError> {
     let read_token = query_param(query, "read_token");
     if read_token.is_empty() {
-        return false;
+        return Ok(false);
     }
-    match app
-        .authenticator()
+    app.authenticator()
         .is_valid_read_token(board_id, &read_token)
         .await
-    {
-        Ok(valid) => valid,
-        Err(error) => {
-            tracing::error!(%error, "IsValidReadTokenForBoard ERROR");
-            false
-        }
-    }
 }

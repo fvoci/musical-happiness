@@ -92,7 +92,7 @@ async fn handle_add_member(
     let edits_board = app
         .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardProperties)
         .await?;
-    // Memberships outlive a deleted board; only its members learn that it is gone.
+    // The board may be deleted between the two lookups; then it is gone for everybody.
     let board = match app.board(&board_id).await {
         Ok(board) => board,
         Err(error) if error.is_not_found() && !manages_roles && !edits_board => {
@@ -148,7 +148,13 @@ async fn handle_add_member(
             BoardRole::from(board.minimum_role),
         )
     };
-    Ok(json_response(&app.add_member_to_board(&member).await?))
+    // The board was there a moment ago; if it is not any more, there is nothing to be a
+    // member of.
+    let added = app
+        .add_member_to_board(&member)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    Ok(json_response(&added))
 }
 
 /// `POST /boards/{board_id}/join`: makes the user a member of an open board, with the
@@ -197,7 +203,7 @@ async fn handle_leave_board(
         "access denied to board",
     )
     .await?;
-    // Memberships outlive a deleted board, so the board is checked after the membership.
+    // The board may be deleted between the two lookups; then there is nothing to leave.
     app.board(&board_id).await?;
 
     app.delete_board_member(&board_id, user_id).await?;
@@ -219,7 +225,7 @@ async fn handle_update_member(
         MODIFY_MEMBERS_DENIED,
     )
     .await?;
-    // Memberships outlive a deleted board; its admins are told that it is gone.
+    // The board may be deleted between the two lookups; then it is gone for everybody.
     app.board(&board_id).await?;
     let request: BoardMember = decode_object(&body)?;
     let member = requested_member(board_id, member_user_id, &request);

@@ -179,7 +179,9 @@ impl Store {
     }
 
     /// Makes a user a member of a board with the scheme flags of `member`, or replaces
-    /// the scheme flags of an existing membership.
+    /// the scheme flags of an existing membership, whatever that does to the board: for
+    /// tests that need a membership the checked ways would not make. The server uses
+    /// [`Store::add_member`], [`Store::join_board`] and [`Store::change_member`].
     ///
     /// The `synthetic` member of `member` is not stored; `roles` has no column and reads
     /// as empty.
@@ -187,17 +189,21 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
+    #[cfg(feature = "test-util")]
     pub async fn save_member(&self, member: &BoardMember) -> Result<(), StoreError> {
         self.transaction(async |scope| save_member(scope, member).await)
             .await
     }
 
-    /// Removes a user from a board and ends the user's subscriptions to the blocks of the board. Removing
-    /// a user who is not a member succeeds and changes nothing.
+    /// Removes a user from a board and ends the user's subscriptions to the blocks of
+    /// the board, also if that leaves the board without an administrator: for tests.
+    /// The server uses [`Store::remove_member`]. Removing a user who is not a member
+    /// succeeds and changes nothing.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails.
+    #[cfg(feature = "test-util")]
     pub async fn delete_member(&self, board_id: &str, user_id: &str) -> Result<(), StoreError> {
         self.transaction(async |scope| delete_member(scope, board_id, user_id).await)
             .await
@@ -210,13 +216,23 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails, as it does when the board
-    /// or the user does not exist.
+    /// Returns [`StoreError::NotFound`] if the board or the user does not exist, and
+    /// [`StoreError::InvalidId`] if the user's identifier is not one. Text that is no
+    /// identifier names no board, as an identifier does that nothing has.
     pub async fn add_member(
         &self,
         member: &BoardMember,
     ) -> Result<Option<BoardMember>, StoreError> {
         self.transaction(async |scope| {
+            // Held so that "there was one already" is still true when it is answered:
+            // without the lock a removal in between would make this say "new" of a
+            // membership that does not exist.
+            if !lock_board(scope, &member.board_id).await? {
+                return Err(StoreError::not_found(format_args!(
+                    "board ID={}",
+                    member.board_id
+                )));
+            }
             let mut sql = scope.sql(
                 "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
                  scheme_commenter, scheme_viewer) VALUES (",
@@ -228,7 +244,11 @@ impl Store {
                 .push_bind(", ", member.scheme_commenter)
                 .push_bind(", ", member.scheme_viewer)
                 .push(") ON CONFLICT (board_id, user_id) DO NOTHING");
-            if scope.execute(sql).await? > 0 {
+            let added = scope
+                .execute(sql)
+                .await
+                .map_err(|error| error.missing_reference("user"))?;
+            if added > 0 {
                 return Ok(None);
             }
             find_member(scope, &member.board_id, &member.user_id).await
@@ -246,9 +266,7 @@ impl Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if there is no such board, and
-    /// [`StoreError::Database`] if a statement fails, as it does when there is no such
-    /// user.
+    /// Returns [`StoreError::NotFound`] if there is no such board or no such user.
     pub async fn join_board(&self, board_id: &str, user_id: &str) -> Result<Joined, StoreError> {
         self.transaction(async |scope| {
             lock_board(scope, board_id).await?;
@@ -264,7 +282,9 @@ impl Store {
             };
             match find_member(scope, board_id, user_id).await? {
                 None => {
-                    save_member(scope, &with_minimum).await?;
+                    save_member(scope, &with_minimum)
+                        .await
+                        .map_err(|error| error.missing_reference("user"))?;
                     Ok(Joined::New(with_minimum))
                 }
                 Some(member) if highest_role(&member) < Some(minimum) => {
@@ -306,8 +326,8 @@ impl Store {
         .await
     }
 
-    /// Removes a user from a board as [`Store::delete_member`] does, unless that would
-    /// leave the board without an administrator.
+    /// Removes a user from a board and ends the user's subscriptions to the blocks of
+    /// the board, unless that would leave the board without an administrator.
     ///
     /// The check and the removal are one step: of two administrators who leave at once,
     /// one is refused.
@@ -470,7 +490,7 @@ fn board_select_list(alias: &str) -> String {
     )
 }
 
-/// Starts `SELECT <board columns> FROM <table>`.
+/// Starts `SELECT <board columns> FROM boards`.
 fn select_boards(scope: &Scope<'_>) -> Sql {
     scope.sql(&format!("SELECT {} FROM boards", board_select_list("")))
 }
@@ -625,6 +645,8 @@ pub(crate) async fn insert_board(
     // Every way a board is stored comes through here: created, patched, duplicated,
     // imported.
     board.validate_card_properties().map_err(BoardError::from)?;
+    // A board that exists is held while it is read and written.
+    lock_board(scope, &board.id).await?;
     let existing = find_board(scope, &board.id).await?;
     // A template stored on behalf of no user is the system's own: a built-in template.
     // Nothing a caller puts into `board` changes that, and it never changes afterwards.
@@ -667,7 +689,9 @@ pub(crate) async fn insert_board(
             )
             .push_bind(", update_at = ", board.update_at)
             .push_bind(" WHERE id = ", Id(&board.id));
-        scope.execute(sql).await?;
+        if scope.execute(sql).await? == 0 {
+            return Err(StoreError::not_found(format_args!("board ID={}", board.id)));
+        }
         Ok(())
     } else {
         user_id.clone_into(&mut board.created_by);
@@ -744,6 +768,11 @@ pub(crate) async fn patch_board(
     // Before the board is looked at: applying the patch would drop a definition without
     // an identifier silently.
     patch.validate().map_err(BoardError::from)?;
+    // Held before the board is read: of two patches at once, the second is applied to
+    // what the first left.
+    if !lock_board(scope, board_id).await? {
+        return Err(StoreError::not_found(format_args!("board ID={board_id}")));
+    }
     let mut board = get_board(scope, board_id).await?;
     patch.apply(&mut board);
     insert_board(scope, &mut board, user_id).await?;
@@ -860,6 +889,26 @@ pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
     sql.bind(Id(board_id));
     if scope.dialect() == Dialect::Postgres {
         sql.push(" FOR NO KEY UPDATE");
+    }
+    Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Holds a board that is about to be deleted against everything that is stored for it:
+/// the lock the deletion of the row takes anyway, taken before the board is read.
+///
+/// [`lock_board`] leaves alone whoever stores a row that refers to the board (a
+/// membership, a file record, a filing). A row stored between the reading of what goes
+/// to the trash and the deletion would go with the board and not be in the trash. This
+/// lock waits for such rows that are being stored and shuts out later ones, which then
+/// find no board.
+pub(crate) async fn lock_board_for_deletion(
+    scope: &mut Scope<'_>,
+    board_id: &str,
+) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("SELECT id FROM boards WHERE id = ");
+    sql.bind(Id(board_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR UPDATE");
     }
     Ok(scope.fetch_optional(sql).await?.is_some())
 }

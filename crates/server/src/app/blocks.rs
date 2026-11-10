@@ -338,13 +338,16 @@ impl App {
         duplicate_as: DuplicateAs,
     ) -> Result<Vec<Block>, AppError> {
         let board = self.store().get_board(board_id).await?;
-        let blocks = self
+        let mut blocks = self
             .store()
             .duplicate_block(board_id, block_id, user_id, duplicate_as)
             .await?;
-        self.copy_and_update_card_files(board_id, user_id, &blocks)
-            .await?;
+        let files = self
+            .copy_and_update_card_files(board_id, user_id, &mut blocks)
+            .await;
 
+        // The copies are stored whatever became of their files, so they are announced
+        // whatever became of their files.
         let app = self.clone();
         let copies = blocks.clone();
         self.spawn_background(async move {
@@ -352,6 +355,7 @@ impl App {
                 app.ws().broadcast_block_change(&board.team_id, block).await;
             }
         });
+        files?;
         Ok(blocks)
     }
 

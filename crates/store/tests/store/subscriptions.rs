@@ -6,7 +6,7 @@ use std::time::Duration;
 use fvoci_model::{
     Block, BlockType, BoardMember, SubscriberType, Subscription, SubscriptionError, User, new_id,
 };
-use fvoci_store::{BlockFilter, DbType, MemberChange, Store, StoreError};
+use fvoci_store::{BlockFilter, MemberChange, Store, StoreError};
 
 use crate::common;
 
@@ -769,9 +769,9 @@ async fn subscribing_again_after_unsubscribing_starts_a_new_subscription() {
     test.teardown().await;
 }
 
-/// A subscription is to a block that exists, by a user who exists. Either missing, the
-/// database refuses the row over its foreign key, on SQLite as on PostgreSQL, and
-/// nothing is stored. The original stores both.
+/// A subscription is to a block that exists, by a user who exists. Either missing, it
+/// is not found, on SQLite as on PostgreSQL, and nothing is stored. The original stores
+/// both.
 #[tokio::test]
 async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
     let test = common::setup().await;
@@ -781,11 +781,6 @@ async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
     let block = first_block(store, &user.id).await;
     let (no_block, nobody) = (new_id(), new_id());
 
-    // What each database calls the refusal.
-    let foreign_key_code = match common::db_type() {
-        DbType::Sqlite => "787",
-        DbType::Postgres => "23503",
-    };
     for (block_id, subscriber_id, what) in [
         (&no_block, &user.id, "no such block"),
         (&block.id, &nobody, "no such user"),
@@ -800,16 +795,8 @@ async fn a_subscription_to_no_block_or_by_no_user_is_refused() {
             .await
             .expect_err("a subscription that refers to nothing is refused");
         assert!(
-            common::refused_over_a_foreign_key(&error),
+            matches!(error, StoreError::NotFound(_)),
             "{what}: got {error:?}"
-        );
-        let StoreError::Database(sqlx::Error::Database(refusal)) = &error else {
-            panic!("{what}: the refusal is the database's: got {error:?}");
-        };
-        assert_eq!(
-            refusal.code().as_deref(),
-            Some(foreign_key_code),
-            "{what}: the database's code for a foreign key violation: {refusal:?}"
         );
 
         let missing = store

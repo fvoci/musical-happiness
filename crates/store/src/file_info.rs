@@ -45,8 +45,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::InvalidId`] if the record's or the board's identifier is not
-    /// one, and [`StoreError::Database`] if the statement fails, as it does when the
-    /// board does not exist or has a file of that stored name already.
+    /// one, [`StoreError::NotFound`] if the board does not exist, and
+    /// [`StoreError::Database`] if the board has a file of that stored name already.
     pub async fn save_file_info(&self, file_info: &FileInfo) -> Result<(), StoreError> {
         self.with_conn(async |scope| save_file_info(scope, file_info).await)
             .await
@@ -69,7 +69,10 @@ pub(crate) async fn save_file_info(
         .push_bind(", ", &file_info.path)
         .push_bind(", ", file_info.create_at)
         .push(")");
-    scope.execute(sql).await?;
+    scope
+        .execute(sql)
+        .await
+        .map_err(|error| error.missing_reference("board"))?;
     Ok(())
 }
 

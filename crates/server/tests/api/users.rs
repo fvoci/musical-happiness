@@ -993,13 +993,13 @@ async fn a_session_ends_when_it_was_not_used_for_the_idle_limit() {
     let now = fvoci_server::auth::now_millis();
 
     store
-        .touch_session(&session.id, now - 3 * DAY + MINUTE)
+        .set_session_last_used(&session.id, now - 3 * DAY + MINUTE)
         .await
         .expect("the last use is moved back");
     th.client.get("/users/me").await.check_ok();
 
     store
-        .touch_session(&session.id, now - 3 * DAY - MINUTE)
+        .set_session_last_used(&session.id, now - 3 * DAY - MINUTE)
         .await
         .expect("the last use is moved back further");
     th.client.get("/users/me").await.check_unauthorized();
@@ -1041,10 +1041,23 @@ async fn a_session_ends_at_its_absolute_limit_however_much_it_is_used() {
         ..Session::default()
     };
     let store = th.app.store();
-    store
-        .create_session(&old, &fvoci_server::auth::secret::token_digest(&old_token))
+    let password_hash = store
+        .get_user_by_id(&old.user_id)
+        .await
+        .expect("the user is stored")
+        .password_hash;
+    let stored = store
+        .create_session(
+            &old,
+            &fvoci_server::auth::secret::token_digest(&old_token),
+            &password_hash,
+        )
         .await
         .expect("the old session is stored");
+    assert!(
+        stored,
+        "the password is the one the session is opened under"
+    );
     store
         .touch_session(&old.id, now)
         .await
@@ -1077,7 +1090,7 @@ async fn the_use_of_a_session_is_recorded_at_most_every_ten_minutes() {
     let now = fvoci_server::auth::now_millis();
     let nine_minutes_ago = now - 9 * MINUTE;
     store
-        .touch_session(&session.id, nine_minutes_ago)
+        .set_session_last_used(&session.id, nine_minutes_ago)
         .await
         .expect("the last use is moved back");
     th.client.get("/users/me").await.check_ok();
@@ -1088,7 +1101,7 @@ async fn the_use_of_a_session_is_recorded_at_most_every_ten_minutes() {
     );
 
     store
-        .touch_session(&session.id, now - 11 * MINUTE)
+        .set_session_last_used(&session.id, now - 11 * MINUTE)
         .await
         .expect("the last use is moved back further");
     th.client.get("/users/me").await.check_ok();

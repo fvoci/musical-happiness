@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use fvoci_model::{Block, Category, FileInfo, new_id};
+use fvoci_model::{Block, BoardType, Category, CategoryType, FileInfo, new_id};
 use fvoci_store::{DbType, Store, StoreError};
 use tokio::task::JoinSet;
 
@@ -181,7 +181,8 @@ async fn in_memory_sqlite_databases_are_private_to_their_store() {
 const WRITES_AT_ONCE: usize = 40;
 
 /// A file record for a board that does not exist: a row only the database can refuse,
-/// since the store does not look for the board first.
+/// since the store does not look for the board first. The store reads that refusal as
+/// "the board is not found".
 fn record_for_no_board(stored_name: String) -> FileInfo {
     FileInfo {
         id: new_id(),
@@ -189,6 +190,15 @@ fn record_for_no_board(stored_name: String) -> FileInfo {
         stored_name,
         ..FileInfo::default()
     }
+}
+
+/// A row that refers to something that does not exist.
+#[derive(Debug, Clone, Copy)]
+enum Orphan {
+    /// A file record for a board that does not exist.
+    FileRecord,
+    /// A category of a user who does not exist.
+    Category,
 }
 
 /// The schema's foreign keys are enforced on the connections the store uses, each of
@@ -210,7 +220,7 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
         writes.spawn(async move {
             if index % 2 == 0 {
                 let record = record_for_no_board(format!("7file{index}.png"));
-                store.save_file_info(&record).await
+                (Orphan::FileRecord, store.save_file_info(&record).await)
             } else {
                 let category = Category {
                     id: new_id(),
@@ -219,18 +229,23 @@ async fn foreign_keys_are_enforced_on_the_connections_of_the_store() {
                     team_id,
                     ..Category::default()
                 };
-                store.create_category(&category).await
+                (Orphan::Category, store.create_category(&category).await)
             }
         });
     }
     let mut refused = 0;
     while let Some(write) = writes.join_next().await {
-        let error = write
-            .expect("the write ran to its end")
-            .expect_err("a row that refers to nothing is refused");
+        let (orphan, outcome) = write.expect("the write ran to its end");
+        let error = outcome.expect_err("a row that refers to nothing is refused");
+        // The store hands on the refusal of a category as the database gave it, and
+        // reads the refusal of a file record as "no such board".
+        let over_the_foreign_key = match orphan {
+            Orphan::FileRecord => matches!(&error, StoreError::NotFound(what) if what == "board"),
+            Orphan::Category => common::refused_over_a_foreign_key(&error),
+        };
         assert!(
-            common::refused_over_a_foreign_key(&error),
-            "refused over the foreign key: got {error:?}"
+            over_the_foreign_key,
+            "{orphan:?}: refused over the foreign key: got {error:?}"
         );
         refused += 1;
     }
@@ -282,11 +297,168 @@ async fn foreign_keys_are_enforced_in_an_in_memory_sqlite_database() {
         .await
         .expect_err("a file record for a board that does not exist is refused");
     assert!(
-        common::refused_over_a_foreign_key(&error),
-        "refused over the foreign key: got {error:?}"
+        matches!(&error, StoreError::NotFound(what) if what == "board"),
+        "refused over the foreign key, which reads as no such board: got {error:?}"
     );
 
     store.close().await;
+}
+
+/// Whether the database refused a statement because a row would break a `CHECK` of its
+/// table.
+fn is_check_violation(error: &sqlx::Error) -> bool {
+    error
+        .as_database_error()
+        .is_some_and(sqlx::error::DatabaseError::is_check_violation)
+}
+
+/// Sets one column of one row past the store, and returns how many rows changed or the
+/// database's refusal.
+async fn set_column(
+    test: &common::TestStore,
+    table: &str,
+    column: &str,
+    value: &str,
+    id: &str,
+) -> Result<u64, sqlx::Error> {
+    common::try_execute_raw(
+        &test.dbconfig(),
+        &format!("UPDATE {table} SET {column} = '{value}' WHERE id = '{id}'"),
+    )
+    .await
+}
+
+/// The schema keeps what the model promises: a board is open (`O`) or private (`P`),
+/// whoever writes the row. Anything else is refused, in whatever letter case.
+#[tokio::test]
+async fn the_schema_refuses_a_board_type_that_is_none() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "owner").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+
+    for board_type in ["", " ", "X", "o", "p", "OP", "open", "private", "O "] {
+        let error = set_column(&test, "boards", "type", board_type, board_id)
+            .await
+            .expect_err(&format!("the board type {board_type:?} is refused"));
+        assert!(
+            is_check_violation(&error),
+            "{board_type:?}: refused by the check: got {error:?}"
+        );
+        let board = test.get_board(board_id).await.expect("the board is read");
+        assert_eq!(
+            board.board_type,
+            BoardType::Open,
+            "{board_type:?}: the board is as it was"
+        );
+    }
+    for board_type in [BoardType::Private, BoardType::Open] {
+        let changed = set_column(&test, "boards", "type", board_type.as_str(), board_id)
+            .await
+            .expect("a board type that is one is stored");
+        assert_eq!(changed, 1, "{board_type:?}: the one row of the board");
+        let board = test.get_board(board_id).await.expect("the board is read");
+        assert_eq!(board.board_type, board_type, "as written");
+    }
+
+    // A row that is new is checked as one that is changed: the same row is stored with
+    // a type that is one, and refused with one that is none.
+    let new_board = |board_type: &str| {
+        format!(
+            "INSERT INTO boards (id, team_id, type, title, description, icon, \
+             show_description, is_template, properties, card_properties, create_at, \
+             update_at) VALUES ('{}', '{team_id}', '{board_type}', '', '', '', FALSE, FALSE, \
+             '{{}}', '[]', 1, 1)",
+            new_id()
+        )
+    };
+    let error = common::try_execute_raw(&test.dbconfig(), &new_board("X"))
+        .await
+        .expect_err("a new board of a type that is none is refused");
+    assert!(is_check_violation(&error), "got {error:?}");
+    let stored = common::try_execute_raw(&test.dbconfig(), &new_board("P"))
+        .await
+        .expect("a new board of a type that is one is stored");
+    assert_eq!(stored, 1, "the one row");
+
+    test.teardown().await;
+}
+
+/// The schema keeps what the model promises: a category is one the server made
+/// (`system`) or one of the user's own (`custom`), whoever writes the row. Anything
+/// else is refused, the empty type too.
+#[tokio::test]
+async fn the_schema_refuses_a_category_type_that_is_none() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "owner").await;
+    let team_id = common::team(&test).await;
+    let category = Category {
+        id: new_id(),
+        name: "Category".to_owned(),
+        user_id: user_id.clone(),
+        team_id: team_id.clone(),
+        ..Category::default()
+    };
+    test.create_category(&category)
+        .await
+        .expect("the category is stored");
+
+    for category_type in ["", " ", "odd", "System", "CUSTOM", "customs", "system "] {
+        let error = set_column(&test, "categories", "type", category_type, &category.id)
+            .await
+            .expect_err(&format!("the category type {category_type:?} is refused"));
+        assert!(
+            is_check_violation(&error),
+            "{category_type:?}: refused by the check: got {error:?}"
+        );
+        let stored = test
+            .get_category(&category.id)
+            .await
+            .expect("the category is read");
+        assert_eq!(
+            stored.category_type,
+            CategoryType::Custom,
+            "{category_type:?}: the category is as it was"
+        );
+    }
+    for category_type in [CategoryType::System, CategoryType::Custom] {
+        let changed = set_column(
+            &test,
+            "categories",
+            "type",
+            category_type.as_str(),
+            &category.id,
+        )
+        .await
+        .expect("a category type that is one is stored");
+        assert_eq!(changed, 1, "{category_type:?}: the one row of the category");
+        let stored = test
+            .get_category(&category.id)
+            .await
+            .expect("the category is read");
+        assert_eq!(stored.category_type, category_type, "as written");
+    }
+
+    // A row that is new is checked as one that is changed: the same row is stored with
+    // a type that is one, and refused with one that is none.
+    let new_category = |category_type: &str| {
+        format!(
+            "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, type) \
+             VALUES ('{}', 'New', '{user_id}', '{team_id}', 1, 1, '{category_type}')",
+            new_id()
+        )
+    };
+    let error = common::try_execute_raw(&test.dbconfig(), &new_category("odd"))
+        .await
+        .expect_err("a new category of a type that is none is refused");
+    assert!(is_check_violation(&error), "got {error:?}");
+    let stored = common::try_execute_raw(&test.dbconfig(), &new_category("system"))
+        .await
+        .expect("a new category of a type that is one is stored");
+    assert_eq!(stored, 1, "the one row");
+
+    test.teardown().await;
 }
 
 /// The column types that only PostgreSQL has. Where its baseline names one of them,

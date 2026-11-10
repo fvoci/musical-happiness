@@ -9,7 +9,8 @@ use crate::permissions::{BoardPermission, TeamPermission};
 /// Checks that the user is an administrator of the instance.
 ///
 /// Who is one is no secret, and neither is that these routes exist: anybody else is
-/// refused (403, reason `admin_required`), whatever the request names.
+/// refused (403, reason `admin_required`). A route under a team checks first that the
+/// team exists, as every team route does, so there the refusal is of a real team.
 pub(crate) async fn require_admin(app: &App, user_id: &str) -> Result<(), AppError> {
     if app.user(user_id).await?.is_admin {
         Ok(())

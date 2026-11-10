@@ -347,6 +347,89 @@ S6에서 새로 본 것:
 
 **테스트.** 단위 `auth::limiter::tests` 8개(대기의 증가, 실패한 주소만, 성공의 효과, 계정 잠금, 주소의 분당 횟수와 동시 1, IPv6 /64, 주소 없는 시도, 넘칠 때 버리는 순서), `auth::hash_queue::tests` 3개, `client_address::tests` 5개. API `login_limits::*` 6개(쌍의 대기, 프록시 뒤의 주소 구분, 믿지 않는 헤더, 계정 잠금, 주소의 분당 횟수, 대기열 넘침).
 
+### J. 리뷰(rust-review)와 반영 (2026-11-10 23:48 KST)
+
+스키마 단계(`693c4362..7b845798`)를 rust-review로 검토했다. 하위 에이전트 둘(스토어·모델, 서버)을 Fable 5.2로 지정했고 둘 다 그 모델로 돌았으며 스킬을 불러왔다고 보고했다. 읽기만 했고 `cargo`는 돌리지 않았다(검토 대상 커밋을 `git show`로 읽었다). 번호는 `target/s6/review-todo.md`의 것이다. 인증 전달·로그인 제한·`/api/v1`·OpenAPI 단계의 리뷰와 보안 관점 검토는 그 단계들이 끝난 뒤 따로 한다.
+
+**Must fix (4건, 모두 반영).**
+
+| # | 지적 | 반영 |
+|---|---|---|
+| M1 | `patch_block`·`patch_board`가 잠그기 전에 읽어, PostgreSQL에서 동시에 온 두 패치 가운데 하나가 사라진다(카드의 제목과 속성을 동시에 고치면 한쪽이 지워진다) | 블록은 보드를 알아낸 뒤 잠그고 다시 읽는다. 보드는 잠근 뒤 읽는다. `insert_board`의 `UPDATE`가 0줄이면 `NotFound`다 |
+| S1 | 가져오기의 `drop_orphans`가 깊이에 비례해 반복한다(블록 수의 제곱). 큰 아카이브 하나로 런타임 워커를 오래 붙잡을 수 있다 | 보드에 달린 블록에서 내려가는 한 번의 순회로 바꿨다. 20만 개 사슬이 0.4초(디버그 빌드)다. 어디에도 달리지 않은 순환도 함께 버린다 |
+| S2 | `POST /boards/{id}/blocks?sourceBoardID=`가 아직 저장하지 않은 블록을 패치하려다 404가 나고 복사한 파일이 남는다(S6 이전부터 있던 순서) | 저장 전에 메모리에서 블록의 `fileId`를 복사본으로 바꾼다(`App::copy_card_files_into`). 테스트 `files::blocks_posted_from_a_source_board_get_copies_of_their_files` |
+| S3 | 읽기 토큰을 끄거나 바꿔도 그 토큰으로 구독한 WebSocket 연결이 계속 받는다. 익명 구독자에게 가는 블록에 작성자 ID가 들어 있다(HTTP는 비운다) | 연결이 어느 공유 보드의 토큰으로 구독했는지 기억하고, 공유를 끄거나 새 토큰을 내거나 보드를 지우면 그 연결을 닫는다. 세션 없는 구독자에게는 작성자를 비워 보낸다 |
+
+**Should fix (18건 가운데 17건 반영, 1건은 일부).**
+
+| # | 지적 | 반영 |
+|---|---|---|
+| M2 | `add_member`가 잠그지 않아, 동시에 제거되면 없는 멤버십을 "새로 추가됨"이라고 답한다 | 보드 줄을 잠근다 |
+| M3 | `delete_board`의 잠금(`FOR NO KEY UPDATE`)이 외래 키로 들어오는 행(멤버십, 파일 기록)을 막지 못해, 그사이 들어온 행이 휴지통에 담기지 않고 사라진다 | 삭제는 `FOR UPDATE`로 잠근다 |
+| M4 | 화면 상태의 100개 한도가 동시 요청에서 지켜지지 않는다 | 사용자 줄을 잠근 뒤 센다. 없는 사용자는 `UserNotFound`다 |
+| M5, S8 | 휴지통을 비우면 파일의 위치를 아는 유일한 기록이 사라지고 파일이 영영 남는다. 올리기·복사가 실패하면 기록 없는 파일이나 파일 없는 기록이 남는다 | `purge_trash`가 지운 보드의 파일 기록을 돌려주고 서버가 그 파일을 지운다(`FileBackend::delete`). 올리기는 기록 저장이 실패하면 파일을 지운다. 복사는 파일을 먼저 복사하고 실패하면 기록도 이름도 만들지 않는다. **남긴 것:** 따로 지운 블록의 파일 수거는 다음 묶음(5.7)이다 |
+| M6 | 가리키는 보드·사용자·블록이 없을 때 외래 키 위반이 500으로 나간다 | 멤버 추가·참여, 파일 기록, 구독, 카테고리 자리에서 `NotFound`로 바꾼다 |
+| M7, S7 | 비밀번호 재설정과 로그인이 겹치면 옛 비밀번호로 연 세션이 남을 수 있다. 해시를 갱신하는 로그인과 겹친 다른 로그인은 맞는 비밀번호인데 거절된다 | 세션 저장이 "사용자의 해시가 검사한 그 해시인가"를 같은 트랜잭션에서 본다(사용자 줄 잠금). 해시가 바뀌었으면 지금의 해시로 한 번 더 검사한다 |
+| M8 | 검사 없는 `save_member`·`delete_member`가 공개 API로 남아 있다 | 테스트 전용(`test-util`)으로 돌렸다 |
+| M9 | 설정 타입의 `FromStr`가 `Err = ()`다 | `ParseSettingError` |
+| M10, S11 | 코드와 맞지 않는 주석(지워진 보드의 멤버십, 정리 주기, 카테고리의 삭제 표시, 모델 크레이트의 머리말, `minimum_role` 멤버) | 고쳤다. `# Errors`의 `InvalidId` 누락은 손댄 함수만 고쳤다 |
+| S4 | 비밀번호 변경이 그사이의 관리자 재설정을 덮어쓴다 | 검사한 해시가 그대로일 때만 바꾼다. 아니면 409 |
+| S5 | 로그아웃해도, 세션이 만료돼도 그 세션의 WebSocket 연결이 남는다 | 로그아웃이 그 세션의 연결을 닫는다. 정리 작업이 지운 세션의 연결을 닫는다(한 시간마다. 그사이의 만료는 다음 정리 때 닫힌다) |
+| S6 | 없는 사용자의 로그인이 더 빨리 거절된다 | 로그인 제한 단계(I절)에서 고쳤다 |
+| S9 | 저장소 오류를 404·401로 답하는 곳 넷 | 사용자 조회, 복사 원본 보드 확인, 읽기 토큰 확인이 오류를 그대로 올린다. 설정에서 공유가 꺼져 있으면 읽기 토큰 확인은 오류가 아니라 "아니오"다 |
+| S10 | 카테고리에 넣는 단계가 실패하면 멤버십 알림이 빠진다 | 저장한 뒤 바로 알리고 그다음에 카테고리에 넣는다. 블록 복제도 같다 |
+| S12 | 가입이 이메일 충돌과 이름 충돌을 오류 문구로 구별한다 | `StoreError::Conflict(Taken::{Username, Email})` |
+
+**Consider (15건).** 반영: 해시 대기의 상한과 앱마다의 대기열(S13, I절), 사라진 보드에 멤버를 추가하면 200 `null`이던 것을 404로(S15), 업로드 로그에서 저장 이름을 뺌(S16), 정리와 비우기를 시작할 때도 한 번 돌림(S17), 설정의 저장소 API를 타입으로(M11), `touch_session`이 시각을 뒤로 돌리지 않게(M13 일부), 휴지통 왕복 테스트(M15), 부모 = 보드인 조회(M16), `boards.type`·`categories.type`의 `CHECK`(M17 일부).
+
+남긴 것과 이유:
+
+| # | 지적 | 왜 남겼나 |
+|---|---|---|
+| S14 | 가입 토큰 재발급에서 팀 확인이 관리자 확인보다 먼저다 | 팀 라우트는 모두 "없는 팀은 무엇보다 먼저 404"다(G절). 팀의 존재는 로그인한 사용자에게 비밀이 아니다. `require_admin`의 주석을 그에 맞게 고쳤다 |
+| S18 | `hash_password_with`가 `argon2::Params`를 공개 시그니처에 드러낸다 | API 테스트(다른 매개변수의 해시를 갱신하는 테스트)가 쓴다. 테스트 전용 기능으로 가르면 서버 크레이트에 기능이 하나 는다 |
+| M12 | `lock_board`를 트랜잭션에 묶는 타입(`TxScope`)이 없다 | 맞는 지적이다. 스토어의 모든 내부 함수 시그니처가 바뀌는 리팩터링이라 이 묶음에서 하지 않았다. 지금 호출하는 곳은 모두 트랜잭션 안이다. 남은 문제에 적는다 |
+| M13 | 토큰 다이제스트와 `(now, idle_since)`가 맨 문자열·정수다 | 같은 이유(시그니처 리팩터링). 시각을 뒤로 돌리는 것만 막았다 |
+| M14 | `set_sharing`의 토큰이 느슨한 `&str`다 | 서버는 늘 256비트 난수를 넘긴다. 읽는 쪽이 빈 토큰을 거절한다 |
+| M17 | `created_at`과 `create_at`이 섞여 있다. `ORDER BY name`이 DB의 정렬 규칙을 따른다 | 열 이름을 통일하면 와이어 이름과 어긋난다(와이어 정리는 계약 단계와 다음 묶음). 정렬 규칙의 차이는 두 DB의 차이로 적어 둔다 |
+| M18 | 서버가 쓰지 않는 공개 함수(`get_block_counts_by_type` 등), 사용자를 비활성화하는 함수가 없음 | 원본 스토어에서 옮긴 것들이다. 쓰임이 정해질 때 지우거나 쓴다. 비활성화를 넣을 때는 `instance` 줄 잠금이 필요하다는 것을 남은 문제에 적는다 |
+| M19 | 작은 중복과 이름(`sqlite_id`, 모델 enum의 `FromStr`) | 동작과 무관하다 |
+
+**스토어 테스트.** 스토어의 통합 테스트를 바뀐 시그니처에 맞추고 경쟁 테스트를 더하는 일은 하위 에이전트 하나에 맡겼다(Fable 5.2로 지정했고 그 모델로 돌았으며 `rust-best-practices` 스킬을 불러왔다고 보고했다. `crates/store/tests/store/` 아래만 고쳤다). 197건이 215건이 됐다. 더한 것:
+
+| 지적 | 테스트 |
+|---|---|
+| M1 | `blocks::two_patches_of_a_block_at_once_both_take_effect`(80회), `boards::two_patches_of_a_board_at_once_both_take_effect`(50회) |
+| M2 | `boards::add_member_racing_remove_member_answers_what_is_true`(100회) |
+| M3 | `boards::a_member_added_while_the_board_is_deleted_goes_with_the_board_or_is_not_found`, `boards::a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_found`(각 50회) |
+| M4 | `users::changes_at_once_never_overfill_the_bag_of_client_state` |
+| M5 | `boards::purge_trash_returns_the_file_records_of_the_boards_it_removed` |
+| M7, S4 | `sessions::a_session_opened_with_the_old_password_does_not_outlive_a_reset`(100회), `sessions::create_session_with_a_hash_that_is_not_the_users_stores_nothing`, `users::change_user_password_from_a_stale_hash_changes_nothing`, `users::of_two_password_changes_from_the_same_hash_one_is_made` |
+| M13 | `sessions::touch_session_does_not_move_the_time_backwards` |
+| M15 | `boards::a_board_comes_back_from_the_trash_with_every_member_it_had`(구조체를 `..` 없이 적어, 멤버가 늘면 값을 줄 때까지 컴파일되지 않는다) |
+| M16 | `blocks::get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_board` |
+| M17 | `setup::the_schema_refuses_a_board_type_that_is_none`, `setup::the_schema_refuses_a_category_type_that_is_none` |
+
+경쟁 테스트 넷(보드 삭제, 멤버 제거, 비밀번호 재설정과의 경쟁)에서 두 순서가 두 DB 모두에서 실제로 나왔다고 에이전트가 보고했다(임시 출력으로 확인하고 지웠다고 했다. 내가 다시 확인하지는 않았다).
+
+에이전트가 스토어에서 찾은 것과 처리:
+
+- **SQLite에서 쓰기가 굶는다.** 기존 테스트 `blocks::concurrent_writers_on_one_board_all_succeed`(한 보드에 16개 태스크가 20번씩 쓴다)가 전체 스위트에서 간헐적으로 `database is locked`로 실패했다(에이전트의 측정: 새 테스트를 빼고 25회 가운데 10회, 넣고 59회 가운데 12회. 실패한 쓰기는 busy timeout인 5.03초를 기다렸다. 기기의 load average가 40–60이던 때다. 리뷰 반영 전의 스토어와는 비교하지 않았다). SQLite의 쓰기 잠금은 기다리는 쪽이 이따금 다시 물어볼 뿐이라, 쓰기가 이어지면 한 연결이 매번 밀릴 수 있다. **고친 것:** SQLite의 트랜잭션을 스토어 안에서 온 순서대로 줄 세운다(`Store::transaction`의 `tokio::sync::Mutex`). SQLite는 어차피 쓰기가 하나다. busy timeout은 줄 밖의 것(단일 문장 쓰기, 다른 프로세스)에만 남는다. 고친 뒤 load average 40에서 전체 스위트 12회가 모두 통과했고 걸리는 시간이 9–11초에서 5초 안팎으로 줄었다. 단일 문장 쓰기(`with_conn`)는 줄을 서지 않으므로 같은 굶주림이 이론상 남는다. 남은 문제에 적는다.
+- `create_session`의 `# Errors`가 사용자 식별자에 대해 `InvalidId`라고 적었는데 실제 답은 `false`다. 문서를 고쳤다.
+- `add_member`에 식별자가 아닌 글자를 주면 보드 자리에서는 `NotFound`, 사용자 자리에서는 `InvalidId`다(쓰는 자리의 식별자가 아닌 글자는 `InvalidId`라는 스토어의 규칙 그대로다). 문서가 `NotFound`만 적고 있어 고쳤다.
+- `categories.type`의 `CHECK`가 생겨 빈 종류를 `custom`으로 읽던 갈래에 닿을 수 없다. 지웠다. 모르는 종류는 여전히 `Corrupt`다.
+
+**스냅샷.** 응답이 바뀐 단계가 없다(554단계 그대로).
+
+**남은 문제(이 리뷰에서 넘긴 것).**
+
+- 보드 잠금(`lock_board`)이 트랜잭션 안에서만 불린다는 것을 타입이 보장하지 않는다(M12). 새 호출을 넣을 때 사람이 지켜야 한다.
+- 세션 API의 토큰 다이제스트와 시각 인자가 맨 문자열·정수다(M13).
+- 사용자를 비활성화하는 함수가 없다. 넣을 때는 마지막 관리자 규칙 때문에 `instance` 줄을 잠가야 한다(M18).
+- 따로 지운 블록의 파일은 수거되지 않는다(M5·S8의 나머지, 설계 5.7의 `file_refs`).
+- SQLite에서 트랜잭션 밖의 단일 문장 쓰기는 대기열에 서지 않는다. 쓰기 트랜잭션이 5초 넘게 이어지면 `database is locked`가 날 수 있다.
+- 세션 만료와 그 세션의 WebSocket 연결이 닫히는 때 사이에 최대 한 시간의 틈이 있다(S5).
+
 **최소 역할에서 바뀐 것.** (2026-11-10 22:44 KST)
 
 | 바뀐 것 | 왜 | 어디 |

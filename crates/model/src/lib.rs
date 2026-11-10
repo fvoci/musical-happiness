@@ -1,9 +1,11 @@
 //! Wire types shared by the fvoci server and web client.
 //!
-//! Every type here serializes to the JSON the original server and web app exchange, with
-//! the original key spelling (a mix of camelCase and `snake_case`). The crate does no I/O
-//! and reads no clock: functions that stamp a time take the current time in milliseconds
-//! since the Unix epoch as an argument.
+//! The types here are what the server and its clients exchange as JSON. Most began as
+//! the original server's and keep its key spelling (a mix of camelCase and
+//! `snake_case`); what this server added or changed says so at the type. The crate does
+//! no I/O. Functions that stamp a time take the current time in milliseconds since the
+//! Unix epoch as an argument; the one place that reads a clock is [`new_id`], whose
+//! identifiers begin with the time they were made.
 
 mod archive;
 mod auth;
@@ -58,8 +60,9 @@ pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
-    ClientStateError, Density, HourCycle, SettingName, SettingsError, Theme, TimeZone,
-    UserSettings, UserSettingsPatch, WeekStart, check_client_state_name, check_client_state_value,
+    ClientStateError, Density, HourCycle, ParseSettingError, SettingName, SettingsError, Theme,
+    TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
+    check_client_state_value,
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};

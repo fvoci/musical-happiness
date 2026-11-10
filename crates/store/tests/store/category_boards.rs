@@ -710,7 +710,7 @@ async fn a_filing_needs_its_user_its_category_and_its_board() {
             .await
             .expect_err("a filing that refers to nothing is refused");
         assert!(
-            common::refused_over_a_foreign_key(&error),
+            matches!(error, StoreError::NotFound(_)),
             "{what}: got {error:?}"
         );
         assert_eq!(

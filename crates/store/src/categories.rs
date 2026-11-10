@@ -45,13 +45,11 @@ impl Store {
             .await
     }
 
-    /// Stores `category` as given and moves every category of its user and team that is
-    /// not deleted down by one place, so that a category created with sort order zero
-    /// ends up first.
+    /// Stores `category` as given and moves every category of its user and team down by
+    /// one place, so that a category created with sort order zero ends up first.
     ///
     /// The category is not validated and its `sorting` is not stored. The category itself
-    /// is among those moved down: one that is not deleted is stored with a sort order ten
-    /// higher than given.
+    /// is among those moved down: it is stored with a sort order ten higher than given.
     ///
     /// # Errors
     ///
@@ -146,21 +144,15 @@ impl Store {
     }
 }
 
-/// Reads the `type` column.
-///
-/// A blank type reads as `custom`, which is what a category without a type is.
+/// Reads the `type` column. The schema lets it hold the two types only.
 fn category_type_from_column(value: &str) -> Result<CategoryType, StoreError> {
-    let known = [CategoryType::System, CategoryType::Custom]
+    [CategoryType::System, CategoryType::Custom]
         .into_iter()
-        .find(|category_type| category_type.as_str() == value);
-    match known {
-        Some(category_type) => Ok(category_type),
-        None if value.trim().is_empty() => Ok(CategoryType::Custom),
-        None => Err(StoreError::Corrupt {
+        .find(|category_type| category_type.as_str() == value)
+        .ok_or_else(|| StoreError::Corrupt {
             column: "type",
             reason: format!("unknown category type {value:?}"),
-        }),
-    }
+        })
 }
 
 fn category_from_row(row: &Row) -> Result<Category, StoreError> {

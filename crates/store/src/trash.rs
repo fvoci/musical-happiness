@@ -144,18 +144,28 @@ impl Store {
 
     /// Removes for good what was deleted before `deleted_before` (milliseconds since
     /// the Unix epoch), and the deleted blocks of boards that are gone for good. Returns
-    /// how many boards and blocks went.
+    /// how many boards and blocks went, and the file records of the boards that went:
+    /// nothing else says where their files are, so whoever keeps the files removes them
+    /// now or never.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
-    pub async fn purge_trash(&self, deleted_before: i64) -> Result<u64, StoreError> {
+    pub async fn purge_trash(&self, deleted_before: i64) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
-            let mut purged = 0;
+            let mut sql = scope.sql("SELECT files FROM deleted_boards WHERE deleted_at < ");
+            sql.bind(deleted_before);
+            let mut files = Vec::new();
+            for row in scope.fetch_all(sql).await? {
+                let of_board: StoredFiles = from_json(&row, 0, "files")?;
+                files.extend(Vec::<FileInfo>::from(of_board));
+            }
+
+            let mut records = 0;
             for table in ["deleted_boards", "deleted_blocks"] {
                 let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE deleted_at < "));
                 sql.bind(deleted_before);
-                purged += scope.execute(sql).await?;
+                records += scope.execute(sql).await?;
             }
             // A block that was deleted on its own while its board existed has nothing to
             // come back to once the board is neither there nor in the trash.
@@ -163,11 +173,21 @@ impl Store {
                 "DELETE FROM deleted_blocks WHERE board_id NOT IN (SELECT id FROM boards) \
                  AND board_id NOT IN (SELECT id FROM deleted_boards)",
             );
-            purged += scope.execute(sql).await?;
-            Ok(purged)
+            records += scope.execute(sql).await?;
+            Ok(Purged { records, files })
         })
         .await
     }
+}
+
+/// What a purge of the trash removed for good.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Purged {
+    /// How many boards and blocks went.
+    pub records: u64,
+    /// The file records of the boards that went. Their files belong to nothing any
+    /// more.
+    pub files: Vec<FileInfo>,
 }
 
 fn block_not_in_trash() -> StoreError {
@@ -356,9 +376,9 @@ pub(crate) async fn delete_board(
     board_id: &str,
     user_id: &str,
 ) -> Result<(), StoreError> {
-    // Held from before anything of the board is read: nothing is added to the board
-    // between what goes to the trash and what is deleted.
-    boards::lock_board(scope, board_id).await?;
+    // Held from before anything of the board is read: nothing is added to the board, or
+    // stored for it, between what goes to the trash and what is deleted.
+    boards::lock_board_for_deletion(scope, board_id).await?;
     let board = boards::get_board(scope, board_id).await?;
     let members = boards::get_members_for_board(scope, board_id).await?;
     let files = file_info::file_infos_of_board(scope, board_id).await?;

@@ -37,9 +37,9 @@ pub use boards::{Joined, MemberChange, PublicBoards};
 pub use category_boards::BoardVisibility;
 pub use connect::DbType;
 pub use db::Dialect;
-pub use error::StoreError;
+pub use error::{StoreError, Taken};
 pub use sharing::SharingChange;
-pub use trash::{DeletedBlock, DeletedBoard};
+pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};
@@ -58,6 +58,8 @@ pub struct Store {
 #[derive(Debug)]
 struct Inner {
     pool: Pool,
+    /// The queue of the transactions on an SQLite database; see [`Store::transaction`].
+    sqlite_writers: tokio::sync::Mutex<()>,
 }
 
 #[derive(Debug)]
@@ -109,7 +111,10 @@ impl Store {
         };
 
         let store = Self {
-            inner: Arc::new(Inner { pool }),
+            inner: Arc::new(Inner {
+                pool,
+                sqlite_writers: tokio::sync::Mutex::new(()),
+            }),
         };
         schema::migrate(&store).await?;
         Ok(store)
@@ -184,6 +189,13 @@ impl Store {
     ) -> Result<T, StoreError> {
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
+                // One transaction at a time, in the order they come. SQLite has one
+                // writer anyway, and a connection that waits for it only asks again now
+                // and then until the busy timeout: under a steady stream of writers one
+                // of them can lose every time and fail with "database is locked". The
+                // queue is fair, and the busy timeout is left for what is outside it:
+                // single statements and other processes.
+                let _turn = self.inner.sqlite_writers.lock().await;
                 // Take the write lock up front. A transaction that starts by reading and
                 // then tries to write fails with SQLITE_BUSY as soon as another one does
                 // the same, and no busy timeout can resolve that.

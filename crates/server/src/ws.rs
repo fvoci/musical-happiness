@@ -142,6 +142,9 @@ struct Listener {
     closed: CancellationToken,
     teams: Vec<String>,
     blocks: Vec<String>,
+    /// The shared boards whose read token this connection subscribed to blocks with.
+    /// When such a board stops being shared under that token, the connection goes.
+    shared_boards: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -247,6 +250,7 @@ impl Hub {
                     closed: closed.clone(),
                     teams: Vec::new(),
                     blocks: Vec::new(),
+                    shared_boards: Vec::new(),
                 },
             );
             id
@@ -331,6 +335,20 @@ impl Hub {
         self.close_where(|listener| listener.user_id == user_id);
     }
 
+    /// Closes the connections that follow blocks of a board by its read token. For when
+    /// that token stops opening the board: sharing is turned off, the board is shared
+    /// anew under another token, or the board is deleted. A reader with the new link
+    /// connects again.
+    pub fn close_readers_of_board(&self, board_id: &str) {
+        self.close_where(|listener| listener.shared_boards.iter().any(|board| board == board_id));
+    }
+
+    /// Closes the connections of a session. For when the session ends: at logout, and
+    /// when it has gone unused for too long or reached its end.
+    pub fn close_session(&self, session_id: &str) {
+        self.close_where(|listener| listener.session_id == session_id);
+    }
+
     /// Closes the connections of the user that authenticated with another session than
     /// the given one. For when a user changes their password: the session it was
     /// changed through stays, and so do its connections.
@@ -360,13 +378,18 @@ impl Hub {
     async fn handle(&self, id: ListenerId, command: Command) -> bool {
         match command.action.as_str() {
             "SUBSCRIBE_BLOCKS" | "UNSUBSCRIBE_BLOCKS" => {
-                if !self.is_read_token_valid(&command).await {
+                let Some(board_id) = self.board_of_read_token(&command).await else {
                     tracing::error!(action = %command.action, "websocket: rejected an invalid read token");
                     return true;
-                }
+                };
                 let mut listeners = self.listeners();
                 if command.action == "SUBSCRIBE_BLOCKS" {
                     subscribe_to_blocks(&mut listeners, id, &command.block_ids);
+                    if let Some(listener) = listeners.by_id.get_mut(&id)
+                        && !listener.shared_boards.contains(&board_id)
+                    {
+                        listener.shared_boards.push(board_id);
+                    }
                 } else {
                     unsubscribe_from_blocks(&mut listeners, id, &command.block_ids);
                 }
@@ -407,20 +430,18 @@ impl Hub {
     }
 
     /// A block subscription needs a team, blocks that all belong to one board, and that
-    /// board's read token.
-    async fn is_read_token_valid(&self, command: &Command) -> bool {
+    /// board's read token. Returns the board, or `None` if the subscription is refused.
+    async fn board_of_read_token(&self, command: &Command) -> Option<String> {
         if command.team_id.is_empty() {
-            return false;
+            return None;
         }
         let mut board_id = String::new();
         for block_id in &command.block_ids {
-            let Ok(block) = self.inner.store.get_block(block_id).await else {
-                return false;
-            };
+            let block = self.inner.store.get_block(block_id).await.ok()?;
             if board_id.is_empty() {
                 board_id = block.board_id;
             } else if board_id != block.board_id {
-                return false;
+                return None;
             }
         }
         match self
@@ -429,10 +450,11 @@ impl Hub {
             .is_valid_read_token(&board_id, &command.read_token)
             .await
         {
-            Ok(valid) => valid,
+            Ok(true) => Some(board_id),
+            Ok(false) => None,
             Err(error) => {
                 tracing::error!(%error, team_id = %command.team_id, "websocket: checking a read token failed");
-                false
+                None
             }
         }
     }
@@ -450,22 +472,41 @@ impl Hub {
         let mut recipients = self
             .listeners_for_team_and_board(team_id, &block.board_id, None)
             .await;
+        let mut anonymous = Vec::new();
         {
-            // Preserved quirk: a connection that listens both as a board member and to
-            // the block itself gets the message once per subscription.
+            // A connection that listens both as a board member and to the block itself
+            // gets the message once per subscription.
             let listeners = self.listeners();
             for block_id in [&block.id, &block.parent_id] {
-                recipients.extend(
-                    listeners
-                        .by_block
-                        .get(block_id)
-                        .into_iter()
-                        .flatten()
-                        .copied(),
-                );
+                for id in listeners.by_block.get(block_id).into_iter().flatten() {
+                    let signed_in = listeners
+                        .by_id
+                        .get(id)
+                        .is_some_and(|listener| !listener.user_id.is_empty());
+                    if signed_in {
+                        recipients.push(*id);
+                    } else {
+                        anonymous.push(*id);
+                    }
+                }
             }
         }
         self.send(&recipients, &message);
+        if !anonymous.is_empty() {
+            // Whoever reads with a read token alone is not told who made or changed a
+            // block, here as over HTTP: an identifier says when its user registered.
+            let without_authors = Block {
+                created_by: String::new(),
+                modified_by: String::new(),
+                ..block.clone()
+            };
+            let message = UpdateBlockMessage {
+                action: "UPDATE_BLOCK",
+                team_id,
+                block: &without_authors,
+            };
+            self.send(&anonymous, &message);
+        }
     }
 
     /// Tells the same listeners that a block was deleted. The message is a block change
@@ -814,6 +855,7 @@ mod tests {
                 closed: CancellationToken::new(),
                 teams: Vec::new(),
                 blocks: Vec::new(),
+                shared_boards: Vec::new(),
             },
         );
         id

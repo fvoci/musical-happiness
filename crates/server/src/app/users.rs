@@ -113,8 +113,7 @@ impl App {
     ///
     /// Returns the store's error if the settings cannot be read.
     pub async fn user_settings(&self, user_id: &str) -> Result<UserSettings, AppError> {
-        let stored = self.store().get_user_settings(user_id).await?;
-        Ok(settings_from(&stored))
+        Ok(self.store().get_user_settings(user_id).await?)
     }
 
     /// Changes some of a user's settings and returns all of them as they are afterwards.
@@ -127,12 +126,7 @@ impl App {
         user_id: &str,
         patch: &UserSettingsPatch,
     ) -> Result<UserSettings, AppError> {
-        let (set, reset) = patch.changes();
-        let stored = self
-            .store()
-            .patch_user_settings(user_id, &set, &reset)
-            .await?;
-        Ok(settings_from(&stored))
+        Ok(self.store().patch_user_settings(user_id, patch).await?)
     }
 
     /// Applies a patch to a user's preferences and returns all of them.
@@ -169,14 +163,6 @@ impl App {
             user.last_name.clear();
         }
     }
-}
-
-fn settings_from(stored: &[(String, String)]) -> UserSettings {
-    UserSettings::from_stored(
-        stored
-            .iter()
-            .map(|(name, value)| (name.as_str(), value.as_str())),
-    )
 }
 
 /// Blanks the secrets of a user record.

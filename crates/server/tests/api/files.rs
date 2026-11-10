@@ -1081,3 +1081,92 @@ async fn a_range_on_an_empty_file_is_ignored() {
     }
     ts.teardown().await;
 }
+
+/// Blocks posted with `sourceBoardID` get files of their own on the board they are
+/// posted to: the image block that is answered and stored names the copy, the copy is
+/// read through the target board, and the source keeps its file. (The blocks are not
+/// stored when their files are copied; pointing them at the copies must not look them
+/// up.)
+#[tokio::test]
+async fn blocks_posted_from_a_source_board_get_copies_of_their_files() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let (source, file_id) = board_with_image(&ts).await;
+    let target = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let mut image_fields = JsonMap::new();
+    image_fields.insert("fileId".to_owned(), Value::String(file_id.clone()));
+    let card_id = new_id();
+    let blocks = vec![
+        Block {
+            id: card_id.clone(),
+            board_id: target.id.clone(),
+            block_type: BlockType::Card,
+            create_at: 1,
+            update_at: 1,
+            ..Block::default()
+        },
+        Block {
+            id: new_id(),
+            board_id: target.id.clone(),
+            parent_id: card_id,
+            block_type: BlockType::Image,
+            fields: image_fields,
+            create_at: 1,
+            update_at: 1,
+            ..Block::default()
+        },
+    ];
+
+    let response = ts
+        .client
+        .post(
+            &format!("/boards/{}/blocks?sourceBoardID={}", target.id, source.id),
+            &blocks,
+        )
+        .await;
+
+    let answered: Vec<Block> = response.ok_json();
+    let image = answered
+        .iter()
+        .find(|block| block.block_type == BlockType::Image)
+        .expect("the image block is answered");
+    let copy_id = image.fields["fileId"]
+        .as_str()
+        .expect("the image names a file")
+        .to_owned();
+    assert_ne!(copy_id, file_id, "a file of its own");
+    assert!(!copy_id.is_empty(), "and it names one");
+    let stored = ts
+        .app
+        .block(&image.id)
+        .await
+        .expect("the image block is stored");
+    assert_eq!(
+        stored.fields["fileId"],
+        Value::String(copy_id.clone()),
+        "what is stored is what was answered"
+    );
+
+    let file_path =
+        |board: &Board, name: &str| format!("/files/teams/{TEST_TEAM_ID}/{}/{name}", board.id);
+    let copy = ts.client.get(&file_path(&target, &copy_id)).await;
+    copy.check_ok();
+    assert_eq!(
+        copy.body, b"hello world, a file\n",
+        "the copy has the bytes"
+    );
+    ts.client
+        .get(&file_path(&source, &file_id))
+        .await
+        .check_ok();
+    // Each board has its own: the copy is not the source board's, nor the other way.
+    ts.client
+        .get(&file_path(&source, &copy_id))
+        .await
+        .check_not_found();
+    ts.client
+        .get(&file_path(&target, &file_id))
+        .await
+        .check_not_found();
+
+    ts.teardown().await;
+}

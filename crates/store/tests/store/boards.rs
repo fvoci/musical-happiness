@@ -12,6 +12,8 @@
 //! original, which does not test templates, the template tracking identifier, the trash
 //! or the membership changes that keep a board its administrator.
 
+use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use fvoci_model::{
@@ -19,9 +21,11 @@ use fvoci_model::{
     FileInfo, JsonMap, MinimumRole, SubscriberType, Subscription, new_id,
 };
 use fvoci_store::{
-    BlockFilter, Joined, MemberChange, PublicBoards, SharingChange, Store, StoreError,
+    BlockFilter, Joined, MemberChange, PublicBoards, Purged, SharingChange, Store, StoreError,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
+use tokio::sync::Barrier;
 use tokio::task::JoinSet;
 
 use crate::common;
@@ -2721,7 +2725,11 @@ async fn purge_trash_removes_an_old_deleted_board_with_its_blocks_and_keeps_newe
         .expect("the newer board is deleted");
 
     let purged = test.purge_trash(cutoff).await.expect("the trash is purged");
-    assert_eq!(purged, 3, "the old board and its two blocks");
+    assert_eq!(
+        purged,
+        common::purged_without_files(3),
+        "the old board and its two blocks"
+    );
 
     let error = test
         .get_deleted_board(&old_id)
@@ -2769,7 +2777,11 @@ async fn purge_trash_removes_a_block_deleted_on_its_own_with_its_purged_board() 
     let cutoff = deleted_at(&test, &board_id).await + 1;
 
     let purged = test.purge_trash(cutoff).await.expect("the trash is purged");
-    assert_eq!(purged, 3, "the board, its card and the text deleted before");
+    assert_eq!(
+        purged,
+        common::purged_without_files(3),
+        "the board, its card and the text deleted before"
+    );
     for block_id in [&card_id, &text_id] {
         let error = test
             .get_deleted_block(block_id)
@@ -2781,7 +2793,11 @@ async fn purge_trash_removes_a_block_deleted_on_its_own_with_its_purged_board() 
         .purge_trash(cutoff)
         .await
         .expect("the trash is purged again");
-    assert_eq!(again, 0, "nothing is left to purge");
+    assert_eq!(
+        again,
+        common::purged_without_files(0),
+        "nothing is left to purge"
+    );
 
     test.teardown().await;
 }
@@ -2812,7 +2828,11 @@ async fn purge_trash_keeps_what_was_deleted_at_the_cutoff_or_later() {
     let cutoff = lone_deleted_at.min(deleted_at(&test, &board_id).await);
 
     let purged = test.purge_trash(cutoff).await.expect("the trash is purged");
-    assert_eq!(purged, 0, "nothing was deleted before the cutoff {cutoff}");
+    assert_eq!(
+        purged,
+        common::purged_without_files(0),
+        "nothing was deleted before the cutoff {cutoff}"
+    );
 
     let restored = test
         .undelete_block(&lone_text_id, &user_id)
@@ -2875,7 +2895,11 @@ async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
 
     // Nothing is older than the beginning of time.
     let purged = test.purge_trash(0).await.expect("the trash is purged");
-    assert_eq!(purged, 1, "the card whose board is gone for good");
+    assert_eq!(
+        purged,
+        common::purged_without_files(1),
+        "the card whose board is gone for good"
+    );
     let error = test
         .get_deleted_block(&orphan.id)
         .await
@@ -2884,6 +2908,85 @@ async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
     test.undelete_block(&kept_text_id, &user_id)
         .await
         .expect("a deleted block of a board that exists stays, and is restored");
+
+    test.teardown().await;
+}
+
+/// A file record of the board, not stored yet.
+fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
+    FileInfo {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        stored_name: stored_name.to_owned(),
+        name: format!("uploaded as {stored_name}"),
+        extension: ".png".to_owned(),
+        size: 2048,
+        path: format!("boards/{board_id}/{stored_name}"),
+        create_at: 1,
+    }
+}
+
+/// A purge hands back the file records of the boards it removed for good, whole, and of
+/// no other board: nothing else says where those files are.
+#[tokio::test]
+async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let (old_id, ..) = board_with_card_and_text(&test, &team_id, &user_id).await;
+    let (newer_id, ..) = board_with_card_and_text(&test, &team_id, &user_id).await;
+    let (kept_id, ..) = board_with_card_and_text(&test, &team_id, &user_id).await;
+
+    let mut of_old = vec![file_of(&old_id, "7a.png"), file_of(&old_id, "7b.png")];
+    of_old.sort_by(|a, b| a.id.cmp(&b.id));
+    let of_newer = file_of(&newer_id, "7a.png");
+    let of_kept = file_of(&kept_id, "7a.png");
+    for file in of_old.iter().chain([&of_newer, &of_kept]) {
+        test.save_file_info(file)
+            .await
+            .expect("the file record is stored");
+    }
+
+    test.delete_board(&old_id, &user_id)
+        .await
+        .expect("the old board is deleted");
+    let cutoff = deleted_at(&test, &old_id).await + 1;
+    // What follows is deleted at the cutoff or later.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    test.delete_board(&newer_id, &user_id)
+        .await
+        .expect("the newer board is deleted");
+
+    let Purged { records, mut files } =
+        test.purge_trash(cutoff).await.expect("the trash is purged");
+    files.sort_by(|a, b| a.id.cmp(&b.id));
+    assert_eq!(records, 3, "the old board and its two blocks");
+    assert_eq!(
+        files, of_old,
+        "the file records of the board that went, as they were stored"
+    );
+
+    // The files of the board that is still in the trash come back with it, and those
+    // of the board that exists were never touched.
+    test.undelete_board(&newer_id, &user_id)
+        .await
+        .expect("what is newer than the cutoff is restored");
+    for file in [&of_newer, &of_kept] {
+        let stored = test
+            .get_file_info(&file.board_id, &file.stored_name)
+            .await
+            .expect("the file record is there");
+        assert_eq!(&stored, file, "as it was stored");
+    }
+    let again = test
+        .purge_trash(cutoff)
+        .await
+        .expect("the trash is purged again");
+    assert_eq!(
+        again,
+        common::purged_without_files(0),
+        "nothing is left to purge, and no file record is handed back twice"
+    );
 
     test.teardown().await;
 }
@@ -2964,34 +3067,39 @@ async fn add_member_to_a_board_or_of_a_user_that_does_not_exist_is_an_error() {
     let team_id = common::team(&test).await;
     let board_id = stored_board(&test, &team_id, &user_id).await;
 
-    // An identifier nothing has is refused by the database.
-    for member in [
-        editor_of(&new_id(), &user_id),
-        editor_of(&board_id, &new_id()),
+    // An identifier nothing has is not found, and the refusal says what is missing.
+    for (member, missing) in [
+        (editor_of(&new_id(), &user_id), "board"),
+        (editor_of(&board_id, &new_id()), "user"),
     ] {
         let error = test
             .add_member(&member)
             .await
             .expect_err("a membership needs its board and its user");
         assert!(
-            common::refused_over_a_foreign_key(&error),
-            "{member:?}: got {error:?}"
+            matches!(&error, StoreError::NotFound(what) if what.contains(missing)),
+            "{member:?}: no such {missing}: got {error:?}"
         );
+        assert!(error.is_not_found(), "{member:?}: got {error:?}");
     }
-    // Text that is no identifier is refused before it gets there.
-    for member in [
-        editor_of(NOT_AN_ID, &user_id),
-        editor_of(&board_id, NOT_AN_ID),
-    ] {
-        let error = test
-            .add_member(&member)
-            .await
-            .expect_err("text that is no identifier names nothing");
-        assert!(
-            matches!(&error, StoreError::InvalidId(invalid) if invalid == NOT_AN_ID),
-            "{member:?}: got {error:?}"
-        );
-    }
+    // Text that is no identifier names no board, as an identifier nothing has. For
+    // the user of a membership it is refused as what it is.
+    let error = test
+        .add_member(&editor_of(NOT_AN_ID, &user_id))
+        .await
+        .expect_err("text that is no identifier names no board");
+    assert!(
+        matches!(&error, StoreError::NotFound(what) if what.contains("board")),
+        "got {error:?}"
+    );
+    let error = test
+        .add_member(&editor_of(&board_id, NOT_AN_ID))
+        .await
+        .expect_err("text that is no identifier is no user");
+    assert!(
+        matches!(&error, StoreError::InvalidId(invalid) if invalid == NOT_AN_ID),
+        "got {error:?}"
+    );
 
     let members = members_of(&test, &board_id).await;
     assert!(members.is_empty(), "the board got a member: {members:?}");
@@ -3548,7 +3656,10 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
         .join_board(&board_id, &new_id())
         .await
         .expect_err("no such user");
-    assert!(common::refused_over_a_foreign_key(&error), "{error:?}");
+    assert!(
+        matches!(&error, StoreError::NotFound(what) if what == "user"),
+        "{error:?}"
+    );
 
     test.teardown().await;
 }
@@ -3632,6 +3743,510 @@ async fn joining_at_once_makes_one_membership() {
             "round {round}: one membership"
         );
     }
+
+    test.teardown().await;
+}
+
+// -- writes of one board at once ----------------------------------------------------------
+
+/// A definition of a card property with the given identifier.
+fn card_property(id: &str) -> JsonMap {
+    object(json!({ "id": id, "name": format!("Property {id}"), "type": "text" }))
+}
+
+/// The identifiers of the card property definitions of a board, in their order.
+fn card_property_ids(board: &Board) -> Vec<&str> {
+    board
+        .card_properties
+        .iter()
+        .filter_map(|definition| definition.get("id").and_then(Value::as_str))
+        .collect()
+}
+
+/// A patch is applied to the board as the patch before it left it: of two patches at
+/// once that each add a card property, both definitions are there afterwards, next to
+/// those of every round before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_patches_of_a_board_at_once_both_take_effect() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &user_id).await;
+
+    let mut expected = BTreeSet::new();
+    for round in 0..2 * RACE_ROUNDS {
+        let start = Arc::new(Barrier::new(2));
+        let mut patchers = JoinSet::new();
+        for side in ["left", "right"] {
+            let property_id = format!("{side}-{round}");
+            expected.insert(property_id.clone());
+            let (store, start) = (test.store.clone(), Arc::clone(&start));
+            let (board_id, user_id) = (board_id.clone(), user_id.clone());
+            patchers.spawn(async move {
+                let patch = BoardPatch {
+                    updated_card_properties: vec![card_property(&property_id)],
+                    ..BoardPatch::default()
+                };
+                start.wait().await;
+                store.patch_board(&board_id, &patch, &user_id).await
+            });
+        }
+        for outcome in patchers.join_all().await {
+            let patched =
+                outcome.unwrap_or_else(|error| panic!("round {round}: a patch failed: {error:?}"));
+            assert!(
+                card_property_ids(&patched).len() > 2 * round,
+                "round {round}: a patch answered a board without the definitions of the \
+                 rounds before: {:?}",
+                card_property_ids(&patched)
+            );
+        }
+
+        let board = test.get_board(&board_id).await.expect("the board is read");
+        let stored: BTreeSet<String> = card_property_ids(&board)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(
+            stored, expected,
+            "round {round}: the definitions of both patches, and of every round before"
+        );
+        assert_eq!(
+            board.card_properties.len(),
+            expected.len(),
+            "round {round}: each definition once"
+        );
+    }
+
+    test.teardown().await;
+}
+
+/// A member is added again while being removed. What adding answers is true when both
+/// are done: "new" only of a membership that exists (the one that was offered), "there
+/// was one" only of the membership that the removal then took. Never "new" with no
+/// membership.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn add_member_racing_remove_member_answers_what_is_true() {
+    let test = common::setup().await;
+    let admin_id = common::user(&test, "admin").await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    test.save_member(&admin_of(&board_id, &admin_id))
+        .await
+        .expect("the administrator is stored");
+    let there_before = editor_of(&board_id, &user_id);
+    // Not the flags of the membership that is there: which one is stored shows.
+    let offer = BoardMember {
+        scheme_editor: false,
+        scheme_viewer: true,
+        ..editor_of(&board_id, &user_id)
+    };
+
+    let (mut new, mut existing) = (0, 0);
+    for round in 0..4 * RACE_ROUNDS {
+        test.save_member(&there_before)
+            .await
+            .expect("the member is there before the round");
+
+        let start = Arc::new(Barrier::new(2));
+        let adding = tokio::spawn({
+            let (store, start, offer) = (test.store.clone(), Arc::clone(&start), offer.clone());
+            async move {
+                start.wait().await;
+                store.add_member(&offer).await
+            }
+        });
+        let removing = tokio::spawn({
+            let (store, start) = (test.store.clone(), Arc::clone(&start));
+            let (board_id, user_id) = (board_id.clone(), user_id.clone());
+            async move {
+                start.wait().await;
+                store.remove_member(&board_id, &user_id).await
+            }
+        });
+        let added = adding
+            .await
+            .expect("the adding task runs to its end")
+            .unwrap_or_else(|error| panic!("round {round}: adding failed: {error:?}"));
+        let removed = removing
+            .await
+            .expect("the removing task runs to its end")
+            .unwrap_or_else(|error| panic!("round {round}: removing failed: {error:?}"));
+
+        assert_eq!(
+            removed,
+            MemberChange::Done,
+            "round {round}: there was a member to remove, before the addition or after it"
+        );
+        let stored = test.get_member_for_board(&board_id, &user_id).await;
+        match added {
+            None => {
+                new += 1;
+                let stored = stored.unwrap_or_else(|error| {
+                    panic!("round {round}: \"new\" of a membership that does not exist: {error:?}")
+                });
+                assert_eq!(
+                    stored, offer,
+                    "round {round}: the membership that was offered"
+                );
+            }
+            Some(told) => {
+                existing += 1;
+                assert_eq!(
+                    told, there_before,
+                    "round {round}: told of the membership that was there"
+                );
+                let error = stored.expect_err("the removal came after and took the membership");
+                assert!(error.is_not_found(), "round {round}: got {error:?}");
+            }
+        }
+    }
+    assert_eq!(new + existing, 4 * RACE_ROUNDS, "every round was answered");
+
+    test.teardown().await;
+}
+
+/// A user is added to a board while the board is deleted. Either the membership came
+/// first, and then it is in the trash with the board and comes back with it, or the
+/// board was gone, and then that is a not-found error and there is no membership. It is
+/// never stored and lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_member_added_while_the_board_is_deleted_goes_with_the_board_or_is_not_found() {
+    let test = common::setup().await;
+    let admin_id = common::user(&test, "admin").await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+
+    for round in 0..2 * RACE_ROUNDS {
+        let board_id = stored_board(&test, &team_id, &admin_id).await;
+        test.save_member(&admin_of(&board_id, &admin_id))
+            .await
+            .expect("the administrator is stored");
+        let late = editor_of(&board_id, &user_id);
+
+        let start = Arc::new(Barrier::new(2));
+        let deleting = tokio::spawn({
+            let (store, start) = (test.store.clone(), Arc::clone(&start));
+            let (board_id, admin_id) = (board_id.clone(), admin_id.clone());
+            async move {
+                start.wait().await;
+                store.delete_board(&board_id, &admin_id).await
+            }
+        });
+        let adding = tokio::spawn({
+            let (store, start, late) = (test.store.clone(), Arc::clone(&start), late.clone());
+            async move {
+                start.wait().await;
+                store.add_member(&late).await
+            }
+        });
+        deleting
+            .await
+            .expect("the deleting task runs to its end")
+            .unwrap_or_else(|error| panic!("round {round}: the board is deleted: {error:?}"));
+        let added = adding.await.expect("the adding task runs to its end");
+
+        let left = members_of(&test, &board_id).await;
+        assert!(
+            left.is_empty(),
+            "round {round}: memberships of a deleted board are left: {left:?}"
+        );
+        let in_trash = test
+            .get_deleted_board(&board_id)
+            .await
+            .expect("the board is in the trash")
+            .members;
+        let expected = match &added {
+            Ok(None) => vec![admin_of(&board_id, &admin_id), late.clone()],
+            Err(error) => {
+                assert!(
+                    matches!(error, StoreError::NotFound(_)),
+                    "round {round}: a member who comes after the board is gone is a \
+                     not-found error, got {error:?}"
+                );
+                vec![admin_of(&board_id, &admin_id)]
+            }
+            Ok(Some(member)) => {
+                panic!("round {round}: told of a membership nobody stored: {member:?}")
+            }
+        };
+        let expected = sorted_members(expected);
+        assert_eq!(
+            sorted_members(in_trash),
+            expected,
+            "round {round}: the memberships in the trash, after adding answered {added:?}"
+        );
+
+        test.undelete_board(&board_id, &admin_id)
+            .await
+            .unwrap_or_else(|error| panic!("round {round}: the board is restored: {error:?}"));
+        assert_eq!(
+            members_of(&test, &board_id).await,
+            expected,
+            "round {round}: the memberships that came back, after adding answered {added:?}"
+        );
+    }
+
+    test.teardown().await;
+}
+
+/// A file record is stored for a board while the board is deleted. Either the record
+/// came first, and then it is in the trash with the board and comes back with it, or
+/// the board was gone, and then that is a not-found error and there is no record. It is
+/// never stored and lost.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_found() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "user").await;
+    let team_id = common::team(&test).await;
+
+    for round in 0..2 * RACE_ROUNDS {
+        let board_id = stored_board(&test, &team_id, &user_id).await;
+        let late = file_of(&board_id, "7late.png");
+
+        let start = Arc::new(Barrier::new(2));
+        let deleting = tokio::spawn({
+            let (store, start) = (test.store.clone(), Arc::clone(&start));
+            let (board_id, user_id) = (board_id.clone(), user_id.clone());
+            async move {
+                start.wait().await;
+                store.delete_board(&board_id, &user_id).await
+            }
+        });
+        let saving = tokio::spawn({
+            let (store, start, late) = (test.store.clone(), Arc::clone(&start), late.clone());
+            async move {
+                start.wait().await;
+                store.save_file_info(&late).await
+            }
+        });
+        deleting
+            .await
+            .expect("the deleting task runs to its end")
+            .unwrap_or_else(|error| panic!("round {round}: the board is deleted: {error:?}"));
+        let saved = saving.await.expect("the saving task runs to its end");
+
+        let error = test
+            .get_file_info(&board_id, &late.stored_name)
+            .await
+            .expect_err("a deleted board has no file records");
+        assert!(error.is_not_found(), "round {round}: got {error:?}");
+        if let Err(error) = &saved {
+            assert!(
+                matches!(error, StoreError::NotFound(_)),
+                "round {round}: a file record that comes after the board is gone is a \
+                 not-found error, got {error:?}"
+            );
+        }
+
+        test.undelete_board(&board_id, &user_id)
+            .await
+            .unwrap_or_else(|error| panic!("round {round}: the board is restored: {error:?}"));
+        let back = test.get_file_info(&board_id, &late.stored_name).await;
+        match (&saved, back) {
+            (Ok(()), Ok(back)) => {
+                assert_eq!(back, late, "round {round}: the record came back as it was");
+            }
+            (Err(_), Err(error)) => {
+                assert!(error.is_not_found(), "round {round}: got {error:?}");
+            }
+            (Ok(()), Err(error)) => {
+                panic!("round {round}: the record was stored and is lost: {error:?}")
+            }
+            (Err(refusal), Ok(back)) => {
+                panic!("round {round}: the record was refused ({refusal:?}) and is there: {back:?}")
+            }
+        }
+    }
+
+    test.teardown().await;
+}
+
+// -- the trash keeps everything ---------------------------------------------------------
+
+/// The members of `value`, by their names in its JSON form, that are what they are in
+/// `default`.
+fn members_at_their_default<T: Serialize>(value: &T, default: &T) -> Vec<String> {
+    let members = |of: &T| match serde_json::to_value(of).expect("the value has a JSON form") {
+        Value::Object(members) => members,
+        other => panic!("the JSON form is an object, not {other}"),
+    };
+    let default = members(default);
+    members(value)
+        .into_iter()
+        .filter(|(name, member)| default.get(name) == Some(member))
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// What goes to the trash comes back whole. The trash keeps a board, its memberships
+/// and its blocks as JSON, so a member that the JSON form of one of them left out would
+/// come back empty, and only here would anybody see it.
+///
+/// Every member of the board, of a block on it and of a membership is something other
+/// than its default before the board is deleted, except what cannot be for a row that
+/// exists: `delete_at`, and of a membership `roles` and `synthetic`, which have no
+/// column. The literals below name every member on purpose, without `..`: a member
+/// that is added later does not compile until it is given a value here.
+#[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one board with every member of every record set, compared member for member"
+)]
+async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
+    let test = common::setup().await;
+    let author_id = common::user(&test, "author").await;
+    let restorer_id = common::user(&test, "restorer").await;
+    let team_id = common::team(&test).await;
+
+    let mut board = Board {
+        id: new_id(),
+        team_id: team_id.clone(),
+        // Stamped by the store when the board is inserted.
+        created_by: String::new(),
+        modified_by: String::new(),
+        board_type: BoardType::Private,
+        minimum_role: MinimumRole::Commenter,
+        title: "Roadmap".to_owned(),
+        description: "What comes when".to_owned(),
+        icon: "🗺".to_owned(),
+        show_description: true,
+        is_template: true,
+        // The store decides this, and only a template that no user made is built-in.
+        // Set past the store below, so that this board has a creator as well.
+        is_builtin: false,
+        template_version: 3,
+        properties: object(json!({ "color": "blue" })),
+        card_properties: vec![object(json!({
+            "id": "status",
+            "name": "Status",
+            "type": "select",
+            "options": [{ "id": "open", "value": "Open", "color": "propColorGreen" }],
+        }))],
+        create_at: 0,
+        update_at: 0,
+        delete_at: 0,
+    };
+    test.insert_board(&mut board, &author_id)
+        .await
+        .expect("the board is stored");
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!(
+            "UPDATE boards SET is_builtin = TRUE WHERE id = '{}'",
+            board.id
+        ),
+    )
+    .await;
+    for member in [
+        BoardMember {
+            board_id: board.id.clone(),
+            user_id: author_id.clone(),
+            roles: String::new(),
+            scheme_admin: true,
+            scheme_editor: true,
+            scheme_commenter: true,
+            scheme_viewer: true,
+            synthetic: false,
+        },
+        editor_of(&board.id, &restorer_id),
+    ] {
+        test.save_member(&member)
+            .await
+            .expect("the member is stored");
+    }
+    let card = new_block(&board.id, "", BlockType::Card);
+    let mut note = Block {
+        id: new_id(),
+        parent_id: card.id.clone(),
+        // Stamped by the store when the block is inserted.
+        created_by: String::new(),
+        modified_by: String::new(),
+        schema: 7,
+        block_type: BlockType::Text,
+        title: "a text".to_owned(),
+        fields: object(json!({ "contentOrder": ["a", "b"], "isTemplate": true })),
+        create_at: 0,
+        update_at: 0,
+        delete_at: 0,
+        board_id: board.id.clone(),
+    };
+    test.insert_blocks(&mut [card], &author_id)
+        .await
+        .expect("the card is stored");
+    test.insert_block(&mut note, &author_id)
+        .await
+        .expect("the text on the card is stored");
+
+    // As stored, nothing that can be set is at its default.
+    let board = test.get_board(&board.id).await.expect("the board is read");
+    let members = members_of(&test, &board.id).await;
+    let blocks = blocks_of(&test, &board.id).await;
+    let note = test.get_block(&note.id).await.expect("the text is read");
+    assert_eq!(
+        members_at_their_default(&board, &Board::default()),
+        ["deleteAt"],
+        "of the board: {board:?}"
+    );
+    assert_eq!(
+        members_at_their_default(&note, &Block::default()),
+        ["deleteAt"],
+        "of the block: {note:?}"
+    );
+    let all_flags = members
+        .iter()
+        .find(|member| member.user_id == author_id)
+        .expect("the author is a member");
+    assert_eq!(
+        members_at_their_default(all_flags, &BoardMember::default()),
+        ["roles", "synthetic"],
+        "of the membership: {all_flags:?}"
+    );
+
+    test.delete_board(&board.id, &author_id)
+        .await
+        .expect("the board is deleted");
+    let returned = test
+        .undelete_board(&board.id, &restorer_id)
+        .await
+        .expect("the board is restored");
+
+    // Restoring changes who modified the board and its blocks last, and when. Nothing
+    // else.
+    let restored = test.get_board(&board.id).await.expect("the board is back");
+    assert_eq!(returned, restored, "what is returned is what is stored");
+    assert_eq!(
+        restored,
+        Board {
+            modified_by: restorer_id.clone(),
+            update_at: restored.update_at,
+            ..board.clone()
+        },
+        "the board as it was"
+    );
+    assert_ne!(
+        restored.modified_by, board.modified_by,
+        "restored by another user than the one who wrote the board"
+    );
+    assert_eq!(
+        members_of(&test, &board.id).await,
+        members,
+        "the memberships as they were"
+    );
+    let expected: Vec<Block> = blocks
+        .iter()
+        .map(|block| Block {
+            modified_by: restorer_id.clone(),
+            update_at: restored.update_at,
+            ..block.clone()
+        })
+        .collect();
+    assert_eq!(
+        blocks_of(&test, &board.id).await,
+        expected,
+        "the blocks as they were"
+    );
 
     test.teardown().await;
 }

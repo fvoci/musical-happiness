@@ -16,7 +16,7 @@ use super::{
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use crate::app::App;
 use crate::auth::now_millis;
-use crate::error::AppError;
+use crate::error::{AppError, ErrorKind};
 use crate::permissions::{BoardPermission, TeamPermission};
 
 pub(super) fn routes() -> Router<App> {
@@ -97,16 +97,18 @@ async fn require_source_board_access(
     user_id: &str,
     source_board_id: &str,
 ) -> Result<(), AppError> {
-    let readable = match app.board(source_board_id).await {
-        Ok(board) => require_read_access(app, user_id, &board).await.is_ok(),
-        Err(_) => false,
+    // The same answer for a board that is not there and one the user may not read. A
+    // store that failed is neither: it is answered as what it is.
+    let refused = |error: AppError| match error.kind() {
+        ErrorKind::NotFound | ErrorKind::Forbidden | ErrorKind::Unauthorized => {
+            AppError::not_found("source board")
+        }
+        _ => error,
     };
-    if readable {
-        Ok(())
-    } else {
-        // The same answer for a board that is not there and one the user may not read.
-        Err(AppError::not_found("source board"))
-    }
+    let board = app.board(source_board_id).await.map_err(refused)?;
+    require_read_access(app, user_id, &board)
+        .await
+        .map_err(refused)
 }
 
 /// `GET /boards/{board_id}/blocks`: the blocks of a board, for its members and for
@@ -123,7 +125,7 @@ async fn handle_get_blocks(
     let query = query.as_deref();
     let user_id = session.user_id();
 
-    let has_read_token = has_valid_read_token(&app, query, &board_id).await;
+    let has_read_token = has_valid_read_token(&app, query, &board_id).await?;
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to board"));
     }
@@ -246,8 +248,10 @@ async fn handle_post_blocks(
     let source_board_id = query_param(query, "sourceBoardID");
     if !source_board_id.is_empty() {
         require_source_board_access(&app, user_id, &source_board_id).await?;
-        app.copy_and_update_card_files(&source_board_id, user_id, &blocks)
-            .await?;
+        // The blocks are not stored yet: each is pointed at its copy here, and stored
+        // with that below.
+        app.copy_card_files_into(&source_board_id, &mut blocks)
+            .await;
     }
 
     app.insert_blocks(&mut blocks, user_id, notification)

@@ -5,12 +5,14 @@
 //! standalone store ignores the team, the guest and the visibility flags it is given
 //! (`server/services/store/sqlstore/user.go:105`, `:217` and `:226`).
 
-use fvoci_model::{CLIENT_STATE_MAX_ENTRIES, User, UserPreferencesPatch};
+use fvoci_model::{
+    CLIENT_STATE_MAX_ENTRIES, User, UserPreferencesPatch, UserSettings, UserSettingsPatch,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, Sql, now_millis};
-use crate::error::StoreError;
+use crate::error::{StoreError, Taken};
 use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
@@ -296,22 +298,37 @@ impl Store {
     /// session that stays is found under `kept_session_token_digest` from then on: what
     /// it could do has changed, so its old token is no longer accepted.
     ///
+    /// The hash is replaced only while it is still `seen_password_hash`, the hash the
+    /// old password was checked against. Returns whether it was: `false` if the password
+    /// was set anew in the meantime, by a reset or by another change, and nothing is
+    /// changed then.
+    ///
     /// All of it happens or none.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::UserNotFound`] if there is no such user.
+    /// Returns [`StoreError::Database`] if a statement fails.
     pub async fn change_user_password(
         &self,
         user_id: &str,
+        seen_password_hash: &str,
         password_hash: &str,
         kept_session_id: &str,
         kept_session_token_digest: &str,
-    ) -> Result<(), StoreError> {
+    ) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
-            update_password(scope, Lookup::Id(user_id), password_hash).await?;
+            let mut sql = scope.sql("UPDATE users SET ");
+            sql.push_bind("password_hash = ", password_hash)
+                .push_bind(", update_at = ", now_millis())
+                .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id))
+                .push_bind(" AND password_hash = ", seen_password_hash);
+            if scope.execute(sql).await? == 0 {
+                return Ok(false);
+            }
             sessions::delete_other_sessions_of_user(scope, user_id, kept_session_id).await?;
-            sessions::replace_token_digest(scope, kept_session_id, kept_session_token_digest).await
+            sessions::replace_token_digest(scope, kept_session_id, kept_session_token_digest)
+                .await?;
+            Ok(true)
         })
         .await
     }
@@ -387,7 +404,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::TooManyPreferences`] if the bag would hold more than
-    /// `fvoci_model::CLIENT_STATE_MAX_ENTRIES` entries; nothing is stored then.
+    /// `fvoci_model::CLIENT_STATE_MAX_ENTRIES` entries, and [`StoreError::UserNotFound`]
+    /// if there is no such user; nothing is stored then.
     pub async fn patch_user_preferences(
         &self,
         user_id: &str,
@@ -397,37 +415,32 @@ impl Store {
             .await
     }
 
-    /// Returns what the user has set, as the `(name, value)` pairs that were stored, by
-    /// name. What the names and values mean is the caller's; see
-    /// `fvoci_model::UserSettings::from_stored`.
+    /// Returns what the user has set about how things are shown to them; what was never
+    /// set, and what this build cannot read, is at its default.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_user_settings(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<(String, String)>, StoreError> {
+    pub async fn get_user_settings(&self, user_id: &str) -> Result<UserSettings, StoreError> {
         self.with_conn(async |scope| stored_settings(scope, user_id).await)
             .await
     }
 
-    /// Stores the settings of `set`, removes the stored values of the settings named in
-    /// `reset`, and returns what is stored for the user afterwards, as
-    /// [`Store::get_user_settings`] does. All or nothing.
+    /// Changes the settings `patch` names and returns all of them as they are
+    /// afterwards. All or nothing.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if a statement fails, as it does when there is
-    /// no such user.
+    /// Returns [`StoreError::UserNotFound`] if there is no such user.
     pub async fn patch_user_settings(
         &self,
         user_id: &str,
-        set: &[(&str, &str)],
-        reset: &[&str],
-    ) -> Result<Vec<(String, String)>, StoreError> {
+        patch: &UserSettingsPatch,
+    ) -> Result<UserSettings, StoreError> {
         self.transaction(async |scope| {
-            change_preferences(scope, user_id, SETTINGS_CATEGORY, set, reset).await?;
+            lock_user(scope, user_id).await?;
+            let (set, reset) = patch.changes();
+            change_preferences(scope, user_id, SETTINGS_CATEGORY, &set, &reset).await?;
             stored_settings(scope, user_id).await
         })
         .await
@@ -581,9 +594,9 @@ fn unique_violation(error: sqlx::Error) -> StoreError {
     let message = database_error.message();
     let of_index = database_error.constraint().unwrap_or(message);
     if of_index.contains("email") {
-        StoreError::Conflict("the email address")
+        StoreError::Conflict(Taken::Email)
     } else if of_index.contains("username") {
-        StoreError::Conflict("the user name")
+        StoreError::Conflict(Taken::Username)
     } else {
         StoreError::Database(error)
     }
@@ -607,15 +620,29 @@ async fn update_password(
     Ok(())
 }
 
-async fn stored_settings(
-    scope: &mut Scope<'_>,
-    user_id: &str,
-) -> Result<Vec<(String, String)>, StoreError> {
-    Ok(preferences_in(scope, user_id, SETTINGS_CATEGORY)
-        .await?
-        .into_iter()
-        .map(|preference| (preference.name, preference.value))
-        .collect())
+async fn stored_settings(scope: &mut Scope<'_>, user_id: &str) -> Result<UserSettings, StoreError> {
+    let stored = preferences_in(scope, user_id, SETTINGS_CATEGORY).await?;
+    Ok(UserSettings::from_stored(stored.iter().map(|preference| {
+        (preference.name.as_str(), preference.value.as_str())
+    })))
+}
+
+/// Holds a user's row against other changes of what is the user's until the
+/// transaction ends.
+///
+/// # Errors
+///
+/// Returns [`StoreError::UserNotFound`] if there is no such user.
+async fn lock_user(scope: &mut Scope<'_>, user_id: &str) -> Result<(), StoreError> {
+    let mut sql = scope.sql("SELECT id FROM users WHERE delete_at = 0 AND id = ");
+    sql.bind(Id(user_id));
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR NO KEY UPDATE");
+    }
+    match scope.fetch_optional(sql).await? {
+        Some(_) => Ok(()),
+        None => Err(StoreError::UserNotFound(user_id.to_owned())),
+    }
 }
 
 /// The preferences of a user in one category, by name.
@@ -684,6 +711,9 @@ pub(crate) async fn patch_user_preferences(
     user_id: &str,
     patch: &UserPreferencesPatch,
 ) -> Result<Vec<Preference>, StoreError> {
+    // The user's row is held: the count below is of what is there when this change is
+    // the only one, and two changes at once cannot both find room for the same places.
+    lock_user(scope, user_id).await?;
     let set: Vec<(&str, &str)> = patch
         .updated_fields
         .iter()

@@ -2858,7 +2858,8 @@ async fn insert_block_refuses_a_parent_that_is_not_a_block_of_the_board() {
 }
 
 /// A block that names its board as its parent is directly on its board: it is stored,
-/// and comes back, without a parent, when it is inserted and when it is updated.
+/// and comes back, without a parent, when it is inserted and when it is updated. Asked
+/// for by the same name, the blocks directly on the board are the ones found.
 #[tokio::test]
 async fn a_block_that_names_its_board_as_parent_is_stored_without_a_parent() {
     let test = common::setup().await;
@@ -2925,9 +2926,12 @@ async fn a_block_that_names_its_board_as_parent_is_stored_without_a_parent() {
         .get_blocks(&BlockFilter::board(&board_id).with_parent(&board_id))
         .await
         .expect("the query runs");
-    assert!(
-        on_the_board.is_empty(),
-        "no block has the board as its parent: {on_the_board:?}"
+    let mut cards = vec![card_id.clone(), batch[0].id.clone()];
+    cards.sort();
+    assert_eq!(
+        common::sorted_ids(&on_the_board),
+        cards,
+        "the two cards are on the board, the text is on a card"
     );
 
     test.teardown().await;
@@ -3163,14 +3167,16 @@ async fn purge_trash_removes_what_was_deleted_before_the_cutoff() {
 
     let purged = store.purge_trash(older).await.expect("the trash is purged");
     assert_eq!(
-        purged, 0,
+        purged,
+        common::purged_without_files(0),
         "what was deleted at the cutoff, and not before it, stays"
     );
     block_in_trash(store, card_id).await;
 
     let purged = store.purge_trash(newer).await.expect("the trash is purged");
     assert_eq!(
-        purged, 5,
+        purged,
+        common::purged_without_files(5),
         "the card and the four blocks below it were deleted before the cutoff"
     );
     for name in CARD_AND_BELOW {
@@ -3208,7 +3214,11 @@ async fn purge_trash_removes_what_was_deleted_before_the_cutoff() {
         .purge_trash(now_millis() + 60_000)
         .await
         .expect("the empty trash is purged");
-    assert_eq!(purged, 0, "nothing is left in the trash to purge");
+    assert_eq!(
+        purged,
+        common::purged_without_files(0),
+        "nothing is left in the trash to purge"
+    );
     let blocks = board_blocks(store, &board_id).await;
     assert_eq!(
         sorted_names(&blocks),
@@ -4003,6 +4013,167 @@ async fn a_block_inserted_while_its_board_is_deleted_goes_with_the_board_or_is_n
             "round {round}: the board came back with what went into the trash with it"
         );
     }
+
+    test.teardown().await;
+}
+
+/// A patch is applied to the block as the patch before it left it: of two patches at
+/// once, one of the title and one of a field, both changes are there afterwards. Neither
+/// writes back what it read of the other's part before the other wrote.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_patches_of_a_block_at_once_both_take_effect() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture {
+        user_id, board_id, ..
+    } = fixture(store).await;
+    let mut card = Block {
+        block_type: BlockType::Card,
+        title: "before".to_owned(),
+        fields: fields(json!({ "kept": "as it is", "mark": "before" })),
+        ..block(&new_id(), &board_id)
+    };
+    store
+        .insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is inserted");
+
+    for round in 0..2 * RACE_ROUNDS {
+        let title = format!("title {round}");
+        let mark = json!(format!("mark {round}"));
+        let patches = [
+            title_patch(&title),
+            BlockPatch {
+                updated_fields: fields(json!({ "mark": mark })),
+                ..BlockPatch::default()
+            },
+        ];
+
+        let start = Arc::new(Barrier::new(2));
+        let mut racers = JoinSet::new();
+        for patch in patches {
+            let (store, start) = (store.clone(), Arc::clone(&start));
+            let (card_id, user_id) = (card.id.clone(), user_id.clone());
+            racers.spawn(async move {
+                start.wait().await;
+                store.patch_block(&card_id, &patch, &user_id).await
+            });
+        }
+        for outcome in racers.join_all().await {
+            outcome.unwrap_or_else(|error| panic!("round {round}: a patch failed: {error:?}"));
+        }
+
+        let stored = existing_block(store, &card.id).await;
+        assert_eq!(
+            (stored.title.as_str(), stored.fields.get("mark")),
+            (title.as_str(), Some(&mark)),
+            "round {round}: the title of one patch and the field of the other"
+        );
+        assert_eq!(
+            stored.fields.get("kept"),
+            Some(&json!("as it is")),
+            "round {round}: what neither patch named is as it was"
+        );
+    }
+
+    test.teardown().await;
+}
+
+/// Asked for the blocks whose parent is the board itself, the store answers with the
+/// blocks directly on the board: the ones it stores without a parent. Not the blocks
+/// below those, not the blocks of another board, and nothing if the board named as
+/// parent is not the board that is asked about.
+#[tokio::test]
+async fn get_blocks_with_the_board_as_parent_returns_the_blocks_directly_on_the_board() {
+    let test = common::setup().await;
+    let store = &test.store;
+    let Fixture {
+        user_id,
+        team_id,
+        board_id,
+    } = fixture(store).await;
+    let other_board_id = another_board(store, &team_id, &user_id).await;
+
+    // Two cards and a view at the top, one of the cards written with the board as its
+    // parent; a text on a card and a checkbox on the text.
+    let mut tree = named_blocks(
+        &board_id,
+        &[
+            ("card", "", "card"),
+            ("view", "", "view"),
+            ("text", "card", "text"),
+            ("checkbox", "text", "checkbox"),
+        ],
+    );
+    common::insert_blocks(store, &mut tree, &user_id).await;
+    let mut named_the_board = Block {
+        parent_id: board_id.clone(),
+        block_type: BlockType::Card,
+        title: "second card".to_owned(),
+        ..block(&new_id(), &board_id)
+    };
+    store
+        .insert_block(&mut named_the_board, &user_id)
+        .await
+        .expect("a card that names its board as parent is stored");
+    let mut elsewhere = named_blocks(&other_board_id, &[("other card", "", "card")]);
+    common::insert_blocks(store, &mut elsewhere, &user_id).await;
+
+    let on_the_board = BlockFilter::board(&board_id).with_parent(&board_id);
+    let blocks = store
+        .get_blocks(&on_the_board)
+        .await
+        .expect("the query runs");
+    assert_eq!(
+        sorted_names(&blocks),
+        ["card", "second card", "view"],
+        "exactly the blocks directly on the board"
+    );
+    assert!(
+        blocks.iter().all(|block| block.parent_id.is_empty()),
+        "none of them has a parent: {blocks:?}"
+    );
+
+    // The other filters narrow it as they narrow any list.
+    let cards = store
+        .get_blocks(&on_the_board.clone().with_type(BlockType::Card))
+        .await
+        .expect("the query runs");
+    assert_eq!(
+        sorted_names(&cards),
+        ["card", "second card"],
+        "of them, the cards"
+    );
+
+    // A block as parent still means that block.
+    let on_the_card = store
+        .get_blocks(&BlockFilter::board(&board_id).with_parent(id_of(&tree, "card")))
+        .await
+        .expect("the query runs");
+    assert_eq!(
+        sorted_names(&on_the_card),
+        ["text"],
+        "the block on the card"
+    );
+
+    // Each board has its own, and one board is not the parent of another's blocks.
+    let on_the_other = store
+        .get_blocks(&BlockFilter::board(&other_board_id).with_parent(&other_board_id))
+        .await
+        .expect("the query runs");
+    assert_eq!(
+        sorted_names(&on_the_other),
+        ["other card"],
+        "the other board's"
+    );
+    let mixed = store
+        .get_blocks(&BlockFilter::board(&board_id).with_parent(&other_board_id))
+        .await
+        .expect("the query runs");
+    assert!(
+        mixed.is_empty(),
+        "no block of the board is on another board: {mixed:?}"
+    );
 
     test.teardown().await;
 }

@@ -93,11 +93,8 @@ async fn handle_get_user(
     Path(user_id): Path<String>,
 ) -> ApiResult {
     let mut user = app.user(&user_id).await.map_err(user_not_found)?;
-    if !app
-        .can_see_user(&session.user_id)
-        .await
-        .is_ok_and(|sees| sees)
-    {
+    // A lookup that failed is no answer to who may be seen.
+    if !app.can_see_user(&session.user_id).await? {
         return Err(AppError::not_found(USER));
     }
     if user_id == session.user_id {

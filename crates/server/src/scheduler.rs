@@ -31,7 +31,35 @@ impl RecurringTask {
     /// # Panics
     ///
     /// Panics if `interval` is zero, or if called outside a Tokio runtime.
-    pub fn spawn<Work, Run>(name: &'static str, interval: Duration, mut work: Work) -> Self
+    pub fn spawn<Work, Run>(name: &'static str, interval: Duration, work: Work) -> Self
+    where
+        Work: FnMut() -> Run + Send + 'static,
+        Run: Future<Output = ()> + Send,
+    {
+        Self::spawn_from(name, interval, Instant::now() + interval, work)
+    }
+
+    /// Starts running `work` every `interval`, for the first time right away: for
+    /// housekeeping that a server which is restarted more often than the interval would
+    /// otherwise never get to.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `interval` is zero, or if called outside a Tokio runtime.
+    pub fn spawn_starting_now<Work, Run>(name: &'static str, interval: Duration, work: Work) -> Self
+    where
+        Work: FnMut() -> Run + Send + 'static,
+        Run: Future<Output = ()> + Send,
+    {
+        Self::spawn_from(name, interval, Instant::now(), work)
+    }
+
+    fn spawn_from<Work, Run>(
+        name: &'static str,
+        interval: Duration,
+        first: Instant,
+        mut work: Work,
+    ) -> Self
     where
         Work: FnMut() -> Run + Send + 'static,
         Run: Future<Output = ()> + Send,
@@ -39,7 +67,7 @@ impl RecurringTask {
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         let running = tokio::spawn(async move {
-            let mut ticker = interval_at(Instant::now() + interval, interval);
+            let mut ticker = interval_at(first, interval);
             ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
             loop {
                 tokio::select! {

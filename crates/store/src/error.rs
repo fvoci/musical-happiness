@@ -85,10 +85,9 @@ pub enum StoreError {
     #[error("{0:?} is not an identifier")]
     InvalidId(String),
 
-    /// A record with the same unique value exists already: a user name or an email
-    /// address, compared without regard to case.
+    /// A user cannot be stored because another one has what must be one user's alone.
     #[error("{0} is taken")]
-    Conflict(&'static str),
+    Conflict(Taken),
 
     /// The database configuration cannot be used.
     #[error("invalid database configuration: {0}")]
@@ -112,7 +111,42 @@ pub enum StoreError {
     Database(#[from] sqlx::Error),
 }
 
+/// What of a user is another user's already.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Taken {
+    /// The user name, in any letter case.
+    Username,
+    /// The email address, in any letter case.
+    Email,
+}
+
+impl std::fmt::Display for Taken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Username => "the user name",
+            Self::Email => "the email address",
+        })
+    }
+}
+
 impl StoreError {
+    /// Reads the violation of a foreign key as "`what` not found": the row that was to
+    /// be stored refers to something that does not exist, or no longer does. Any other
+    /// error is returned as it is.
+    #[must_use]
+    pub(crate) fn missing_reference(self, what: &'static str) -> Self {
+        match self {
+            Self::Database(error)
+                if error
+                    .as_database_error()
+                    .is_some_and(sqlx::error::DatabaseError::is_foreign_key_violation) =>
+            {
+                Self::not_found(what)
+            }
+            other => other,
+        }
+    }
+
     /// Returns `true` if the error means a record does not exist, which the HTTP layer
     /// reports as "not found" rather than as a server error.
     pub fn is_not_found(&self) -> bool {

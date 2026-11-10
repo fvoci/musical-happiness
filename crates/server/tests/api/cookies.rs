@@ -338,7 +338,7 @@ async fn the_cookie_is_renewed_when_the_use_of_the_session_is_recorded() {
         .expect("the session is stored");
     let move_last_use_back = async |minutes: i64| {
         store
-            .touch_session(
+            .set_session_last_used(
                 &session.id,
                 fvoci_server::auth::now_millis() - minutes * MINUTE,
             )

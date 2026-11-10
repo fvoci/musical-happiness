@@ -113,8 +113,9 @@ impl App {
     /// Copies the files that duplicated image and attachment blocks refer to and points
     /// each block at its copy.
     ///
-    /// `board_id` is the board the blocks were copied from; `blocks` are the copies. A
-    /// block whose file could not be copied ends up naming no file.
+    /// `board_id` is the board the blocks were copied from; `blocks` are the copies, as
+    /// they are stored already, and are changed along with what is stored. A block whose
+    /// file could not be copied ends up naming no file. For blocks that are not stored yet, see [`App::copy_card_files_into`].
     ///
     /// # Errors
     ///
@@ -124,7 +125,7 @@ impl App {
         &self,
         board_id: &str,
         user_id: &str,
-        blocks: &[Block],
+        blocks: &mut [Block],
     ) -> Result<(), AppError> {
         // A failure to copy does not stop the duplication: it is logged, and the copied
         // blocks end up naming no file.
@@ -139,7 +140,7 @@ impl App {
         // Write the names of the copies to the stored blocks.
         let mut block_ids = Vec::new();
         let mut block_patches = Vec::new();
-        for block in blocks {
+        for block in blocks.iter_mut() {
             if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
                 continue;
             }
@@ -147,6 +148,12 @@ impl App {
                 continue;
             };
             let new_name = new_file_names.get(file_id).cloned().unwrap_or_default();
+            // The caller's copies say what is stored: they are what is answered and
+            // announced.
+            block
+                .fields
+                .insert("fileId".to_owned(), Value::String(new_name.clone()));
+            block.fields.remove("attachmentId");
             block_ids.push(block.id.clone());
             let mut updated_fields = JsonMap::new();
             updated_fields.insert("fileId".to_owned(), Value::String(new_name));
@@ -172,6 +179,43 @@ impl App {
                 })?;
         }
         Ok(())
+    }
+
+    /// Copies the files that image and attachment blocks refer to, for blocks that are
+    /// about to be stored as copies of blocks of `source_board_id`, and points each block
+    /// at its copy. Nothing is written to the blocks' store: the caller stores them.
+    ///
+    /// A block whose file is not the source board's, or could not be copied, ends up
+    /// naming no file. Failures are logged and do not fail the call.
+    pub async fn copy_card_files_into(&self, source_board_id: &str, blocks: &mut [Block]) {
+        let new_file_names = match self.copy_card_files(source_board_id, blocks).await {
+            Ok(names) => names,
+            Err(error) => {
+                tracing::error!(source_board_id, %error, "could not copy the files of new blocks");
+                HashMap::new()
+            }
+        };
+        for block in blocks.iter_mut() {
+            if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
+                continue;
+            }
+            let Some(Value::String(file_id)) = block.fields.get("fileId") else {
+                continue;
+            };
+            let new_name = new_file_names.get(file_id).cloned().unwrap_or_default();
+            block
+                .fields
+                .insert("fileId".to_owned(), Value::String(new_name));
+            block.fields.remove("attachmentId");
+        }
+    }
+
+    /// Removes a file that was written but has no record, after the record could not be
+    /// stored. A file that cannot be removed either is logged: nothing names it.
+    async fn remove_stray_file(&self, path: &str) {
+        if let Err(error) = self.files().delete(path).await {
+            tracing::warn!(%error, path, "a file without a record could not be removed");
+        }
     }
 
     /// Copies each file referred to by an image or attachment block and returns a map
@@ -229,8 +273,9 @@ impl App {
                 create_at: now_millis(),
                 ..source.clone()
             };
-            self.store().save_file_info(&copy).await?;
-
+            // The bytes first, then the record that says where they are. A file that
+            // could not be copied gets no record and no name: the block that pointed at
+            // it ends up naming no file, not a file that is not there.
             if let Err(error) = self.files().copy(&source.path, &copy.path).await {
                 tracing::error!(
                     %error,
@@ -238,6 +283,11 @@ impl App {
                     destination_path = copy.path,
                     "CopyCardFiles failed to copy file"
                 );
+                continue;
+            }
+            if let Err(error) = self.store().save_file_info(&copy).await {
+                self.remove_stray_file(&copy.path).await;
+                return Err(error.into());
             }
             new_file_names.insert(file_id, stored_name);
         }

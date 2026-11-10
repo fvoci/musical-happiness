@@ -250,8 +250,8 @@ fn record_of(board_id: &str, stored_name: &str) -> FileInfo {
 }
 
 /// Not in the original, whose file records name boards that need not exist. A file is
-/// one board's: a record for a board that does not exist is refused over its foreign
-/// key, and nothing is stored.
+/// one board's: for a record of a board that does not exist the board is not found, and
+/// nothing is stored.
 #[tokio::test]
 async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
     let test = common::setup().await;
@@ -266,7 +266,10 @@ async fn a_file_record_for_a_board_that_does_not_exist_is_refused() {
         .save_file_info(&record)
         .await
         .expect_err("a record for a board that does not exist is refused");
-    assert!(common::refused_over_a_foreign_key(&error), "got {error:?}");
+    assert!(
+        matches!(&error, StoreError::NotFound(what) if what == "board"),
+        "got {error:?}"
+    );
 
     for board_id in [&no_board, &boards[0].id] {
         let error = store

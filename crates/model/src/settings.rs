@@ -13,6 +13,11 @@ use serde::Serialize;
 
 use crate::JsonMap;
 
+/// The text is no value of the setting it was read as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("not a value of this setting")]
+pub struct ParseSettingError;
+
 /// Defines a setting whose values are a closed set of words.
 macro_rules! word_setting {
     (
@@ -42,12 +47,12 @@ macro_rules! word_setting {
         }
 
         impl FromStr for $name {
-            type Err = ();
+            type Err = ParseSettingError;
 
-            fn from_str(word: &str) -> Result<Self, ()> {
+            fn from_str(word: &str) -> Result<Self, ParseSettingError> {
                 match word {
                     $($word => Ok(Self::$variant),)+
-                    _ => Err(()),
+                    _ => Err(ParseSettingError),
                 }
             }
         }
@@ -140,15 +145,15 @@ impl TimeZone {
 }
 
 impl FromStr for TimeZone {
-    type Err = ();
+    type Err = ParseSettingError;
 
-    fn from_str(text: &str) -> Result<Self, ()> {
+    fn from_str(text: &str) -> Result<Self, ParseSettingError> {
         if text == Self::AUTO {
             Ok(Self(None))
         } else if text.parse::<chrono_tz::Tz>().is_ok() {
             Ok(Self(Some(text.to_owned())))
         } else {
-            Err(())
+            Err(ParseSettingError)
         }
     }
 }
@@ -276,14 +281,14 @@ impl UserSettings {
         for (name, value) in stored {
             if let Some(name) = SettingName::from_name(name) {
                 // A stored value that does not parse leaves the default in place.
-                let _unreadable: Result<(), ()> = settings.set(name, value);
+                let _unreadable: Result<(), ParseSettingError> = settings.set(name, value);
             }
         }
         settings
     }
 
     /// Sets one setting from its stored form.
-    fn set(&mut self, name: SettingName, value: &str) -> Result<(), ()> {
+    fn set(&mut self, name: SettingName, value: &str) -> Result<(), ParseSettingError> {
         match name {
             SettingName::TimeZone => self.time_zone = value.parse()?,
             SettingName::WeekStart => self.week_start = value.parse()?,
@@ -291,7 +296,9 @@ impl UserSettings {
             SettingName::Theme => self.theme = value.parse()?,
             SettingName::CardOpen => self.card_open = value.parse()?,
             SettingName::Density => self.density = value.parse()?,
-            SettingName::Haptics => self.haptics = value.parse().map_err(|_| ())?,
+            SettingName::Haptics => {
+                self.haptics = value.parse().map_err(|_| ParseSettingError)?;
+            }
         }
         Ok(())
     }
@@ -365,7 +372,7 @@ impl UserSettingsPatch {
             // Whatever is stored must read back: checked with the reader itself.
             UserSettings::default()
                 .set(setting, &stored)
-                .map_err(|()| invalid())?;
+                .map_err(|ParseSettingError| invalid())?;
             patch.set.insert(setting, stored);
         }
         Ok(patch)
