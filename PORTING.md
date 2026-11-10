@@ -18,7 +18,7 @@
 
 ## 검증 도구
 
-S6부터의 진입점은 `cargo xtask check`와 `cargo xtask test`다(아래 "S6" 절, 명령의 세부는 `docs/handoff-s5.md` 1절). 표에서 "레거시"라고 적은 것은 태그 `parity-s5`까지 원본과 비교하는 데 쓴 도구로, 이후의 변경에는 쓰지 않는다.
+S6부터의 진입점은 `cargo xtask check`와 `cargo xtask test`다(아래 "S6" 절, 명령의 세부는 `docs/handoff-s5.md` 1절). 표에서 "레거시"라고 적은 것은 태그 `parity-s5`까지 원본과 비교하는 데 쓴 도구로, 이후의 변경에는 쓰지 않는다. **`scripts/` 아래의 것은 주 브랜치에서 걷어 냈고(2026-11-10 17:44 KST) 태그 `parity-s5`에 남아 있다.** 꺼내 쓰는 방법은 `docs/handoff-s5.md` 1절에 있다.
 
 | 도구 | 위치 | 용도 |
 |---|---|---|
@@ -30,14 +30,14 @@ S6부터의 진입점은 `cargo xtask check`와 `cargo xtask test`다(아래 "S6
 | 원본 웹 번들 (레거시) | `webapp/pack` | `npm ci && npm run pack` (Node 26.13.0에서 빌드됨) |
 | Cypress (레거시) | `scripts/e2e-cypress.sh <label> <server>` | 원본 스펙 6개(테스트 11개)를 임의의 서버 바이너리에 실행. 결과는 `target/e2e/<label>/` |
 
-| 포트 실행 | `scripts/fvoci-run.sh <name> <port> [single-user 토큰] [dbtype] [dbconfig] [filespath]` | 오라클 실행 스크립트와 같은 인자로 Rust 서버를 띄운다 |
+| 포트 실행 (레거시) | `scripts/fvoci-run.sh <name> <port> [single-user 토큰] [dbtype] [dbconfig] [filespath]` | 오라클 실행 스크립트와 같은 인자로 Rust 서버를 띄운다 |
 | 차등 비교 (레거시) | `scripts/differential/run.py --left <원본 URL> --right <포트 URL>` | 같은 요청 시퀀스(시나리오 15개)를 두 서버에 보내 상태 코드와 JSON을 비교한다. ID·시각·비밀값은 정규화한다 |
 | 권한 표 (레거시) | `scripts/differential/permissions.py --left … --right …` | 라우트 × 역할 × 보드 종류별 상태 코드를 비교한다 |
 | DB 왕복 (레거시) | `scripts/differential/roundtrip.sh sqlite` / `postgres <URL>` | 한 서버가 쓴 DB와 파일을 다른 서버로 읽고 쓴다 |
 | S3 호환 서버 | 컨테이너 `hafgufa-s3` (SeaweedFS, 127.0.0.1:18333, 버킷 `fvoci-test`) | S3 파일 백엔드 테스트 |
 | 라이선스 | `cargo deny check`(`deny.toml`), `cargo about generate …`(`about.toml`, `about.hbs`) | 의존성 라이선스·권고 검사, `NOTICE` 생성. 도구는 `target/tools/bin`에 설치했다 |
 
-등록된 의도적 차이는 `scripts/differential/expected.py`에 있다. 빌드 산출물, 오라클의 Go 빌드 캐시, 테스트 DB, E2E 실행 디렉터리는 모두 `target/` 아래에 두며 git에서 무시한다.
+등록된 의도적 차이는 `scripts/differential/expected.py`에 있다(태그 `parity-s5`). 빌드 산출물, 오라클의 Go 빌드 캐시, 테스트 DB, E2E 실행 디렉터리는 모두 `target/` 아래에 두며 git에서 무시한다.
 
 ### 기준선 (S0, 2026-11-10)
 
@@ -115,7 +115,7 @@ S6부터의 진입점은 `cargo xtask check`와 `cargo xtask test`다(아래 "S6
 | Docker 이미지 | `docker build -f docker/fvoci/Dockerfile`이 워크스페이스에 `xtask`가 추가된 뒤에도 `--locked`로 빌드된다(빌드 캐시가 있는 상태에서 확인) |
 | 컨테이너 준비 경로 | 다른 이름과 포트의 임시 컨테이너로 "없음 → 생성", "멈춤 → 시작"을 확인하고 지웠다. 기존 `hafgufa-pg`·`hafgufa-s3`는 "떠 있음 → 그대로 사용" |
 
-걷어 낼 수 있게 된 것(아직 지우지 않았다. 사용자에게 알리고 지운다): `scripts/differential/`, `scripts/oracle-run.sh`, `scripts/fvoci-run.sh`, `scripts/e2e-cypress.sh`, `target/oracle/`. 태그 `parity-s5`에 모두 남아 있다.
+걷어 낸 것(사용자 확인 뒤, 2026-11-10 17:44 KST, 별도 커밋): `scripts/differential/`, `scripts/oracle-run.sh`, `scripts/fvoci-run.sh`, `scripts/e2e-cypress.sh`. 태그 `parity-s5`에 남아 있다. `target/oracle/`(오라클 바이너리와 Go 빌드 캐시)과 개발 서버는 그대로 두었다.
 
 ### B. 설계 안
 

@@ -9,7 +9,7 @@
 | 단계별 결과, 도구 목록, 사용자 결정 항목, 작성 모델, 플러그인 저장소 점검 요약 | `PORTING.md` (루트) |
 | 서버의 API·테스트 매핑, 의도적 차이 1–65, 보안 수정 표, 보안 결정 대기 S1–S18, 보존한 quirk, 리뷰 처리, 검증 결과와 미검증 | `crates/server/PORTING.md` |
 | 스토어, 모델 | `crates/store/PORTING.md`, `crates/model/PORTING.md` |
-| 차등 비교에서 "의도적으로 다름"으로 등록한 항목과 사유 | `scripts/differential/expected.py` |
+| 차등 비교에서 "의도적으로 다름"으로 등록한 항목과 사유 | `scripts/differential/expected.py` (태그 `parity-s5`에 있다. 주 브랜치에서는 걷어 냈다) |
 | 플러그인 저장소 PR별 점검 결과 | `~/.claude/plans/fvoci-plugin-boards-checklist.md` (저장소 밖) |
 | 전체 계획(웹앱 트랙 W1 이후 포함) | `~/.claude/plans/focalboard-rust-woolly-candy.md` (저장소 밖) |
 | CDN 배포 안내 | `docs/fvoci-cdn.md` |
@@ -67,7 +67,18 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .
 
 ### 레거시: 원본 서버(오라클)가 필요한 검증
 
-`parity-s5`까지 쓰던 것이다. 호환을 끝냈으므로 이후의 변경은 이 검증을 통과하지 않는다(통과할 필요가 없다). 스크립트와 오라클은 아직 지우지 않았다. `parity-s5`를 체크아웃해 다시 확인할 때만 쓴다.
+`parity-s5`까지 쓰던 것이다. 호환을 끝냈으므로 이후의 변경은 이 검증을 통과하지 않는다(통과할 필요가 없다). **스크립트(`scripts/differential/`, `scripts/oracle-run.sh`, `scripts/fvoci-run.sh`, `scripts/e2e-cypress.sh`)는 주 브랜치에서 걷어 냈다(2026-11-10 17:44 KST). 태그 `parity-s5`에서 꺼내 쓴다.** 오라클 바이너리(`target/oracle/`)와 개발 서버는 그대로 있다.
+
+```bash
+# 태그의 서버와 스크립트로 다시 확인할 때: 태그를 따로 체크아웃한다
+git worktree add ../hafgufa-parity-s5 parity-s5     # 끝나면 git worktree remove ../hafgufa-parity-s5
+cd ../hafgufa-parity-s5                              # 아래 명령은 그 안에서 실행한다 (target/은 새로 생긴다)
+
+# 스크립트만 잠깐 꺼내 볼 때 (커밋하지 않는다)
+git restore --source=parity-s5 --worktree -- scripts/
+```
+
+아래는 태그 안에서의 명령이다.
 
 ```bash
 # 차등 비교: 원본 대 포트 (382단계)

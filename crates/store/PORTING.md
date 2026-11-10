@@ -217,5 +217,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 
 S5(2026-11-10):
 
+(S6: 아래에 나오는 `scripts/` 아래의 스크립트는 주 브랜치에서 걷어 냈다. 태그 `parity-s5`에 남아 있다.)
+
 - `cargo test -p fvoci-store`: SQLite와 PostgreSQL 모두 단위 5 + 통합 116 통과.
 - DB 왕복(`scripts/differential/roundtrip.sh`): 원본이 쓴 DB를 포트가 읽고 쓰기, 포트가 쓴 DB를 원본이 읽고 쓰기를 SQLite와 PostgreSQL에서 각각 수행. 방향마다 API 관찰 22건(사용자, 팀, 보드, 블록, 카드, 멤버, 카테고리, 공유, 구독, 파일 내용과 정보, 템플릿, 검색, 기존 세션 토큰과 비밀번호 로그인)을 비교해 차이 0건. 등록된 차이는 사용자 설정 1건뿐이다. 위 "미검증"의 두 항목은 이것으로 확인됐다.

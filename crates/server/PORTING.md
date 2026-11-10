@@ -468,6 +468,8 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 
 ## 검증 (S5, 2026-11-10)
 
+(S6: 아래에 나오는 `scripts/` 아래의 스크립트는 주 브랜치에서 걷어 냈다. 태그 `parity-s5`에 남아 있다.)
+
 rustc 1.99.1, SQLite(번들), PostgreSQL 18.6(컨테이너 `hafgufa-pg`), S3 호환 서버 SeaweedFS(컨테이너 `hafgufa-s3`). 원본은 `a84bbb65`를 Go 1.21.8로 빌드한 오라클이다.
 
 | 검증 | 명령 | 결과 |
