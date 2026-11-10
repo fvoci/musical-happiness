@@ -1,0 +1,15 @@
+# The web app formats everything with two spaces. The file at the repository
+# root, which belongs to the original tree, asks for four in .js, .json and
+# .html; Prettier reads whichever applies, so this one stops the search.
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+indent_style = space
+indent_size = 2
+
+[src/lib/{ui,hooks}/**]
+indent_style = tab

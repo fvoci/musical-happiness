@@ -1,0 +1,211 @@
+/**
+ * Date values, formatting and text helpers. Written for the port; the
+ * original tests cover only part of this code (see utils.test.ts). Cases
+ * named "quirk Qn" pin a behaviour of the original that looks like a defect
+ * and is listed in PORTING.md.
+ */
+import { describe, expect, it } from 'vitest';
+
+import { arrayMove, arraysEqual } from '$lib/logic/arrays.ts';
+import { dateFromOf, dateToOf, localDateOf, timestampOfDay } from '$lib/logic/dates.ts';
+import {
+  displayDate,
+  displayDateTime,
+  humanFileSize,
+  humanizeDuration,
+  inputDate,
+  relativeTime,
+  roundTo,
+} from '$lib/logic/format.ts';
+import {
+  countCheckboxesInMarkdown,
+  hashCode,
+  htmlDecode,
+  htmlEncode,
+  sanitizeFilename,
+} from '$lib/logic/text.ts';
+import { fillPath, normalizeBasePath } from '$lib/logic/urls.ts';
+import { fullName } from '$lib/logic/users.ts';
+describe('a calendar day as a stored timestamp', () => {
+  // These hold in every time zone; the suite is also run under several (PORTING.md).
+  const days = [
+    new Date(2026, 0, 1),
+    new Date(2026, 2, 8, 23, 0),
+    new Date(2026, 5, 30, 0, 0),
+    new Date(2026, 10, 1, 9, 0),
+  ];
+
+  it('stores 12:00 UTC of the local calendar day', () => {
+    for (const day of days) {
+      expect(timestampOfDay(day)).toBe(
+        Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), 12),
+      );
+    }
+  });
+
+  it('does not change the date it is given', () => {
+    const day = new Date(2026, 0, 1, 8, 0);
+    timestampOfDay(day);
+    expect(day.getHours()).toBe(8);
+  });
+
+  it('reads the stored day back as the same local day', () => {
+    for (const day of days) {
+      const local = localDateOf(timestampOfDay(day));
+      expect([local.getFullYear(), local.getMonth(), local.getDate()]).toEqual([
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate(),
+      ]);
+      const start = dateFromOf({ from: timestampOfDay(day) });
+      expect(start?.getTime()).toBe(
+        new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime(),
+      );
+    }
+  });
+
+  it('leaves a value with a time of day as the instant it is', () => {
+    const instant = Date.UTC(2026, 4, 5, 18, 30);
+    expect(localDateOf(instant, true).getTime()).toBe(instant);
+  });
+
+  it('has no end for a single day', () => {
+    expect(dateToOf({ from: 1 })).toBeUndefined();
+    expect(dateFromOf({})).toBeUndefined();
+  });
+
+  it('quirk Q11: minutes of the given time end up in the stored value', () => {
+    const day = new Date(2026, 0, 1, 8, 17);
+    expect(timestampOfDay(day)).toBe(Date.UTC(2026, 0, 1, 12, 17));
+  });
+});
+
+describe('durations and sizes', () => {
+  const now = new Date(2026, 5, 15, 12, 0, 0);
+  const ago = (milliseconds: number): Date => new Date(now.getTime() - milliseconds);
+  const MINUTE = 60_000;
+  const HOUR = 60 * MINUTE;
+  const DAY = 24 * HOUR;
+
+  it('says how long ago something was, in the unit people would use', () => {
+    expect(relativeTime(ago(10_000), 'en', now)).toBe('now');
+    expect(relativeTime(ago(5 * MINUTE), 'en', now)).toBe('5 minutes ago');
+    expect(relativeTime(ago(50 * MINUTE), 'en', now)).toBe('1 hour ago');
+    expect(relativeTime(ago(3 * HOUR), 'en', now)).toBe('3 hours ago');
+    expect(relativeTime(ago(30 * HOUR), 'en', now)).toBe('yesterday');
+    expect(relativeTime(ago(40 * DAY), 'en', now)).toBe('last month');
+    expect(relativeTime(ago(400 * DAY), 'en', now)).toBe('last year');
+    expect(relativeTime(new Date(now.getTime() + 2 * DAY), 'en', now)).toBe('in 2 days');
+    expect(relativeTime(ago(3 * HOUR), 'ko', now)).toBe('3시간 전');
+  });
+
+  it('rounds each unit before choosing it, like the library the original used', () => {
+    // 44.7 seconds round to 45: no longer "a few seconds".
+    expect(humanizeDuration(44_700, 'en')).toBe('1 minute');
+    expect(humanizeDuration(44 * MINUTE + 40_000, 'en')).toBe('1 hour');
+    expect(humanizeDuration(21 * HOUR + 40 * MINUTE, 'en')).toBe('1 day');
+    expect(humanizeDuration(44 * MINUTE + 20_000, 'en')).toBe('44 minutes');
+    expect(humanizeDuration(45.6 * DAY, 'en')).toBe('1 month');
+    expect(humanizeDuration(400 * DAY, 'en')).toBe('1 year');
+    expect(humanizeDuration(800 * DAY, 'en')).toBe('2 years');
+  });
+
+  it('shows nothing for a date that is not one', () => {
+    const invalid = new Date(Number.NaN);
+    expect(displayDate(invalid, 'en')).toBe('');
+    expect(displayDateTime(invalid, 'en')).toBe('');
+    expect(inputDate(invalid, 'en')).toBe('');
+  });
+
+  it('names a length of time', () => {
+    expect(humanizeDuration(20_000, 'en')).toBe('20 seconds');
+    expect(humanizeDuration(DAY, 'en')).toBe('1 day');
+    expect(humanizeDuration(3 * DAY, 'en')).toBe('3 days');
+    expect(humanizeDuration(70 * DAY, 'en')).toBe('2 months');
+    expect(humanizeDuration(3 * DAY, 'ko')).toBe('3일');
+  });
+
+  it('rounds to decimal places', () => {
+    expect(roundTo(56.666, 2)).toBe(56.67);
+    expect(roundTo(-0.004, 2)).toBe(-0);
+  });
+
+  it('writes file sizes in binary or decimal units', () => {
+    expect(humanFileSize(500)).toBe('500 B');
+    expect(humanFileSize(1536)).toBe('1.5 KiB');
+    expect(humanFileSize(1_500_000, true)).toBe('1.5 MB');
+    expect(humanFileSize(1024 * 1024 * 1024, false, 2)).toBe('1.00 GiB');
+  });
+});
+
+describe('text', () => {
+  it('quirk Q7: only the first of each illegal character leaves a file name', () => {
+    expect(sanitizeFilename('a/b:c')).toBe('abc');
+    expect(sanitizeFilename('v1.2.3 notes')).toBe('v12.3 notes');
+  });
+
+  it('encodes and decodes the characters that matter in HTML', () => {
+    expect(htmlEncode('<a href="x">&</a>')).toBe('&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;');
+    expect(htmlDecode(htmlEncode('<a href="x">&</a>'))).toBe('<a href="x">&</a>');
+  });
+
+  it('hashes a text to a stable 32-bit number', () => {
+    expect(hashCode('')).toBe(0);
+    expect(hashCode('abc')).toBe(96354);
+    expect(hashCode('a longer text that overflows')).toBe(hashCode('a longer text that overflows'));
+  });
+
+  it('counts task list items of every list marker, but not inside code fences', () => {
+    const text = [
+      '* [x] star',
+      '1. [ ] numbered',
+      '  - [X] nested',
+      '- [] not a task',
+      '```',
+      '- [x] code',
+      '```',
+    ].join('\n');
+    expect(countCheckboxesInMarkdown(text)).toEqual({ total: 3, checked: 2 });
+    expect(countCheckboxesInMarkdown('')).toEqual({ total: 0, checked: 0 });
+  });
+});
+
+describe('small helpers', () => {
+  it('compares lists item by item', () => {
+    expect(arraysEqual(['a', 'b'], ['a', 'b'])).toBe(true);
+    expect(arraysEqual(['a', 'b'], ['b', 'a'])).toBe(false);
+    expect(arraysEqual(['a'], ['a', 'b'])).toBe(false);
+    expect(arraysEqual(undefined, [])).toBe(false);
+    expect(arraysEqual(null, null)).toBe(true);
+  });
+
+  it('moves an item within a list', () => {
+    const list = ['a', 'b', 'c', 'd'];
+    arrayMove(list, 0, 2);
+    expect(list).toEqual(['b', 'c', 'a', 'd']);
+  });
+
+  it('fills route parameters and drops missing optional ones', () => {
+    expect(fillPath('/board/:boardId/:viewId?/:cardId?', { boardId: 'b', viewId: 'v' })).toBe(
+      '/board/b/v',
+    );
+    expect(() => fillPath('/board/:boardId', {})).toThrow('boardId');
+  });
+
+  it('strips the slashes around a base path', () => {
+    expect(['/boards/', 'boards', '', undefined, '/a/b//'].map(normalizeBasePath)).toEqual([
+      'boards',
+      'boards',
+      '',
+      '',
+      'a/b',
+    ]);
+  });
+
+  it('joins the names a user has', () => {
+    const names = { username: 'u', nickname: '' };
+    expect(fullName({ ...names, firstname: 'Ada', lastname: 'Lovelace' })).toBe('Ada Lovelace');
+    expect(fullName({ ...names, firstname: '', lastname: 'Lovelace' })).toBe('Lovelace');
+    expect(fullName({ ...names, firstname: '', lastname: '' })).toBe('');
+  });
+});

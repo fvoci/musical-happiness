@@ -1,0 +1,115 @@
+/**
+ * Boards, views, cards and content blocks with fixed, recognisable content
+ * for the tests of the logic. The same fixtures the tests of the original
+ * web app build on, so that the ported cases mean what they meant there.
+ */
+import {
+  appendCardContent,
+  createBoard,
+  createBoardView,
+  createCard,
+  createCheckboxBlock,
+  createCommentBlock,
+  createDividerBlock,
+  createFilterGroup,
+  createImageBlock,
+  createTextBlock,
+  setCardProperty,
+  type Block,
+  type Board,
+  type BoardView,
+  type Card,
+  type CheckboxBlock,
+  type CommentBlock,
+  type DividerBlock,
+  type ImageBlock,
+  type TextBlock,
+} from '$lib/logic/wire.ts';
+
+/** A board with the default select property and three more, each with one option. */
+export function createTestBoard(): Board {
+  const board = createBoard();
+  board.title = 'board title';
+  board.description = 'description';
+  board.showDescription = true;
+  board.icon = 'i';
+  for (let index = 1; index <= 3; index += 1) {
+    board.cardProperties.push({
+      id: `property${index}`,
+      name: `Property ${index}`,
+      type: 'select',
+      options: [{ id: 'value1', value: 'value 1', color: 'propColorBrown' }],
+    });
+  }
+  return board;
+}
+
+function createTestView(viewType: 'board' | 'table', board?: Board): BoardView {
+  const view = createBoardView({
+    ...createBoardView(),
+    fields: {
+      viewType,
+      groupById: 'property1',
+      hiddenOptionIds: ['value1'],
+      cardOrder: ['card1', 'card2', 'card3'],
+      sortOptions: [
+        { propertyId: 'property1', reversed: true },
+        { propertyId: 'property2', reversed: false },
+      ],
+      columnWidths: { column1: 100, column2: 200 },
+      filter: createFilterGroup({
+        operation: 'and',
+        filters: [{ propertyId: 'property1', condition: 'includes', values: ['value1'] }],
+      }),
+    },
+  });
+  view.boardId = board ? board.id : 'board';
+  view.title = 'view title';
+  return view;
+}
+
+export const createTestBoardView = (board?: Board): BoardView => createTestView('board', board);
+export const createTestTableView = (board?: Board): BoardView => createTestView('table', board);
+
+export function createTestCard(board?: Board): Card {
+  const card = createCard({ ...createCard(), fields: { icon: 'i' } });
+  card.boardId = board ? board.id : 'board';
+  card.title = 'title';
+  setCardProperty(card, 'property1', 'value1');
+  return card;
+}
+
+function addToCard<T extends Block>(block: T, card: Card, isContent = true): T {
+  block.parentId = card.id;
+  block.boardId = card.boardId;
+  if (isContent) appendCardContent(card, block.id);
+  return block;
+}
+
+export function createTestComment(card: Card): CommentBlock {
+  const block = addToCard(createCommentBlock(), card, false);
+  block.title = 'title';
+  return block;
+}
+
+export function createTestText(card: Card): TextBlock {
+  const block = addToCard(createTextBlock(), card);
+  block.title = 'title';
+  return block;
+}
+
+export function createTestImage(card: Card): ImageBlock {
+  return addToCard(createImageBlock({ ...createImageBlock(), fields: { fileId: 'fileId' } }), card);
+}
+
+export function createTestDivider(card: Card): DividerBlock {
+  const block = addToCard(createDividerBlock(), card);
+  block.title = 'title';
+  return block;
+}
+
+export function createTestCheckbox(card: Card): CheckboxBlock {
+  const block = addToCard(createCheckboxBlock(), card);
+  block.title = 'title';
+  return block;
+}
