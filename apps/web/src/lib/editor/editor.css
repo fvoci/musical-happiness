@@ -6,6 +6,26 @@
   font-size: var(--text-base);
   line-height: var(--line-body);
   outline: none;
+  /*
+   * What the editor's own style sheet (below) sets on its root, said here
+   * too so that a body that is only shown gets it as well: spaces and line
+   * feeds stay as they were typed, and letters are not joined into ligatures
+   * (the editor needs that to place the cursor; the view needs it to break
+   * its lines where the editor does).
+   */
+  white-space: pre-wrap;
+  white-space: break-spaces;
+  font-variant-ligatures: none;
+  font-feature-settings: 'liga' 0;
+}
+
+/*
+ * Tiptap puts a style sheet of its own into the page when an editor is made,
+ * after this one. Where the two disagree this one has to win, or a body would
+ * look different while it is edited. The doubled classes below are there to
+ * outrank that sheet's `.ProseMirror` and `.ProseMirror [contenteditable]`.
+ */
+.doc-body.doc-body {
   overflow-wrap: anywhere;
 }
 
@@ -84,6 +104,8 @@
   border-radius: var(--radius-md);
   padding: 0.75em 1em;
   overflow-x: auto;
+  /* Long lines of code wrap, in the editor (its own style sheet says so) and here. */
+  white-space: pre-wrap;
 }
 .doc-body pre code {
   background: none;
@@ -107,8 +129,12 @@
   height: auto;
   border-radius: var(--radius-md);
 }
-/* An image whose file could not be resolved still takes up room and says so. */
-.doc-body img:not([src]) {
+/*
+ * An image whose file could not be resolved still takes up room and says so.
+ * Only an image of the document: the editor also places empty images without
+ * size next to mentions and line breaks, for its cursor.
+ */
+.doc-body img[data-file-id]:not([src]) {
   display: block;
   min-height: 4em;
   background: var(--muted);
@@ -124,6 +150,9 @@
   border-radius: var(--radius-sm);
   padding: 0.05em 0.3em;
   font-weight: 500;
+}
+/* A name stays on one line. Doubled to outrank the editor's own style sheet; see the top. */
+.doc-body .mention.mention {
   white-space: nowrap;
 }
 

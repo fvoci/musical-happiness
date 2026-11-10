@@ -40,6 +40,7 @@ import { Dropcursor, Gapcursor, Placeholder, UndoRedo } from '@tiptap/extensions
 import { PluginKey } from '@tiptap/pm/state';
 import { Suggestion, type SuggestionOptions } from '@tiptap/suggestion';
 
+import { IMAGE_ATTRIBUTES, LINK_ATTRIBUTES } from './drawing.ts';
 import { fileUrl } from './files.ts';
 import { isAllowedHref } from './schema.ts';
 
@@ -60,7 +61,7 @@ const BodyLink = Link.extend({
   defaultProtocol: 'https',
   protocols: ['mailto'],
   isAllowedUri: (url) => isAllowedHref(url),
-  HTMLAttributes: { target: '_blank', rel: 'noopener noreferrer nofollow' },
+  HTMLAttributes: { ...LINK_ATTRIBUTES },
 });
 
 /** A numbered list keeps the number it starts at. */
@@ -116,10 +117,7 @@ export const FileImage = Node.create({
 
   renderHTML({ node, HTMLAttributes }) {
     const src = fileUrl(String(node.attrs.fileId));
-    return [
-      'img',
-      mergeAttributes(HTMLAttributes, src ? { src } : {}, { loading: 'lazy', decoding: 'async' }),
-    ];
+    return ['img', mergeAttributes(HTMLAttributes, src ? { src } : {}, { ...IMAGE_ATTRIBUTES })];
   },
 
   addCommands() {

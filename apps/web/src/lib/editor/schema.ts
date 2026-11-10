@@ -185,7 +185,9 @@ export function validateDoc(doc: unknown): string[] {
       problems.push(`${at}: deeper than ${MAX_DEPTH}`);
       return;
     }
-    const spec = typeof type === 'string' ? NODE_SPECS[type] : undefined;
+    // `Object.hasOwn`: a type named `constructor` or `__proto__` is not on the list.
+    const spec =
+      typeof type === 'string' && Object.hasOwn(NODE_SPECS, type) ? NODE_SPECS[type] : undefined;
     if (!spec) {
       problems.push(`${where}: unknown node type "${typeName}"`);
       return;
@@ -198,7 +200,7 @@ export function validateDoc(doc: unknown): string[] {
     if (type === 'text') {
       if (typeof text !== 'string' || text.length === 0) problems.push(`${at}: text is empty`);
       for (const mark of marks ?? []) {
-        const markSpec = MARK_SPECS[mark.type];
+        const markSpec = Object.hasOwn(MARK_SPECS, mark.type) ? MARK_SPECS[mark.type] : undefined;
         if (!markSpec) problems.push(`${at}: unknown mark "${mark.type}"`);
         else checkAttributes(`${at}@${mark.type}`, mark.attrs, markSpec, problems);
       }
