@@ -623,10 +623,13 @@ test.describe('filter', () => {
     await text.fill('PROJECT');
     await text.press('Enter');
     await expect(cards(page)).toHaveCount(2);
-    expect((await titles(page)).sort()).toEqual([
-      expect.stringContaining('Define project scope'),
-      expect.stringContaining('Project budget approval'),
-    ]);
+    // In whatever order: a line starts with the icon of its card.
+    expect(await titles(page)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('Define project scope'),
+        expect.stringContaining('Project budget approval'),
+      ]),
+    );
 
     // A date: a day picked from the calendar. The cards were all made before today.
     await title.locator('[data-remove]').click();

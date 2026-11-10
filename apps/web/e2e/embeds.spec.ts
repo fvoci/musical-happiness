@@ -7,7 +7,11 @@
  * What the two libraries may and may not do with hostile input is tested
  * where it can be tested widely: spikes/editor/attacks.spec.ts and the unit
  * tests. Here is only that the assembled app, with the policy, draws them.
+ *
+ * `FVOCI_SCREENS=1` also takes the pictures docs/screens/card/embeds-*.
  */
+import path from 'node:path';
+
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
@@ -101,6 +105,19 @@ async function drawn(body: Locator): Promise<void> {
   await expect(diagram).toHaveCount(1, { timeout: 30_000 });
   await expect(diagram.locator('svg')).toBeVisible();
   await expect(diagram.locator('svg')).toContainText('Start');
+  // The whole of it is in the picture: nothing drawn outside what the picture shows.
+  const outside = await diagram.locator('svg').evaluate((svg) => {
+    const frame = svg.getBoundingClientRect();
+    const content = svg.querySelector('g')?.getBoundingClientRect();
+    if (!content) return Number.POSITIVE_INFINITY;
+    return Math.max(
+      frame.left - content.left,
+      frame.top - content.top,
+      content.right - frame.right,
+      content.bottom - frame.bottom,
+    );
+  });
+  expect(outside).toBeLessThanOrEqual(1);
 }
 
 test.describe.configure({ timeout: 90_000 });
@@ -122,6 +139,15 @@ test('a card the reader may only look at draws them too, without the editor', as
   expect(seen).toEqual([]);
 });
 
+test('a reader who asked for less motion gets the whole diagram too', async ({ page }) => {
+  // The page shortens every transition for this reader; the diagram is
+  // measured while it is drawn, and a shortened transition once hid from the
+  // measuring where the nodes had just been put.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const body = await openCardWithEmbeds(page, 'Welcome');
+  await drawn(body);
+});
+
 test('on the dark screen the diagram is drawn again with the colours of the dark screen', async ({
   page,
 }) => {
@@ -141,4 +167,32 @@ test('on the dark screen the diagram is drawn again with the colours of the dark
   // The diagram watches the class of the page and is drawn again.
   await expect.poll(fillOf, { timeout: 30_000 }).not.toBe(light);
   await drawn(body);
+});
+
+// ------------------------------------------------------------ the pictures
+
+const STAGE_OF_PROJECT: Record<string, string> = {
+  desktop: 'expanded',
+  middle: 'medium',
+  mobile: 'compact',
+};
+
+test.describe('pictures of a formula and a diagram', () => {
+  test.skip(!process.env.FVOCI_SCREENS, 'set FVOCI_SCREENS=1 to take the pictures');
+
+  const SCREENS = path.resolve(import.meta.dirname, '../docs/screens/card');
+
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`a card with a formula and a diagram (${scheme})`, async ({ page }, testInfo) => {
+      const stage = STAGE_OF_PROJECT[testInfo.project.name] ?? 'expanded';
+      // Nothing fades or slides: a picture is not taken halfway through.
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' });
+      const body = await openCardWithEmbeds(page, 'Welcome');
+      await drawn(body);
+      await page.waitForLoadState('networkidle');
+      await page.evaluate(() => document.fonts.ready);
+      await body.locator('.doc-diagram').scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(SCREENS, `embeds-${stage}-${scheme}.png`) });
+    });
+  }
 });

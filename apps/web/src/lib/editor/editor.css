@@ -335,6 +335,17 @@ span.doc-embed-problem {
   font-family: var(--font-sans-stack);
   font-size: var(--text-base);
 }
+/*
+ * Nothing in it moves by a transition. The library places a node and measures
+ * the picture in the same breath. For a reader who asked for less motion the
+ * page shortens every transition to a moment instead of removing it
+ * (app.css), and for that moment a node just placed is still where it was:
+ * the picture was measured without it and came out cut off.
+ */
+.doc-diagram-stage,
+.doc-diagram-stage * {
+  transition: none !important;
+}
 
 /* Where an image that is still being uploaded will go. */
 .doc-body .doc-upload {
