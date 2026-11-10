@@ -39,6 +39,8 @@ use serde::Serialize;
 use tokio_util::task::TaskTracker;
 
 use crate::auth::Authenticator;
+use crate::auth::hash_queue::HashQueue;
+use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::config::Configuration;
 use crate::error::AppError;
 use crate::permissions::{
@@ -63,6 +65,8 @@ struct Inner {
     config: Configuration,
     store: Store,
     auth: Authenticator,
+    login_limiter: LoginLimiter,
+    password_work: HashQueue,
     ws: Hub,
     files: FileBackend,
     web: WebRoot,
@@ -108,6 +112,12 @@ impl App {
     /// are configured and their HTTP client cannot be set up.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
         let auth = Authenticator::new(store.clone(), &config)?;
+        let login_limiter = LoginLimiter::new(Limits::from_config(&config));
+        let password_work = HashQueue::new(
+            usize::try_from(config.password_hash_concurrency).unwrap_or(usize::MAX),
+            usize::try_from(config.password_hash_queue).unwrap_or(usize::MAX),
+            std::time::Duration::from_secs(config.password_hash_queue_seconds),
+        );
         let ping_interval = (config.websocket_ping_seconds > 0)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
         let ws = Hub::new(store.clone(), auth.clone(), ping_interval);
@@ -119,6 +129,8 @@ impl App {
                 config,
                 store,
                 auth,
+                login_limiter,
+                password_work,
                 ws,
                 files,
                 web,
@@ -142,6 +154,16 @@ impl App {
     /// The session and read-token checks.
     pub fn authenticator(&self) -> &Authenticator {
         &self.inner.auth
+    }
+
+    /// The limits on login attempts.
+    pub(crate) fn login_limiter(&self) -> &LoginLimiter {
+        &self.inner.login_limiter
+    }
+
+    /// The queue passwords are hashed and checked in.
+    pub(crate) fn inner_password_work(&self) -> &HashQueue {
+        &self.inner.password_work
     }
 
     /// The websocket hub.

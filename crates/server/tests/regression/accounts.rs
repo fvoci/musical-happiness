@@ -650,3 +650,37 @@ pub(crate) async fn cookies(s: &mut Session) {
         .in_cookie()
         .await;
 }
+
+/// One attempt too many: an address that keeps failing at an account is told to wait,
+/// with the same words whether the account exists.
+pub(crate) async fn login_limits(s: &mut Session) {
+    let [alice, bob] = s.users("limits", ["alice", "bob"]).await;
+    let login = format!("{API}/login");
+    let attempt = |username: &str, password: &str| json!({"type": "normal", "username": username, "password": password});
+
+    for account in [alice.as_str(), "limits-nobody"] {
+        // Five failures are free; the sixth is refused like them and starts the wait.
+        for number in 1..=6 {
+            s.post(&format!("{account}: wrong password {number}"), &login)
+                .json(attempt(account, "not-the-password"))
+                .await;
+        }
+        s.post(&format!("{account}: one too many"), &login)
+            .json(attempt(account, "not-the-password"))
+            .keep_headers(&["Retry-After"])
+            .await;
+    }
+    s.post("the right password waits too", &login)
+        .json(attempt(&alice, "test-password"))
+        .keep_headers(&["Retry-After"])
+        .await;
+    s.post("the account in other letters is the same account", &login)
+        .json(attempt(&alice.to_uppercase(), "test-password"))
+        .await;
+    s.post("another account is not held up", &login)
+        .json(attempt(&bob, "test-password"))
+        .await;
+    s.get("a session from before goes on", &format!("{API}/users/me"))
+        .user(&alice)
+        .await;
+}

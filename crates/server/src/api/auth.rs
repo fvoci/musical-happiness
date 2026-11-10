@@ -2,7 +2,7 @@
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::response::Response;
@@ -15,6 +15,7 @@ use super::{
 };
 use crate::app::{Admission, App};
 use crate::auth::tokens_match;
+use crate::client_address::ClientAddress;
 use crate::error::{AppError, Reason};
 
 /// The longest `User-Agent` kept with a session, in bytes. Browsers send a hundred or
@@ -57,7 +58,12 @@ pub(super) fn unauthenticated_routes() -> Router<App> {
         .route("/register", post(handle_register))
 }
 
-async fn handle_login(State(app): State<App>, headers: HeaderMap, body: Bytes) -> ApiResult {
+async fn handle_login(
+    State(app): State<App>,
+    client: Option<Extension<ClientAddress>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult {
     let login: LoginRequest = decode_object(&body)?;
     if login.login_type != "normal" {
         return Err(AppError::bad_request("invalid login type").with_field("type"));
@@ -68,6 +74,7 @@ async fn handle_login(State(app): State<App>, headers: HeaderMap, body: Bytes) -
             &login.email,
             &login.password,
             &user_agent(&headers),
+            address_of(client),
         )
         .await?;
     // The token goes out in the cookie only: a script of the page never sees it. A
@@ -94,7 +101,16 @@ async fn handle_logout(
     Ok(response)
 }
 
-async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
+/// The address of the client, as the request log worked it out.
+fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAddr> {
+    client.and_then(|Extension(ClientAddress(address))| address)
+}
+
+async fn handle_register(
+    State(app): State<App>,
+    client: Option<Extension<ClientAddress>>,
+    body: Bytes,
+) -> ApiResult {
     let mut register: RegisterRequest = decode_object(&body)?;
     register.email = register.email.trim().to_owned();
     register.username = register.username.trim().to_owned();
@@ -125,6 +141,7 @@ async fn handle_register(State(app): State<App>, body: Bytes) -> ApiResult {
         &register.email,
         &register.password,
         admission,
+        address_of(client),
     )
     .await?;
     Ok(empty_response())

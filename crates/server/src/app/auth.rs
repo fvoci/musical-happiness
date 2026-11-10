@@ -1,24 +1,18 @@
 //! Login, logout, registration and password changes.
 
-use std::sync::LazyLock;
+use std::net::IpAddr;
+use std::time::Instant;
 
 use fvoci_model::{MAXIMUM_PASSWORD_BYTES, Session, User, new_id};
 use fvoci_store::StoreError;
-use tokio::sync::Semaphore;
 
 use super::App;
+use crate::auth::hash_queue::QueueError;
+use crate::auth::limiter::RetryAfter;
 use crate::auth::now_millis;
-use crate::auth::password::{Verdict, hash_password, verify_password};
+use crate::auth::password::{Verdict, hash_password, verify_against_no_account, verify_password};
 use crate::auth::secret::{new_secret, token_digest};
 use crate::error::{AppError, Reason};
-
-/// How many passwords are hashed or checked at a time. One hash takes 19 MiB and tens of
-/// milliseconds of a processor; without a limit a burst of logins would take a
-/// processor each and the memory to go with it.
-const PASSWORD_WORK_AT_A_TIME: usize = 4;
-
-static PASSWORD_WORK: LazyLock<Semaphore> =
-    LazyLock::new(|| Semaphore::new(PASSWORD_WORK_AT_A_TIME));
 
 /// What a registration came with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,26 +28,25 @@ impl App {
     /// handed out here and nowhere else: the store keeps its digest only.
     ///
     /// The user is looked up by name and, if no user has that name, by email address.
-    /// `user_agent` is what the client said it is, kept with the session.
+    /// `user_agent` is what the client said it is, kept with the session. `address` is
+    /// where the attempt comes from, for the limits on login attempts.
     ///
     /// A password that is right but stored with outdated hashing parameters is hashed
     /// anew and stored again.
     ///
     /// # Errors
     ///
-    /// Returns an error if no such user exists, the password is wrong, or the session
-    /// cannot be created. The caller reports all of these to the client the same way.
+    /// Returns a 429 with the time to wait if the attempt is one too many: for its
+    /// address, for its address at this account, or for the account. Returns one and the
+    /// same 401 if no such user exists or the password is wrong, after the same work.
     pub async fn login(
         &self,
         username: &str,
         email: &str,
         password: &str,
         user_agent: &str,
+        address: Option<IpAddr>,
     ) -> Result<String, AppError> {
-        // Nothing this long was ever set as a password; it is not worth a hash.
-        if password.len() > MAXIMUM_PASSWORD_BYTES {
-            return Err(incorrect_login());
-        }
         let mut user: Option<User> = None;
         if !username.is_empty() {
             user = self.find_user_for_login(Lookup::Username(username)).await?;
@@ -61,13 +54,35 @@ impl App {
         if user.is_none() && !email.is_empty() {
             user = self.find_user_for_login(Lookup::Email(email)).await?;
         }
-        // One answer for an unknown user and for a wrong password.
+        // An account is counted under one name however it is asked for: its identifier.
+        // What is no account is counted under the name that was tried, the same way.
+        let account = match &user {
+            Some(user) => user.id.as_str(),
+            None if !username.is_empty() => username,
+            None => email,
+        };
+        let attempt = self
+            .login_limiter()
+            .admit_login(account, address, Instant::now())
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
+
+        // Nothing this long was ever set as a password; it is not worth a hash.
+        if password.len() > MAXIMUM_PASSWORD_BYTES {
+            attempt.failed(Instant::now());
+            return Err(incorrect_login());
+        }
+        // One answer for an unknown user and for a wrong password, after the same work.
         let Some(user) = user else {
+            let password = password.to_owned();
+            self.password_work(move || verify_against_no_account(&password))
+                .await?;
+            attempt.failed(Instant::now());
             return Err(incorrect_login());
         };
-        let verdict = verify(&user.password_hash, password).await?;
+        let verdict = self.verify(&user.password_hash, password).await?;
         if verdict == Verdict::Mismatch {
             tracing::debug!(user_id = %user.id, "invalid password for user");
+            attempt.failed(Instant::now());
             return Err(incorrect_login());
         }
 
@@ -104,6 +119,7 @@ impl App {
             return Err(incorrect_login());
         }
 
+        attempt.succeeded();
         if verdict == Verdict::MatchWithOutdatedHash {
             self.store_current_hash(&user, password).await;
         }
@@ -127,7 +143,7 @@ impl App {
     /// stores that in place of the outdated hash. A failure is logged and the login
     /// stands: the old hash still verifies, and the next login tries again.
     async fn store_current_hash(&self, user: &User, password: &str) {
-        let replaced = match hash(password).await {
+        let replaced = match self.hash(password).await {
             Ok(new_hash) => self
                 .store()
                 .replace_password_hash(&user.id, &user.password_hash, &new_hash)
@@ -184,7 +200,14 @@ impl App {
         email: &str,
         password: &str,
         admission: Admission,
+        address: Option<IpAddr>,
     ) -> Result<(), AppError> {
+        // A registration costs a hash like a login, and is counted against where it
+        // comes from like one. The turn is held until the user is stored.
+        let _attempt = self
+            .login_limiter()
+            .admit_registration(address, Instant::now())
+            .map_err(|RetryAfter(wait)| AppError::rate_limited(wait))?;
         // Asked first so that a taken name costs no hash. Two registrations at once
         // both pass these, and then the unique indexes decide: the same conflict.
         if self
@@ -206,7 +229,7 @@ impl App {
             id: new_id(),
             username: username.to_owned(),
             email: email.to_owned(),
-            password_hash: hash(password).await?,
+            password_hash: self.hash(password).await?,
             ..User::default()
         };
         let stored = match admission {
@@ -243,7 +266,7 @@ impl App {
     ) -> Result<(), AppError> {
         let user_id = self
             .store()
-            .reset_user_password(username, &hash(password).await?)
+            .reset_user_password(username, &self.hash(password).await?)
             .await?;
         self.ws().close_user(&user_id);
         Ok(())
@@ -266,7 +289,7 @@ impl App {
     ) -> Result<String, AppError> {
         let user = self.store().get_user_by_id(&session.user_id).await?;
         let right = old_password.len() <= MAXIMUM_PASSWORD_BYTES
-            && verify(&user.password_hash, old_password).await? != Verdict::Mismatch;
+            && self.verify(&user.password_hash, old_password).await? != Verdict::Mismatch;
         if !right {
             tracing::debug!(user_id = %user.id, "invalid password for user");
             return Err(AppError::bad_request("the old password is wrong")
@@ -277,7 +300,7 @@ impl App {
         self.store()
             .change_user_password(
                 &user.id,
-                &hash(new_password).await?,
+                &self.hash(new_password).await?,
                 &session.id,
                 &token_digest(&token),
             )
@@ -313,27 +336,30 @@ fn email_taken() -> AppError {
         .with_field("email")
 }
 
-/// Runs password work on the blocking pool, a bounded number at a time.
-async fn off_the_runtime<T: Send + 'static>(
-    work: impl FnOnce() -> T + Send + 'static,
-) -> Result<T, AppError> {
-    let _permit = PASSWORD_WORK
-        .acquire()
-        .await
-        .map_err(|error| AppError::internal(format_args!("password work: {error}")))?;
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| AppError::internal(format_args!("password work: {error}")))
-}
+impl App {
+    /// Runs password work in the queue for it. What does not fit in the queue is
+    /// answered 429.
+    async fn password_work<T: Send + 'static>(
+        &self,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, AppError> {
+        match self.inner_password_work().run(work).await {
+            Ok(result) => Ok(result),
+            Err(QueueError::Full(wait)) => Err(AppError::rate_limited(wait)),
+            Err(QueueError::Failed) => Err(AppError::internal("password work did not finish")),
+        }
+    }
 
-async fn hash(password: &str) -> Result<String, AppError> {
-    let password = password.to_owned();
-    off_the_runtime(move || hash_password(&password))
-        .await?
-        .map_err(|error| AppError::internal(format_args!("{error}")))
-}
+    async fn hash(&self, password: &str) -> Result<String, AppError> {
+        let password = password.to_owned();
+        self.password_work(move || hash_password(&password))
+            .await?
+            .map_err(|error| AppError::internal(format_args!("{error}")))
+    }
 
-async fn verify(hash: &str, password: &str) -> Result<Verdict, AppError> {
-    let (hash, password) = (hash.to_owned(), password.to_owned());
-    off_the_runtime(move || verify_password(&hash, &password)).await
+    async fn verify(&self, hash: &str, password: &str) -> Result<Verdict, AppError> {
+        let (hash, password) = (hash.to_owned(), password.to_owned());
+        self.password_work(move || verify_password(&hash, &password))
+            .await
+    }
 }

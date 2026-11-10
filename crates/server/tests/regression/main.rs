@@ -5,7 +5,7 @@
 //! from its recording. To change an answer on purpose, rerun with
 //! `FVOCI_REGRESSION_UPDATE=1` and commit the rewritten golden files with the change.
 //!
-//! * One test per scenario: 19 scenarios, 536 steps (`golden/<scenario>.json`).
+//! * One test per scenario: 20 scenarios, 554 steps (`golden/<scenario>.json`).
 //! * The permission table: 53 routes × 6 kinds of caller × 2 board types = 636 cells
 //!   (`golden/permissions_private.txt`, `golden/permissions_open.txt`).
 //!
@@ -45,6 +45,7 @@ scenarios![
     accounts::admins,
     accounts::settings,
     accounts::cookies,
+    accounts::login_limits,
     boards::boards,
     boards::members,
     boards::boards_and_blocks,

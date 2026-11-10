@@ -176,9 +176,35 @@ pub struct Configuration {
     /// How many days a deleted board or block stays in the trash, where it can be
     /// restored from, before it is removed for good.
     pub trash_retention_days: u32,
-    /// Whether to take the client address for logs from `X-Forwarded-For`. Turn on only
-    /// behind a proxy that sets the header.
-    pub trust_forwarded_for: bool,
+    /// The addresses, and address ranges such as `10.0.0.0/8`, of the reverse proxies
+    /// in front of the server. A request from one of them is taken to come from the
+    /// address the proxy names in `X-Forwarded-For`; that header is believed from
+    /// nobody else. Empty if clients reach the server directly.
+    pub trusted_proxies: Vec<String>,
+    /// How many failed logins in a row an address has for free at one account before it
+    /// is made to wait.
+    pub login_pair_free_failures: u32,
+    /// The wait, in seconds, after the first failed login that is not free. It doubles
+    /// with each further failure.
+    pub login_pair_base_delay_seconds: u64,
+    /// The longest wait of an address at one account, in seconds.
+    pub login_pair_max_delay_seconds: u64,
+    /// How many failed logins in a row, from anywhere, lock an account.
+    pub login_account_max_failures: u32,
+    /// How long an account stays locked, in seconds.
+    pub login_account_lock_seconds: u64,
+    /// How many logins and registrations one address may attempt per minute, one at a
+    /// time. Zero for no limit by address, as for a server whose users all come from
+    /// one address and no trusted proxy tells them apart.
+    pub login_address_attempts_per_minute: u32,
+    /// How many passwords are hashed or checked at a time. One hash takes 19 MiB and
+    /// some milliseconds of a processor.
+    pub password_hash_concurrency: u32,
+    /// How many requests may wait for their turn to have a password hashed.
+    pub password_hash_queue: u32,
+    /// How long a request waits for that turn before it is told to try again, in
+    /// seconds.
+    pub password_hash_queue_seconds: u64,
     /// Whether to skip importing the built-in templates at startup. Not a configuration
     /// file key; the test harness sets it so a server that does not need templates
     /// starts quickly, as the original's `SkipTemplateInit` does.
@@ -221,7 +247,16 @@ impl Default for Configuration {
             websocket_ping_seconds: 30,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trash_retention_days: 30,
-            trust_forwarded_for: false,
+            trusted_proxies: Vec::new(),
+            login_pair_free_failures: 5,
+            login_pair_base_delay_seconds: 30,
+            login_pair_max_delay_seconds: 60 * 60,
+            login_account_max_failures: 100,
+            login_account_lock_seconds: 60 * 60,
+            login_address_attempts_per_minute: 20,
+            password_hash_concurrency: 4,
+            password_hash_queue: 16,
+            password_hash_queue_seconds: 5,
             skip_template_init: false,
         }
     }
@@ -262,7 +297,34 @@ impl std::fmt::Debug for Configuration {
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
             .field("max_request_bytes", &self.max_request_bytes)
             .field("trash_retention_days", &self.trash_retention_days)
-            .field("trust_forwarded_for", &self.trust_forwarded_for)
+            .field("trusted_proxies", &self.trusted_proxies)
+            .field("login_pair_free_failures", &self.login_pair_free_failures)
+            .field(
+                "login_pair_base_delay_seconds",
+                &self.login_pair_base_delay_seconds,
+            )
+            .field(
+                "login_pair_max_delay_seconds",
+                &self.login_pair_max_delay_seconds,
+            )
+            .field(
+                "login_account_max_failures",
+                &self.login_account_max_failures,
+            )
+            .field(
+                "login_account_lock_seconds",
+                &self.login_account_lock_seconds,
+            )
+            .field(
+                "login_address_attempts_per_minute",
+                &self.login_address_attempts_per_minute,
+            )
+            .field("password_hash_concurrency", &self.password_hash_concurrency)
+            .field("password_hash_queue", &self.password_hash_queue)
+            .field(
+                "password_hash_queue_seconds",
+                &self.password_hash_queue_seconds,
+            )
             .finish_non_exhaustive()
     }
 }
@@ -279,7 +341,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_EXPIRE_TIME`.
-const ENV_KEYS: [(&str, EnvKind); 31] = [
+const ENV_KEYS: [(&str, EnvKind); 40] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -310,7 +372,16 @@ const ENV_KEYS: [(&str, EnvKind); 31] = [
     ("websocket_ping_seconds", EnvKind::Number),
     ("max_request_bytes", EnvKind::Number),
     ("trash_retention_days", EnvKind::Number),
-    ("trust_forwarded_for", EnvKind::Flag),
+    ("trusted_proxies", EnvKind::List),
+    ("login_pair_free_failures", EnvKind::Number),
+    ("login_pair_base_delay_seconds", EnvKind::Number),
+    ("login_pair_max_delay_seconds", EnvKind::Number),
+    ("login_account_max_failures", EnvKind::Number),
+    ("login_account_lock_seconds", EnvKind::Number),
+    ("login_address_attempts_per_minute", EnvKind::Number),
+    ("password_hash_concurrency", EnvKind::Number),
+    ("password_hash_queue", EnvKind::Number),
+    ("password_hash_queue_seconds", EnvKind::Number),
 ];
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
@@ -318,11 +389,16 @@ const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
 /// Keys of the original server's configuration that this server no longer has, each with
 /// what to do instead. A file or an environment that sets one to something is refused:
 /// a server that silently ignored it would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 4] = [
+const REMOVED_KEYS: [(&str, &str); 5] = [
     (
         "dbtableprefix",
         "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
          database, give the server a schema of its own with search_path in dbconfig",
+    ),
+    (
+        "trust_forwarded_for",
+        "name the reverse proxies in trusted_proxies; X-Forwarded-For is believed from \
+         them only",
     ),
     (
         "securecookie",
@@ -444,6 +520,45 @@ impl Configuration {
         // from this address.
         crate::auth::token::Origins::new(&self.server_root, &self.allowed_origins)
             .map_err(anyhow::Error::msg)?;
+        crate::client_address::TrustedProxies::parse(&self.trusted_proxies)
+            .map_err(anyhow::Error::msg)?;
+        // A wait of nothing is no wait, an account that locks at no failure is always
+        // locked, and nobody's password is checked by a queue without a place.
+        for (name, value) in [
+            (
+                "login_pair_base_delay_seconds",
+                self.login_pair_base_delay_seconds,
+            ),
+            (
+                "login_pair_max_delay_seconds",
+                self.login_pair_max_delay_seconds,
+            ),
+            (
+                "login_account_lock_seconds",
+                self.login_account_lock_seconds,
+            ),
+            (
+                "login_account_max_failures",
+                u64::from(self.login_account_max_failures),
+            ),
+            (
+                "password_hash_concurrency",
+                u64::from(self.password_hash_concurrency),
+            ),
+            (
+                "password_hash_queue_seconds",
+                self.password_hash_queue_seconds,
+            ),
+        ] {
+            if value == 0 {
+                bail!("{name} must be at least 1");
+            }
+        }
+        if self.login_pair_max_delay_seconds < self.login_pair_base_delay_seconds {
+            bail!(
+                "login_pair_max_delay_seconds must not be less than login_pair_base_delay_seconds"
+            );
+        }
         // Zero would end every session as it starts.
         if self.session_idle_days == 0 || self.session_max_days == 0 {
             bail!("session_idle_days and session_max_days must be at least 1");

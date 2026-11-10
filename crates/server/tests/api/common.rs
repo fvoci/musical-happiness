@@ -162,6 +162,9 @@ impl Setup {
             websocket_ping_seconds: 0,
             // Importing the templates is slow; only tests that ask for them pay it.
             skip_template_init: !self.with_templates,
+            // Every client of a test comes from one address, and many sign in at once.
+            // The limit by address is tested where a test turns it on.
+            login_address_attempts_per_minute: 0,
             ..Configuration::default()
         };
         if let Some(path) = &self.admin_socket {
@@ -703,6 +706,7 @@ impl ApiResponse {
             405 => "method_not_allowed",
             409 => "conflict",
             413 => "payload_too_large",
+            429 => "rate_limited",
             500 => "internal",
             other => panic!("status {other} is no error status of the API"),
         };

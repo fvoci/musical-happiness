@@ -6,6 +6,7 @@
 pub mod api;
 pub mod app;
 pub mod auth;
+pub mod client_address;
 pub mod config;
 pub mod error;
 pub mod permissions;
@@ -15,6 +16,7 @@ pub mod web;
 pub mod webhook;
 pub mod ws;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
@@ -37,9 +39,9 @@ pub use crate::tls::TlsFiles;
 use crate::admin_socket::AdminSocket;
 use crate::app::App;
 use crate::auth::token::Credential;
+use crate::client_address::TrustedProxies;
 use crate::config::Configuration;
 use crate::error::{AppError, ErrorKind};
-use crate::request_log::ClientAddress;
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
 use crate::tls::TlsListener;
@@ -173,16 +175,13 @@ impl Server {
     /// Wraps `router` in the layers every listener has: outermost the request log, then
     /// the containment of handler panics, so that a contained panic is logged as a 500.
     fn with_request_layers(&self, router: Router) -> Router {
-        let client_address = if self.app.config().trust_forwarded_for {
-            ClientAddress::ForwardedFor
-        } else {
-            ClientAddress::SocketPeer
-        };
+        // The configuration was checked when the application was put together.
+        let proxies = TrustedProxies::parse(&self.app.config().trusted_proxies).unwrap_or_default();
         router
             .layer(middleware::from_fn(send_no_referrer))
             .layer(middleware::from_fn(request_log::contain_panics))
             .layer(middleware::from_fn_with_state(
-                client_address,
+                Arc::new(proxies),
                 request_log::log_request,
             ))
     }

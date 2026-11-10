@@ -1,7 +1,8 @@
 //! The request log and the containment of handler panics.
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::panic::AssertUnwindSafe;
+use std::sync::Arc;
 use std::time::Instant;
 
 use axum::body::Body;
@@ -15,13 +16,11 @@ use axum::serve::IncomingStream;
 use futures_util::FutureExt as _;
 use uuid::Uuid;
 
+use crate::client_address::{ClientAddress, TrustedProxies};
 use crate::error::{AppError, ReportedError};
 
 /// The response header that carries the identifier of the request.
 const X_REQUEST_ID: &str = "x-request-id";
-
-/// The header a reverse proxy lists the client's address in.
-const X_FORWARDED_FOR: &str = "x-forwarded-for";
 
 /// Where a connection comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,37 +44,21 @@ impl Connected<IncomingStream<'_, tokio::net::UnixListener>> for Peer {
     }
 }
 
-/// Which address the request log names as the client.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ClientAddress {
-    /// The address the connection comes from.
-    SocketPeer,
-    /// The first address of `X-Forwarded-For` if there is one, for a server behind a
-    /// proxy that sets the header. Anyone can send the header, so it is only believed
-    /// on request (`trust_forwarded_for`).
-    ForwardedFor,
-}
-
-/// Returns the client of a request as the log shows it.
-fn client_address(source: ClientAddress, headers: &HeaderMap, peer: Option<Peer>) -> String {
-    let forwarded = match source {
-        ClientAddress::SocketPeer => None,
-        ClientAddress::ForwardedFor => forwarded_for(headers),
-    };
-    match (forwarded, peer) {
-        (Some(address), _) => address.to_string(),
-        (None, Some(Peer::Tcp(address))) => address.ip().to_string(),
-        (None, Some(Peer::Unix)) => "unix socket".to_owned(),
-        (None, None) => "unknown".to_owned(),
+/// Returns the client of a request: its address, also behind the reverse proxies the
+/// configuration trusts, and how the log shows it.
+fn client_of(
+    proxies: &TrustedProxies,
+    headers: &HeaderMap,
+    peer: Option<Peer>,
+) -> (ClientAddress, String) {
+    match peer {
+        Some(Peer::Tcp(peer)) => {
+            let address = proxies.client_of(peer.ip(), headers);
+            (ClientAddress(Some(address)), address.to_string())
+        }
+        Some(Peer::Unix) => (ClientAddress(None), "unix socket".to_owned()),
+        None => (ClientAddress(None), "unknown".to_owned()),
     }
-}
-
-/// The first address of `X-Forwarded-For`. Anything that is not an address is ignored
-/// rather than copied into the log.
-fn forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
-    let value = headers.get(X_FORWARDED_FOR)?.to_str().ok()?;
-    let first = value.split(',').next()?;
-    first.trim().parse().ok()
 }
 
 /// Logs every request: method, path, status, duration, client address and the
@@ -89,8 +72,8 @@ fn forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
 /// The query string is left out because it can carry `access_token` and `read_token`,
 /// and no header is logged, so neither are the session token and the cookies.
 pub(crate) async fn log_request(
-    State(source): State<ClientAddress>,
-    request: Request,
+    State(proxies): State<Arc<TrustedProxies>>,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let started = Instant::now();
@@ -101,7 +84,10 @@ pub(crate) async fn log_request(
         .extensions()
         .get::<ConnectInfo<Peer>>()
         .map(|ConnectInfo(peer)| *peer);
-    let client = client_address(source, request.headers(), peer);
+    let (address, client) = client_of(&proxies, request.headers(), peer);
+    // For the handlers that count by where a request comes from: the same address the
+    // log shows.
+    request.extensions_mut().insert(address);
 
     let response = identify(next.run(request).await, &request_id);
 
@@ -169,6 +155,8 @@ mod tests {
 
     use super::*;
 
+    const X_FORWARDED_FOR: &str = "x-forwarded-for";
+
     /// The peer the connections of these tests come from.
     fn socket_peer() -> Peer {
         Peer::Tcp("192.0.2.1:5000".parse().expect("a socket address"))
@@ -187,51 +175,49 @@ mod tests {
         headers
     }
 
-    #[test]
-    fn client_is_the_socket_peer_by_default() {
-        let headers = forwarded("203.0.113.7");
-        assert_eq!(
-            client_address(ClientAddress::SocketPeer, &headers, Some(socket_peer())),
-            "192.0.2.1",
-            "the header is not believed unless the configuration says so"
-        );
-        assert_eq!(
-            client_address(ClientAddress::SocketPeer, &headers, Some(Peer::Unix)),
-            "unix socket"
-        );
-        assert_eq!(
-            client_address(ClientAddress::SocketPeer, &headers, None),
-            "unknown"
-        );
+    fn proxies(ranges: &[&str]) -> TrustedProxies {
+        let ranges: Vec<String> = ranges.iter().map(|range| (*range).to_owned()).collect();
+        TrustedProxies::parse(&ranges).expect("valid ranges")
     }
 
     #[test]
-    fn client_is_the_first_forwarded_address_when_trusted() {
-        let source = ClientAddress::ForwardedFor;
-        let socket = Some(socket_peer());
+    fn client_is_the_socket_peer_unless_the_peer_is_a_trusted_proxy() {
+        let headers = forwarded("203.0.113.7");
+        let nobody = proxies(&[]);
+        let peer_address = "192.0.2.1".parse().expect("an address");
         assert_eq!(
-            client_address(source, &forwarded("203.0.113.7"), socket),
-            "203.0.113.7"
+            client_of(&nobody, &headers, Some(socket_peer())),
+            (ClientAddress(Some(peer_address)), "192.0.2.1".to_owned()),
+            "the header is not believed unless it comes from a trusted proxy"
         );
         assert_eq!(
-            client_address(
-                source,
-                &forwarded(" 2001:db8::7 , 10.0.0.1, 10.0.0.2"),
-                socket
-            ),
-            "2001:db8::7",
-            "the first of several"
+            client_of(&nobody, &headers, Some(Peer::Unix)),
+            (ClientAddress(None), "unix socket".to_owned())
         );
         assert_eq!(
-            client_address(source, &HeaderMap::new(), socket),
-            "192.0.2.1",
-            "without the header the socket peer is named"
+            client_of(&nobody, &headers, None),
+            (ClientAddress(None), "unknown".to_owned())
+        );
+
+        let trusting = proxies(&["192.0.2.0/24"]);
+        let (address, shown) = client_of(
+            &trusting,
+            &forwarded("1.2.3.4, 2001:db8::7"),
+            Some(socket_peer()),
+        );
+        assert_eq!(
+            shown, "2001:db8::7",
+            "what the proxy added, not the left end"
+        );
+        assert_eq!(
+            address,
+            ClientAddress(Some("2001:db8::7".parse().expect("an address")))
         );
         for junk in ["", "unknown", "203.0.113.7:1234", "evil\tclient=10.0.0.1"] {
             assert_eq!(
-                client_address(source, &forwarded(junk), socket),
+                client_of(&trusting, &forwarded(junk), Some(socket_peer())).1,
                 "192.0.2.1",
-                "{junk:?} is not an address"
+                "{junk:?} is not an address and is not copied into the log"
             );
         }
     }
@@ -262,7 +248,7 @@ mod tests {
 
     /// Sends one request through both layers and returns the status, the body and
     /// what was logged.
-    async fn logged(source: ClientAddress, request: Request) -> (StatusCode, String, String) {
+    async fn logged(proxies: TrustedProxies, request: Request) -> (StatusCode, String, String) {
         let captured = Captured::default();
         let writer = captured.clone();
         let subscriber = tracing_subscriber::fmt()
@@ -275,7 +261,10 @@ mod tests {
             .route("/api/v2/boards/{board_id}", get(|| async { "fine" }))
             .route("/api/v2/boom", get(boom))
             .layer(middleware::from_fn(contain_panics))
-            .layer(middleware::from_fn_with_state(source, log_request));
+            .layer(middleware::from_fn_with_state(
+                Arc::new(proxies),
+                log_request,
+            ));
         let response = router
             .oneshot(request)
             .await
@@ -302,7 +291,7 @@ mod tests {
                 .expect("a valid request");
         request.extensions_mut().insert(ConnectInfo(socket_peer()));
 
-        let (status, body, log) = logged(ClientAddress::SocketPeer, request).await;
+        let (status, body, log) = logged(proxies(&[]), request).await;
 
         assert_eq!(status, StatusCode::OK, "{body}");
         for expected in [
@@ -321,14 +310,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn request_log_names_the_forwarded_client_when_trusted() {
+    async fn request_log_names_the_forwarded_client_behind_trusted_proxies() {
         let mut request = Request::get("/api/v2/boards/b1")
             .header(X_FORWARDED_FOR, "203.0.113.7, 10.0.0.1")
             .body(Body::empty())
             .expect("a valid request");
         request.extensions_mut().insert(ConnectInfo(socket_peer()));
 
-        let (_, _, log) = logged(ClientAddress::ForwardedFor, request).await;
+        let (_, _, log) = logged(proxies(&["192.0.2.1", "10.0.0.0/8"]), request).await;
 
         assert!(log.contains("client=\"203.0.113.7\""), "{log}");
     }
@@ -341,7 +330,7 @@ mod tests {
             .body(Body::empty())
             .expect("a valid request");
 
-        let (status, body, log) = logged(ClientAddress::SocketPeer, request).await;
+        let (status, body, log) = logged(proxies(&[]), request).await;
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
         let error: fvoci_model::ErrorBody =

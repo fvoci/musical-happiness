@@ -99,6 +99,18 @@ pub fn verify_password(hash: &str, password: &str) -> Verdict {
     }
 }
 
+/// Does the work of checking `password` against a stored hash, for a login to an account
+/// that does not exist: the answer is always "no", and it takes as long as the answer
+/// for an account that does. Without it, how fast a login is refused would tell which
+/// names are accounts.
+pub fn verify_against_no_account(password: &str) {
+    /// A hash of something nobody knows, made once, with the current parameters.
+    static NOBODYS_HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+        hash_password(&crate::auth::secret::new_secret()).unwrap_or_default()
+    });
+    let _mismatch = verify_password(&NOBODYS_HASH, password);
+}
+
 /// Whether a hash was made with the current algorithm, version and parameters.
 fn is_current(hash: &PasswordHash) -> bool {
     let current = current_params();

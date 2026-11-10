@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub struct ErrorBody {
     /// The kind of error, one per status code: `bad_request`, `unauthorized`,
     /// `forbidden`, `not_found`, `method_not_allowed`, `conflict`, `payload_too_large`,
-    /// `internal`.
+    /// `rate_limited`, `internal`.
     pub error: String,
     /// What went wrong, in English. Not for showing to users, and without internals.
     pub message: String,
@@ -25,6 +25,9 @@ pub struct ErrorBody {
     /// The limit that was exceeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
+    /// How many seconds to wait before trying again, as in the `Retry-After` header.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after: Option<u64>,
     /// The identifier of the request, the same as in the `x-request-id` response header
     /// and in the server's request log.
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -598,6 +598,7 @@ fn config_error_and_request_json_members() {
             reason: Some("r".to_owned()),
             field: Some("f".to_owned()),
             limit: Some(4_194_304),
+            retry_after: Some(30),
             request_id: Some("id".to_owned()),
         }),
         json!({
@@ -606,6 +607,7 @@ fn config_error_and_request_json_members() {
             "reason": "r",
             "field": "f",
             "limit": 4_194_304,
+            "retry_after": 30,
             "request_id": "id",
         })
     );

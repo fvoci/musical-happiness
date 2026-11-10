@@ -5,7 +5,8 @@
 //! `reason`, the refused `field` or the exceeded `limit`.
 
 use axum::Json;
-use axum::http::StatusCode;
+use axum::http::header::RETRY_AFTER;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{
     AuthParamError, BlockError, BoardError, CardError, CategoryError, ErrorBody, SubscriptionError,
@@ -30,6 +31,8 @@ pub enum ErrorKind {
     Conflict,
     /// The request body is larger than allowed: 413.
     PayloadTooLarge,
+    /// Too many attempts; try again later: 429.
+    RateLimited,
     /// The server's own fault: 500. The cause is logged and not sent to the client.
     Internal,
 }
@@ -45,6 +48,7 @@ impl ErrorKind {
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::Conflict => StatusCode::CONFLICT,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -59,6 +63,7 @@ impl ErrorKind {
             Self::MethodNotAllowed => "method_not_allowed",
             Self::Conflict => "conflict",
             Self::PayloadTooLarge => "payload_too_large",
+            Self::RateLimited => "rate_limited",
             Self::Internal => "internal",
         }
     }
@@ -120,6 +125,8 @@ pub struct AppError {
     reason: Option<Reason>,
     field: Option<String>,
     limit: Option<u64>,
+    /// How many seconds to wait before trying again.
+    retry_after: Option<u64>,
     /// The cause of a server error, for the log.
     cause: Option<anyhow::Error>,
 }
@@ -151,8 +158,18 @@ impl AppError {
             reason: None,
             field: None,
             limit: None,
+            retry_after: None,
             cause: None,
         }
+    }
+
+    /// A 429 error: too many attempts, try again after `wait`. The wait is told in
+    /// whole seconds, rounded up, in the `Retry-After` header and in the body.
+    pub fn rate_limited(wait: std::time::Duration) -> Self {
+        let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+        let mut error = Self::new(ErrorKind::RateLimited, "too many attempts; try again later");
+        error.retry_after = Some(seconds.max(1));
+        error
     }
 
     /// A 400 error with the given message.
@@ -261,6 +278,7 @@ impl AppError {
             reason: self.reason.map(|reason| reason.as_str().to_owned()),
             field: self.field.clone(),
             limit: self.limit,
+            retry_after: self.retry_after,
             request_id: None,
         }
     }
@@ -389,6 +407,11 @@ impl IntoResponse for AppError {
         }
         let body = self.body();
         let mut response = (status, Json(&body)).into_response();
+        if let Some(seconds) = body.retry_after {
+            response
+                .headers_mut()
+                .insert(RETRY_AFTER, HeaderValue::from(seconds));
+        }
         response.extensions_mut().insert(ReportedError(body));
         response
     }
