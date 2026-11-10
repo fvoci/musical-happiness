@@ -97,6 +97,21 @@ describe('the workspace', () => {
     });
   });
 
+  it('is signed out, with nothing to tell, when the backend says the session is over', async () => {
+    const { workspace, backend } = setup();
+    backend.failNext('me', new BackendError(401, { message: 'no session' }));
+    await workspace.load();
+    expect(workspace.status).toBe('signedOut');
+    expect(workspace.problems).toEqual([]);
+
+    await workspace.load();
+    expect(workspace.status).toBe('ready');
+    backend.failNext('patchSettings', new BackendError(401, { message: 'session over' }));
+    await workspace.changeSettings({ brightness: 'dark' });
+    expect(workspace.status).toBe('signedOut');
+    expect(workspace.problems).toEqual([]);
+  });
+
   it('files a board under another category and keeps the order the reader gave', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();

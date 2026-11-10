@@ -48,6 +48,28 @@ test('a new account signs in to an empty workspace and signs out again', async (
   expect(errors).toEqual([]);
 });
 
+test('the email address signs in as well as the name, and a name may have an @ in it', async ({
+  page,
+  baseURL,
+}) => {
+  const byEmail = person('mailer');
+  await register(baseURL ?? '', byEmail);
+  await page.goto('/');
+  await signInOnPage(page, { ...byEmail, username: byEmail.email });
+  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+
+  // A second person, on a page of their own, whose name looks like an address.
+  const context = await page.context().browser()?.newContext({ locale: 'en-US' });
+  if (!context) throw new Error('no browser');
+  const other = await context.newPage();
+  const odd = person('at');
+  await register(baseURL ?? '', { ...odd, username: `${odd.username}@home` });
+  await other.goto(page.url());
+  await signInOnPage(other, { ...odd, username: `${odd.username}@home` });
+  await expect(other.getByText('You have no boards yet.')).toBeVisible();
+  await context.close();
+});
+
 test('a wrong password is told, and nothing else happens', async ({ page, baseURL }) => {
   const who = person('forgetful');
   await register(baseURL ?? '', who);

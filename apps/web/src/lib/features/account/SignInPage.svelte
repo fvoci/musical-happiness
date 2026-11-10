@@ -4,7 +4,9 @@
 
   The two forms share the page: a link turns one into the other. Making an
   account does not sign in on the server, so the page signs in right after
-  with what was typed. A refusal is told by its kind and reason, never by
+  with what was typed; if that fails, the page is the sign-in form. The
+  length of a password is the server's to check (it counts characters, a
+  browser's `minlength` counts UTF-16 units). A refusal is told by its kind and reason, never by
   the server's own words (`docs/contract-assumptions.md`, 1).
 -->
 <script lang="ts">
@@ -74,7 +76,11 @@
           password,
           token: token.trim(),
         });
-        await onSignIn(username.trim(), password);
+        // The account is there now. Should signing in fail, the form to try
+        // again is the one to sign in with, the name filled in.
+        login = username.trim();
+        mode = 'signIn';
+        await onSignIn(login, password);
       } else {
         await onSignIn(login.trim(), password);
       }
@@ -151,7 +157,6 @@
         bind:value={password}
         autocomplete={mode === 'signIn' ? 'current-password' : 'new-password'}
         required
-        minlength={mode === 'register' ? 8 : undefined}
         class="roomy:h-touch roomy:text-base"
       />
       {#if mode === 'register'}

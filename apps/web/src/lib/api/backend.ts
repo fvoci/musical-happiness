@@ -67,10 +67,12 @@ export class ServerBackend implements Backend, Account {
 
   // ------------------------------------------------------------ account
 
+  /**
+   * The server takes the name first and the email address when no user has
+   * that name; a name may have an `@` in it. So the text goes as both.
+   */
   async signIn(login: string, password: string): Promise<void> {
-    const request: Schemas['LoginRequest'] = login.includes('@')
-      ? { email: login, password }
-      : { username: login, password };
+    const request: Schemas['LoginRequest'] = { username: login, email: login, password };
     await this.#http.request('/api/v1/login', {}, { method: 'POST', json: request });
   }
 

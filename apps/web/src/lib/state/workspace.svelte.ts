@@ -188,8 +188,17 @@ export class Workspace {
     }
   }
 
-  /** Puts a failure where the shell shows it. Anything that is not a backend error is a bug and is thrown on. */
+  /**
+   * Puts a failure where the shell shows it. Anything that is not a backend
+   * error is a bug and is logged. A 401 is no failure to show: the session
+   * is over, and the status turns to `signedOut`.
+   */
   report(action: ProblemAction, error: unknown): void {
+    // The session is over (it went idle, or past its end): sign in again.
+    if (isBackendError(error) && error.status === 401) {
+      this.status = 'signedOut';
+      return;
+    }
     this.#problemCount += 1;
     this.problems = [
       ...this.problems,

@@ -55,9 +55,11 @@ let token: string | undefined;
 export async function invitation(baseURL: string): Promise<string> {
   if (token !== undefined) return token;
   const api = await apiClient(baseURL);
+  // Once the server has an account, a registration without the invitation
+  // is refused (403) before anything else is looked at: the administrator
+  // is there already (made by an earlier worker of this run), and signs in.
   const registered = await api.post('/api/v1/register', { data: ADMIN });
-  // 403: somebody else was first. Then this run cannot read the invitation.
-  if (!registered.ok() && registered.status() !== 409) await ok(registered, 'register admin');
+  if (!registered.ok() && registered.status() !== 403) await ok(registered, 'register admin');
   await ok(await api.post('/api/v1/login', { data: ADMIN }), 'login admin');
   const teams = (await (await api.get('/api/v1/teams')).json()) as Schemas['Team'][];
   token = teams[0]?.signupToken;

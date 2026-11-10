@@ -10,7 +10,7 @@
   import SignInPage from '$lib/features/account/SignInPage.svelte';
   import AppShell from '$lib/features/shell/AppShell.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { Workspace, type Account, type Registration } from '$lib/state/index.ts';
+  import { isBackendError, Workspace, type Account, type Registration } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import { startBackend } from './backend.ts';
@@ -47,15 +47,21 @@
 
   /**
    * Signs out, and starts the page again at its root: nothing of the
-   * account that was signed in stays in memory.
+   * account that was signed in stays in memory. When the server does not
+   * end the session (no answer, a refusal), the page stays as it is and
+   * says so; a session that was over already (401) counts as signed out.
    */
   async function signOut(): Promise<void> {
     try {
       await account?.signOut();
-    } finally {
-      workspace?.close();
-      window.location.assign(router.href({}));
+    } catch (error) {
+      if (!isBackendError(error) || error.status !== 401) {
+        workspace?.report('save', error);
+        return;
+      }
     }
+    workspace?.close();
+    window.location.assign(router.href({}));
   }
 
   // Without a board in the address, show the first one of the sidebar.

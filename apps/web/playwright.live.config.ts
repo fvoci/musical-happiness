@@ -32,7 +32,7 @@ export default defineConfig({
     // instead of being refused (playwright.config.ts says more).
     wait: { stdout: /live: http/ },
     stdout: 'pipe',
-    stderr: 'ignore',
+    stderr: 'pipe',
     timeout: 60_000,
     gracefulShutdown: { signal: 'SIGTERM', timeout: 15_000 },
   },
