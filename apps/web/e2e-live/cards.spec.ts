@@ -1,7 +1,8 @@
 /**
- * Cards on the real server, on a board's kanban: making them (and, as the
- * work goes on, changing and moving them). Each test makes its own board through the API as its owner, who
- * then works on the page.
+ * Cards on the real server, on a board's kanban: making, changing, moving,
+ * deleting them, and bringing a deleted one back from the trash. Each test
+ * makes its own board through the API as its owner, who then works on the
+ * page.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -218,6 +219,52 @@ test('a card carried to another column and a place in it is moved on the server'
   await page.reload();
   await expect.poll(() => titlesIn('Done')).toEqual(['Dust', 'Sweep']);
   expect(await titlesIn('To do')).toEqual(['Mop']);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
+
+test('a card deleted goes to the server’s trash, and undo brings it back from there', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('tidier');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Tidy',
+    cards: [
+      { title: 'Keep me', status: 'To do' },
+      { title: 'Throw me out', status: 'To do' },
+    ],
+  });
+  const gone = board.cards['Throw me out'] ?? '';
+  const onServer = async (): Promise<string[]> =>
+    (
+      (await (
+        await api.get(`/api/v1/boards/${board.boardId}/cards`, { params: { perPage: 0 } })
+      ).json()) as Schemas['Card'][]
+    ).map((card) => card.title);
+
+  const errors = watchErrors(page);
+  await page.goto(`/board/${board.boardId}/${board.viewId}`);
+  await signInOnPage(page, owner);
+  await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(2);
+
+  await page.getByRole('button', { name: 'Card menu: Throw me out' }).click();
+  await page.locator('[data-action="delete"]').click();
+  await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(1);
+  await expect.poll(onServer).toEqual(['Keep me']);
+  // Gone from the board: the server no longer gives it.
+  expect((await api.get(`/api/v1/cards/${gone}`)).status()).toBe(404);
+
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(column(page, 'To do').getByText('Throw me out')).toBeVisible();
+  await expect.poll(async () => (await onServer()).sort()).toEqual(['Keep me', 'Throw me out']);
+
+  await page.reload();
+  await expect(column(page, 'To do').locator('[data-card]')).toHaveCount(2);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();
   expect(errors).toEqual([]);

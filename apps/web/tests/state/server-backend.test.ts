@@ -331,3 +331,20 @@ describe('changing a view on the server', () => {
     expect(order[3]).toMatch(/^GET/);
   });
 });
+
+describe('the trash on the server', () => {
+  it('deletes a block and takes it back out by its own routes', async () => {
+    const sent = serve(undefined, 204);
+    const backend = new ServerBackend('');
+    await backend.deleteBlock('b', 'c1');
+    const restoring = serve({ ...BLOCK, id: 'c1', type: 'card', title: 'Back' });
+    await backend.restoreBlock('b', 'c1');
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'DELETE /api/v1/boards/b/blocks/c1',
+    ]);
+    expect(restoring.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'POST /api/v1/boards/b/blocks/c1/undelete',
+    ]);
+    expect(sent[0]?.headers['X-Requested-With']).toBe('XMLHttpRequest');
+  });
+});

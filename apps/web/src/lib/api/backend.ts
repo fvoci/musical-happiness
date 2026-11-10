@@ -446,12 +446,26 @@ export class ServerBackend implements Backend, Account {
     return notWired('createAttachment');
   }
 
-  deleteBlock(_boardId: string, _blockId: string): Promise<void> {
-    return notWired('deleteBlock');
+  /** To the server's trash, with what is under it (204). */
+  async deleteBlock(boardId: string, blockId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/boards/{boardId}/blocks/{blockId}',
+      { boardId, blockId },
+      { method: 'DELETE' },
+    );
   }
 
-  restoreBlock(_boardId: string, _blockId: string): Promise<void> {
-    return notWired('restoreBlock');
+  /**
+   * Out of the server's trash, with what went there with it. The server
+   * tells only the block itself to the others (`contracts/websocket.md`);
+   * the caller reads what it shows again.
+   */
+  async restoreBlock(boardId: string, blockId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/boards/{boardId}/blocks/{blockId}/undelete',
+      { boardId, blockId },
+      { method: 'POST' },
+    );
   }
 
   upload(_boardId: string, _file: File): Promise<UploadedFile> {
