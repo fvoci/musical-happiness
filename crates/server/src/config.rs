@@ -22,6 +22,7 @@ pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The settings of the S3 file backend, the `filess3config` object.
 #[derive(Clone, Default, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -77,8 +78,10 @@ impl std::fmt::Debug for AmazonS3Config {
 /// The server configuration.
 ///
 /// The serde names are the keys of the configuration file in lower case; [`Configuration::read`]
-/// lower-cases the file's keys before decoding.
+/// lower-cases the file's keys before decoding. `docs/configuration.md` documents every
+/// key, and a test holds the two together.
 #[derive(Clone, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -917,5 +920,143 @@ mod tests {
             !debug.contains("hunter2") && !debug.contains("s3cr3t"),
             "{debug}"
         );
+    }
+
+    /// A file of the repository, read whole.
+    fn repository_file(path: &str) -> String {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(path);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()))
+    }
+
+    /// What `docs/configuration.md` says about the keys.
+    #[derive(Debug, Default)]
+    struct Documented {
+        /// The default of each key, lower-cased, as JSON.
+        defaults: BTreeMap<String, Value>,
+        /// The environment variable of each key that has one.
+        env: BTreeMap<String, String>,
+        /// The removed keys.
+        removed: Vec<String>,
+    }
+
+    /// The text of a table cell between backticks, if it is all in backticks.
+    fn code(cell: &str) -> Option<&str> {
+        cell.trim().strip_prefix('`')?.strip_suffix('`')
+    }
+
+    /// Reads the tables of the document: the rows of the sections "키: …" are keys, and
+    /// those of "없앤 키" are removed keys.
+    fn documented(text: &str) -> Documented {
+        let mut documented = Documented::default();
+        let mut section = "";
+        for line in text.lines() {
+            if let Some(heading) = line.strip_prefix("## ") {
+                section = heading;
+                continue;
+            }
+            let Some(row) = line.strip_prefix('|') else {
+                continue;
+            };
+            let cells: Vec<&str> = row.split('|').collect();
+            let Some(key) = cells.first().and_then(|cell| code(cell)) else {
+                continue;
+            };
+            let key = key.to_lowercase();
+            if section.starts_with("키:") {
+                assert!(cells.len() >= 5, "a row of five cells: {line}");
+                let default = code(cells[3]).unwrap_or_else(|| panic!("a default: {line}"));
+                let default: Value = serde_json::from_str(default)
+                    .unwrap_or_else(|error| panic!("the default of {key} is JSON ({error})"));
+                if let Some(env) = code(cells[1]) {
+                    documented.env.insert(key.clone(), env.to_owned());
+                }
+                assert!(
+                    documented.defaults.insert(key.clone(), default).is_none(),
+                    "{key} is documented once"
+                );
+            } else if section == "없앤 키" {
+                documented.removed.push(key);
+            }
+        }
+        documented
+    }
+
+    /// The keys of the configuration and their defaults, the keys of `filess3config`
+    /// as `filess3config.<key>`.
+    fn code_defaults() -> BTreeMap<String, Value> {
+        let Value::Object(keys) =
+            serde_json::to_value(Configuration::default()).expect("the defaults serialize")
+        else {
+            panic!("the configuration is an object");
+        };
+        let mut defaults = BTreeMap::new();
+        for (key, value) in keys {
+            match value {
+                Value::Object(inner) if key == "filess3config" => {
+                    for (inner_key, inner_value) in inner {
+                        defaults.insert(format!("{key}.{inner_key}"), inner_value);
+                    }
+                }
+                other => {
+                    defaults.insert(key, other);
+                }
+            }
+        }
+        defaults
+    }
+
+    #[test]
+    fn the_configuration_document_lists_every_key() {
+        let documented = documented(&repository_file("docs/configuration.md"));
+        let defaults = code_defaults();
+        assert_eq!(
+            documented.defaults.keys().collect::<Vec<_>>(),
+            defaults.keys().collect::<Vec<_>>(),
+            "docs/configuration.md lists the keys the server reads"
+        );
+        for (key, default) in &defaults {
+            assert_eq!(
+                &documented.defaults[key], default,
+                "the default of {key} in docs/configuration.md"
+            );
+        }
+        let env: BTreeMap<String, String> = ENV_KEYS
+            .iter()
+            .map(|(key, _)| {
+                (
+                    (*key).to_owned(),
+                    format!("{ENV_PREFIX}{}", key.to_uppercase()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            documented.env, env,
+            "docs/configuration.md names the environment variables the server reads"
+        );
+        let removed: Vec<String> = REMOVED_KEYS
+            .iter()
+            .map(|(key, _)| (*key).to_owned())
+            .collect();
+        assert_eq!(
+            documented.removed, removed,
+            "docs/configuration.md lists the removed keys"
+        );
+    }
+
+    #[test]
+    fn the_example_configuration_files_are_read() {
+        // The configuration files of the repository: what is copied into the image.
+        let examples = vec!["docker/fvoci/config.json"];
+        for path in examples {
+            let config = Configuration::parse(&repository_file(path), no_env)
+                .unwrap_or_else(|error| panic!("{path} is read: {error:#}"));
+            let warnings = config
+                .check()
+                .unwrap_or_else(|error| panic!("{path} is accepted: {error:#}"));
+            assert!(warnings.is_empty(), "{path} gives no warning: {warnings:?}");
+        }
     }
 }

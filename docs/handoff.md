@@ -28,8 +28,8 @@
   |---|---|---|
   | 0 | WebSocket 메시지를 지금 모양대로 적는다(`contracts/websocket.md`, `websocket.json`, 견주는 테스트), 웹앱의 G1–G6에 답한다 | 끝 |
   | 1 | 카드의 본문 하나를 쓰고 읽는다: `body` 열, `createCard`·`patchCard`·`getCard`, 목록의 본문 여부와 할 일 수, 읽은 판의 409, 검증의 최소한, 벡터 몇 개. 설계의 "답을 기다리는 것" 셋을 결정으로 옮긴다 | 끝 |
-  | 1b | 설정의 문서와 예시 파일(지시문 9절): `docker/fvoci/config.json`을 지금의 키로 고치고 읽히는지 보는 테스트, `docs/configuration.md`에 키 전부(S3 하위 키, `FVOCI_*`, 명령줄 인자, 없앤 키), 문서와 코드의 키가 어긋나면 실패하는 검사. 쓰이지 않는 키와 S3 키의 환경 변수는 보고에 | 다음 |
-  | 2 | 허용 목록 전체: 노드·마크·속성·포함 관계, 판 2(수식 노드), 길이를 UTF-16으로, `href` 규칙, 검색용 평문(`body_text`), 공유 벡터 전체(웹앱 문서 4.4 포함) | |
+  | 1b | 설정의 문서와 예시 파일(지시문 9절): `docker/fvoci/config.json`을 지금의 키로 고치고 읽히는지 보는 테스트, `docs/configuration.md`에 키 전부(S3 하위 키, `FVOCI_*`, 명령줄 인자, 없앤 키), 문서와 코드의 키가 어긋나면 실패하는 검사. 쓰이지 않는 키와 S3 키의 환경 변수는 보고에 | 끝 |
+  | 2 | 허용 목록 전체: 노드·마크·속성·포함 관계, 판 2(수식 노드), 길이를 UTF-16으로, `href` 규칙, 검색용 평문(`body_text`), 공유 벡터 전체(웹앱 문서 4.4 포함) | 다음 |
   | 2b | 블록 길의 본문: `createBlocks`·`patchBlock`·`patchBlocks`·boards-and-blocks의 `body`와 `field: body`, 본문을 가질 수 있는 블록 종류, 이미지 `fileId`가 같은 보드의 파일인지, 복제가 본문의 이미지를 새 파일로 바꾸는 것 | |
   | 3 | 댓글의 본문 | |
   | 4 | 템플릿 받기: 산출물을 저장소에, 이미지 빼기, 아카이브 판 3, 옛 형식 걷기, `onboarding` 표식, `onboard`의 500, Dockerfile | |
@@ -44,6 +44,13 @@
   | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | |
   | 14 | 빌드 크기(디버그 정보 수준) | |
   | 끝 | 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | |
+
+  이 묶음에서 "사용자 결정 필요"로 남긴 것(까닭과 권고는 적힌 자리에):
+
+  - 공유 보드의 익명 독자에게 가는 본문의 `mention.userId`(`docs/contract-pending.md` 1절).
+  - 받지만 아무 일도 하지 않는 설정 키(`logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`)를 지울지, S3의 키를 `FVOCI_*` 환경 변수로 받을지(`docs/configuration.md`. 권고는 아래 "설정"). `authmode`와 `prometheusaddress`는 지우지 않는다(사용자 결정, 05:04 KST. 6절의 후속 후보).
+
+- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. 권고: (1) `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 "없앤 키"로 옮겨 값이 있으면 시작하지 않게 한다(지금은 경고만 하거나 말없이 무시해, 적은 운영자가 효과가 있다고 믿는다). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). (2) S3는 `accesskeyid`를 비우면 표준 `AWS_*` 변수를 읽으므로 비밀 키를 파일 밖에 둘 길이 이미 있다. 그래도 `bucket`, `endpoint`, `region`, `pathprefix`처럼 배포마다 다른 값은 `FVOCI_FILESS3CONFIG_BUCKET` 꼴로 받게 하기를 권한다(컨테이너 하나로 여러 환경을 띄울 수 있다). 비밀 키는 `AWS_*`를 권하는 쪽으로 문서에 적어 두었다.
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
@@ -249,6 +256,11 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 3. **청크 업로드, 스트리밍, 파일 한도**(설계 4.3, 5.6).
 4. **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
 5. **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
+
+**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 둘이다(`docs/configuration.md`의 "예약된 키").
+
+- `prometheusaddress`: Prometheus 지표를 내는 주소.
+- `authmode`: OIDC 로그인. 지금은 `native`만 받는다.
 
 **웹앱 쪽에 전할 것.**
 

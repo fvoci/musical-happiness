@@ -7,8 +7,8 @@
     "webpath": "/opt/fvoci/web",
     "filesdriver": "local",
     "filespath": "/data/files",
-    "session_expire_time": 2592000,
-    "session_refresh_time": 18000,
+    "session_idle_days": 14,
+    "session_max_days": 90,
     "localOnly": false,
     "enableLocalMode": true,
     "localModeSocketLocation": "/var/tmp/fvoci_local.socket"
