@@ -385,26 +385,6 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
     let card_id = made[0]["id"].as_str().expect("an id").to_owned();
     assert_eq!(made[0]["body"], document(), "{made:?}");
     assert_eq!(listed(&th.client, &board.id, &card_id).await, (true, 2, 1));
-    // What may not be stored, and a body on a block that is no card.
-    for (block, field) in [
-        (card_block(&board.id, &json!("text")), "body"),
-        (
-            card_block(
-                &board.id,
-                &json!({"type": "doc", "content": [{"type": "table"}]}),
-            ),
-            "body",
-        ),
-        (
-            json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "text",
-                   "createAt": 1, "updateAt": 1, "body": document()}),
-            "body",
-        ),
-    ] {
-        let response = th.client.post(&blocks, &[block]).await;
-        check_refused_member(&response, field);
-    }
-
     // Changed with the `updateAt` it was read at, through each route of patches.
     let path = format!("{blocks}/{card_id}");
     let read = card(&th.client, &card_id).await;
@@ -474,8 +454,7 @@ fn document_body() -> fvoci_model::Body {
         .expect("not empty")
 }
 
-/// An image of a body shows a file of the card's board; a copy of the card shows a copy
-/// of the file.
+/// An image of a body shows a file of the card's board, on every route that takes one.
 #[tokio::test]
 async fn the_images_of_a_body_are_files_of_its_board() {
     let th = Setup::native().start().await.init_basic().await;
@@ -522,6 +501,152 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         .await;
     check_refused_member(&response, "body");
 
+    // Each route of patches refuses it too.
+    let block_path = format!("/boards/{}/blocks/{}", board.id, created.id);
+    let patch = json!({"body": with_image(&elsewhere), "readAt": created.update_at});
+    check_refused_member(&th.client.patch(&block_path, &patch).await, "body");
+    let batch = json!({"blockIds": [created.id], "blockPatches": [patch]});
+    check_refused_member(
+        &th.client
+            .patch(&format!("/boards/{}/blocks", board.id), &batch)
+            .await,
+        "body",
+    );
+    let request = json!({
+        "boardIds": [board.id], "boardPatches": [{"title": "n"}],
+        "blockIds": [created.id], "blockPatches": [patch],
+    });
+    check_refused_member(
+        &th.client.patch("/boards-and-blocks", &request).await,
+        "body",
+    );
+    // A new board has no files.
+    let response = th
+        .client
+        .post(
+            "/boards-and-blocks",
+            &json!({
+                "boards": [{"id": board.id, "teamId": TEST_TEAM_ID, "type": "P"}],
+                "blocks": [card_block(&board.id, &with_image(&file_id))],
+            }),
+        )
+        .await;
+    check_refused_member(&response, "body");
+    assert_eq!(card(&th.client, &created.id).await, created, "unchanged");
+
+    th.teardown().await;
+}
+
+/// What the routes of blocks refuse of bodies: what may not be stored, a body on a block
+/// that is no card, and a card with a body that would become another block. A refused
+/// request stores nothing.
+#[tokio::test]
+async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let blocks = format!("/boards/{}/blocks", board.id);
+    let made: Vec<Value> = th
+        .client
+        .post(&blocks, &[card_block(&board.id, &document())])
+        .await
+        .created_json();
+    let card_id = made[0]["id"].as_str().expect("an id").to_owned();
+
+    // What may not be stored, and a body on a block that is no card.
+    for (block, field) in [
+        (card_block(&board.id, &json!("text")), "body"),
+        (
+            card_block(
+                &board.id,
+                &json!({"type": "doc", "content": [{"type": "table"}]}),
+            ),
+            "body",
+        ),
+        (
+            json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "text",
+                   "createAt": 1, "updateAt": 1, "body": document()}),
+            "body",
+        ),
+        (
+            json!({"id": "c1", "boardId": board.id, "parentId": card_id, "type": "comment",
+                   "createAt": 1, "updateAt": 1, "body": document()}),
+            "body",
+        ),
+    ] {
+        let response = th.client.post(&blocks, &[block]).await;
+        check_refused_member(&response, field);
+    }
+    let response = th
+        .client
+        .post(
+            "/boards-and-blocks",
+            &json!({
+                "boards": [{"id": "bd", "teamId": TEST_TEAM_ID, "type": "P"}],
+                "blocks": [card_block("bd", &json!("text"))],
+            }),
+        )
+        .await;
+    check_refused_member(&response, "body");
+    // A card with a body may not become another block.
+    let response = th
+        .client
+        .patch(&format!("{blocks}/{card_id}"), &json!({"type": "text"}))
+        .await;
+    check_refused_member(&response, "body");
+    // Nothing of the refused requests was stored: no block, no board.
+    let stored = th.client.get(&blocks).await.value();
+    assert_eq!(
+        stored.as_array().map(Vec::len),
+        Some(1),
+        "only the card: {stored}"
+    );
+    let boards = th
+        .client
+        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .await
+        .value();
+    assert_eq!(boards.as_array().map(Vec::len), Some(1), "{boards}");
+
+    th.teardown().await;
+}
+
+/// A copy of a card, made from its board or of it or of its board, shows a copy of each
+/// file of its body, and is answered as it is stored.
+#[tokio::test]
+async fn a_copy_of_a_body_shows_copies_of_its_files() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let other = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&th.client, &board.id, "picture.png", b"png").await,
+    );
+    let created: Card = new_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "Card", "body": with_image(&file_id)}),
+    )
+    .await
+    .created_json();
+
+    // Blocks made from another board's: the body shows files of that board, copied.
+    let response = th
+        .client
+        .post(
+            &format!("/boards/{}/blocks?sourceBoardId={}", other.id, board.id),
+            &[card_block(&other.id, &with_image(&file_id))],
+        )
+        .await;
+    let made: Vec<Value> = response.created_json();
+    let moved = made[0]["body"]["content"][1]["attrs"]["fileId"]
+        .as_str()
+        .expect("a file")
+        .to_owned();
+    assert_ne!(moved, file_id, "a copy of the file");
+    th.client
+        .get(&format!("/boards/{}/files/{moved}", other.id))
+        .await
+        .check_ok();
+
     // The copy of the card shows a copy of the file, a file of the same board.
     let copies: Vec<Value> = th
         .client
@@ -545,6 +670,41 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         stored.body.as_ref().map(fvoci_model::Body::file_ids),
         Some(vec![copied_file.as_str()]),
         "the stored copy is what was answered"
+    );
+    assert_eq!(
+        copy["updateAt"],
+        json!(stored.update_at),
+        "the answered copy is the stored one, to be edited from"
+    );
+
+    // A copy of the board too.
+    let board_copy: Value = th
+        .client
+        .post_empty(&format!("/boards/{}/duplicate", board.id))
+        .await
+        .created_json();
+    let new_board = board_copy["boards"][0]["id"]
+        .as_str()
+        .expect("a board")
+        .to_owned();
+    let mut with_images = 0;
+    for block in board_copy["blocks"].as_array().expect("blocks") {
+        if block["type"] == json!("card") && block["body"].is_object() {
+            with_images += 1;
+            let name = block["body"]["content"][1]["attrs"]["fileId"]
+                .as_str()
+                .expect("a file");
+            th.client
+                .get(&format!("/boards/{new_board}/files/{name}"))
+                .await
+                .check_ok();
+            let stored = card(&th.client, block["id"].as_str().expect("an id")).await;
+            assert_eq!(block["updateAt"], json!(stored.update_at));
+        }
+    }
+    assert_eq!(
+        with_images, 2,
+        "both cards of the board were copied with their image"
     );
     th.client
         .get(&format!("/boards/{}/files/{copied_file}", board.id))

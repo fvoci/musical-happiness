@@ -215,6 +215,13 @@ impl App {
                         "could not patch file IDs while duplicating board {board_id}"
                     ))
                 })?;
+            // The patch moved `updateAt` on: the caller's copies are what is answered and
+            // announced, and a client edits them with that `updateAt` as `readAt`.
+            for block in blocks.iter_mut() {
+                if batch.block_ids.contains(&block.id) {
+                    *block = self.store().get_block(&block.id).await?;
+                }
+            }
         }
         Ok(())
     }
@@ -353,7 +360,7 @@ fn files_of(block: &Block) -> Vec<String> {
 /// Points the images of a copied body at the copies of their files. An image whose file
 /// was not copied keeps the name it had: a body has no image without a file.
 fn rename_body_files(body: &mut Body, new_file_names: &HashMap<String, String>) {
-    body.rename_files(&|old| new_file_names.get(old).cloned());
+    body.rename_files(|old| new_file_names.get(old).cloned());
 }
 
 /// The file a block points at: its `fileId`, or failing that its `attachmentId`.

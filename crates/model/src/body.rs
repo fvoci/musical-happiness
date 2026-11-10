@@ -144,9 +144,10 @@ impl Body {
     #[must_use]
     pub fn file_ids(&self) -> Vec<&str> {
         let mut ids: Vec<&str> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         visit(&self.document, &mut |node| {
             if let Some(id) = image_file(node)
-                && !ids.contains(&id)
+                && seen.insert(id)
             {
                 ids.push(id);
             }
@@ -156,8 +157,8 @@ impl Body {
 
     /// Points the images of the body at other files: `rename` gives the new name of a
     /// file, or `None` to leave it. A copy of a body whose files were copied is made so.
-    pub fn rename_files(&mut self, rename: &impl Fn(&str) -> Option<String>) {
-        rename_in(&mut self.document, rename);
+    pub fn rename_files(&mut self, rename: impl Fn(&str) -> Option<String>) {
+        rename_in(&mut self.document, &rename);
     }
 }
 

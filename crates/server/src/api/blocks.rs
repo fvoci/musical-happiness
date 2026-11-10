@@ -3,8 +3,8 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, generate_block_ids,
-    stamp_modification_metadata,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType,
+    generate_block_ids, stamp_modification_metadata,
 };
 
 use serde_json::Value;
@@ -222,6 +222,10 @@ async fn handle_post_blocks(
     let mut blocks: Vec<Block> =
         serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
     for (block, body) in blocks.iter_mut().zip(bodies) {
+        // Refused before anything is copied for it.
+        if body.is_some() && block.block_type != BlockType::Card {
+            return Err(BlockError::BodyNotAllowed.into());
+        }
         block.body = body;
     }
 

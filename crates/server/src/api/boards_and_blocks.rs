@@ -71,9 +71,18 @@ async fn handle_create_boards_and_blocks(
     if let Some(invalid) = invalid {
         return Err(invalid.into_error());
     }
-    // The boards are new and have no files, so a body with an image is refused.
+    // The boards are new and have no files, so a body with an image is refused, without
+    // looking up anything the request names.
     for (block, body) in request.blocks.iter_mut().zip(bodies?) {
-        app.check_body_files(&block.board_id, body.as_ref()).await?;
+        if body
+            .as_ref()
+            .is_some_and(|body| !body.file_ids().is_empty())
+        {
+            return Err(AppError::bad_request(
+                "an image of the body shows no file of the board: a new board has none",
+            )
+            .with_field("body"));
+        }
         block.body = body;
     }
 

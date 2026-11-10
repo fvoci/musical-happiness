@@ -128,7 +128,14 @@ pub(crate) fn put_patch_bodies<'a>(
     patches: impl IntoIterator<Item = &'a mut BlockPatch>,
     changes: Vec<BodyChange>,
 ) -> Result<(), AppError> {
-    for (patch, change) in patches.into_iter().zip(changes) {
+    let mut changes = changes.into_iter();
+    for patch in patches {
+        // One change was taken out of each patch.
+        let Some(change) = changes.next() else {
+            return Err(AppError::from(anyhow::anyhow!(
+                "fewer changes of body than block patches"
+            )));
+        };
         if !change.is_keep() && patch.read_at.is_none() {
             return Err(AppError::bad_request(
                 "a change of the body needs readAt, the updateAt of the block as it was read",
