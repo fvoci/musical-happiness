@@ -186,8 +186,27 @@ export class Workspace {
       case 'settings':
         this.#takeSettings(change.settings);
         break;
+      case 'resync':
+        void this.#refresh();
+        break;
       default:
         break;
+    }
+  }
+
+  /** Reads the boards and the sidebar again after changes may have been missed (`resync`). */
+  async #refresh(): Promise<void> {
+    const team = this.team;
+    if (this.status !== 'ready' || !team) return;
+    try {
+      const [boards, categories] = await Promise.all([
+        this.backend.boards(team.id),
+        this.backend.categories(team.id),
+      ]);
+      this.boards = boards;
+      this.categories = categories;
+    } catch (error) {
+      this.report('load', error);
     }
   }
 

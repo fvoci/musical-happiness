@@ -52,6 +52,7 @@ import {
   type Schemas,
 } from './convert.ts';
 import { Http } from './http.ts';
+import { LiveChanges } from './live.ts';
 
 /**
  * Refuses an operation that is not wired to the server yet. 405 is the
@@ -71,8 +72,22 @@ export class ServerBackend implements Backend, Account {
   readonly #writes = new Map<string, Promise<void>>();
 
   /** `basePath` is the path the app is served under (`<meta name="fvoci:base">`). */
+  readonly #live: LiveChanges;
+
   constructor(basePath: string) {
     this.#http = new Http(basePath);
+    // The page's own origin: the browser sends the session's cookie with it.
+    const socket = new URL(`${basePath}/ws`, location.href);
+    socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
+    this.#live = new LiveChanges(socket.href, {
+      teamId: async () => {
+        const [team] = await this.teams();
+        if (!team) throw new Error('the reader belongs to no team');
+        return team.id;
+      },
+      members: (boardId) => this.members(boardId),
+      categories: (teamId) => this.categories(teamId),
+    });
   }
 
   // ------------------------------------------------------------ account
@@ -448,11 +463,13 @@ export class ServerBackend implements Backend, Account {
 
   // ------------------------------------------------------------ changes
 
-  watchBoard(_boardId: string, _listener: ChangeListener): () => void {
-    return () => undefined;
+  /** The board's changes, from the one connection of the page (`live.ts`). */
+  watchBoard(boardId: string, listener: ChangeListener): () => void {
+    return this.#live.watch(boardId, listener);
   }
 
-  watchSelf(_listener: ChangeListener): () => void {
-    return () => undefined;
+  /** The reader's own changes: boards and the sidebar. Settings have no message. */
+  watchSelf(listener: ChangeListener): () => void {
+    return this.#live.watch(undefined, listener);
   }
 }

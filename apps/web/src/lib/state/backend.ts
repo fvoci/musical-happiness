@@ -275,7 +275,12 @@ export type Change =
   | { kind: 'blocksDeleted'; boardId: string; blockIds: string[] }
   | { kind: 'members'; boardId: string; members: BoardMember[] }
   | { kind: 'categories'; categories: Category[] }
-  | { kind: 'settings'; settings: AccountSettings };
+  | { kind: 'settings'; settings: AccountSettings }
+  /**
+   * Changes may have been missed (the connection to the server dropped and
+   * is back): read again what is shown. The memory backend never sends it.
+   */
+  | { kind: 'resync' };
 
 export type ChangeListener = (change: Change) => void;
 

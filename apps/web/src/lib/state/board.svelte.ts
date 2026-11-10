@@ -261,8 +261,39 @@ export class BoardStore {
         this.views = this.views.filter((view) => !change.blockIds.includes(view.id));
         this.openCard?.forget(change.blockIds);
         break;
+      case 'resync':
+        void this.#refresh();
+        break;
       default:
         break;
+    }
+  }
+
+  /**
+   * Reads the board again over what is shown, after changes may have been
+   * missed (`resync`). Unlike `load`, the board stays on screen meanwhile.
+   */
+  async #refresh(): Promise<void> {
+    if (this.status !== 'ready') return;
+    try {
+      const [board, views, cards, members] = await Promise.all([
+        this.#backend.board(this.boardId),
+        this.#backend.views(this.boardId),
+        this.#backend.cards(this.boardId),
+        this.#backend.members(this.boardId),
+      ]);
+      this.board = board;
+      this.views = views;
+      this.cards = cards;
+      this.members = members;
+      void this.workspace.learnUsers(members.map((member) => member.userId));
+    } catch (error) {
+      if (isBackendError(error) && error.status === 404) {
+        this.missing = true;
+        this.status = 'failed';
+      } else {
+        this.workspace.report('load', error);
+      }
     }
   }
 
