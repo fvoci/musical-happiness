@@ -35,7 +35,7 @@ pub enum BoardsAndBlocksError {
 }
 
 /// Boards and the blocks that belong to them, created together.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct BoardsAndBlocks {
     /// The boards.
@@ -76,7 +76,7 @@ impl BoardsAndBlocks {
 }
 
 /// The identifiers of boards and blocks to delete together.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct DeleteBoardsAndBlocks {
     /// The identifiers of the boards.
@@ -121,7 +121,7 @@ impl From<&BoardsAndBlocks> for DeleteBoardsAndBlocks {
 /// Patches for several boards and blocks, applied together.
 ///
 /// Identifiers and patches are matched by position.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct PatchBoardsAndBlocks {
     /// The identifiers of the boards to patch.

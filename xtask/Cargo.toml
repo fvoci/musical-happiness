@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Development tasks of the fvoci workspace: cargo xtask check, cargo xtask test"
+description = "Development tasks of the fvoci workspace: cargo xtask check, test, openapi"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

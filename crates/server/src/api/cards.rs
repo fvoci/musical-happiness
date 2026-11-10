@@ -2,11 +2,16 @@
 
 use std::num::IntErrorKind;
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use axum::routing::{get, post};
 use fvoci_model::{BlockType, Card, CardError, CardPatch};
+
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::NewCard;
+use super::contract::params::{BoardId, CardId, DisableNotify, Page, PerPage};
+use super::contract::tag;
 
 use super::change_notification;
 use super::{ApiResult, RequiredSession, created, json_response, query_param};
@@ -21,16 +26,10 @@ const DEFAULT_PAGE: i64 = 0;
 /// The number of cards a page has in a request without `perPage`.
 const DEFAULT_PER_PAGE: i64 = 100;
 
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route(
-            "/boards/{board_id}/cards",
-            post(handle_create_card).get(handle_get_cards),
-        )
-        .route(
-            "/cards/{card_id}",
-            get(handle_get_card).patch(handle_patch_card),
-        )
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_create_card, handle_get_cards))
+        .routes(routes!(handle_get_card, handle_patch_card))
 }
 
 /// Reads a whole number from a query parameter; `default` if the parameter is absent
@@ -74,9 +73,18 @@ async fn card_with_permission(
     app.card(card_id).await
 }
 
-/// `POST /boards/{board_id}/cards`: creates a card on the board and answers with it.
+/// Make a card
 ///
-/// The server chooses the identifier, the creator and the times.
+/// The server chooses the identifier, the creator and the times. For editors.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/cards",
+    operation_id = "createCard",
+    tag = tag::CARDS,
+    params(BoardId, DisableNotify),
+    request_body = NewCard,
+    responses((status = 201, description = "The card that was made.", body = Card)),
+)]
 async fn handle_create_card(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -109,9 +117,18 @@ async fn handle_create_card(
     Ok(created(&card))
 }
 
-/// `GET /boards/{board_id}/cards`: one page of the board's cards, for everyone who may
-/// view the board. `page` counts from zero and defaults to it; `perPage` defaults to
-/// 100, and zero or less asks for all cards.
+/// The cards of a board
+///
+/// One page of the board's cards, for everyone who may view the board. Oldest first;
+/// the pages cut that order.
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/cards",
+    operation_id = "getCards",
+    tag = tag::CARDS,
+    params(BoardId, Page, PerPage),
+    responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
+)]
 async fn handle_get_cards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -144,7 +161,19 @@ async fn handle_get_cards(
     Ok(json_response(&cards))
 }
 
-/// `PATCH /cards/{card_id}`: partially updates a card and answers with the result.
+/// Change a card
+///
+/// For editors of the card's board. To a user who may not see that board there is no
+/// such card.
+#[utoipa::path(
+    patch,
+    path = "/cards/{cardId}",
+    operation_id = "patchCard",
+    tag = tag::CARDS,
+    params(CardId, DisableNotify),
+    request_body = CardPatch,
+    responses((status = 200, description = "The card as it is now.", body = Card)),
+)]
 async fn handle_patch_card(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -172,7 +201,18 @@ async fn handle_patch_card(
     Ok(json_response(&patched))
 }
 
-/// `GET /cards/{card_id}`: one card, for everyone who may view its board.
+/// A card
+///
+/// For everyone who may view the card's board. To a user who may not there is no such
+/// card.
+#[utoipa::path(
+    get,
+    path = "/cards/{cardId}",
+    operation_id = "getCard",
+    tag = tag::CARDS,
+    params(CardId),
+    responses((status = 200, description = "The card.", body = Card)),
+)]
 async fn handle_get_card(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

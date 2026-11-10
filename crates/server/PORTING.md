@@ -30,7 +30,8 @@
 | 원본 | Rust | 비고 |
 |---|---|---|
 | `server/server/server.go` `Server`, `New`, `Start`, `Shutdown` | `Server::{new, router, serve, shutdown}` (`src/lib.rs`) | 리스너는 호출자가 넘긴다(테스트는 포트 0). 종료는 future로 받는다 |
-| `server/main/main.go` | `src/main.rs` (`fvoci-server`) | 플래그 `--config`, `--port`, `--dbtype`, `--dbconfig`, `--single-user` |
+| `server/main/main.go` | `src/main.rs` (`fvoci-server`) | 플래그 `--config`, `--port`, `--dbtype`, `--dbconfig`. `--single-user`는 S6에서 없앴다. `--print-openapi`는 설정을 읽지 않고 계약 문서를 찍고 끝난다(S6 O절) |
+| (없음) | `api::contract` (`src/api/contract.rs`, `contract/{params,bodies}.rs`) | API의 계약 `contracts/openapi.json`을 라우트 정의에서 만든다. 핸들러의 `#[utoipa::path]`와 문서 주석이 계약의 글이므로, 핸들러의 문서 주석은 클라이언트가 읽는 글로 쓴다(루트 `PORTING.md` S6 O절) |
 | `server/services/config` | `config::Configuration` | `read`, `parse`, `check` |
 | `server/app/app.go` `App` | `app::App` | `Arc` 하나를 감싼 값. `config()`, `store()`, `ws()`, `files()`, `webhook()` |
 | `app.blockChangeNotifier` (`utils.CallbackQueue`) | `App::spawn_background`, `App::finish_background` | 큐 대신 추적되는 tokio 태스크. 종료 때 10초까지 기다린다 |

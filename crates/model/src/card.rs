@@ -31,7 +31,7 @@ pub enum CardError {
 }
 
 /// A card: a titled group of properties and content blocks on a board.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Card {
     /// The card's identifier.
@@ -60,6 +60,7 @@ pub struct Card {
     pub is_template: bool,
     /// Property values keyed by property identifier.
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = Object)]
     pub properties: JsonMap,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
@@ -214,7 +215,7 @@ impl From<Card> for Block {
 }
 
 /// A partial update of a [`Card`]. Absent members leave the card unchanged.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CardPatch {
     /// The new title.
@@ -228,6 +229,7 @@ pub struct CardPatch {
     pub icon: Option<String>,
     /// Property values to set, keyed by property identifier.
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = Object)]
     pub updated_properties: JsonMap,
 }
 

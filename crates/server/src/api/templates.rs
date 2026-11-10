@@ -2,10 +2,13 @@
 //!
 //! Ports `server/api/templates.go`.
 
-use axum::Router;
 use axum::extract::{Path, State};
-use axum::routing::get;
 use fvoci_model::{Board, BoardType};
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::params::TeamId;
+use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response};
 use super::{require_team_access, user_is_guest};
@@ -13,12 +16,22 @@ use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
-pub(super) fn routes() -> Router<App> {
-    Router::new().route("/teams/{team_id}/templates", get(handle_get_templates))
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new().routes(routes!(handle_get_templates))
 }
 
-/// `GET /teams/{team_id}/templates`: the team's template boards the user may see, and
-/// the built-in templates, which every team is offered.
+/// The templates of a team
+///
+/// The team's template boards the user may see, then the built-in templates, which
+/// every team is offered. Each of the two oldest first.
+#[utoipa::path(
+    get,
+    path = "/teams/{teamId}/templates",
+    operation_id = "getTemplates",
+    tag = tag::BOARDS,
+    params(TeamId),
+    responses((status = 200, description = "The templates.", body = Vec<Board>)),
+)]
 async fn handle_get_templates(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

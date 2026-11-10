@@ -15,6 +15,7 @@ mod cards;
 mod categories;
 mod config;
 mod content_blocks;
+pub mod contract;
 mod files;
 mod limits;
 mod members;
@@ -36,6 +37,7 @@ use axum::http::{HeaderValue, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
+use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
     board_refusal, require_admin, require_board_permission, require_board_visible,
@@ -66,19 +68,23 @@ const HEADER_REQUESTED_WITH_XML: &str = "XMLHttpRequest";
 /// The result of an API handler.
 pub(crate) type ApiResult = Result<Response, AppError>;
 
-/// The routes under `/api/v1`.
-///
-/// Every request that changes something is checked for cross-site request forgery, and
-/// responses are marked as not cacheable unless a handler set its own policy. Request bodies are limited: to
-/// `max_request_bytes` where a route takes JSON and the request has a session, to less
-/// where no session is needed, none is claimed, or the claimed one does not exist. The
-/// routes that take files are outside these limits.
-pub fn router(app: &App) -> Router<App> {
-    let session_limit = SessionBodyLimit {
-        app: app.clone(),
-        limit: BodyLimit(app.config().max_request_bytes),
-    };
-    let json = Router::new()
+/// Where the API is: the prefix of every path but `/hello` and `/ping`.
+pub const PREFIX: &str = "/api/v1";
+
+/// The routes under [`PREFIX`], with what the contract says of them, apart by the limit
+/// on the bodies of their requests.
+struct Routes {
+    /// The routes that take JSON from a session.
+    json: OpenApiRouter<App>,
+    /// The routes anyone can send a body to: they come before there is a session.
+    unauthenticated: OpenApiRouter<App>,
+    /// The routes that take files.
+    uploads: OpenApiRouter<App>,
+}
+
+/// Every route under [`PREFIX`]. The router and the contract are both made from this.
+fn routes() -> Routes {
+    let json = OpenApiRouter::new()
         .merge(archive::routes())
         .merge(auth::routes())
         .merge(blocks::routes())
@@ -96,21 +102,41 @@ pub fn router(app: &App) -> Router<App> {
         .merge(subscriptions::routes())
         .merge(teams::routes())
         .merge(templates::routes())
-        .merge(users::routes())
-        .layer(middleware::from_fn_with_state(
-            session_limit,
-            limit_session_request_body,
-        ));
-    let unauthenticated = auth::unauthenticated_routes().layer(middleware::from_fn_with_state(
-        UNAUTHENTICATED_BODY_LIMIT,
-        limit_request_body,
+        .merge(users::routes());
+    let uploads = OpenApiRouter::new()
+        .merge(files::upload_routes())
+        .merge(archive::upload_routes());
+    Routes {
+        json,
+        unauthenticated: auth::unauthenticated_routes(),
+        uploads,
+    }
+}
+
+/// The routes under `/api/v1`.
+///
+/// Every request that changes something is checked for cross-site request forgery, and
+/// responses are marked as not cacheable unless a handler set its own policy. Request bodies are limited: to
+/// `max_request_bytes` where a route takes JSON and the request has a session, to less
+/// where no session is needed, none is claimed, or the claimed one does not exist. The
+/// routes that take files are outside these limits.
+pub fn router(app: &App) -> Router<App> {
+    let session_limit = SessionBodyLimit {
+        app: app.clone(),
+        limit: BodyLimit(app.config().max_request_bytes),
+    };
+    let routes = routes();
+    let json = Router::from(routes.json).layer(middleware::from_fn_with_state(
+        session_limit,
+        limit_session_request_body,
     ));
+    let unauthenticated = Router::from(routes.unauthenticated).layer(
+        middleware::from_fn_with_state(UNAUTHENTICATED_BODY_LIMIT, limit_request_body),
+    );
     // Not behind the limits above. A file upload is bounded by `maxfilesize` where it
     // is read, which is "no limit" at its default of 0; an archive import has no limit
     // on the request yet. Both get limits with the chunked upload (design 5.6).
-    let uploads = Router::new()
-        .merge(files::upload_routes())
-        .merge(archive::upload_routes());
+    let uploads = Router::from(routes.uploads);
 
     Router::new()
         .merge(json)
@@ -133,7 +159,7 @@ pub fn router(app: &App) -> Router<App> {
 
 /// The routes outside `/api/v1`: `/hello` and `/ping`.
 pub fn system_router() -> Router<App> {
-    system::routes()
+    system::routes().into()
 }
 
 /// The administration routes, with their full paths (`/api/v1/admin/...`).

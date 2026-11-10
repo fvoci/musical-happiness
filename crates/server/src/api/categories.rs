@@ -1,12 +1,16 @@
 //! Sidebar categories and the boards filed under them.
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::routing::{post, put};
-use fvoci_model::{Category, CategoryType};
+use fvoci_model::{Category, CategoryBoards, CategoryType};
 use fvoci_store::BoardVisibility;
 use serde_json::Value;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::{CategoryUpdate, NewCategory};
+use super::contract::params::{BoardId, CategoryId, TeamId};
+use super::contract::tag;
 
 use super::decode_object_members;
 use super::{ApiResult, RequiredSession, decode_json, json_response, no_content};
@@ -20,36 +24,18 @@ const ACCESS_DENIED_TO_TEAM: &str = "access denied to team";
 /// The refusal of the routes that reorder or hide, whatever was denied.
 const ACCESS_DENIED_TO_CATEGORY: &str = "access denied to category";
 
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route(
-            "/teams/{team_id}/categories",
-            post(handle_create_category).get(handle_get_user_category_boards),
-        )
-        .route(
-            "/teams/{team_id}/category-order",
-            put(handle_reorder_categories),
-        )
-        .route(
-            "/teams/{team_id}/categories/{category_id}",
-            put(handle_update_category).delete(handle_delete_category),
-        )
-        .route(
-            "/teams/{team_id}/categories/{category_id}/board-order",
-            put(handle_reorder_category_boards),
-        )
-        .route(
-            "/teams/{team_id}/categories/{category_id}/boards/{board_id}",
-            post(handle_update_category_board),
-        )
-        .route(
-            "/teams/{team_id}/categories/{category_id}/boards/{board_id}/hide",
-            put(handle_hide_board),
-        )
-        .route(
-            "/teams/{team_id}/categories/{category_id}/boards/{board_id}/unhide",
-            put(handle_unhide_board),
-        )
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(
+            handle_create_category,
+            handle_get_user_category_boards
+        ))
+        .routes(routes!(handle_reorder_categories))
+        .routes(routes!(handle_update_category, handle_delete_category))
+        .routes(routes!(handle_reorder_category_boards))
+        .routes(routes!(handle_update_category_board))
+        .routes(routes!(handle_hide_board))
+        .routes(routes!(handle_unhide_board))
 }
 
 /// The path parameters of the routes that address a board in a category: the team, the
@@ -114,6 +100,19 @@ fn decode_order(body: &[u8]) -> Result<Vec<String>, AppError> {
     decode_json(body)
 }
 
+/// Make a category
+///
+/// Makes a category of the user's sidebar in the team. The server makes its
+/// identifier.
+#[utoipa::path(
+    post,
+    path = "/teams/{teamId}/categories",
+    operation_id = "createCategory",
+    tag = tag::SIDEBAR,
+    params(TeamId),
+    request_body = NewCategory,
+    responses((status = 201, description = "The category that was made.", body = Category)),
+)]
 async fn handle_create_category(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -144,6 +143,19 @@ async fn handle_create_category(
     Ok(super::created(&created))
 }
 
+/// Change a category
+///
+/// Changes the name of one of the user's categories and whether it is collapsed.
+/// Nothing else changes, and a system category keeps its name.
+#[utoipa::path(
+    put,
+    path = "/teams/{teamId}/categories/{categoryId}",
+    operation_id = "updateCategory",
+    tag = tag::SIDEBAR,
+    params(TeamId, CategoryId),
+    request_body = CategoryUpdate,
+    responses((status = 200, description = "The category as it is now.", body = Category)),
+)]
 async fn handle_update_category(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -175,6 +187,19 @@ async fn handle_update_category(
     Ok(json_response(&updated))
 }
 
+/// Delete a category
+///
+/// Deletes one of the user's categories; its boards go to the user's default
+/// category. A system category cannot be deleted. A deleted category does not come
+/// back.
+#[utoipa::path(
+    delete,
+    path = "/teams/{teamId}/categories/{categoryId}",
+    operation_id = "deleteCategory",
+    tag = tag::SIDEBAR,
+    params(TeamId, CategoryId),
+    responses((status = 204, description = "The category is deleted.")),
+)]
 async fn handle_delete_category(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -186,6 +211,26 @@ async fn handle_delete_category(
     Ok(no_content())
 }
 
+/// The user's sidebar
+///
+/// The user's categories in the team, each with the boards filed under it. A user who
+/// has none yet gets the default category made.
+///
+/// The categories come by `sortOrder`, lowest first, and among those with the same one
+/// the oldest first. The boards of a category come in the order the user gave them,
+/// and by identifier among those with the same place.
+#[utoipa::path(
+    get,
+    path = "/teams/{teamId}/categories",
+    operation_id = "getCategories",
+    tag = tag::SIDEBAR,
+    params(TeamId),
+    responses((
+        status = 200,
+        description = "The categories with their boards.",
+        body = Vec<CategoryBoards>,
+    )),
+)]
 async fn handle_get_user_category_boards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -196,6 +241,18 @@ async fn handle_get_user_category_boards(
     Ok(json_response(&category_boards))
 }
 
+/// File a board under a category
+///
+/// Puts a board the user may see under one of the user's categories; it leaves the
+/// category it was under.
+#[utoipa::path(
+    post,
+    path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}",
+    operation_id = "setBoardCategory",
+    tag = tag::SIDEBAR,
+    params(TeamId, CategoryId, BoardId),
+    responses((status = 204, description = "The board is under the category.")),
+)]
 async fn handle_update_category_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -210,6 +267,24 @@ async fn handle_update_category_board(
     Ok(no_content())
 }
 
+/// Put the categories in an order
+///
+/// The body lists the identifiers of all of the user's categories in the team, in the
+/// order they are to have. A list that is not as long as the user has categories, or
+/// that names one that is not the user's, is refused.
+#[utoipa::path(
+    put,
+    path = "/teams/{teamId}/category-order",
+    operation_id = "reorderCategories",
+    tag = tag::SIDEBAR,
+    params(TeamId),
+    request_body = Vec<String>,
+    responses((
+        status = 200,
+        description = "The identifiers of the categories in their new order.",
+        body = Vec<String>,
+    )),
+)]
 async fn handle_reorder_categories(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -224,6 +299,24 @@ async fn handle_reorder_categories(
     Ok(json_response(&order))
 }
 
+/// Put the boards of a category in an order
+///
+/// The body lists the identifiers of all boards of the category, in the order they
+/// are to have. A list that is not as long as the category has boards, or that names
+/// one that is not in the category, is refused.
+#[utoipa::path(
+    put,
+    path = "/teams/{teamId}/categories/{categoryId}/board-order",
+    operation_id = "reorderCategoryBoards",
+    tag = tag::SIDEBAR,
+    params(TeamId, CategoryId),
+    request_body = Vec<String>,
+    responses((
+        status = 200,
+        description = "The identifiers of the boards in their new order.",
+        body = Vec<String>,
+    )),
+)]
 async fn handle_reorder_category_boards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -240,6 +333,18 @@ async fn handle_reorder_category_boards(
     Ok(json_response(&order))
 }
 
+/// Hide a board in the sidebar
+///
+/// Hides a board of one of the user's categories from the user's sidebar. The board
+/// stays where it is filed, and nothing changes for anybody else.
+#[utoipa::path(
+    put,
+    path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide",
+    operation_id = "hideBoard",
+    tag = tag::SIDEBAR,
+    params(TeamId, CategoryId, BoardId),
+    responses((status = 204, description = "The board is hidden.")),
+)]
 async fn handle_hide_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -248,6 +353,17 @@ async fn handle_hide_board(
     set_board_visibility(&app, &session.user_id, &place, BoardVisibility::Hidden).await
 }
 
+/// Show a hidden board again
+///
+/// Ends the hiding of a board of one of the user's categories.
+#[utoipa::path(
+    put,
+    path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide",
+    operation_id = "unhideBoard",
+    tag = tag::SIDEBAR,
+    params(TeamId, CategoryId, BoardId),
+    responses((status = 204, description = "The board is shown.")),
+)]
 async fn handle_unhide_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

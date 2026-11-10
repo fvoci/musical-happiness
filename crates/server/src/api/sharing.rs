@@ -1,11 +1,16 @@
 //! Public sharing of a board.
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::routing::post;
+use fvoci_model::Sharing;
 use fvoci_store::SharingChange;
 use serde_json::Value;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::SharingRequest;
+use super::contract::params::BoardId;
+use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response};
 use super::{decode_object_members, require_board_permission};
@@ -13,11 +18,8 @@ use crate::app::App;
 use crate::error::{AppError, Reason};
 use crate::permissions::BoardPermission;
 
-pub(super) fn routes() -> Router<App> {
-    Router::new().route(
-        "/boards/{board_id}/sharing",
-        post(handle_post_sharing).get(handle_get_sharing),
-    )
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new().routes(routes!(handle_post_sharing, handle_get_sharing))
 }
 
 /// Checks that the user may share the board: its admins may. The board must still be
@@ -39,8 +41,18 @@ async fn require_share_permission(
     Ok(())
 }
 
-/// `GET /boards/{board_id}/sharing`: whether the board is shared, and with which token.
-/// A board that was never shared is not shared.
+/// Whether a board is shared
+///
+/// Whether the board is shared, and with which read token. A board that was never
+/// shared is not shared. For the board's admins.
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/sharing",
+    operation_id = "getSharing",
+    tag = tag::SHARING,
+    params(BoardId),
+    responses((status = 200, description = "The sharing state.", body = Sharing)),
+)]
 async fn handle_get_sharing(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -80,9 +92,25 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     })
 }
 
-/// `POST /boards/{board_id}/sharing`: shares the board, shares it under a new token, or
-/// stops sharing it. Answers the sharing state, with the token while the board is
-/// shared.
+/// Share a board, or stop sharing it
+///
+/// Shares the board, shares it under a new read token, or stops sharing it. The server
+/// makes the token; a request that names one is refused. Where the server is
+/// configured without public sharing, the request is refused with 403 and the reason
+/// `sharing_disabled`. For the board's admins.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/sharing",
+    operation_id = "setSharing",
+    tag = tag::SHARING,
+    params(BoardId),
+    request_body = SharingRequest,
+    responses((
+        status = 200,
+        description = "The sharing state as it is now, with the token while the board is shared.",
+        body = Sharing,
+    )),
+)]
 async fn handle_post_sharing(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

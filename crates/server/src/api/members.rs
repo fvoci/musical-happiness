@@ -1,10 +1,14 @@
 //! Board members: listing, adding, changing, removing, joining and leaving.
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::routing::{get, post, put};
 use fvoci_model::{BoardMember, BoardRole, BoardType};
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::{MemberRoles, NewMember};
+use super::contract::params::{BoardId, UserId};
+use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{
@@ -17,18 +21,12 @@ use crate::permissions::BoardPermission;
 /// The refusal to add, change or remove a member.
 const MODIFY_MEMBERS_DENIED: &str = "access denied to modify board members";
 
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route(
-            "/boards/{board_id}/members",
-            get(handle_get_members_for_board).post(handle_add_member),
-        )
-        .route(
-            "/boards/{board_id}/members/{user_id}",
-            put(handle_update_member).delete(handle_delete_member),
-        )
-        .route("/boards/{board_id}/join", post(handle_join_board))
-        .route("/boards/{board_id}/leave", post(handle_leave_board))
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_get_members_for_board, handle_add_member))
+        .routes(routes!(handle_update_member, handle_delete_member))
+        .routes(routes!(handle_join_board))
+        .routes(routes!(handle_leave_board))
 }
 
 /// The membership a request asks for: the user and board the handler decided on, and
@@ -58,7 +56,18 @@ fn member_with_role(board_id: String, user_id: String, role: BoardRole) -> Board
     }
 }
 
-/// `GET /boards/{board_id}/members`: the members of a board, for its members.
+/// The members of a board
+///
+/// For the board's members. By the identifier of the user: a membership has no time of
+/// its own, so this is not the order in which the users came to the board.
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/members",
+    operation_id = "getMembers",
+    tag = tag::MEMBERS,
+    params(BoardId),
+    responses((status = 200, description = "The members.", body = Vec<BoardMember>)),
+)]
 async fn handle_get_members_for_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -76,9 +85,20 @@ async fn handle_get_members_for_board(
     Ok(json_response(&app.members_for_board(&board_id).await?))
 }
 
-/// `POST /boards/{board_id}/members`: makes a user a member of a board. Admins add
-/// members to any board, with the roles the request names. On an open board editors add
-/// members too, with the board's minimum role, whatever the request names.
+/// Make a user a member of a board
+///
+/// The board's admins add members with the roles the request names. On an open board
+/// editors add members too, with the board's minimum role, whatever the request names.
+/// A user who is a member already stays as they are.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/members",
+    operation_id = "addMember",
+    tag = tag::MEMBERS,
+    params(BoardId),
+    request_body = NewMember,
+    responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
+)]
 async fn handle_add_member(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -157,9 +177,20 @@ async fn handle_add_member(
     Ok(json_response(&added))
 }
 
-/// `POST /boards/{board_id}/join`: makes the user a member of an open board, with the
-/// board's minimum role. A member below that role is raised to it; a member with that
-/// role or a higher one stays as they are.
+/// Join an open board
+///
+/// Makes the user a member of an open board, with the board's minimum role. A member
+/// below that role is raised to it; a member with that role or a higher one stays as
+/// they are. A template cannot be joined, and a private board is not there for who is
+/// no member of it.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/join",
+    operation_id = "joinBoard",
+    tag = tag::MEMBERS,
+    params(BoardId),
+    responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
+)]
 async fn handle_join_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -188,7 +219,18 @@ async fn handle_join_board(
     Ok(json_response(&app.join_board(&board_id, user_id).await?))
 }
 
-/// `POST /boards/{board_id}/leave`: ends the user's own membership of a board.
+/// Leave a board
+///
+/// Ends the user's own membership of a board. The last admin of a board cannot leave
+/// it.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/leave",
+    operation_id = "leaveBoard",
+    tag = tag::MEMBERS,
+    params(BoardId),
+    responses((status = 204, description = "The user is no member any more.")),
+)]
 async fn handle_leave_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -210,7 +252,19 @@ async fn handle_leave_board(
     Ok(no_content())
 }
 
-/// `PUT /boards/{board_id}/members/{user_id}`: replaces the roles of a member.
+/// Change the roles of a member
+///
+/// Replaces the roles of a member of the board. For the board's admins. The last admin
+/// of a board cannot be made less.
+#[utoipa::path(
+    put,
+    path = "/boards/{boardId}/members/{userId}",
+    operation_id = "updateMember",
+    tag = tag::MEMBERS,
+    params(BoardId, UserId),
+    request_body = MemberRoles,
+    responses((status = 200, description = "The membership as it is now.", body = BoardMember)),
+)]
 async fn handle_update_member(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -236,7 +290,17 @@ async fn handle_update_member(
     }
 }
 
-/// `DELETE /boards/{board_id}/members/{user_id}`: removes a member from a board.
+/// Remove a member from a board
+///
+/// For the board's admins. The last admin of a board cannot be removed.
+#[utoipa::path(
+    delete,
+    path = "/boards/{boardId}/members/{userId}",
+    operation_id = "removeMember",
+    tag = tag::MEMBERS,
+    params(BoardId, UserId),
+    responses((status = 204, description = "The user is no member any more.")),
+)]
 async fn handle_delete_member(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

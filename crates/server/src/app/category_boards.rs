@@ -214,10 +214,10 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an internal error if the category is not one of the user's categories in
-    /// the team, or `new_order` does not name exactly as many boards as the category
-    /// has, or names one that is not in it, and the store's error if a read or write
-    /// fails.
+    /// Returns a not-found error if the category is not one of the user's categories in
+    /// the team, a bad request if `new_order` does not name exactly as many boards as
+    /// the category has, or names one that is not in it, and the store's error if a
+    /// read or write fails.
     pub async fn reorder_category_boards(
         &self,
         user_id: &str,

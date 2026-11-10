@@ -25,7 +25,7 @@ macro_rules! word_setting {
         $name:ident { $($(#[$variant_meta:meta])* $variant:ident => $word:literal),+ $(,)? }
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, utoipa::ToSchema)]
         pub enum $name {
             $(
                 $(#[$variant_meta])*
@@ -172,10 +172,11 @@ impl Serialize for TimeZone {
 
 /// The settings of a user. Every member has a value: what was never set, or was reset,
 /// is at its default.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserSettings {
     /// The time zone times are shown in.
+    #[schema(value_type = String)]
     pub time_zone: TimeZone,
     /// The day a week starts on.
     pub week_start: WeekStart,

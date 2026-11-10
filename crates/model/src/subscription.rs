@@ -7,7 +7,7 @@ use crate::block::BlockType;
 use crate::serde_util::null_as_default;
 
 /// The kind of entity that subscribes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SubscriberType {
     /// A user.
@@ -32,15 +32,15 @@ impl SubscriberType {
 pub struct SubscriptionError(&'static str);
 
 /// A subscription to the changes of a board or card.
-///
-/// `subscriberType` is required when decoding; every other member defaults to its empty
-/// value.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// `subscriberType` is required when decoding; every other member defaults to its empty
+// value. (No doc comment: the doc comment is the description in the API contract.)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Subscription {
     /// The type of the block subscribed to.
     #[serde(default)]
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = String)]
     pub block_type: BlockType,
     /// The identifier of the block subscribed to.
     #[serde(default)]

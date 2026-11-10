@@ -74,6 +74,9 @@ pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
             )
         }),
         Step::new("names", || former_names_are_absent(root)),
+        Step::new("contract", || {
+            crate::openapi::run(root, crate::openapi::Mode::Check)
+        }),
     ];
     checks.push(match licenses {
         Licenses::Check => Step::new("licenses and advisories", || {

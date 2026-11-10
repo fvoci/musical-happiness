@@ -12,7 +12,9 @@ use crate::card_property::{CardPropertyError, validate_card_property_definitions
 use crate::serde_util::null_as_default;
 
 /// Who may see and join a board.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
 pub enum BoardType {
     /// Any member of the team may find and join the board.
     #[default]
@@ -67,7 +69,9 @@ impl BoardRole {
 ///
 /// A board always has one, and it is never admin: nobody becomes an administrator of a
 /// board by joining it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
 pub enum MinimumRole {
     /// Whoever joins may view the board.
     #[serde(rename = "viewer")]
@@ -117,9 +121,9 @@ pub enum BoardError {
 }
 
 /// A board: a set of blocks and the property definitions of its cards.
-///
-/// `type` is required when decoding; every other member defaults to its empty value.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+// `type` is required when decoding; every other member defaults to its empty value.
+// (No doc comment: the doc comment is the description in the API contract.)
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Board {
     /// The board's identifier.
@@ -179,9 +183,11 @@ pub struct Board {
     pub template_version: i64,
     /// Free-form properties of the board itself.
     #[serde(default, deserialize_with = "null_as_default")]
+    #[schema(value_type = Object)]
     pub properties: JsonMap,
     /// The property definitions of the board's cards, in display order.
     #[serde(default, deserialize_with = "null_as_default")]
+    #[schema(value_type = Vec<Object>)]
     pub card_properties: Vec<JsonMap>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(default)]
@@ -224,7 +230,7 @@ impl Board {
 }
 
 /// A partial update of a [`Board`]. Absent members leave the board unchanged.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BoardPatch {
     /// The new board type.
@@ -247,12 +253,14 @@ pub struct BoardPatch {
     pub show_description: Option<bool>,
     /// Board properties to set.
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = Object)]
     pub updated_properties: JsonMap,
     /// Keys of board properties to remove.
     #[serde(deserialize_with = "null_as_default")]
     pub deleted_properties: Vec<String>,
     /// Card property definitions to add or replace, matched by their `id`.
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = Vec<Object>)]
     pub updated_card_properties: Vec<JsonMap>,
     /// Identifiers of card property definitions to remove.
     #[serde(deserialize_with = "null_as_default")]
@@ -348,7 +356,7 @@ fn property_id(property: &JsonMap) -> Option<String> {
 }
 
 /// A user's membership of a board.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 #[expect(
     clippy::struct_excessive_bools,

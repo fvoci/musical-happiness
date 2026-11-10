@@ -3,13 +3,17 @@
 //! Ports `server/api/archive.go`. The team-export route is registered twice in the
 //! original (the standalone server answers it); the import field is `file`.
 
-use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::multipart::MultipartRejection;
 use axum::extract::{Multipart, Path, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
 use fvoci_store::PublicBoards;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::{Binary, FileForm};
+use super::contract::params::{BoardId, TeamId};
+use super::contract::tag;
 
 use super::files::NOT_MULTIPART;
 use super::{ApiResult, RequiredSession, no_content};
@@ -21,22 +25,28 @@ use crate::permissions::BoardPermission;
 /// The multipart form field an imported archive is sent in.
 const UPLOAD_FIELD: &str = "file";
 
-/// The routes that give archives out.
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route(
-            "/boards/{board_id}/archive/export",
-            get(handle_export_board),
-        )
-        .route("/teams/{team_id}/archive/export", get(handle_export_team))
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_export_board))
+        .routes(routes!(handle_export_team))
 }
 
-/// The route that takes an archive, whose size has a limit of its own.
-pub(super) fn upload_routes() -> Router<App> {
-    Router::new().route("/teams/{team_id}/archive/import", post(handle_import))
+pub(super) fn upload_routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new().routes(routes!(handle_import))
 }
 
-/// `GET /boards/{board_id}/archive/export`: the board as an archive.
+/// Export a board
+///
+/// An archive of the board with its blocks and files, offered as a download. For the
+/// board's members.
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/archive/export",
+    operation_id = "exportBoardArchive",
+    tag = tag::ARCHIVES,
+    params(BoardId),
+    responses((status = 200, description = "The archive.", body = inline(Binary), content_type = "application/octet-stream")),
+)]
 async fn handle_export_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -60,7 +70,18 @@ async fn handle_export_board(
     Ok(archive_response(bytes))
 }
 
-/// `GET /teams/{team_id}/archive/export`: all the team's boards the user may see.
+/// Export the boards of a team
+///
+/// An archive of all boards of the team that `getBoards` lists for the user, offered
+/// as a download.
+#[utoipa::path(
+    get,
+    path = "/teams/{teamId}/archive/export",
+    operation_id = "exportTeamArchive",
+    tag = tag::ARCHIVES,
+    params(TeamId),
+    responses((status = 200, description = "The archive.", body = inline(Binary), content_type = "application/octet-stream")),
+)]
 async fn handle_export_team(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -80,7 +101,19 @@ async fn handle_export_team(
     Ok(archive_response(bytes))
 }
 
-/// `POST /teams/{team_id}/archive/import`: imports an uploaded archive.
+/// Import an archive
+///
+/// Makes the boards of an archive in the team, with the user as their admin. The
+/// request is a `multipart/form-data` form whose part `file` carries the archive.
+#[utoipa::path(
+    post,
+    path = "/teams/{teamId}/archive/import",
+    operation_id = "importArchive",
+    tag = tag::ARCHIVES,
+    params(TeamId),
+    request_body(content = FileForm, content_type = "multipart/form-data"),
+    responses((status = 204, description = "The boards of the archive are made.")),
+)]
 async fn handle_import(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

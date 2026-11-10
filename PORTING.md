@@ -648,6 +648,37 @@ S6에서 새로 본 것:
 
 `docs/fvoci-cdn.md`를 지금 동작에 맞췄다(쿠키 이름, `Origin`·`X-Requested-With` 규칙, `readToken`, `trusted_proxies`, `allowed_origins`, 로그인 204, 새 파일 경로).
 
+### O. 구현 7d단계: 계약 `contracts/openapi.json` (2026-11-11 02:07 KST)
+
+설계 5.5의 결정 C다. 계약은 OpenAPI 3.1.0 문서 `contracts/openapi.json`이고 서버의 라우트 정의에서 나온다. 도구는 utoipa 6.0.0과 utoipa-axum 0.3.0이다(사용자 결정, `7002d24c`. 함께 들어온 크레이트는 utoipa-gen 6.0.1, pastey 0.2.3. `NOTICE`를 다시 만들었고 cargo-deny가 통과한다).
+
+**어떻게 만드는가.**
+
+- 핸들러마다 `#[utoipa::path(...)]`가 경로, 이름(`operationId`), 매개변수, 본문, 답을 적는다. 핸들러의 문서 주석 첫 줄이 요약이고 나머지가 설명이다. `routes()`는 `routes!(...)`로 핸들러를 넣으므로 **실제 라우터와 계약이 같은 정의에서 나온다**(`api/mod.rs`의 `routes()` 하나를 `router()`와 `contract::document()`가 함께 쓴다). 주석을 달지 않은 핸들러는 라우터에 들어갈 길이 없다. 계약 밖에 남긴 것은 `/ws`, 정적 파일, 관리자 소켓의 두 라우트다.
+- 경로 매개변수의 이름을 계약의 표기(`{boardId}`)로 맞췄다. axum의 경로 문자열에서 이름만 바뀐 것이라 바깥에서는 보이지 않는다. 구독의 두 경로는 라우터에서 첫 자리의 이름이 하나(`{blockOrSubscriberId}`)여야 해서 문서를 만든 뒤 `{blockId}`, `{subscriberId}`로 고쳐 적는다(`contract::RENAMED_PATHS`).
+- 스키마는 와이어 타입(`fvoci-model`)의 `ToSchema`에서 나온다. 이 타입들은 너그럽게 읽으려고 멤버마다 기본값을 두는데, 그대로 내면 모든 멤버가 "없을 수 있음"이 된다. 그래서 문서를 만든 뒤 JSON 단계에서 고친다(`api/contract.rs`): 기본값을 지우고, 표 `SCHEMAS`가 스키마마다 늘 있는 멤버를 정한다(답으로 나가는 엔티티는 전부, 패치는 없음, `Sharing`의 `token`·`updateAt`과 `Team`의 `signupToken`은 빠질 수 있음). 표에 없는 스키마가 생기거나 표에만 있는 이름이 남으면 문서를 만드는 일이 실패한다.
+- 만들기와 고치기의 요청은 답과 모양이 달라 문서 전용 타입으로 따로 적었다(`api/contract/bodies.rs`의 `NewBoard`, `NewBlock`, `NewBoardsAndBlocks`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`, `FileForm`). 서버는 이 타입으로 해석하지 않는다. **손으로 쓴 것이라 해석하는 쪽과 어긋날 수 있다**(남은 문제).
+- 멤버를 정하지 않은 객체(`fields`, `properties`, `cardProperties`의 항목, 팀의 `settings`)는 `additionalProperties: true`로 적는다. 아무 말도 없으면 타입 생성기가 "늘 빈 객체"로 읽는다.
+- 인증은 문서 전체의 기본이 `sessionCookie` 또는 `bearerToken`이다. 세션이 필요 없는 다섯(`login`, `register`, `getClientConfig`, `hello`, `ping`)은 `security: [{}]`, 읽기 토큰으로도 되는 넷(`getBoard`, `getBlocks`, `getFile`, `getFileInfo`)은 셋 가운데 하나다. CSRF 헤더와 `Origin` 규칙은 머리말에 글로 적었다.
+- 오류는 조작마다 4xx를 늘어놓지 않고 모든 조작의 `default`가 `ErrorBody`다. 429와 `Retry-After`만 `login`, `register`, `changePassword`에 따로 적었다.
+- 출력은 멤버 이름순, 두 칸 들여쓰기, 끝에 줄바꿈이다. 같은 서버는 늘 같은 바이트를 낸다.
+
+**수치.** 경로 56개, 조작 73개(`/api/v1` 아래 71개와 그 밖의 `/hello`, `/ping`), 스키마 51개. 메서드별로 GET 27, POST 26, PATCH 7, PUT 7, DELETE 6. 파일은 5,500줄 남짓이다.
+
+**낡았는지 검사.** 서버 바이너리의 `--print-openapi`가 설정을 읽기 전에 문서를 찍고 끝난다. `cargo xtask openapi`는 그 출력과 파일을 비교해 다르면 첫 번째로 다른 줄을 대며 실패하고, `--write`가 파일을 고쳐 쓴다. `cargo xtask check`에 `contract` 단계로 들어갔다. 파일이 없을 때, 파일의 한 줄을 바꿨을 때 실패하고 되돌리면 통과하는 것을 확인했다.
+
+**목록의 순서.** M절의 표가 조작의 설명(또는 답의 설명)에 그대로 있다. 계약 모듈의 테스트 `every_list_says_its_order`가 목록을 답하는 조작 21개마다 순서를 말하는 문구가 있는지와, 목록을 답하는 조작이 표에 빠짐없이 있는지를 본다. 순서 자체는 M절의 스토어 테스트와 회귀 스냅샷이 고정한다.
+
+**테스트.** 계약 모듈 11개(문서가 만들어진다, 모든 조작의 `default`가 `ErrorBody`, 세션 없는 조작의 표기, 답은 모든 멤버·패치는 없음, 구독 경로의 이름, 목록의 순서, 기본값 제거, 열린 객체, 없는 멤버를 필수로 둘 수 없음, 멤버 이름순), xtask 4개(첫 번째로 다른 줄).
+
+**바깥 도구로 본 것.** `openapi-typescript` 7.13.0이 이 파일에서 타입 4,654줄을 냈다(확인용으로 `target/` 아래에만 썼다. 타입 생성은 웹 트랙의 일이다). `@redocly/cli` 1의 `lint`는 "valid"이고 경고 70건이 남는다. 모두 `operation-4xx-response`(조작에 4xx 응답이 없다)이고 `default`로 적기로 한 결과다.
+
+**응답은 바뀌지 않았다.** 회귀 스냅샷 573단계와 권한 표 636칸이 그대로 통과한다(스냅샷 파일의 변경 없음). `onboard`와 `uploadFile`의 답을 `json!`에서 타입(`OnboardingStart`, `UploadedFile`)으로 옮겼고 멤버의 순서까지 같게 뒀다.
+
+**주석을 달며 고친 문서 주석.** 코드와 달랐던 것들이다: 카테고리 보드 순서 바꾸기의 오류(내부 오류가 아니라 404·400), 블록 삭제의 범위(바로 아래가 아니라 아래 전부), 팀의 ID가 `0`이라는 말.
+
+**실수 하나.** 스키마를 시험하던 임시 테스트 파일을 지우면서 `crates/model/tests` 디렉터리를 통째로 지웠다(2026-11-11 01:46 KST). 커밋된 파일 다섯 개였고 그 사이 고친 것이 없어 `git checkout HEAD -- crates/model/tests`로 되돌렸다(02:00 KST쯤). 그 사이의 `cargo check`와 단위 테스트는 이 다섯 파일 없이 돌았고, 이 절의 최종 `cargo xtask check`와 `cargo xtask test`는 되돌린 뒤에 돌렸다.
+
 ## 플러그인 저장소의 수정 사항 점검
 
 원본에서 갈라진 플러그인 저장소가 분리 뒤에 넣은 보안·검증 수정 15건(서버 쪽)을 원본 standalone 경로에 대해 하나씩 확인했다. 원본에 같은 결함이 있는지는 오라클에서 재현해 판단했고, 처리 결과는 `crates/server/PORTING.md`의 보안 수정 표, 의도적 차이, 보안 결정 대기 표에 PR 번호와 함께 적었다.

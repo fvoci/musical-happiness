@@ -2,22 +2,46 @@
 //!
 //! Ports `server/api/onboarding.go`.
 
-use axum::Router;
 use axum::extract::{Path, State};
-use axum::routing::post;
-use serde_json::json;
+use serde::Serialize;
+use utoipa::ToSchema;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::params::TeamId;
+use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response};
 use super::{require_team_access, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 
-pub(super) fn routes() -> Router<App> {
-    Router::new().route("/teams/{team_id}/onboard", post(handle_onboard))
+/// What starting the tour answers: where the tour's board is.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct OnboardingStart {
+    /// The identifier of the board the tour goes through.
+    board_id: String,
+    /// The identifier of the team.
+    team_id: String,
 }
 
-/// `POST /teams/{team_id}/onboard`: starts the onboarding tour and returns the team and
-/// the new board.
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new().routes(routes!(handle_onboard))
+}
+
+/// Start the tour
+///
+/// Copies the built-in welcome board for the user, as a private board of their own,
+/// and notes with the account that the tour has begun.
+#[utoipa::path(
+    post,
+    path = "/teams/{teamId}/onboard",
+    operation_id = "onboard",
+    tag = tag::TEAMS,
+    params(TeamId),
+    responses((status = 200, description = "The board that was made.", body = OnboardingStart)),
+)]
 async fn handle_onboard(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -30,7 +54,5 @@ async fn handle_onboard(
     }
 
     let (team_id, board_id) = app.prepare_onboarding_tour(user_id, &team_id).await?;
-    Ok(json_response(
-        &json!({ "teamId": team_id, "boardId": board_id }),
-    ))
+    Ok(json_response(&OnboardingStart { board_id, team_id }))
 }

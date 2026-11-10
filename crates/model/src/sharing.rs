@@ -11,7 +11,7 @@ use crate::serde_util::{is_zero, null_as_default};
 /// The JSON form is what is answered to those who may share the board: whether it is
 /// shared, the read token while it is, and when the state last changed. A board that
 /// was never shared is `{"enabled": false}`.
-#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Sharing {
     /// The identifier of the board.

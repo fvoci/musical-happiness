@@ -1,0 +1,5565 @@
+{
+  "components": {
+    "schemas": {
+      "AdminChange": {
+        "description": "Whether a user is to be an administrator of the instance.",
+        "properties": {
+          "isAdmin": {
+            "description": "`true` makes the user an administrator, `false` ends that.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "isAdmin"
+        ],
+        "type": "object"
+      },
+      "Block": {
+        "description": "The basic data unit of a board.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board the block belongs to.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "The identifier of the user who created the block.",
+            "type": "string"
+          },
+          "deleteAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "description": "Type-specific data, free-form.",
+            "type": "object"
+          },
+          "id": {
+            "description": "The block's identifier.",
+            "type": "string"
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last modified the block.",
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The identifier of the parent block; empty for root blocks.",
+            "type": "string"
+          },
+          "schema": {
+            "description": "The schema version of the block.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "The display title.",
+            "type": "string"
+          },
+          "type": {
+            "description": "The block type.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "boardId",
+          "createAt",
+          "createdBy",
+          "deleteAt",
+          "fields",
+          "id",
+          "modifiedBy",
+          "parentId",
+          "schema",
+          "title",
+          "type",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "BlockPatch": {
+        "description": "A partial update of a `Block`. Absent members leave the block unchanged.",
+        "properties": {
+          "deletedFields": {
+            "description": "Keys of fields to remove.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "parentId": {
+            "description": "The new parent identifier.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema": {
+            "description": "The new schema version.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The new title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "description": "The new block type.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedFields": {
+            "additionalProperties": true,
+            "description": "Fields to set, replacing any existing value under the same key.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BlockPatchBatch": {
+        "description": "A batch of block identifiers and the patch to apply to each, matched by position.",
+        "properties": {
+          "blockIds": {
+            "description": "The identifiers of the blocks to patch.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "blockPatches": {
+            "description": "The patches, one per identifier.",
+            "items": {
+              "$ref": "#/components/schemas/BlockPatch"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "blockIds",
+          "blockPatches"
+        ],
+        "type": "object"
+      },
+      "Board": {
+        "description": "A board: a set of blocks and the property definitions of its cards.",
+        "properties": {
+          "cardProperties": {
+            "description": "The property definitions of the board's cards, in display order.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "The identifier of the user who created the board; empty for a built-in template,\nwhich no user made.",
+            "type": "string"
+          },
+          "deleteAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "description": {
+            "description": "The board's description.",
+            "type": "string"
+          },
+          "icon": {
+            "description": "The board's icon, usually one emoji.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The board's identifier.",
+            "type": "string"
+          },
+          "isBuiltin": {
+            "description": "Whether the board is one of the templates the server ships with. They are\noffered to every team and nobody can change them. The server decides this:\nwhat a client sends here is ignored.",
+            "type": "boolean"
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template.",
+            "type": "boolean"
+          },
+          "minimumRole": {
+            "$ref": "#/components/schemas/MinimumRole",
+            "description": "The role a user gets who joins the board, or is added by somebody who does not\nmanage its roles. Never empty and never admin."
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last modified the board.",
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "description": "Free-form properties of the board itself.",
+            "type": "object"
+          },
+          "showDescription": {
+            "description": "Whether the description is shown in the interface.",
+            "type": "boolean"
+          },
+          "teamId": {
+            "description": "The identifier of the team the board belongs to.",
+            "type": "string"
+          },
+          "templateVersion": {
+            "description": "The version of the built-in template this board came from.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "The board's title.",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/BoardType",
+            "description": "Whether the board is open or private."
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cardProperties",
+          "createAt",
+          "createdBy",
+          "deleteAt",
+          "description",
+          "icon",
+          "id",
+          "isBuiltin",
+          "isTemplate",
+          "minimumRole",
+          "modifiedBy",
+          "properties",
+          "showDescription",
+          "teamId",
+          "templateVersion",
+          "title",
+          "type",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "BoardMember": {
+        "description": "A user's membership of a board.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board.",
+            "type": "string"
+          },
+          "schemeAdmin": {
+            "description": "The user administers the board.",
+            "type": "boolean"
+          },
+          "schemeCommenter": {
+            "description": "The user may comment on the board's cards.",
+            "type": "boolean"
+          },
+          "schemeEditor": {
+            "description": "The user may edit the board.",
+            "type": "boolean"
+          },
+          "schemeViewer": {
+            "description": "The user may view the board.",
+            "type": "boolean"
+          },
+          "userId": {
+            "description": "The identifier of the user.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "schemeAdmin",
+          "schemeCommenter",
+          "schemeEditor",
+          "schemeViewer",
+          "userId"
+        ],
+        "type": "object"
+      },
+      "BoardPatch": {
+        "description": "A partial update of a `Board`. Absent members leave the board unchanged.",
+        "properties": {
+          "deletedCardProperties": {
+            "description": "Identifiers of card property definitions to remove.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "deletedProperties": {
+            "description": "Keys of board properties to remove.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "description": "The new description.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "description": "The new icon.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "minimumRole": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MinimumRole",
+                "description": "The new minimum role."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "showDescription": {
+            "description": "Whether the description is shown.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The new title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BoardType",
+                "description": "The new board type."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updatedCardProperties": {
+            "description": "Card property definitions to add or replace, matched by their `id`.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "updatedProperties": {
+            "additionalProperties": true,
+            "description": "Board properties to set.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "BoardType": {
+        "description": "Who may see and join a board.",
+        "enum": [
+          "O",
+          "P"
+        ],
+        "type": "string"
+      },
+      "BoardsAndBlocks": {
+        "description": "Boards and the blocks that belong to them, created together.",
+        "properties": {
+          "blocks": {
+            "description": "The blocks; each must belong to one of `boards`.",
+            "items": {
+              "$ref": "#/components/schemas/Block"
+            },
+            "type": "array"
+          },
+          "boards": {
+            "description": "The boards.",
+            "items": {
+              "$ref": "#/components/schemas/Board"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "blocks",
+          "boards"
+        ],
+        "type": "object"
+      },
+      "Card": {
+        "description": "A card: a titled group of properties and content blocks on a board.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board the card belongs to.",
+            "type": "string"
+          },
+          "contentOrder": {
+            "description": "The identifiers of the card's content blocks, in display order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdBy": {
+            "description": "The identifier of the user who created the card.",
+            "type": "string"
+          },
+          "deleteAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "icon": {
+            "description": "The card's icon; at most one grapheme.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The card's identifier.",
+            "type": "string"
+          },
+          "isTemplate": {
+            "description": "Whether the card is a template.",
+            "type": "boolean"
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last modified the card.",
+            "type": "string"
+          },
+          "properties": {
+            "additionalProperties": true,
+            "description": "Property values keyed by property identifier.",
+            "type": "object"
+          },
+          "title": {
+            "description": "The display title.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "boardId",
+          "contentOrder",
+          "createAt",
+          "createdBy",
+          "deleteAt",
+          "icon",
+          "id",
+          "isTemplate",
+          "modifiedBy",
+          "properties",
+          "title",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "CardOpen": {
+        "description": "Where a card opens.",
+        "enum": [
+          "Center",
+          "Side",
+          "Full"
+        ],
+        "type": "string"
+      },
+      "CardPatch": {
+        "description": "A partial update of a `Card`. Absent members leave the card unchanged.",
+        "properties": {
+          "contentOrder": {
+            "description": "The new content order.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "icon": {
+            "description": "The new icon; at most one grapheme.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The new title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedProperties": {
+            "additionalProperties": true,
+            "description": "Property values to set, keyed by property identifier.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "Category": {
+        "description": "A sidebar category of one user in one team.",
+        "properties": {
+          "collapsed": {
+            "description": "Whether the category is collapsed in the sidebar.",
+            "type": "boolean"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deleteAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The category's identifier.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The display name.",
+            "type": "string"
+          },
+          "sortOrder": {
+            "description": "The position of the category among the user's categories.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "teamId": {
+            "description": "The identifier of the team the category belongs to.",
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/CategoryType",
+            "description": "Whether this is a system or a custom category."
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "userId": {
+            "description": "The identifier of the user the category belongs to.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "collapsed",
+          "createAt",
+          "deleteAt",
+          "id",
+          "name",
+          "sortOrder",
+          "teamId",
+          "type",
+          "updateAt",
+          "userId"
+        ],
+        "type": "object"
+      },
+      "CategoryBoardMetadata": {
+        "description": "A board's place in a category.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board.",
+            "type": "string"
+          },
+          "hidden": {
+            "description": "Whether the user has hidden the board from the sidebar.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "boardId",
+          "hidden"
+        ],
+        "type": "object"
+      },
+      "CategoryBoards": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Category",
+            "description": "The category. Its members appear inline in the JSON form."
+          },
+          {
+            "properties": {
+              "boardMetadata": {
+                "description": "The boards in the category.",
+                "items": {
+                  "$ref": "#/components/schemas/CategoryBoardMetadata"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "boardMetadata"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "A category together with the boards in it, in display order."
+      },
+      "CategoryType": {
+        "description": "Whether a category was created by the server or by the user.",
+        "enum": [
+          "system",
+          "custom"
+        ],
+        "type": "string"
+      },
+      "CategoryUpdate": {
+        "description": "What a sidebar category is changed to. The name and the collapsed state are what\nchanges; a system category keeps its name.",
+        "properties": {
+          "collapsed": {
+            "description": "Whether the category is collapsed in the sidebar. Left out, it is not.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "The category of the path.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The display name; not blank.",
+            "type": "string"
+          },
+          "teamId": {
+            "description": "The team of the path.",
+            "type": "string"
+          },
+          "userId": {
+            "description": "The user of the session.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "userId",
+          "teamId"
+        ],
+        "type": "object"
+      },
+      "ChangePasswordRequest": {
+        "description": "A request to change a user's password.",
+        "properties": {
+          "newPassword": {
+            "description": "The password to change to.",
+            "type": "string"
+          },
+          "oldPassword": {
+            "description": "The current password.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "oldPassword",
+          "newPassword"
+        ],
+        "type": "object"
+      },
+      "ClientConfig": {
+        "description": "The part of the server configuration that the web client needs.",
+        "properties": {
+          "enablePublicSharedBoards": {
+            "description": "Whether boards may be shared publicly through a read token.",
+            "type": "boolean"
+          },
+          "featureFlags": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The server's feature flags.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "maxFileSize": {
+            "description": "The largest upload the server accepts, in bytes.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "teammateNameDisplay": {
+            "description": "How other users' names are displayed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enablePublicSharedBoards",
+          "featureFlags",
+          "maxFileSize",
+          "teammateNameDisplay"
+        ],
+        "type": "object"
+      },
+      "DeleteBoardsAndBlocks": {
+        "description": "The identifiers of boards and blocks to delete together.",
+        "properties": {
+          "blocks": {
+            "description": "The identifiers of the blocks.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "boards": {
+            "description": "The identifiers of the boards.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "boards"
+        ],
+        "type": "object"
+      },
+      "Density": {
+        "description": "How much room the interface gives each thing.",
+        "enum": [
+          "Auto",
+          "Compact",
+          "Comfortable"
+        ],
+        "type": "string"
+      },
+      "ErrorBody": {
+        "description": "The JSON body the server sends with every error status of the API.\n\nA client decides by `error` and, where there is one, `reason`; both are stable.\n`message` is English text for logs and developers and may change.",
+        "properties": {
+          "error": {
+            "description": "The kind of error, one per status code: `bad_request`, `unauthorized`,\n`forbidden`, `not_found`, `method_not_allowed`, `conflict`, `payload_too_large`,\n`rate_limited`, `internal`.",
+            "type": "string"
+          },
+          "field": {
+            "description": "The member of the request that was refused.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "The limit that was exceeded.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "message": {
+            "description": "What went wrong, in English. Not for showing to users, and without internals.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why, where a client must tell causes of the same kind apart, such as\n`invalid_credentials` or `last_admin`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_id": {
+            "description": "The identifier of the request, the same as in the `x-request-id` response header\nand in the server's request log.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retry_after": {
+            "description": "How many seconds to wait before trying again, as in the `Retry-After` header.",
+            "format": "int64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ],
+        "type": "object"
+      },
+      "FileForm": {
+        "description": "A form with one file.",
+        "properties": {
+          "file": {
+            "description": "The file, in a part that has a file name.",
+            "format": "binary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "type": "object"
+      },
+      "FileInfo": {
+        "description": "What the server records about an uploaded file.",
+        "properties": {
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "extension": {
+            "description": "The lower-cased extension of the name, with its leading dot.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The record's identifier.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name the file was uploaded under.",
+            "type": "string"
+          },
+          "size": {
+            "description": "The size of the file in bytes.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "createAt",
+          "extension",
+          "id",
+          "name",
+          "size"
+        ],
+        "type": "object"
+      },
+      "HourCycle": {
+        "description": "How the hours of a day are written. The names are those of the browsers' `Intl`.",
+        "enum": [
+          "Auto",
+          "H12",
+          "H23"
+        ],
+        "type": "string"
+      },
+      "LoginRequest": {
+        "description": "A login request.",
+        "properties": {
+          "email": {
+            "description": "The email address to log in with, used when no user has the given name.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The password.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The user name to log in with.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "type": "object"
+      },
+      "MemberRoles": {
+        "description": "The roles a member of a board is to have. A role that is left out is taken away.",
+        "properties": {
+          "schemeAdmin": {
+            "description": "The user administers the board.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "schemeCommenter": {
+            "description": "The user may comment on the board's cards.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "schemeEditor": {
+            "description": "The user may edit the board.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "schemeViewer": {
+            "description": "The user may view the board.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "MinimumRole": {
+        "description": "The minimum role of a board: the role a user gets who joins the board, or is added\nto it by somebody who does not manage its roles.\n\nA board always has one, and it is never admin: nobody becomes an administrator of a\nboard by joining it.",
+        "enum": [
+          "viewer",
+          "commenter",
+          "editor"
+        ],
+        "type": "string"
+      },
+      "NewBlock": {
+        "description": "A block to insert.",
+        "properties": {
+          "boardId": {
+            "description": "The board the block belongs to: the board of the path, or, where boards and\nblocks are made together, the `id` of one of the request's boards.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Must be 1 or more. The server does not keep it: the block is created when the\nserver stores it.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "description": "Type-specific data, free-form. The `properties` of a card among them are values\nby property identifier: a string, a list of strings, or `null`.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "A name for the block within the request. The server gives every block a new\nidentifier, and where one block of the request names another (as its `parentId`,\nor in the fields `contentOrder`, `cardOrder` and `defaultTemplateId`) it puts\nthe new identifier there.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentId": {
+            "description": "The block this one is below: a block of the same board, or the name of another\nblock of the request. Left out for a block directly on its board.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "schema": {
+            "description": "The schema version of the block.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The display title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "description": "The block type, such as `card`, `view`, `comment` or `text`.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Must be 1 or more. The server does not keep it.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "boardId",
+          "type",
+          "createAt",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "NewBoard": {
+        "description": "A board to make.",
+        "properties": {
+          "cardProperties": {
+            "description": "The property definitions of the board's cards, in display order. Each needs a\nnon-empty `id` that no other has.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "description": {
+            "description": "The board's description.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "description": "The board's icon, usually one emoji.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "Only where boards and blocks are made together, and needed there: a name by\nwhich the blocks of the request say which board they belong to. The server gives\nthe board another identifier. Where one board is made, a board with an `id` is\nrefused.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isTemplate": {
+            "description": "Whether the board is a template.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "minimumRole": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MinimumRole",
+                "description": "The role a user gets who joins the board. Left out, `editor`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "properties": {
+            "additionalProperties": true,
+            "description": "Free-form properties of the board itself.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "showDescription": {
+            "description": "Whether the description is shown in the interface.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "teamId": {
+            "description": "The identifier of the team the board is made in.",
+            "type": "string"
+          },
+          "templateVersion": {
+            "description": "The version of the built-in template the board came from.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The board's title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/BoardType",
+            "description": "Whether the board is open or private."
+          }
+        },
+        "required": [
+          "teamId",
+          "type"
+        ],
+        "type": "object"
+      },
+      "NewBoardsAndBlocks": {
+        "description": "Boards and their blocks, to make together.",
+        "properties": {
+          "blocks": {
+            "description": "The blocks, at least one. The `boardId` of each is the `id` of one of `boards`.",
+            "items": {
+              "$ref": "#/components/schemas/NewBlock"
+            },
+            "type": "array"
+          },
+          "boards": {
+            "description": "The boards, at least one, all of one team. Each needs an `id`.",
+            "items": {
+              "$ref": "#/components/schemas/NewBoard"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "boards",
+          "blocks"
+        ],
+        "type": "object"
+      },
+      "NewCard": {
+        "description": "A card to make.",
+        "properties": {
+          "boardId": {
+            "description": "The board of the path, if it is there at all.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contentOrder": {
+            "description": "The identifiers of the card's content blocks, in display order.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "icon": {
+            "description": "The card's icon; at most one grapheme.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isTemplate": {
+            "description": "Whether the card is a template.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "properties": {
+            "additionalProperties": true,
+            "description": "Property values by property identifier: a string, a list of strings, or `null`.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The display title.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "NewCategory": {
+        "description": "A sidebar category to make.",
+        "properties": {
+          "collapsed": {
+            "description": "Whether the category is collapsed in the sidebar.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "The display name; not blank.",
+            "type": "string"
+          },
+          "sortOrder": {
+            "description": "The position of the category among the user's categories.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "teamId": {
+            "description": "The team of the path.",
+            "type": "string"
+          },
+          "type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CategoryType",
+                "description": "Left out, `custom`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "userId": {
+            "description": "The user of the session: a user makes categories for themselves only.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "userId",
+          "teamId"
+        ],
+        "type": "object"
+      },
+      "NewMember": {
+        "description": "A user to make a member of a board, and the roles to give them.",
+        "properties": {
+          "schemeAdmin": {
+            "description": "The user administers the board. Only who manages the board's roles may ask for\nthis.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "schemeCommenter": {
+            "description": "The user may comment on the board's cards.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "schemeEditor": {
+            "description": "The user may edit the board.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "schemeViewer": {
+            "description": "The user may view the board.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "userId": {
+            "description": "The identifier of the user, who must be able to see the board's team.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId"
+        ],
+        "type": "object"
+      },
+      "NewSubscription": {
+        "description": "A subscription to make.",
+        "properties": {
+          "blockId": {
+            "description": "The identifier of the block subscribed to.",
+            "type": "string"
+          },
+          "blockType": {
+            "description": "The type of the block subscribed to.",
+            "type": "string"
+          },
+          "subscriberId": {
+            "description": "The user of the session: a user subscribes for themselves only.",
+            "type": "string"
+          },
+          "subscriberType": {
+            "description": "Always `user`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "blockType",
+          "blockId",
+          "subscriberType",
+          "subscriberId"
+        ],
+        "type": "object"
+      },
+      "OnboardingStart": {
+        "description": "What starting the tour answers: where the tour's board is.",
+        "properties": {
+          "boardId": {
+            "description": "The identifier of the board the tour goes through.",
+            "type": "string"
+          },
+          "teamId": {
+            "description": "The identifier of the team.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "boardId",
+          "teamId"
+        ],
+        "type": "object"
+      },
+      "PatchBoardsAndBlocks": {
+        "description": "Patches for several boards and blocks, applied together.\n\nIdentifiers and patches are matched by position.",
+        "properties": {
+          "blockIds": {
+            "description": "The identifiers of the blocks to patch.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "blockPatches": {
+            "description": "The block patches, one per block identifier.",
+            "items": {
+              "$ref": "#/components/schemas/BlockPatch"
+            },
+            "type": "array"
+          },
+          "boardIds": {
+            "description": "The identifiers of the boards to patch.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "boardPatches": {
+            "description": "The board patches, one per board identifier.",
+            "items": {
+              "$ref": "#/components/schemas/BoardPatch"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "boardIds",
+          "boardPatches"
+        ],
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "description": "A request to register a new user.",
+        "properties": {
+          "email": {
+            "description": "The email address.",
+            "type": "string"
+          },
+          "password": {
+            "description": "The password.",
+            "type": "string"
+          },
+          "token": {
+            "description": "The team's signup token; may be empty while no user exists yet.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "email",
+          "password"
+        ],
+        "type": "object"
+      },
+      "ServerMetadata": {
+        "description": "What `/ping` reports about the server.",
+        "properties": {
+          "build_date": {
+            "description": "The build date; empty unless set at build time.",
+            "type": "string"
+          },
+          "build_number": {
+            "description": "The build number; empty unless set at build time.",
+            "type": "string"
+          },
+          "commit": {
+            "description": "The commit the server was built from; empty unless set at build time.",
+            "type": "string"
+          },
+          "db_type": {
+            "description": "The database kind: `sqlite3` or `postgres`.",
+            "type": "string"
+          },
+          "db_version": {
+            "description": "The database's version string.",
+            "type": "string"
+          },
+          "edition": {
+            "description": "The edition of the server.",
+            "type": "string"
+          },
+          "os_arch": {
+            "description": "The CPU architecture the server runs on.",
+            "type": "string"
+          },
+          "os_type": {
+            "description": "The operating system the server runs on.",
+            "type": "string"
+          },
+          "sku": {
+            "description": "The kind of deployment: always `personal_server`.",
+            "type": "string"
+          },
+          "version": {
+            "description": "The server version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "build_number",
+          "build_date",
+          "commit",
+          "edition",
+          "db_type",
+          "db_version",
+          "os_type",
+          "os_arch",
+          "sku"
+        ],
+        "type": "object"
+      },
+      "SettingsChange": {
+        "description": "The settings to change. A member that is left out stays as it is; one that is `null`\ngoes back to its default.",
+        "properties": {
+          "cardOpen": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CardOpen",
+                "description": "Where a card opens."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "density": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Density",
+                "description": "How much room the interface gives each thing."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "haptics": {
+            "description": "Whether a device that can do so answers touches with a vibration.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "hourCycle": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/HourCycle",
+                "description": "How the hours of a day are written."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "theme": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Theme",
+                "description": "The colors of the interface."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeZone": {
+            "description": "`auto`, for the time zone of the device, or the IANA name of a time zone, such\nas `Asia/Seoul`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "weekStart": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WeekStart",
+                "description": "The day a week starts on."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "Sharing": {
+        "description": "The sharing state of a board.\n\nThe JSON form is what is answered to those who may share the board: whether it is\nshared, the read token while it is, and when the state last changed. A board that\nwas never shared is `{\"enabled\": false}`.",
+        "properties": {
+          "enabled": {
+            "description": "Whether the board is shared.",
+            "type": "boolean"
+          },
+          "token": {
+            "description": "The read token: whoever has it reads the board. The server makes it. Empty, and\nleft out of the JSON form, while the board is not shared.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "When the state last changed, in milliseconds since the Unix epoch. Zero, and\nleft out of the JSON form, for a board that was never shared.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "SharingRequest": {
+        "description": "Whether a board is to be shared.",
+        "properties": {
+          "enabled": {
+            "description": "`true` shares the board, `false` stops sharing it. The read token a board had\nstops working when sharing stops.",
+            "type": "boolean"
+          },
+          "regenerate": {
+            "description": "With `enabled`, `true` gives the board a new read token; the old one stops\nworking.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "SubscriberType": {
+        "description": "The kind of entity that subscribes.",
+        "enum": [
+          "user",
+          "channel"
+        ],
+        "type": "string"
+      },
+      "Subscription": {
+        "description": "A subscription to the changes of a board or card.",
+        "properties": {
+          "blockId": {
+            "description": "The identifier of the block subscribed to.",
+            "type": "string"
+          },
+          "blockType": {
+            "description": "The type of the block subscribed to.",
+            "type": "string"
+          },
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deleteAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "notifiedAt": {
+            "description": "The time of the last notification sent for this subscription, in milliseconds\nsince the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "subscriberId": {
+            "description": "The identifier of the subscriber.",
+            "type": "string"
+          },
+          "subscriberType": {
+            "$ref": "#/components/schemas/SubscriberType",
+            "description": "The kind of entity that subscribes."
+          }
+        },
+        "required": [
+          "blockId",
+          "blockType",
+          "createAt",
+          "deleteAt",
+          "notifiedAt",
+          "subscriberId",
+          "subscriberType"
+        ],
+        "type": "object"
+      },
+      "Team": {
+        "description": "A team. A server has exactly one.",
+        "properties": {
+          "id": {
+            "description": "The team's identifier.",
+            "type": "string"
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last modified the team.",
+            "type": "string"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "description": "Free-form team settings.",
+            "type": "object"
+          },
+          "signupToken": {
+            "description": "The token new users must present to register. Empty, and left out of the JSON\nform, in what is answered to anyone but an administrator of the instance.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The team's title.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "modifiedBy",
+          "settings",
+          "title",
+          "updateAt"
+        ],
+        "type": "object"
+      },
+      "Theme": {
+        "description": "The colors of the interface.",
+        "enum": [
+          "Auto",
+          "Light",
+          "Dark"
+        ],
+        "type": "string"
+      },
+      "UploadedFile": {
+        "description": "What an upload answers: the name the file is asked for by.",
+        "properties": {
+          "fileId": {
+            "description": "The identifier of the file: what `getFile` and `getFileInfo` take, and what an\nimage or attachment block names in its `fileId` field.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fileId"
+        ],
+        "type": "object"
+      },
+      "User": {
+        "description": "A user account.\n\nThe JSON form carries only the public members. The email address, password hash and\nthe other authentication members are never serialized and are ignored when decoding.",
+        "properties": {
+          "createAt": {
+            "description": "Creation time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "deleteAt": {
+            "description": "Deletion time in milliseconds since the Unix epoch; zero if not deleted.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The user's identifier.",
+            "type": "string"
+          },
+          "isAdmin": {
+            "description": "Whether the user is an administrator of the instance. Decided by the server;\nnothing a request says about it is taken over.",
+            "type": "boolean"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "username": {
+            "description": "The login name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "createAt",
+          "deleteAt",
+          "id",
+          "isAdmin",
+          "updateAt",
+          "username"
+        ],
+        "type": "object"
+      },
+      "UserPreferencesPatch": {
+        "description": "A change to the bag of state a client keeps with the account: entries the server\nstores without knowing what they mean.",
+        "properties": {
+          "deletedFields": {
+            "description": "Names of entries to remove.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updatedFields": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Entries to set, by name.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "UserSettings": {
+        "description": "The settings of a user. Every member has a value: what was never set, or was reset,\nis at its default.",
+        "properties": {
+          "cardOpen": {
+            "$ref": "#/components/schemas/CardOpen",
+            "description": "Where a card opens."
+          },
+          "density": {
+            "$ref": "#/components/schemas/Density",
+            "description": "How much room the interface gives each thing."
+          },
+          "haptics": {
+            "description": "Whether a device that can do so answers touches with a vibration.",
+            "type": "boolean"
+          },
+          "hourCycle": {
+            "$ref": "#/components/schemas/HourCycle",
+            "description": "How the hours of a day are written."
+          },
+          "theme": {
+            "$ref": "#/components/schemas/Theme",
+            "description": "The colors of the interface."
+          },
+          "timeZone": {
+            "description": "The time zone times are shown in.",
+            "type": "string"
+          },
+          "weekStart": {
+            "$ref": "#/components/schemas/WeekStart",
+            "description": "The day a week starts on."
+          }
+        },
+        "required": [
+          "timeZone",
+          "weekStart",
+          "hourCycle",
+          "theme",
+          "cardOpen",
+          "density",
+          "haptics"
+        ],
+        "type": "object"
+      },
+      "WeekStart": {
+        "description": "The day a week starts on.",
+        "enum": [
+          "Auto",
+          "Sunday",
+          "Monday",
+          "Saturday"
+        ],
+        "type": "string"
+      }
+    },
+    "securitySchemes": {
+      "bearerToken": {
+        "description": "The value of the session cookie, for clients that are no browsers.",
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "sessionCookie": {
+        "description": "The session cookie `login` sets. Over plain HTTP its name is `fvoci_session`.",
+        "in": "cookie",
+        "name": "__Host-fvoci_session",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. A few operations that read a shared board need no session when the request has the board's `readToken`.\n\n## Requests that change something\n\nEvery request whose method is not `GET` or `HEAD` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with an `ErrorBody`: `error` names the kind of the refusal and goes with the status, `reason` tells apart causes a client must tell apart, and `field` names the member of the request that was refused. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403.\n\nThe identifiers of users, teams, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## Request bodies\n\nA request schema lists the members a request is for. An optional member may be left out or be `null`. A body with members the schema does not list is not refused for them.",
+    "license": {
+      "identifier": "MIT",
+      "name": "MIT"
+    },
+    "title": "fvoci",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/boards": {
+      "post": {
+        "description": "The user becomes the board's admin, and the board is filed under the user's default\ncategory.",
+        "operationId": "createBoard",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewBoard"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                }
+              }
+            },
+            "description": "The board that was made."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Make a board",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/boards-and-blocks": {
+      "delete": {
+        "description": "Deletes several boards of one team and blocks of those boards, all or none. They go\nto the trash as `deleteBoard` and `deleteBlock` put them there. For the admins of\nevery board named.",
+        "operationId": "deleteBoardsAndBlocks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteBoardsAndBlocks"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The boards and blocks are deleted."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Delete boards and blocks together",
+        "tags": [
+          "boards"
+        ]
+      },
+      "patch": {
+        "description": "Applies a patch to each of several boards of one team and to blocks of those\nboards, all or none. Each board needs what `patchBoard` needs, each block what\n`patchBlock` needs.",
+        "operationId": "patchBoardsAndBlocks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchBoardsAndBlocks"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardsAndBlocks"
+                }
+              }
+            },
+            "description": "The boards and the blocks as they are now, each in the order of the request."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change boards and blocks together",
+        "tags": [
+          "boards"
+        ]
+      },
+      "post": {
+        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The user becomes the admin of each board.",
+        "operationId": "createBoardsAndBlocks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewBoardsAndBlocks"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardsAndBlocks"
+                }
+              }
+            },
+            "description": "The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Make boards with their blocks",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/boards/search": {
+      "get": {
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm. Oldest first.",
+        "operationId": "searchBoards",
+        "parameters": [
+          {
+            "description": "What to look for. Without it nothing is found.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The boards that match."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Search the boards",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}": {
+      "delete": {
+        "description": "The board goes to the trash with its blocks and its members, and `undeleteBoard`\nbrings it back until the trash is emptied of it. For the board's admins.",
+        "operationId": "deleteBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The board is deleted."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Delete a board",
+        "tags": [
+          "boards"
+        ]
+      },
+      "get": {
+        "description": "For a user who may see the board: a member of it, or for an open board anyone in\nits team. With the board's read token no session is needed; who reads that way is\nnot told who made the board or changed it last (`createdBy` and `modifiedBy` are\nempty).",
+        "operationId": "getBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board. With the token of a board that is shared, the request needs no session.",
+            "in": "query",
+            "name": "readToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                }
+              }
+            },
+            "description": "The board."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {},
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "A board",
+        "tags": [
+          "boards"
+        ]
+      },
+      "patch": {
+        "description": "For who may manage the board's properties. Changing `type` or `minimumRole` is for\nthe board's admins.",
+        "operationId": "patchBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                }
+              }
+            },
+            "description": "The board as it is now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change a board",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/archive/export": {
+      "get": {
+        "description": "An archive of the board with its blocks and files, offered as a download. For the\nboard's members.",
+        "operationId": "exportBoardArchive",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The archive."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Export a board",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/blocks": {
+      "get": {
+        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed; who reads that way is not told who made a\nblock or changed it last (`createdBy` and `modifiedBy` are empty).\n\n`all` asks for every block and `blockId` for one. Otherwise `parentId` and `type`\nnarrow the list, and without either the list is every block of the board. Oldest\nfirst.",
+        "operationId": "getBlocks",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Any value asks for every block of the board, and the other parameters are not looked at.",
+            "in": "query",
+            "name": "all",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Asks for the one block with this identifier.",
+            "in": "query",
+            "name": "blockId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to the blocks with this parent.",
+            "in": "query",
+            "name": "parentId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to the blocks of this type.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board. With the token of a board that is shared, the request needs no session.",
+            "in": "query",
+            "name": "readToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Block"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The blocks."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {},
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "The blocks of a board",
+        "tags": [
+          "blocks"
+        ]
+      },
+      "patch": {
+        "description": "Applies a patch to each of several blocks of the board, all or none. For editors.",
+        "operationId": "patchBlocks",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockPatchBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The blocks are changed."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change several blocks",
+        "tags": [
+          "blocks"
+        ]
+      },
+      "post": {
+        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none. Comments need\nthe role of a commenter, everything else that of an editor.",
+        "operationId": "createBlocks",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies.",
+            "in": "query",
+            "name": "sourceBoardId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/NewBlock"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Block"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The blocks as they were stored, in the order of the request."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Insert blocks",
+        "tags": [
+          "blocks"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/blocks/{blockId}": {
+      "delete": {
+        "description": "The block goes to the trash with the blocks below it, and `undeleteBlock` brings it\nback until the trash is emptied of it. For editors, whatever the block is: a\ncommenter cannot delete their own comment this way. A comment of somebody else is\ndeleted by the board's admins only.",
+        "operationId": "deleteBlock",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The block is deleted."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Delete a block",
+        "tags": [
+          "blocks"
+        ]
+      },
+      "patch": {
+        "description": "For editors, also for a comment: a commenter cannot change their own comment this\nway.",
+        "operationId": "patchBlock",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The block is changed."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change a block",
+        "tags": [
+          "blocks"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/blocks/{blockId}/duplicate": {
+      "post": {
+        "description": "Copies a block and the blocks directly below it, except comments. A comment cannot\nbe copied. For editors.",
+        "operationId": "duplicateBlock",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` makes the copy a template. Any other value does not.",
+            "in": "query",
+            "name": "asTemplate",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Block"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The copies: the copy of the block first, then those of the blocks directly below it, oldest first."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Copy a block",
+        "tags": [
+          "blocks"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/blocks/{blockId}/undelete": {
+      "post": {
+        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. For editors.",
+        "operationId": "undeleteBlock",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Block"
+                }
+              }
+            },
+            "description": "The block as it is again."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Bring a deleted block back",
+        "tags": [
+          "blocks"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/cards": {
+      "get": {
+        "description": "One page of the board's cards, for everyone who may view the board. Oldest first;\nthe pages cut that order.",
+        "operationId": "getCards",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many cards a page has. Left out, 100. Zero or less asks for all cards.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Card"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The cards of the page."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The cards of a board",
+        "tags": [
+          "cards"
+        ]
+      },
+      "post": {
+        "description": "The server chooses the identifier, the creator and the times. For editors.",
+        "operationId": "createCard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCard"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card that was made."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Make a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/duplicate": {
+      "post": {
+        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy. Whoever may see the board may copy it; an open\ntemplate is for everyone in its team, and a built-in template for everyone.",
+        "operationId": "duplicateBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` makes the copy a template. Any other value does not.",
+            "in": "query",
+            "name": "asTemplate",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The team the copy goes to. Left out, it stays in the team of the board.",
+            "in": "query",
+            "name": "toTeam",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardsAndBlocks"
+                }
+              }
+            },
+            "description": "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Copy a board",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/files": {
+      "post": {
+        "description": "Stores a file with the board. The request is a `multipart/form-data` form whose\npart `file` carries the file and a file name. The file is limited to the\n`maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is\n413. For editors.",
+        "operationId": "uploadFile",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FileForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadedFile"
+                }
+              }
+            },
+            "description": "The file is stored."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Upload a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/files/{fileId}": {
+      "get": {
+        "description": "The content of a file of the board, for the board's members; with the board's read\ntoken no session is needed. A file is asked for through its own board only: through\nanother board it is not there.\n\nThe answer honours `Range` (one range), `If-Modified-Since` and the other\nconditional headers. Images, audio and video a browser shows are sent to be shown;\neverything else is offered as a download, and what a browser would run is sent as\nplain text. The answer may be cached by the browser of who asked but must be\nrevalidated (`Cache-Control: private, no-cache`).",
+        "operationId": "getFile",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board. With the token of a board that is shared, the request needs no session.",
+            "in": "query",
+            "name": "readToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The file."
+          },
+          "206": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The range of the file that was asked for."
+          },
+          "304": {
+            "description": "The file has not changed since the time the request names."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {},
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "A file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/files/{fileId}/info": {
+      "get": {
+        "description": "The name a file was uploaded under, its size and when it was uploaded. For the\nboard's members; with the board's read token no session is needed.",
+        "operationId": "getFileInfo",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the file, as the upload answered it.",
+            "in": "path",
+            "name": "fileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The read token of the board. With the token of a board that is shared, the request needs no session.",
+            "in": "query",
+            "name": "readToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInfo"
+                }
+              }
+            },
+            "description": "What is known about the file."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {},
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
+        "summary": "What is known about a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/join": {
+      "post": {
+        "description": "Makes the user a member of an open board, with the board's minimum role. A member\nbelow that role is raised to it; a member with that role or a higher one stays as\nthey are. A template cannot be joined, and a private board is not there for who is\nno member of it.",
+        "operationId": "joinBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardMember"
+                }
+              }
+            },
+            "description": "The membership as it is now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Join an open board",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/leave": {
+      "post": {
+        "description": "Ends the user's own membership of a board. The last admin of a board cannot leave\nit.",
+        "operationId": "leaveBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The user is no member any more."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Leave a board",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/members": {
+      "get": {
+        "description": "For the board's members. By the identifier of the user: a membership has no time of\nits own, so this is not the order in which the users came to the board.",
+        "operationId": "getMembers",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BoardMember"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The members."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The members of a board",
+        "tags": [
+          "members"
+        ]
+      },
+      "post": {
+        "description": "The board's admins add members with the roles the request names. On an open board\neditors add members too, with the board's minimum role, whatever the request names.\nA user who is a member already stays as they are.",
+        "operationId": "addMember",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardMember"
+                }
+              }
+            },
+            "description": "The membership as it is now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Make a user a member of a board",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/members/{userId}": {
+      "delete": {
+        "description": "For the board's admins. The last admin of a board cannot be removed.",
+        "operationId": "removeMember",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The user is no member any more."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Remove a member from a board",
+        "tags": [
+          "members"
+        ]
+      },
+      "put": {
+        "description": "Replaces the roles of a member of the board. For the board's admins. The last admin\nof a board cannot be made less.",
+        "operationId": "updateMember",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberRoles"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardMember"
+                }
+              }
+            },
+            "description": "The membership as it is now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change the roles of a member",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/sharing": {
+      "get": {
+        "description": "Whether the board is shared, and with which read token. A board that was never\nshared is not shared. For the board's admins.",
+        "operationId": "getSharing",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sharing"
+                }
+              }
+            },
+            "description": "The sharing state."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Whether a board is shared",
+        "tags": [
+          "sharing"
+        ]
+      },
+      "post": {
+        "description": "Shares the board, shares it under a new read token, or stops sharing it. The server\nmakes the token; a request that names one is refused. Where the server is\nconfigured without public sharing, the request is refused with 403 and the reason\n`sharing_disabled`. For the board's admins.",
+        "operationId": "setSharing",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sharing"
+                }
+              }
+            },
+            "description": "The sharing state as it is now, with the token while the board is shared."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Share a board, or stop sharing it",
+        "tags": [
+          "sharing"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/undelete": {
+      "post": {
+        "description": "Restores a board from the trash with its blocks and its members. For who was an\nadmin of the board when it was deleted; to anybody who was no member there is no\nsuch board.",
+        "operationId": "undeleteBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Board"
+                }
+              }
+            },
+            "description": "The board as it is again."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Bring a deleted board back",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/cards/{cardId}": {
+      "get": {
+        "description": "For everyone who may view the card's board. To a user who may not there is no such\ncard.",
+        "operationId": "getCard",
+        "parameters": [
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "A card",
+        "tags": [
+          "cards"
+        ]
+      },
+      "patch": {
+        "description": "For editors of the card's board. To a user who may not see that board there is no\nsuch card.",
+        "operationId": "patchCard",
+        "parameters": [
+          {
+            "description": "The identifier of the card.",
+            "in": "path",
+            "name": "cardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.",
+            "in": "query",
+            "name": "disableNotify",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Card"
+                }
+              }
+            },
+            "description": "The card as it is now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change a card",
+        "tags": [
+          "cards"
+        ]
+      }
+    },
+    "/api/v1/client-config": {
+      "get": {
+        "description": "The part of the server's configuration a client needs before anybody is signed in.",
+        "operationId": "getClientConfig",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientConfig"
+                }
+              }
+            },
+            "description": "The configuration."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "What a client must know about the server",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/content-blocks/{blockId}/moveto/{where}/{dstBlockId}": {
+      "post": {
+        "description": "Moves a content block right before or after another one in the content order of\ntheir card. For editors of the board. A block on a board the user may not see is\nnot there, whichever of the two it is.",
+        "operationId": "moveContentBlock",
+        "parameters": [
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Where the block goes: `before` or `after` the other one.",
+            "in": "path",
+            "name": "where",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the block the moved one is put next to.",
+            "in": "path",
+            "name": "dstBlockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The block is moved."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Move a content block within its card",
+        "tags": [
+          "blocks"
+        ]
+      }
+    },
+    "/api/v1/login": {
+      "post": {
+        "description": "Starts a session for the user with the given name, or, if no user has that name,\nwith the given email address. The session comes in the `Set-Cookie` header and\nnowhere else.\n\nWrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong\nabout them. Attempts are counted by account and by where they come from; too many\nare 429.",
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The user is signed in.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The session cookie.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many attempts. `reason` and `retry_after` say more.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Sign in",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/logout": {
+      "post": {
+        "description": "Ends the session of the request and clears its cookie.",
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "The session is over.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Clears the session cookie.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Sign out",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/register": {
+      "post": {
+        "description": "Makes an account. The first user of a server needs no signup token and becomes its\nadministrator; everyone after needs the team's token, and is refused with 403 and\nthe reason `signup_token_required` or `signup_token_invalid` without it. A name or\nan email address that is taken is 409 with the reason `username_taken` or\n`email_taken`. Registering does not sign in.",
+        "operationId": "register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "The user that was made."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many registrations from where this one comes from.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Register a user",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/subscriptions": {
+      "post": {
+        "description": "Subscribes the user of the session to a block of a board they are a member of.\nSubscribing again is no error.",
+        "operationId": "createSubscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewSubscription"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Subscription"
+                }
+              }
+            },
+            "description": "The subscription."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Subscribe to a block",
+        "tags": [
+          "subscriptions"
+        ]
+      }
+    },
+    "/api/v1/subscriptions/{blockId}/{subscriberId}": {
+      "delete": {
+        "description": "Ends the subscription of the user of the session to a block. Nothing about the\nblock is checked: a subscription to a block the user may no longer see can still be\nended. The subscriptions of another user are not there.",
+        "operationId": "deleteSubscription",
+        "parameters": [
+          {
+            "description": "The identifier of the block.",
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the subscriber: the user of the session.",
+            "in": "path",
+            "name": "subscriberId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The subscription is ended."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "End a subscription",
+        "tags": [
+          "subscriptions"
+        ]
+      }
+    },
+    "/api/v1/subscriptions/{subscriberId}": {
+      "get": {
+        "description": "The subscriptions of the user of the session; those of another user are not there.\nOldest first, and by the identifier of the block among those made in the same\nmillisecond.",
+        "operationId": "getSubscriptions",
+        "parameters": [
+          {
+            "description": "The identifier of the subscriber: the user of the session.",
+            "in": "path",
+            "name": "subscriberId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Subscription"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The subscriptions."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The subscriptions of the user",
+        "tags": [
+          "subscriptions"
+        ]
+      }
+    },
+    "/api/v1/teams": {
+      "get": {
+        "description": "The teams of the server, oldest first. A server has one, and nothing in the API\nmakes another. The signup token is there for administrators only.",
+        "operationId": "getTeams",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Team"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The teams."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The teams",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}": {
+      "get": {
+        "description": "The signup token, which lets in whoever has it, is there for administrators only.",
+        "operationId": "getTeam",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The team."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "A team",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/archive/export": {
+      "get": {
+        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download.",
+        "operationId": "exportTeamArchive",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The archive."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Export the boards of a team",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/archive/import": {
+      "post": {
+        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nrequest is a `multipart/form-data` form whose part `file` carries the archive.",
+        "operationId": "importArchive",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/FileForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The boards of the archive are made."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Import an archive",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/boards": {
+      "get": {
+        "description": "The boards of the team that the user is a member of, and the team's open boards.\nTemplates are not among them. Oldest first.",
+        "operationId": "getBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The boards."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The boards of a team",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/boards/search": {
+      "get": {
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm, or with `field=property_name` those with a card property whose name does.\nThe team of the path is not part of the search: the boards of every team are\nsearched. Oldest first.",
+        "operationId": "searchTeamBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "What to look for. Without it nothing is found.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "What the term is matched against: `title` (also when left out) or `property_name`, the names of card properties.",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The boards that match."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Search the boards, asked through a team",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/categories": {
+      "get": {
+        "description": "The user's categories in the team, each with the boards filed under it. A user who\nhas none yet gets the default category made.\n\nThe categories come by `sortOrder`, lowest first, and among those with the same one\nthe oldest first. The boards of a category come in the order the user gave them,\nand by identifier among those with the same place.",
+        "operationId": "getCategories",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryBoards"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The categories with their boards."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The user's sidebar",
+        "tags": [
+          "sidebar"
+        ]
+      },
+      "post": {
+        "description": "Makes a category of the user's sidebar in the team. The server makes its\nidentifier.",
+        "operationId": "createCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": "The category that was made."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Make a category",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/categories/{categoryId}": {
+      "delete": {
+        "description": "Deletes one of the user's categories; its boards go to the user's default\ncategory. A system category cannot be deleted. A deleted category does not come\nback.",
+        "operationId": "deleteCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The category is deleted."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Delete a category",
+        "tags": [
+          "sidebar"
+        ]
+      },
+      "put": {
+        "description": "Changes the name of one of the user's categories and whether it is collapsed.\nNothing else changes, and a system category keeps its name.",
+        "operationId": "updateCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": "The category as it is now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change a category",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/categories/{categoryId}/board-order": {
+      "put": {
+        "description": "The body lists the identifiers of all boards of the category, in the order they\nare to have. A list that is not as long as the category has boards, or that names\none that is not in the category, is refused.",
+        "operationId": "reorderCategoryBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The identifiers of the boards in their new order."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Put the boards of a category in an order",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}": {
+      "post": {
+        "description": "Puts a board the user may see under one of the user's categories; it leaves the\ncategory it was under.",
+        "operationId": "setBoardCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The board is under the category."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "File a board under a category",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide": {
+      "put": {
+        "description": "Hides a board of one of the user's categories from the user's sidebar. The board\nstays where it is filed, and nothing changes for anybody else.",
+        "operationId": "hideBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The board is hidden."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Hide a board in the sidebar",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide": {
+      "put": {
+        "description": "Ends the hiding of a board of one of the user's categories.",
+        "operationId": "unhideBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The board is shown."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Show a hidden board again",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/category-order": {
+      "put": {
+        "description": "The body lists the identifiers of all of the user's categories in the team, in the\norder they are to have. A list that is not as long as the user has categories, or\nthat names one that is not the user's, is refused.",
+        "operationId": "reorderCategories",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The identifiers of the categories in their new order."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Put the categories in an order",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/onboard": {
+      "post": {
+        "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes with the account that the tour has begun.",
+        "operationId": "onboard",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStart"
+                }
+              }
+            },
+            "description": "The board that was made."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Start the tour",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/signup-token": {
+      "post": {
+        "description": "Makes a new signup token for the team; the old one stops working. For\nadministrators.",
+        "operationId": "regenerateSignupToken",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Team"
+                }
+              }
+            },
+            "description": "The team, with its new token."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Make a new signup token",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/templates": {
+      "get": {
+        "description": "The team's template boards the user may see, then the built-in templates, which\nevery team is offered. Each of the two oldest first.",
+        "operationId": "getTemplates",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The templates."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The templates of a team",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/users": {
+      "get": {
+        "description": "Up to ten users: with `search` those whose name has that text in it, without it\nany. Oldest account first.",
+        "operationId": "getTeamUsers",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to users whose name has this text in it.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The users."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The users of a team",
+        "tags": [
+          "teams"
+        ]
+      },
+      "post": {
+        "description": "The users with the identifiers of the body, which must name at least one. Every\nidentifier must be a user's and none may be there twice; otherwise the request is\nrefused. Oldest account first, not in the order of the request.",
+        "operationId": "getTeamUsersById",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The users."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Users of a team by their identifiers",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "post": {
+        "description": "The users with the identifiers of the body, which must name at least one. Every\nidentifier must be a user's and none may be there twice; otherwise the request is\nrefused. Oldest account first, not in the order of the request.",
+        "operationId": "getUsers",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The users."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Users by their identifiers",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "operationId": "getMe",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "The user."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The user of the session",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/client-state": {
+      "get": {
+        "description": "The state the client keeps with the account.",
+        "operationId": "getClientState",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The value of every entry by its name."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The client's state",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "description": "Sets and removes entries of the state the client keeps with the account. The\nserver does not know what the entries mean; it bounds their number, their names and\ntheir size.",
+        "operationId": "patchClientState",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPreferencesPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "All of the state as it is now: the value of every entry by its name."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change the client's state",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/memberships": {
+      "get": {
+        "description": "The user's memberships, with the roles of each. By the identifier of the board.",
+        "operationId": "getMyMemberships",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BoardMember"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The memberships."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The boards the user is a member of",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/password": {
+      "post": {
+        "description": "Changes the password of the user of the session, who proves to know the old one.\nThe user's other sessions end, and this one goes on under a new cookie.",
+        "operationId": "changePassword",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The password is changed.",
+            "headers": {
+              "Set-Cookie": {
+                "description": "The session cookie, with its new value.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The server has too much password work to do at the moment.",
+            "headers": {
+              "Retry-After": {
+                "description": "How many seconds to wait before trying again.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change the password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/users/me/settings": {
+      "get": {
+        "description": "What the user has set about how things are shown to them. Every setting is\nanswered; what was never set has its default.",
+        "operationId": "getUserSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "The settings."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The user's settings",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "description": "Changes the settings the body names. A member that is `null` puts its setting back\nto the default. A member that is no setting, or a value its setting cannot have, is\nrefused and changes nothing.",
+        "operationId": "patchUserSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSettings"
+                }
+              }
+            },
+            "description": "All settings as they are now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change the user's settings",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{userId}": {
+      "get": {
+        "operationId": "getUser",
+        "parameters": [
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "The user."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "A user",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{userId}/admin": {
+      "put": {
+        "description": "Makes a user an administrator of the instance, or ends that. For administrators.\nThe last administrator cannot stop being one: handing the role over is two\nrequests, first making the other one an administrator.",
+        "operationId": "setUserAdmin",
+        "parameters": [
+          {
+            "description": "The identifier of the user.",
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "The user as they are now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Make a user an administrator, or end that",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/hello": {
+      "get": {
+        "description": "Answers the text `Hello`.",
+        "operationId": "hello",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The server is there."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "Whether the server is there",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/ping": {
+      "get": {
+        "description": "The version of the server and what it runs on.",
+        "operationId": "ping",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerMetadata"
+                }
+              }
+            },
+            "description": "What the server says about itself."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "security": [
+          {}
+        ],
+        "summary": "What the server is",
+        "tags": [
+          "system"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "sessionCookie": []
+    },
+    {
+      "bearerToken": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "The server itself.",
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Whether the server is there, and what a client must know before it signs in.",
+      "name": "system"
+    },
+    {
+      "description": "Signing in and out, registering, and changing the password.",
+      "name": "auth"
+    },
+    {
+      "description": "The user of the session, their settings, and other users.",
+      "name": "users"
+    },
+    {
+      "description": "The team and its users.",
+      "name": "teams"
+    },
+    {
+      "description": "Boards and templates.",
+      "name": "boards"
+    },
+    {
+      "description": "Who is on a board, and with which role.",
+      "name": "members"
+    },
+    {
+      "description": "Sharing a board with whoever has its link.",
+      "name": "sharing"
+    },
+    {
+      "description": "The blocks of a board: cards, views, comments, and what a card is made of.",
+      "name": "blocks"
+    },
+    {
+      "description": "The blocks of type `card`, as cards.",
+      "name": "cards"
+    },
+    {
+      "description": "A user's categories and the boards filed under them.",
+      "name": "sidebar"
+    },
+    {
+      "description": "The files of a board.",
+      "name": "files"
+    },
+    {
+      "description": "Exporting boards and importing them.",
+      "name": "archives"
+    },
+    {
+      "description": "Subscriptions to blocks.",
+      "name": "subscriptions"
+    }
+  ]
+}

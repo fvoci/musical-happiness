@@ -12,7 +12,7 @@ use crate::settings::{ClientStateError, check_client_state_name, check_client_st
 ///
 /// The JSON form carries only the public members. The email address, password hash and
 /// the other authentication members are never serialized and are ignored when decoding.
-#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct User {
     /// The user's identifier.
@@ -81,7 +81,7 @@ impl fmt::Debug for User {
 
 /// A change to the bag of state a client keeps with the account: entries the server
 /// stores without knowing what they mean.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UserPreferencesPatch {
     /// Entries to set, by name.

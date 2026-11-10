@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// A client decides by `error` and, where there is one, `reason`; both are stable.
 /// `message` is English text for logs and developers and may change.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct ErrorBody {
     /// The kind of error, one per status code: `bad_request`, `unauthorized`,

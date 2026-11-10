@@ -248,7 +248,7 @@ impl App {
         Ok(())
     }
 
-    /// Deletes a block and its direct children; websocket listeners are told in the
+    /// Deletes a block and everything below it; websocket listeners are told in the
     /// background. Webhooks are not told about deletions.
     ///
     /// # Errors

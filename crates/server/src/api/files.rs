@@ -5,7 +5,6 @@
 
 use std::time::SystemTime;
 
-use axum::Router;
 use axum::body::Body;
 use axum::extract::multipart::MultipartRejection;
 use axum::extract::{Multipart, Path, RawQuery, State};
@@ -15,8 +14,15 @@ use axum::http::header::{
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use serde_json::json;
+use fvoci_model::FileInfo;
+use serde::Serialize;
+use utoipa::ToSchema;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::{Binary, FileForm};
+use super::contract::params::{BoardId, FileId, ReadToken};
+use super::contract::tag;
 
 use super::{
     ApiResult, OptionalSession, RequiredSession, board_refusal, created, has_valid_read_token,
@@ -61,19 +67,25 @@ const UPLOAD_FIELD: &str = "file";
 /// The refusal of an upload that carries no part with the file.
 const NO_FILE_PART: &str = "the request has no part named `file` with a file name";
 
+/// What an upload answers: the name the file is asked for by.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct UploadedFile {
+    /// The identifier of the file: what `getFile` and `getFileInfo` take, and what an
+    /// image or attachment block names in its `fileId` field.
+    file_id: String,
+}
+
 /// The routes that read files.
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route("/boards/{board_id}/files/{file_id}", get(handle_serve_file))
-        .route(
-            "/boards/{board_id}/files/{file_id}/info",
-            get(handle_get_file_info),
-        )
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_serve_file))
+        .routes(routes!(handle_get_file_info))
 }
 
 /// The route that takes a file, whose size has a limit of its own.
-pub(super) fn upload_routes() -> Router<App> {
-    Router::new().route("/boards/{board_id}/files", post(handle_upload_file))
+pub(super) fn upload_routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new().routes(routes!(handle_upload_file))
 }
 
 /// Checks that the requester may read the board's files: a member with the view
@@ -98,7 +110,30 @@ async fn check_read_access(
     Ok(())
 }
 
-/// `GET /boards/{board_id}/files/{file_id}`: serves an uploaded file.
+/// A file
+///
+/// The content of a file of the board, for the board's members; with the board's read
+/// token no session is needed. A file is asked for through its own board only: through
+/// another board it is not there.
+///
+/// The answer honours `Range` (one range), `If-Modified-Since` and the other
+/// conditional headers. Images, audio and video a browser shows are sent to be shown;
+/// everything else is offered as a download, and what a browser would run is sent as
+/// plain text. The answer may be cached by the browser of who asked but must be
+/// revalidated (`Cache-Control: private, no-cache`).
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/files/{fileId}",
+    operation_id = "getFile",
+    tag = tag::FILES,
+    params(BoardId, FileId, ReadToken),
+    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    responses(
+        (status = 200, description = "The file.", body = inline(Binary), content_type = "application/octet-stream"),
+        (status = 206, description = "The range of the file that was asked for.", body = inline(Binary), content_type = "application/octet-stream"),
+        (status = 304, description = "The file has not changed since the time the request names."),
+    ),
+)]
 async fn handle_serve_file(
     State(app): State<App>,
     session: OptionalSession,
@@ -121,7 +156,19 @@ async fn handle_serve_file(
     serve_content(&app, &filename, &info.path, size, "", &headers).await
 }
 
-/// `GET /boards/{board_id}/files/{file_id}/info`: the metadata of a file.
+/// What is known about a file
+///
+/// The name a file was uploaded under, its size and when it was uploaded. For the
+/// board's members; with the board's read token no session is needed.
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/files/{fileId}/info",
+    operation_id = "getFileInfo",
+    tag = tag::FILES,
+    params(BoardId, FileId, ReadToken),
+    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    responses((status = 200, description = "What is known about the file.", body = FileInfo)),
+)]
 async fn handle_get_file_info(
     State(app): State<App>,
     session: OptionalSession,
@@ -136,7 +183,21 @@ async fn handle_get_file_info(
     }
 }
 
-/// `POST /boards/{board_id}/files`: stores an uploaded file.
+/// Upload a file
+///
+/// Stores a file with the board. The request is a `multipart/form-data` form whose
+/// part `file` carries the file and a file name. The file is limited to the
+/// `maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is
+/// 413. For editors.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/files",
+    operation_id = "uploadFile",
+    tag = tag::FILES,
+    params(BoardId),
+    request_body(content = FileForm, content_type = "multipart/form-data"),
+    responses((status = 201, description = "The file is stored.", body = UploadedFile)),
+)]
 async fn handle_upload_file(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -161,7 +222,7 @@ async fn handle_upload_file(
         .await?;
     // The stored name is what a reader asks for the file by; it stays out of the log.
     tracing::debug!(filename, "uploadFile");
-    Ok(created(&json!({ "fileId": file_id })))
+    Ok(created(&UploadedFile { file_id }))
 }
 
 /// Reads the uploaded file field, bounding it to `max_file_size` when that is positive.

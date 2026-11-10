@@ -4,9 +4,12 @@
 //!   licenses. Starts no external service.
 //! * `cargo xtask test` — every test on SQLite and on PostgreSQL, and the S3 storage
 //!   test. Prepares the containers the tests need.
+//! * `cargo xtask openapi` — fails if `contracts/openapi.json` is not the document the
+//!   server prints; `--write` rewrites the file.
 
 mod check;
 mod containers;
+mod openapi;
 mod steps;
 mod test;
 
@@ -39,6 +42,13 @@ enum Command {
         /// The databases to run the tests on.
         #[arg(long, value_enum, default_value_t = Databases::All)]
         database: Databases,
+    },
+    /// Fails if `contracts/openapi.json` is not the OpenAPI document the server prints
+    /// from its route definitions.
+    Openapi {
+        /// Rewrites the file instead of failing.
+        #[arg(long)]
+        write: bool,
     },
 }
 
@@ -74,6 +84,14 @@ fn main() -> ExitCode {
             check::run(&root, licenses)
         }
         Command::Test { database } => test::run(&root, database),
+        Command::Openapi { write } => {
+            let mode = if write {
+                openapi::Mode::Write
+            } else {
+                openapi::Mode::Check
+            };
+            openapi::run(&root, mode)
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

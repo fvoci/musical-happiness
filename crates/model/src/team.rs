@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 use crate::JsonMap;
 use crate::serde_util::null_as_default;
 
-/// A team. A standalone server has exactly one, with identifier `0`.
-#[derive(Clone, PartialEq, Default, Serialize, Deserialize)]
+/// A team. A server has exactly one.
+#[derive(Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Team {
     /// The team's identifier.
@@ -26,6 +26,7 @@ pub struct Team {
     pub signup_token: String,
     /// Free-form team settings.
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = Object)]
     pub settings: JsonMap,
     /// The identifier of the user who last modified the team.
     #[serde(deserialize_with = "null_as_default")]

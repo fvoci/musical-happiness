@@ -1,13 +1,17 @@
 //! Boards: listing, creating, reading, patching, deleting, duplicating and undeleting.
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use axum::routing::{get, post};
-use fvoci_model::{Board, BoardPatch, BoardType, JsonMap, MinimumRole};
+use fvoci_model::{Board, BoardPatch, BoardType, BoardsAndBlocks, JsonMap, MinimumRole};
 use fvoci_store::PublicBoards;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::NewBoard;
+use super::contract::params::{AsTemplate, BoardId, ReadToken, TeamId, ToTeam};
+use super::contract::tag;
 
 use super::{
     ApiResult, OptionalSession, RequiredSession, created, decode_json, has_valid_read_token,
@@ -21,18 +25,17 @@ use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission, member_has_permission};
 
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route("/teams/{team_id}/boards", get(handle_get_boards))
-        .route("/boards", post(handle_create_board))
-        .route(
-            "/boards/{board_id}",
-            get(handle_get_board)
-                .patch(handle_patch_board)
-                .delete(handle_delete_board),
-        )
-        .route("/boards/{board_id}/duplicate", post(handle_duplicate_board))
-        .route("/boards/{board_id}/undelete", post(handle_undelete_board))
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_get_boards))
+        .routes(routes!(handle_create_board))
+        .routes(routes!(
+            handle_get_board,
+            handle_patch_board,
+            handle_delete_board
+        ))
+        .routes(routes!(handle_duplicate_board))
+        .routes(routes!(handle_undelete_board))
 }
 
 // -- what the handlers of this area share ----------------------------------------------
@@ -109,8 +112,18 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
 
 // -- handlers -------------------------------------------------------------------------
 
-/// `GET /teams/{team_id}/boards`: the boards of a team that the user is a member of,
-/// and its open boards.
+/// The boards of a team
+///
+/// The boards of the team that the user is a member of, and the team's open boards.
+/// Templates are not among them. Oldest first.
+#[utoipa::path(
+    get,
+    path = "/teams/{teamId}/boards",
+    operation_id = "getBoards",
+    tag = tag::BOARDS,
+    params(TeamId),
+    responses((status = 200, description = "The boards.", body = Vec<Board>)),
+)]
 async fn handle_get_boards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -131,7 +144,18 @@ async fn handle_get_boards(
     Ok(json_response(&boards))
 }
 
-/// `POST /boards`: creates a board with the user as its admin.
+/// Make a board
+///
+/// The user becomes the board's admin, and the board is filed under the user's default
+/// category.
+#[utoipa::path(
+    post,
+    path = "/boards",
+    operation_id = "createBoard",
+    tag = tag::BOARDS,
+    request_body = NewBoard,
+    responses((status = 201, description = "The board that was made.", body = Board)),
+)]
 async fn handle_create_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -170,8 +194,21 @@ async fn handle_create_board(
     Ok(created(&board))
 }
 
-/// `GET /boards/{board_id}`: a board, for a user who may see it or for anybody with the
-/// board's read token.
+/// A board
+///
+/// For a user who may see the board: a member of it, or for an open board anyone in
+/// its team. With the board's read token no session is needed; who reads that way is
+/// not told who made the board or changed it last (`createdBy` and `modifiedBy` are
+/// empty).
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}",
+    operation_id = "getBoard",
+    tag = tag::BOARDS,
+    params(BoardId, ReadToken),
+    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    responses((status = 200, description = "The board.", body = Board)),
+)]
 async fn handle_get_board(
     State(app): State<App>,
     session: OptionalSession,
@@ -214,8 +251,19 @@ async fn handle_get_board(
     Ok(json_response(&board))
 }
 
-/// `PATCH /boards/{board_id}`: changes a board. What the patch touches decides which
-/// permission it needs.
+/// Change a board
+///
+/// For who may manage the board's properties. Changing `type` or `minimumRole` is for
+/// the board's admins.
+#[utoipa::path(
+    patch,
+    path = "/boards/{boardId}",
+    operation_id = "patchBoard",
+    tag = tag::BOARDS,
+    params(BoardId),
+    request_body = BoardPatch,
+    responses((status = 200, description = "The board as it is now.", body = Board)),
+)]
 async fn handle_patch_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -247,7 +295,18 @@ async fn handle_patch_board(
     Ok(json_response(&board))
 }
 
-/// `DELETE /boards/{board_id}`: deletes a board with its blocks.
+/// Delete a board
+///
+/// The board goes to the trash with its blocks and its members, and `undeleteBoard`
+/// brings it back until the trash is emptied of it. For the board's admins.
+#[utoipa::path(
+    delete,
+    path = "/boards/{boardId}",
+    operation_id = "deleteBoard",
+    tag = tag::BOARDS,
+    params(BoardId),
+    responses((status = 204, description = "The board is deleted.")),
+)]
 async fn handle_delete_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -268,8 +327,23 @@ async fn handle_delete_board(
     Ok(no_content())
 }
 
-/// `POST /boards/{board_id}/duplicate`: copies a board, as a board or a template
-/// (`asTemplate=true`), into the board's team or another (`toTeam`).
+/// Copy a board
+///
+/// Copies a board with its blocks, except comments, as a board or as a template. The
+/// user becomes the admin of the copy. Whoever may see the board may copy it; an open
+/// template is for everyone in its team, and a built-in template for everyone.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/duplicate",
+    operation_id = "duplicateBoard",
+    tag = tag::BOARDS,
+    params(BoardId, AsTemplate, ToTeam),
+    responses((
+        status = 201,
+        description = "The copy: one board and its blocks. The blocks are in the order of the original's, oldest first.",
+        body = BoardsAndBlocks,
+    )),
+)]
 async fn handle_duplicate_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -309,7 +383,19 @@ async fn handle_duplicate_board(
     Ok(created(&boards_and_blocks))
 }
 
-/// `POST /boards/{board_id}/undelete`: restores a deleted board with its blocks.
+/// Bring a deleted board back
+///
+/// Restores a board from the trash with its blocks and its members. For who was an
+/// admin of the board when it was deleted; to anybody who was no member there is no
+/// such board.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/undelete",
+    operation_id = "undeleteBoard",
+    tag = tag::BOARDS,
+    params(BoardId),
+    responses((status = 200, description = "The board as it is again.", body = Board)),
+)]
 async fn handle_undelete_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

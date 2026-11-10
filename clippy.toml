@@ -7,3 +7,6 @@ max-fn-params-bools = 0
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-print-in-tests = true
+
+# Names that are written as they are, not as code. `..` keeps clippy's own list.
+doc-valid-idents = ["OpenAPI", ".."]

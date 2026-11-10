@@ -1,12 +1,16 @@
 //! Subscriptions to blocks.
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::routing::{delete, get, post};
 use fvoci_model::{BlockType, SubscriberType, Subscription};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::NewSubscription;
+use super::contract::params::{BlockId, SubscriberId};
+use super::contract::tag;
 
 use super::decode_object_members;
 use super::require_permission_through;
@@ -21,20 +25,15 @@ const ACCESS_DENIED: &str = "access denied";
 /// What a request to end a subscription misses.
 const SUBSCRIPTION: &str = "subscription";
 
-pub(super) fn routes() -> Router<App> {
+pub(super) fn routes() -> OpenApiRouter<App> {
     // The first position after `/subscriptions` is a block in one route and a
     // subscriber in the other. A router position has one name, so it gets a neutral
-    // one, and each handler reads it as what it is.
-    Router::new()
-        .route("/subscriptions", post(handle_create_subscription))
-        .route(
-            "/subscriptions/{block_or_subscriber_id}/{subscriber_id}",
-            delete(handle_delete_subscription),
-        )
-        .route(
-            "/subscriptions/{block_or_subscriber_id}",
-            get(handle_get_subscriptions),
-        )
+    // one, and each handler reads it as what it is. The contract names each as what it
+    // is: see `contract::RENAMED_PATHS`.
+    OpenApiRouter::new()
+        .routes(routes!(handle_create_subscription))
+        .routes(routes!(handle_delete_subscription))
+        .routes(routes!(handle_get_subscriptions))
 }
 
 /// A subscription as a request body carries it.
@@ -93,15 +92,18 @@ impl SubscriptionRequest {
     }
 }
 
-/// `POST /subscriptions`: subscribes the session's user to a block and answers with
-/// the subscription. Subscribing again is no error.
+/// Subscribe to a block
 ///
-/// The block must exist, and the user must have the permission to view its board, as
-/// a member of it. The second check is not in the original, where every signed-in
-/// user can subscribe to any block whose identifier they know
-/// (server/api/subscriptions.go:84-96). A subscription is the standing request to be
-/// told what changes on a block; that a standalone server tells subscribers nothing
-/// does not make it everyone's to place.
+/// Subscribes the user of the session to a block of a board they are a member of.
+/// Subscribing again is no error.
+#[utoipa::path(
+    post,
+    path = "/subscriptions",
+    operation_id = "createSubscription",
+    tag = tag::SUBSCRIPTIONS,
+    request_body = NewSubscription,
+    responses((status = 201, description = "The subscription.", body = Subscription)),
+)]
 async fn handle_create_subscription(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -135,9 +137,19 @@ async fn handle_create_subscription(
     Ok(created(&subscription))
 }
 
-/// `DELETE /subscriptions/{block_id}/{subscriber_id}`: ends the subscription of the
-/// session's user to a block. Nothing about the block is checked: a subscription to a
-/// block that is gone, or that the user may no longer see, can still be ended.
+/// End a subscription
+///
+/// Ends the subscription of the user of the session to a block. Nothing about the
+/// block is checked: a subscription to a block the user may no longer see can still be
+/// ended. The subscriptions of another user are not there.
+#[utoipa::path(
+    delete,
+    path = "/subscriptions/{blockOrSubscriberId}/{subscriberId}",
+    operation_id = "deleteSubscription",
+    tag = tag::SUBSCRIPTIONS,
+    params(BlockId, SubscriberId),
+    responses((status = 204, description = "The subscription is ended.")),
+)]
 async fn handle_delete_subscription(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -161,7 +173,19 @@ async fn handle_delete_subscription(
     Ok(no_content())
 }
 
-/// `GET /subscriptions/{subscriber_id}`: the subscriptions of the session's user.
+/// The subscriptions of the user
+///
+/// The subscriptions of the user of the session; those of another user are not there.
+/// Oldest first, and by the identifier of the block among those made in the same
+/// millisecond.
+#[utoipa::path(
+    get,
+    path = "/subscriptions/{blockOrSubscriberId}",
+    operation_id = "getSubscriptions",
+    tag = tag::SUBSCRIPTIONS,
+    params(SubscriberId),
+    responses((status = 200, description = "The subscriptions.", body = Vec<Subscription>)),
+)]
 async fn handle_get_subscriptions(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

@@ -79,7 +79,7 @@ struct Inner {
 }
 
 /// What `/ping` reports about the server.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, utoipa::ToSchema)]
 pub struct ServerMetadata {
     /// The server version.
     pub version: String,

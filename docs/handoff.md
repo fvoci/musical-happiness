@@ -1,37 +1,39 @@
 # 서버 트랙 인수인계
 
-고친 때: 2026-11-10 19:41 KST. 브랜치 `fvoci/hafgufa`, 푸시한 것은 없다. 앞선 판(S5 시점, 401줄)은 `git show 14b4f37b:docs/handoff-s5.md`로 본다.
+고친 때: 2026-11-11 02:10 KST. 브랜치 `fvoci/hafgufa`. `408faa63`까지는 사용자가 새 저장소에 올렸고 그 뒤로도 수시로 올린다. 이 세션은 푸시하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않고, 고칠 것은 새 커밋으로 얹는다.** 앞선 판(S5 시점, 401줄)은 `git show 14b4f37b:docs/handoff-s5.md`로 본다.
 
 이 문서는 저장소의 다른 파일에 적혀 있지 않은 것만 담는다: 검증 명령과 걸리는 시간, 스냅샷을 갱신하는 절차, 이 기기의 컨테이너와 서버의 상태, 걸렸던 함정, 리뷰를 맡긴 방식, 커밋되지 않는 조사 자료의 자리.
 
 | 알고 싶은 것 | 있는 곳 |
 |---|---|
-| S6에서 한 일(A–F), 스냅샷이 어떻게 바뀌었나, 리뷰의 지적과 처리, 남긴 것과 이유 | `PORTING.md`의 "S6: 서버 정리" |
-| 결정된 설계(1–4절), 확인을 기다리는 보완 안(5절 a–h), 구현 순서 | `docs/s6-design.md` |
+| S6에서 한 일(A–O), 스냅샷이 어떻게 바뀌었나, 리뷰의 지적과 처리, 남긴 것과 이유 | `PORTING.md`의 "S6: 서버 정리" |
+| 결정된 설계(1–5절 모두 결정됨), 구현 순서 | `docs/s6-design.md` |
+| API의 계약, 곧 바뀔 부분 | `contracts/openapi.json`, `docs/contract-pending.md` |
 | 보존한 quirk와 결정 대기 항목의 지금 동작 | `crates/server/PORTING.md` |
 | 스토어, 모델 | `crates/store/PORTING.md`, `crates/model/PORTING.md` |
 | 웹앱 트랙의 계획, 편집기 스파이크, 날짜 모델 | 저장소 밖 `~/.claude/plans/fvoci-web-svelte.md`, 워크트리 kokanee의 `apps/web/docs/spike-editor.md`·`apps/web/PORTING.md` (이 세션에서는 읽기만 했다) |
 | 원본 서버(오라클)를 다시 빌드하는 법, 차등 비교 스크립트, 개발 서버 스크립트의 전문 | 앞선 판의 1절 "레거시", 3절, 4절. 스크립트 자체는 태그 `parity-s5` |
 
-다음에 할 일은 `docs/s6-design.md`의 "구현 순서" 3단계부터이고, 5절의 확인을 받은 뒤다.
+구현 순서의 3–7단계(새 기준 스키마, 쿠키 인증, 로그인 제한, `/api/v1`, 계약)가 끝났다. 다음에 할 일은 8단계 묶음이다: 본문 저장과 날짜 값(설계 5.7), 스트리밍과 청크 업로드(4.3, 5.6), 템플릿 변환(3.10). 계약에서 그때 바뀔 부분은 `docs/contract-pending.md`에 있다.
 
 ## 1. 검증
 
 ```bash
-cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 라이선스·권고. 외부 서비스 없음
+cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 계약, 라이선스·권고. 외부 서비스 없음
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
+cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
 
-걸리는 시간(이 기기, 빌드 캐시가 있을 때, 2026-11-10에 잰 값):
+걸리는 시간(이 기기, 빌드 캐시가 있을 때, 2026-11-11 02시 KST쯤에 잰 값):
 
 | 무엇 | 시간 |
 |---|---|
-| `cargo xtask check` | 소스를 고친 뒤 30–40초(clippy 9–10초, 단위 테스트 7–20초, 문서 4초, cargo-deny 1초). 고친 것이 없으면 13초 |
-| `cargo xtask test` | 2분 15초–2분 40초: SQLite 50–66초, PostgreSQL 80–90초, S3 1초 미만 |
-| 회귀 테스트만(`cargo test -p fvoci-server --test regression`) | SQLite 36–41초, PostgreSQL 48–53초 |
-| API 테스트만(`--test api`, 457건) | SQLite 11초, PostgreSQL 28초 |
+| `cargo xtask check` | 소스를 고친 뒤 30–40초(clippy 10초, 단위 테스트 3–13초, 문서 4초, 계약 3초, cargo-deny 1–2초). 고친 것이 없으면 5초 |
+| `cargo xtask test` | 2분 40초–4분 10초: SQLite 65초, PostgreSQL 96–186초(기기가 바쁘면 길어진다. 186초였던 실행의 원인은 따로 보지 않았다), S3 1초 미만 |
+| 회귀 테스트만(`cargo test -p fvoci-server --test regression`) | SQLite 29–30초 |
+| API 테스트만(`--test api`, 484건) | SQLite 15초, PostgreSQL 33초 |
 
-- 지금의 기대 결과: check 여섯 단계 PASS. test는 SQLite 794건, PostgreSQL 701건, S3 1건, 실패 0. 수는 커밋마다 달라지므로 `PORTING.md`보다 실행 결과를 믿는다.
+- 지금의 기대 결과: check 일곱 단계 PASS. test는 SQLite 971건, PostgreSQL 866건, S3 1건, 실패 0. SQLite 실행에서 `ignored` 1건은 S3 테스트이고 세 번째 단계가 그것을 돌린다. 회귀 스냅샷은 573단계, 권한 표는 636칸이다. 수는 커밋마다 달라지므로 `PORTING.md`보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다.
@@ -55,6 +57,16 @@ cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(stor
 - 권한 표의 준비 요청은 성공해야 한다(실패하면 단언으로 멈춘다). 칸이 엉뚱한 이유의 상태 코드를 기록하지 않게 한 것이다.
 - 없앤 라우트(채널, 통계, 컴플라이언스, 메타데이터)의 단계와 권한 표의 행은 남겨 두었다. 404를 고정한다.
 
+### 계약을 고치는 절차
+
+`contracts/openapi.json`은 손으로 고치지 않는다. 핸들러의 `#[utoipa::path]`와 문서 주석, 와이어 타입, `api/contract.rs`의 표에서 나온다.
+
+1. 라우트를 더하거나 고친다. 핸들러에 `#[utoipa::path(...)]`를 달고 `routes()`에 `routes!(핸들러)`로 넣는다. 주석 없는 핸들러는 `routes!`가 받지 않는다.
+2. 새 스키마가 생기면 `api/contract.rs`의 `SCHEMAS`에 늘 있는 멤버를 적는다. 빠뜨리면 문서를 만드는 일이 실패하고 무엇이 빠졌는지 말한다.
+3. 요청의 모양이 답과 다르면 `api/contract/bodies.rs`에 문서 전용 타입을 둔다. 해석하는 타입과 맞는지는 사람이 본다(검사가 없다).
+4. 목록을 답하면 순서를 설명에 적고 `contract.rs`의 테스트 표 `ORDERS`에 넣는다. 빠뜨리면 `every_list_says_its_order`가 실패한다.
+5. `cargo xtask openapi --write`로 파일을 다시 쓰고, `git diff contracts/`를 읽고, 코드와 같은 커밋에 넣는다. 곧 바뀔 부분이 달라졌으면 `docs/contract-pending.md`도 고친다.
+
 ### xtask에 넣지 않은 것
 
 ```bash
@@ -62,18 +74,18 @@ target/tools/bin/cargo-about generate --manifest-path crates/server/Cargo.toml -
 DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .                      # 이미지
 ```
 
-S6에서 의존성을 더하지 않았다(`uuid`를 서버 크레이트가 직접 쓰게 된 것뿐이고 이미 잠금 파일에 있었다). 이미지는 A단계 뒤로 다시 빌드하지 않았다.
+의존성이 바뀐 커밋마다 `NOTICE`를 다시 만들었다(마지막은 계약 단계의 utoipa). 이미지는 A단계 뒤로 다시 빌드하지 않았다. `fvoci-server:s5`는 S5의 서버이고 지금의 서버와 스키마도 API도 다르다.
 
-## 2. 이 기기의 상태 (2026-11-10 19:41 KST)
+## 2. 이 기기의 상태 (2026-11-11 02:10 KST)
 
 | 무엇 | 상태 |
 |---|---|
-| 컨테이너 `hafgufa-pg` | 떠 있다. `127.0.0.1:15433`, 사용자 `fvoci`, 비밀번호 `fvoci-test`, DB `fvoci`(테스트 전용 값). 패닉으로 끝난 테스트가 남긴 `t_*` 스키마가 118개 있다. 해는 없고, 치우려면 컨테이너를 새로 만든다 |
+| 컨테이너 `hafgufa-pg` | 떠 있다. `127.0.0.1:15433`, 사용자 `fvoci`, 비밀번호 `fvoci-test`, DB `fvoci`(테스트 전용 값). 패닉으로 끝난 테스트가 남긴 `t_*` 스키마가 572개 있다. 해는 없고, 치우려면 컨테이너를 새로 만든다 |
 | 컨테이너 `hafgufa-s3` | 떠 있다. `127.0.0.1:18333`, 인증 없음, 버킷 `fvoci-test` |
 | 개발 서버 8002(Rust + 원본 React 번들), 8001(원본 Go) | **멈췄다(2026-11-10 19:41 KST).** 원본 화면을 눌러 보던 용도이고 더 쓸 일이 없다. 호환을 끝낸 뒤의 서버는 원본 번들과 맞지 않는다(오류 본문, 404 규칙, 없앤 라우트). 데이터와 스크립트는 `target/dev/`에 그대로 있다. 다시 띄우는 법은 앞선 판의 4절 |
 | 포트 8000 | 다른 작업(`supabase-envoy`)의 것이다. 건드리지 않았다 |
 | Docker 이미지 `fvoci-server:s5` (208MB) | 남아 있다. S5의 서버다 |
-| `target/` | 34GB. 대부분 `target/debug`. `/tmp`가 RAM이라 큰 것은 모두 여기 둔다 |
+| `target/` | 80GB. 대부분 `target/debug`. `/tmp`가 RAM이라 큰 것은 모두 여기 둔다 |
 | 다른 작업의 컨테이너(`focalboard-port-*`, `supabase-*`), 형제 워크트리(steelhead, kokanee), 저장소 루트의 `.claude/worktrees/agent-*` 12개 | 건드리지 않았다 |
 | 태그 `parity-s5` | 로컬에만 있다 |
 
@@ -99,6 +111,7 @@ S6에서 의존성을 더하지 않았다(`uuid`를 서버 크레이트가 직�
 
 작업 방식
 
+- **임시 파일은 파일 하나만 지운다.** 스키마를 시험하던 임시 테스트를 치우며 `rm -rf crates/model/tests`를 했고, 커밋된 테스트 다섯 파일이 함께 지워진 것을 한참 뒤 `git status`에서 알았다. `git checkout HEAD -- <경로>`로 되돌렸다. 시험용 파일은 `target/` 아래나 스크래치 디렉터리에 둔다.
 - **파이썬으로 여러 파일을 고치는 스크립트는 `assert` 하나에 통째로 멈춘다.** 앞의 파일은 써졌고 뒤는 안 써진 상태가 된다. 실패 뒤에는 어느 편집이 들어갔는지 다시 본다. `cargo fmt`가 줄을 다시 나누므로 다음 스크립트의 찾을 문자열은 포맷한 뒤의 글에서 잡는다.
 - **한 작업 트리의 변경을 두 커밋으로 나눌 때**: 뒤 커밋의 파일을 `target/s6/final/`에 복사해 두고, 작업 트리를 앞 커밋의 모양으로 되돌려 검증하고 커밋한 뒤, 복사본을 되돌려 놓고 다시 검증해 커밋했다. `git stash`는 쓰지 않는다(스택이 워크트리끼리 공유된다).
 - **수는 다시 센다.** 스냅샷 요약에서 "상태가 바뀐 단계"를 눈으로 더해 77로 적었고 스크립트로 세니 76이었다. 커밋 `9e920dcb`의 메시지에는 77이 남아 있다.
@@ -135,7 +148,10 @@ S6에서 의존성을 더하지 않았다(`uuid`를 서버 크레이트가 직�
 | `gz/` | 형제 저장소 GroundZero의 `contracts/openapi.json`과 xtask 일부 | OpenAPI의 도구를 세울 때(설계 5.5). 코드를 복사하지 않고 구성만 참고한다 |
 | `golden_diff.py` | 스냅샷 두 벌을 단계별로 비교해 상태 코드의 전이를 센다 | 스냅샷을 갱신한 뒤의 요약(1절) |
 | `tpl/` | 내장 템플릿 아카이브를 푼 것 | 템플릿 산출물을 받을 때의 대조(설계 5.7). 주인 없는 블록과 끊어진 참조를 센 스크립트는 남기지 않았다. 세는 법은 설계 5.7의 표에 적은 정의 그대로다 |
-| `xtask-test-final.log`, `xtask-test-review.log`, `xtask-test-step1.log` | 전체 테스트의 출력 | 수를 대조할 때 |
+| `xtask-test-final.log`, `xtask-test-review.log`, `xtask-test-step1.log`, `xtask-test-7a.log`–`7d.log` | 전체 테스트의 출력 | 수를 대조할 때 |
+| `7d/annotate.py`, `7d/*.spec` | 핸들러의 문서 주석과 `#[utoipa::path]`를 영역별 명세 파일에서 넣은 스크립트 | 볼 일이 거의 없다. 주석은 이제 소스에서 직접 고친다 |
+| `7d/ts/api.d.ts` | 계약에서 `openapi-typescript`로 뽑아 본 타입(확인용) | 지워도 된다 |
+| `golden-pre-7a`, `golden-pre-7b`, `golden-pre-7c` | 그 단계 앞의 스냅샷 | 지워도 된다 |
 | `baseline-differential.txt`, `baseline-permissions.txt`, `crosscheck.txt` | A단계에서 Python 차등 비교와 새 회귀 테스트를 대조한 기록 | 볼 일이 거의 없다 |
 | `fvoci-server-measure` (284MB) | 요청 크기를 로그에 남기게 임시로 고친 빌드(설계 4.1의 측정) | 지워도 된다 |
 | `final/`, `golden-119/`, `golden-head/`, `golden-before/`, `golden-backup/`, `section5-*.md`, `step1-fail*.txt`, `msg.txt`, `s4/`, `py/` | 작업 중의 사본 | 지워도 된다 |
@@ -144,7 +160,6 @@ S6에서 의존성을 더하지 않았다(`uuid`를 서버 크레이트가 직�
 
 ## 6. 다음 세션이 먼저 볼 것
 
-- `docs/s6-design.md` 5절(보완 a–h)은 확인을 기다린다. 받으면 "구현 순서" 3단계부터다.
-- 웹앱 세션에 전할 것: 날짜 값의 시각 표기가 그쪽 안(RFC 3339 문자열)과 다르다(UTC 밀리초 정수, 설계 5.7). 본문의 공유 테스트 벡터는 서버 쪽이 처음 만든다(같은 절).
-- 사용자가 정할 것으로 보고에 올린 것: single-user 모드를 둘지, 추가의 viewer와 join의 editor를 맞출지.
-- 알려진 채로 남긴 것(`PORTING.md` S6 F절): 멤버 추가와 마지막 관리자 확인의 동시 요청 경쟁, 회귀 하네스의 목록 정렬, 순서가 정해지지 않은 목록 라우트.
+- 다음 묶음은 본문 저장과 날짜 값(설계 5.7), 스트리밍과 청크 업로드(4.3, 5.6), 템플릿 변환(3.10)이다. 계약에서 바뀔 조작과 멤버는 `docs/contract-pending.md`에 있고, 그 묶음의 커밋마다 계약 파일과 그 문서를 함께 고친다.
+- 웹앱 세션에 전할 것: 계약 파일 `contracts/openapi.json`(브랜치 `fvoci/hafgufa`)과 `docs/contract-pending.md`. 타입 생성은 웹 트랙이 한다(`openapi-typescript` 7.13.0이 이 파일을 받는 것은 확인했다). 날짜 값의 시각 표기는 UTC 밀리초 정수다(설계 5.7). 본문의 공유 테스트 벡터는 서버 쪽이 처음 만든다(아직 없다). WebSocket 메시지는 계약에 없다.
+- 알려진 채로 남긴 것은 `PORTING.md`의 S6 각 절과 `docs/contract-pending.md` 7절에 있다. 큰 것: 요청 스키마를 손으로 쓴 것(해석 쪽과 어긋나도 검사가 없다), 멤버십에 시각이 없어 멤버 목록이 ID 순서인 것, WebSocket 메시지가 계약 밖인 것.

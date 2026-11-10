@@ -163,7 +163,7 @@ pub enum BlockError {
 }
 
 /// The basic data unit of a board.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Block {
     /// The block's identifier.
@@ -184,12 +184,14 @@ pub struct Block {
     /// The block type.
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = String)]
     pub block_type: BlockType,
     /// The display title.
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// Type-specific data, free-form.
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = Object)]
     pub fields: JsonMap,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
@@ -233,7 +235,7 @@ impl Block {
 }
 
 /// A partial update of a [`Block`]. Absent members leave the block unchanged.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BlockPatch {
     /// The new parent identifier.
@@ -244,12 +246,14 @@ pub struct BlockPatch {
     pub schema: Option<i64>,
     /// The new block type.
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
     pub block_type: Option<BlockType>,
     /// The new title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Fields to set, replacing any existing value under the same key.
     #[serde(deserialize_with = "null_as_default")]
+    #[schema(value_type = Object)]
     pub updated_fields: JsonMap,
     /// Keys of fields to remove.
     #[serde(deserialize_with = "null_as_default")]
@@ -284,7 +288,7 @@ impl BlockPatch {
 }
 
 /// A batch of block identifiers and the patch to apply to each, matched by position.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BlockPatchBatch {
     /// The identifiers of the blocks to patch.

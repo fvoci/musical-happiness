@@ -4,7 +4,7 @@ use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 
 /// What the server records about an uploaded file.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct FileInfo {
     /// The record's identifier.

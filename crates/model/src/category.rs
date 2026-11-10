@@ -10,7 +10,9 @@ use crate::serde_util::null_as_default;
 pub const CATEGORY_BOARDS_SORT_ORDER_GAP: i64 = 10;
 
 /// Whether a category was created by the server or by the user.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, utoipa::ToSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum CategoryType {
     /// A built-in category, such as the default "Boards" one.
@@ -36,7 +38,7 @@ impl CategoryType {
 pub struct CategoryError(&'static str);
 
 /// A sidebar category of one user in one team.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Category {
     /// The category's identifier.
@@ -118,7 +120,7 @@ impl Category {
 }
 
 /// A board's place in a category.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CategoryBoardMetadata {
     /// The identifier of the board.
@@ -130,7 +132,7 @@ pub struct CategoryBoardMetadata {
 }
 
 /// A category together with the boards in it, in display order.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct CategoryBoards {
     /// The category. Its members appear inline in the JSON form.

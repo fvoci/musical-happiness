@@ -1,13 +1,16 @@
 //! Login, logout, registration, password change and signup-token regeneration.
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Extension, Path, State};
 use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::response::Response;
-use axum::routing::post;
-use fvoci_model::{ChangePasswordRequest, LoginRequest, RegisterRequest};
+use fvoci_model::{ChangePasswordRequest, ErrorBody, LoginRequest, RegisterRequest, Team, User};
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::params::TeamId;
+use super::contract::tag;
 
 use super::{
     ApiResult, RequiredSession, created, decode_object, json_response, no_content, require_admin,
@@ -38,23 +41,50 @@ fn user_agent(headers: &HeaderMap) -> String {
 }
 
 /// The routes that need a session, or none of their own doing.
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route("/logout", post(handle_logout))
-        .route(
-            "/teams/{team_id}/signup-token",
-            post(handle_regenerate_signup_token),
-        )
-        .route("/users/me/password", post(handle_change_password))
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_logout))
+        .routes(routes!(handle_regenerate_signup_token))
+        .routes(routes!(handle_change_password))
 }
 
 /// The routes anyone can send a body to: they come before there is a session.
-pub(super) fn unauthenticated_routes() -> Router<App> {
-    Router::new()
-        .route("/login", post(handle_login))
-        .route("/register", post(handle_register))
+pub(super) fn unauthenticated_routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_login))
+        .routes(routes!(handle_register))
 }
 
+/// Sign in
+///
+/// Starts a session for the user with the given name, or, if no user has that name,
+/// with the given email address. The session comes in the `Set-Cookie` header and
+/// nowhere else.
+///
+/// Wrong credentials are 401 with the reason `invalid_credentials`, whatever was wrong
+/// about them. Attempts are counted by account and by where they come from; too many
+/// are 429.
+#[utoipa::path(
+    post,
+    path = "/login",
+    operation_id = "login",
+    tag = tag::AUTH,
+    request_body = LoginRequest,
+    security(()),
+    responses(
+        (
+            status = 204,
+            description = "The user is signed in.",
+            headers(("Set-Cookie" = String, description = "The session cookie.")),
+        ),
+        (
+            status = 429,
+            description = "Too many attempts. `reason` and `retry_after` say more.",
+            body = ErrorBody,
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
 async fn handle_login(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
@@ -83,6 +113,20 @@ fn with_session_cookie(app: &App, token: &str, mut response: Response) -> Respon
     response
 }
 
+/// Sign out
+///
+/// Ends the session of the request and clears its cookie.
+#[utoipa::path(
+    post,
+    path = "/logout",
+    operation_id = "logout",
+    tag = tag::AUTH,
+    responses((
+        status = 204,
+        description = "The session is over.",
+        headers(("Set-Cookie" = String, description = "Clears the session cookie.")),
+    )),
+)]
 async fn handle_logout(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -100,6 +144,30 @@ fn address_of(client: Option<Extension<ClientAddress>>) -> Option<std::net::IpAd
     client.and_then(|Extension(ClientAddress(address))| address)
 }
 
+/// Register a user
+///
+/// Makes an account. The first user of a server needs no signup token and becomes its
+/// administrator; everyone after needs the team's token, and is refused with 403 and
+/// the reason `signup_token_required` or `signup_token_invalid` without it. A name or
+/// an email address that is taken is 409 with the reason `username_taken` or
+/// `email_taken`. Registering does not sign in.
+#[utoipa::path(
+    post,
+    path = "/register",
+    operation_id = "register",
+    tag = tag::AUTH,
+    request_body = RegisterRequest,
+    security(()),
+    responses(
+        (status = 201, description = "The user that was made.", body = User),
+        (
+            status = 429,
+            description = "Too many registrations from where this one comes from.",
+            body = ErrorBody,
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
 async fn handle_register(
     State(app): State<App>,
     client: Option<Extension<ClientAddress>>,
@@ -142,8 +210,18 @@ async fn handle_register(
     Ok(created(&user))
 }
 
-/// `POST /teams/{team_id}/signup-token`: makes a new signup token for the team; the
-/// old one stops working.
+/// Make a new signup token
+///
+/// Makes a new signup token for the team; the old one stops working. For
+/// administrators.
+#[utoipa::path(
+    post,
+    path = "/teams/{teamId}/signup-token",
+    operation_id = "regenerateSignupToken",
+    tag = tag::TEAMS,
+    params(TeamId),
+    responses((status = 200, description = "The team, with its new token.", body = Team)),
+)]
 async fn handle_regenerate_signup_token(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -158,8 +236,30 @@ async fn handle_regenerate_signup_token(
     Ok(json_response(&team))
 }
 
-/// `POST /users/me/password`: changes the password of the session's user, who proves
-/// to know the old one. Nobody changes another user's password this way.
+/// Change the password
+///
+/// Changes the password of the user of the session, who proves to know the old one.
+/// The user's other sessions end, and this one goes on under a new cookie.
+#[utoipa::path(
+    post,
+    path = "/users/me/password",
+    operation_id = "changePassword",
+    tag = tag::AUTH,
+    request_body = ChangePasswordRequest,
+    responses(
+        (
+            status = 204,
+            description = "The password is changed.",
+            headers(("Set-Cookie" = String, description = "The session cookie, with its new value.")),
+        ),
+        (
+            status = 429,
+            description = "The server has too much password work to do at the moment.",
+            body = ErrorBody,
+            headers(("Retry-After" = u64, description = "How many seconds to wait before trying again.")),
+        ),
+    ),
+)]
 async fn handle_change_password(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

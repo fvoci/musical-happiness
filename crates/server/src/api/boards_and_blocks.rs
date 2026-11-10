@@ -2,15 +2,19 @@
 
 use std::collections::HashSet;
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::routing::post;
 use fvoci_model::{
     Block, BoardsAndBlocks, DeleteBoardsAndBlocks, JsonMap, PatchBoardsAndBlocks,
     generate_boards_and_blocks_ids,
 };
 use serde_json::Value;
+
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::NewBoardsAndBlocks;
+use super::contract::tag;
 
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
@@ -20,13 +24,12 @@ use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
 
-pub(super) fn routes() -> Router<App> {
-    Router::new().route(
-        "/boards-and-blocks",
-        post(handle_create_boards_and_blocks)
-            .patch(handle_patch_boards_and_blocks)
-            .delete(handle_delete_boards_and_blocks),
-    )
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new().routes(routes!(
+        handle_create_boards_and_blocks,
+        handle_patch_boards_and_blocks,
+        handle_delete_boards_and_blocks
+    ))
 }
 
 /// The JSON objects in the list that is the member `name` of `object`. An element of the
@@ -43,8 +46,23 @@ fn objects_mut<'v>(
         .map(Value::as_object_mut)
 }
 
-/// `POST /boards-and-blocks`: creates boards with their blocks, under new identifiers,
-/// with the user as admin of each board.
+/// Make boards with their blocks
+///
+/// Makes boards and their blocks together, all or none, under identifiers the server
+/// makes; the identifiers of the request only say which block belongs to which board
+/// and to which other block. The user becomes the admin of each board.
+#[utoipa::path(
+    post,
+    path = "/boards-and-blocks",
+    operation_id = "createBoardsAndBlocks",
+    tag = tag::BOARDS,
+    request_body = NewBoardsAndBlocks,
+    responses((
+        status = 201,
+        description = "The boards in the order of the request, and the blocks board by board in that order, each board's in the order of the request.",
+        body = BoardsAndBlocks,
+    )),
+)]
 async fn handle_create_boards_and_blocks(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -126,7 +144,23 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<String>
     }
 }
 
-/// `PATCH /boards-and-blocks`: patches boards and blocks, all or none.
+/// Change boards and blocks together
+///
+/// Applies a patch to each of several boards of one team and to blocks of those
+/// boards, all or none. Each board needs what `patchBoard` needs, each block what
+/// `patchBlock` needs.
+#[utoipa::path(
+    patch,
+    path = "/boards-and-blocks",
+    operation_id = "patchBoardsAndBlocks",
+    tag = tag::BOARDS,
+    request_body = PatchBoardsAndBlocks,
+    responses((
+        status = 200,
+        description = "The boards and the blocks as they are now, each in the order of the request.",
+        body = BoardsAndBlocks,
+    )),
+)]
 async fn handle_patch_boards_and_blocks(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -225,7 +259,19 @@ async fn require_blocks_of_boards(
     Ok(())
 }
 
-/// `DELETE /boards-and-blocks`: deletes boards and blocks, all or none.
+/// Delete boards and blocks together
+///
+/// Deletes several boards of one team and blocks of those boards, all or none. They go
+/// to the trash as `deleteBoard` and `deleteBlock` put them there. For the admins of
+/// every board named.
+#[utoipa::path(
+    delete,
+    path = "/boards-and-blocks",
+    operation_id = "deleteBoardsAndBlocks",
+    tag = tag::BOARDS,
+    request_body = DeleteBoardsAndBlocks,
+    responses((status = 204, description = "The boards and blocks are deleted.")),
+)]
 async fn handle_delete_boards_and_blocks(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

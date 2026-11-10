@@ -1,13 +1,21 @@
 //! Blocks: reading, inserting, patching, deleting, undeleting and duplicating.
 
-use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use axum::routing::{delete, get, post};
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, generate_block_ids,
     stamp_modification_metadata,
 };
+
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::bodies::NewBlock;
+use super::contract::params::{
+    AllBlocks, AsTemplate, BlockId, BlockTypeFilter, BoardId, DisableNotify, OneBlockId, ParentId,
+    ReadToken, SourceBoardId,
+};
+use super::contract::tag;
 
 use super::{
     ApiResult, OptionalSession, RequiredSession, created, decode_json, decode_object,
@@ -19,26 +27,16 @@ use crate::auth::now_millis;
 use crate::error::{AppError, ErrorKind};
 use crate::permissions::{BoardPermission, TeamPermission};
 
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route(
-            "/boards/{board_id}/blocks",
-            get(handle_get_blocks)
-                .post(handle_post_blocks)
-                .patch(handle_patch_blocks),
-        )
-        .route(
-            "/boards/{board_id}/blocks/{block_id}",
-            delete(handle_delete_block).patch(handle_patch_block),
-        )
-        .route(
-            "/boards/{board_id}/blocks/{block_id}/undelete",
-            post(handle_undelete_block),
-        )
-        .route(
-            "/boards/{board_id}/blocks/{block_id}/duplicate",
-            post(handle_duplicate_block),
-        )
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(
+            handle_get_blocks,
+            handle_post_blocks,
+            handle_patch_blocks
+        ))
+        .routes(routes!(handle_delete_block, handle_patch_block))
+        .routes(routes!(handle_undelete_block))
+        .routes(routes!(handle_duplicate_block))
 }
 
 /// Returns a query parameter, or `None` if it is absent or empty.
@@ -111,11 +109,24 @@ async fn require_source_board_access(
         .map_err(refused)
 }
 
-/// `GET /boards/{board_id}/blocks`: the blocks of a board, for its members and for
-/// holders of its read token.
+/// The blocks of a board
 ///
-/// `all` returns every block, `block_id` the one block, and otherwise `parent_id` and
-/// `type` narrow the list. The original reads no paging parameters here.
+/// For the board's members, and for an open template everyone in its team. With the
+/// board's read token no session is needed; who reads that way is not told who made a
+/// block or changed it last (`createdBy` and `modifiedBy` are empty).
+///
+/// `all` asks for every block and `blockId` for one. Otherwise `parentId` and `type`
+/// narrow the list, and without either the list is every block of the board. Oldest
+/// first.
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/blocks",
+    operation_id = "getBlocks",
+    tag = tag::BLOCKS,
+    params(BoardId, AllBlocks, OneBlockId, ParentId, BlockTypeFilter, ReadToken),
+    security((), ("sessionCookie" = []), ("bearerToken" = [])),
+    responses((status = 200, description = "The blocks.", body = Vec<Block>)),
+)]
 async fn handle_get_blocks(
     State(app): State<App>,
     session: OptionalSession,
@@ -158,11 +169,24 @@ async fn handle_get_blocks(
     Ok(json_response(&blocks))
 }
 
-/// `POST /boards/{board_id}/blocks`: inserts blocks under identifiers the server
-/// generates; the given identifiers only link the blocks of the request to each other.
+/// Insert blocks
 ///
-/// Comments need the permission to comment, everything else the permission to manage
-/// cards. All blocks are inserted or none.
+/// Inserts blocks under identifiers the server makes; the identifiers of the request
+/// only link its blocks to each other. All blocks are inserted or none. Comments need
+/// the role of a commenter, everything else that of an editor.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/blocks",
+    operation_id = "createBlocks",
+    tag = tag::BLOCKS,
+    params(BoardId, SourceBoardId, DisableNotify),
+    request_body = Vec<NewBlock>,
+    responses((
+        status = 201,
+        description = "The blocks as they were stored, in the order of the request.",
+        body = Vec<Block>,
+    )),
+)]
 async fn handle_post_blocks(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -260,16 +284,20 @@ async fn handle_post_blocks(
     Ok(created(&blocks))
 }
 
-/// `DELETE /boards/{board_id}/blocks/{block_id}`: deletes a block and its direct
-/// children.
+/// Delete a block
 ///
-/// Preserved quirk: whatever the block is, the permission to manage cards is needed, so
-/// a commenter cannot delete their own comment through this route
-/// (server/api/blocks.go:372).
-///
-/// Not in the original: a comment is deleted by its author or by someone who may delete
-/// the comments of others, which is the board's admins. The original lets every editor
-/// delete anyone's comment.
+/// The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
+/// back until the trash is emptied of it. For editors, whatever the block is: a
+/// commenter cannot delete their own comment this way. A comment of somebody else is
+/// deleted by the board's admins only.
+#[utoipa::path(
+    delete,
+    path = "/boards/{boardId}/blocks/{blockId}",
+    operation_id = "deleteBlock",
+    tag = tag::BLOCKS,
+    params(BoardId, BlockId, DisableNotify),
+    responses((status = 204, description = "The block is deleted.")),
+)]
 async fn handle_delete_block(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -302,8 +330,18 @@ async fn handle_delete_block(
     Ok(no_content())
 }
 
-/// `POST /boards/{board_id}/blocks/{block_id}/undelete`: restores a deleted block and
-/// answers with it.
+/// Bring a deleted block back
+///
+/// Restores a block of the board from the trash, with the blocks that went there with
+/// it. For editors.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/blocks/{blockId}/undelete",
+    operation_id = "undeleteBlock",
+    tag = tag::BLOCKS,
+    params(BoardId, BlockId),
+    responses((status = 200, description = "The block as it is again.", body = Block)),
+)]
 async fn handle_undelete_block(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -331,10 +369,19 @@ async fn handle_undelete_block(
     Ok(json_response(&undeleted))
 }
 
-/// `PATCH /boards/{board_id}/blocks/{block_id}`: partially updates a block.
+/// Change a block
 ///
-/// Preserved quirk: as for deletion, the permission to manage cards is needed even for
-/// the user's own comment (server/api/blocks.go:541).
+/// For editors, also for a comment: a commenter cannot change their own comment this
+/// way.
+#[utoipa::path(
+    patch,
+    path = "/boards/{boardId}/blocks/{blockId}",
+    operation_id = "patchBlock",
+    tag = tag::BLOCKS,
+    params(BoardId, BlockId, DisableNotify),
+    request_body = BlockPatch,
+    responses((status = 204, description = "The block is changed.")),
+)]
 async fn handle_patch_block(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -361,8 +408,18 @@ async fn handle_patch_block(
     Ok(no_content())
 }
 
-/// `PATCH /boards/{board_id}/blocks`: partially updates several blocks of the board,
-/// all or none.
+/// Change several blocks
+///
+/// Applies a patch to each of several blocks of the board, all or none. For editors.
+#[utoipa::path(
+    patch,
+    path = "/boards/{boardId}/blocks",
+    operation_id = "patchBlocks",
+    tag = tag::BLOCKS,
+    params(BoardId, DisableNotify),
+    request_body = BlockPatchBatch,
+    responses((status = 204, description = "The blocks are changed.")),
+)]
 async fn handle_patch_blocks(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -405,9 +462,22 @@ async fn handle_patch_blocks(
     Ok(no_content())
 }
 
-/// `POST /boards/{board_id}/blocks/{block_id}/duplicate`: copies a block and its direct
-/// children, except comments, and answers with the copies. `asTemplate=true` marks the
-/// copy as a template.
+/// Copy a block
+///
+/// Copies a block and the blocks directly below it, except comments. A comment cannot
+/// be copied. For editors.
+#[utoipa::path(
+    post,
+    path = "/boards/{boardId}/blocks/{blockId}/duplicate",
+    operation_id = "duplicateBlock",
+    tag = tag::BLOCKS,
+    params(BoardId, BlockId, AsTemplate),
+    responses((
+        status = 201,
+        description = "The copies: the copy of the block first, then those of the blocks directly below it, oldest first.",
+        body = Vec<Block>,
+    )),
+)]
 async fn handle_duplicate_block(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

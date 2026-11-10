@@ -1,22 +1,39 @@
 //! Searching boards.
 
-use axum::Router;
 use axum::extract::{Path, RawQuery, State};
-use axum::routing::get;
 use fvoci_model::{Board, BoardSearchField};
 use fvoci_store::PublicBoards;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
+
+use super::contract::params::{SearchField, SearchTerm, TeamId};
+use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response, query_param};
 use super::{require_team_access, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 
-pub(super) fn routes() -> Router<App> {
-    Router::new()
-        .route("/teams/{team_id}/boards/search", get(handle_search_boards))
-        .route("/boards/search", get(handle_search_all_boards))
+pub(super) fn routes() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(handle_search_boards))
+        .routes(routes!(handle_search_all_boards))
 }
 
+/// Search the boards, asked through a team
+///
+/// The boards the user may find, as `getBoards` lists them, whose title matches the
+/// term, or with `field=property_name` those with a card property whose name does.
+/// The team of the path is not part of the search: the boards of every team are
+/// searched. Oldest first.
+#[utoipa::path(
+    get,
+    path = "/teams/{teamId}/boards/search",
+    operation_id = "searchTeamBoards",
+    tag = tag::BOARDS,
+    params(TeamId, SearchTerm, SearchField),
+    responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
+)]
 async fn handle_search_boards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
@@ -41,6 +58,18 @@ async fn handle_search_boards(
     Ok(json_response(&boards))
 }
 
+/// Search the boards
+///
+/// The boards the user may find, as `getBoards` lists them, whose title matches the
+/// term. Oldest first.
+#[utoipa::path(
+    get,
+    path = "/boards/search",
+    operation_id = "searchBoards",
+    tag = tag::BOARDS,
+    params(SearchTerm),
+    responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
+)]
 async fn handle_search_all_boards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,

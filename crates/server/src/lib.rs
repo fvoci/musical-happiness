@@ -142,7 +142,7 @@ impl Server {
             .fallback(api_not_found)
             .method_not_allowed_fallback(method_not_allowed);
         let routes = Router::new()
-            .nest("/api/v1", api)
+            .nest(api::PREFIX, api)
             .merge(api::system_router())
             .route("/ws", get(handle_websocket))
             .route("/static/{*path}", get(handle_static))

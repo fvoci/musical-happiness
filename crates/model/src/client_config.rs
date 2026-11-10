@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::serde_util::null_as_default;
 
 /// The part of the server configuration that the web client needs.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ClientConfig {
     /// Whether boards may be shared publicly through a read token.

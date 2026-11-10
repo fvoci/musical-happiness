@@ -46,7 +46,7 @@ impl AuthParamError {
 }
 
 /// A login request.
-#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct LoginRequest {
     /// The user name to log in with.
@@ -71,7 +71,7 @@ impl fmt::Debug for LoginRequest {
 }
 
 /// A request to register a new user.
-#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default)]
 pub struct RegisterRequest {
     /// The login name.
@@ -121,7 +121,7 @@ impl fmt::Debug for RegisterRequest {
 }
 
 /// A request to change a user's password.
-#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ChangePasswordRequest {
     /// The current password.

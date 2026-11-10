@@ -100,6 +100,8 @@
 - **오류 본문(`error_response.rs`, 2026-11-10 18:38 KST).** `ErrorResponse {error, errorCode}`를 `ErrorBody {error, message, reason?, field?, limit?, request_id?}`로 바꿨다(`docs/s6-design.md` 1.2). `error`는 문구가 아니라 종류의 코드이고, 선택 멤버는 값이 있을 때만 나간다. 테스트 `wire_format`.
 - **`renew_boards_and_blocks_ids`** (2026-11-10 18:38 KST): 이미 저장된 보드와 블록에 새 ID를 준다. 요청을 검증하는 `generate_boards_and_blocks_ids`와 달리 블록 없는 보드를 받는다(복제와 가져오기용). 테스트 `boards_and_blocks::renew_boards_and_blocks_ids_takes_boards_without_blocks`.
 
+- **계약의 스키마(2026-11-11 02:07 KST).** 와이어 타입이 `utoipa::ToSchema`를 낸다(의존성 `utoipa` 6). 타입과 멤버의 **문서 주석이 `contracts/openapi.json`의 설명이 된다.** 그래서 해석 쪽의 사정(기본값, 너그러움)은 문서 주석이 아니라 보통 주석에 적는다(`Board`, `Subscription`). 멤버가 늘 있는지는 여기서 정하지 않고 서버의 `api/contract.rs`의 표가 정한다. `JsonMap` 멤버는 `#[schema(value_type = Object)]`로 자유 형식 객체가 된다. 타입을 고치면 `cargo xtask openapi --write`로 계약을 다시 쓴다.
+
 ## 보안 수정과 결정 대기
 
 이 크레이트에는 I/O가 없어 보안 수정이 없다. 모델의 검증과 관련된 결정 대기 항목은 `crates/server/PORTING.md`의 S14(카드 속성 데이터의 쓰기 검증)였고, S6에서 정리됐다(위).

@@ -1,5 +1,6 @@
 //! The `fvoci-server` executable.
 
+use std::io::Write as _;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
@@ -35,6 +36,19 @@ struct Cli {
     /// Database config; overrides the config file.
     #[arg(long)]
     dbconfig: Option<String>,
+    /// Print the contract of the API, an OpenAPI document, and exit. Nothing is
+    /// configured, opened or served.
+    #[arg(long)]
+    print_openapi: bool,
+}
+
+/// Writes the contract of the API to the standard output: what `contracts/openapi.json`
+/// is to be.
+fn print_openapi() -> anyhow::Result<()> {
+    let document = fvoci_server::api::contract::document()?;
+    std::io::stdout()
+        .write_all(document.as_bytes())
+        .context("unable to write the contract")
 }
 
 fn init_logging() {
@@ -72,6 +86,9 @@ fn warn_about_foreign_prefixes() {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    if cli.print_openapi {
+        return print_openapi();
+    }
     init_logging();
     warn_about_foreign_prefixes();
 
