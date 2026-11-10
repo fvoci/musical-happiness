@@ -22,14 +22,16 @@ const ALLOWED: Record<string, string[]> = {
   li: ['data-checked'],
   label: [],
   input: ['type', 'aria-label', 'aria-readonly'],
-  div: [],
+  // A `<div>` is the content of a task, or the place of a block formula.
+  div: ['data-type', 'data-latex', 'class'],
   blockquote: [],
   pre: [],
   code: ['class'],
   hr: [],
   br: [],
   img: ['data-file-id', 'alt', 'loading', 'decoding', 'src'],
-  span: ['data-user-id', 'data-mention', 'class'],
+  // A mention, or the place of a formula in a line.
+  span: ['data-user-id', 'data-mention', 'class', 'data-type', 'data-latex'],
   strong: [],
   em: [],
   s: [],

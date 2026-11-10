@@ -9,6 +9,11 @@
  * The documents are the 58 that the built-in templates hold and the ones in
  * tests/support/body-docs.ts for everything the templates do not use.
  *
+ * A formula and a diagram are compared as the places both sides make for
+ * them: the element that holds a formula's source, the code block a diagram
+ * is stored as. Drawing into those places is done by one module for both
+ * sides (embeds.ts) and is tested on its own; here nothing is drawn yet.
+ *
  * WHAT THE COMPARISON LEAVES OUT. This is the whole list; anything else that
  * differs fails the test.
  *
@@ -24,8 +29,9 @@
  *     editor puts before a mention or a line break at the start of a
  *     paragraph or right behind another one, and behind a mention at the end,
  *     so that the cursor has somewhere to be.
- *  4. The `<br>` behind a mention that ends a paragraph, for the same reason.
- *     It ends a line that already has the mention on it, so it adds no line.
+ *  4. The `<br>` behind a mention or a formula that ends a paragraph, for the
+ *     same reason. It ends a line that already has something on it, so it
+ *     adds no line.
  *  5. The class `ProseMirror-selectednode`: the editor's selection, which
  *     starts on a leading image or rule.
  *  6. The placeholder's mark on the empty paragraph or heading the cursor is
@@ -35,6 +41,10 @@
  *     rule while the selection is on it.
  *  8. The `<span>` inside the `<label>` of a task: hidden text that repeats
  *     the checkbox's `aria-label`.
+ * 11. The picture of a diagram behind its source: while editing, the editor
+ *     shows both (an element of class `doc-diagram` right behind the code
+ *     block). The view puts its picture in the same place, but only when the
+ *     body is in the page, which is the business of the component around it.
  *
  * On both sides:
  *
@@ -51,7 +61,7 @@
  * that property into an attribute, so it never shows up here.
  */
 import { Editor } from '@tiptap/core';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import { setFileUrlResolver, type FileUrlResolver } from '$lib/editor/files.ts';
@@ -66,7 +76,14 @@ import {
 
 import { SAMPLES } from '../../spikes/editor/fixtures.ts';
 import { templateDocuments } from '../../tools/templates/archive.ts';
-import { HAND_MADE, PEOPLE, UNRESOLVED_FILE_PREFIX } from '../support/body-docs.ts';
+import { HAND_MADE, PEOPLE, UNRESOLVED_FILE_PREFIX, WITH_DIAGRAMS } from '../support/body-docs.ts';
+
+// The editor draws a diagram under its source as soon as it has one. The
+// diagram library needs a real browser to lay text out; here it is replaced by
+// something that draws nothing.
+vi.mock('$lib/editor/diagram.ts', () => ({
+  drawDiagram: () => Promise.resolve({ ok: false, reason: 'failed' }),
+}));
 
 type Shape =
   | string
@@ -87,7 +104,7 @@ type Shape =
 const LEFT_OUT = {
   'class ProseMirror-trailingBreak': 0, // 2
   'separator image': 0, // 3
-  'break behind a closing mention': 0, // 4
+  'break behind a closing mention or formula': 0, // 4
   'class ProseMirror-selectednode': 0, // 5
   'attribute data-placeholder': 0, // 6
   'class is-empty': 0, // 6
@@ -96,6 +113,7 @@ const LEFT_OUT = {
   'hidden name of a checkbox': 0, // 8
   'wording of aria-label': 0, // 9
   'attribute aria-readonly': 0, // 10
+  'picture of a diagram': 0, // 11
 };
 type LeftOut = keyof typeof LEFT_OUT;
 const leaveOut = (entry: LeftOut): void => {
@@ -122,9 +140,14 @@ function leftOutNode(node: Element): LeftOut | undefined {
   if (node.tagName === 'BR' && node.classList.contains('ProseMirror-trailingBreak')) {
     let before = node.previousSibling;
     while (isSeparator(before)) before = before?.previousSibling ?? null;
-    if (isElement(before) && before.hasAttribute('data-mention'))
-      return 'break behind a closing mention';
+    if (
+      isElement(before) &&
+      (before.hasAttribute('data-mention') || before.classList.contains('doc-math'))
+    )
+      return 'break behind a closing mention or formula';
   }
+  if (node.tagName === 'DIV' && node.classList.contains('doc-diagram'))
+    return 'picture of a diagram';
   if (node.tagName === 'SPAN' && node.parentElement?.tagName === 'LABEL')
     return 'hidden name of a checkbox';
   return undefined;
@@ -268,6 +291,12 @@ describe('the view draws what the editor draws', () => {
     expectSameShape(doc);
   });
 
+  it.each(Object.entries(WITH_DIAGRAMS))('document with diagrams: %s', (_name, doc) => {
+    expectSameShape(doc);
+    // The editor took the document as it is: a diagram is an ordinary code block to it.
+    expect(toStoredDoc(editor?.getJSON() as DocNode)).toEqual(doc);
+  });
+
   it('the sample of the editor spike', () => {
     const sample = SAMPLES.everything;
     if (!sample) throw new Error('the spike has no sample named "everything"');
@@ -278,7 +307,9 @@ describe('the view draws what the editor draws', () => {
   // so they mean something only when the whole file runs.
 
   it('compared every document', () => {
-    expect(compared.documents).toBe(58 + Object.keys(HAND_MADE).length + 1);
+    expect(compared.documents).toBe(
+      58 + Object.keys(HAND_MADE).length + Object.keys(WITH_DIAGRAMS).length + 1,
+    );
   });
 
   it('compared every kind of node and mark on the list at least once', () => {
@@ -286,7 +317,7 @@ describe('the view draws what the editor draws', () => {
       types.map((type) => [type, (counts.get(type) ?? 0) > 0]);
     const nodeTypes = Object.keys(NODE_SPECS);
     const markTypes = Object.keys(MARK_SPECS);
-    expect(nodeTypes).toHaveLength(15);
+    expect(nodeTypes).toHaveLength(17);
     expect(markTypes).toHaveLength(5);
     expect(times(compared.nodes, nodeTypes)).toEqual(nodeTypes.map((type) => [type, true]));
     expect(times(compared.marks, markTypes)).toEqual(markTypes.map((type) => [type, true]));
@@ -321,6 +352,11 @@ describe('the view draws what the editor draws', () => {
       ),
       severalMarks: has((node) => (node.marks ?? []).length >= 3),
       emptyParagraph: has((node) => node.type === 'paragraph' && node.content === undefined),
+      formulaInALine: has((node) => node.type === 'inlineMath'),
+      formulaOnItsOwnLine: has((node) => node.type === 'blockMath'),
+      formulaEndingAParagraph: has(
+        (node) => node.type === 'paragraph' && node.content?.at(-1)?.type === 'inlineMath',
+      ),
     }).toEqual({
       quote: true,
       codeWithLanguage: true,
@@ -334,6 +370,9 @@ describe('the view draws what the editor draws', () => {
       imageWithDescription: true,
       severalMarks: true,
       emptyParagraph: true,
+      formulaInALine: true,
+      formulaOnItsOwnLine: true,
+      formulaEndingAParagraph: true,
     });
   });
 

@@ -38,10 +38,18 @@ import { Strike } from '@tiptap/extension-strike';
 import { Text } from '@tiptap/extension-text';
 import { Dropcursor, Gapcursor, Placeholder, UndoRedo } from '@tiptap/extensions';
 import { PluginKey } from '@tiptap/pm/state';
-import { Suggestion, type SuggestionOptions } from '@tiptap/suggestion';
+import {
+  Suggestion,
+  type SuggestionMatch,
+  type SuggestionOptions,
+  type Trigger,
+} from '@tiptap/suggestion';
 
+import { DiagramPreview } from './diagram-preview.ts';
 import { IMAGE_ATTRIBUTES, LINK_ATTRIBUTES } from './drawing.ts';
+import { findEmojiTrigger } from './emoji-trigger.ts';
 import { fileUrl } from './files.ts';
+import { BlockMath, InlineMath } from './math-nodes.ts';
 import { isAllowedHref } from './schema.ts';
 
 /** A link keeps its target and nothing else; how it opens is the app's business, not the document's. */
@@ -215,8 +223,26 @@ export const Mention = Node.create<MentionOptions>({
 
 export interface EmojiOptions {
   /** The emoji whose name matches what was typed after `:`. */
-  search: (query: string) => SuggestionEntry[];
+  search: (query: string) => SuggestionEntry[] | Promise<SuggestionEntry[]>;
   render?: SuggestionRenderer;
+}
+
+/**
+ * The name of an emoji being typed at the cursor, if there is one. The rule
+ * for the colon is in emoji-trigger.ts; this hands it the text of the line
+ * up to the cursor. A node in the line that is not text (a mention, a
+ * formula) counts as one character that is no letter.
+ */
+function emojiMatch({ $position }: Trigger): SuggestionMatch {
+  if ($position.parent.type.spec.code) return null;
+  const before = $position.parent.textBetween(0, $position.parentOffset, undefined, '￼');
+  const trigger = findEmojiTrigger(before);
+  if (!trigger) return null;
+  return {
+    range: { from: $position.start() + trigger.index, to: $position.pos },
+    query: trigger.query,
+    text: `:${trigger.query}`,
+  };
 }
 
 /** Typing `:name` offers emoji. What is inserted is the character itself: an emoji is text. */
@@ -233,9 +259,8 @@ export const EmojiSuggestion = Extension.create<EmojiOptions>({
         editor: this.editor,
         pluginKey: new PluginKey('emojiSuggestion'),
         char: ':',
-        // `10:30` and `http://` are not the start of an emoji name.
-        allow: ({ state, range }) =>
-          /^:[a-z0-9_+-]*$/i.test(state.doc.textBetween(range.from, range.to)),
+        // `10:30` and `http://` are not the start of an emoji name; `안녕:` may be.
+        findSuggestionMatch: emojiMatch,
         items: ({ query }) => (query.length === 0 ? [] : this.options.search(query)),
         command: ({ editor, range, props }) => {
           insertAt(editor, range, [{ type: 'text', text: props.value }]);
@@ -279,6 +304,8 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     HardBreak,
     FileImage,
     Mention.configure(options.mention ?? {}),
+    InlineMath,
+    BlockMath,
     // Marks
     Bold,
     Italic,
@@ -292,5 +319,6 @@ export function bodyExtensions(options: BodyExtensionOptions = {}): AnyExtension
     Gapcursor,
     Placeholder.configure({ placeholder: options.placeholder ?? '' }),
     EmojiSuggestion.configure(options.emoji ?? {}),
+    DiagramPreview,
   ];
 }

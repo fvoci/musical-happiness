@@ -5,12 +5,17 @@
   the editor. Everything comes in as values and callbacks. A body that is not
   a valid document is not drawn at all; `invalid` says what to show in its
   place, and `empty` what to show for a body with nothing in it.
+
+  `renderBody` only makes room for formulas and diagrams; once the body is in
+  the page, `drawEmbeds` (embeds.ts) draws them. The libraries for that are
+  fetched only when a body has a formula or a diagram.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import type { ClassValue } from 'svelte/elements';
 
   import './editor.css';
+  import { drawEmbeds } from './embeds.ts';
   import { renderBody } from './render.ts';
 
   interface Props {
@@ -46,6 +51,8 @@
     class={['doc-body', className]}
     {@attach (element: HTMLElement) => {
       element.replaceChildren(...nodes);
+      // Gives back what stops the drawing when the body changes or goes away.
+      return drawEmbeds(element);
     }}
   ></div>
 {/if}

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { Editor } from '@tiptap/core';
   import BoldIcon from '@lucide/svelte/icons/bold';
   import CodeIcon from '@lucide/svelte/icons/code';
   import Heading1Icon from '@lucide/svelte/icons/heading-1';
@@ -13,170 +12,164 @@
   import QuoteIcon from '@lucide/svelte/icons/quote';
   import SquareCodeIcon from '@lucide/svelte/icons/square-code';
   import StrikethroughIcon from '@lucide/svelte/icons/strikethrough';
-  import { onMount, type Component } from 'svelte';
+  import type { Component } from 'svelte';
 
+  import type { BodyEditorTools } from '$lib/editor/body-editor.ts';
+  import BodyEditor from '$lib/editor/BodyEditor.svelte';
   import BodyView from '$lib/editor/BodyView.svelte';
-  import { bodyExtensions } from '$lib/editor/extensions.ts';
   import { setFileUrlResolver } from '$lib/editor/files.ts';
   import { markdownToBlocks } from '$lib/editor/markdown.ts';
-  import { storedSize, toStoredDoc, validateDoc, type DocNode } from '$lib/editor/schema.ts';
+  import { emptyDoc, storedSize, validateDoc, type DocNode } from '$lib/editor/schema.ts';
+  import { applyTheme, theme } from '$lib/theme.svelte.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { EMOJI, fakeFileUrl, SAMPLES, USERS } from './fixtures.ts';
-  import { suggestionList } from './suggestion-list.ts';
+  import { fakeFileUrl, SAMPLES, USERS } from './fixtures.ts';
 
-  let host: HTMLDivElement;
-  let editor = $state<Editor>();
-  let stored = $state<DocNode>(SAMPLES.empty ?? { type: 'doc' });
-  // Bumped on every transaction so that the toolbar re-reads what is active.
+  /**
+   * The product's editor, as a card would use it: the document goes in, with
+   * a revision that is raised to have it read again, and every change comes
+   * back through `onChange`. What comes back is shown on the right, as the
+   * JSON that would be stored and as the read-only view of it.
+   */
+  /** What the editor was last told to load. */
+  let doc = $state.raw<DocNode | null>(null);
   let revision = $state(0);
+  /** What would be stored now; `null` is an empty body. */
+  let stored = $state.raw<DocNode | null>(null);
   let markdown = $state('');
-  let images = 0;
+  let uploaded = 0;
+  /** How long the made-up upload takes; a test stretches it to see the placeholder. */
+  const uploadDelay = Number(new URLSearchParams(location.search).get('upload-delay') ?? 0);
 
-  const problems = $derived(validateDoc(stored));
-  const bytes = $derived(storedSize(stored));
+  const problems = $derived(stored === null ? [] : validateDoc(stored));
+  const bytes = $derived(stored === null ? 0 : storedSize(stored));
 
   // Before anything is drawn: the read-only view asks for addresses as soon as it has a document.
   setFileUrlResolver(fakeFileUrl);
   const nameOf = (userId: string): string | undefined =>
-    USERS.find((user) => user.value === userId)?.label;
+    USERS.find((user) => user.id === userId)?.name;
 
-  onMount(() => {
-    const created = new Editor({
-      element: host,
-      extensions: bodyExtensions({
-        placeholder: '내용을 입력하세요. @ 로 사람을, : 로 이모지를 찾습니다.',
-        mention: {
-          search: (query) =>
-            USERS.filter((user) => user.label.toLowerCase().includes(query.toLowerCase())),
-          labelOf: (userId) => nameOf(userId) ?? userId,
-          render: suggestionList('mention'),
-        },
-        emoji: {
-          search: (query) =>
-            EMOJI.filter((emoji) => emoji.label.includes(`:${query.toLowerCase()}`)),
-          render: suggestionList('emoji'),
-        },
-      }),
-      editorProps: { attributes: { class: 'doc-body min-h-64 p-4', 'aria-label': '본문' } },
-      onTransaction: () => {
-        revision += 1;
-      },
-      onUpdate: ({ editor: current }) => {
-        stored = toStoredDoc(current.getJSON() as DocNode);
-      },
-      onCreate: ({ editor: current }) => {
-        stored = toStoredDoc(current.getJSON() as DocNode);
-      },
-    });
-    editor = created;
-    return () => {
-      created.destroy();
-    };
-  });
+  /** Hands the editor a document as if it had come from the server. */
+  function show(next: DocNode): void {
+    doc = next;
+    revision += 1;
+  }
 
   function load(name: string): void {
     const sample = SAMPLES[name];
-    if (sample) editor?.commands.setContent(sample, { emitUpdate: true });
+    if (sample) show(sample);
   }
 
   function importMarkdown(): void {
     const { content } = markdownToBlocks(markdown);
-    editor?.commands.setContent(
-      { type: 'doc', content: content.length > 0 ? content : [{ type: 'paragraph' }] },
-      { emitUpdate: true },
-    );
+    show(content.length > 0 ? { type: 'doc', content } : emptyDoc());
   }
 
-  function isActive(name: string, attrs?: Record<string, unknown>): boolean {
-    // Reading `revision` makes this depend on the editor's state.
-    return revision >= 0 && (editor?.isActive(name, attrs) ?? false);
+  /** Stands in for the server: a moment later the file has an identifier. */
+  function uploadImage(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (file.name.includes('fail')) reject(new Error('made-up failure'));
+        else resolve(`file-${(uploaded += 1)}`);
+      }, uploadDelay);
+    });
   }
 
-  type Tool = { label: string; icon: Component; active: () => boolean; run: () => void };
+  type Tool = {
+    label: string;
+    icon: Component;
+    active: (tools: BodyEditorTools) => boolean;
+    run: (tools: BodyEditorTools) => void;
+  };
+  // Reading `changes` makes the answer depend on the editor's state.
+  const isActive =
+    (name: string, attrs?: Record<string, unknown>) =>
+    ({ editor, changes }: BodyEditorTools): boolean =>
+      changes >= 0 && editor.isActive(name, attrs);
+  const never = (): boolean => false;
   const tools: Tool[] = [
     {
       label: '굵게',
       icon: BoldIcon,
-      active: () => isActive('bold'),
-      run: () => editor?.chain().focus().toggleBold().run(),
+      active: isActive('bold'),
+      run: ({ editor }) => editor.chain().focus().toggleBold().run(),
     },
     {
       label: '기울임',
       icon: ItalicIcon,
-      active: () => isActive('italic'),
-      run: () => editor?.chain().focus().toggleItalic().run(),
+      active: isActive('italic'),
+      run: ({ editor }) => editor.chain().focus().toggleItalic().run(),
     },
     {
       label: '취소선',
       icon: StrikethroughIcon,
-      active: () => isActive('strike'),
-      run: () => editor?.chain().focus().toggleStrike().run(),
+      active: isActive('strike'),
+      run: ({ editor }) => editor.chain().focus().toggleStrike().run(),
     },
     {
       label: '코드',
       icon: CodeIcon,
-      active: () => isActive('code'),
-      run: () => editor?.chain().focus().toggleCode().run(),
+      active: isActive('code'),
+      run: ({ editor }) => editor.chain().focus().toggleCode().run(),
     },
     {
       label: '제목 1',
       icon: Heading1Icon,
-      active: () => isActive('heading', { level: 1 }),
-      run: () => editor?.chain().focus().toggleHeading({ level: 1 }).run(),
+      active: isActive('heading', { level: 1 }),
+      run: ({ editor }) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
     },
     {
       label: '제목 2',
       icon: Heading2Icon,
-      active: () => isActive('heading', { level: 2 }),
-      run: () => editor?.chain().focus().toggleHeading({ level: 2 }).run(),
+      active: isActive('heading', { level: 2 }),
+      run: ({ editor }) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
     },
     {
       label: '목록',
       icon: ListIcon,
-      active: () => isActive('bulletList'),
-      run: () => editor?.chain().focus().toggleBulletList().run(),
+      active: isActive('bulletList'),
+      run: ({ editor }) => editor.chain().focus().toggleBulletList().run(),
     },
     {
       label: '번호 목록',
       icon: ListOrderedIcon,
-      active: () => isActive('orderedList'),
-      run: () => editor?.chain().focus().toggleOrderedList().run(),
+      active: isActive('orderedList'),
+      run: ({ editor }) => editor.chain().focus().toggleOrderedList().run(),
     },
     {
       label: '할 일 목록',
       icon: ListChecksIcon,
-      active: () => isActive('taskList'),
-      run: () => editor?.chain().focus().toggleTaskList().run(),
+      active: isActive('taskList'),
+      run: ({ editor }) => editor.chain().focus().toggleTaskList().run(),
     },
     {
       label: '인용',
       icon: QuoteIcon,
-      active: () => isActive('blockquote'),
-      run: () => editor?.chain().focus().toggleBlockquote().run(),
+      active: isActive('blockquote'),
+      run: ({ editor }) => editor.chain().focus().toggleBlockquote().run(),
     },
     {
       label: '코드 블록',
       icon: SquareCodeIcon,
-      active: () => isActive('codeBlock'),
-      run: () => editor?.chain().focus().toggleCodeBlock().run(),
+      active: isActive('codeBlock'),
+      run: ({ editor }) => editor.chain().focus().toggleCodeBlock().run(),
     },
     {
       label: '구분선',
       icon: MinusIcon,
-      active: () => false,
-      run: () => editor?.chain().focus().setHorizontalRule().run(),
+      active: never,
+      run: ({ editor }) => editor.chain().focus().setHorizontalRule().run(),
     },
     {
       label: '이미지',
       icon: ImageIcon,
-      active: () => false,
-      run: () => {
-        images += 1;
+      active: never,
+      run: ({ editor }) => {
+        uploaded += 1;
         editor
-          ?.chain()
+          .chain()
           .focus()
-          .setFileImage({ fileId: `file-${images}` })
+          .setFileImage({ fileId: `file-${uploaded}` })
           .run();
       },
     },
@@ -199,23 +192,53 @@
           예제: {name}
         </Button>
       {/each}
+      <Button
+        variant="outline"
+        size="sm"
+        data-testid="toggle-theme"
+        onclick={() => {
+          applyTheme(theme.resolved === 'dark' ? 'light' : 'dark');
+        }}
+      >
+        밝기 바꾸기
+      </Button>
     </div>
-    <div class="rounded-lg border border-input-border">
-      <div class="flex flex-wrap gap-1 border-b p-1" role="toolbar" aria-label="서식">
-        {#each tools as tool (tool.label)}
-          <Button
-            variant={tool.active() ? 'secondary' : 'ghost'}
-            size="icon-sm"
-            aria-label={tool.label}
-            aria-pressed={tool.active()}
-            title={tool.label}
-            onclick={tool.run}
-          >
-            <tool.icon />
-          </Button>
-        {/each}
-      </div>
-      <div bind:this={host} data-testid="editor"></div>
+    <div class="rounded-lg border border-input-border" data-testid="editor">
+      <BodyEditor
+        {doc}
+        {revision}
+        users={USERS}
+        resolveUser={nameOf}
+        {uploadImage}
+        placeholder="내용을 입력하세요. @ 로 사람을, : 로 이모지를, $ 로 수식을 넣습니다."
+        class="min-h-64 p-4"
+        onChange={(next: DocNode | null) => {
+          stored = next;
+        }}
+        onLoad={(loaded: DocNode | null | undefined) => {
+          // What the editor made of the document, not what it was given: the two must be equal.
+          stored = loaded ?? null;
+        }}
+      >
+        {#snippet toolbar(state: BodyEditorTools)}
+          <div class="flex flex-wrap gap-1 border-b p-1" role="toolbar" aria-label="서식">
+            {#each tools as tool (tool.label)}
+              <Button
+                variant={tool.active(state) ? 'secondary' : 'ghost'}
+                size="icon-sm"
+                aria-label={tool.label}
+                aria-pressed={tool.active(state)}
+                title={tool.label}
+                onclick={() => {
+                  tool.run(state);
+                }}
+              >
+                <tool.icon />
+              </Button>
+            {/each}
+          </div>
+        {/snippet}
+      </BodyEditor>
     </div>
     <details class="text-sm">
       <summary class="cursor-pointer">마크다운 가져오기</summary>

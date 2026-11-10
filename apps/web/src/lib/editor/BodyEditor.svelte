@@ -1,37 +1,36 @@
 <!--
-  The editor of a body. A STAND-IN: the full editor (suggestions for people
-  and emoji, images, formulas, diagrams) is being built to these same props
-  and replaces this file. Fetch it late, when a card is first opened:
+  The editor of a document body: the description of a card, a comment.
 
-    const { default: BodyEditor } = await import('$lib/editor/BodyEditor.svelte');
+  Everything comes in as values and callbacks; nothing here knows the server
+  or the app's state. The caller fetches this component when a body is first
+  edited (`await import('$lib/editor/BodyEditor.svelte')`): the editing
+  library is large and no part of the first screen.
+
+  The document is read when the component is made and again whenever
+  `revision` goes up, and at no other time: a change of `doc` alone never
+  overwrites what is being written. Every edit is reported through `onChange`
+  in the stored form, `null` for an empty body.
+
+  A body the validator refuses is not loaded. Editing it would mean saving
+  the editor's guess at what it meant over the original (which may come from
+  a newer version of the app). The editor then stays empty and read-only and
+  says so; `onChange` is never called.
 -->
 <script lang="ts">
   import { Editor } from '@tiptap/core';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
 
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import { getLocale } from '$lib/i18n/paraglide/runtime.js';
+
+  import type { BodyEditorProps } from './body-editor.ts';
   import './editor.css';
+  import { loadEmoji, searchEmoji } from './emoji.ts';
   import { bodyExtensions } from './extensions.ts';
-  import { emptyDoc, toStoredDoc, type DocNode } from './schema.ts';
-
-  interface Props {
-    /** The stored document, or null for an empty body. Read when the component is made and when `revision` changes. */
-    doc: DocNode | null;
-    /** Raise it to make the editor take `doc` again. Until then what is being edited is never overwritten. */
-    revision?: number;
-    editable?: boolean;
-    /** People that can be mentioned. */
-    users?: readonly { id: string; name: string }[];
-    /** The name of a mentioned person; undefined when unknown. */
-    resolveUser?: (userId: string) => string | undefined;
-    /** Called on every change with the document in its stored form; null when it is empty. */
-    onChange?: (doc: DocNode | null) => void;
-    onFocus?: () => void;
-    onBlur?: () => void;
-    /** Uploads a pasted or dropped image and answers with its file identifier. */
-    uploadImage?: (file: File) => Promise<string>;
-    placeholder?: string;
-    class?: string;
-  }
+  import { cancelMathEditing } from './math-editing.ts';
+  import { emptyDoc, isEmptyDoc, toStoredDoc, validateDoc, type DocNode } from './schema.ts';
+  import { suggestionList } from './suggestion-list.ts';
+  import { ImageUpload } from './uploads.ts';
 
   let {
     doc,
@@ -44,61 +43,176 @@
     onBlur,
     uploadImage,
     placeholder = '',
-    class: className = '',
-  }: Props = $props();
+    class: className,
+    label,
+    toolbar,
+    onLoad,
+  }: BodyEditorProps = $props();
 
-  let host = $state<HTMLElement>();
-  let editor: Editor | undefined;
-  let taken = -1;
+  let host: HTMLDivElement;
+  let editor = $state.raw<Editor>();
+  let changes = $state(0);
+  /** Whether the document that was last read could not be loaded. */
+  let unreadable = $state(false);
+  let uploads = $state(0);
+  let uploadFailed = $state(false);
 
-  function isEmpty(stored: DocNode): boolean {
-    const only = stored.content?.length === 1 ? stored.content[0] : undefined;
-    return only?.type === 'paragraph' && (only.content?.length ?? 0) === 0;
+  const status = $derived.by(() => {
+    if (unreadable) return m.editor_body_unreadable();
+    if (uploads > 0) return m.editor_image_uploading();
+    return uploadFailed ? m.editor_image_failed() : '';
+  });
+
+  const nameOf = (userId: string): string =>
+    resolveUser?.(userId) ?? users.find((user) => user.id === userId)?.name ?? userId;
+
+  /** The document to load for a stored body; undefined when it must not be edited. */
+  function loadable(stored: DocNode | null): DocNode | undefined {
+    if (stored === null) return emptyDoc();
+    return validateDoc(stored).length === 0 ? stored : undefined;
   }
 
+  /** What an editor holds, as it would be stored; `null` for an empty body. */
+  function storedOf(current: Editor): DocNode | null {
+    const stored = toStoredDoc(current.getJSON() as DocNode);
+    return isEmptyDoc(stored) ? null : stored;
+  }
+
+  const rootAttributes = (): Record<string, string> => ({
+    class: ['doc-body', className].filter(Boolean).join(' '),
+    'aria-label': label ?? m.editor_body_label(),
+    'aria-multiline': 'true',
+  });
+
   onMount(() => {
-    editor = new Editor({
+    const first = loadable(doc);
+    unreadable = first === undefined;
+    const created = new Editor({
       element: host,
-      editable,
-      content: doc ?? emptyDoc(),
-      extensions: bodyExtensions({
-        placeholder,
-        mention: {
-          search: (query) =>
-            users
-              .filter((user) => user.name.toLowerCase().includes(query.toLowerCase()))
-              .map((user) => ({ value: user.id, label: user.name })),
-          labelOf: (userId) => resolveUser?.(userId) ?? userId,
-        },
-      }),
-      editorProps: {
-        attributes: { class: `doc-body ${className}` },
-        // The stand-in takes no images; the full editor uploads what is pasted or dropped.
-        handlePaste: () => uploadImage === undefined && false,
+      // The styles the library would put into the page are in editor.css.
+      injectCSS: false,
+      editable: editable && first !== undefined,
+      content: first ?? emptyDoc(),
+      extensions: [
+        ...bodyExtensions({
+          placeholder,
+          mention: {
+            search: (query) => {
+              const wanted = query.toLowerCase();
+              return users
+                .filter((user) => user.name.toLowerCase().includes(wanted))
+                .slice(0, 8)
+                .map((user) => ({ value: user.id, label: user.name }));
+            },
+            labelOf: nameOf,
+            render: suggestionList({ kind: 'mention', label: m.editor_suggest_people }),
+          },
+          emoji: {
+            search: async (query) => {
+              const found = searchEmoji(await loadEmoji(getLocale()), query);
+              return found.map(({ emoji, name }) => ({ value: emoji, label: `${emoji} ${name}` }));
+            },
+            render: suggestionList({ kind: 'emoji', label: m.editor_suggest_emoji }),
+          },
+        }),
+        ImageUpload.configure({
+          upload: () => uploadImage,
+          uploadingLabel: m.editor_image_uploading,
+          onProgress: (pending, failed) => {
+            uploads = pending;
+            uploadFailed = failed;
+          },
+        }),
+      ],
+      editorProps: { attributes: rootAttributes() },
+      onTransaction: () => {
+        changes += 1;
       },
-      onUpdate: ({ editor: current }) => {
-        const stored = toStoredDoc(current.getJSON() as DocNode);
-        onChange?.(isEmpty(stored) ? null : stored);
-      },
+      onUpdate: ({ editor: current }) => onChange?.(storedOf(current)),
       onFocus: () => onFocus?.(),
       onBlur: () => onBlur?.(),
     });
-    taken = revision;
+    editor = created;
+    onLoad?.(first === undefined ? undefined : storedOf(created));
     return () => {
-      editor?.destroy();
-      editor = undefined;
+      cancelMathEditing();
+      created.destroy();
     };
   });
 
+  /**
+   * The document as it would be stored right now, `null` for an empty body.
+   * For a caller that has to know without waiting for the next `onChange`
+   * (to save as a card closes). `null` too while the body cannot be edited.
+   */
+  export function storedDoc(): DocNode | null {
+    return !editor || unreadable ? null : storedOf(editor);
+  }
+
+  /** Puts the cursor into the text. */
+  export function focus(): void {
+    editor?.commands.focus();
+  }
+
+  // A change from outside: read `doc` again. Not on the first run, which the
+  // editor's own creation covers, and never because `doc` itself changed.
+  let seen: number | undefined;
   $effect(() => {
-    if (!editor || revision === taken) return;
-    taken = revision;
-    editor.commands.setContent(doc ?? emptyDoc(), { emitUpdate: false });
+    const next = revision;
+    const current = editor;
+    if (!current) return;
+    if (seen === undefined || seen === next) {
+      seen = next;
+      return;
+    }
+    seen = next;
+    untrack(() => {
+      const fresh = loadable(doc);
+      unreadable = fresh === undefined;
+      cancelMathEditing();
+      current.commands.setContent(fresh ?? emptyDoc(), { emitUpdate: false });
+      current.setEditable(editable && fresh !== undefined, false);
+      onLoad?.(fresh === undefined ? undefined : storedOf(current));
+    });
   });
 
   $effect(() => {
-    editor?.setEditable(editable);
+    editor?.setEditable(editable && !unreadable, false);
+  });
+
+  $effect(() => {
+    const attributes = rootAttributes();
+    editor?.setOptions({ editorProps: { attributes } });
+  });
+
+  // Names that become known later: a mention shows the name it had when it
+  // was drawn, so the ones in the page are brought up to date.
+  function renameMentions(
+    current: Editor | undefined,
+    name: (userId: string) => string,
+    ..._known: unknown[]
+  ): void {
+    if (!current) return;
+    for (const mention of current.view.dom.querySelectorAll<HTMLElement>(
+      'span[data-mention][data-user-id]',
+    )) {
+      const shown = `@${name(mention.dataset.userId ?? '')}`;
+      if (mention.textContent !== shown) mention.textContent = shown;
+    }
+  }
+  $effect(() => {
+    // Handing both over is what makes this run again when either changes.
+    renameMentions(editor, nameOf, users, resolveUser);
   });
 </script>
 
-<div bind:this={host} data-testid="body-editor"></div>
+<div class="doc-editor" data-unreadable={unreadable || undefined}>
+  {#if toolbar && editor}
+    {@render toolbar({ editor, changes })}
+  {/if}
+  <div bind:this={host} class="doc-editor-text"></div>
+  <!-- Said aloud when it changes: an upload under way, an upload that failed, a body that cannot be edited. -->
+  <p class="doc-editor-status" role="status" data-shown={status === '' ? undefined : ''}>
+    {status}
+  </p>
+</div>

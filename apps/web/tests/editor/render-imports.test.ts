@@ -4,6 +4,12 @@
  * everything the view imports, followed to the end, has to be free of the
  * editor and of the Markdown reader, and no file on the way may use an API
  * that turns a string into elements.
+ *
+ * Two things are fetched on demand and are followed like any other import: the
+ * formula library and the diagram library, each behind a module of its own.
+ * The diagram library hands back its picture as a string, so one file has to
+ * read a string into elements. That file is named here as the exception, and
+ * what it may use for it is named too.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -18,7 +24,7 @@ const ENTRIES = ['src/lib/editor/render.ts', 'src/lib/editor/BodyView.svelte'];
 /** Packages the view must not pull in, however indirectly. */
 const HEAVY = [/^@tiptap\//, /^prosemirror-/, /^marked$/, /^marked\//];
 
-/** Ways of making elements out of a string. The view has none of them. */
+/** Ways of making elements out of a string. The view has none of them, with the one exception below. */
 const MARKUP_FROM_TEXT = [
   'innerHTML',
   'outerHTML',
@@ -33,7 +39,24 @@ const MARKUP_FROM_TEXT = [
   'srcdoc',
   'new Function',
   'eval(',
+  // The formula library can also give markup as a string; only its DOM path is used.
+  'renderToString',
 ];
+
+/**
+ * THE EXCEPTION. The picture of a diagram arrives as a string. This one
+ * file reads it, into a document of its own where nothing runs or loads, and
+ * builds the picture anew from lists of what is allowed. It may name the
+ * parser and nothing else from the list above.
+ */
+const READS_MARKUP = 'src/lib/editor/safe-svg.ts';
+const ITS_MEANS = ['DOMParser', 'parseFromString'];
+
+/**
+ * The generated message catalogue: named as something the view imports, not
+ * followed into (it is written by a tool at build time and holds no drawing).
+ */
+const MESSAGES = '$lib/i18n/paraglide/';
 
 /** Every module specifier a source file imports from, statically or not. */
 function specifiersOf(source: string): string[] {
@@ -51,6 +74,7 @@ function specifiersOf(source: string): string[] {
 }
 
 function resolve(from: string, specifier: string): string | undefined {
+  if (specifier.startsWith(MESSAGES)) return undefined;
   if (specifier.startsWith('$lib/')) return path.join(LIB, specifier.slice('$lib/'.length));
   if (specifier.startsWith('.')) return path.resolve(path.dirname(from), specifier);
   return undefined;
@@ -119,18 +143,54 @@ describe('what the read-only view is made of', () => {
     });
   });
 
-  it('adds only the framework and the style sheet for the component', () => {
+  it('adds, for the component, the framework, the style sheets, and the two libraries that draw formulas and diagrams', () => {
     expect(graphOf('src/lib/editor/BodyView.svelte')).toEqual({
       files: [
         'src/lib/editor/BodyView.svelte',
+        'src/lib/editor/diagram.ts',
         'src/lib/editor/drawing.ts',
         'src/lib/editor/editor.css',
+        'src/lib/editor/embeds.ts',
         'src/lib/editor/files.ts',
+        'src/lib/editor/katex.css',
+        'src/lib/editor/math.ts',
         'src/lib/editor/render.ts',
+        'src/lib/editor/safe-svg.ts',
         'src/lib/editor/schema.ts',
       ],
-      packages: ['svelte', 'svelte/elements'],
+      packages: [
+        '$lib/i18n/paraglide/messages.js',
+        'katex',
+        'mermaid',
+        'svelte',
+        'svelte/elements',
+      ],
     });
+  });
+
+  it('fetches the two libraries only on demand, each from one module', () => {
+    const importers = (name: string): [string, boolean][] =>
+      graphOf('src/lib/editor/BodyView.svelte')
+        .files.filter((file) => /\.(ts|svelte)$/.test(file))
+        .map((file): [string, string] => [file, readFileSync(path.join(ROOT, file), 'utf8')])
+        .filter(([, source]) => specifiersOf(source).includes(name))
+        .map(([file, source]) => [
+          file,
+          // A type may be imported the ordinary way; the code itself only through `import()`.
+          !new RegExp(`^import (?!type )[^;]*['"]${name}['"]`, 'm').test(source) &&
+            new RegExp(`import\\(['"]${name}['"]\\)`).test(source),
+        ]);
+    expect(importers('katex')).toEqual([['src/lib/editor/math.ts', true]]);
+    expect(importers('mermaid')).toEqual([['src/lib/editor/diagram.ts', true]]);
+    // And those two modules are themselves fetched on demand by the one that finds the places.
+    const embeds = readFileSync(path.join(LIB, 'editor/embeds.ts'), 'utf8');
+    for (const module of ['./math.ts', './diagram.ts']) {
+      expect([module, embeds.includes(`await import('${module}')`)]).toEqual([module, true]);
+      expect([
+        module,
+        new RegExp(`^import (?!type )[^;]*'${module.replace('.', '\\.')}'`, 'm').test(embeds),
+      ]).toEqual([module, false]);
+    }
   });
 
   it.each(ENTRIES)('%s reaches neither the editor nor the Markdown reader', (entry) => {
@@ -150,6 +210,36 @@ describe('what the read-only view is made of', () => {
 
   it.each(ENTRIES)('%s and what it imports never make elements out of a string', (entry) => {
     for (const file of graphOf(entry).files) {
+      if (file === READS_MARKUP) continue;
+      const source = readFileSync(path.join(ROOT, file), 'utf8');
+      for (const api of MARKUP_FROM_TEXT) {
+        expect([file, api, source.includes(api)]).toEqual([file, api, false]);
+      }
+    }
+  });
+
+  it('has one file that reads markup, with the parser and nothing else', () => {
+    expect(graphOf('src/lib/editor/BodyView.svelte').files).toContain(READS_MARKUP);
+    const source = readFileSync(path.join(ROOT, READS_MARKUP), 'utf8');
+    const used = MARKUP_FROM_TEXT.filter((api) => source.includes(api));
+    expect(used.sort()).toEqual([...ITS_MEANS].sort());
+    // One call, into a document of its own.
+    expect(source.match(/parseFromString\(/g)).toHaveLength(1);
+    expect(source).toContain("new DOMParser().parseFromString(markup, 'text/html')");
+    // It imports nothing: what it builds comes from its own lists.
+    expect(specifiersOf(source)).toEqual([]);
+  });
+
+  it('keeps the editor, too, from turning the libraries’ strings into elements', () => {
+    // The editor draws formulas and diagrams through the same modules as the view.
+    for (const file of [
+      'src/lib/editor/math-nodes.ts',
+      'src/lib/editor/math-editing.ts',
+      'src/lib/editor/diagram-preview.ts',
+      'src/lib/editor/suggestion-list.ts',
+      'src/lib/editor/uploads.ts',
+      'src/lib/editor/BodyEditor.svelte',
+    ]) {
       const source = readFileSync(path.join(ROOT, file), 'utf8');
       for (const api of MARKUP_FROM_TEXT) {
         expect([file, api, source.includes(api)]).toEqual([file, api, false]);

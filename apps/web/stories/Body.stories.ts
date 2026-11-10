@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/svelte';
 
 import BodySample from './BodySample.svelte';
-import { FROM_TEMPLATE, INVALID, MIXED } from './body-samples.ts';
+import { DIAGRAMS, FORMULAS, FROM_TEMPLATE, INVALID, MIXED } from './body-samples.ts';
 
 /** The read-only view of a document body (src/lib/editor/BodyView.svelte). */
 const meta = {
@@ -20,3 +20,7 @@ export const FromTemplate: Story = { args: { doc: FROM_TEMPLATE } };
 export const Invalid: Story = { args: { doc: INVALID } };
 /** No body at all. */
 export const Empty: Story = { args: { doc: null } };
+/** Formulas, drawn once the formula library has been fetched; a body without any never fetches it. */
+export const Formulas: Story = { args: { doc: FORMULAS } };
+/** Diagrams, drawn with the colours of the page and again when the theme changes. */
+export const Diagrams: Story = { args: { doc: DIAGRAMS } };

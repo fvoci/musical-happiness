@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BODY_VERSION,
   countTasks,
   emptyDoc,
   isAllowedHref,
+  isEmptyDoc,
   MARK_SPECS,
   MAX_DEPTH,
+  MAX_LATEX,
   NODE_SPECS,
   plainText,
   storedSize,
@@ -20,8 +23,10 @@ const paragraph = (...content: DocNode[]): DocNode => ({ type: 'paragraph', cont
 const doc = (...content: DocNode[]): DocNode => ({ type: 'doc', content });
 
 describe('the list of what a body may contain', () => {
-  it('has the fifteen nodes and five marks', () => {
+  it('has the seventeen nodes and five marks of version 2', () => {
+    expect(BODY_VERSION).toBe(2);
     expect(Object.keys(NODE_SPECS).sort()).toEqual([
+      'blockMath',
       'blockquote',
       'bulletList',
       'codeBlock',
@@ -30,6 +35,7 @@ describe('the list of what a body may contain', () => {
       'heading',
       'horizontalRule',
       'image',
+      'inlineMath',
       'listItem',
       'mention',
       'orderedList',
@@ -337,5 +343,124 @@ describe('a value that is not shaped like a document', () => {
       problems = validateDoc(value);
     }).not.toThrow();
     expect(problems.length).toBeGreaterThan(0);
+  });
+});
+
+describe('formulas', () => {
+  const inline = (latex: unknown): DocNode => ({ type: 'inlineMath', attrs: { latex } });
+  const block = (latex: unknown): DocNode => ({ type: 'blockMath', attrs: { latex } });
+
+  it('accepts a formula in a line and one on a line of its own, wherever inline and block content go', () => {
+    expect(
+      validateDoc(
+        doc(
+          paragraph(text('a '), inline('x^2'), text(' b')),
+          { type: 'heading', attrs: { level: 1 }, content: [inline('E = mc^2')] },
+          block('\\int_0^1 x \\, dx'),
+          { type: 'blockquote', content: [block('a')] },
+          {
+            type: 'bulletList',
+            content: [{ type: 'listItem', content: [paragraph(inline('b')), block('c')] }],
+          },
+          {
+            type: 'taskList',
+            content: [
+              {
+                type: 'taskItem',
+                attrs: { checked: false },
+                content: [paragraph(inline('d')), block('e')],
+              },
+            ],
+          },
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('takes a source of one character up to the limit, and no other', () => {
+    expect(MAX_LATEX).toBe(4000);
+    expect(validateDoc(doc(block('x')))).toEqual([]);
+    expect(validateDoc(doc(block('x'.repeat(MAX_LATEX))))).toEqual([]);
+    expect(validateDoc(doc(paragraph(inline('x'.repeat(MAX_LATEX)))))).toEqual([]);
+    for (const latex of ['', 'x'.repeat(MAX_LATEX + 1), 7, null, ['x'], { latex: 'x' }, true]) {
+      expect([latex, validateDoc(doc(block(latex))).length > 0]).toEqual([latex, true]);
+      expect([latex, validateDoc(doc(paragraph(inline(latex)))).length > 0]).toEqual([latex, true]);
+    }
+    // The limit counts UTF-16 code units, as every limit on text here does.
+    expect(validateDoc(doc(block('😀'.repeat(MAX_LATEX / 2))))).toEqual([]);
+    expect(validateDoc(doc(block(`${'😀'.repeat(MAX_LATEX / 2)}x`))).length).toBeGreaterThan(0);
+  });
+
+  it.each<[string, DocNode, string]>([
+    ['a formula without a source', doc({ type: 'blockMath' }), '"latex" is missing'],
+    [
+      'an inline formula without a source',
+      doc(paragraph({ type: 'inlineMath' })),
+      '"latex" is missing',
+    ],
+    [
+      'another attribute',
+      doc({ type: 'blockMath', attrs: { latex: 'x', display: true } }),
+      'unknown attribute "display"',
+    ],
+    [
+      'a drawn formula stored next to the source',
+      doc(paragraph({ type: 'inlineMath', attrs: { latex: 'x', html: '<span>x</span>' } })),
+      'unknown attribute "html"',
+    ],
+    ['an inline formula as a block', doc(inline('x')), 'not allowed inside'],
+    ['a block formula in a line', doc(paragraph(block('x'))), 'not allowed inside'],
+    [
+      'a formula in a code block',
+      doc({ type: 'codeBlock', content: [inline('x')] }),
+      'not allowed inside',
+    ],
+    [
+      'a block formula first in a list entry',
+      doc({ type: 'bulletList', content: [{ type: 'listItem', content: [block('x')] }] }),
+      'has to start with a paragraph',
+    ],
+    [
+      'content inside a formula',
+      doc({ type: 'blockMath', attrs: { latex: 'x' }, content: [text('y')] }),
+      'cannot have content',
+    ],
+    [
+      'marks on a formula',
+      doc(paragraph({ type: 'inlineMath', attrs: { latex: 'x' }, marks: [{ type: 'bold' }] })),
+      'only text nodes have marks',
+    ],
+    [
+      'text on a formula',
+      doc(paragraph({ type: 'inlineMath', attrs: { latex: 'x' }, text: 'x' })),
+      'only text nodes have text',
+    ],
+  ])('refuses %s', (_name, body, problem) => {
+    expect(validateDoc(body).join(' / ')).toContain(problem);
+  });
+
+  it('puts the source of formulas and of diagrams into the plain text', () => {
+    const body = doc(
+      paragraph(text('energy '), inline('E = mc^2'), text(' and')),
+      block('\\frac{1}{2}'),
+      {
+        type: 'codeBlock',
+        attrs: { language: 'mermaid' },
+        content: [text('flowchart LR\n  A --> B')],
+      },
+      { type: 'blockquote', content: [block('q')] },
+    );
+    expect(plainText(body)).toBe('energy E = mc^2 and\n\\frac{1}{2}\nflowchart LR\n  A --> B\nq');
+  });
+
+  it('keeps a formula as it is in the stored form, and does not count it as an empty body', () => {
+    const body = doc(
+      paragraph({ type: 'inlineMath', attrs: { latex: 'x' }, marks: [{ type: 'bold' }] }),
+    );
+    expect(toStoredDoc(body)).toEqual(doc(paragraph(inline('x'))));
+    expect(isEmptyDoc(doc(block('x')))).toBe(false);
+    expect(isEmptyDoc(doc(paragraph(inline('x'))))).toBe(false);
+    expect(isEmptyDoc(emptyDoc())).toBe(true);
+    expect(isEmptyDoc(doc(paragraph(), paragraph()))).toBe(false);
   });
 });

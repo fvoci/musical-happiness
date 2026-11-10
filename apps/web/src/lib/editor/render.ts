@@ -8,6 +8,11 @@
  * styles both and a body looks the same whether or not it is being edited.
  * A test draws real documents both ways and compares the two.
  *
+ * Two things are not drawn here but only given a place: a formula becomes an
+ * element that holds its source, and a diagram is the code block it is
+ * stored as. Drawing them needs libraries that are fetched on demand, which
+ * this function, being synchronous, leaves to its caller (embeds.ts).
+ *
  * What makes this safe to feed with whatever the server sends:
  *
  * - A document is drawn only when the validator (schema.ts) accepts it.
@@ -18,7 +23,13 @@
  *   A link gets its address only when `isAllowedHref` accepts it here, again,
  *   whatever the validator said.
  */
-import { IMAGE_ATTRIBUTES, LINK_ATTRIBUTES } from './drawing.ts';
+import {
+  IMAGE_ATTRIBUTES,
+  LINK_ATTRIBUTES,
+  MATH_SLOTS,
+  mathSlotAttributes,
+  type MathNodeName,
+} from './drawing.ts';
 import { fileUrl } from './files.ts';
 import { isAllowedHref, NODE_SPECS, validateDoc, type DocMark, type DocNode } from './schema.ts';
 
@@ -63,7 +74,7 @@ const MARK_TAGS: Record<string, string> = {
   code: 'code',
 };
 const HEADING_TAGS: Record<number, string> = { 1: 'h1', 2: 'h2', 3: 'h3' };
-const INLINE = new Set(['text', 'hardBreak', 'mention']);
+const INLINE = new Set(['text', 'hardBreak', 'mention', 'inlineMath']);
 
 const TEXT_NODE = 3;
 
@@ -145,6 +156,21 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
   }
 
   /**
+   * Where a formula goes: an element that holds the source, as text and in
+   * an attribute. Nothing is drawn here. Whoever places the body (the
+   * component around this, embeds.ts) finds these and draws the formulas;
+   * until then, and when one cannot be drawn, the source is what shows.
+   */
+  function math(name: MathNodeName, node: DocNode): HTMLElement {
+    const latex = textAttribute(node, 'latex') ?? '';
+    const element = page.createElement(MATH_SLOTS[name].tag);
+    for (const [attribute, value] of Object.entries(mathSlotAttributes(name, latex)))
+      element.setAttribute(attribute, value);
+    element.append(page.createTextNode(latex));
+    return element;
+  }
+
+  /**
    * The inline content of a paragraph, a heading or a code block. Texts that
    * follow each other share the elements of the marks they have in common,
    * from the outside in, the way the editor draws them.
@@ -182,6 +208,9 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
       } else if (child.type === 'mention') {
         parent.append(mention(child));
         lineIsEmpty = false;
+      } else if (child.type === 'inlineMath') {
+        parent.append(math('inlineMath', child));
+        lineIsEmpty = false;
       }
     }
     // A browser gives an empty last line no height: an empty paragraph would
@@ -209,6 +238,7 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
   function taskText(node: DocNode): string {
     const words = (inline: DocNode): string => {
       if (inline.type === 'text') return typeof inline.text === 'string' ? inline.text : '';
+      if (inline.type === 'inlineMath') return textAttribute(inline, 'latex') ?? '';
       if (inline.type === 'hardBreak') return ' ';
       if (inline.type === 'mention') return `@${nameOf(textAttribute(inline, 'userId') ?? '')}`;
       return '';
@@ -297,6 +327,8 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
         return page.createElement('hr');
       case 'image':
         return image(node);
+      case 'blockMath':
+        return math('blockMath', node);
       default:
         // Not on the list: not drawn.
         return undefined;

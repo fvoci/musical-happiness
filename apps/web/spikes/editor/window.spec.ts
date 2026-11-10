@@ -25,7 +25,11 @@ const editorOf = (page: Page) => page.getByTestId('editor').locator('.ProseMirro
 const textOf = (node: DocNode): string =>
   (node.text ?? '') + (node.content ?? []).map(textOf).join('');
 async function stored(page: Page): Promise<DocNode> {
-  return JSON.parse((await page.getByTestId('stored').textContent()) ?? '') as DocNode;
+  const shown = JSON.parse(
+    (await page.getByTestId('stored').textContent()) ?? '',
+  ) as DocNode | null;
+  // An empty body is stored as nothing.
+  return shown ?? { type: 'doc' };
 }
 /** Where the cursor is: characters from the start of the document's text. */
 const cursor = (page: Page): Promise<number> =>

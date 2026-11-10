@@ -143,3 +143,56 @@ export const INVALID: unknown = {
     }),
   ],
 };
+
+const math = (latex: string): DocNode => ({ type: 'inlineMath', attrs: { latex } });
+const mathBlock = (latex: string): DocNode => ({ type: 'blockMath', attrs: { latex } });
+const diagram = (source: string): DocNode => ({
+  type: 'codeBlock',
+  attrs: { language: 'mermaid' },
+  content: [text(source)],
+});
+
+/** Formulas, in a line and on lines of their own; the last two cannot be drawn. */
+export const FORMULAS: DocNode = {
+  type: 'doc',
+  content: [
+    heading(2, '수식'),
+    paragraph(
+      text('문장 안의 수식 '),
+      math('E = mc^2'),
+      text(' 과 한글이 든 수식 '),
+      math('속도 = \\frac{거리}{시간}'),
+      text(', 그리고 한 줄을 차지하는 수식:'),
+    ),
+    mathBlock('x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}'),
+    mathBlock(
+      '\\begin{aligned} \\nabla \\cdot \\mathbf{E} &= \\frac{\\rho}{\\varepsilon_0} \\\\ \\nabla \\cdot \\mathbf{B} &= 0 \\end{aligned}',
+    ),
+    {
+      type: 'bulletList',
+      content: [
+        item(paragraph(text('목록 안에서 '), math('\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}'))),
+      ],
+    },
+    paragraph(text('그릴 수 없는 수식은 원문과 안내가 보입니다: '), math('\\frac{1}{')),
+    mathBlock('\\href{https://example.com}{링크는 만들어지지 않습니다}'),
+  ],
+};
+
+/** Diagrams: code blocks in the language of diagrams. The last cannot be read. */
+export const DIAGRAMS: DocNode = {
+  type: 'doc',
+  content: [
+    heading(2, '다이어그램'),
+    diagram('flowchart LR\n  A[초안] --> B{검토}\n  B -->|통과| C[배포]\n  B -->|수정| A'),
+    diagram(
+      'sequenceDiagram\n  participant 웹\n  participant 서버\n  웹->>서버: 저장\n  Note over 서버: 검증\n  서버-->>웹: 200',
+    ),
+    diagram('pie title 진행\n  "끝남" : 12\n  "하는 중" : 5\n  "남음" : 8'),
+    diagram(
+      'gantt\n  title 일정\n  dateFormat YYYY-MM-DD\n  section 준비\n  설계 :a1, 2026-11-01, 10d\n  구현 :after a1, 20d',
+    ),
+    paragraph(text('읽을 수 없는 다이어그램은 원문과 안내가 보입니다:')),
+    diagram('flowchart LR\n  A --> --> B ]]'),
+  ],
+};

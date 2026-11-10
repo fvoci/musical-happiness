@@ -4,7 +4,8 @@
  * contain; these hold the rest, and the corners of what they do use: quotes,
  * code, line breaks, mentions, struck text, inline code, a list that starts
  * at 3, tasks inside tasks, images with a description, text under several
- * marks, and empty paragraphs.
+ * marks, empty paragraphs, and formulas. Diagrams are in a list of their own
+ * (`WITH_DIAGRAMS`, at the end).
  */
 import type { DocMark, DocNode } from '$lib/editor/schema.ts';
 
@@ -53,6 +54,10 @@ export const image = (fileId: string, alt?: string): DocNode => ({
   attrs: alt === undefined ? { fileId } : { fileId, alt },
 });
 export const mention = (userId: string): DocNode => ({ type: 'mention', attrs: { userId } });
+/** A formula inside a line. */
+export const math = (latex: string): DocNode => ({ type: 'inlineMath', attrs: { latex } });
+/** A formula on a line of its own. */
+export const mathBlock = (latex: string): DocNode => ({ type: 'blockMath', attrs: { latex } });
 
 /** The people the documents mention. `user-gone` is deliberately not among them. */
 export const PEOPLE: Record<string, string> = {
@@ -265,4 +270,57 @@ export const HAND_MADE: Record<string, DocNode> = {
   ),
 
   'an image first': doc(image('file-lead', 'first'), paragraph(text('after the image'))),
+
+  formulas: doc(
+    paragraph(
+      text('에너지는 '),
+      math('E = mc^2'),
+      text(' 이고, 한글이 든 식은 '),
+      math('속도 = v'),
+      text('.'),
+    ),
+    paragraph(math('a^2 + b^2 = c^2')),
+    paragraph(text('a formula at the end '), math('\\frac{1}{2}')),
+    paragraph(math('x'), math('y')),
+    mathBlock('\\int_0^1 x^2 \\, dx = \\frac{1}{3}'),
+    heading(2, text('In a heading '), math('x_i')),
+    bullets(item(paragraph(text('in a list '), math('\\sqrt{2}')), mathBlock('\\sum_{i=1}^{n} i'))),
+    quote(mathBlock('e^{i\\pi} + 1 = 0')),
+    tasks(task(false, paragraph(math('n!'), text(' in a task')))),
+    paragraph(text('bold ', 'bold'), math('x'), text(' bold again', 'bold')),
+    // What looks like markup is text to the formula library as well.
+    paragraph(math('\\text{<script>alert(1)</script>}')),
+    // Not a formula that can be drawn: the source stays, with a notice.
+    mathBlock('\\frac{1}{'),
+    paragraph(text('and one in a line that cannot be drawn '), math('\\nosuchcommand')),
+  ),
+};
+
+/**
+ * Documents with diagrams: code blocks in the language of diagrams. They are
+ * kept apart from `HAND_MADE` because the editor and the read-only view show
+ * a diagram differently on purpose (the editor keeps the source in sight),
+ * so they cannot go into a comparison of layout.
+ */
+export const WITH_DIAGRAMS: Record<string, DocNode> = {
+  'a diagram between paragraphs': doc(
+    paragraph(text('before the diagram')),
+    code('mermaid', 'flowchart LR\n  A[시작] --> B{분기}\n  B -->|예| C[끝]\n  B -->|아니오| A'),
+    paragraph(text('after the diagram')),
+  ),
+  'several diagrams, and code that is none': doc(
+    code('mermaid', 'sequenceDiagram\n  Alice->>Bob: 안녕\n  Bob-->>Alice: 응'),
+    code('ts', 'const notADiagram = true;'),
+    code('mermaid', 'pie title 비율\n  "가" : 40\n  "나" : 35\n  "다" : 25'),
+    bullets(
+      item(
+        paragraph(text('in a list')),
+        code('mermaid', 'stateDiagram-v2\n  [*] --> A\n  A --> [*]'),
+      ),
+    ),
+    // Cannot be read as a diagram: the source stays, with a notice.
+    code('mermaid', 'flowchart LR\n  A --> --> B ]]'),
+    // Nothing to draw yet.
+    code('mermaid'),
+  ),
 };

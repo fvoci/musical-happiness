@@ -10,11 +10,20 @@
  * holds the two together.
  */
 
-/** The version of this list. A stored body carries the version it was written under. */
-export const BODY_VERSION = 1;
+/**
+ * The version of this list. A stored body carries the version it was written
+ * under. Version 2 added the two formula nodes, `inlineMath` and `blockMath`.
+ */
+export const BODY_VERSION = 2;
 
 export const MAX_DEPTH = 32;
 export const MAX_NODES = 20_000;
+/**
+ * The longest source of a formula, in UTF-16 code units like every other
+ * limit on text here. A formula is drawn on the main thread of whoever opens
+ * the body, so its source is kept short enough to be drawn quickly.
+ */
+export const MAX_LATEX = 4000;
 
 export interface DocMark {
   type: string;
@@ -93,8 +102,9 @@ const BLOCKS = [
   'codeBlock',
   'horizontalRule',
   'image',
+  'blockMath',
 ] as const;
-const INLINE = ['text', 'hardBreak', 'mention'] as const;
+const INLINE = ['text', 'hardBreak', 'mention', 'inlineMath'] as const;
 
 export const NODE_SPECS: Record<string, NodeSpec> = {
   doc: { attrs: {}, children: BLOCKS, minChildren: 1 },
@@ -119,6 +129,17 @@ export const NODE_SPECS: Record<string, NodeSpec> = {
     minChildren: 0,
   },
   mention: { attrs: { userId: required(isNonEmptyText(100)) }, children: [], minChildren: 0 },
+  // A formula is its LaTeX source and nothing else; it is drawn where it is shown.
+  inlineMath: {
+    attrs: { latex: required(isNonEmptyText(MAX_LATEX)) },
+    children: [],
+    minChildren: 0,
+  },
+  blockMath: {
+    attrs: { latex: required(isNonEmptyText(MAX_LATEX)) },
+    children: [],
+    minChildren: 0,
+  },
   text: { attrs: {}, children: [], minChildren: 0 },
 };
 
@@ -275,6 +296,17 @@ export function emptyDoc(): DocNode {
   return { type: 'doc', content: [{ type: 'paragraph' }] };
 }
 
+/** Whether a document is the one an empty body is stored as: one paragraph with nothing in it. */
+export function isEmptyDoc(doc: DocNode): boolean {
+  const content: unknown = doc.content;
+  if (!Array.isArray(content) || content.length !== 1) return false;
+  const only: unknown = content[0];
+  if (typeof only !== 'object' || only === null) return false;
+  if ((only as DocNode).type !== 'paragraph') return false;
+  const inner: unknown = (only as DocNode).content;
+  return inner === undefined || (Array.isArray(inner) && inner.length === 0);
+}
+
 /**
  * A document in the form that is stored: attributes without a value are left
  * out, and so is an attribute list that became empty. The editor gives every
@@ -326,10 +358,24 @@ export function countTasks(node: DocNode): { total: number; checked: number } {
 
 const TEXT_BLOCKS = new Set(['paragraph', 'heading', 'codeBlock']);
 
+const latexOf = (node: DocNode): string =>
+  typeof node.attrs?.latex === 'string' ? node.attrs.latex : '';
+
+/** The language a code block has to name for it to be drawn as a diagram. */
+export const DIAGRAM_LANGUAGE = 'mermaid';
+/**
+ * The longest source of a diagram that is drawn. A longer one stays a code
+ * block. This is no rule of the stored document: a code block of any length
+ * is valid, and the server does not look at its language.
+ */
+export const MAX_DIAGRAM_SOURCE = 20_000;
+
 /**
  * The words of a document without its structure, one line per paragraph:
  * for search, previews and notifications. `mentionLabel` names a mentioned
- * user.
+ * user. A formula gives its source: inside a line where it stands in one, on
+ * a line of its own when it is a block. A diagram is a code block and gives
+ * its source like any other code.
  */
 export function plainText(
   node: DocNode,
@@ -340,6 +386,11 @@ export function plainText(
     if (current.type === 'text') return current.text ?? '';
     if (current.type === 'hardBreak') return '\n';
     if (current.type === 'mention') return `@${mentionLabel(String(current.attrs?.userId))}`;
+    if (current.type === 'inlineMath') return latexOf(current);
+    if (current.type === 'blockMath') {
+      lines.push(latexOf(current));
+      return '';
+    }
     const inner = (current.content ?? []).map(visit).join('');
     if (TEXT_BLOCKS.has(current.type)) lines.push(inner);
     return '';

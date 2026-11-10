@@ -10,8 +10,12 @@ interface DocNode {
 
 const editorOf = (page: Page) => page.getByTestId('editor').locator('.ProseMirror');
 
+/** What would be stored now. An empty body is stored as nothing; here that reads as an empty document. */
 async function stored(page: Page): Promise<DocNode> {
-  return JSON.parse((await page.getByTestId('stored').textContent()) ?? '') as DocNode;
+  const shown = JSON.parse(
+    (await page.getByTestId('stored').textContent()) ?? '',
+  ) as DocNode | null;
+  return shown ?? { type: 'doc', content: [{ type: 'paragraph' }] };
 }
 
 const types = (node: DocNode): string[] => [node.type, ...(node.content ?? []).flatMap(types)];
@@ -117,10 +121,11 @@ test('arrow keys move through the list of people, Escape closes it', async ({ pa
 
 test(': offers emoji and inserts the character as text', async ({ page }) => {
   const editor = editorOf(page);
-  await editor.pressSequentially('좋아요 :rock');
-  await expect(page.locator('[data-suggestions="emoji"]').getByRole('option')).toHaveText([
-    '🚀 :rocket:',
-  ]);
+  await editor.pressSequentially('좋아요 :rocket');
+  // The real list now, from CLDR: the emoji and its name.
+  await expect(page.locator('[data-suggestions="emoji"]').getByRole('option').first()).toHaveText(
+    '🚀 rocket',
+  );
   await editor.press('Enter');
   expect(textOf(await stored(page))).toBe('좋아요 🚀');
 
@@ -215,6 +220,7 @@ test('the sample that uses every node and mark loads unchanged and is valid', as
   const doc = await stored(page);
   await expect(page.getByTestId('status')).toHaveAttribute('data-valid', 'true');
   expect([...new Set(types(doc))].sort()).toEqual([
+    'blockMath',
     'blockquote',
     'bulletList',
     'codeBlock',
@@ -223,6 +229,7 @@ test('the sample that uses every node and mark loads unchanged and is valid', as
     'heading',
     'horizontalRule',
     'image',
+    'inlineMath',
     'listItem',
     'mention',
     'orderedList',

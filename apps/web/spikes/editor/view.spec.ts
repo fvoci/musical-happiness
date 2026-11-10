@@ -10,12 +10,21 @@
  * Left out, and nothing else:
  *
  *  - The elements the editor adds for its cursor and for the names of
- *    checkboxes: the separator images, the line break behind a mention that
- *    ends a paragraph, and the hidden `<span>` in the label of a task. (The
- *    same ones the other test leaves out; their numbers 3, 4 and 8.)
+ *    checkboxes: the separator images, the line break behind a mention or a
+ *    formula that ends a paragraph, and the hidden `<span>` in the label of
+ *    a task. (The same ones the other test leaves out; their numbers 3, 4
+ *    and 8.)
  *  - How white space is treated in `<label>`, `<input>`, `<hr>` and `<img>`.
  *    The editor marks these as not editable, and its style sheet resets
  *    `white-space` on whatever is. None of them holds text.
+ *  - The `<annotation>` inside a drawn formula: the source, kept in the
+ *    MathML half for a screen reader. A browser does not render it at all
+ *    (`display: none`), so it has no place to compare.
+ *
+ * Formulas are compared as drawn: both sides wait for the formula library,
+ * and every other element it built is measured like any other. Diagrams are
+ * not in these samples: the editor shows a diagram with its source and the
+ * view without, on purpose (see embeds.spec.ts for those).
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -86,11 +95,16 @@ async function measure(page: Page, which: 'editor' | 'view'): Promise<Measured[]
     for (const element of [body, ...Array.from(body.querySelectorAll('*'))]) {
       // What the editor adds for the cursor and for the name of a checkbox.
       if (isSeparator(element)) continue;
+      if (element.localName === 'annotation') continue;
       if (element.tagName === 'SPAN' && element.parentElement?.tagName === 'LABEL') continue;
       if (element.tagName === 'BR' && element.classList.contains('ProseMirror-trailingBreak')) {
         let before = element.previousSibling;
         while (isSeparator(before)) before = before?.previousSibling ?? null;
-        if (before instanceof HTMLElement && before.hasAttribute('data-mention')) continue;
+        if (
+          before instanceof HTMLElement &&
+          (before.hasAttribute('data-mention') || before.classList.contains('doc-math'))
+        )
+          continue;
       }
       const rect = element.getBoundingClientRect();
       const computed = getComputedStyle(element);
@@ -160,6 +174,8 @@ for (const sample of ['everything', 'corners']) {
     // character first needs it. A measurement taken across such an arrival
     // compares one side in the fallback font with the other in the real one.
     await page.waitForLoadState('networkidle');
+    // Every formula has been drawn, or is known not to be drawable, on both sides.
+    await expect(page.locator('.doc-math:not([data-state])')).toHaveCount(0);
     await page.evaluate(() => document.fonts.ready);
 
     await expect(async () => {
@@ -216,7 +232,12 @@ test('both fit a phone 360 pixels wide', async ({ page }) => {
     expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(360);
   }
   await picturesLoaded(page);
-  expect(differences(await measure(page, 'editor'), await measure(page, 'view'))).toEqual([]);
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator('.doc-math:not([data-state])')).toHaveCount(0);
+  await page.evaluate(() => document.fonts.ready);
+  await expect(async () => {
+    expect(differences(await measure(page, 'editor'), await measure(page, 'view'))).toEqual([]);
+  }).toPass({ timeout: 15_000 });
 
   // Still an editor at this width.
   const editor = editorOf(page);
