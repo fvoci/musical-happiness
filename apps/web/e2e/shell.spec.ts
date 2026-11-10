@@ -90,6 +90,13 @@ test.describe('the top bar', () => {
     await expect(topBar(page).getByTestId('board-title')).toHaveValue(FIRST_BOARD);
     await expect(topBar(page).getByRole('heading', { level: 1 })).toBeVisible();
 
+    // The page of the board has all that is left under the bar, down to the bottom edge.
+    const bar = await topBar(page).boundingBox();
+    const board = await page.getByTestId('board-page').boundingBox();
+    expect(board?.y).toBe((bar?.y ?? 0) + (bar?.height ?? 0));
+    expect((board?.y ?? 0) + (board?.height ?? 0)).toBe(page.viewportSize()?.height);
+    expect(board?.width).toBe(bar?.width);
+
     // The faces from where two kanban columns fit (544px), the description
     // from where the whole header of a view fits (992px): widths of the pane.
     const width = (await pane(page).boundingBox())?.width ?? 0;

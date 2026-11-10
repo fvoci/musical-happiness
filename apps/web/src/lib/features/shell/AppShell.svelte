@@ -170,8 +170,9 @@
       clearTimeout(fallback);
       settingsOpen = true;
     };
-    // The step back always arrives; the timer is for a browser that loses it.
-    const fallback = setTimeout(open, 500);
+    // The step back always arrives, within a frame or two; the timer is for a
+    // browser that loses it, and long enough not to get ahead of a slow one.
+    const fallback = setTimeout(open, 2000);
     window.addEventListener('popstate', open);
     sidebar.drawerOpen = false;
   }

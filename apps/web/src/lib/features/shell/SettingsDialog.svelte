@@ -21,7 +21,7 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { closeOnBack } from '$lib/layout/back.svelte.ts';
+  import { closeOnBack, isOverlayEntry } from '$lib/layout/back.svelte.ts';
   import { page } from '$lib/layout/room.svelte.ts';
   import {
     BRIGHTNESS_SETTINGS,
@@ -117,6 +117,9 @@
     locales.map((tag) => ({ id: tag, label: languageName(tag), also: [tag] })),
   );
 
+  /** How long the change of language waits for the history at most, in milliseconds. */
+  const GIVE_BACK_LIMIT = 2000;
+
   /**
    * Changes the language once the dialog (and the list over it) have given
    * their entries of the history back: the page is loaded again right after,
@@ -124,7 +127,16 @@
    */
   function chooseLocale(tag: string): void {
     open = false;
-    setTimeout(() => onChooseLocale?.(tag), 150);
+    const started = performance.now();
+    const whenGivenBack = (): void => {
+      // An entry of a layer is still the current one: the steps back are on their way.
+      if (isOverlayEntry(history.state) && performance.now() - started < GIVE_BACK_LIMIT) {
+        requestAnimationFrame(whenGivenBack);
+      } else {
+        onChooseLocale?.(tag);
+      }
+    };
+    requestAnimationFrame(whenGivenBack);
   }
 </script>
 
