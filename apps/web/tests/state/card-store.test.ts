@@ -266,7 +266,34 @@ describe('comments and attachments', () => {
     });
     await settle();
     expect(card.body).toEqual(text('first body'));
+    expect(card.imagesGoingUp).toBe(true);
     expect(await uploading).toMatch(/./);
+    // Once the image is in, what was heard meanwhile is read: the reader does not miss it.
+    expect(card.imagesGoingUp).toBe(false);
+    await vi.waitFor(() => {
+      expect(card.body).toEqual(text('theirs'));
+    });
+  });
+
+  it('reads the body somebody else wrote while a save of the reader was under way, once it ends', async () => {
+    const { card, other, backend, board, cardId } = await openAlpha();
+    const write = backend.writeCardBody.bind(backend);
+    // The reader's body is stored; somebody else writes after it, and that
+    // news comes before the answer to the reader's write.
+    vi.spyOn(backend, 'writeCardBody').mockImplementationOnce(async (...args) => {
+      const stored = await write(...args);
+      await other.writeCardBody(board.boardId, cardId, {
+        body: text('theirs'),
+        readAt: stored.updateAt,
+      });
+      await settle();
+      return stored;
+    });
+    await card.saveBody(text('mine'));
+    await vi.waitFor(() => {
+      expect(card.body).toEqual(text('theirs'));
+    });
+    expect(card.dirty).toBe(false);
   });
 
   it('gives up an image upload when the card is closed, telling nothing', async () => {

@@ -1493,7 +1493,6 @@
 **쓰이지 않는 것 가운데 남긴 것**
 
 - ✔ `Backend.screenState`·`patchScreenState`와 메모리 구현: 부르는 화면이 없다. 서버의 라우트(`getClientState`, `patchClientState`)를 경계에 붙여 둔 것이라 두었다.
-- ✔ `BoardStore.receiveChild`: 지금은 부르는 곳이 없다. 열린 카드의 댓글·첨부가 밖에서 바뀌었을 때의 입구이고, 구독(`subscribe`)의 실제 구현이 들어올 때 쓴다. 그때도 안 쓰이면 지운다.
 - `lib/logic/wire.ts`의 쓰이지 않는 내보내기, 테스트만 쓰는 로직 파일(`block-tree.ts`, `content-order.ts`, `csv.ts`, `versions.ts`, `editor/markdown.ts`): 화면 조립에서 만든 것이 아니고(W1), 범위 밖으로 정해진 기능(가져오기·내보내기)의 것이다. 지우는 것은 스스로 정하지 않는다.
 - 쓰이지 않는 인자 몇 개: 검토가 적은 자리를 하나씩 확인하지 않았다.
 
