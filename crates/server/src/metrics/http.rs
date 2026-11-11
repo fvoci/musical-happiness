@@ -254,6 +254,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_request_whose_handler_panics_keeps_its_route() {
+        // The panic layer logs. tracing caches whether a log line is wanted once for
+        // every thread: logged here with no subscriber, it could be cached as never
+        // wanted while the request log's tests, on other threads, read theirs back.
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(std::io::sink)
+            .finish();
+        let _logging = tracing::subscriber::set_default(subscriber);
         let metrics = Metrics::kept().expect("the metrics register");
         let response = measured_router(&metrics)
             .oneshot(get_request("/boards/b1/panic"))
