@@ -125,7 +125,7 @@ pub(crate) struct Watch<'a> {
     /// one connection reads until a statement writes.
     access: Access,
     /// Set by the call's scope when a statement that may write starts
-    /// ([`Scope::telling`]): a call on one connection given up after that wrote.
+    /// ([`Scope::reporting_writes_to`]): a call on one connection given up after that wrote.
     writes: AtomicBool,
     started: Instant,
     finished: bool,

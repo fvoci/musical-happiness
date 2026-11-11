@@ -313,7 +313,7 @@ impl<'c> Scope<'c> {
     }
 
     /// The same scope, which also sets `writes` when a statement that may write starts.
-    pub(crate) fn telling(self, writes: Option<&'c AtomicBool>) -> Self {
+    pub(crate) fn reporting_writes_to(self, writes: Option<&'c AtomicBool>) -> Self {
         Self { writes, ..self }
     }
 
