@@ -182,7 +182,13 @@ async fn a_request_cannot_set_the_read_token() {
     let (th, board) = shared_setup().await;
     let shared = share(&th.client, &board.id).await;
 
-    for token in [json!("x"), json!(""), json!(shared.token), json!(5)] {
+    for token in [
+        json!("x"),
+        json!(""),
+        json!(shared.token),
+        json!(5),
+        Value::Null,
+    ] {
         let response = post_sharing(
             &th.client,
             &board.id,

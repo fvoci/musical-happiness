@@ -781,6 +781,7 @@ async fn search_users_by_team_matches_substrings_of_the_user_name() {
         User {
             id: new_id(),
             username: "Ödön".to_owned(),
+            email: "odon@example.com".to_owned(),
             ..User::default()
         },
     )

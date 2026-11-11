@@ -404,7 +404,7 @@ impl App {
 }
 
 /// Points the images of a copied body at the copies of their files. An image whose file
-/// was not copied keeps the name it had: a body has no image without a file.
+/// was not copied becomes an empty paragraph: it would show a file of another board.
 fn rename_body_files(body: &mut Body, new_file_names: &HashMap<String, String>) {
     body.rename_files(|old| new_file_names.get(old).cloned());
 }

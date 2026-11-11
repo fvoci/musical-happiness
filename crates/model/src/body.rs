@@ -156,7 +156,9 @@ impl Body {
     }
 
     /// Points the images of the body at other files: `rename` gives the new name of a
-    /// file, or `None` to leave it. A copy of a body whose files were copied is made so.
+    /// file, or `None` for a file that has none, whose image becomes an empty
+    /// paragraph (a body has no image without its file, and the place of a block
+    /// stays filled). A copy of a body whose files were copied is made so.
     pub fn rename_files(&mut self, rename: impl Fn(&str) -> Option<String>) {
         rename_in(&mut self.document, &rename);
     }
@@ -170,12 +172,19 @@ fn image_file(node: &Value) -> Option<&str> {
     node.get("attrs")?.get("fileId")?.as_str()
 }
 
-/// Renames the file of every image below and at `node`.
+/// Renames the file of every image below and at `node`, and turns an image whose file
+/// has no new name into an empty paragraph.
 fn rename_in(node: &mut Value, rename: &impl Fn(&str) -> Option<String>) {
-    if let Some(new_name) = image_file(node).and_then(rename)
-        && let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut)
-    {
-        attrs.insert("fileId".to_owned(), Value::String(new_name));
+    if let Some(old_name) = image_file(node) {
+        match rename(old_name) {
+            Some(new_name) => {
+                if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
+                    attrs.insert("fileId".to_owned(), Value::String(new_name));
+                }
+            }
+            None => *node = serde_json::json!({"type": "paragraph"}),
+        }
+        return;
     }
     if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
         for child in children {
@@ -372,6 +381,32 @@ mod tests {
             .expect("a body")
             .expect("not empty");
         assert_eq!(body.document(), &document(&[paragraph("x")]));
+    }
+
+    /// An image whose file has a new name points at it; one whose file has none becomes
+    /// an empty paragraph, and the body stays valid.
+    #[test]
+    fn an_image_without_its_file_becomes_an_empty_paragraph() {
+        let image = |file: &str| json!({"type": "image", "attrs": {"fileId": file}});
+        let mut body = Body::parse(document(&[
+            image("kept.png"),
+            json!({"type": "blockquote", "content": [image("lost.png")]}),
+            paragraph("x"),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+        body.rename_files(|old| (old == "kept.png").then(|| "copy.png".to_owned()));
+        let expected = document(&[
+            image("copy.png"),
+            json!({"type": "blockquote", "content": [{"type": "paragraph"}]}),
+            paragraph("x"),
+        ]);
+        assert_eq!(body.document(), &expected);
+        assert!(
+            Body::parse(expected).is_ok_and(|body| body.is_some()),
+            "still a valid body"
+        );
+        assert_eq!(body.file_ids(), ["copy.png"]);
     }
 
     #[test]
