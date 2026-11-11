@@ -84,6 +84,10 @@ describe('who changes and deletes a comment', () => {
     setRole(world, boardId, other, 'editor');
     expect(await statusOf(other.restoreBlock(boardId, first.id))).toBe(403);
     expect(await statusOf(other.deleteBlock(boardId, second.id))).toBe(403);
+    // Its author, a viewer now, does not bring it back.
+    setRole(world, boardId, backend, 'viewer');
+    expect(await statusOf(backend.restoreBlock(boardId, first.id))).toBe(403);
+    setRole(world, boardId, backend, 'commenter');
     expect(await statusOf(backend.restoreBlock(boardId, first.id))).toBe('ok');
     setRole(world, boardId, other, 'admin');
     expect(await statusOf(other.deleteBlock(boardId, second.id))).toBe('ok');

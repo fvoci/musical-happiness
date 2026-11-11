@@ -397,6 +397,14 @@ describe('who deletes a comment', () => {
     expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
     as({ schemeCommenter: true });
     expect([board.canDeleteComment(me), board.canDeleteComment('someone')]).toEqual([true, false]);
+    // A viewer, and who is no member, none.
+    board.members = board.members.map((member) =>
+      member.userId === me
+        ? { ...member, schemeEditor: false, schemeCommenter: false, schemeViewer: true }
+        : member,
+    );
+    expect(board.role).toBe('viewer');
+    expect(board.canDeleteComment(me)).toBe(false);
     as({});
     expect(board.canDeleteComment(me)).toBe(false);
   });
