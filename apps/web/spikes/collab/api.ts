@@ -52,7 +52,7 @@ export interface MarkerState {
 export interface SpikeApi {
   a: Peer;
   b: Peer;
-  /** The name of the shared type the editors are bound to. */
+  /** The name of the shared type the page reads the editors' content from. */
   field: string;
   /** Whether the editors were made with the editor's own content check. */
   contentCheck: boolean;
@@ -72,9 +72,16 @@ export interface SpikeApi {
   connect: () => void;
   /** The start and the end of the `index`-th node of a kind in a peer's editor. */
   range: (peer: PeerName, type: string, index: number) => { from: number; to: number };
-  /** The transactions that changed a peer's document since the list was last cleared. */
+  /** The transactions that changed a peer's document since the logs were last cleared. */
   changes: (peer: PeerName) => ChangeRecord[];
-  clearChanges: () => void;
+  /** How many updates a peer's own editor wrote to its document since then. */
+  writes: (peer: PeerName) => number;
+  clearLogs: () => void;
+  /**
+   * How much there is to undo: `own` in the editor's own history (0 without
+   * one), `shared` in the collaboration's.
+   */
+  history: (peer: PeerName) => { own: number; shared: { undo: number; redo: number } };
   /** Marks a place in a peer's editor, as a decoration and as a mapped position. */
   placeMarker: (peer: PeerName, position: number) => void;
   marker: (peer: PeerName) => MarkerState;
@@ -84,6 +91,8 @@ export interface SpikeApi {
   injectAttribute: (path: number[], name: string, value: AttributeValue) => void;
   /** Deletes children of the element at `path` (or letters of the text there) from outside the editors. */
   injectDelete: (path: number[], index: number, length: number) => void;
+  /** What a peer's document threw when it was handed an update, as `peer: message`. */
+  thrown: string[];
   /** The messages of the content errors the editors reported. */
   contentErrors: string[];
   /** The names of the marks in the order of the editor's schema. */

@@ -95,8 +95,8 @@ test.describe('the shape of the shared document', () => {
       roots: window.spike.roots('a'),
       shape: window.spike.shape('a'),
       shown: window.spike.json('a'),
-      changes: window.spike.changes('a'),
     }));
+    // The editors were told no name: this is the one the extension has for it.
     expect(before.field).toBe('default');
     expect(before.roots).toEqual([{ name: 'default', kind: 'YXmlFragment' }]);
     // The editor shows its empty paragraph and writes nothing of it into the fragment.
@@ -157,7 +157,7 @@ test.describe('the shape of the shared document', () => {
         element('orderedList', { start: 1 }, [
           element('listItem', {}, [element('paragraph', {}, [runs(run('n'))])]),
         ]),
-        // an empty paragraph has nothing inside, not an empty text,
+        // a paragraph made empty has nothing inside,
         element('orderedList', { start: 7 }, [element('listItem', {}, [element('paragraph')])]),
         element('taskList', {}, [element('taskItem', { checked: true }, [element('paragraph')])]),
         element('blockquote', {}, [element('paragraph', {}, [runs(run('q'))])]),
@@ -203,6 +203,14 @@ test.describe('the shape of the shared document', () => {
         ]),
       ),
     );
+    // The members of a text's formatting are written in that order too.
+    const written = (await shape(page, 'a')) as { children: { children: Shape[] }[] };
+    const formatted = written.children[0]?.children[0];
+    expect(
+      formatted?.kind === 'XmlText'
+        ? formatted.runs.map((one) => Object.keys(one.attributes ?? {}))
+        : null,
+    ).toEqual([[], ['bold'], ['bold', 'italic'], ['link', 'strike', 'code']]);
     expect(await page.evaluate(() => window.spike.markOrder())).toEqual([
       'link',
       'bold',
@@ -247,6 +255,22 @@ test.describe('the shape of the shared document', () => {
     );
     await expectSame(page);
   });
+
+  test('keeps an empty text in a paragraph an editor emptied', async ({ page }) => {
+    await open(page);
+    await seed(page, THREE);
+    await page.evaluate(() => {
+      const { spike } = window;
+      const first = spike.range('a', 'paragraph', 0);
+      spike.a.editor.commands.deleteRange({ from: first.from + 1, to: first.to - 1 });
+    });
+    // Not the paragraph without anything inside that one made empty has.
+    expect(((await shape(page, 'a')) as { children: Shape[] }).children[0]).toEqual(
+      element('paragraph', {}, [runs()]),
+    );
+    expect((await stored(page, 'a'))?.content?.[0]).toEqual(paragraph());
+    await expectSame(page);
+  });
 });
 
 test.describe('a change from elsewhere', () => {
@@ -263,20 +287,38 @@ test.describe('a change from elsewhere', () => {
 
     const seen = await page.evaluate(() => {
       const { spike } = window;
-      spike.clearChanges();
-      const list = spike.range('b', 'bulletList', 0);
+      spike.clearLogs();
       const first = spike.range('a', 'paragraph', 0);
       spike.a.editor.commands.insertContentAt(first.from + 1, 'XX');
-      return { list, first, changes: spike.changes('b') };
+      const one = [...spike.changes('b')];
+      spike.clearLogs();
+      // One change of A's to the first block and the last.
+      const size = spike.a.editor.state.doc.content.size;
+      spike.a.editor
+        .chain()
+        .insertContentAt(size - 1, 'Z')
+        .insertContentAt(1, 'Y')
+        .run();
+      return { first, one, both: spike.changes('b'), size };
     });
     // One step, over the first paragraph alone: from its start to its end.
     expect(seen.first).toEqual({ from: 0, to: 7 });
-    expect(seen.changes).toEqual([
+    expect(seen.one).toEqual([
       {
         remote: true,
         steps: [{ kind: 'replace', from: 0, to: 7, inserted: 9 }],
         before: 29,
         after: 31,
+      },
+    ]);
+    // From the first block that changed to the last, with the list between them.
+    expect(seen.size).toBe(31);
+    expect(seen.both).toEqual([
+      {
+        remote: true,
+        steps: [{ kind: 'replace', from: 0, to: 31, inserted: 33 }],
+        before: 31,
+        after: 33,
       },
     ]);
   });
@@ -316,36 +358,45 @@ test.describe('a change from elsewhere', () => {
 });
 
 test.describe('shared content the schema has no place for', () => {
-  /** What is put into the middle of the three blocks, and whether the editors delete it. */
-  const cases: { name: string; nodes: RawNode[]; path?: number[]; deleted: boolean }[] = [
-    { name: 'a list without entries', nodes: [{ element: 'bulletList' }], deleted: true },
+  interface Case {
+    name: string;
+    /** What is put in: at the root after the first block, or inside the block at `path`. */
+    nodes: RawNode[];
+    path?: number[];
+    /** How many deletions each editor writes; none when it keeps what was put in. */
+    deletions: number;
+    /** What is left at the root in place of what was put in. */
+    left?: Shape[];
+  }
+  const cases: Case[] = [
+    { name: 'a list without entries', nodes: [{ element: 'bulletList' }], deletions: 1 },
     {
       name: 'an element of a kind nobody knows',
       nodes: [{ element: 'video', attrs: { src: 'x' } }],
-      deleted: true,
+      deletions: 1,
     },
     {
       name: 'a text with a mark nobody knows',
       path: [0],
       nodes: [{ text: [{ insert: 'glow', attributes: { glow: {} } }] }],
-      deleted: true,
+      deletions: 1,
     },
     {
       name: 'a code block whose text has a mark',
       nodes: [
         { element: 'codeBlock', children: [{ text: [{ insert: 'b', attributes: { bold: {} } }] }] },
       ],
-      deleted: true,
+      deletions: 1,
     },
     {
       name: 'a node that holds what it may not: all of it goes, not the child alone',
       nodes: [{ element: 'paragraph', children: [{ element: 'paragraph' }] }],
-      deleted: true,
+      deletions: 1,
     },
     {
       name: 'a leaf with something inside',
       nodes: [{ element: 'image', attrs: { fileId: 'f' }, children: [{ element: 'paragraph' }] }],
-      deleted: true,
+      deletions: 1,
     },
     {
       name: 'a list whose only entry does not start with a paragraph: the entry, then the list',
@@ -360,12 +411,33 @@ test.describe('shared content the schema has no place for', () => {
           ],
         },
       ],
-      deleted: true,
+      deletions: 2,
+    },
+    {
+      name: 'a list without entries inside a quote: the quote stays, with what else it holds',
+      nodes: [
+        {
+          element: 'blockquote',
+          children: [
+            { element: 'paragraph', children: [{ text: [{ insert: 'q' }] }] },
+            { element: 'bulletList' },
+            { element: 'paragraph' },
+          ],
+        },
+      ],
+      deletions: 1,
+      left: [
+        element('blockquote', {}, [
+          element('paragraph', {}, [runs(run('q'))]),
+          element('paragraph'),
+        ]),
+      ],
     },
     {
       name: 'a heading of a level the server refuses: the schema checks no value',
       nodes: [{ element: 'heading', attrs: { level: 9 }, children: [{ text: [{ insert: 'h' }] }] }],
-      deleted: false,
+      deletions: 0,
+      left: [element('heading', { level: 9 }, [runs(run('h'))])],
     },
     {
       name: 'a link that is a text, not attributes',
@@ -375,23 +447,31 @@ test.describe('shared content the schema has no place for', () => {
           children: [{ text: [{ insert: 'x', attributes: { link: 'no' } }] }],
         },
       ],
-      deleted: false,
+      deletions: 0,
+      left: [element('paragraph', {}, [runs(run('x', { link: 'no' }))])],
     },
   ];
 
   for (const one of cases) {
-    test(`${one.name} is ${one.deleted ? 'deleted by each editor' : 'kept'}`, async ({ page }) => {
+    const verdict = one.deletions > 0 ? 'deleted by each editor on its own' : 'kept';
+    test(`${one.name} is ${verdict}`, async ({ page }) => {
       const said = await open(page);
       await seed(page, THREE);
-      await inject(page, one.path ?? [], 1, one.nodes);
-      const after = await shape(page, 'a');
-      if (one.deleted) {
-        expect(after).toEqual(fragment(...THREE_SHAPE));
-        expect(await stored(page, 'a')).toEqual(THREE);
-      } else {
-        expect(after).not.toEqual(fragment(...THREE_SHAPE));
-        expect((after as { children: Shape[] }).children).toHaveLength(4);
-      }
+      const wrote = await page.evaluate(
+        ([where, given]) => {
+          const { spike } = window;
+          spike.clearLogs();
+          spike.inject(where, 1, given);
+          return { a: spike.writes('a'), b: spike.writes('b'), thrown: spike.thrown };
+        },
+        [one.path ?? [], one.nodes] as const,
+      );
+      // Both were handed it before either's answer reached the other.
+      expect(wrote).toEqual({ a: one.deletions, b: one.deletions, thrown: [] });
+      expect(await shape(page, 'a')).toEqual(
+        fragment(THREE_SHAPE[0], ...(one.left ?? []), THREE_SHAPE[1], THREE_SHAPE[2]),
+      );
+      if (!one.left) expect(await stored(page, 'a')).toEqual(THREE);
       await expectSame(page);
       expect(said).toEqual([]);
     });
@@ -466,7 +546,13 @@ test.describe('shared content the schema has no place for', () => {
   }) => {
     await open(page);
     await seed(page, THREE);
-    await inject(page, [], 0, [{ element: 'mention', attrs: { userId: ADA } }]);
+    const wrote = await page.evaluate((userId) => {
+      const { spike } = window;
+      spike.clearLogs();
+      spike.inject([], 0, [{ element: 'mention', attrs: { userId } }]);
+      return { a: spike.writes('a'), b: spike.writes('b') };
+    }, ADA);
+    expect(wrote).toEqual({ a: 0, b: 0 });
     const mention = { type: 'mention', attrs: { userId: ADA } };
     // Shown inside a paragraph the shared content does not have.
     expect(((await shape(page, 'a')) as { children: Shape[] }).children[0]).toEqual(
@@ -486,25 +572,23 @@ test.describe('shared content the schema has no place for', () => {
     await expectSame(page);
   });
 
-  test('a text at the root makes the binding throw: the server must not let one through', async ({
+  test('a text at the root makes every binding throw: the server must not let one through', async ({
     page,
   }) => {
     await open(page);
     await seed(page, THREE);
     const thrown = await page.evaluate(() => {
-      try {
-        window.spike.inject([], 0, [{ text: [{ insert: 'loose' }] }]);
-        return null;
-      } catch (error) {
-        return String(error);
-      }
+      window.spike.inject([], 0, [{ text: [{ insert: 'loose' }] }]);
+      return window.spike.thrown;
     });
-    expect(thrown).toBe('Error: Method unimplemented');
-    // The shared content has the text; the editor still shows what it showed.
-    expect(((await shape(page, 'a')) as { children: Shape[] }).children[0]).toEqual(
-      runs(run('loose')),
-    );
-    expect(await stored(page, 'a')).toEqual(THREE);
+    expect(thrown).toEqual(['a: Method unimplemented', 'b: Method unimplemented']);
+    // The shared content has the text; the editors still show what they showed.
+    for (const peer of ['a', 'b'] as const) {
+      expect(((await shape(page, peer)) as { children: Shape[] }).children[0]).toEqual(
+        runs(run('loose')),
+      );
+      expect(await stored(page, peer)).toEqual(THREE);
+    }
   });
 
   test('a root emptied from elsewhere shows as the empty paragraph again', async ({ page }) => {
@@ -523,12 +607,17 @@ test.describe('shared content the schema has no place for', () => {
   }) => {
     await open(page, '?check=1');
     await seed(page, THREE);
-    await inject(page, [], 1, [{ element: 'bulletList' }]);
     const seen = await page.evaluate(() => {
       const { spike } = window;
+      spike.clearLogs();
+      spike.inject([], 1, [{ element: 'bulletList' }]);
       const editable = spike.a.editor.view.editable;
       spike.a.editor.commands.insertContentAt(1, 'ZZ');
-      return { editable, errors: spike.contentErrors };
+      return {
+        editable,
+        errors: spike.contentErrors,
+        wrote: { a: spike.writes('a'), b: spike.writes('b') },
+      };
     });
     expect(((await shape(page, 'a')) as { children: Shape[] }).children).toEqual([
       THREE_SHAPE[0],
@@ -540,13 +629,14 @@ test.describe('shared content the schema has no place for', () => {
       'b: Invalid content for node bulletList: <>',
     ]);
     expect(seen.editable).toBe(false);
-    // What was typed after that went nowhere.
+    // Nothing was deleted, and what was typed after that went nowhere.
+    expect(seen.wrote).toEqual({ a: 0, b: 0 });
     expect(await stored(page, 'a')).toEqual(THREE);
     await expectSame(page);
   });
 });
 
-test('two edits that are each valid merge into a list without entries, which both editors delete', async ({
+test('two edits that are each valid merge into a list without entries, which each editor deletes on its own', async ({
   page,
 }) => {
   await open(page);
@@ -566,68 +656,101 @@ test('two edits that are each valid merge into a list without entries, which bot
     );
   expect(apart).toEqual({ a: listOf('two'), b: listOf('one') });
 
-  const changes = await page.evaluate(() => {
+  const together = await page.evaluate(() => {
     const { spike } = window;
-    spike.clearChanges();
+    spike.clearLogs();
     spike.connect();
-    return spike.changes('a');
+    return {
+      wrote: { a: spike.writes('a'), b: spike.writes('b') },
+      changes: { a: spike.changes('a'), b: spike.changes('b') },
+    };
   });
+  // Each was handed the other's deletion before the other's answer to its own,
+  // and each answered by deleting the list.
+  expect(together.wrote).toEqual({ a: 1, b: 1 });
   const outcome = doc(paragraph(text('first')), paragraph(text('last')));
   expect(await stored(page, 'a')).toEqual(outcome);
   expect(await shape(page, 'a')).toEqual(fragment(THREE_SHAPE[0], THREE_SHAPE[2]));
   await expectSame(page);
-  // The list went in the one step that brought the other side's change.
-  expect(changes).toEqual([
-    {
-      remote: true,
-      steps: [{ kind: 'replace', from: 7, to: 16, inserted: 0 }],
-      before: 22,
-      after: 13,
-    },
-  ]);
+  // The list went in the one step that brought the other side's deletion.
+  const listGone = {
+    remote: true,
+    steps: [{ kind: 'replace', from: 7, to: 16, inserted: 0 }],
+    before: 22,
+    after: 13,
+  };
+  expect(together.changes).toEqual({ a: [listGone], b: [listGone] });
 });
 
 test.describe('undoing', () => {
   const firstLine = async (page: Page): Promise<string | undefined> =>
     (await stored(page, 'a'))?.content?.[0]?.content?.[0]?.text;
+  const history = (page: Page) => page.evaluate(() => window.spike.history('a'));
 
-  /** A writes, B writes into the same paragraph, A undoes. */
-  async function writeBothAndUndo(page: Page): Promise<boolean[]> {
-    return page.evaluate(() => {
+  /** A writes at the start of the first paragraph, B writes at the start of a block. */
+  const writeBoth = (page: Page, blockOfB: 'first' | 'last'): Promise<void> =>
+    page.evaluate((where) => {
       const { spike } = window;
       spike.a.editor.commands.insertContentAt(1, 'AAA ');
-      spike.b.editor.commands.insertContentAt(1, 'BBB ');
-      return [spike.a.editor.commands.undo(), spike.a.editor.commands.undo()];
-    });
-  }
+      const at = where === 'first' ? 1 : spike.range('b', 'paragraph', 3).from + 1;
+      spike.b.editor.commands.insertContentAt(at, 'BBB ');
+    }, blockOfB);
+  const undo = (page: Page): Promise<boolean> =>
+    page.evaluate(() => window.spike.a.editor.commands.undo());
 
   test("with the collaboration history alone, takes back one's own change and leaves the other's", async ({
     page,
   }) => {
     const said = await open(page);
     await seed(page, THREE);
-    expect(await writeBothAndUndo(page)).toEqual([true, false]);
+    await writeBoth(page, 'first');
+    expect(await history(page)).toEqual({ own: 0, shared: { undo: 1, redo: 0 } });
+    expect(await undo(page)).toBe(true);
     expect(await firstLine(page)).toBe('BBB first');
+    expect(await history(page)).toEqual({ own: 0, shared: { undo: 0, redo: 1 } });
+    expect(await undo(page)).toBe(false);
     await expectSame(page);
     expect(await page.evaluate(() => window.spike.a.editor.commands.redo())).toBe(true);
     expect(await firstLine(page)).toBe('BBB AAA first');
     expect(said).toEqual([]);
   });
 
-  test("with the editor's own history beside it, warns, and an undo after the other's change says it did and does nothing", async ({
+  test("with the editor's own history beside it, warns, and the undo command goes to the editor's own", async ({
     page,
   }) => {
     const said = await open(page, '?undo=both');
     await seed(page, THREE);
-    expect(said).toEqual(
-      Array.from(
-        { length: 2 },
-        () =>
-          '[tiptap warn]: "@tiptap/extension-collaboration" comes with its own history support and is not compatible with "@tiptap/extension-undo-redo".',
-      ),
-    );
-    expect(await writeBothAndUndo(page)).toEqual([true, false]);
+    await expect
+      .poll(() => said)
+      .toEqual(
+        Array.from(
+          { length: 2 },
+          () =>
+            '[tiptap warn]: "@tiptap/extension-collaboration" comes with its own history support and is not compatible with "@tiptap/extension-undo-redo".',
+        ),
+      );
+    // The other's change is in another block: the editor's own history takes
+    // the change back, and the collaboration's is not asked (nothing to redo
+    // there; it saw the taking back as one more change to undo).
+    await writeBoth(page, 'last');
+    expect(await history(page)).toEqual({ own: 1, shared: { undo: 1, redo: 0 } });
+    expect(await undo(page)).toBe(true);
+    expect(await firstLine(page)).toBe('first');
+    const after = await history(page);
+    expect(after.own).toBe(0);
+    expect(after.shared.redo).toBe(0);
+    await expectSame(page);
+  });
+
+  test("with the editor's own history beside it, an undo after the other's change to the same block says it did and does nothing", async ({
+    page,
+  }) => {
+    await open(page, '?undo=both');
+    await seed(page, THREE);
+    await writeBoth(page, 'first');
+    expect(await undo(page)).toBe(true);
     expect(await firstLine(page)).toBe('BBB AAA first');
+    expect(await undo(page)).toBe(false);
     await expectSame(page);
   });
 });
@@ -637,27 +760,43 @@ test("the caret extension needs a provider only for its awareness, and shows the
 }) => {
   const said = await open(page);
   await seed(page, THREE);
+  // Each side knows of the other before anybody has a caret.
+  expect(
+    await page.evaluate(() => {
+      const { spike } = window;
+      const names = (peer: 'a' | 'b'): string[] =>
+        spike[peer].editor.storage.collaborationCaret.users
+          .map(({ name }) => name as string)
+          .sort();
+      return { a: names('a'), b: names('b') };
+    }),
+  ).toEqual({ a: ['Ada', 'Bora'], b: ['Ada', 'Bora'] });
+  const caretOf = (peer: 'a' | 'b') =>
+    page.getByTestId(`peer-${peer}`).locator('.collaboration-carets__caret');
+  await expect(caretOf('a')).toHaveCount(0);
+  await expect(caretOf('b')).toHaveCount(0);
+
   await page.getByTestId('peer-a').locator('.ProseMirror').click();
   await page.keyboard.type('x');
-
-  const caret = page.getByTestId('peer-b').locator('.collaboration-carets__caret');
-  await expect(caret).toHaveCount(1);
-  await expect(caret.locator('.collaboration-carets__label')).toHaveText('Ada');
-  await expect(page.getByTestId('peer-a').locator('.collaboration-carets__caret')).toHaveCount(0);
+  await expect(caretOf('b')).toHaveCount(1);
+  await expect(caretOf('b').locator('.collaboration-carets__label')).toHaveText('Ada');
+  // An editor draws no caret for itself.
+  await expect(caretOf('a')).toHaveCount(0);
 
   // What a peer tells the others: who it is, and where its selection is as
   // positions relative to the shared content.
-  const states = await page.evaluate(() => {
+  const told = await page.evaluate(() => {
     const { spike } = window;
-    return {
-      a: spike.b.awareness.getStates().get(spike.a.doc.clientID),
-      users: spike.b.editor.storage.collaborationCaret.users.map(({ name }) => name as string),
-    };
+    return spike.b.awareness.getStates().get(spike.a.doc.clientID);
   });
-  expect(states.a?.user).toEqual({ name: 'Ada', color: '#b4532a' });
-  expect(Object.keys(states.a ?? {}).sort()).toEqual(['cursor', 'user']);
-  expect(Object.keys((states.a?.cursor ?? {}) as object).sort()).toEqual(['anchor', 'head']);
-  expect(states.users.sort()).toEqual(['Ada', 'Bora']);
+  expect(told?.user).toEqual({ name: 'Ada', color: '#b4532a' });
+  expect(Object.keys(told ?? {}).sort()).toEqual(['cursor', 'user']);
+  expect(Object.keys((told?.cursor ?? {}) as object).sort()).toEqual(['anchor', 'head']);
+
+  // The other way round, once the other editor is the one written in.
+  await page.getByTestId('peer-b').locator('.ProseMirror').click();
+  await expect(caretOf('a')).toHaveCount(1);
+  await expect(caretOf('a').locator('.collaboration-carets__label')).toHaveText('Bora');
   expect(said).toEqual([]);
 });
 
@@ -712,7 +851,8 @@ test('the nodes of our own and a diagram go from one editor to the other and bac
     'E=mc^2',
   );
   await expect(b.locator('img[data-file-id="file-a.png"]')).toHaveCount(1);
-  await expect(b.locator('.doc-diagram[data-diagram] svg')).toHaveCount(1);
+  // The diagram library arrives on its own, which takes a while on a busy machine.
+  await expect(b.locator('.doc-diagram[data-diagram] svg')).toHaveCount(1, { timeout: 60_000 });
 
   // And a change of an attribute alone comes back.
   await page.evaluate(() => {

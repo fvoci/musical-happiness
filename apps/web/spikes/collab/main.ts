@@ -10,9 +10,10 @@
 import { Editor, Extension } from '@tiptap/core';
 import { Collaboration, isChangeOrigin } from '@tiptap/extension-collaboration';
 import { CollaborationCaret } from '@tiptap/extension-collaboration-caret';
+import { undoDepth } from '@tiptap/pm/history';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
-import { prosemirrorJSONToYDoc } from '@tiptap/y-tiptap';
+import { prosemirrorJSONToYDoc, yUndoPluginKey } from '@tiptap/y-tiptap';
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
@@ -28,7 +29,10 @@ import { fakeFileUrl } from '../editor/fixtures.ts';
 
 import type { ChangeRecord, MarkerState, Peer, PeerName, SpikeApi } from './api.ts';
 
-/** The shared type the collaboration extension binds to when it is told nothing else. */
+/**
+ * The shared type the collaboration extension binds to when it is told nothing
+ * else. The editors are told nothing; this is where the page reads from.
+ */
 const FIELD = 'default';
 
 const query = new URLSearchParams(location.search);
@@ -94,20 +98,90 @@ const Marker = Extension.create({
 });
 
 const changes: Record<PeerName, ChangeRecord[]> = { a: [], b: [] };
+const writes: Record<PeerName, number> = { a: 0, b: 0 };
 const contentErrors: string[] = [];
+const thrown: string[] = [];
+
+interface Line {
+  doc: Y.Doc;
+  awareness: Awareness;
+}
+
+function makeLine(): Line {
+  const doc = new Y.Doc();
+  return { doc, awareness: new Awareness(doc) };
+}
+
+const lines: Record<PeerName, Line> = { a: makeLine(), b: makeLine() };
+const other = (name: PeerName): PeerName => (name === 'a' ? 'b' : 'a');
+
+/**
+ * The relay. What one side writes waits in a queue and is handed to the
+ * other side when its turn comes, never in the middle of another delivery:
+ * as over a network, a side has finished with one message, and has written
+ * what it writes in answer, before the next one reaches anybody.
+ */
+let connected = true;
+let delivering = false;
+const queue: { to: PeerName; update: Uint8Array }[] = [];
+
+function deliver(): void {
+  if (delivering) return;
+  delivering = true;
+  try {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      try {
+        Y.applyUpdate(lines[next.to].doc, next.update, RELAY);
+      } catch (error) {
+        // A side that cannot take a message does not keep the other from its own.
+        thrown.push(`${next.to}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  } finally {
+    delivering = false;
+  }
+}
+
+/** Hands an update to the sides named, each before any answer of another. */
+function send(update: Uint8Array, ...to: PeerName[]): void {
+  for (const name of to) queue.push({ to: name, update });
+  deliver();
+}
+
+function sendAwareness(from: PeerName, clients: number[]): void {
+  const update = encodeAwarenessUpdate(lines[from].awareness, clients);
+  applyAwarenessUpdate(lines[other(from)].awareness, update, RELAY);
+}
+
+for (const name of ['a', 'b'] as const) {
+  lines[name].doc.on('update', (update: Uint8Array, origin: unknown) => {
+    if (origin === RELAY) return;
+    writes[name] += 1;
+    if (connected) send(update, other(name));
+  });
+  lines[name].awareness.on(
+    'update',
+    (
+      { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
+      origin: unknown,
+    ) => {
+      if (origin !== RELAY && connected) sendAwareness(name, [...added, ...updated, ...removed]);
+    },
+  );
+}
 
 function makePeer(name: PeerName, user: { name: string; color: string }): Peer {
   const host = document.getElementById(`peer-${name}`);
   if (!host) throw new Error(`index.html has no #peer-${name} element`);
-  const doc = new Y.Doc();
-  const awareness = new Awareness(doc);
+  const { doc, awareness } = lines[name];
   const editor = new Editor({
     element: host,
     injectCSS: false,
     enableContentCheck: contentCheck,
     extensions: [
       ...bodyExtensions().filter((extension) => keepOwnHistory || extension.name !== 'undoRedo'),
-      Collaboration.configure({ document: doc, field: FIELD }),
+      // Told nothing about the name of the shared type: the extension's own is used.
+      Collaboration.configure({ document: doc }),
       // All the caret extension is given of a provider is its awareness.
       CollaborationCaret.configure({ provider: { awareness }, user }),
       Marker,
@@ -121,15 +195,9 @@ function makePeer(name: PeerName, user: { name: string; color: string }): Peer {
       changes[name].push({
         remote: isChangeOrigin(transaction),
         steps: transaction.steps.map((step) => {
-          const json = step.toJSON() as {
-            stepType: string;
-            from?: number;
-            to?: number;
-            slice?: { content?: unknown[] };
-          };
-          const map = step.getMap();
+          const json = step.toJSON() as { stepType: string; from?: number; to?: number };
           let inserted = 0;
-          map.forEach((_oldStart, _oldEnd, newStart, newEnd) => {
+          step.getMap().forEach((_oldStart, _oldEnd, newStart, newEnd) => {
             inserted += newEnd - newStart;
           });
           return { kind: json.stepType, from: json.from ?? null, to: json.to ?? null, inserted };
@@ -146,42 +214,17 @@ const a = makePeer('a', { name: 'Ada', color: '#b4532a' });
 const b = makePeer('b', { name: 'Bora', color: '#2a6fb4' });
 const peers: Record<PeerName, Peer> = { a, b };
 
-let connected = true;
-
-function relay(from: Peer, to: Peer): void {
-  from.doc.on('update', (update: Uint8Array, origin: unknown) => {
-    if (origin === RELAY || !connected) return;
-    Y.applyUpdate(to.doc, update, RELAY);
-  });
-  from.awareness.on(
-    'update',
-    (
-      { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
-      origin: unknown,
-    ) => {
-      if (origin === RELAY || !connected) return;
-      const update = encodeAwarenessUpdate(from.awareness, [...added, ...updated, ...removed]);
-      applyAwarenessUpdate(to.awareness, update, RELAY);
-    },
-  );
-}
-relay(a, b);
-relay(b, a);
-
-/** Gives `to` what `from` has and it has not. */
-function bringUpToDate(from: Y.Doc, to: Y.Doc): void {
-  Y.applyUpdate(to, Y.encodeStateAsUpdate(from, Y.encodeStateVector(to)), RELAY);
-}
+/** What `from` has and `to` has not. */
+const missing = (from: Y.Doc, to: Y.Doc): Uint8Array =>
+  Y.encodeStateAsUpdate(from, Y.encodeStateVector(to));
 
 /** A document no editor is bound to, brought up to date with A, changed, and handed to both. */
 function fromOutside(change: (root: Y.XmlFragment) => void): void {
   const outside = new Y.Doc();
-  bringUpToDate(a.doc, outside);
+  Y.applyUpdate(outside, Y.encodeStateAsUpdate(a.doc));
   const before = Y.encodeStateVector(outside);
   change(outside.getXmlFragment(FIELD));
-  const update = Y.encodeStateAsUpdate(outside, before);
-  Y.applyUpdate(a.doc, update, RELAY);
-  Y.applyUpdate(b.doc, update, RELAY);
+  send(Y.encodeStateAsUpdate(outside, before), 'a', 'b');
 }
 
 const api: SpikeApi = {
@@ -190,11 +233,10 @@ const api: SpikeApi = {
   field: FIELD,
   contentCheck,
   contentErrors,
+  thrown,
   seed(doc: DocNode): void {
     const made = prosemirrorJSONToYDoc(a.editor.schema, doc, FIELD);
-    const update = Y.encodeStateAsUpdate(made);
-    Y.applyUpdate(a.doc, update, RELAY);
-    Y.applyUpdate(b.doc, update, RELAY);
+    send(Y.encodeStateAsUpdate(made), 'a', 'b');
   },
   stored(peer: PeerName): DocNode | null {
     const stored = toStoredDoc(peers[peer].editor.getJSON() as DocNode);
@@ -212,8 +254,13 @@ const api: SpikeApi = {
   },
   connect(): void {
     connected = true;
-    bringUpToDate(a.doc, b.doc);
-    bringUpToDate(b.doc, a.doc);
+    // What each side lacks, taken before either is given anything.
+    const forB = missing(a.doc, b.doc);
+    const forA = missing(b.doc, a.doc);
+    queue.push({ to: 'b', update: forB }, { to: 'a', update: forA });
+    deliver();
+    sendAwareness('a', [a.doc.clientID]);
+    sendAwareness('b', [b.doc.clientID]);
   },
   range(peer: PeerName, type: string, index: number): { from: number; to: number } {
     let seen = 0;
@@ -230,9 +277,20 @@ const api: SpikeApi = {
     return found;
   },
   changes: (peer: PeerName) => changes[peer],
-  clearChanges(): void {
+  writes: (peer: PeerName) => writes[peer],
+  clearLogs(): void {
     changes.a = [];
     changes.b = [];
+    writes.a = 0;
+    writes.b = 0;
+  },
+  history(peer: PeerName) {
+    const { state } = peers[peer].editor;
+    const manager = (yUndoPluginKey.getState(state) as { undoManager: Y.UndoManager }).undoManager;
+    return {
+      own: undoDepth(state) as number,
+      shared: { undo: manager.undoStack.length, redo: manager.redoStack.length },
+    };
   },
   placeMarker(peer: PeerName, position: number): void {
     const { view } = peers[peer].editor;
