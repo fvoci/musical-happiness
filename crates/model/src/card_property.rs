@@ -7,6 +7,8 @@
 //! date value (`docs/s6-design.md` 5.7). Anything else is refused before it is stored,
 //! so that one member cannot break the board for the others.
 
+use std::collections::BTreeSet;
+
 use serde_json::Value;
 use thiserror::Error;
 
@@ -256,6 +258,90 @@ fn is_valid_option(option: &Value) -> bool {
     })
 }
 
+/// The `type`s of the property definitions whose values name users: a person, several
+/// people, and who made or last changed a card. The last two hold no value of their own,
+/// but a view may filter by them.
+const PERSON_PROPERTY_TYPES: [&str; 4] = ["person", "multiPerson", "createdBy", "updatedBy"];
+
+/// The properties of a board whose values name users, as the board defines them.
+///
+/// Whoever reads a shared board by its read token alone is not told who the server's
+/// users are (`docs/s6-design.md`, decision 7): the values of these properties go to
+/// them emptied, one empty string for each user, so that how many people a card has
+/// still shows.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonProperties(BTreeSet<String>);
+
+impl PersonProperties {
+    /// The person properties among a board's definitions.
+    #[must_use]
+    pub fn of(definitions: &[JsonMap]) -> Self {
+        Self(
+            definitions
+                .iter()
+                .filter(|definition| {
+                    definition
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .is_some_and(|kind| PERSON_PROPERTY_TYPES.contains(&kind))
+                })
+                .filter_map(|definition| definition.get("id").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect(),
+        )
+    }
+
+    /// Whether the property is one of them.
+    #[must_use]
+    pub fn contains(&self, id: &str) -> bool {
+        self.0.contains(id)
+    }
+
+    /// Empties the users that a card's property values name: a text becomes the empty
+    /// text, and each text of a list the empty text.
+    pub fn hide_values(&self, values: &mut JsonMap) {
+        for (id, value) in values.iter_mut() {
+            if self.contains(id) {
+                hide_users(value);
+            }
+        }
+    }
+
+    /// Empties the users that the clauses of a view's filter (`fields.filter`) name by
+    /// these properties. A filter is a group `{operation, filters}` whose filters are
+    /// groups or clauses `{propertyId, condition, values}`.
+    pub fn hide_filter_values(&self, filter: &mut Value) {
+        if let Some(filters) = filter.get_mut("filters").and_then(Value::as_array_mut) {
+            for filter in filters {
+                self.hide_filter_values(filter);
+            }
+            return;
+        }
+        let names_a_person = filter
+            .get("propertyId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| self.contains(id));
+        if names_a_person && let Some(values) = filter.get_mut("values") {
+            hide_users(values);
+        }
+    }
+}
+
+/// Empties a text, or each text of a list; leaves anything else as it is.
+fn hide_users(value: &mut Value) {
+    match value {
+        Value::String(user) => user.clear(),
+        Value::Array(users) => {
+            for user in users.iter_mut() {
+                if let Value::String(user) = user {
+                    user.clear();
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -268,6 +354,46 @@ mod tests {
             Value::Object(object) => object,
             other => panic!("not an object: {other}"),
         }
+    }
+
+    #[test]
+    fn the_users_of_person_properties_are_emptied_one_by_one() {
+        let people = PersonProperties::of(&[
+            object(json!({"id": "owner", "type": "person"})),
+            object(json!({"id": "team", "type": "multiPerson"})),
+            object(json!({"id": "by", "type": "createdBy"})),
+            object(json!({"id": "note", "type": "text"})),
+            object(json!({"type": "person"})),
+        ]);
+        let mut values = object(json!({
+            "owner": "u1", "team": ["u1", "u2"], "note": "u1", "other": "u1", "by": null,
+        }));
+        people.hide_values(&mut values);
+        assert_eq!(
+            Value::Object(values),
+            json!({"owner": "", "team": ["", ""], "note": "u1", "other": "u1", "by": null}),
+            "the count of people stays, who they are goes"
+        );
+
+        let mut filter = json!({"operation": "and", "filters": [
+            {"propertyId": "owner", "condition": "includes", "values": ["u1"]},
+            {"operation": "or", "filters": [
+                {"propertyId": "by", "condition": "includes", "values": ["u1", "u2"]},
+                {"propertyId": "note", "condition": "includes", "values": ["u1"]},
+            ]},
+        ]});
+        people.hide_filter_values(&mut filter);
+        assert_eq!(
+            filter,
+            json!({"operation": "and", "filters": [
+                {"propertyId": "owner", "condition": "includes", "values": [""]},
+                {"operation": "or", "filters": [
+                    {"propertyId": "by", "condition": "includes", "values": ["", ""]},
+                    {"propertyId": "note", "condition": "includes", "values": ["u1"]},
+                ]},
+            ]}),
+            "in nested groups too"
+        );
     }
 
     #[test]

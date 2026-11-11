@@ -56,8 +56,8 @@ pub use body::{
 };
 pub use card::{Card, CardError, CardPatch};
 pub use card_property::{
-    CardPropertyError, DATE_PROPERTY_TYPE, clear_values_of_another_kind, validate_block_properties,
-    validate_card_property_definitions, validate_card_property_kinds,
+    CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, clear_values_of_another_kind,
+    validate_block_properties, validate_card_property_definitions, validate_card_property_kinds,
     validate_card_property_values,
 };
 pub use category::{

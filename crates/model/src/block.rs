@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::JsonMap;
 use crate::body::{Body, BodyChange};
-use crate::card_property::{CardPropertyError, validate_block_properties};
+use crate::card_property::{CardPropertyError, PersonProperties, validate_block_properties};
 use crate::serde_util::null_as_default;
 
 /// Maximum number of characters in a block title.
@@ -367,15 +367,23 @@ impl Block {
         malformed
     }
 
-    /// The block as it goes to whoever reads with a read token alone, who is nobody the
-    /// server knows (`docs/s6-design.md`, decision 7): no `createdBy` or `modifiedBy`, and
-    /// no user in the mentions of the body. A user's identifier tells when they signed
-    /// up. The values of person properties in `fields` go as they are.
-    pub fn hide_people(&mut self) {
+    /// The block as it goes to whoever reads by a read token alone, who is nobody the
+    /// server knows (`docs/s6-design.md`, decision 7), or a user who is no member of the
+    /// board: no `createdBy` or `modifiedBy`, no user in the mentions of the body, and
+    /// in `fields` none in the values of the board's person properties (`people`), of a
+    /// card's `properties` or of a view's `filter`. A user's identifier tells when they
+    /// signed up.
+    pub fn hide_people(&mut self, people: &PersonProperties) {
         self.created_by.clear();
         self.modified_by.clear();
         if let Some(body) = self.body.as_mut() {
             body.clear_mentions();
+        }
+        if let Some(Value::Object(values)) = self.fields.get_mut("properties") {
+            people.hide_values(values);
+        }
+        if let Some(filter) = self.fields.get_mut("filter") {
+            people.hide_filter_values(filter);
         }
     }
 

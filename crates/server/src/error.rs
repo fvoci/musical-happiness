@@ -291,6 +291,15 @@ impl AppError {
         self.kind == ErrorKind::NotFound
     }
 
+    /// Returns `true` if this error refuses the requester (401, 403 or 404) rather than
+    /// failing: what an access check answers to a user who may not do what they ask.
+    pub fn is_refusal(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::NotFound | ErrorKind::Forbidden | ErrorKind::Unauthorized
+        )
+    }
+
     /// The HTTP status this error is reported with.
     pub fn status(&self) -> StatusCode {
         self.kind.status()

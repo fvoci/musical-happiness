@@ -197,7 +197,8 @@ async fn handle_create_board(
 /// A board
 ///
 /// For a user who may see the board: a member of it, or for an open board anyone in
-/// its team. With the board's read token no session is needed; who reads that way is
+/// its team. With the board's read token no session is needed. Who reads by the token
+/// alone, without a session or as a user who could not see the board without it, is
 /// not told who made the board or changed it last (`createdBy` and `modifiedBy` are
 /// empty).
 #[utoipa::path(
@@ -223,30 +224,24 @@ async fn handle_get_board(
 
     let board = app.board(&board_id).await?;
 
-    if !has_valid_read_token {
-        // An open board is for every user of its team; a private one for its members,
-        // and for nobody else it exists.
-        let sees = match board.board_type {
+    // An open board is for every user of its team; a private one for its members, and
+    // for nobody else it exists, unless they have the read token.
+    let sees = !user_id.is_empty()
+        && (match board.board_type {
             BoardType::Private => false,
             BoardType::Open => {
                 !user_is_guest(&app, user_id).await?
                     && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
             }
-        };
-        if !sees
-            && !app
-                .has_permission_to_board(user_id, &board_id, BoardPermission::ViewBoard)
-                .await?
-        {
-            return Err(AppError::not_found("board"));
-        }
+        } || app
+            .has_permission_to_board(user_id, &board_id, BoardPermission::ViewBoard)
+            .await?);
+    if !sees && !has_valid_read_token {
+        return Err(AppError::not_found("board"));
     }
     let mut board = board;
-    if user_id.is_empty() {
-        // Whoever reads through a read token alone is nobody the server knows. An
-        // identifier tells when it was made: a user's would tell when they signed up.
-        board.created_by.clear();
-        board.modified_by.clear();
+    if !sees {
+        board.hide_people();
     }
     Ok(json_response(&board))
 }

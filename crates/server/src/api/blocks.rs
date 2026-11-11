@@ -28,7 +28,7 @@ use super::{
 };
 use crate::app::App;
 use crate::auth::now_millis;
-use crate::error::{AppError, ErrorKind};
+use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -101,11 +101,12 @@ async fn require_source_board_access(
 ) -> Result<(), AppError> {
     // The same answer for a board that is not there and one the user may not read. A
     // store that failed is neither: it is answered as what it is.
-    let refused = |error: AppError| match error.kind() {
-        ErrorKind::NotFound | ErrorKind::Forbidden | ErrorKind::Unauthorized => {
+    let refused = |error: AppError| {
+        if error.is_refusal() {
             AppError::not_found("source board")
+        } else {
+            error
         }
-        _ => error,
     };
     let board = app.board(source_board_id).await.map_err(refused)?;
     require_read_access(app, user_id, &board)
@@ -116,9 +117,13 @@ async fn require_source_board_access(
 /// The blocks of a board
 ///
 /// For the board's members, and for an open template everyone in its team. With the
-/// board's read token no session is needed; who reads that way is not told who made a
-/// block or changed it last (`createdBy` and `modifiedBy` are empty), nor who is
-/// mentioned in a body (the `userId` of every mention is empty).
+/// board's read token no session is needed. Who reads by the token alone, without a
+/// session or as a user who could not read the blocks without it, is told no user's
+/// identifier: `createdBy` and `modifiedBy` are empty, so is the `userId` of every
+/// mention in a body, and so is each user in the values of the board's person
+/// properties (`person`, `multiPerson`, `createdBy`, `updatedBy`), in a card's
+/// `fields.properties` and in the clauses of a view's `fields.filter`. A list keeps its
+/// length: how many people a card has still shows.
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -148,9 +153,19 @@ async fn handle_get_blocks(
         return Err(AppError::unauthorized("access denied to board"));
     }
     let board = app.board(&board_id).await?;
-    if !has_read_token {
+    let by_token_alone = if has_read_token {
+        // A user who may read the blocks anyway reads them as such; anybody else by
+        // the token.
+        user_id.is_empty()
+            || match require_read_access(&app, user_id, &board).await {
+                Ok(()) => false,
+                Err(error) if error.is_refusal() => true,
+                Err(error) => return Err(error),
+            }
+    } else {
         require_read_access(&app, user_id, &board).await?;
-    }
+        false
+    };
 
     let blocks = if !query_param(query, "all").is_empty() {
         app.blocks_for_board(&board_id).await?
@@ -166,9 +181,10 @@ async fn handle_get_blocks(
     };
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     let mut blocks = blocks;
-    if user_id.is_empty() {
+    if by_token_alone {
+        let people = board.person_properties();
         for block in &mut blocks {
-            block.hide_people();
+            block.hide_people(&people);
         }
     }
     Ok(json_response(&blocks))
