@@ -339,8 +339,10 @@ fn template_files() -> Vec<Value> {
     paths
         .iter()
         .map(|path| {
-            serde_json::from_str(&std::fs::read_to_string(path).expect("a template file"))
-                .expect("a template file is JSON")
+            let text = std::fs::read_to_string(path)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            serde_json::from_str(&text)
+                .unwrap_or_else(|error| panic!("{} is not JSON: {error}", path.display()))
         })
         .collect()
 }

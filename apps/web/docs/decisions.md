@@ -1299,12 +1299,12 @@
   - 다른 안: 변환을 멈추기.
   - 바꾸려면: 같은 함수.
 - **T6.** 규칙의 이름: 뺀 것은 전과 같은 `outside-link-value`, 옮긴 것은 새 `example-link-value`.
-  - 왜: `changes.json`을 읽는 쪽이 있다면 뺀 것의 이름이 그대로다.
+  - 왜: 바뀐 곳의 목록을 읽는 쪽이 있다면 뺀 것의 이름이 그대로다.
   - 다른 안: 둘 다 새 이름으로.
-  - 바꾸려면: `rewrite.ts`의 `ChangeRule`, `output.ts`의 `CHANGE_RULES`.
-- **T7.** 산출물에 남을 수 있는 바깥 주소는 "링크 속성의 값이 통째로 `https://…example.com` 주소"뿐이다. 그 밖은 도구가 멈춘다.
+  - 바꾸려면: 변환기의 규칙 이름이었다. 지금은 `CHANGES.md`의 "규칙" 칸에만 남아 있다.
+- **T7.** 산출물에 남을 수 있는 바깥 주소는 "링크 속성의 값이 통째로 `https://…example.com` 주소"뿐이다. 그 밖은 테스트가 실패한다.
   - 왜: 전의 "하나도 남지 않는다"를 새 규칙에 맞게 좁혔다. 본문·제목·설명·다른 속성에는 예시 주소도 남지 못한다.
-  - 바꾸려면: `output.ts`의 `promiseProblems`.
+  - 바꾸려면: `tests/tools/builtin-templates.test.ts`의 `addressProblems`.
 
 ## 서버에 붙이며 정한 것 (`lib/api`)
 

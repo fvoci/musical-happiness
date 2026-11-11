@@ -304,6 +304,22 @@ mod tests {
     }
 
     #[test]
+    fn every_template_file_is_read_with_one_marked_for_the_tour() {
+        let templates = builtin_templates("t-root").expect("the embedded template files are read");
+        assert_eq!(
+            templates.boards.len(),
+            TEMPLATE_FILES.len(),
+            "a board per file"
+        );
+        let marked = templates
+            .boards
+            .iter()
+            .filter(|board| board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true)))
+            .count();
+        assert_eq!(marked, 1, "one template is marked for the onboarding tour");
+    }
+
+    #[test]
     fn only_a_marked_template_of_the_system_is_the_onboarding_template() {
         assert!(is_onboarding_template(&marked()), "the built-in one");
         assert!(!is_onboarding_template(&unmarked()), "without the mark");

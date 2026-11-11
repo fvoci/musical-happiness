@@ -342,9 +342,9 @@
 
 내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`에 있다(설계 5.7절의 "3.10의 갱신"). 모양은 그 폴더의 `README.md`에 있다. 서버가 넣을 때 맞춰야 하는 것은 넷이다.
 
-1. **온보딩 보드를 제목이 아니라 `onboarding` 표식으로 찾는다.** 서버의 `crates/server/src/app/templates.rs`는 제목 `Welcome to Boards!`로 찾는다(2026-11-10 20:09 KST에 본 것). 산출물에서는 그 제목이 `Welcome to fvoci!`로 바뀌었다.
+1. **온보딩 보드를 제목이 아니라 `onboarding` 표식으로 찾는다.** 서버의 `crates/server/src/app/templates.rs`가 그 표식(`ONBOARDING_PROPERTY`)으로 찾는다. 제목은 `Welcome to fvoci!`다.
 2. **식별자는 넣을 때 새로 만든다.** 산출물의 식별자는 아카이브의 것이다.
-3. **그림은 노드와 파일 목록만 싣는다.** 바이트는 원본 아카이브에 있다. "이미지를 뺄지"(설계 3.10의 추가 안)가 정해지면 산출물을 다시 만든다.
+3. **그림은 싣지 않는다.** 변환이 그림 노드를 뺐고 `files`는 늘 빈 목록이다(설계 3.10의 결정 18).
 4. **`isTemplate`, 보드 종류, 판 번호는 서버가 넣을 때 정한다.**
 
 ## 6. 화면을 만들며 더 가정한 것과 물을 것
