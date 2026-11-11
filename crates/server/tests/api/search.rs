@@ -397,6 +397,7 @@ async fn searches_answer_the_same_on_both_databases() {
         "q=nested.inner&field=property_name",
         "q=a&field=property_name",
         "q=%5B&field=property_name",
+        "q=a%00&field=property_name",
         "q=10%25%25",
         "q=r%25a",
     ] {

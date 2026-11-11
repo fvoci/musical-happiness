@@ -207,8 +207,8 @@ impl App {
     /// Points every block of each imported board that shows a file at the newly stored
     /// one: the `fileId` or `attachmentId` of an image or attachment block, and the
     /// images of a body. A name the archive brought no file for becomes the empty name
-    /// in a block's fields and stays as it is in a body. Failures are logged, as in the
-    /// original.
+    /// in a block's fields, and its image in a body an empty paragraph. Failures are
+    /// logged, as in the original.
     async fn fix_images_attachments(
         &self,
         board_map: &HashMap<String, Board>,
@@ -231,36 +231,38 @@ impl App {
             let mut block_ids = Vec::new();
             let mut block_patches = Vec::new();
             for block in blocks {
-                let patch =
-                    if let Some(mut body) = block.body.filter(|body| !body.file_ids().is_empty()) {
-                        body.rename_files(|old| {
-                            file_map.get(&(board.id.clone(), old.to_owned())).cloned()
-                        });
-                        fvoci_model::BlockPatch {
-                            body: fvoci_model::BodyChange::Set(body),
-                            ..fvoci_model::BlockPatch::default()
+                let patch = if let Some(body) =
+                    block.body.filter(|body| !body.file_ids().is_empty())
+                {
+                    let body = body.with_files_renamed(|old| {
+                        file_map.get(&(board.id.clone(), old.to_owned())).cloned()
+                    });
+                    fvoci_model::BlockPatch {
+                        body: body
+                            .map_or(fvoci_model::BodyChange::Clear, fvoci_model::BodyChange::Set),
+                        ..fvoci_model::BlockPatch::default()
+                    }
+                } else if block.block_type == BlockType::Attachment {
+                    let mut updated_fields = JsonMap::new();
+                    for key in ["fileId", "attachmentId"] {
+                        if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
+                            let new_name = file_map
+                                .get(&(board.id.clone(), old.to_owned()))
+                                .cloned()
+                                .unwrap_or_default();
+                            updated_fields.insert(key.to_owned(), Value::String(new_name));
                         }
-                    } else if block.block_type == BlockType::Attachment {
-                        let mut updated_fields = JsonMap::new();
-                        for key in ["fileId", "attachmentId"] {
-                            if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
-                                let new_name = file_map
-                                    .get(&(board.id.clone(), old.to_owned()))
-                                    .cloned()
-                                    .unwrap_or_default();
-                                updated_fields.insert(key.to_owned(), Value::String(new_name));
-                            }
-                        }
-                        if updated_fields.is_empty() {
-                            continue;
-                        }
-                        fvoci_model::BlockPatch {
-                            updated_fields,
-                            ..fvoci_model::BlockPatch::default()
-                        }
-                    } else {
+                    }
+                    if updated_fields.is_empty() {
                         continue;
-                    };
+                    }
+                    fvoci_model::BlockPatch {
+                        updated_fields,
+                        ..fvoci_model::BlockPatch::default()
+                    }
+                } else {
+                    continue;
+                };
                 block_ids.push(block.id);
                 block_patches.push(patch);
             }

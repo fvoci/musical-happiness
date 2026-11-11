@@ -996,6 +996,11 @@ pub(crate) async fn search_boards_for_user(
     user_id: &str,
     public_boards: PublicBoards,
 ) -> Result<Vec<Board>, StoreError> {
+    // No board's property has U+0000 in its name: it is refused when a board is stored,
+    // and PostgreSQL refuses it as a parameter.
+    if search_field == BoardSearchField::PropertyName && term.contains('\0') {
+        return Ok(Vec::new());
+    }
     let mut sql = select_boards_of_user(scope, user_id, public_boards);
     if !term.is_empty() && search_field == BoardSearchField::PropertyName {
         // A board property of that name, whatever its value, `null` too; a name is no

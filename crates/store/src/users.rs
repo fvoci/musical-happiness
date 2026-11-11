@@ -386,13 +386,37 @@ impl Store {
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn search_users_by_team(&self, search_query: &str) -> Result<Vec<User>, StoreError> {
-        let wanted = search_query.to_lowercase();
-        let users = self.get_users_by_team().await?;
-        Ok(users
-            .into_iter()
-            .filter(|user| user.username.to_lowercase().contains(&wanted))
-            .take(SEARCH_LIMIT)
-            .collect())
+        self.with_conn(async |scope| {
+            let limit = i64::try_from(SEARCH_LIMIT).unwrap_or(i64::MAX);
+            if search_query.is_empty() {
+                let mut sql = select_users(scope);
+                sql.push(OLDEST_FIRST).push_bind(" LIMIT ", limit);
+                return fetch_users(scope, sql).await;
+            }
+            // The names only, matched here; then the users that matched, read whole.
+            let wanted = search_query.to_lowercase();
+            let mut sql = scope.sql("SELECT id, username FROM users WHERE delete_at = 0");
+            sql.push(OLDEST_FIRST);
+            let mut matched = Vec::with_capacity(SEARCH_LIMIT);
+            for row in scope.fetch_all(sql).await? {
+                if row.text(1)?.to_lowercase().contains(&wanted) {
+                    matched.push(row.id(0)?);
+                    if matched.len() == SEARCH_LIMIT {
+                        break;
+                    }
+                }
+            }
+            if matched.is_empty() {
+                return Ok(Vec::new());
+            }
+            let mut sql = select_users(scope);
+            sql.push(" AND id IN (")
+                .bind_list(matched.iter().map(|id| Id(id)))
+                .push(")")
+                .push(OLDEST_FIRST);
+            fetch_users(scope, sql).await
+        })
+        .await
     }
 
     /// Sets and removes entries of the bag of client state of a user and returns the

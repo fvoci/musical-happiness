@@ -3,9 +3,7 @@
 //! A card has no storage of its own. It is created, read and patched as its block, so
 //! every change is announced the way block changes are.
 
-use fvoci_model::{
-    Block, BlockType, Card, CardError, CardPatch, is_card_field_of_its_kind, new_id,
-};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, new_id};
 use fvoci_store::{BlockFilter, Paging};
 
 use super::{App, ChangeNotification};
@@ -169,32 +167,20 @@ impl App {
 /// Builds the card view of a stored block.
 ///
 /// A card cannot be stored with `properties` that are no object, or an `icon` or
-/// `isTemplate` of another kind ([`fvoci_model::CARD_FIELD_KINDS`]), any more, but one stored before,
-/// or written straight to the database, may still hold such a field. The original fails
-/// to read such a card, and with it the whole card list of its board. Here the card is
-/// given out without the field, and a warning is logged.
+/// `isTemplate` of another kind, any more, but one stored before, or written straight to
+/// the database, may still hold such a field. The original fails to read such a card,
+/// and with it the whole card list of its board. Here the card is given out without the
+/// field ([`Block::drop_malformed_fields`]), and a warning is logged.
 fn card_from_stored_block(block: &Block, now: i64) -> Result<Card, CardError> {
-    let unreadable: Vec<String> = block
-        .fields
-        .iter()
-        .filter(|(field, value)| match field.as_str() {
-            "properties" => !value.is_object(),
-            field => !is_card_field_of_its_kind(field, value),
-        })
-        .map(|(field, _)| field.clone())
-        .collect();
-    if unreadable.is_empty() {
-        return Card::from_block(block, now);
-    }
-    tracing::warn!(
-        block_id = %block.id,
-        board_id = %block.board_id,
-        fields = ?unreadable,
-        "fields of a card are not of their kind; giving the card out without them"
-    );
     let mut readable = block.clone();
-    for field in &unreadable {
-        readable.fields.remove(field);
+    let malformed = readable.drop_malformed_fields();
+    if !malformed.is_empty() {
+        tracing::warn!(
+            block_id = %block.id,
+            board_id = %block.board_id,
+            fields = ?malformed,
+            "fields of a card are not of their kind; giving the card out without them"
+        );
     }
     Card::from_block(&readable, now)
 }

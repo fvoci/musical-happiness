@@ -228,18 +228,25 @@ pub enum BlockError {
     },
 }
 
-/// The fields of a card whose value has one kind, with the kind: anything else breaks
-/// the reading of the card ([`crate::Card::from_block`]). `null` is taken as absent.
-pub const CARD_FIELD_KINDS: [(&str, &str); 2] = [("icon", "a string"), ("isTemplate", "a boolean")];
+/// One rule of [`CARD_FIELD_KINDS`]: the field, its kind as a message names it, and
+/// whether a value is of that kind.
+type CardFieldKind = (&'static str, &'static str, fn(&Value) -> bool);
 
-/// Whether `value` is of the kind [`CARD_FIELD_KINDS`] gives `field`: `null` always is.
-#[must_use]
-pub fn is_card_field_of_its_kind(field: &str, value: &Value) -> bool {
-    match (field, value) {
-        (_, Value::Null) | ("icon", Value::String(_)) | ("isTemplate", Value::Bool(_)) => true,
-        ("icon" | "isTemplate", _) => false,
-        _ => true,
-    }
+/// The fields of a card whose value has one kind. Anything else breaks the reading of
+/// the card ([`crate::Card::from_block`]). `null` is taken as absent and is of every
+/// kind.
+const CARD_FIELD_KINDS: [CardFieldKind; 2] = [
+    ("icon", "a string", Value::is_string),
+    ("isTemplate", "a boolean", Value::is_boolean),
+];
+
+/// Whether `value` may be the value of the card field `field` ([`CARD_FIELD_KINDS`]).
+fn is_card_field_of_its_kind(field: &str, value: &Value) -> bool {
+    value.is_null()
+        || CARD_FIELD_KINDS
+            .iter()
+            .find(|(name, _, _)| *name == field)
+            .is_none_or(|(_, _, is_of_kind)| is_of_kind(value))
 }
 
 /// How much of a type that is refused a [`BlockError::TypeNotCurrent`] shows: the
@@ -324,7 +331,7 @@ impl Block {
     /// serialized fields exceed their size limits (the latter by type), the title holds
     /// U+0000, the fields hold `properties` that are not well-formed card property
     /// values, or the block is a card whose `icon` or `isTemplate` is of another kind
-    /// ([`CARD_FIELD_KINDS`]). `properties` among a block's fields always means card
+    /// (a string and a boolean, or `null`). `properties` among a block's fields always means card
     /// property values, whatever the block's type.
     pub fn validate(&self) -> Result<(), BlockError> {
         if self.board_id.is_empty() {
@@ -337,11 +344,11 @@ impl Block {
             return Err(BlockError::NulInTitle);
         }
         if self.block_type == BlockType::Card {
-            for (field, expected) in CARD_FIELD_KINDS {
+            for (field, expected, is_of_kind) in CARD_FIELD_KINDS {
                 if self
                     .fields
                     .get(field)
-                    .is_some_and(|value| !is_card_field_of_its_kind(field, value))
+                    .is_some_and(|value| !value.is_null() && !is_of_kind(value))
                 {
                     return Err(BlockError::InvalidCardField { field, expected });
                 }
@@ -359,6 +366,28 @@ impl Block {
             return Err(BlockError::BodyNotAllowed);
         }
         Ok(())
+    }
+
+    /// Removes the fields that a block can no longer be stored with but that one stored
+    /// before may hold: `properties` that are no object, and for a card an `icon` or
+    /// `isTemplate` of another kind. Returns their names. A stored block is made so
+    /// before it is read as a card, patched or copied: what is refused is what a
+    /// request writes, not what was there.
+    pub fn drop_malformed_fields(&mut self) -> Vec<String> {
+        let is_card = self.block_type == BlockType::Card;
+        let malformed: Vec<String> = self
+            .fields
+            .iter()
+            .filter(|(field, value)| match field.as_str() {
+                "properties" => !value.is_object(),
+                field => is_card && !is_card_field_of_its_kind(field, value),
+            })
+            .map(|(field, _)| field.clone())
+            .collect();
+        for field in &malformed {
+            self.fields.remove(field);
+        }
+        malformed
     }
 
     /// The stored names of the files the block shows, each once: the file of an image

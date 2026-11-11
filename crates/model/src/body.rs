@@ -155,12 +155,15 @@ impl Body {
         ids
     }
 
-    /// Points the images of the body at other files: `rename` gives the new name of a
-    /// file, or `None` for a file that has none, whose image becomes an empty
+    /// The body with its images pointed at other files: `rename` gives the new name of
+    /// a file, or `None` for a file that has none, whose image becomes an empty
     /// paragraph (a body has no image without its file, and the place of a block
-    /// stays filled). A copy of a body whose files were copied is made so.
-    pub fn rename_files(&mut self, rename: impl Fn(&str) -> Option<String>) {
+    /// stays filled). `None` if nothing is left but an empty paragraph: that is no
+    /// body. A copy of a body whose files were copied is made so.
+    #[must_use]
+    pub fn with_files_renamed(mut self, rename: impl Fn(&str) -> Option<String>) -> Option<Self> {
         rename_in(&mut self.document, &rename);
+        (!is_empty_document(&self.document)).then_some(self)
     }
 }
 
@@ -388,14 +391,16 @@ mod tests {
     #[test]
     fn an_image_without_its_file_becomes_an_empty_paragraph() {
         let image = |file: &str| json!({"type": "image", "attrs": {"fileId": file}});
-        let mut body = Body::parse(document(&[
+        let body = Body::parse(document(&[
             image("kept.png"),
             json!({"type": "blockquote", "content": [image("lost.png")]}),
             paragraph("x"),
         ]))
         .expect("a body")
         .expect("not empty");
-        body.rename_files(|old| (old == "kept.png").then(|| "copy.png".to_owned()));
+        let body = body
+            .with_files_renamed(|old| (old == "kept.png").then(|| "copy.png".to_owned()))
+            .expect("still a body");
         let expected = document(&[
             image("copy.png"),
             json!({"type": "blockquote", "content": [{"type": "paragraph"}]}),
@@ -407,6 +412,17 @@ mod tests {
             "still a valid body"
         );
         assert_eq!(body.file_ids(), ["copy.png"]);
+    }
+
+    /// A body that was an image without its file and nothing else is no body.
+    #[test]
+    fn a_body_of_a_lost_image_alone_is_no_body() {
+        let body = Body::parse(document(&[
+            json!({"type": "image", "attrs": {"fileId": "lost.png"}}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+        assert_eq!(body.with_files_renamed(|_| None), None);
     }
 
     #[test]

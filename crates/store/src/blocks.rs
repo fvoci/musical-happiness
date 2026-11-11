@@ -104,6 +104,28 @@ pub enum DuplicateAs {
 }
 
 impl Store {
+    /// Writes the fields of a block as they are, without any check: for tests that need
+    /// a block as an older server stored it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    #[cfg(feature = "test-util")]
+    pub async fn set_block_fields_unchecked(
+        &self,
+        block_id: &str,
+        fields: &fvoci_model::JsonMap,
+    ) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE blocks SET fields = ");
+            sql.bind(Param::json(fields)?)
+                .push_bind(" WHERE id = ", Id(block_id));
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Returns the blocks matching `filter`, oldest first.
     ///
     /// # Errors
@@ -602,10 +624,12 @@ async fn check_written_kinds(
     })
 }
 
-/// Clears the values of copied cards that no longer fit their board's definitions, as
-/// [`fvoci_model::clear_values_of_another_kind`] does.
+/// Clears what copied blocks can no longer be stored with: malformed fields
+/// ([`Block::drop_malformed_fields`]), and the values of cards that no longer fit their
+/// board's definitions, as [`fvoci_model::clear_values_of_another_kind`] does.
 pub(crate) fn clear_copied_values(blocks: &mut [Block], definitions: &[fvoci_model::JsonMap]) {
     for block in blocks {
+        block.drop_malformed_fields();
         if let Some(Value::Object(values)) = block.fields.get_mut("properties") {
             fvoci_model::clear_values_of_another_kind(values, definitions);
         }
@@ -740,6 +764,8 @@ pub(crate) async fn patch_block(
     boards::lock_board(scope, &board_id).await?;
     let mut block = get_block(scope, block_id).await?;
     let stored_update_at = block.update_at;
+    // What the block was stored with before it was refused is not the patch's fault.
+    block.drop_malformed_fields();
     patch
         .check_type(&block.block_type)
         .map_err(|source| StoreError::InvalidBlock {

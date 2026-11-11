@@ -225,13 +225,21 @@ impl App {
         let mut block_ids = Vec::new();
         let mut block_patches = Vec::new();
         for block in blocks.iter_mut() {
-            if let Some(body) = block.body.as_mut()
-                && !body.file_ids().is_empty()
+            if block
+                .body
+                .as_ref()
+                .is_some_and(|body| !body.file_ids().is_empty())
             {
-                rename_body_files(body, &new_file_names);
+                block.body = block
+                    .body
+                    .take()
+                    .and_then(|body| rename_body_files(body, &new_file_names));
                 block_ids.push(block.id.clone());
                 block_patches.push(BlockPatch {
-                    body: BodyChange::Set(body.clone()),
+                    body: block
+                        .body
+                        .clone()
+                        .map_or(BodyChange::Clear, BodyChange::Set),
                     ..BlockPatch::default()
                 });
                 continue;
@@ -300,9 +308,10 @@ impl App {
             }
         };
         for block in blocks.iter_mut() {
-            if let Some(body) = block.body.as_mut() {
-                rename_body_files(body, &new_file_names);
-            }
+            block.body = block
+                .body
+                .take()
+                .and_then(|body| rename_body_files(body, &new_file_names));
             if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
                 continue;
             }
@@ -405,8 +414,9 @@ impl App {
 
 /// Points the images of a copied body at the copies of their files. An image whose file
 /// was not copied becomes an empty paragraph: it would show a file of another board.
-fn rename_body_files(body: &mut Body, new_file_names: &HashMap<String, String>) {
-    body.rename_files(|old| new_file_names.get(old).cloned());
+/// `None` if that leaves no body.
+fn rename_body_files(body: Body, new_file_names: &HashMap<String, String>) -> Option<Body> {
+    body.with_files_renamed(|old| new_file_names.get(old).cloned())
 }
 
 /// The last path segment of a client-supplied name, so that a name with directory parts

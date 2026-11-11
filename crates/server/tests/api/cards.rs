@@ -1139,6 +1139,58 @@ async fn a_malformed_card_block_is_refused() {
     th.teardown().await;
 }
 
+/// A card an older server stored with a malformed field is read without it, and is
+/// written and copied without it: a request is refused for what it writes, not for
+/// what was there.
+#[tokio::test]
+async fn a_card_stored_with_a_malformed_field_is_written_and_copied_without_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let card = create_card(&th.client, &board.id, &json!({"title": "old"})).await;
+    let stored = serde_json::from_value(json!({"icon": 5, "isTemplate": "yes", "properties": []}))
+        .expect("an object");
+    th.app
+        .store()
+        .set_block_fields_unchecked(&card.id, &stored)
+        .await
+        .expect("written as an older server would have");
+
+    let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
+    assert_eq!(read.icon, "", "read without it");
+    let patched: Card = th
+        .client
+        .patch(&card_path(&card.id), &title_patch("new"))
+        .await
+        .ok_json();
+    assert_eq!(patched.title, "new", "the patch writes the title");
+    let response = th
+        .client
+        .patch(
+            &format!("/boards/{}/blocks/{}", board.id, card.id),
+            &json!({"title": "newer"}),
+        )
+        .await;
+    response.check_no_content();
+
+    th.app
+        .store()
+        .set_block_fields_unchecked(&card.id, &stored)
+        .await
+        .expect("written again");
+    th.client
+        .post_empty(&format!("/boards/{}/duplicate", board.id))
+        .await
+        .check_created();
+    th.client
+        .post_empty(&format!(
+            "/boards/{}/blocks/{}/duplicate",
+            board.id, card.id
+        ))
+        .await
+        .check_created();
+    th.teardown().await;
+}
+
 /// A title with U+0000 is refused (400 naming `title`) on both databases: PostgreSQL
 /// cannot store it in text, which was a 500 there.
 #[tokio::test]
