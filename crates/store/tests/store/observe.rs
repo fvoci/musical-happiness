@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use fvoci_model::{User, new_id};
 use fvoci_store::{Access, Call, DbType, Observer, Outcome};
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::{ConnectOptions as _, Connection as _};
 
 use crate::common;
 
@@ -147,4 +149,61 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
     );
     assert_eq!(waits, 1, "the wait that got nothing");
     store.teardown().await;
+}
+
+/// A call on one connection given up while its statement that writes waits for a lock
+/// that another connection holds is told as one that wrote: it started writing, though
+/// it never said so by ending (`origin/fvoci/review-metrics`, `review_observe.rs`).
+#[tokio::test]
+async fn a_cancelled_statement_that_started_writing_is_observed_as_a_write() {
+    let store = common::setup().await;
+    let recorder = Recorder::default();
+    assert!(store.observe(Box::new(recorder.clone())), "the observer");
+    let dbconfig = store.dbconfig();
+    let session_id = new_id();
+    let delete = || tokio::time::timeout(Duration::from_secs(1), store.delete_session(&session_id));
+    let given_up = match common::db_type() {
+        DbType::Sqlite => {
+            let mut holder = SqliteConnectOptions::new()
+                .filename(&dbconfig)
+                .connect()
+                .await
+                .expect("a connection of the test's own");
+            let lock = holder
+                .begin_with("BEGIN IMMEDIATE")
+                .await
+                .expect("the write lock is held");
+            let given_up = delete().await.is_err();
+            lock.rollback().await.expect("the write lock is let go");
+            holder.close().await.expect("the connection closes");
+            given_up
+        }
+        DbType::Postgres => {
+            let mut holder = common::connect_past_the_store(&dbconfig).await;
+            let mut lock = holder
+                .begin()
+                .await
+                .expect("a transaction of the test's own");
+            sqlx::raw_sql("LOCK TABLE sessions IN ACCESS EXCLUSIVE MODE")
+                .execute(&mut *lock)
+                .await
+                .expect("the table lock is held");
+            let given_up = delete().await.is_err();
+            lock.rollback().await.expect("the table lock is let go");
+            holder.close().await.expect("the connection closes");
+            given_up
+        }
+    };
+    let (calls, waits) = recorder.take();
+    store.teardown().await;
+    assert!(
+        given_up,
+        "the write waits for the lock until it is given up"
+    );
+    assert_eq!(
+        shapes(&calls),
+        [(Access::Write, Outcome::Abandoned)],
+        "told once, as a write given up: {calls:?}"
+    );
+    assert_eq!(waits, 1, "one wait for a connection");
 }

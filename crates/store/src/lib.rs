@@ -441,7 +441,8 @@ impl Store {
                     Ok(conn) => conn,
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
-                let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept);
+                let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept)
+                    .telling(watch.map(Watch::writes));
                 let result = operation(&mut scope).await;
                 (result, Access::of(&scope))
             }
@@ -454,7 +455,8 @@ impl Store {
                     Ok(tx) => tx,
                     Err(error) => return (Err(error.into()), Access::Read),
                 };
-                let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept);
+                let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept)
+                    .telling(watch.map(Watch::writes));
                 let result = operation(&mut scope).await;
                 let access = Access::of(&scope);
                 if access == Access::Write {
