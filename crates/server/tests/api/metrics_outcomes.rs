@@ -1,4 +1,5 @@
-//! The metrics of what the server's work came to: the problems the API refused with.
+//! The metrics of what the server's work came to: the problems the API refused with, and
+//! the calls of the database.
 
 use reqwest::{Method, StatusCode};
 
@@ -111,4 +112,60 @@ async fn what_a_client_sends_makes_no_problem_of_its_own() {
         );
     }
     server.teardown().await;
+}
+
+#[tokio::test]
+async fn the_calls_of_the_database_are_measured() {
+    let server = server_with_metrics().await;
+    let before = scrape(&server).await;
+    let db = server.app.store().db_type().as_str();
+    let reads = |body: &str| {
+        sample(
+            body,
+            "fvoci_db_call_duration_seconds_count",
+            &[("access", "read"), ("db", db)],
+        )
+        .unwrap_or_default()
+    };
+    let waits = |body: &str| {
+        sample(body, "fvoci_db_pool_wait_seconds_count", &[("db", db)]).unwrap_or_default()
+    };
+    let response = server.client.get("/ping").await;
+    assert_eq!(response.status, StatusCode::OK);
+    let after = scrape(&server).await;
+    assert!(reads(&after) > reads(&before), "ping reads: {after}");
+    assert!(
+        waits(&after) > waits(&before),
+        "and waits for a connection: {after}"
+    );
+    assert_eq!(
+        sample(
+            &after,
+            "fvoci_db_call_failures_total",
+            &[("access", "read"), ("db", db)]
+        ),
+        None,
+        "nothing failed: {after}"
+    );
+    server.teardown().await;
+}
+
+#[tokio::test]
+async fn a_server_without_metrics_gives_its_store_no_observer() {
+    let server = Setup::native().start().await;
+    assert!(
+        server.app.store().observe(Box::new(NoObserver)),
+        "the store had none"
+    );
+    server.teardown().await;
+}
+
+/// An observer that is told nothing it keeps.
+#[derive(Debug)]
+struct NoObserver;
+
+impl fvoci_store::Observer for NoObserver {
+    fn called(&self, _: fvoci_store::Call) {}
+
+    fn waited_for_connection(&self, _: fvoci_store::DbType, _: std::time::Duration) {}
 }

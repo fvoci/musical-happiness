@@ -16,11 +16,13 @@ use anyhow::Context as _;
 use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
 
 mod background;
+mod database;
 mod requests;
 mod storage;
 mod websocket;
 
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
+pub(crate) use database::{Database, DbAccess, DbOutcome};
 pub(crate) use requests::{ABANDONED, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
 pub(crate) use storage::{OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;
@@ -46,6 +48,7 @@ struct Kept {
     requests: RequestMetrics,
     websocket: websocket::WebsocketMetrics,
     storage: storage::StorageMetrics,
+    database: database::DatabaseMetrics,
     background: background::BackgroundMetrics,
 }
 
@@ -83,6 +86,7 @@ impl Metrics {
         let requests = RequestMetrics::register(&registry)?;
         let websocket = websocket::WebsocketMetrics::register(&registry)?;
         let storage = storage::StorageMetrics::register(&registry)?;
+        let database = database::DatabaseMetrics::register(&registry)?;
         let background = background::BackgroundMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
@@ -90,6 +94,7 @@ impl Metrics {
                 requests,
                 websocket,
                 storage,
+                database,
                 background,
             })),
         })

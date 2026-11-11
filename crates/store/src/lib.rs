@@ -21,6 +21,7 @@ mod error;
 mod file_info;
 mod file_refs;
 mod members;
+mod observe;
 mod schema;
 mod sessions;
 mod sharing;
@@ -35,6 +36,7 @@ mod users;
 use std::sync::Arc;
 use std::time::Duration;
 
+use sqlx::Connection as _;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
@@ -46,12 +48,14 @@ pub use connect::DbType;
 pub use db::Dialect;
 pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
 pub use error::{StoreError, Taken};
+pub use observe::{Access, Call, Observer, Outcome};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
 pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};
+use observe::Watch;
 use sqlx::types::Uuid;
 
 /// How many connections a store keeps to a file or server database.
@@ -151,6 +155,8 @@ struct Inner {
     sqlite_writers: tokio::sync::Mutex<()>,
     /// See [`Store::set_comment_versions_kept`].
     comment_versions_kept: std::sync::atomic::AtomicUsize,
+    /// Who is told about the calls; see [`Store::observe`].
+    observer: std::sync::OnceLock<Box<dyn Observer>>,
 }
 
 /// The connections. Nothing takes one but [`Store::with_conn`] and
@@ -241,8 +247,22 @@ impl Store {
                     usize::try_from(comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT)
                         .unwrap_or(usize::MAX),
                 ),
+                observer: std::sync::OnceLock::new(),
             }),
         })
+    }
+
+    /// Tells `observer` about every call of this store and of every handle to the same
+    /// database, from now on: how long it took, whether it wrote, how it ended, and how
+    /// long it waited for a connection. A store has one observer; if it has one already,
+    /// that one stays and `false` is returned.
+    pub fn observe(&self, observer: Box<dyn Observer>) -> bool {
+        self.inner.observer.set(observer).is_ok()
+    }
+
+    /// The observer of the calls, if there is one.
+    fn watch(&self) -> Option<Watch<'_>> {
+        Watch::start(self.inner.observer.get().map(Box::as_ref), self.db_type())
     }
 
     /// A handle to the same database that reaches the rows of `tenant`.
@@ -379,23 +399,45 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
+        let watch = self.watch();
+        let (result, access) = self.on_conn(watch.as_ref(), operation).await;
+        if let Some(watch) = watch {
+            watch.finish(access, &result);
+        }
+        result
+    }
+
+    /// The work of [`Store::with_conn`], and whether a statement wrote.
+    async fn on_conn<T>(
+        &self,
+        watch: Option<&Watch<'_>>,
+        operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
+    ) -> (Result<T, StoreError>, Access) {
         let kept = self.comment_versions_kept();
         match &self.inner.pool {
             Pool::Sqlite(pool) => {
-                let mut conn = pool.acquire().await?;
-                operation(&mut Scope::new(
-                    ConnRef::Sqlite(&mut conn),
-                    self.tenant,
-                    kept,
-                ))
-                .await
+                let mut conn = match Watch::acquire(watch, pool).await {
+                    Ok(conn) => conn,
+                    Err(error) => return (Err(error.into()), Access::Read),
+                };
+                let mut scope = Scope::new(ConnRef::Sqlite(&mut conn), self.tenant, kept);
+                let result = operation(&mut scope).await;
+                (result, Access::of(&scope))
             }
             Pool::Postgres(pool) => {
-                let mut tx = pool.begin_with(self.tenant.begin_on_postgres()).await?;
+                let mut conn = match Watch::acquire(watch, pool).await {
+                    Ok(conn) => conn,
+                    Err(error) => return (Err(error.into()), Access::Read),
+                };
+                let mut tx = match conn.begin_with(self.tenant.begin_on_postgres()).await {
+                    Ok(tx) => tx,
+                    Err(error) => return (Err(error.into()), Access::Read),
+                };
                 let mut scope = Scope::new(ConnRef::Postgres(&mut tx), self.tenant, kept);
                 let result = operation(&mut scope).await;
-                if scope.wrote() {
-                    finish(result, tx).await
+                let access = Access::of(&scope);
+                if access == Access::Write {
+                    (finish(result, tx).await, access)
                 } else {
                     // Nothing to keep or to undo, so nothing to wait for. The dropped
                     // transaction is rolled back with the check the pool makes of
@@ -403,7 +445,7 @@ impl Store {
                     // is, behind the caller: the connection is back as soon as it was
                     // when a read was no transaction.
                     drop(tx);
-                    result
+                    (result, access)
                 }
             }
         }
@@ -413,6 +455,20 @@ impl Store {
     /// it fails.
     async fn transaction<T>(
         &self,
+        operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let watch = self.watch();
+        let result = self.in_transaction(watch.as_ref(), operation).await;
+        if let Some(watch) = watch {
+            watch.finish(Access::Write, &result);
+        }
+        result
+    }
+
+    /// The work of [`Store::transaction`].
+    async fn in_transaction<T>(
+        &self,
+        watch: Option<&Watch<'_>>,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
         let kept = self.comment_versions_kept();
@@ -428,13 +484,15 @@ impl Store {
                 // Take the write lock up front. A transaction that starts by reading and
                 // then tries to write fails with SQLITE_BUSY as soon as another one does
                 // the same, and no busy timeout can resolve that.
-                let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+                let mut conn = Watch::acquire(watch, pool).await?;
+                let mut tx = conn.begin_with("BEGIN IMMEDIATE").await?;
                 let result =
                     operation(&mut Scope::new(ConnRef::Sqlite(&mut tx), self.tenant, kept)).await;
                 finish(result, tx).await
             }
             Pool::Postgres(pool) => {
-                let mut tx = pool.begin_with(self.tenant.begin_on_postgres()).await?;
+                let mut conn = Watch::acquire(watch, pool).await?;
+                let mut tx = conn.begin_with(self.tenant.begin_on_postgres()).await?;
                 let result = operation(&mut Scope::new(
                     ConnRef::Postgres(&mut tx),
                     self.tenant,
@@ -450,7 +508,7 @@ impl Store {
 /// Commits `tx` if the operation succeeded and rolls it back otherwise.
 async fn finish<T, DB: sqlx::Database>(
     result: Result<T, StoreError>,
-    tx: sqlx::Transaction<'static, DB>,
+    tx: sqlx::Transaction<'_, DB>,
 ) -> Result<T, StoreError> {
     match result {
         Ok(value) => {

@@ -27,6 +27,7 @@ pub use slots::Slot;
 pub(crate) use startup::open_store;
 mod sharing;
 mod startup;
+mod store_metrics;
 mod subscriptions;
 mod teams;
 mod templates;
@@ -157,6 +158,11 @@ impl App {
         } else {
             Metrics::none()
         };
+        if metrics.is_kept()
+            && !store.observe(Box::new(store_metrics::StoreMetrics(metrics.clone())))
+        {
+            tracing::warn!("the store has an observer already; its calls are not measured");
+        }
         store.set_comment_versions_kept(config.max_comment_versions);
         // The authenticator reads what is no organization's (sessions), and asks the
         // directory whose a shared board is: it is given no organization to reach.
