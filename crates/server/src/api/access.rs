@@ -79,7 +79,7 @@ pub(crate) async fn require_block_change_permission(
     denial: &str,
 ) -> Result<(), AppError> {
     let (permission, denial) = match block.block_type {
-        BlockType::Comment => comment_permission(user_id, block, denial),
+        BlockType::Comment => comment_permission(user_id, block, denial, OTHERS_COMMENTS_DENIED),
         _ => (BoardPermission::ManageBoardCards, denial),
     };
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
@@ -120,49 +120,46 @@ pub(crate) async fn require_block_patch_permission(
     let (permission, denial) = match (&block.block_type, new_type) {
         (BlockType::Comment, BlockType::Comment) => return Ok(()),
         (BlockType::Comment, _) => (BoardPermission::ManageBoardCards, denial),
-        (_, BlockType::Comment) => comment_permission(user_id, block, denial),
+        (_, BlockType::Comment) => {
+            comment_permission(user_id, block, denial, OTHERS_COMMENTS_DENIED)
+        }
         _ => return Ok(()),
     };
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
 }
 
-/// Checks, for deleting a block or bringing it back, that a comment of somebody else is
-/// the board admins' to do (`ManageOthersComments`); refused with `denial`. Any other
-/// block, and the user's own comment, need nothing more than the editor's role the
-/// caller asked for.
-pub(crate) async fn require_comment_owner_or_admin(
+/// Checks that the user may delete the block, or bring it back from the trash: a
+/// comment is its author's to delete with the commenter's role, and somebody else's the
+/// board admins' only (`ManageOthersComments`, refused with `others_denial`); any other
+/// block is the editors' (refused with `denial`). Every route that deletes a block or
+/// brings one back asks this.
+pub(crate) async fn require_block_delete_permission(
     app: &App,
     user_id: &str,
     block: &Block,
     denial: &str,
+    others_denial: &str,
 ) -> Result<(), AppError> {
-    if block.block_type != BlockType::Comment || block.created_by == user_id {
-        return Ok(());
-    }
-    require_board_permission(
-        app,
-        user_id,
-        &block.board_id,
-        BoardPermission::ManageOthersComments,
-        denial,
-    )
-    .await
+    let (permission, denial) = match block.block_type {
+        BlockType::Comment => comment_permission(user_id, block, denial, others_denial),
+        _ => (BoardPermission::ManageBoardCards, denial),
+    };
+    require_board_permission(app, user_id, &block.board_id, permission, denial).await
 }
 
-/// The permission that changing a comment, or making the block one, needs, and the
-/// refusal without it.
+/// The permission that changing or deleting a comment, or making the block one, needs,
+/// and the refusal without it: `denial` for the author, `others_denial` for anybody
+/// else.
 fn comment_permission<'a>(
     user_id: &str,
     block: &Block,
     denial: &'a str,
+    others_denial: &'a str,
 ) -> (BoardPermission, &'a str) {
     if block.created_by == user_id {
         (BoardPermission::CommentBoardCards, denial)
     } else {
-        (
-            BoardPermission::ManageOthersComments,
-            OTHERS_COMMENTS_DENIED,
-        )
+        (BoardPermission::ManageOthersComments, others_denial)
     }
 }
 

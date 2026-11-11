@@ -13,6 +13,7 @@ mod boards;
 mod boards_and_blocks;
 mod bodies;
 mod cards;
+mod comments;
 mod compression;
 mod content_blocks;
 mod cookies;

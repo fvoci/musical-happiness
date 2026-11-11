@@ -28,7 +28,8 @@ use super::{
     take_patch_bodies,
 };
 use super::{
-    require_block_change_permission, require_block_patch_permission, require_comment_owner_or_admin,
+    require_block_change_permission, require_block_delete_permission,
+    require_block_patch_permission,
 };
 use crate::app::App;
 use crate::auth::now_millis;
@@ -388,9 +389,9 @@ async fn handle_post_blocks(
 /// Delete a block
 ///
 /// The block goes to the trash with the blocks below it, and `undeleteBlock` brings it
-/// back until the trash is emptied of it. For editors, whatever the block is: a
-/// commenter cannot delete their own comment this way. A comment of somebody else is
-/// deleted by the board's admins only.
+/// back until the trash is emptied of it. For editors; a comment is its author's to
+/// delete from the commenter's role up, and a comment of somebody else the board's
+/// admins' only (403, `access denied to delete other users' comments`).
 #[utoipa::path(
     delete,
     path = "/boards/{boardId}/blocks/{blockId}",
@@ -407,19 +408,21 @@ async fn handle_delete_block(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
+    // Nobody below the commenter's role deletes anything, whatever the block is.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
     let block = block_on_board(&app, &block_id, &board_id).await?;
-    require_comment_owner_or_admin(
+    require_block_delete_permission(
         &app,
         user_id,
         &block,
+        CHANGES_DENIED,
         "access denied to delete other users' comments",
     )
     .await?;
@@ -432,11 +435,12 @@ async fn handle_delete_block(
 ///
 /// Restores a block of the board from the trash, with the blocks that went there with
 /// it. A block whose parent is gone has nowhere to come back to: 404. For who may
-/// delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
-/// else the board's admins only (403, `access denied to undelete other users'
-/// comments`). What decides is the block that was deleted, which took the others along:
-/// a block below somebody else's comment is brought back by the admins only, and a
-/// comment that went with its card by whoever may bring back the card.
+/// delete what comes back, as `deleteBlock` has it: editors, a comment its author from
+/// the commenter's role up, and a comment of somebody else the board's admins only
+/// (403, `access denied to undelete other users' comments`). What decides is the block
+/// that was deleted, which took the others along: a block below somebody else's comment
+/// is brought back by the admins only, and a comment that went with its card by
+/// whoever may bring back the card.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks/{blockId}/undelete",
@@ -451,33 +455,35 @@ async fn handle_undelete_block(
     Path((board_id, block_id)): Path<(String, String)>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
+    // Nobody below the commenter's role brings anything back, whatever the block is.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
     let board = app.board(&board_id).await?;
     // What is restored is what the trash has of this board. A block that exists, one
     // that never did and one of another board are all not there to restore.
-    app.deleted_block(&block_id)
+    let named = app
+        .deleted_block(&block_id)
         .await?
         .filter(|deleted| deleted.block.board_id == board.id)
         .ok_or_else(|| AppError::not_found("block"))?;
     // Only who may delete it brings it back: what comes back is the whole deletion, so
     // the block that was deleted, at its top, is what decides (a block below somebody
     // else's comment brings that comment back).
-    if let Some(top) = app.deletion_top(&block_id).await? {
-        require_comment_owner_or_admin(
-            &app,
-            user_id,
-            &top.block,
-            "access denied to undelete other users' comments",
-        )
-        .await?;
-    }
+    let top = app.deletion_top(&block_id).await?.unwrap_or(named);
+    require_block_delete_permission(
+        &app,
+        user_id,
+        &top.block,
+        CHANGES_DENIED,
+        "access denied to undelete other users' comments",
+    )
+    .await?;
 
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
