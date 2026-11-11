@@ -65,8 +65,8 @@ impl Store {
         .await
     }
 
-    /// Returns the upload sessions to throw away at `now`: those that have ended, and
-    /// those closed before `closed_before` that are still there, as when the server
+    /// Returns the upload sessions to throw away at `now`: those open that have ended,
+    /// and those closed before `closed_before` that are still there, as when the server
     /// stopped between closing a session and throwing it away.
     ///
     /// # Errors
@@ -78,11 +78,13 @@ impl Store {
         closed_before: i64,
     ) -> Result<Vec<Upload>, StoreError> {
         self.with_conn(async |scope| {
+            // A closed session is left to whoever closed it for the grace, also past its
+            // end: a completion that began just before the end is not cut off.
             let mut sql = scope.sql(&format!(
-                "SELECT {UPLOAD_COLUMNS} FROM uploads WHERE expires_at <= "
+                "SELECT {UPLOAD_COLUMNS} FROM uploads WHERE (closed_at = 0 AND expires_at <= "
             ));
             sql.bind(now)
-                .push_bind(" OR (closed_at <> 0 AND closed_at < ", closed_before)
+                .push_bind(") OR (closed_at <> 0 AND closed_at < ", closed_before)
                 .push(") ORDER BY expires_at");
             scope
                 .fetch_all(sql)

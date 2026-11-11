@@ -117,8 +117,8 @@ pub struct Configuration {
     /// The directory of the `local` file backend.
     #[serde(rename = "filespath")]
     pub files_path: String,
-    /// The largest accepted upload in bytes: 100 MiB unless set. Zero or less for none
-    /// beyond what an upload in parts can carry (`upload_part_bytes` × 10,000).
+    /// The largest accepted upload in bytes: 100 MiB unless set. At least 1, and at most
+    /// what an upload in parts carries (`upload_part_bytes` × 10,000).
     #[serde(rename = "maxfilesize")]
     pub max_file_size: i64,
     /// The address of the metrics endpoint. Not supported; must be empty.
@@ -551,6 +551,34 @@ impl Configuration {
         }
     }
 
+    /// Checks the limits on uploads: none turns a limit off, and they fit together.
+    fn check_upload_limits(&self) -> anyhow::Result<()> {
+        // An S3 multipart upload takes no smaller part but the last, and none larger.
+        if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
+            bail!(
+                "upload_part_bytes must be {MIN_UPLOAD_PART_BYTES} (5 MiB) to \
+                 {MAX_UPLOAD_PART_BYTES} (5 GiB)"
+            );
+        }
+        // Zero once meant "no limit"; a server without one is not something to end up
+        // with by leaving a number at what it was (`docs/s6-design.md` 4.2).
+        let largest = self
+            .upload_part_bytes
+            .saturating_mul(u64::try_from(fvoci_model::MAX_UPLOAD_PARTS).unwrap_or(0));
+        if u64::try_from(self.max_file_size).map_or(true, |size| size == 0 || size > largest) {
+            bail!(
+                "maxfilesize must be 1 to {largest} bytes (upload_part_bytes times 10,000 \
+                 parts), not {}",
+                self.max_file_size
+            );
+        }
+        // Less would refuse the largest file with 429 every time, as if it might fit later.
+        if self.max_pending_upload_bytes < self.max_file_size.unsigned_abs() {
+            bail!("max_pending_upload_bytes must be at least maxfilesize");
+        }
+        Ok(())
+    }
+
     /// Checks that the configuration only asks for what this server supports.
     ///
     /// Returns the warnings for settings that are accepted but have no effect.
@@ -591,17 +619,7 @@ impl Configuration {
         if self.trash_retention_days == 0 {
             bail!("trash_retention_days must be at least 1");
         }
-        // Zero would refuse every upload in parts.
-        if self.max_pending_upload_bytes == 0 {
-            bail!("max_pending_upload_bytes must be a positive number of bytes, not 0");
-        }
-        // An S3 multipart upload takes no smaller part but the last, and none larger.
-        if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
-            bail!(
-                "upload_part_bytes must be {MIN_UPLOAD_PART_BYTES} (5 MiB) to \
-                 {MAX_UPLOAD_PART_BYTES} (5 GiB)"
-            );
-        }
+        self.check_upload_limits()?;
         if !self.prometheus_address.is_empty() {
             bail!("prometheusaddress is set, but this server has no metrics endpoint");
         }
@@ -918,6 +936,16 @@ mod tests {
         assert!(error(r#"{"upload_part_bytes": 5242879}"#).contains("upload_part_bytes"));
         assert!(error(r#"{"upload_part_bytes": 5368709121}"#).contains("upload_part_bytes"));
         assert!(error(r#"{"max_pending_upload_bytes": 0}"#).contains("max_pending_upload_bytes"));
+        for size in ["0", "-1", "83886080001"] {
+            assert!(
+                error(&format!(r#"{{"maxfilesize": {size}}}"#)).contains("maxfilesize"),
+                "{size}"
+            );
+        }
+        assert!(
+            error(r#"{"maxfilesize": 2000, "max_pending_upload_bytes": 1999}"#)
+                .contains("max_pending_upload_bytes")
+        );
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(

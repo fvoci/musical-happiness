@@ -783,3 +783,53 @@ fn stored_files(root: &Path) -> Vec<PathBuf> {
     found.sort();
     found
 }
+
+/// Uploads opened at the same moment do not pass the limit together.
+#[tokio::test]
+async fn uploads_opened_at_once_keep_to_the_limit() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let answers =
+        futures_util::future::join_all((0..20).map(|_| open(&ts.client, &board.id, "a.txt", 1)))
+            .await;
+    let opened = answers
+        .iter()
+        .filter(|answer| answer.status == StatusCode::CREATED)
+        .count();
+    let refused = answers
+        .iter()
+        .filter(|answer| answer.status == StatusCode::TOO_MANY_REQUESTS)
+        .count();
+    assert_eq!((opened, refused), (8, 12));
+}
+
+/// An upload closed just before its end, as by a completion, is not thrown away under
+/// whoever closed it when it ends: it gets the grace of a closed upload.
+#[tokio::test]
+async fn an_upload_closed_just_before_its_end_gets_the_grace() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let response = open(&ts.client, &board.id, "a.txt", 3).await;
+    response.check_created();
+    let expires_at = response.value()["expiresAt"].as_i64().expect("an end");
+    let upload_id = response.value()["uploadId"]
+        .as_str()
+        .expect("an identifier")
+        .to_owned();
+    put_part(&ts.client, &upload_id, 1, b"abc")
+        .await
+        .check_no_content();
+    ts.app
+        .store()
+        .close_upload(&upload_id, expires_at - 1000)
+        .await
+        .expect("the upload is closed");
+
+    let removed = ts
+        .app
+        .clean_up_uploads(expires_at + 30_000)
+        .await
+        .expect("the clean-up runs");
+    assert_eq!(removed, 0, "the completion is left alone");
+    assert_eq!(part_numbers(&parts_dir(&ts, &upload_id)), ["1"]);
+}

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
-use fvoci_model::{MAX_UPLOAD_PARTS, Upload, UploadPart};
+use fvoci_model::{Upload, UploadPart};
 use fvoci_store::PartRecord;
 use sha2::{Digest as _, Sha256};
 use tokio::fs;
@@ -63,14 +63,10 @@ impl App {
     /// # Errors
     ///
     /// Returns a bad request for an empty or too long name, a negative size or a content
-    /// type that is too long; a 413 for a file larger than `maxfilesize`, or than
-    /// [`MAX_UPLOAD_PARTS`] parts hold; a 429 if the user has [`MAX_OPEN_UPLOADS`]
-    /// sessions open, or the open sessions would hold back more bytes than the user's
-    /// share (twice the largest file) or the server's (`max_pending_upload_bytes`); and
-    /// the store's error.
-    ///
-    /// The limits are checked, then the session stored: sessions opened at the same
-    /// moment may pass them together.
+    /// type that is too long; a 413 for a file larger than `maxfilesize`; a 429 if the
+    /// user has [`MAX_OPEN_UPLOADS`] sessions open, or the open sessions would hold back
+    /// more bytes than the user's share (twice the largest file) or the server's
+    /// (`max_pending_upload_bytes`); and the store's error.
     pub async fn create_upload(
         &self,
         user_id: &str,
@@ -99,6 +95,9 @@ impl App {
             ));
         }
 
+        // One server serves a database (`docs/configuration.md`): a lock in it is
+        // enough to keep the check and the insertion together.
+        let _turn = self.opening_upload_turn().await;
         let now = now_millis();
         let usage = self.store().upload_usage(user_id, now).await?;
         if usage.user_sessions >= MAX_OPEN_UPLOADS {
@@ -374,15 +373,10 @@ impl App {
         remove_dir_quietly(&self.upload_dir(&upload.id)).await;
     }
 
-    /// The largest file a session takes: `maxfilesize`, and no more than
-    /// [`MAX_UPLOAD_PARTS`] parts hold.
+    /// The largest file a session takes: `maxfilesize`, which the configuration keeps
+    /// positive and within what [`fvoci_model::MAX_UPLOAD_PARTS`] parts hold.
     pub fn largest_upload(&self) -> i64 {
-        let part_size = i64::try_from(self.config().upload_part_bytes).unwrap_or(i64::MAX);
-        let largest = part_size.saturating_mul(MAX_UPLOAD_PARTS);
-        match self.config().max_file_size {
-            max_file_size if max_file_size > 0 => max_file_size.min(largest),
-            _ => largest,
-        }
+        self.config().max_file_size
     }
 
     /// Throws away the sessions that have ended at `now`, and those closed for longer
@@ -406,7 +400,8 @@ impl App {
     /// Removes what the temporary directories hold that nothing will use: the parts of
     /// sessions that are gone, the directories of completions that were cut off, and the
     /// files the local storage was writing. Only for when no request is under way, as
-    /// at the start.
+    /// at the start, and only with one server to the files directory and the temporary
+    /// directory (`docs/configuration.md`). Returns how many it removed.
     ///
     /// # Errors
     ///
@@ -419,16 +414,16 @@ impl App {
         for (name, path) in entries(&uploads).await {
             // A session's directory is named by its identifier; anything else, such as a
             // directory a completion moved aside, is left over.
-            if !sessions.contains(&name) {
-                remove_entry(&path).await;
+            if !sessions.contains(&name) && remove_entry(&path).await {
                 removed += 1;
             }
         }
         if self.config().files_driver == "local" {
             let writing = Path::new(&self.config().files_path).join(WRITING_DIR);
             for (_, path) in entries(&writing).await {
-                remove_entry(&path).await;
-                removed += 1;
+                if remove_entry(&path).await {
+                    removed += 1;
+                }
             }
         }
         Ok(removed)
@@ -530,17 +525,21 @@ async fn entries(directory: &Path) -> Vec<(String, PathBuf)> {
     found
 }
 
-/// Removes a file or a directory that is left over, with what is in it.
-async fn remove_entry(path: &Path) {
+/// Removes a file or a directory that is left over, with what is in it. Returns whether
+/// it was removed.
+async fn remove_entry(path: &Path) -> bool {
     let removed = match fs::symlink_metadata(path).await {
         Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path).await,
         Ok(_) => fs::remove_file(path).await,
         Err(error) => Err(error),
     };
     match removed {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => tracing::warn!(%error, "a left-over temporary file could not be removed"),
+        Ok(()) => true,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+        Err(error) => {
+            tracing::warn!(%error, "a left-over temporary file could not be removed");
+            false
+        }
     }
 }
 

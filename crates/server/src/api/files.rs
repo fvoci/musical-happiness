@@ -13,7 +13,7 @@ use axum::extract::multipart::{Field, MultipartRejection};
 use axum::extract::{Multipart, Path, RawQuery, State};
 use axum::http::header::{
     ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE,
-    IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
+    EXPECT, IF_MODIFIED_SINCE, IF_NONE_MATCH, IF_RANGE, IF_UNMODIFIED_SINCE, LAST_MODIFIED, RANGE,
 };
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -199,9 +199,10 @@ async fn handle_get_file_info(
 /// Stores a file with the board. The request is a `multipart/form-data` form whose
 /// part `file` carries the file and a file name. The file is limited to one part of an
 /// upload in parts (8 MiB unless the server is configured otherwise), and to the
-/// `maxFileSize` of `getClientConfig` where that is less; a larger one is 413, with
-/// the reason `upload_in_parts` where it can be sent with `createUpload`. A file that
-/// is refused or cut off is not kept. The `fileId` of the answer ends in the extension of the file name, in lower
+/// `maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where
+/// the limit is the part, the refusal has the reason `upload_in_parts`: a file within
+/// `maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is
+/// not kept. The `fileId` of the answer ends in the extension of the file name, in lower
 /// case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
 /// anything but letters and digits in it, is left off. For editors.
 #[utoipa::path(
@@ -236,7 +237,11 @@ async fn handle_upload_file(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok());
     if declared.is_some_and(|length| length > limit.bytes.saturating_add(FORM_ALLOWANCE)) {
-        drain_form(&mut multipart).await;
+        // A client that waits for `100 Continue` has sent nothing yet, and reading the
+        // form would invite it to. It gets its answer at once.
+        if !headers.contains_key(EXPECT) {
+            drain_form(&mut multipart).await;
+        }
         return Err(limit.refusal());
     }
 
@@ -277,10 +282,36 @@ const FORM_ALLOWANCE: u64 = 64 * 1024;
 const FORM_DISCARD_LIMIT: u64 = 8 * 1024 * 1024;
 const FORM_DISCARD_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The states of the file's reading, for telling why storing it failed.
-const READING: u8 = 0;
-const TOO_LARGE: u8 = 1;
-const UNREADABLE: u8 = 2;
+/// How the reading of the file went, for telling why storing it failed. Kept in an
+/// [`AtomicU8`]: the reader the storage takes must be `Send`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reading {
+    /// Nothing went wrong with the reading.
+    Fine,
+    /// The file passed the limit.
+    TooLarge,
+    /// The form could not be read.
+    Unreadable,
+}
+
+impl Reading {
+    fn load(state: &AtomicU8) -> Self {
+        match state.load(Ordering::Relaxed) {
+            1 => Self::TooLarge,
+            2 => Self::Unreadable,
+            _ => Self::Fine,
+        }
+    }
+
+    fn store(self, state: &AtomicU8) {
+        let value = match self {
+            Self::Fine => 0,
+            Self::TooLarge => 1,
+            Self::Unreadable => 2,
+        };
+        state.store(value, Ordering::Relaxed);
+    }
+}
 
 /// The largest file `uploadFile` takes, and how a larger one is refused.
 #[derive(Debug, Clone, Copy)]
@@ -329,16 +360,17 @@ async fn store_field(
     field: Field<'_>,
     limit: SingleUploadLimit,
 ) -> Result<String, AppError> {
-    let state = AtomicU8::new(READING);
+    let state = AtomicU8::new(0);
+    Reading::Fine.store(&state);
     let mut received: u64 = 0;
     let bytes = field.map(|chunk| {
         let chunk = chunk.map_err(|error| {
-            state.store(UNREADABLE, Ordering::Relaxed);
+            Reading::Unreadable.store(&state);
             io::Error::other(error)
         })?;
         received = received.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
         if received > limit.bytes {
-            state.store(TOO_LARGE, Ordering::Relaxed);
+            Reading::TooLarge.store(&state);
             return Err(io::Error::other("the file is larger than the limit"));
         }
         Ok(chunk)
@@ -346,11 +378,11 @@ async fn store_field(
     let mut reader = StreamReader::new(Box::pin(bytes));
     // What fails is not kept: the storage writes a file whole or not at all.
     let saved = app.save_file(&mut reader, board_id, filename).await;
-    match (saved, state.load(Ordering::Relaxed)) {
+    match (saved, Reading::load(&state)) {
         (Ok(file_id), _) => Ok(file_id),
-        (Err(_), TOO_LARGE) => Err(limit.refusal()),
-        (Err(_), UNREADABLE) => Err(AppError::bad_request("the file could not be read")),
-        (Err(error), _) => Err(error),
+        (Err(_), Reading::TooLarge) => Err(limit.refusal()),
+        (Err(_), Reading::Unreadable) => Err(AppError::bad_request("the file could not be read")),
+        (Err(error), Reading::Fine) => Err(error),
     }
 }
 

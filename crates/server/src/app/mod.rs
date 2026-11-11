@@ -79,6 +79,9 @@ struct Inner {
     /// Held while a user's default category is looked for and created, so that two
     /// requests of a new user do not each create one.
     default_category: tokio::sync::Mutex<()>,
+    /// Held while the limits on open uploads are checked and a session is stored, so
+    /// that sessions opened at the same moment do not pass the limits together.
+    opening_upload: tokio::sync::Mutex<()>,
 }
 
 /// What `ping` reports about the server.
@@ -140,6 +143,7 @@ impl App {
                 webhook,
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
+                opening_upload: tokio::sync::Mutex::new(()),
             }),
         })
     }
@@ -192,6 +196,11 @@ impl App {
     /// Waits for the turn to create a user's default category.
     pub(crate) async fn default_category_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.inner.default_category.lock().await
+    }
+
+    /// Waits for the turn to check the limits on open uploads and store a session.
+    pub(crate) async fn opening_upload_turn(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.inner.opening_upload.lock().await
     }
 
     /// Runs `work` in the background, after the caller has returned. Used for

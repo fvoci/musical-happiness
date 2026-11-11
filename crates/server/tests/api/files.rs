@@ -144,6 +144,8 @@ async fn upload_file_reaching_the_max_file_size() {
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let response = upload(&ts.client, &board.id, "test.txt", b"test").await;
     response.check_request_entity_too_large();
+    // Sending it in parts would not help: the file is over the limit of any upload.
+    assert_eq!(response.error_reason(), "");
     ts.teardown().await;
 }
 

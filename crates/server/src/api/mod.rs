@@ -139,9 +139,9 @@ pub fn router(app: &App) -> Router<App> {
     let unauthenticated = Router::from(routes.unauthenticated).layer(
         middleware::from_fn_with_state(UNAUTHENTICATED_BODY_LIMIT, limit_request_body),
     );
-    // Not behind the limits above. A file upload is bounded by `maxfilesize` where it
-    // is read, which is "no limit" at its default of 0, and a part of an upload by its
-    // size; an archive import has no limit on the request yet.
+    // Not behind the limits above. A file upload is limited to one part
+    // (`upload_part_bytes`) as it is read, and a part of an upload to its size; an
+    // archive import has no limit on the request yet.
     let uploads = Router::from(routes.uploads);
 
     Router::new()
