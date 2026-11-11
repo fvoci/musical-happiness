@@ -12,16 +12,19 @@
 //! it comes in, held in memory until it is checked, and the record of the part names the
 //! object store's identifier of it (`docs/s6-design.md` 5.6, 6).
 
+use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
 use fvoci_model::{Upload, UploadPart};
 use fvoci_store::PartRecord;
 use sha2::{Digest as _, Sha256};
 use tokio::fs;
 use tokio::io::AsyncWriteExt as _;
+use tokio::sync::{OwnedMutexGuard, Semaphore};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use super::App;
@@ -29,7 +32,7 @@ use super::files::FilePlace;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::{AppError, Reason};
-use crate::storage::{S3Files, StorageError, WRITING_DIR};
+use crate::storage::{S3Files, WRITING_DIR};
 
 /// How long a session lasts after it is opened (`docs/s6-design.md` 5.6, 7).
 pub const UPLOAD_LIFETIME_MILLIS: i64 = 24 * 60 * 60 * 1000;
@@ -44,6 +47,11 @@ pub const CLOSED_UPLOAD_GRACE_MILLIS: i64 = 60 * 60 * 1000;
 
 /// The longest file name a session takes, in characters.
 pub const MAX_UPLOAD_NAME_CHARS: usize = 255;
+
+/// How many parts of the configured size the uploads to the object store hold in memory
+/// at once, while each is received and checked. A part that would take more waits for
+/// its turn before its body is read.
+pub const PARTS_IN_MEMORY: u64 = 8;
 
 /// What a refusal says a session is that is not there: none of that identifier, another
 /// user's, or one that has ended.
@@ -62,6 +70,44 @@ pub struct FileToUpload {
 
 /// The SHA-256 digest of a part, as the client sent it.
 pub type PartDigest = [u8; 32];
+
+/// The memory of [`PARTS_IN_MEMORY`] parts of `part_bytes`, in KiB.
+pub(crate) fn part_memory_kib(part_bytes: u64) -> usize {
+    let kib = part_bytes.div_ceil(1024).saturating_mul(PARTS_IN_MEMORY);
+    usize::try_from(kib)
+        .unwrap_or(usize::MAX)
+        .min(Semaphore::MAX_PERMITS)
+}
+
+/// A turn for each session. A part of an upload to the object store is checked against
+/// its session, sent to the bucket and recorded in the session's turn, and the session is
+/// closed and completed, abandoned or thrown away in it: what the bucket holds under a
+/// number is the part recorded under it, and nothing reaches the bucket once the session
+/// is closed. The object store keeps one part to a number, where the local disk keeps a
+/// file to each part that comes in. Kept in the server's memory: one server serves a
+/// database (`docs/configuration.md`).
+#[derive(Debug, Default)]
+pub(crate) struct UploadTurns(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
+
+impl UploadTurns {
+    /// Waits for the turn of a session.
+    async fn take(&self, upload_id: &str) -> OwnedMutexGuard<()> {
+        let turn = {
+            let mut turns = self.0.lock().expect("the upload turns are not poisoned");
+            Arc::clone(turns.entry(upload_id.to_owned()).or_default())
+        };
+        turn.lock_owned().await
+    }
+
+    /// Forgets the turn of a session that is gone. A request that waits for it finds the
+    /// session gone when its turn comes.
+    fn forget(&self, upload_id: &str) {
+        self.0
+            .lock()
+            .expect("the upload turns are not poisoned")
+            .remove(upload_id);
+    }
+}
 
 impl App {
     /// Opens a session for `user_id` to upload a file to `board_id`. The caller has
@@ -329,48 +375,64 @@ impl App {
                 "the upload is in an object store that is not configured",
             ));
         };
-        let mut sink = PartSink::Memory(BytesMut::new());
+        // The part is held whole until it is checked; the memory of all such parts is
+        // bounded, and a part waits for its share before its body is read.
+        let kib = u32::try_from(size.div_ceil(1024)).unwrap_or(u32::MAX);
+        let _memory = Arc::clone(self.part_memory())
+            .acquire_many_owned(kib)
+            .await
+            .map_err(|_| AppError::internal("the memory for parts is closed"))?;
+        let mut sink = PartSink::Memory(Vec::new());
         read_part(&mut sink, size, digest, body).await?;
-        let PartSink::Memory(bytes) = sink else {
+        let PartSink::Memory(chunks) = sink else {
             unreachable!("the sink is the memory it was made as");
         };
+
+        let _turn = self.upload_turns().take(&upload.id).await;
+        // Checked in the turn: a session closed meanwhile takes nothing more.
+        self.check_open(upload).await?;
         // Numbers start at 1, the object store's indexes at 0.
         let index = usize::try_from(number.saturating_sub(1)).unwrap_or_default();
-        let part_id = match files
-            .put_part(&upload.path, &upload.multipart_id, index, bytes.freeze())
+        let part_id = files
+            .put_part(&upload.path, &upload.multipart_id, index, chunks)
             .await
-        {
-            Ok(part_id) => part_id,
-            Err(error) => return Err(self.multipart_part_error(upload, &error).await),
-        };
+            .map_err(|error| {
+                AppError::internal(format_args!(
+                    "the part could not be stored in the files storage: {error}"
+                ))
+            })?;
         let part = UploadPart {
             number,
             size: i64::try_from(size).unwrap_or(i64::MAX),
             part_id,
         };
-        match self.store().put_upload_part(&upload.id, &part).await? {
-            PartRecord::Recorded { .. } => Ok(()),
-            // The part is in the object store all the same. Whoever closed the session
-            // completes it with the parts recorded, or throws them all away.
-            PartRecord::Closed => Err(closed()),
+        match self.store().put_upload_part(&upload.id, &part).await {
+            Ok(PartRecord::Recorded { .. }) => Ok(()),
+            // Not in the turn, which closes it in its turn; left as an answer all the same.
+            Ok(PartRecord::Closed) => Err(closed()),
+            Err(error) => {
+                // The bucket holds this part under its number, and the record another
+                // one: the record goes, so that the number is sent again.
+                if let Err(error) = self.store().delete_upload_part(&upload.id, number).await {
+                    tracing::error!(%error, "the record of a part the bucket replaced could not be removed");
+                }
+                Err(error.into())
+            }
         }
     }
 
-    /// What to answer for a part the object store did not take: a conflict if the
-    /// session was closed or thrown away meanwhile, as the object store refuses parts of
-    /// an upload that is completed or aborted; the server's failure otherwise.
-    async fn multipart_part_error(&self, upload: &Upload, error: &StorageError) -> AppError {
+    /// Checks that a session is still open: a conflict if it was closed or has gone, as by
+    /// a completion, an abandonment or the clean-up.
+    async fn check_open(&self, upload: &Upload) -> Result<(), AppError> {
         match self
             .store()
             .get_upload(&upload.id, &upload.user_id, now_millis())
             .await
         {
-            Ok(current) if current.closed_at == 0 => AppError::internal(format_args!(
-                "the part could not be stored in the files storage: {error}"
-            )),
-            Ok(_) => closed(),
-            Err(lookup) if lookup.is_not_found() => closed(),
-            Err(lookup) => lookup.into(),
+            Ok(current) if current.closed_at == 0 => Ok(()),
+            Ok(_) => Err(closed()),
+            Err(error) if error.is_not_found() => Err(closed()),
+            Err(error) => Err(error.into()),
         }
     }
 
@@ -385,7 +447,9 @@ impl App {
     /// as it is; a conflict if the session is being completed or thrown away already;
     /// and a server error if the file cannot be made, with the session thrown away.
     pub async fn complete_upload(&self, upload: &Upload) -> Result<String, AppError> {
+        // Before the session is closed, so that a missing part leaves it open.
         self.check_parts(upload).await?;
+        let _turn = self.upload_turns().take(&upload.id).await;
         if !self.store().close_upload(&upload.id, now_millis()).await? {
             return Err(closed());
         }
@@ -394,7 +458,7 @@ impl App {
         let parts = match self.check_parts(upload).await {
             Ok(parts) => parts,
             Err(error) => {
-                self.discard_upload(upload).await;
+                self.discard_in_turn(upload).await;
                 return Err(error);
             }
         };
@@ -414,7 +478,7 @@ impl App {
             Ok(()) => self.save_parts(upload, &parts, &working).await,
             Err(error) => Err(part_error(&error)),
         };
-        self.discard_upload(upload).await;
+        self.discard_in_turn(upload).await;
         remove_dir_quietly(&working).await;
         saved
     }
@@ -427,7 +491,7 @@ impl App {
         parts: &[UploadPart],
     ) -> Result<String, AppError> {
         let Some(files) = self.files().multipart() else {
-            self.discard_upload(upload).await;
+            self.discard_in_turn(upload).await;
             return Err(AppError::internal(
                 "the upload is in an object store that is not configured",
             ));
@@ -437,25 +501,32 @@ impl App {
             .complete_multipart(&upload.path, &upload.multipart_id, part_ids)
             .await
         {
-            self.discard_upload(upload).await;
+            self.discard_in_turn(upload).await;
+            // The completion may have taken effect with its answer lost. The place is the
+            // session's own, a new secret, so whatever is there goes.
+            self.remove_unrecorded(&upload.path).await;
             return Err(AppError::internal(format_args!(
                 "the file could not be made from its parts: {error}"
             )));
         }
-        // The upload is the file now: there is nothing left to abort.
-        self.forget_upload(upload).await;
+        // Recorded before the session is forgotten: a server that stops in between leaves
+        // a closed session, which the clean-up throws away, and no object without record.
         let size = u64::try_from(upload.size).unwrap_or_default();
         let place = FilePlace::at(&upload.path, &upload.name);
-        match self.record_file(&upload.board_id, place, size).await {
-            Ok(stored_name) => Ok(stored_name),
-            Err(error) => {
-                // A file without a record is given out through no board; it is removed
-                // rather than left in the bucket.
-                if let Err(error) = self.files().delete(&upload.path).await {
-                    tracing::warn!(%error, "an uploaded file without a record could not be removed");
-                }
-                Err(error)
-            }
+        let recorded = self.record_file(&upload.board_id, place, size).await;
+        if recorded.is_err() {
+            self.remove_unrecorded(&upload.path).await;
+        }
+        // The upload is the file now, or gone: there is nothing left to abort.
+        self.forget_upload(upload).await;
+        recorded
+    }
+
+    /// Removes a file of the object store that has no record: one is given out through no
+    /// board, and only taking room.
+    async fn remove_unrecorded(&self, path: &str) {
+        if let Err(error) = self.files().delete(path).await {
+            tracing::warn!(%error, "an uploaded file without a record could not be removed");
         }
     }
 
@@ -526,10 +597,11 @@ impl App {
     /// Returns a conflict if the session is being completed or thrown away already, and
     /// the store's error.
     pub async fn abandon_upload(&self, upload: &Upload) -> Result<(), AppError> {
+        let _turn = self.upload_turns().take(&upload.id).await;
         if !self.store().close_upload(&upload.id, now_millis()).await? {
             return Err(closed());
         }
-        self.discard_upload(upload).await;
+        self.discard_in_turn(upload).await;
         Ok(())
     }
 
@@ -538,6 +610,12 @@ impl App {
     /// found again by the clean-up of the temporary directory, or by the bucket's rule
     /// for incomplete multipart uploads (`docs/fvoci-cdn.md`).
     pub async fn discard_upload(&self, upload: &Upload) {
+        let _turn = self.upload_turns().take(&upload.id).await;
+        self.discard_in_turn(upload).await;
+    }
+
+    /// [`App::discard_upload`] in the session's turn, which the caller holds.
+    async fn discard_in_turn(&self, upload: &Upload) {
         // Closed first: a part still coming in is refused rather than recorded.
         if let Err(error) = self.store().close_upload(&upload.id, now_millis()).await {
             tracing::warn!(%error, "an upload could not be closed before it was thrown away");
@@ -553,8 +631,9 @@ impl App {
         self.forget_upload(upload).await;
     }
 
-    /// Removes the record of a closed session and its directory of parts.
+    /// Removes the record of a closed session, its directory of parts and its turn.
     async fn forget_upload(&self, upload: &Upload) {
+        self.upload_turns().forget(&upload.id);
         if let Err(error) = self.store().delete_upload(&upload.id).await {
             tracing::error!(%error, "the record of an upload could not be removed");
         }
@@ -654,19 +733,20 @@ where
 enum PartSink {
     /// A file of the local disk.
     File(fs::File),
-    /// Memory, for a part that goes to the object store once it is checked.
-    Memory(BytesMut),
+    /// Memory, for a part that goes to the object store once it is checked: the chunks
+    /// as they came.
+    Memory(Vec<Bytes>),
 }
 
 impl PartSink {
-    async fn write(&mut self, chunk: &[u8]) -> Result<(), AppError> {
+    async fn write(&mut self, chunk: Bytes) -> Result<(), AppError> {
         match self {
             Self::File(file) => file
-                .write_all(chunk)
+                .write_all(&chunk)
                 .await
                 .map_err(|error| part_error(&error)),
-            Self::Memory(bytes) => {
-                bytes.extend_from_slice(chunk);
+            Self::Memory(chunks) => {
+                chunks.push(chunk);
                 Ok(())
             }
         }
@@ -696,7 +776,7 @@ where
             )));
         }
         hasher.update(&chunk);
-        sink.write(&chunk).await?;
+        sink.write(chunk).await?;
     }
     if received != size {
         return Err(AppError::bad_request(format_args!(

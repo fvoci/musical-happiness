@@ -202,8 +202,9 @@ impl S3Files {
             .map_err(StorageError::ObjectStore)
     }
 
-    /// Sends part `index` (from 0) of the upload, replacing what was sent under it, and
-    /// returns the part's identifier.
+    /// Sends part `index` (from 0) of the upload, made of `chunks` in order, replacing
+    /// what was sent under it, and returns the part's identifier. The object store checks
+    /// the part against the SHA-256 the request is signed with.
     ///
     /// # Errors
     ///
@@ -214,7 +215,7 @@ impl S3Files {
         path: &str,
         upload_id: &str,
         index: usize,
-        bytes: Bytes,
+        chunks: Vec<Bytes>,
     ) -> Result<String, StorageError> {
         let part = self
             .multipart
@@ -222,7 +223,7 @@ impl S3Files {
                 &self.key(path)?,
                 &upload_id.to_owned(),
                 index,
-                PutPayload::from_bytes(bytes),
+                chunks.into_iter().collect::<PutPayload>(),
             )
             .await
             .map_err(StorageError::ObjectStore)?;

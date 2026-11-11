@@ -274,15 +274,15 @@ async fn s3_multipart_upload() {
         .await
         .expect("the upload starts");
     let last_id = files
-        .put_part(&path, &upload_id, 1, Bytes::from(last.clone()))
+        .put_part(&path, &upload_id, 1, vec![Bytes::from(last.clone())])
         .await
         .expect("the last part is taken");
     files
-        .put_part(&path, &upload_id, 0, Bytes::from_static(b"replaced"))
+        .put_part(&path, &upload_id, 0, vec![Bytes::from_static(b"replaced")])
         .await
         .expect("a part is taken");
     let first_id = files
-        .put_part(&path, &upload_id, 0, Bytes::from(first.clone()))
+        .put_part(&path, &upload_id, 0, vec![Bytes::from(first.clone())])
         .await
         .expect("a part is taken again");
     assert_eq!(
@@ -304,7 +304,7 @@ async fn s3_multipart_upload() {
         .await
         .expect("the upload starts");
     files
-        .put_part(&path, &upload_id, 0, Bytes::from_static(b"abc"))
+        .put_part(&path, &upload_id, 0, vec![Bytes::from_static(b"abc")])
         .await
         .expect("a part is taken");
     files
@@ -317,7 +317,7 @@ async fn s3_multipart_upload() {
         .expect("an upload aborted already is left aborted");
     assert!(
         files
-            .put_part(&path, &upload_id, 0, Bytes::from_static(b"abc"))
+            .put_part(&path, &upload_id, 0, vec![Bytes::from_static(b"abc")])
             .await
             .is_err(),
         "an aborted upload takes no more parts"

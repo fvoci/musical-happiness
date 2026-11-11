@@ -8,10 +8,10 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
 use futures_util::StreamExt as _;
-use fvoci_model::{BoardMember, BoardType};
+use fvoci_model::{BoardMember, BoardType, UploadPart};
 use fvoci_server::app::{CLOSED_UPLOAD_GRACE_MILLIS, UPLOAD_LIFETIME_MILLIS};
 use fvoci_server::auth::now_millis;
-use fvoci_server::config::AmazonS3Config;
+use fvoci_server::config::{AmazonS3Config, Configuration};
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -884,32 +884,54 @@ async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
     assert!(answer.contains("upload_in_parts"), "{answer}");
 }
 
-/// A server whose files go to the S3-compatible server of `FVOCI_S3_TEST_ENDPOINT` and
-/// `FVOCI_S3_TEST_BUCKET`, as the storage tests use it (`tests/storage.rs`).
+/// Files go to the S3-compatible server of `FVOCI_S3_TEST_ENDPOINT`, into `bucket`, as
+/// the storage tests use it (`tests/storage.rs`).
+fn configure_s3(config: &mut Configuration, bucket: &str) {
+    let var = |name: &str| std::env::var(name).unwrap_or_default();
+    let or = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.to_owned());
+    config.upload_part_bytes = 5 * 1024 * 1024;
+    "amazons3".clone_into(&mut config.files_driver);
+    config.files_s3_config = AmazonS3Config {
+        access_key_id: or("FVOCI_S3_TEST_ACCESS_KEY", "any"),
+        secret_access_key: or("FVOCI_S3_TEST_SECRET_KEY", "any"),
+        bucket: bucket.to_owned(),
+        path_prefix: "upload-tests".to_owned(),
+        region: or("FVOCI_S3_TEST_REGION", "us-east-1"),
+        endpoint: var("FVOCI_S3_TEST_ENDPOINT"),
+        ssl: var("FVOCI_S3_TEST_SSL") == "true",
+        ..AmazonS3Config::default()
+    };
+}
+
+/// A server whose files go to the bucket of `FVOCI_S3_TEST_BUCKET`.
 async fn s3_server() -> TestServer {
+    assert!(
+        std::env::var("FVOCI_S3_TEST_ENDPOINT").is_ok()
+            && std::env::var("FVOCI_S3_TEST_BUCKET").is_ok(),
+        "set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET to run this test"
+    );
     Setup::native()
         .configure(|config| {
-            let var = |name: &str| std::env::var(name).unwrap_or_default();
-            let or = |name: &str, default: &str| {
-                std::env::var(name).unwrap_or_else(|_| default.to_owned())
-            };
-            config.upload_part_bytes = 5 * 1024 * 1024;
-            "amazons3".clone_into(&mut config.files_driver);
-            config.files_s3_config = AmazonS3Config {
-                access_key_id: or("FVOCI_S3_TEST_ACCESS_KEY", "any"),
-                secret_access_key: or("FVOCI_S3_TEST_SECRET_KEY", "any"),
-                bucket: var("FVOCI_S3_TEST_BUCKET"),
-                path_prefix: "upload-tests".to_owned(),
-                region: or("FVOCI_S3_TEST_REGION", "us-east-1"),
-                endpoint: var("FVOCI_S3_TEST_ENDPOINT"),
-                ssl: var("FVOCI_S3_TEST_SSL") == "true",
-                ..AmazonS3Config::default()
-            };
+            let bucket = std::env::var("FVOCI_S3_TEST_BUCKET").unwrap_or_default();
+            configure_s3(config, &bucket);
         })
         .start()
         .await
         .init_basic()
         .await
+}
+
+/// The place in the file storage an open upload makes its file at.
+async fn upload_path(ts: &TestServer, upload_id: &str) -> String {
+    ts.app
+        .store()
+        .uploads_to_clean_up(i64::MAX, 0)
+        .await
+        .expect("the uploads are read")
+        .into_iter()
+        .find(|upload| upload.id == upload_id)
+        .expect("the upload is open")
+        .path
 }
 
 /// With S3, the parts go to the bucket as a multipart upload, not to the disk: a file
@@ -918,11 +940,6 @@ async fn s3_server() -> TestServer {
 #[tokio::test]
 #[ignore = "needs an S3-compatible server; see tests/storage.rs"]
 async fn with_s3_the_parts_go_to_the_bucket() {
-    assert!(
-        std::env::var("FVOCI_S3_TEST_ENDPOINT").is_ok()
-            && std::env::var("FVOCI_S3_TEST_BUCKET").is_ok(),
-        "set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET to run this test"
-    );
     let ts = s3_server().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let data = file_of(PART + 1000);
@@ -1008,4 +1025,82 @@ async fn with_s3_the_parts_go_to_the_bucket() {
         .post_empty(&format!("/uploads/{abandoned}/complete"))
         .await
         .check_not_found();
+}
+
+/// With S3, an upload the bucket does not start leaves no session, a part sent to a
+/// closed session does not reach the bucket, and a completion the bucket refuses leaves
+/// neither a session nor an object.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_what_fails_leaves_nothing() {
+    let ts = s3_server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+
+    // A part sent after the session was closed, as by a completion that began.
+    let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
+    ts.app
+        .store()
+        .close_upload(&upload_id, now_millis())
+        .await
+        .expect("the upload is closed");
+    let refused = put_part(&ts.client, &upload_id, 1, b"abc").await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.text());
+    let parts = ts
+        .app
+        .store()
+        .get_upload_parts(&upload_id)
+        .await
+        .expect("the parts are read");
+    assert_eq!(parts.len(), 0, "nothing is recorded");
+
+    // The bucket refuses the completion: the record of a part is not the bucket's.
+    let upload_id = opened(&ts.client, &board.id, "b.txt", 3).await;
+    put_part(&ts.client, &upload_id, 1, b"abc")
+        .await
+        .check_no_content();
+    let path = upload_path(&ts, &upload_id).await;
+    ts.app
+        .store()
+        .put_upload_part(
+            &upload_id,
+            &UploadPart {
+                number: 1,
+                size: 3,
+                part_id: "\"not-the-bucket's\"".to_owned(),
+            },
+        )
+        .await
+        .expect("the part is recorded");
+    let response = ts
+        .client
+        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .await;
+    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    ts.client
+        .get(&format!("/uploads/{upload_id}"))
+        .await
+        .check_not_found();
+    assert_eq!(
+        ts.app.files().size(&path).await.expect("the size is read"),
+        None,
+        "no object is left"
+    );
+
+    // A bucket that is not there starts no upload.
+    let ts = Setup::native()
+        .configure(|config| configure_s3(config, "fvoci-no-such-bucket"))
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let response = open(&ts.client, &board.id, "a.txt", 3).await;
+    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+    let sessions = ts
+        .app
+        .store()
+        .upload_ids()
+        .await
+        .expect("the uploads are read");
+    assert_eq!(sessions.len(), 0, "no session is left");
 }

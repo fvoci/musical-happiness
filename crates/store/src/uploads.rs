@@ -261,6 +261,22 @@ impl Store {
         .await
     }
 
+    /// Forgets the part `number` of a session, which is to be sent again. A part that is
+    /// not recorded is left so.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn delete_upload_part(&self, upload_id: &str, number: i64) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("DELETE FROM upload_parts WHERE upload_id = ");
+            sql.bind(upload_id).push_bind(" AND number = ", number);
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
     /// Records the object store's identifier of the multipart upload a session sends its
     /// parts to. Returns whether the session was there to take it.
     ///
