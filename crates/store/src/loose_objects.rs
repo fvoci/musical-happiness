@@ -66,15 +66,15 @@ pub struct LooseObject {
     pub last_error: String,
 }
 
-/// How many objects are listed.
+/// How many objects are listed: places, of whichever organizations listed them.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LooseCounts {
     /// Being written.
     pub writing: i64,
     /// Doomed.
     pub doomed: i64,
-    /// The doomed ones whose removal failed at least once, by the kind of the error of
-    /// the last failure, in the order of the kinds.
+    /// The doomed ones whose removal failed again when it was tried again (twice or
+    /// more), by the kind of the error of the last failure, in the order of the kinds.
     pub failing: Vec<(String, i64)>,
 }
 
@@ -306,8 +306,9 @@ impl Store {
     pub async fn loose_object_counts(&self) -> Result<LooseCounts, StoreError> {
         self.with_conn(async |scope| {
             let sql = scope.sql(
-                "SELECT state, CASE WHEN attempts > 0 THEN last_error ELSE '' END, \
-                 CAST(COUNT(*) AS BIGINT) FROM loose_objects GROUP BY 1, 2 ORDER BY 1, 2",
+                "SELECT state, CASE WHEN attempts > 1 THEN last_error ELSE '' END, \
+                 CAST(COUNT(DISTINCT path) AS BIGINT) FROM loose_objects GROUP BY 1, 2 \
+                 ORDER BY 1, 2",
             );
             let mut counts = LooseCounts::default();
             for row in scope.fetch_all(sql).await? {

@@ -23,6 +23,8 @@ mod websocket;
 
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use objects::LooseObjects;
+#[cfg(test)]
+pub(crate) use objects::REMOVAL_ERRORS;
 pub(crate) use requests::{ABANDONED, OTHER_METHOD, RequestMetrics, UNMATCHED};
 pub(crate) use storage::{OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;

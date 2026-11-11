@@ -94,7 +94,7 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns the store's error if the list cannot be read.
+    /// Returns the store's error if the list cannot be read, or counted for the metrics.
     pub async fn remove_doomed_objects(&self, now: i64) -> Result<RemovedObjects, AppError> {
         // What cannot be doomed now is doomed by a later run; the removals go on.
         match self.store().doom_stale_writing(now).await {
@@ -158,24 +158,26 @@ impl App {
                 break;
             }
         }
-        self.count_loose_objects().await;
+        self.count_loose_objects().await?;
         Ok(done)
     }
 
-    /// Counts the listed objects into the metrics. A count that cannot be read leaves
-    /// the metrics as they were.
-    async fn count_loose_objects(&self) {
-        if !self.metrics().is_kept() {
-            return;
-        }
-        match self.store().loose_object_counts().await {
-            Ok(counts) => self.metrics().loose_objects_counted(&LooseObjects {
+    /// Counts the listed objects into the metrics, if they are kept.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if they cannot be counted; the metrics are left as
+    /// they were, and the run that could not count them is a failed one.
+    async fn count_loose_objects(&self) -> Result<(), AppError> {
+        if self.metrics().is_kept() {
+            let counts = self.store().loose_object_counts().await?;
+            self.metrics().loose_objects_counted(&LooseObjects {
                 writing: counts.writing,
                 doomed: counts.doomed,
                 failing: counts.failing,
-            }),
-            Err(error) => tracing::warn!(%error, "the listed objects could not be counted"),
+            });
         }
+        Ok(())
     }
 
     /// Keeps a doomed object that something holds, and takes it off the list: whatever
@@ -310,6 +312,26 @@ fn retry_delay(attempts: i64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_kind_of_error_is_one_the_metrics_name() {
+        let errors = [
+            StorageError::NotFound(String::new()),
+            StorageError::InvalidPath(String::new()),
+            StorageError::Config(String::new()),
+            StorageError::Io(std::io::Error::other("io")),
+            StorageError::ObjectStore(object_store::Error::NotImplemented {
+                operation: String::new(),
+                implementer: String::new(),
+            }),
+        ];
+        for error in &errors {
+            assert!(
+                crate::metrics::REMOVAL_ERRORS.contains(&error_kind(error)),
+                "{error}"
+            );
+        }
+    }
 
     #[test]
     fn a_removal_is_tried_again_later_each_time_up_to_a_day() {

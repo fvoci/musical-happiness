@@ -9,16 +9,13 @@ use super::{Metrics, PREFIX};
 /// The states of a listed object, the values of the `state` label.
 const STATES: [&str; 2] = ["writing", "doomed"];
 
-/// The kinds of the error of a failed removal, the values of the `error` label; a
-/// kind the server does not know is counted as `other`.
-const ERRORS: [&str; 6] = [
-    "io",
-    "object_store",
-    "config",
-    "not_found",
-    "invalid_path",
-    "other",
-];
+/// The kinds of the error of a failed removal, the values of the `error` label, as the
+/// logic names them; a kind it does not name here is counted as [`OTHER_ERROR`].
+pub(crate) const REMOVAL_ERRORS: [&str; 5] =
+    ["io", "object_store", "config", "not_found", "invalid_path"];
+
+/// The value of the `error` label for a kind of error [`REMOVAL_ERRORS`] does not name.
+const OTHER_ERROR: &str = "other";
 
 /// The listed objects, as the housekeeping counted them after a run.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -27,8 +24,8 @@ pub(crate) struct LooseObjects {
     pub(crate) writing: i64,
     /// Doomed.
     pub(crate) doomed: i64,
-    /// The doomed ones whose removal failed at least once, by the kind of the error of
-    /// the last failure.
+    /// The doomed ones whose removal failed again when it was tried again, by the kind
+    /// of the error of the last failure.
     pub(crate) failing: Vec<(String, i64)>,
 }
 
@@ -46,8 +43,9 @@ impl ObjectMetrics {
             Opts::new(
                 "loose_objects",
                 "The objects of the file storage that may have no record, by state: \
-                 writing (its record is not written yet), doomed (to be removed). Counted \
-                 after each run of the housekeeping that removes them.",
+                 writing (its record is not written yet), doomed (to be removed). As of the \
+                 last run of the job purge_trash, which counts them as it ends (a run that \
+                 cannot count them is a failure of the job); 0 until its first run.",
             )
             .namespace(PREFIX),
             &["state"],
@@ -56,9 +54,11 @@ impl ObjectMetrics {
         let failing = IntGaugeVec::new(
             Opts::new(
                 "loose_object_removals_failing",
-                "The doomed objects whose removal failed and was tried again at least \
-                 once, by the kind of the error of the last try: io, object_store, \
-                 config, not_found, invalid_path, other. Counted with loose_objects.",
+                "The doomed objects whose removal failed again when it was tried again, \
+                 by the kind of the error of the last try: io, object_store, config, \
+                 other (not_found and invalid_path are never counted today: a removal \
+                 that finds nothing has removed it, and one at a place no storage takes \
+                 is taken off the list). Counted with loose_objects; 0 until then.",
             )
             .namespace(PREFIX),
             &["error"],
@@ -67,7 +67,7 @@ impl ObjectMetrics {
         for state in STATES {
             listed.with_label_values(&[state]).set(0);
         }
-        for error in ERRORS {
+        for error in REMOVAL_ERRORS.iter().chain([&OTHER_ERROR]) {
             failing.with_label_values(&[error]).set(0);
         }
         Ok(Self { listed, failing })
@@ -89,28 +89,33 @@ impl Metrics {
             .listed
             .with_label_values(&["doomed"])
             .set(counted.doomed);
-        let mut by_error = [0_i64; ERRORS.len()];
+        let mut by_error = [0_i64; REMOVAL_ERRORS.len()];
+        let mut other = 0_i64;
         for (error, count) in &counted.failing {
-            let index = ERRORS
-                .iter()
-                .position(|known| known == error)
-                .unwrap_or(ERRORS.len() - 1);
-            by_error[index] = by_error[index].saturating_add(*count);
+            match REMOVAL_ERRORS.iter().position(|known| known == error) {
+                Some(index) => by_error[index] = by_error[index].saturating_add(*count),
+                None => other = other.saturating_add(*count),
+            }
         }
-        for (error, count) in ERRORS.iter().zip(by_error) {
+        for (error, count) in REMOVAL_ERRORS.iter().zip(by_error) {
             objects.failing.with_label_values(&[error]).set(count);
         }
+        objects.failing.with_label_values(&[OTHER_ERROR]).set(other);
     }
 
-    /// The count of listed objects in `state`, and of failing removals of `error`, for
-    /// tests.
+    /// The count of listed objects in `state`, for tests.
     #[cfg(test)]
-    fn loose_object_counts(&self, state: &str, error: &str) -> (i64, i64) {
-        self.kept.as_ref().map_or((0, 0), |kept| {
-            (
-                kept.objects.listed.with_label_values(&[state]).get(),
-                kept.objects.failing.with_label_values(&[error]).get(),
-            )
+    fn listed_objects(&self, state: &str) -> i64 {
+        self.kept.as_ref().map_or(0, |kept| {
+            kept.objects.listed.with_label_values(&[state]).get()
+        })
+    }
+
+    /// The count of failing removals of `error`, for tests.
+    #[cfg(test)]
+    fn failing_removals(&self, error: &str) -> i64 {
+        self.kept.as_ref().map_or(0, |kept| {
+            kept.objects.failing.with_label_values(&[error]).get()
         })
     }
 }
@@ -130,11 +135,18 @@ mod tests {
                 ("a path/that/is no kind".to_owned(), 1),
             ],
         });
-        assert_eq!(metrics.loose_object_counts("writing", "io"), (2, 3));
-        assert_eq!(metrics.loose_object_counts("doomed", "other"), (5, 1));
         assert_eq!(
-            metrics.loose_object_counts("doomed", "object_store"),
-            (5, 0),
+            (
+                metrics.listed_objects("writing"),
+                metrics.listed_objects("doomed")
+            ),
+            (2, 5)
+        );
+        assert_eq!(metrics.failing_removals("io"), 3);
+        assert_eq!(metrics.failing_removals("other"), 1, "a kind not named");
+        assert_eq!(
+            metrics.failing_removals("object_store"),
+            0,
             "a kind that did not fail is zero"
         );
         let text = String::from_utf8(

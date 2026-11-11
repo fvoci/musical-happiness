@@ -193,7 +193,20 @@ async fn stale_marks_are_doomed_and_failed_removals_wait() {
     );
     let counts = test.loose_object_counts().await.expect("counted");
     assert_eq!((counts.writing, counts.doomed), (1, 1), "{counts:?}");
-    assert_eq!(counts.failing, [("io".to_owned(), 1)], "{counts:?}");
+    assert_eq!(
+        counts.failing,
+        [],
+        "failed once, not yet tried again: {counts:?}"
+    );
+    test.doomed_object_failed("boards/a", 1_000, "object_store", 2_000)
+        .await
+        .expect("noted");
+    let counts = test.loose_object_counts().await.expect("counted");
+    assert_eq!(
+        counts.failing,
+        [("object_store".to_owned(), 1)],
+        "failed again when tried again, by the last error: {counts:?}"
+    );
 
     test.forget_doomed_object("boards/b")
         .await

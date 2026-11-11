@@ -618,7 +618,8 @@ async fn a_copied_file_is_marked_until_it_is_recorded() {
 }
 
 /// The metrics count the listed objects by state, and the doomed ones whose removal
-/// keeps failing by the kind of the error, after each run of the housekeeping.
+/// failed again when it was tried again by the kind of the error, after each run of the
+/// housekeeping.
 #[tokio::test]
 async fn the_metrics_count_the_list_and_the_failing_removals() {
     let ts = Setup::native()
@@ -639,7 +640,7 @@ async fn the_metrics_count_the_list_and_the_failing_removals() {
         .files()
         .faults()
         .expect("a test's storage takes faults");
-    faults.fail(FaultyOp::Delete, 1);
+    faults.fail(FaultyOp::Delete, 2);
     let now = now_millis();
     remove_doomed(&ts, now).await;
     let counted = |body: &str| {
@@ -653,7 +654,18 @@ async fn the_metrics_count_the_list_and_the_failing_removals() {
         )
     };
     let body = scrape(&ts).await;
-    assert_eq!(counted(&body), (Some(1.0), Some(1.0)), "{body}");
+    assert_eq!(
+        counted(&body),
+        (Some(1.0), Some(0.0)),
+        "failed once, not yet tried again: {body}"
+    );
+    remove_doomed(&ts, now + 20 * 60 * 1000).await;
+    let body = scrape(&ts).await;
+    assert_eq!(
+        counted(&body),
+        (Some(1.0), Some(1.0)),
+        "failed again when tried again: {body}"
+    );
     remove_doomed(&ts, now + 2 * 60 * 60 * 1000).await;
     let body = scrape(&ts).await;
     assert_eq!(counted(&body), (Some(0.0), Some(0.0)), "{body}");
