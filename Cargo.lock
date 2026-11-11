@@ -1034,7 +1034,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "subtle",
  "thiserror",
  "tokio",
  "tracing",

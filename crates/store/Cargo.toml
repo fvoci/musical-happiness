@@ -13,8 +13,6 @@ md-5.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
-# The comparison of a read token with the stored one. License: BSD-3-Clause.
-subtle.workspace = true
 thiserror.workspace = true
 # The queue of writers to an SQLite database.
 tokio = { workspace = true, features = ["sync"] }

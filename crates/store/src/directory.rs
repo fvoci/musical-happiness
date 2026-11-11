@@ -7,7 +7,6 @@
 //! of the server asks across organizations on behalf of a request.
 
 use fvoci_model::{OrgRole, Team, UserWorkspace, WorkspaceRole, new_id};
-use subtle::ConstantTimeEq as _;
 
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
@@ -240,7 +239,7 @@ impl Store {
                 let token = row.text(1)?;
                 // A board that is not shared has no token; nothing matches that, not
                 // even nothing.
-                let held: bool = token.as_bytes().ct_eq(read_token.as_bytes()).into();
+                let held = same_secret(token.as_bytes(), read_token.as_bytes());
                 if token.is_empty() || !held {
                     return Ok(None);
                 }
@@ -274,6 +273,24 @@ async fn create_organization(
     Ok(id)
 }
 
+/// Whether two secrets are the same, found out in a time that does not depend on where
+/// they differ: every byte is looked at, whatever the bytes before it were. (Their
+/// lengths are no secret: the server makes every token as long as the next.)
+fn same_secret(stored: &[u8], given: &[u8]) -> bool {
+    if stored.len() != given.len() {
+        return false;
+    }
+    let difference = stored
+        .iter()
+        .zip(given)
+        .fold(0_u8, |difference, (stored, given)| {
+            difference | (stored ^ given)
+        });
+    // Kept from the optimizer, which could otherwise leave the loop at the first
+    // difference.
+    std::hint::black_box(difference) == 0
+}
+
 /// Reads a role from a column.
 fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
     row: &Row,
@@ -285,4 +302,24 @@ fn role<R: std::str::FromStr<Err = fvoci_model::UnknownRole>>(
             column: "role",
             reason: error.to_string(),
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_secret;
+
+    #[test]
+    fn secrets_are_the_same_only_byte_for_byte() {
+        assert!(same_secret(b"the-token", b"the-token"), "the same");
+        assert!(same_secret(b"", b""), "nothing is nothing");
+        for other in [
+            &b"the-toke"[..],
+            b"the-tokens",
+            b"The-token",
+            b"the-tokeN",
+            b"",
+        ] {
+            assert!(!same_secret(b"the-token", other), "{other:?}");
+        }
+    }
 }
