@@ -158,10 +158,11 @@ impl App {
         } else {
             Metrics::none()
         };
-        if metrics.is_kept()
-            && !store.observe(Box::new(store_metrics::StoreMetrics(metrics.clone())))
-        {
-            tracing::warn!("the store has an observer already; its calls are not measured");
+        if metrics.is_kept() {
+            metrics.db_known(store_metrics::database(store.db_type()));
+            if !store.observe(Box::new(store_metrics::StoreMetrics(metrics.clone()))) {
+                tracing::warn!("the store has an observer already; its calls are not measured");
+            }
         }
         store.set_comment_versions_kept(config.max_comment_versions);
         // The authenticator reads what is no organization's (sessions), and asks the

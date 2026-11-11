@@ -20,6 +20,7 @@ impl Observer for StoreMetrics {
         let outcome = match call.outcome {
             Outcome::Done | Outcome::Refused => DbOutcome::Answered,
             Outcome::Failed => DbOutcome::Failed,
+            Outcome::Abandoned => DbOutcome::Abandoned,
         };
         self.0
             .db_called(database(call.db), access, outcome, call.took);
@@ -31,7 +32,7 @@ impl Observer for StoreMetrics {
 }
 
 /// The kind of database, as the metrics name it.
-fn database(db: DbType) -> Database {
+pub(super) fn database(db: DbType) -> Database {
     match db {
         DbType::Sqlite => Database::Sqlite,
         DbType::Postgres => Database::Postgres,
@@ -51,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_call_is_measured_and_counted_and_a_refused_one_only_measured() {
+    fn a_failed_call_is_measured_and_counted_and_a_refused_or_abandoned_one_only_measured() {
         let metrics = Metrics::kept().expect("the metrics register");
         let observer = StoreMetrics(metrics.clone());
         let call = |access, outcome| Call {
@@ -63,11 +64,12 @@ mod tests {
         observer.called(call(Access::Read, Outcome::Done));
         observer.called(call(Access::Read, Outcome::Refused));
         observer.called(call(Access::Write, Outcome::Failed));
+        observer.called(call(Access::Write, Outcome::Abandoned));
         observer.waited_for_connection(DbType::Postgres, Duration::from_micros(50));
         let text = rendered(&metrics);
         for line in [
             "fvoci_db_call_duration_seconds_count{access=\"read\",db=\"postgres\"} 2",
-            "fvoci_db_call_duration_seconds_count{access=\"write\",db=\"postgres\"} 1",
+            "fvoci_db_call_duration_seconds_count{access=\"write\",db=\"postgres\"} 2",
             "fvoci_db_call_failures_total{access=\"write\",db=\"postgres\"} 1",
             "fvoci_db_pool_wait_seconds_count{db=\"postgres\"} 1",
         ] {

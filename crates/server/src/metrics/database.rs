@@ -47,8 +47,10 @@ impl DbAccess {
 pub(crate) enum DbOutcome {
     /// It did, whatever the answer was: done, or refused (not there, taken, invalid).
     Answered,
-    /// The database failed it.
+    /// It did not: the database failed it.
     Failed,
+    /// Its caller gave it up first.
+    Abandoned,
 }
 
 /// The upper bounds of the buckets of the durations of calls, in seconds: from a read
@@ -78,10 +80,11 @@ impl DatabaseMetrics {
             HistogramOpts::new(
                 "db_call_duration_seconds",
                 "How long calls of the database took, each one transaction (or one \
-                 connection for a read on SQLite) from asking for a connection to its \
-                 end, by db (sqlite3, postgres) and access (read, write: a transaction \
-                 that may write, or a call in which a statement wrote); its count is the \
-                 number of calls.",
+                 connection for a read on SQLite) from its start to its end, the wait for \
+                 a connection and on SQLite a writer's turn included, and also of the \
+                 calls given up by their request; by db (sqlite3, postgres) and access \
+                 (read, write: a transaction that may write, or a call in which a \
+                 statement wrote); its count is the number of calls.",
             )
             .namespace(PREFIX)
             .buckets(CALL_BUCKETS.to_vec()),
@@ -90,9 +93,11 @@ impl DatabaseMetrics {
         let failures = IntCounterVec::new(
             Opts::new(
                 "db_call_failures_total",
-                "How many calls of the database failed: the database gave an error, or \
-                 what cannot be read, and not an answer such as a record that is not \
-                 there; by db and access. The log says what.",
+                "How many calls of the database failed: no connection came, the database \
+                 gave an error or what cannot be read, or the server made the call \
+                 without the organization it needs; an answer such as a record that is \
+                 not there is no failure. By db and access (read also for a call that \
+                 failed before its statements ran). The log says what.",
             )
             .namespace(PREFIX),
             &["db", "access"],
@@ -119,6 +124,19 @@ impl DatabaseMetrics {
 }
 
 impl Metrics {
+    /// Starts the count of the failed calls on a database of `db` at zero, so that the
+    /// first failure is an increase.
+    pub(crate) fn db_known(&self, db: Database) {
+        if let Some(kept) = &self.kept {
+            for access in [DbAccess::Read, DbAccess::Write] {
+                kept.database
+                    .failures
+                    .with_label_values(&[db.as_str(), access.as_str()])
+                    .reset();
+            }
+        }
+    }
+
     /// Measures a call of the database that took `took`, and counts it if it failed.
     pub(crate) fn db_called(
         &self,

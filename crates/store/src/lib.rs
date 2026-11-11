@@ -256,13 +256,18 @@ impl Store {
     /// database, from now on: how long it took, whether it wrote, how it ended, and how
     /// long it waited for a connection. A store has one observer; if it has one already,
     /// that one stays and `false` is returned.
+    #[must_use]
     pub fn observe(&self, observer: Box<dyn Observer>) -> bool {
         self.inner.observer.set(observer).is_ok()
     }
 
-    /// The observer of the calls, if there is one.
-    fn watch(&self) -> Option<Watch<'_>> {
-        Watch::start(self.inner.observer.get().map(Box::as_ref), self.db_type())
+    /// A call of `access` watched, if there is an observer.
+    fn watch(&self, access: Access) -> Option<Watch<'_>> {
+        Watch::start(
+            self.inner.observer.get().map(Box::as_ref),
+            self.db_type(),
+            access,
+        )
     }
 
     /// A handle to the same database that reaches the rows of `tenant`.
@@ -399,7 +404,7 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let watch = self.watch();
+        let watch = self.watch(Access::Read);
         let (result, access) = self.on_conn(watch.as_ref(), operation).await;
         if let Some(watch) = watch {
             watch.finish(access, &result);
@@ -457,7 +462,7 @@ impl Store {
         &self,
         operation: impl AsyncFnOnce(&mut Scope<'_>) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        let watch = self.watch();
+        let watch = self.watch(Access::Write);
         let result = self.in_transaction(watch.as_ref(), operation).await;
         if let Some(watch) = watch {
             watch.finish(Access::Write, &result);

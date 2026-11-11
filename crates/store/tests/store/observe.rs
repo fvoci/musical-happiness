@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use fvoci_model::new_id;
+use fvoci_model::{User, new_id};
 use fvoci_store::{Access, Call, DbType, Observer, Outcome};
 
 use crate::common;
@@ -72,8 +72,23 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
         .expect("the users are counted");
     let missing = store.get_user_by_id(&new_id()).await;
     assert!(missing.is_err(), "no such user");
-    // A transaction that writes.
+    // A transaction that writes, and one the database refuses.
     let user_id = common::user(&store, "observed").await;
+    let mut twin = User {
+        id: new_id(),
+        username: "observed".to_owned(),
+        email: "twin@example.com".to_owned(),
+        ..User::default()
+    };
+    assert!(
+        store.create_user(&mut twin).await.is_err(),
+        "the name is taken"
+    );
+    // One statement that writes, on one connection.
+    store
+        .delete_session(&new_id())
+        .await
+        .expect("no such session is deleted");
     store
         .get_user_by_id(&user_id)
         .await
@@ -84,6 +99,8 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
         [
             (Access::Read, Outcome::Done),
             (Access::Read, Outcome::Refused),
+            (Access::Write, Outcome::Done),
+            (Access::Write, Outcome::Refused),
             (Access::Write, Outcome::Done),
             (Access::Read, Outcome::Done),
         ],
@@ -99,6 +116,25 @@ async fn every_call_is_told_with_whether_it_wrote_and_how_it_ended() {
         .await
         .expect("the users are counted");
     assert_eq!(recorder.take().0.len(), 1, "the system handle's call");
+
+    // A call its caller gives up is told as given up, when it is dropped.
+    let mut abandoned = false;
+    for _ in 0..20 {
+        let given_up = tokio::time::timeout(Duration::ZERO, store.get_registered_user_count())
+            .await
+            .is_err();
+        let (calls, _) = recorder.take();
+        if given_up {
+            assert_eq!(
+                shapes(&calls),
+                [(Access::Read, Outcome::Abandoned)],
+                "{calls:?}"
+            );
+            abandoned = true;
+            break;
+        }
+    }
+    assert!(abandoned, "a call was given up before it ended");
 
     // A call that gets no connection fails, and its wait is told.
     store.close().await;

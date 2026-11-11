@@ -133,20 +133,35 @@ async fn the_calls_of_the_database_are_measured() {
     let response = server.client.get("/ping").await;
     assert_eq!(response.status, StatusCode::OK);
     let after = scrape(&server).await;
-    assert!(reads(&after) > reads(&before), "ping reads: {after}");
+    // The scrape reads once itself, for the open uploads.
+    assert!(reads(&after) >= reads(&before) + 2.0, "ping reads: {after}");
     assert!(
-        waits(&after) > waits(&before),
+        waits(&after) >= waits(&before) + 2.0,
         "and waits for a connection: {after}"
     );
-    assert_eq!(
-        sample(
-            &after,
-            "fvoci_db_call_failures_total",
-            &[("access", "read"), ("db", db)]
-        ),
-        None,
-        "nothing failed: {after}"
-    );
+    for access in ["read", "write"] {
+        assert_eq!(
+            sample(
+                &after,
+                "fvoci_db_call_failures_total",
+                &[("access", access), ("db", db)]
+            ),
+            Some(0.0),
+            "nothing failed, and the count is there from the start: {after}"
+        );
+    }
+    for line in after.lines().filter(|line| line.starts_with("fvoci_db_")) {
+        let db_named = ["db=\"sqlite3\"", "db=\"postgres\""]
+            .iter()
+            .any(|value| line.contains(value));
+        assert!(db_named || !line.contains("db="), "{line}");
+        if line.contains("access=") {
+            assert!(
+                line.contains("access=\"read\"") || line.contains("access=\"write\""),
+                "{line}"
+            );
+        }
+    }
     server.teardown().await;
 }
 

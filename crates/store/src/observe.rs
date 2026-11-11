@@ -3,6 +3,9 @@
 //! connection. For metrics, which this crate does not keep: the server gives a store an
 //! observer that counts into them ([`Store::observe`](crate::Store::observe)).
 //!
+//! A call is told also when its caller gives it up (a request that went away): as
+//! [`Outcome::Abandoned`], and its wait for a connection as far as it went.
+//!
 //! A store without an observer pays one atomic load a call, and reads no clock.
 
 use std::time::{Duration, Instant};
@@ -13,7 +16,8 @@ use crate::db::Scope;
 use crate::{DbType, StoreError};
 
 /// Who is told about the calls of a store. Its methods are called on the task that made
-/// the call, after the fact: they are to be quick and not to block.
+/// the call, after the fact, also while a call that was given up is dropped: they are to
+/// be quick and not to block.
 pub trait Observer: Send + Sync + std::fmt::Debug {
     /// A call of the store ended.
     fn called(&self, call: Call);
@@ -31,14 +35,18 @@ pub struct Call {
     pub access: Access,
     /// How it ended.
     pub outcome: Outcome,
-    /// How long it took, from asking for a connection to the end of its transaction.
+    /// How long it took, from its start to the end of its transaction: what it waited
+    /// for a connection included, and on SQLite what a transaction waited for its turn
+    /// among the writers.
     pub took: Duration,
 }
 
 /// Whether a call wrote.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
-    /// Every statement only read.
+    /// Every statement only read. A call on one connection that ended before its
+    /// statements ran (no connection came, or the transaction did not begin) is a read
+    /// too: what it would have done is not known.
     Read,
     /// It was a transaction that may write, or some statement wrote.
     Write,
@@ -63,42 +71,74 @@ pub enum Outcome {
     /// It answered that it could not: what was asked for is not there, is taken, or is
     /// not valid. The database did its part.
     Refused,
-    /// The database failed it, or gave back what cannot be read: the call did not get
-    /// an answer.
+    /// The call did not get an answer: the database failed it, gave back what cannot be
+    /// read, or is not one the server can use; or the call was made without the
+    /// organization it needs, a fault of the server.
     Failed,
+    /// Its caller gave it up before it ended. What it did is not known; a transaction
+    /// that did not end is rolled back.
+    Abandoned,
 }
 
 impl Outcome {
     /// How a call that returned `result` ended.
     pub(crate) fn of<T>(result: &Result<T, StoreError>) -> Self {
-        match result {
-            Ok(_) => Self::Done,
-            Err(
-                StoreError::Database(_)
-                | StoreError::Corrupt { .. }
-                | StoreError::Schema(_)
-                | StoreError::Config(_)
-                | StoreError::NoOrganization,
-            ) => Self::Failed,
-            Err(_) => Self::Refused,
+        let Err(error) = result else {
+            return Self::Done;
+        };
+        // Every error is named, so that a new one is sorted where it is made.
+        match error {
+            StoreError::Database(_)
+            | StoreError::Corrupt { .. }
+            | StoreError::Schema(_)
+            | StoreError::Config(_)
+            | StoreError::NoOrganization => Self::Failed,
+            StoreError::NotFound(_)
+            | StoreError::TooManyPreferences { .. }
+            | StoreError::NotFirstUser
+            | StoreError::NoRows
+            | StoreError::UserNotFound(_)
+            | StoreError::NotAllFound { .. }
+            | StoreError::InvalidBlock { .. }
+            | StoreError::Block(_)
+            | StoreError::InvalidBoard(_)
+            | StoreError::InvalidBoardsAndBlocks(_)
+            | StoreError::BlockNotInDeletedBoards { .. }
+            | StoreError::InvalidCategory(_)
+            | StoreError::InvalidSubscription(_)
+            | StoreError::InvalidId(_)
+            | StoreError::Conflict(_)
+            | StoreError::NotRestorable { .. }
+            | StoreError::Stale { .. } => Self::Refused,
         }
     }
 }
 
-/// A call being watched: started when it asked for a connection.
+/// A call being watched, from its start. Dropped before it is finished, it tells the
+/// call as [`Outcome::Abandoned`].
 pub(crate) struct Watch<'a> {
     observer: &'a dyn Observer,
     db: DbType,
+    /// What the call is known to be before it ends: a transaction writes, a call on
+    /// one connection reads until a statement writes.
+    access: Access,
     started: Instant,
+    finished: bool,
 }
 
 impl<'a> Watch<'a> {
     /// Starts watching a call on a database of `db`, if there is an observer.
-    pub(crate) fn start(observer: Option<&'a dyn Observer>, db: DbType) -> Option<Self> {
+    pub(crate) fn start(
+        observer: Option<&'a dyn Observer>,
+        db: DbType,
+        access: Access,
+    ) -> Option<Self> {
         observer.map(|observer| Self {
             observer,
             db,
+            access,
             started: Instant::now(),
+            finished: false,
         })
     }
 
@@ -111,21 +151,48 @@ impl<'a> Watch<'a> {
         let Some(watch) = watch else {
             return pool.acquire().await;
         };
-        let asked = Instant::now();
-        let conn = pool.acquire().await;
-        watch
-            .observer
-            .waited_for_connection(watch.db, asked.elapsed());
-        conn
+        let _waiting = Waiting {
+            watch,
+            asked: Instant::now(),
+        };
+        pool.acquire().await
     }
 
     /// Tells the observer how the call ended.
-    pub(crate) fn finish<T>(self, access: Access, result: &Result<T, StoreError>) {
+    pub(crate) fn finish<T>(mut self, access: Access, result: &Result<T, StoreError>) {
+        self.finished = true;
+        self.tell(access, Outcome::of(result));
+    }
+
+    fn tell(&self, access: Access, outcome: Outcome) {
         self.observer.called(Call {
             db: self.db,
             access,
-            outcome: Outcome::of(result),
+            outcome,
             took: self.started.elapsed(),
         });
+    }
+}
+
+impl Drop for Watch<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.tell(self.access, Outcome::Abandoned);
+        }
+    }
+}
+
+/// A wait for a connection, told when it ends: when a connection came, when none could,
+/// or when the call was given up while it waited.
+struct Waiting<'w, 'a> {
+    watch: &'w Watch<'a>,
+    asked: Instant,
+}
+
+impl Drop for Waiting<'_, '_> {
+    fn drop(&mut self) {
+        self.watch
+            .observer
+            .waited_for_connection(self.watch.db, self.asked.elapsed());
     }
 }
