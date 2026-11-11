@@ -2817,6 +2817,68 @@ async fn delete_comment_by_its_author_or_by_an_admin_works() {
     );
 }
 
+/// Not in the original (user decision 2026-11-11 21:00 KST). A deleted comment is
+/// brought back only by who may delete it: its author with the editor's role, and the
+/// comment of somebody else the board's admins only. An editor is refused another's;
+/// the commenter, who may not delete even their own comment, may not bring it back. A
+/// card is brought back by an editor as before.
+#[tokio::test]
+async fn a_deleted_comment_is_brought_back_only_by_who_may_delete_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let others = undelete_path(board_id, &content.comment.id);
+
+    // The commenter's comment, deleted by the admin.
+    delete(&th.client, &content.comment).await;
+    boards.editor.post(&others, &json!({})).await.check_error(
+        StatusCode::FORBIDDEN,
+        "access denied to undelete other users' comments",
+    );
+    boards
+        .commenter
+        .post(&others, &json!({}))
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    assert!(
+        !titles(&blocks_of(&th.client, board_id).await).contains(&"comment"),
+        "still in the trash"
+    );
+    th.client.post(&others, &json!({})).await.check_ok();
+    assert!(titles(&blocks_of(&th.client, board_id).await).contains(&"comment"));
+
+    // The editor's own comment, and a card, by the editor.
+    let own = insert_one(
+        &boards.editor,
+        &child_of(&content.card, BlockType::Comment, "the editor's"),
+    )
+    .await;
+    delete(&boards.editor, &own).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &own.id), &json!({}))
+        .await
+        .check_ok();
+    let card = insert_one(
+        &th.client,
+        &new_block(board_id, BlockType::Card, "card two"),
+    )
+    .await;
+    delete(&th.client, &card).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &card.id), &json!({}))
+        .await
+        .check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"the editor's") && titles(&read).contains(&"card two"),
+        "{:?}",
+        titles(&read)
+    );
+}
+
 /// A comment is changed by its author with the commenter's role, and the comment of
 /// somebody else by the board's admins only, as it is deleted; an editor may not change
 /// it. `patchBlock`, `patchBlocks` and `patchBoardsAndBlocks` alike. Who changed it and

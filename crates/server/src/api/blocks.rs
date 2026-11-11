@@ -410,7 +410,9 @@ async fn handle_delete_block(
 /// Bring a deleted block back
 ///
 /// Restores a block of the board from the trash, with the blocks that went there with
-/// it. A block whose parent is gone has nowhere to come back to: 404. For editors.
+/// it. A block whose parent is gone has nowhere to come back to: 404. For who may
+/// delete it, as `deleteBlock` has it: editors, and a comment of somebody else the
+/// board's admins only (403, `access denied to undelete other users' comments`).
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks/{blockId}/undelete",
@@ -436,10 +438,22 @@ async fn handle_undelete_block(
     let board = app.board(&board_id).await?;
     // What is restored is what the trash has of this board. A block that exists, one
     // that never did and one of another board are all not there to restore.
-    app.deleted_block(&block_id)
+    let deleted = app
+        .deleted_block(&block_id)
         .await?
         .filter(|deleted| deleted.block.board_id == board.id)
         .ok_or_else(|| AppError::not_found("block"))?;
+    // Only who may delete it brings it back.
+    if deleted.block.block_type == BlockType::Comment && deleted.block.created_by != user_id {
+        require_board_permission(
+            &app,
+            user_id,
+            &board_id,
+            BoardPermission::ManageOthersComments,
+            "access denied to undelete other users' comments",
+        )
+        .await?;
+    }
 
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
