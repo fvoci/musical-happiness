@@ -7,6 +7,8 @@ import type { DocNode } from '../../editor/schema.ts';
 import type { BoardMember } from '../../logic/wire.ts';
 import type { CommentVersion } from '../backend.ts';
 
+import type { StoredBlock } from './world.ts';
+
 export type Role = 'admin' | 'editor' | 'commenter' | 'viewer' | '';
 
 /** The highest role of a user on a board; none for who is no member. */
@@ -29,6 +31,14 @@ export function mayChangeComment(role: Role, isAuthor: boolean): boolean {
 export function mayDeleteComment(role: Role, isAuthor: boolean): boolean {
   if (role === 'admin') return true;
   return isAuthor && role === 'editor';
+}
+
+/**
+ * When the newest comment directly on the card was posted; 0 for none. A
+ * deleted one is in the trash and does not count.
+ */
+export function lastCommentAt(blocks: readonly StoredBlock[]): number {
+  return Math.max(0, ...blocks.filter((block) => block.type === 'comment').map((c) => c.createAt));
 }
 
 /** How many texts before the one it has now a comment keeps: the server's default. */

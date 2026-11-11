@@ -9,6 +9,7 @@ import {
 } from './format.ts';
 import {
   cardProperty,
+  cardUpdatedAt,
   parseDateValue,
   plainPropertyValue,
   TITLE_COLUMN_ID,
@@ -62,7 +63,7 @@ function valueOf(card: Card, property: PropertyTemplate): string | string[] | nu
     case 'updatedBy':
       return card.modifiedBy;
     case 'updatedTime':
-      return toTheMinute(card.updateAt);
+      return toTheMinute(cardUpdatedAt(card));
     default:
       return plainPropertyValue(cardProperty(card, property.id));
   }

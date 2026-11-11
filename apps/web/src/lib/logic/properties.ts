@@ -11,6 +11,7 @@ import { dateOfInstant, daysOf, type CalendarDate, type DatePoint } from './date
 import { diagnostics } from './diagnostics.ts';
 import { displayCalendarDate, displayDateTime, type DisplayContext } from './format.ts';
 import {
+  cardUpdatedAt,
   parseDateValue,
   plainPropertyValue,
   type Card,
@@ -204,8 +205,9 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     filterValueType: 'date',
     isReadOnly: true,
     calculationOptions: TIME_CALCULATIONS,
-    displayValue: (_value, card, _template, context) => displayDateTime(card.updateAt, context),
-    days: (_value, card, timeZone) => dayOfMoment(card.updateAt, timeZone),
+    displayValue: (_value, card, _template, context) =>
+      displayDateTime(cardUpdatedAt(card), context),
+    days: (_value, card, timeZone) => dayOfMoment(cardUpdatedAt(card), timeZone),
   }),
   createdBy: behavior({
     canGroup: true,

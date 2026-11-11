@@ -327,9 +327,16 @@ describe('changing a card on the server', () => {
   });
 
   it('reads the badges of a card from the server, and works them out from a block’s body', async () => {
-    serve({ ...CARD, properties: {}, hasBody: true, tasksTotal: 3, tasksDone: 1 });
+    serve({
+      ...CARD,
+      properties: {},
+      hasBody: true,
+      tasksTotal: 3,
+      tasksDone: 1,
+      lastCommentAt: 44,
+    });
     const answer = await new ServerBackend('').patchCard('b', 'c1', { title: 'x' });
-    expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1 });
+    expect(answer).toMatchObject({ hasBody: true, tasksTotal: 3, tasksDone: 1, lastCommentAt: 44 });
     expect(answer).not.toHaveProperty('body');
     const block = cardOfBlock({
       ...BLOCK,
@@ -352,6 +359,8 @@ describe('changing a card on the server', () => {
     });
     expect(block).toMatchObject({ hasBody: true, tasksTotal: 2, tasksDone: 1 });
     expect(block).not.toHaveProperty('body');
+    // A change message does not say when the last comment was posted.
+    expect(block.lastCommentAt).toBeUndefined();
   });
 });
 

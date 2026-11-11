@@ -173,7 +173,19 @@ export type CardFields = {
   contentOrder: ContentOrder;
 };
 
-export type Card = Block & { fields: CardFields };
+export type Card = Block & {
+  fields: CardFields;
+  /**
+   * When its newest comment was posted, as the server says (`lastCommentAt`);
+   * 0 or absent: none, or not known.
+   */
+  lastCommentAt?: number;
+};
+
+/** When a card last changed, a comment on it counting as a change: what "last updated time" shows. */
+export function cardUpdatedAt(card: Card): number {
+  return Math.max(card.updateAt, card.lastCommentAt ?? 0);
+}
 
 function readContentOrder(value: unknown): ContentOrder {
   if (!Array.isArray(value)) return [];

@@ -11,6 +11,7 @@ import { comparePoints, type DatePoint } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 import {
   cardProperty,
+  cardUpdatedAt,
   parseDateValue,
   plainPropertyValue,
   TITLE_COLUMN_ID,
@@ -73,8 +74,6 @@ export interface SortContext {
   sortOptions: readonly SortOption[];
   /** The manual order, used when there are no sort options. */
   cardOrder: readonly string[];
-  /** When the newest comment of a card was written, if it has comments. */
-  lastCommentAt?: (cardId: string) => number | undefined;
   /** The username of a user, for sorting by person. */
   usernameOf?: (userId: string) => string | undefined;
   /** The language whose alphabetical order text is sorted in. */
@@ -96,7 +95,7 @@ function sortKey(card: Card, template: PropertyTemplate, context: SortContext): 
     case 'createdTime':
       return card.createAt;
     case 'updatedTime':
-      return Math.max(card.updateAt, context.lastCommentAt?.(card.id) ?? 0);
+      return cardUpdatedAt(card);
     case 'createdBy':
       return text(context.usernameOf?.(card.createdBy));
     case 'updatedBy':

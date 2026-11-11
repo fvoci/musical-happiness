@@ -233,12 +233,13 @@ describe('sorting by a property', () => {
     quiet.updateAt = 3000;
     const discussed = card('discussed', 'y');
     discussed.updateAt = 1000;
-    const lastCommentAt = (id: string): number | undefined =>
-      id === 'discussed' ? 9000 : undefined;
     expect(ids(sortCards([discussed, quiet], sortBy([['updated']])))).toBe('discussed quiet');
-    expect(ids(sortCards([discussed, quiet], sortBy([['updated']], { lastCommentAt })))).toBe(
-      'quiet discussed',
-    );
+    // The server says when its last comment was posted.
+    discussed.lastCommentAt = 9000;
+    expect(ids(sortCards([discussed, quiet], sortBy([['updated']])))).toBe('quiet discussed');
+    // A comment older than the card's own change does not move it.
+    discussed.lastCommentAt = 500;
+    expect(ids(sortCards([discussed, quiet], sortBy([['updated']])))).toBe('discussed quiet');
   });
 });
 

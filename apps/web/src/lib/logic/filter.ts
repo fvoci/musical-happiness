@@ -5,10 +5,11 @@ import { diagnostics } from './diagnostics.ts';
 import { foldCase } from './text.ts';
 import {
   cardProperty,
+  cardUpdatedAt,
   isFilterGroup,
   parseDateValue,
-  plainPropertyValue,
   parseFilterDate,
+  plainPropertyValue,
   type Card,
   type FilterClause,
   type FilterGroup,
@@ -75,7 +76,10 @@ function valueForClause(
     case 'createdTime':
       return { value: String(card.createAt), dateValue: { from: { instant: card.createAt } } };
     case 'updatedTime':
-      return { value: String(card.updateAt), dateValue: { from: { instant: card.updateAt } } };
+      return {
+        value: String(cardUpdatedAt(card)),
+        dateValue: { from: { instant: cardUpdatedAt(card) } },
+      };
     case 'createdBy':
       return { value: value || card.createdBy, dateValue: undefined };
     case 'updatedBy':

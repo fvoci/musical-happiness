@@ -76,6 +76,7 @@ import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
 import {
   earlierVersions,
+  lastCommentAt,
   mayChangeComment,
   mayDeleteComment,
   recordChange,
@@ -257,6 +258,14 @@ export class MemoryBackend implements Backend {
     if (role !== '') return role;
     if (board.type === 'O') fail(403, 'access denied to board');
     fail(404, 'no such board');
+  }
+
+  /**
+   * A card as the card routes answer it: with when its last comment was
+   * posted. A change message has no such time (`wireOf`), as on the server.
+   */
+  #commented<T extends CardSummary>(card: T): T {
+    return { ...card, lastCommentAt: lastCommentAt(this.world.childrenOf(card.id)) };
   }
 
   #memberIds(boardId: string): string[] {
@@ -993,12 +1002,12 @@ export class MemoryBackend implements Backend {
     await this.#enter('cards');
     this.#board(boardId);
     const cards = this.world.blocksOf(boardId).filter((block) => block.type === 'card');
-    return scramble(cards).map((card) => summaryOf(card as StoredCard));
+    return scramble(cards).map((card) => this.#commented(summaryOf(card as StoredCard)));
   }
 
   async card(boardId: string, cardId: string): Promise<CardDetail> {
     await this.#enter('card');
-    return detailOf(this.#block(boardId, cardId, 'card') as StoredCard);
+    return this.#commented(detailOf(this.#block(boardId, cardId, 'card') as StoredCard));
   }
 
   async createCard(boardId: string, draft: CardDraft): Promise<CardSummary> {
@@ -1014,7 +1023,7 @@ export class MemoryBackend implements Backend {
     block.body = this.#checkBody(boardId, draft.body ?? null);
     this.world.blocks.set(block.id, block);
     this.#tellBlocks(boardId, [block]);
-    return summaryOf(block as StoredCard);
+    return this.#commented(summaryOf(block as StoredCard));
   }
 
   async patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
@@ -1023,7 +1032,7 @@ export class MemoryBackend implements Backend {
     this.world.blocks.set(cardId, card);
     this.#touch(card);
     this.#tellBlocks(boardId, [card]);
-    return summaryOf(card);
+    return this.#commented(summaryOf(card));
   }
 
   async writeCardBody(boardId: string, cardId: string, write: BodyWrite): Promise<CardDetail> {
@@ -1036,7 +1045,7 @@ export class MemoryBackend implements Backend {
     card.body = body;
     this.#touch(card);
     this.#tellBlocks(boardId, [card]);
-    return detailOf(card);
+    return this.#commented(detailOf(card));
   }
 
   // ------------------------------------------- comments and attachments

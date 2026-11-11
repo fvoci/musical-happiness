@@ -40,6 +40,7 @@ import {
 } from './backend.ts';
 import { droppedCardOrder, placeAmongAll } from './card-order.ts';
 import { CardStore } from './card.svelte.ts';
+import { LastComments } from './last-comments.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -179,6 +180,8 @@ export class BoardStore {
    */
   readonly canReadCommentHistory = $derived(this.role !== '');
 
+  /** Keeps the cards' `lastCommentAt` current between readings. */
+  readonly #lastComments = new LastComments();
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
@@ -359,10 +362,16 @@ export class BoardStore {
         for (const block of change.blocks) {
           if (isCardBlock(block)) this.#receiveCard(block);
           else if (isViewBlock(block)) this.#receiveView(block);
-          else this.openCard?.receive(block);
+          else {
+            if (block.type === 'comment' && block.deleteAt === 0) {
+              this.cards = this.#lastComments.commented(this.cards, block);
+            }
+            this.openCard?.receive(block);
+          }
         }
         break;
       case 'blocksDeleted':
+        this.#commentsGone(change.blockIds);
         this.cards = this.cards.filter((card) => !change.blockIds.includes(card.id));
         this.views = this.views.filter((view) => !change.blockIds.includes(view.id));
         this.openCard?.forget(change.blockIds);
@@ -424,7 +433,34 @@ export class BoardStore {
     }
   }
 
-  #receiveCard(card: CardSummary): void {
+  /**
+   * Blocks deleted that may be comments: the cards they were on are read
+   * again for their last comment; one of no card known reads the board again.
+   */
+  #commentsGone(blockIds: readonly string[]): void {
+    const open = this.openCard;
+    for (const comment of open?.comments ?? []) this.#lastComments.know(comment);
+    const known = [...this.cards, ...this.views, ...(open?.attachments ?? [])];
+    const gone = this.#lastComments.deleted(
+      blockIds,
+      known.map((block) => block.id),
+    );
+    for (const cardId of gone.cardIds) void this.#readLastComment(cardId);
+    if (gone.unknown) void this.#refresh();
+  }
+
+  async #readLastComment(cardId: string): Promise<void> {
+    const mark = this.#lastComments.mark(cardId);
+    try {
+      const card = await this.#backend.card(this.boardId, cardId);
+      this.cards = this.#lastComments.read(this.cards, cardId, card.lastCommentAt ?? 0, mark);
+    } catch {
+      // Gone too, or not read: the next reading of the board brings it.
+    }
+  }
+
+  #receiveCard(incoming: CardSummary): void {
+    const card = LastComments.keep(incoming, this.card(incoming.id));
     if (!this.#cardWrites.receive(card)) return;
     this.cards = take(this.cards, card);
     this.openCard?.cardChanged(card);

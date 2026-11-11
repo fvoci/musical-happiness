@@ -113,6 +113,7 @@ export function viewOf(block: Schemas['Block']): BoardView {
  * The card summary of a card block, as a change message brings it. The
  * block carries the whole body and no counts (`contracts/websocket.md`, G5):
  * whether there is a body and how its tasks stand are worked out from it.
+ * It has no `lastCommentAt`: the board keeps the one it had.
  */
 export function cardOfBlock(block: Schemas['Block']): CardSummary {
   const body = bodyOf(block.body);
@@ -145,6 +146,7 @@ export function cardOf(card: Schemas['Card']): CardSummary {
     hasBody: card.hasBody,
     tasksTotal: card.tasksTotal,
     tasksDone: card.tasksDone,
+    lastCommentAt: card.lastCommentAt,
   };
 }
 
