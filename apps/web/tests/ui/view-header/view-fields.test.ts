@@ -13,6 +13,9 @@ import {
   sortCandidates,
 } from '$lib/features/view-header/sort-edit.ts';
 import {
+  dependenciesChoices,
+  dependenciesName,
+  dependenciesOffered,
   displayByChoices,
   displayByName,
   displayByOffered,
@@ -156,6 +159,47 @@ describe('a Gantt chart', () => {
     expect(fields.groupById).toBe('');
     expect(fields.visiblePropertyIds).toEqual([TITLE_COLUMN_ID]);
     expect(newViewFields('gantt', TEMPLATES).dateDisplayPropertyId).toBeUndefined();
+  });
+
+  it('when new, reads the first card relation of the board as its dependencies', () => {
+    const after: PropertyTemplate = { id: 'after', name: 'After', type: 'relation', options: [] };
+    const other: PropertyTemplate = { id: 'see', name: 'See also', type: 'relation', options: [] };
+    expect(newViewFields('gantt', [due, after, other]).dependencyPropertyId).toBe('after');
+    expect(newViewFields('gantt', [due]).dependencyPropertyId).toBeUndefined();
+    expect(newViewFields('calendar', [due, after]).dependencyPropertyId).toBeUndefined();
+  });
+
+  it('offers "dependencies": none and every card relation, and writes only a change', () => {
+    const after: PropertyTemplate = { id: 'after', name: 'After', type: 'relation', options: [] };
+    const other: PropertyTemplate = { id: 'see', name: 'See also', type: 'relation', options: [] };
+    const templates = [...TEMPLATES, after, other];
+    expect(dependenciesOffered('gantt')).toBe(true);
+    expect(dependenciesOffered('calendar')).toBe(false);
+    const named = viewOf({ viewType: 'gantt', dependencyPropertyId: 'see' });
+    expect(dependenciesName(named, templates, 'None')).toBe('See also');
+    expect(dependenciesChoices(named, templates, 'None')).toEqual([
+      { id: '', label: 'None', checked: false, write: true },
+      { id: 'after', label: 'After', checked: false, write: true },
+      { id: 'see', label: 'See also', checked: true, write: false },
+    ]);
+    const unnamed = viewOf({ viewType: 'gantt' });
+    expect(dependenciesName(unnamed, templates, 'None')).toBe('None');
+    expect(dependenciesChoices(unnamed, templates, 'None')[0]).toEqual({
+      id: '',
+      label: 'None',
+      checked: true,
+      write: false,
+    });
+  });
+
+  it('has no dependencies by a property that is gone or no card relation, and can clear it', () => {
+    for (const dependencyPropertyId of ['gone', 'status']) {
+      const view = viewOf({ viewType: 'gantt', dependencyPropertyId });
+      expect(dependenciesName(view, TEMPLATES, 'None')).toBe('None');
+      expect(dependenciesChoices(view, TEMPLATES, 'None')).toEqual([
+        { id: '', label: 'None', checked: true, write: true },
+      ]);
+    }
   });
 
   it('has "display by", a sort, and a grouping it can do without', () => {

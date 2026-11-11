@@ -2,7 +2,9 @@
   The Gantt view, to read: the cards of the view as bars on the days of one
   date property (`displayProperty`, as a calendar: the one the view names,
   or else the first kind of date of the board, or else when the card was
-  made). A card of one day is a bar of one day.
+  made). A card of one day is a bar of one day. Where the view names a card
+  relation as its dependencies, an arrow goes from each card to the cards
+  that come after it.
 
   One box scrolls both ways. The titles of the cards are a column at its
   left that stays while the days scroll; the marks of the days are two rows
@@ -27,6 +29,7 @@
   import { MinuteClock } from '../calendar/clock.svelte.ts';
   import type { ViewProps } from '../props.ts';
 
+  import Arrows from './Arrows.svelte';
   import AxisHeader from './AxisHeader.svelte';
   import BarRow from './BarRow.svelte';
   import { GanttChart } from './chart.svelte.ts';
@@ -120,6 +123,7 @@
   data-zoom={zoom}
   data-first={axis.first}
   data-last={axis.last}
+  data-edges={chart.relations.edges.length}
   class="flex h-full min-h-0 flex-col [--gantt-row:2.25rem] [--gantt-title:7rem] @columns/pane:[--gantt-title:14rem] roomy:[--gantt-row:2.75rem]"
   style:--gantt-width="{axis.width}rem"
 >
@@ -157,6 +161,7 @@
                 style:left="{todayX}rem"
               ></div>
             </div>
+            <Arrows arrows={chart.arrows} width={axis.width} rows={chart.rows.length} />
             <!-- The column of titles goes on under the last row: the lines of the days do not show through it. -->
             <div aria-hidden="true" class="pointer-events-none absolute inset-0">
               <div class="sticky left-0 h-full w-(--gantt-title) border-r bg-background"></div>

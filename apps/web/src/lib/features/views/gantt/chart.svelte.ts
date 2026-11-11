@@ -1,17 +1,24 @@
 /**
- * What a Gantt view works out from its cards: the axis, the rows, and the
- * bar of each card. The components lay out; this holds what they lay out
+ * What a Gantt view works out from its cards: the axis, the rows, the bar of
+ * each card, and the arrows between them. The components lay out; this holds what they lay out
  * from, each step worked out again only when what it reads has changed.
  */
+import { m } from '$lib/i18n/paraglide/messages.js';
 import { displayProperty } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
 import {
+  arrowsOf,
   axisOf,
   barsOf,
+  cardsBefore,
+  dependencyProperty,
+  relationsOf,
   rowsOf,
   scaleOf,
+  type Arrow,
   type Axis,
   type Bar,
+  type ChartRelations,
   type ChartRow,
   type RowList,
   type Scale,
@@ -41,7 +48,7 @@ export interface CardLine {
   bar: Bar;
   /** What the row and the bar show. */
   title: string;
-  /** What a screen reader hears for the bar: the title and the days. */
+  /** What a screen reader hears for the bar: the title, the days, and the cards it comes after. */
   name: string;
 }
 
@@ -101,6 +108,43 @@ export class GanttChart {
     barsOf(this.axis, this.rows, (cardId) => this.placed.span(cardId)),
   );
 
+  /** The card relation read as what comes before what; none: no arrows. */
+  readonly dependency = $derived.by<PropertyTemplate | undefined>(() =>
+    dependencyProperty(this.#source.view().fields.dependencyPropertyId, this.#templates),
+  );
+
+  /** The edges between the cards that have a bar. Loops are looked for on the whole board. */
+  readonly relations = $derived.by<ChartRelations>(() =>
+    relationsOf(this.#source.cards(), this.#board.realCards, this.dependency?.id, (cardId) =>
+      this.placed.span(cardId),
+    ),
+  );
+
+  readonly arrows = $derived.by<Arrow[]>(() =>
+    arrowsOf(this.relations, this.bars, this.axis.width),
+  );
+
+  /** For each card, the cards it comes after, in the order of its value. */
+  readonly #before = $derived.by(() => cardsBefore(this.relations.edges));
+
+  /** The titles of cards as a list in the reader's language: "A, B and C". */
+  #listed(cardIds: readonly string[]): string {
+    const titles = cardIds.flatMap((id) => {
+      const card = this.placed.card(id);
+      return card ? [this.placed.title(card)] : [];
+    });
+    return new Intl.ListFormat(this.#board.workspace.locale, { type: 'conjunction' }).format(
+      titles,
+    );
+  }
+
+  /** What a screen reader hears for a bar: its title and days, then the cards it comes after. */
+  #name(card: Card): string {
+    const name = this.placed.name(card);
+    const before = this.#before.get(card.id);
+    return before ? m.gantt_bar_after({ name, cards: this.#listed(before) }) : name;
+  }
+
   /** The rows as drawn. */
   readonly lines = $derived.by<ChartLine[]>(() =>
     this.rows.flatMap((row): ChartLine[] => {
@@ -114,7 +158,7 @@ export class GanttChart {
           row: row.row,
           bar,
           title: this.placed.title(card),
-          name: this.placed.name(card),
+          name: this.#name(card),
         },
       ];
     }),

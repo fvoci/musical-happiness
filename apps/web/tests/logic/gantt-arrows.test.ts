@@ -17,13 +17,15 @@ import {
   axisOf,
   barBox,
   barsOf,
+  cardsBefore,
+  dependencyProperty,
   edgeKey,
   MIN_BAR_WIDTH,
   relationsOf,
   rowsOf,
   type Bar,
 } from '$lib/logic/gantt.ts';
-import { createCard, setCardProperty, type Card } from '$lib/logic/wire.ts';
+import { createCard, setCardProperty, type Card, type PropertyTemplate } from '$lib/logic/wire.ts';
 
 const day = (text: string): CalendarDate => text as CalendarDate;
 const days = (first: string, last = first): Days => ({ first: day(first), last: day(last) });
@@ -38,6 +40,22 @@ function card(id: string, after?: string[]): Card {
   if (after) setCardProperty(made, AFTER, after);
   return made;
 }
+
+describe('the property read as what comes before what', () => {
+  const templates: PropertyTemplate[] = [
+    { id: 'after', name: 'After', type: 'relation', options: [] },
+    { id: 'note', name: 'Note', type: 'text', options: [] },
+  ];
+
+  it('is the card relation the view names, and none for anything else', () => {
+    expect(dependencyProperty('after', templates)?.name).toBe('After');
+    expect(dependencyProperty(undefined, templates)).toBeUndefined();
+    expect(dependencyProperty('', templates)).toBeUndefined();
+    // Deleted since, or made another kind.
+    expect(dependencyProperty('gone', templates)).toBeUndefined();
+    expect(dependencyProperty('note', templates)).toBeUndefined();
+  });
+});
 
 describe('the relations a chart draws', () => {
   const spans: Record<string, Days> = {
@@ -75,6 +93,16 @@ describe('the relations a chart draws', () => {
     const cards = [card('a'), card('undated', ['a']), card('b', ['undated', 'a'])];
     const relations = relationsOf(cards, cards, AFTER, daysOf);
     expect(relations.edges).toEqual([{ from: 'a', to: 'b' }]);
+  });
+
+  it('say for each card which cards it comes after, in the order of its value', () => {
+    const cards = [card('a'), card('c'), card('b', ['c', 'a']), card('d', ['b'])];
+    const all: Record<string, Days> = { ...spans, d: days('2026-11-20') };
+    const { edges } = relationsOf(cards, cards, AFTER, (id) => all[id]);
+    expect([...cardsBefore(edges)]).toEqual([
+      ['b', ['c', 'a']],
+      ['d', ['b']],
+    ]);
   });
 
   it('are never out of order with a card that has no date', () => {

@@ -8,7 +8,7 @@
  * screen.
  */
 import { displayableProperties, displayProperty } from '$lib/logic/calendar.ts';
-import { DEFAULT_GANTT_ZOOM } from '$lib/logic/gantt.ts';
+import { DEFAULT_GANTT_ZOOM, dependencyProperty } from '$lib/logic/gantt.ts';
 import { propertyBehavior } from '$lib/logic/properties.ts';
 import {
   createBoardView,
@@ -99,14 +99,25 @@ export function newViewFields(
   if (viewType === 'calendar' || viewType === 'gantt') {
     return {
       ...fields,
-      ...(viewType === 'gantt'
-        ? { ...groupingFields(undefined), ganttZoom: DEFAULT_GANTT_ZOOM }
-        : {}),
+      ...(viewType === 'gantt' ? ganttFields(templates) : {}),
       visiblePropertyIds: [TITLE_COLUMN_ID],
       dateDisplayPropertyId: displayProperty(undefined, templates)?.id,
     };
   }
   return { ...fields, visiblePropertyIds: [TITLE_COLUMN_ID] };
+}
+
+/**
+ * What a new Gantt chart has beside what a calendar has: no grouping, the
+ * zoom of weeks, and the first card relation of the board as what comes
+ * before what (none where the board has no card relation).
+ */
+function ganttFields(templates: readonly PropertyTemplate[]): Partial<ViewFields> {
+  return {
+    ...groupingFields(undefined),
+    ganttZoom: DEFAULT_GANTT_ZOOM,
+    dependencyPropertyId: templates.find((template) => template.type === 'relation')?.id,
+  };
 }
 
 /** A calendar and a Gantt chart are placed by a date: they have "display by". */
@@ -123,7 +134,7 @@ export function displayByName(
   return displayProperty(view.fields.dateDisplayPropertyId, templates)?.name ?? madeName;
 }
 
-/** One line of the list a calendar's "display by" offers. `write`: choosing it changes the view. */
+/** One line of the list "display by" or "dependencies" offers. `write`: choosing it changes the view. */
 export interface DisplayByChoice {
   id: string;
   label: string;
@@ -152,6 +163,47 @@ export function displayByChoices(
     write: template.id !== named,
   }));
   return choices.length > 0 ? choices : [{ id: '', label: madeName, checked: true, write: false }];
+}
+
+/** A Gantt chart reads one card relation as what comes before what: it has "dependencies". */
+export function dependenciesOffered(viewType: ViewType): boolean {
+  return viewType === 'gantt';
+}
+
+/** What "dependencies" names: the card relation in use, or `noneName`. */
+export function dependenciesName(
+  view: BoardView,
+  templates: readonly PropertyTemplate[],
+  noneName: string,
+): string {
+  return dependencyProperty(view.fields.dependencyPropertyId, templates)?.name ?? noneName;
+}
+
+/**
+ * The lines of "dependencies": none (the empty identifier), then every card
+ * relation of the board, the one in use checked. Choosing what the view
+ * names already writes nothing. A view that names a property that is gone
+ * or is no card relation any more has "none" checked, and choosing it
+ * clears the name.
+ */
+export function dependenciesChoices(
+  view: BoardView,
+  templates: readonly PropertyTemplate[],
+  noneName: string,
+): DisplayByChoice[] {
+  const named = view.fields.dependencyPropertyId ?? '';
+  const used = dependencyProperty(named, templates);
+  return [
+    { id: '', label: noneName, checked: !used, write: named !== '' },
+    ...templates
+      .filter((template) => template.type === 'relation')
+      .map((template) => ({
+        id: template.id,
+        label: template.name,
+        checked: template.id === used?.id,
+        write: template.id !== named,
+      })),
+  ];
 }
 
 /** One line of the list of what a view shows on its cards: a property of the board. */

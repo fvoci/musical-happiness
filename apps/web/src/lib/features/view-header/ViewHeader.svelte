@@ -24,6 +24,7 @@
   import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
   import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
   import EyeIcon from '@lucide/svelte/icons/eye';
+  import GitForkIcon from '@lucide/svelte/icons/git-fork';
   import LayersIcon from '@lucide/svelte/icons/layers';
   import ListFilterIcon from '@lucide/svelte/icons/list-filter';
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -32,7 +33,6 @@
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { isComposing } from '$lib/components/keys.ts';
-  import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
   import { PickerPresentation } from '$lib/components/picker-surface/default-presentation.svelte.ts';
   import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
@@ -43,12 +43,16 @@
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
 
+  import ChoiceTool from './ChoiceTool.svelte';
   import { conditionCount } from './filter-edit.ts';
   import FilterEditor from './FilterEditor.svelte';
   import PropertiesPanel from './PropertiesPanel.svelte';
   import SortEditor from './SortEditor.svelte';
   import { NEW_VIEW_TITLES, viewTitle, type Icon } from './texts.ts';
   import {
+    dependenciesChoices,
+    dependenciesName,
+    dependenciesOffered,
     displayByChoices,
     displayByName,
     displayByOffered,
@@ -90,6 +94,9 @@
   /** A calendar: the date its cards are placed by; when they were made, where the board has none. */
   const displayBy = $derived(displayByOffered(view.fields.viewType));
   const placedByName = $derived(displayByName(view, templates, m['PropertyType.CreatedTime']()));
+  /** A Gantt chart: the card relation it reads as what comes before what. */
+  const dependencies = $derived(dependenciesOffered(view.fields.viewType));
+  const dependsOnName = $derived(dependenciesName(view, templates, m.viewheader_group_none()));
   const filterCount = $derived(conditionCount(view.fields.filter));
   const sortCount = $derived(view.fields.sortOptions.length);
 
@@ -100,6 +107,7 @@
   let propertiesOpen = $state(false);
   let groupOpen = $state(false);
   let displayOpen = $state(false);
+  let dependenciesOpen = $state(false);
   let filterOpen = $state(false);
   let sortOpen = $state(false);
 
@@ -198,54 +206,48 @@
     })),
   );
 
+  // ------------------------------------------------------ dependencies
+
+  const dependenciesActions = $derived<MenuAction[]>(
+    dependenciesChoices(view, templates, m.viewheader_group_none()).map(({ write, ...line }) => ({
+      ...line,
+      id: line.id || 'none',
+      run: () => {
+        if (write)
+          void board.setViewFields(view.id, { dependencyPropertyId: line.id }, 'dependencies');
+      },
+    })),
+  );
+
   // ------------------------------------------------------------- "…"
+
+  // What a line of "…" does: it opens its tool.
+  const openSort = (): void => void (sortOpen = true);
+  const openDisplay = (): void => void (displayOpen = true);
+  const openDepends = (): void => void (dependenciesOpen = true);
+  const openGroup = (): void => void (groupOpen = true);
+  const openProperties = (): void => void (propertiesOpen = true);
 
   /** The lines of "…" for the tools that have no button of their own in the folded row. */
   const asideActions = $derived.by<MenuAction[]>(() => {
     if (row) return [];
-    const lines: MenuAction[] = [];
-    if (sorting) {
-      lines.push({
-        id: 'sort',
-        label: m['ViewHeader.sort'](),
-        icon: ArrowUpDownIcon,
-        ...(sortCount > 0 ? { hint: String(sortCount) } : {}),
-        run: () => {
-          sortOpen = true;
-        },
-      });
-    }
-    if (displayBy) {
-      lines.push({
-        id: 'display-by',
-        label: m.viewheader_display_by(),
-        icon: CalendarDaysIcon,
-        hint: placedByName,
-        run: () => {
-          displayOpen = true;
-        },
-      });
-    }
-    if (grouping.offered) {
-      lines.push({
-        id: 'group',
-        label: m.viewheader_group_by(),
-        icon: LayersIcon,
-        hint: groupName,
-        run: () => {
-          groupOpen = true;
-        },
-      });
-    }
-    lines.push({
-      id: 'properties',
-      label: m['ViewHeader.properties'](),
-      icon: EyeIcon,
-      run: () => {
-        propertiesOpen = true;
-      },
-    });
-    return lines;
+    const line = (
+      id: string,
+      label: string,
+      icon: Icon,
+      hint: string | undefined,
+      run: () => void,
+    ): MenuAction => ({ id, label, icon, ...(hint === undefined ? {} : { hint }), run });
+    const sortHint = sortCount > 0 ? String(sortCount) : undefined;
+    return [
+      sorting && line('sort', m['ViewHeader.sort'](), ArrowUpDownIcon, sortHint, openSort),
+      displayBy &&
+        line('display-by', m.viewheader_display_by(), CalendarDaysIcon, placedByName, openDisplay),
+      dependencies &&
+        line('dependencies', m.viewheader_dependencies(), GitForkIcon, dependsOnName, openDepends),
+      grouping.offered && line('group', m.viewheader_group_by(), LayersIcon, groupName, openGroup),
+      line('properties', m['ViewHeader.properties'](), EyeIcon, undefined, openProperties),
+    ].filter((each) => each !== false);
   });
 
   /** A tool that is not drawn in the folded row: an unseen element where "…" is, for its popover to open at. */
@@ -349,45 +351,45 @@
       </PickerSurface>
 
       {#if grouping.offered}
-        <ActionMenu
-          bind:open={
-            () => groupOpen,
-            (open: boolean) => {
-              groupOpen = open;
-              closedAside(open);
-            }
-          }
+        <ChoiceTool
+          bind:open={groupOpen}
+          id="group"
+          icon={LayersIcon}
           title={m.viewheader_group_by()}
           subtitle={viewTitle(view)}
+          word={m['ViewHeader.group-by']({ property: groupName })}
           actions={groupActions}
-          align="start"
-        >
-          {#snippet trigger(props: Record<string, unknown>)}
-            {@const word = m['ViewHeader.group-by']({ property: groupName })}
-            {@render tool(props, 'group', LayersIcon, word, 0, true)}
-          {/snippet}
-        </ActionMenu>
+          {tool}
+          onchange={closedAside}
+        />
       {/if}
 
       {#if displayBy}
-        <ActionMenu
-          bind:open={
-            () => displayOpen,
-            (open: boolean) => {
-              displayOpen = open;
-              closedAside(open);
-            }
-          }
+        <ChoiceTool
+          bind:open={displayOpen}
+          id="display-by"
+          icon={CalendarDaysIcon}
           title={m.viewheader_display_by()}
           subtitle={viewTitle(view)}
+          word={m['ViewHeader.display-by']({ property: placedByName })}
           actions={displayActions}
-          align="start"
-        >
-          {#snippet trigger(props: Record<string, unknown>)}
-            {@const word = m['ViewHeader.display-by']({ property: placedByName })}
-            {@render tool(props, 'display-by', CalendarDaysIcon, word, 0, true)}
-          {/snippet}
-        </ActionMenu>
+          {tool}
+          onchange={closedAside}
+        />
+      {/if}
+
+      {#if dependencies}
+        <ChoiceTool
+          bind:open={dependenciesOpen}
+          id="dependencies"
+          icon={GitForkIcon}
+          title={m.viewheader_dependencies()}
+          subtitle={viewTitle(view)}
+          word={m.viewheader_dependencies_by({ property: dependsOnName })}
+          actions={dependenciesActions}
+          {tool}
+          onchange={closedAside}
+        />
       {/if}
 
       <PickerSurface

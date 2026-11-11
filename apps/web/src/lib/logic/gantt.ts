@@ -21,7 +21,7 @@ import {
   type RelationEdge,
 } from './dependencies.ts';
 import type { Weekday } from './regional.ts';
-import type { Card, GanttZoom } from './wire.ts';
+import type { Card, GanttZoom, PropertyTemplate } from './wire.ts';
 
 // ---------------------------------------------------------------- zoom
 
@@ -279,6 +279,21 @@ export function barsOf(
 
 // ----------------------------------------------------------- relations
 
+/**
+ * The property a Gantt view reads as "the cards that come before this one":
+ * the one it names, for as long as the board has it and it is a card
+ * relation. A view that names none, or one that was deleted or made another
+ * kind since, has none: no arrows are drawn.
+ */
+export function dependencyProperty(
+  dependencyPropertyId: string | undefined,
+  templates: readonly PropertyTemplate[],
+): PropertyTemplate | undefined {
+  if (!dependencyPropertyId) return undefined;
+  const named = templates.find((template) => template.id === dependencyPropertyId);
+  return named?.type === 'relation' ? named : undefined;
+}
+
 /** Names an edge in a set. */
 export function edgeKey(edge: RelationEdge): string {
   return `${edge.from}\u0000${edge.to}`;
@@ -315,6 +330,17 @@ export function relationsOf(
     late: new Set(edgesOutOfOrderByDays(edges, daysOf).map(edgeKey)),
     loops: new Set(edges.map(edgeKey).filter((key) => onLoops.has(key))),
   };
+}
+
+/** For each card that comes after others, those others, in the order of the edges. */
+export function cardsBefore(edges: readonly RelationEdge[]): Map<string, string[]> {
+  const before = new Map<string, string[]>();
+  for (const { from, to } of edges) {
+    const list = before.get(to);
+    if (list) list.push(from);
+    else before.set(to, [from]);
+  }
+  return before;
 }
 
 // -------------------------------------------------------------- arrows
