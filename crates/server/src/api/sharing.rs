@@ -74,7 +74,7 @@ fn sharing_change(body: &Bytes) -> Result<SharingChange, AppError> {
     if members.contains_key("token") {
         refused.refuse(
             "token",
-            RefusalReason::Unknown,
+            RefusalReason::Invalid,
             "the server makes the read token; a request cannot set it",
         );
     }

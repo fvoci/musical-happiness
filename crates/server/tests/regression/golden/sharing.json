@@ -96,7 +96,7 @@
         {
           "detail": "the server makes the read token; a request cannot set it",
           "pointer": "/token",
-          "reason": "unknown"
+          "reason": "invalid"
         }
       ],
       "instance": "urn:uuid:<request-id>",

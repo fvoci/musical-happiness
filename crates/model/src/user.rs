@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
-use crate::settings::{ClientStateError, check_client_state_name, check_client_state_value};
+use crate::settings::{
+    CLIENT_STATE_MAX_NAME_LENGTH, ClientStateError, check_client_state_name,
+    check_client_state_value,
+};
 
 /// A user account.
 ///
@@ -113,7 +116,11 @@ impl UserPreferencesPatch {
                 check_client_state_name(name).and_then(|()| check_client_state_value(value));
             if let Err(error) = checked {
                 let reason = match error {
-                    ClientStateError::InvalidName => RefusalReason::InvalidFormat,
+                    ClientStateError::InvalidName if name.is_empty() => RefusalReason::Required,
+                    ClientStateError::InvalidName if name.len() > CLIENT_STATE_MAX_NAME_LENGTH => {
+                        RefusalReason::TooLong
+                    }
+                    ClientStateError::InvalidName => RefusalReason::InvalidCharacters,
                     ClientStateError::ValueTooLong => RefusalReason::TooLong,
                 };
                 refused.refuse_within("updatedFields", name, reason, error.to_string());

@@ -133,7 +133,10 @@ fn check_property_value(id: &str, value: &Value) -> Result<(), CardPropertyError
 /// # Errors
 ///
 /// Returns every value of another shape, each at `/<member>/<property>`.
-pub fn check_card_property_values(values: &JsonMap, member: &str) -> Result<(), Refusals> {
+pub(crate) fn check_card_property_values<'v>(
+    values: impl IntoIterator<Item = (&'v String, &'v Value)>,
+    member: &str,
+) -> Result<(), Refusals> {
     let mut refused = Refusals::new();
     for (id, value) in values {
         if let Err(error) = check_property_value(id, value) {

@@ -36,9 +36,15 @@ pub struct Problem {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(nullable = false)]
     pub reason: Option<String>,
-    /// What of the request was refused, one entry for each. A check of the request's
-    /// own shape lists every member it refuses; a check that needs what is stored, and
-    /// the check of a document (`body`), tell of the first alone.
+    /// What of the request was refused, one entry for each. `register`,
+    /// `changePassword`, `patchMe`, `patchUserSettings`, `patchClientState`,
+    /// `createSubscription`, `createUpload`, `createImportUpload`, `setSharing`,
+    /// `getCards`, `createCard` and `patchCard` list everything their check of the
+    /// request's own shape refuses, the first 100; so does the check of a category's
+    /// own members. Every other refusal names the one thing it is about: what is only
+    /// known from what is stored, a block of a request with several, a member that
+    /// does not agree with the path, and the first node of a document (`body`) that
+    /// may not be stored.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<InvalidInput>,
     /// The limit that was exceeded.

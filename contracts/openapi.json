@@ -1548,7 +1548,7 @@
             "type": "string"
           },
           "errors": {
-            "description": "What of the request was refused, one entry for each. A check of the request's\nown shape lists every member it refuses; a check that needs what is stored, and\nthe check of a document (`body`), tell of the first alone.",
+            "description": "What of the request was refused, one entry for each. `register`,\n`changePassword`, `patchMe`, `patchUserSettings`, `patchClientState`,\n`createSubscription`, `createUpload`, `createImportUpload`, `setSharing`,\n`getCards`, `createCard` and `patchCard` list everything their check of the\nrequest's own shape refuses, the first 100; so does the check of a category's\nown members. Every other refusal names the one thing it is about: what is only\nknown from what is stored, a block of a request with several, a member that\ndoes not agree with the path, and the first node of a document (`body`) that\nmay not be stored.",
             "items": {
               "$ref": "#/components/schemas/InvalidInput"
             },

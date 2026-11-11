@@ -4,50 +4,46 @@ use std::fmt;
 
 use crate::problem::{json_pointer, pointer_token};
 
-/// Why a member of a request was refused, as far as a check tells causes apart. A
-/// client chooses its words for the member by it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RefusalReason {
-    /// The member is missing or blank, and the request cannot do without it.
-    Required,
-    /// The value is shorter than it may be.
-    TooShort,
-    /// The value is longer than it may be.
-    TooLong,
-    /// The value has not the form it must have: an email address that is none.
-    InvalidFormat,
-    /// The value holds a character it may not.
-    InvalidCharacters,
-    /// The request has no such member.
-    Unknown,
-    /// The value is one the member cannot have, for a cause no finer than that.
-    Invalid,
+/// Defines [`RefusalReason`] with the value of each variant, and the list of every
+/// variant from the same lines: a cause cannot be there without being listed.
+macro_rules! refusal_reasons {
+    ($($(#[$doc:meta])* $variant:ident => $value:literal;)+) => {
+        /// Why a member of a request was refused, as far as a check tells causes apart.
+        /// A client chooses its words for the member by it.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub enum RefusalReason {
+            $($(#[$doc])* $variant,)+
+        }
+
+        impl RefusalReason {
+            /// Every cause, for the contract.
+            pub const ALL: &'static [Self] = &[$(Self::$variant,)+];
+
+            /// The value of the `reason` of the entry of `errors`.
+            pub fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $value,)+
+                }
+            }
+        }
+    };
 }
 
-impl RefusalReason {
-    /// The value of the `reason` of the entry of `errors`.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Required => "required",
-            Self::TooShort => "too_short",
-            Self::TooLong => "too_long",
-            Self::InvalidFormat => "invalid_format",
-            Self::InvalidCharacters => "invalid_characters",
-            Self::Unknown => "unknown",
-            Self::Invalid => "invalid",
-        }
-    }
-
-    /// Every reason, for the contract.
-    pub const ALL: [Self; 7] = [
-        Self::Required,
-        Self::TooShort,
-        Self::TooLong,
-        Self::InvalidFormat,
-        Self::InvalidCharacters,
-        Self::Unknown,
-        Self::Invalid,
-    ];
+refusal_reasons! {
+    /// The member is missing or blank, and the request cannot do without it.
+    Required => "required";
+    /// The value is shorter than it may be.
+    TooShort => "too_short";
+    /// The value is longer than it may be.
+    TooLong => "too_long";
+    /// The value has not the form it must have: an email address that is none.
+    InvalidFormat => "invalid_format";
+    /// The value holds a character it may not.
+    InvalidCharacters => "invalid_characters";
+    /// The request has no such member.
+    Unknown => "unknown";
+    /// The value is one the member cannot have, for a cause no finer than that.
+    Invalid => "invalid";
 }
 
 /// One member of a request body that a check refused.

@@ -468,7 +468,7 @@
         {
           "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
           "pointer": "/updatedFields/with space",
-          "reason": "invalid_format"
+          "reason": "invalid_characters"
         }
       ],
       "instance": "urn:uuid:<request-id>",
@@ -489,7 +489,7 @@
         {
           "detail": "the name of an entry is 1 to 64 of the characters A-Z, a-z, 0-9, '_', '.' and '-'",
           "pointer": "/updatedFields/nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
-          "reason": "invalid_format"
+          "reason": "too_long"
         }
       ],
       "instance": "urn:uuid:<request-id>",

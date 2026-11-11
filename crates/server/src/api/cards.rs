@@ -4,7 +4,7 @@ use std::num::IntErrorKind;
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use fvoci_model::{BlockType, Card, CardError, CardPatch, check_card_property_values};
+use fvoci_model::{BlockType, Card, CardError, CardPatch, RefusalReason, Refusals};
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -108,13 +108,18 @@ async fn handle_create_card(
     )
     .await?;
     let (mut card, document): (Card, _) = decode_with_document(&body)?;
-    // Every value that has not the shape of one, before the store refuses the first.
-    check_card_property_values(&card.properties, "properties")?;
+    // Everything of the request's shape that is refused, before the store is asked.
+    let mut refused: Refusals = card.check_request().err().unwrap_or_default();
+    if !card.board_id.is_empty() && card.board_id != board_id {
+        refused.refuse(
+            "boardId",
+            RefusalReason::Invalid,
+            CardError::BoardIdMismatch.to_string(),
+        );
+    }
+    refused.into_result()?;
     card.body = document.into_body();
     app.check_body_files(&board_id, card.body.as_ref()).await?;
-    if !card.board_id.is_empty() && card.board_id != board_id {
-        return Err(CardError::BoardIdMismatch.into());
-    }
     card.board_id.clone_from(&board_id);
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
@@ -160,12 +165,8 @@ async fn handle_get_cards(
     let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE);
     let (page, per_page) = match (page, per_page) {
         (Ok(page), Ok(per_page)) => (page, per_page),
-        (page, per_page) => {
-            AppError::all([page.err(), per_page.err()].into_iter().flatten())?;
-            return Err(AppError::internal(
-                "a parameter was refused without an error",
-            ));
-        }
+        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => return Err(refusal),
+        (Err(page), Err(per_page)) => return Err(page.and(per_page)),
     };
 
     let cards = app.cards_for_board(&board_id, page, per_page).await?;
@@ -212,11 +213,11 @@ async fn handle_patch_card(
     )
     .await?;
     let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
-    // Every value that has not the shape of one, before the store refuses the first.
-    check_card_property_values(&patch.updated_properties, "updatedProperties")?;
-    app.check_body_files(&card.board_id, document.new_body())
-        .await?;
     patch.body = document;
+    // Everything of the request's shape that is refused, before the store is asked.
+    patch.check_request()?;
+    app.check_body_files(&card.board_id, patch.body.new_body())
+        .await?;
 
     let patched = app
         .patch_card(&patch, &card.id, user_id, notification)

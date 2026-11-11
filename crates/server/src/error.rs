@@ -218,6 +218,11 @@ const INTERNAL_MESSAGE: &str = "internal server error";
 /// it tells a finer one.
 const INVALID: &str = "invalid";
 
+/// The most entries an answer lists of what a check refused: a request can be made to
+/// have thousands of members that are wrong, and each entry repeats a name of the
+/// client's own.
+const MAX_ENTRIES: usize = 100;
+
 /// Where in a request something that was refused is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Place {
@@ -416,27 +421,24 @@ impl AppError {
         self.refusing(Place::Header(name.to_owned()))
     }
 
-    /// One error for everything of a request that a check refuses, where the check looks
-    /// at several things and has an error for each that names what it refuses: the
-    /// entries of all of them, each with the words and the reason of its own error.
-    ///
-    /// # Errors
-    ///
-    /// Returns nothing if `errors` is empty, the one error if there is one, and else an
-    /// error of the kind of the first that says how many things were refused.
-    pub fn all(errors: impl IntoIterator<Item = Self>) -> Result<(), Self> {
-        let mut errors: Vec<Self> = errors.into_iter().collect();
-        if errors.len() <= 1 {
-            return errors.pop().map_or(Ok(()), Err);
-        }
-        let kind = errors.first().map_or(ErrorKind::BadRequest, Self::kind);
-        let refused: Vec<Refused> = errors.into_iter().flat_map(Self::settled).collect();
+    /// One error for what this one and `other` refuse, where a check looks at two
+    /// things and has an error for each that names what it refuses: the entries of
+    /// both, each with the words and the reason of its own error. The error is of this
+    /// one's kind and says how many things were refused.
+    #[must_use]
+    pub fn and(self, other: Self) -> Self {
+        debug_assert!(
+            self.kind == other.kind && !self.refused.is_empty() && !other.refused.is_empty(),
+            "two errors of one kind that each name what they refuse"
+        );
+        let kind = self.kind;
+        let refused: Vec<Refused> = self.settled().chain(other.settled()).collect();
         let mut error = Self::new(
             kind,
             format_args!("{} things of the request were refused", refused.len()),
         );
         error.refused = refused;
-        Err(error)
+        error
     }
 
     /// What the error refuses, each entry with the error's words and reason where it
@@ -690,9 +692,16 @@ impl From<Refusals> for AppError {
     /// A bad request that lists every member the check refused, each with its own
     /// words and cause.
     fn from(refusals: Refusals) -> Self {
-        let mut error = Self::bad_request(&refusals);
+        let mut error = if refusals.len() > MAX_ENTRIES {
+            Self::bad_request(format_args!(
+                "{refusals}; the first {MAX_ENTRIES} are listed"
+            ))
+        } else {
+            Self::bad_request(&refusals)
+        };
         error.refused = refusals
             .into_iter()
+            .take(MAX_ENTRIES)
             .map(|refusal| Refused {
                 place: Place::Body(refusal.pointer),
                 detail: Some(refusal.detail),

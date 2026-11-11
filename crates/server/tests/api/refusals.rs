@@ -182,9 +182,9 @@ async fn the_requests_of_a_user_list_everything_they_refuse() {
     assert_eq!(
         refused(&response),
         pairs(&[
-            ("/updatedFields/a~1b", "invalid_format"),
+            ("/updatedFields/a~1b", "invalid_characters"),
             ("/updatedFields/long", "too_long"),
-            ("/updatedFields/no good", "invalid_format"),
+            ("/updatedFields/no good", "invalid_characters"),
         ]),
         "each entry where it is, the name written as a JSON Pointer writes it"
     );
@@ -223,16 +223,22 @@ async fn the_requests_of_cards_list_everything_they_refuse() {
     let values = json!({"fine": "text", "number": 7, "flag": true, "list": ["a", 1]});
     let response = th
         .client
-        .post(&cards, &json!({"title": "Card", "properties": values}))
+        .post(
+            &cards,
+            &json!({"title": "Card", "icon": "ab", "boardId": "another", "properties": values}),
+        )
         .await;
     response.check_bad_request();
     assert_eq!(
         refused(&response),
         pairs(&[
+            ("/icon", "invalid"),
             ("/properties/flag", "invalid"),
             ("/properties/list", "invalid"),
             ("/properties/number", "invalid"),
-        ])
+            ("/boardId", "invalid"),
+        ]),
+        "the icon and the board with the values"
     );
     let made: Value = th
         .client
@@ -244,18 +250,25 @@ async fn the_requests_of_cards_list_everything_they_refuse() {
         .client
         .patch(
             &format!("/cards/{card}"),
-            &json!({"updatedProperties": values}),
+            &json!({
+                "icon": "ab", "body": {"type": "doc", "content": [{"type": "paragraph"}]},
+                "updatedProperties": values, "deletedProperties": ["flag"],
+            }),
         )
         .await;
     response.check_bad_request();
     assert_eq!(
         refused(&response),
         pairs(&[
-            ("/updatedProperties/flag", "invalid"),
+            ("/readAt", "required"),
+            ("/icon", "invalid"),
             ("/updatedProperties/list", "invalid"),
             ("/updatedProperties/number", "invalid"),
-        ])
+        ]),
+        "the icon and the missing readAt with the values; a value the patch also deletes \
+         is not looked at"
     );
+    check_more(&th.client, card).await;
 
     // A document that may not be stored is told of by its first node that is refused.
     let document = json!({"type": "doc", "content": [
@@ -269,6 +282,37 @@ async fn the_requests_of_cards_list_everything_they_refuse() {
     assert_eq!(response.refused_at(), "/body/content/1");
 
     th.teardown().await;
+}
+
+/// A value that is set and deleted in one patch is gone, whatever it was, as before; and
+/// of more refusals than an answer lists the first hundred are listed, and the detail
+/// says so.
+async fn check_more(client: &crate::common::Client, card: &str) {
+    client
+        .patch(
+            &format!("/cards/{card}"),
+            &json!({"updatedProperties": {"flag": true}, "deletedProperties": ["flag"]}),
+        )
+        .await
+        .check_ok();
+
+    let many: serde_json::Map<String, Value> =
+        (0..150).map(|n| (format!("p{n:03}"), json!(n))).collect();
+    let response = client
+        .patch(
+            &format!("/cards/{card}"),
+            &json!({"updatedProperties": many}),
+        )
+        .await;
+    response.check_error(
+        StatusCode::BAD_REQUEST,
+        "150 members of the request were refused; the first 100 are listed",
+    );
+    assert_eq!(
+        response.refused_places().len(),
+        100,
+        "no more entries than an answer lists"
+    );
 }
 
 /// The opening of an upload and the change of the sharing of a board.
@@ -305,7 +349,7 @@ async fn an_upload_and_the_sharing_list_everything_they_refuse() {
     assert_eq!(
         refused(&response),
         pairs(&[
-            ("/token", "unknown"),
+            ("/token", "invalid"),
             ("/enabled", "required"),
             ("/regenerate", "invalid"),
         ])

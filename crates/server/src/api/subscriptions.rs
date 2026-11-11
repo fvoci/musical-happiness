@@ -89,11 +89,12 @@ impl SubscriptionRequest {
             .map(SubscriptionError::into_refusals)
             .unwrap_or_default();
         if subscriber_type.is_none() {
-            refused.refuse(
-                "subscriberType",
-                RefusalReason::Invalid,
-                "invalid subscriber type",
-            );
+            let reason = if self.subscriber_type.is_empty() {
+                RefusalReason::Required
+            } else {
+                RefusalReason::Invalid
+            };
+            refused.refuse("subscriberType", reason, "invalid subscriber type");
         }
         refused.into_result()?;
         Ok(subscription)
