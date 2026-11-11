@@ -137,3 +137,15 @@ describe('an import', () => {
     expect(calls.map((call) => call.url)).toEqual(['/api/v1/client-config']);
   });
 });
+
+describe('an export that does not arrive whole', () => {
+  it('is no archive when the body ends before its length', async () => {
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        new Response(streamOf(['PK12']), { status: 200, headers: { 'Content-Length': '10' } }),
+      ),
+    );
+    const refused = await new ServerBackend('').exportBoard('b1').catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(0);
+  });
+});

@@ -467,47 +467,69 @@ export class Workspace {
   // ----------------------------------------------------------- archives
 
   #transferCount = 0;
+  /** What stops each transfer under way, and what it moves (one at a time of each). */
+  #running: { id: number; stop: AbortController; key: string }[] = [];
 
   /**
    * Runs a transfer that the reader can watch: its progress, its end. A
-   * finished one stays a moment, then goes; a failed one is told as a problem.
+   * finished one stays a moment, then goes; a failed one is told as a
+   * problem; one given up (dismissed while under way) is told nothing. The
+   * same thing is not moved twice at once: asked again meanwhile, nothing
+   * more is done.
    */
   async #transfer<T>(
     kind: Transfer['kind'],
+    key: string,
     name: string,
-    run: (onProgress: (progress: { sentBytes: number; totalBytes: number }) => void) => Promise<T>,
+    run: (options: {
+      onProgress: (progress: { sentBytes: number; totalBytes: number }) => void;
+      signal: AbortSignal;
+    }) => Promise<T>,
   ): Promise<T | undefined> {
+    if (this.#running.some((running) => running.key === key)) return undefined;
     this.#transferCount += 1;
     const id = this.#transferCount;
+    const stop = new AbortController();
+    this.#running = [...this.#running, { id, stop, key }];
     const change = (patch: Partial<Transfer>): void => {
       this.transfers = this.transfers.map((one) => (one.id === id ? { ...one, ...patch } : one));
     };
     this.transfers = [...this.transfers, { id, kind, name, done: 0, total: 0, finished: false }];
     try {
-      const result = await run((progress) => {
-        change({ done: progress.sentBytes, total: progress.totalBytes });
+      const result = await run({
+        onProgress: (progress) => {
+          change({ done: progress.sentBytes, total: progress.totalBytes });
+        },
+        signal: stop.signal,
       });
+      if (stop.signal.aborted) return undefined;
       change({ finished: true });
       setTimeout(() => {
         this.dismissTransfer(id);
       }, TRANSFER_STAYS);
       return result;
     } catch (error) {
-      this.dismissTransfer(id);
-      this.report(kind, error);
+      if (!stop.signal.aborted) {
+        this.dismissTransfer(id);
+        this.report(kind, error);
+      }
       return undefined;
+    } finally {
+      this.#running = this.#running.filter((running) => running.id !== id);
     }
   }
 
+  /** Takes a transfer out of sight; one under way is given up. */
   dismissTransfer(id: number): void {
+    this.#running.find((running) => running.id === id)?.stop.abort();
     this.transfers = this.transfers.filter((one) => one.id !== id);
   }
 
   /** An archive of the board, for the shell to save. */
   exportBoard(boardId: string): Promise<DownloadedFile | undefined> {
     const board = this.boards.find((one) => one.id === boardId);
-    return this.#transfer('export', board?.title ?? '', (onProgress) =>
-      this.backend.exportBoard(boardId, { onProgress }),
+    return this.#transfer('export', `board ${boardId}`, board?.title ?? '', (options) =>
+      this.backend.exportBoard(boardId, options),
     );
   }
 
@@ -515,8 +537,8 @@ export class Workspace {
   exportTeam(): Promise<DownloadedFile | undefined> {
     const team = this.team;
     if (!team) return Promise.resolve(undefined);
-    return this.#transfer('export', team.title, (onProgress) =>
-      this.backend.exportTeam(team.id, { onProgress }),
+    return this.#transfer('export', `team ${team.id}`, team.title, (options) =>
+      this.backend.exportTeam(team.id, options),
     );
   }
 
@@ -528,10 +550,15 @@ export class Workspace {
   async importArchive(file: File): Promise<boolean> {
     const team = this.team;
     if (!team) return false;
-    const done = await this.#transfer('import', file.name, async (onProgress) => {
-      await this.backend.importArchive(team.id, file, { onProgress });
-      return true;
-    });
+    const done = await this.#transfer(
+      'import',
+      `import ${file.name}`,
+      file.name,
+      async (options) => {
+        await this.backend.importArchive(team.id, file, options);
+        return true;
+      },
+    );
     // Even a failed import may have made some boards (one after the other).
     void this.#refresh();
     return done === true;

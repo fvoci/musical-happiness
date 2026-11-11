@@ -567,14 +567,20 @@ export class MemoryBackend implements Backend {
    */
   async exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportBoard', options?.signal);
-    return this.#archiveOf([this.#board(boardId)], options);
+    const board = this.#board(boardId);
+    // For its members, as on the server (an open board is readable, its parts are not).
+    if (!this.#memberIds(boardId).includes(this.userId)) fail(403, 'not a member of the board');
+    return this.#archiveOf([board], options);
   }
 
   async exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     await this.#enter('exportTeam', options?.signal);
     if (teamId !== this.world.team.id) fail(404, 'no such team');
+    // As the server: the reader's boards and the team's open ones.
     const boards = [...this.world.boards.values()].filter(
-      (board) => !board.isTemplate && this.#memberIds(board.id).includes(this.userId),
+      (board) =>
+        !board.isTemplate &&
+        (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
     );
     return this.#archiveOf(boards, options);
   }

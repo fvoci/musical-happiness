@@ -5,8 +5,9 @@
  *
  * An answer that is no success is not read here: the request is made once
  * more through `Http.bytes`, whose reading of errors is the one of every
- * request (`http.ts`). A refusal is cheap to ask for twice; an archive is
- * not made for it.
+ * request (`http.ts`, which this file may not change). That second request
+ * cannot be given up, and a refusal the server counts (429) is counted
+ * twice; once errors are read apart from requests, this asks once.
  */
 import { BackendError, type DownloadedFile, type DownloadOptions } from '../state/backend.ts';
 
@@ -49,27 +50,34 @@ export async function downloadWithProgress(
     return { bytes: await http.bytes(path, params), name };
   }
   const total = Number(response.headers.get('Content-Length') ?? 0) || 0;
-  const reader = response.body?.getReader();
-  if (!reader) return { bytes: await response.blob(), name };
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  const body = response.body;
+  if (!body) return { bytes: await response.blob(), name };
+  // Counted on the way through; the browser keeps the bytes (a Blob), not this page.
   let received = 0;
   onProgress?.({ sentBytes: 0, totalBytes: total });
+  const counted = body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        received += chunk.byteLength;
+        onProgress?.({ sentBytes: received, totalBytes: Math.max(total, received) });
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+  let bytes: Blob;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      received += value.byteLength;
-      onProgress?.({ sentBytes: received, totalBytes: Math.max(total, received) });
-    }
+    bytes = await new Response(counted, {
+      headers: {
+        'Content-Type': response.headers.get('Content-Type') ?? 'application/octet-stream',
+      },
+    }).blob();
   } catch (error) {
     if (signal?.aborted) throw error;
     throw new BackendError(0, { message: `GET ${path}: the answer broke off` });
   }
-  return {
-    bytes: new Blob(chunks, {
-      type: response.headers.get('Content-Type') ?? 'application/octet-stream',
-    }),
-    name,
-  };
+  // A body that ends early without breaking (a proxy that cut it) is no archive either.
+  if (total > 0 && received !== total) {
+    throw new BackendError(0, { message: `GET ${path}: ${received} of ${total} bytes arrived` });
+  }
+  return { bytes, name };
 }

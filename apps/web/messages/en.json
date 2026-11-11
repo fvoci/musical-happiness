@@ -95,6 +95,7 @@
   "app_problem_import_invalid": "That file is no archive of boards this app can read.",
   "app_problem_import_too_large": "The archive is larger than {limit}.",
   "app_problem_import_too_big": "The archive is too large to import.",
+  "app_problem_import_forbidden": "You may not import boards into this team.",
   "app_board_join_hint": "You are not a member of this board yet.",
   "app_board_join": "Join this board",
   "card_menu": "Card menu",

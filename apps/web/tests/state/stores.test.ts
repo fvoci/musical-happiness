@@ -886,6 +886,24 @@ describe('archives', () => {
     );
   });
 
+  it('moves one thing once at a time, and gives up a transfer that is dismissed, telling nothing', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const board = workspace.sidebar[0]?.boards[0];
+    if (!board) throw new Error('unexpected seed');
+    backend.latency = 20;
+    const first = workspace.exportTeam();
+    const again = workspace.exportTeam();
+    expect(workspace.transfers).toHaveLength(1);
+    expect(await again).toBeUndefined();
+    workspace.dismissTransfer(workspace.transfers[0]?.id ?? 0);
+    expect(await first).toBeUndefined();
+    expect(workspace.transfers).toEqual([]);
+    expect(workspace.problems).toEqual([]);
+    backend.latency = 0;
+    expect(await workspace.exportBoard(board.id)).toBeDefined();
+  });
+
   it('tells a file that is no archive, and makes nothing', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
