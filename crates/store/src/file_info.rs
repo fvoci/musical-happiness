@@ -110,3 +110,17 @@ pub(crate) fn file_info_from_row(row: &Row) -> Result<FileInfo, StoreError> {
         create_at: row.int(7)?,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_count_of_the_columns_is_the_columns() {
+        assert_eq!(
+            FILE_INFO_COLUMNS.split(',').count(),
+            FILE_INFO_COLUMN_COUNT,
+            "{FILE_INFO_COLUMNS}"
+        );
+    }
+}

@@ -7,7 +7,7 @@
 //! an object that is gone already is nothing. A removal that fails is tried again
 //! later, each time later still, up to [`RETRY_CAP_MILLIS`]; and a run takes the due
 //! ones the longest due first, so that objects that keep failing do not hold back the
-//! others.
+//! others. One at a place no storage takes is taken off the list with an error logged.
 
 use fvoci_store::LooseObject;
 
@@ -47,9 +47,13 @@ impl App {
     ///
     /// Returns the store's error if the list cannot be read.
     pub async fn remove_doomed_objects(&self, now: i64) -> Result<RemovedObjects, AppError> {
-        let stale = self.store().doom_stale_writing(now).await?;
-        if stale > 0 {
-            tracing::warn!(stale, "doomed objects whose writing stopped long ago");
+        // What cannot be doomed now is doomed by a later run; the removals go on.
+        match self.store().doom_stale_writing(now).await {
+            Ok(0) => {}
+            Ok(stale) => tracing::warn!(stale, "doomed objects whose writing stopped long ago"),
+            Err(error) => {
+                tracing::error!(%error, "unable to doom the objects whose writing stopped");
+            }
         }
         let mut done = RemovedObjects::default();
         while done.removed + done.failed < DOOMED_PER_RUN {
@@ -87,6 +91,18 @@ impl App {
                     return false;
                 }
             },
+            // A place no storage takes is none to remove: tried again, it would fail
+            // for ever.
+            Err(error @ StorageError::InvalidPath(_)) => {
+                tracing::error!(%error, "a doomed object has a place no storage takes; it is taken off the list");
+                return match self.store().forget_doomed_object(&object.path).await {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::warn!(%error, "a doomed object could not be taken off the list");
+                        false
+                    }
+                };
+            }
             Err(error) => {
                 tracing::warn!(%error, attempts = object.attempts + 1, "a doomed object could not be removed");
                 error_kind(&error)

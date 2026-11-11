@@ -12,7 +12,7 @@
 use fvoci_model::FileInfo;
 
 use crate::Store;
-use crate::db::{Dialect, Id, Row, Scope, now_millis};
+use crate::db::{Dialect, OptId, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 
@@ -65,7 +65,7 @@ pub struct LooseObject {
     pub last_error: String,
 }
 
-/// How many objects are listed, as the metrics count them.
+/// How many objects are listed.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LooseCounts {
     /// Being written.
@@ -105,22 +105,25 @@ impl Store {
     }
 
     /// Records a file whose object was written at the place it names, taking the mark
-    /// of [`Store::mark_writing`] away, in one transaction.
+    /// of [`Store::mark_writing`] away, in one transaction. Returns whether it was
+    /// recorded: if the place was no longer marked, as when the housekeeping doomed it
+    /// and may have removed what was there then, nothing is recorded and the object is
+    /// doomed (again), for the housekeeping to remove.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] if the path is not being written, as when the
-    /// housekeeping doomed it: nothing is recorded then, and the object is the
-    /// housekeeping's to remove. And the errors of [`Store::save_file_info`].
-    pub async fn record_written_file(&self, file_info: &FileInfo) -> Result<(), StoreError> {
+    /// The errors of [`Store::save_file_info`]; nothing is recorded or doomed then.
+    pub async fn record_written_file(&self, file_info: &FileInfo) -> Result<bool, StoreError> {
         self.transaction(async |scope| {
             let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
             sql.bind(&file_info.path)
                 .push_bind(" AND state = ", LooseState::Writing.as_str());
             if scope.execute(sql).await? == 0 {
-                return Err(StoreError::not_found("object being written"));
+                doom(scope, &[(file_info.path.clone(), None)]).await?;
+                return Ok(false);
             }
-            file_info::save_file_info(scope, file_info).await
+            file_info::save_file_info(scope, file_info).await?;
+            Ok(true)
         })
         .await
     }
@@ -188,7 +191,7 @@ impl Store {
         .await
     }
 
-    /// Returns every listed object, by path: for the tests and the reconciliation.
+    /// Returns every listed object, by path.
     ///
     /// # Errors
     ///
@@ -251,7 +254,7 @@ impl Store {
         .await
     }
 
-    /// Counts the listed objects, for the metrics.
+    /// Counts the listed objects.
     ///
     /// # Errors
     ///
@@ -283,33 +286,46 @@ impl Store {
     }
 }
 
-/// Dooms the object of a record that is being removed, in the caller's transaction.
-/// `org_id` is the organization of the record, which a statement of a handle that
-/// reaches every organization names (PostgreSQL); one of an organization lists it as
-/// its own.
+/// How many objects one statement of [`doom`] lists.
+const DOOMED_PER_STATEMENT: usize = 500;
+
+/// Dooms the objects of records that are being removed, in the caller's transaction,
+/// a few hundred to a statement. Each comes with the organization of its record, which
+/// a statement of a handle that reaches every organization names (PostgreSQL); one of
+/// an organization lists them as its own.
 pub(crate) async fn doom(
     scope: &mut Scope<'_>,
-    path: &str,
-    org_id: Option<&str>,
+    objects: &[(String, Option<String>)],
 ) -> Result<(), StoreError> {
     let now = now_millis();
-    let named_org = org_id.filter(|_| scope.dialect() == Dialect::Postgres && !scope.has_org());
-    let mut sql = scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at");
-    sql.push(if named_org.is_some() { ", org_id" } else { "" })
-        .push_bind(") VALUES (", path)
-        .push_bind(", ", LooseState::Doomed.as_str())
-        .push_bind(", ", now)
-        .push_bind(", ", now);
-    if let Some(org_id) = named_org {
-        sql.push_bind(", ", Id(org_id));
+    let names_org = scope.dialect() == Dialect::Postgres && !scope.has_org();
+    for chunk in objects.chunks(DOOMED_PER_STATEMENT) {
+        let mut sql = scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at");
+        sql.push(if names_org {
+            ", org_id) VALUES "
+        } else {
+            ") VALUES "
+        });
+        for (index, (path, org_id)) in chunk.iter().enumerate() {
+            sql.push_bind(if index == 0 { "(" } else { ", (" }, path.as_str())
+                .push_bind(", ", LooseState::Doomed.as_str())
+                .push_bind(", ", now)
+                .push_bind(", ", now);
+            if names_org {
+                // None is refused by the column: a row is some organization's.
+                sql.push_bind(", ", OptId(org_id.as_deref().unwrap_or_default()));
+            }
+            sql.push(")");
+        }
+        // A mark of writing of the same place, which no record should outlive, gives
+        // way.
+        sql.push_bind(
+            " ON CONFLICT (path) DO UPDATE SET state = ",
+            LooseState::Doomed.as_str(),
+        )
+        .push(", retry_at = excluded.retry_at");
+        scope.execute(sql).await?;
     }
-    // A mark of writing of the same place, which no record should outlive, gives way.
-    sql.push_bind(
-        ") ON CONFLICT (path) DO UPDATE SET state = ",
-        LooseState::Doomed.as_str(),
-    )
-    .push(", retry_at = excluded.retry_at");
-    scope.execute(sql).await?;
     Ok(())
 }
 

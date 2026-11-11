@@ -87,7 +87,8 @@ async fn the_records_that_go_doom_their_objects_in_the_same_transaction() {
 }
 
 /// A file is recorded by the transaction that takes its mark of writing away, and not
-/// without the mark: a writer whose object was doomed meanwhile records nothing.
+/// without the mark: a writer whose object was doomed meanwhile, and perhaps removed
+/// and taken off the list, records nothing and dooms what it wrote again.
 #[tokio::test]
 async fn a_written_file_is_recorded_only_while_it_is_marked() {
     let test = common::setup().await;
@@ -95,21 +96,24 @@ async fn a_written_file_is_recorded_only_while_it_is_marked() {
     let path = format!("boards/20261112/{board_id}/written.png");
     let file = file_at(&board_id, &path);
 
-    let unmarked = test
-        .record_written_file(&file)
-        .await
-        .expect_err("nothing is being written there");
-    assert!(unmarked.is_not_found(), "{unmarked:?}");
-
+    let unmarked_path = format!("boards/20261112/{board_id}/unmarked.png");
+    assert!(
+        !test
+            .record_written_file(&file_at(&board_id, &unmarked_path))
+            .await
+            .expect("read"),
+        "nothing is being written there"
+    );
     test.mark_writing(&path, i64::MAX).await.expect("marked");
     test.mark_writing(&path, i64::MAX)
         .await
         .expect_err("a place is marked once");
-    test.record_written_file(&file).await.expect("recorded");
+    assert!(test.record_written_file(&file).await.expect("recorded"));
+    let listed = test.loose_objects().await.expect("listed");
     assert_eq!(
-        test.loose_objects().await.expect("listed"),
-        [],
-        "the record took the mark away"
+        paths_in(&listed, LooseState::Doomed),
+        [unmarked_path.as_str()],
+        "the record took the mark away; what was written without one is doomed"
     );
     test.get_file_info(&board_id, &file.stored_name)
         .await
@@ -125,16 +129,29 @@ async fn a_written_file_is_recorded_only_while_it_is_marked() {
         !test.doom_writing(&doomed_path).await.expect("read"),
         "a doomed object is none of the writer's"
     );
-    let refused = test
-        .record_written_file(&file_at(&board_id, &doomed_path))
+    test.forget_doomed_object(&doomed_path)
         .await
-        .expect_err("the object is doomed");
-    assert!(refused.is_not_found(), "{refused:?}");
+        .expect("removed by the housekeeping before the writer is done");
+    assert!(
+        !test
+            .record_written_file(&file_at(&board_id, &doomed_path))
+            .await
+            .expect("read"),
+        "the object is doomed"
+    );
     let listed = test.loose_objects().await.expect("listed");
+    let mut doomed = [doomed_path.as_str(), unmarked_path.as_str()];
+    doomed.sort_unstable();
     assert_eq!(
         paths_in(&listed, LooseState::Doomed),
-        [doomed_path.as_str()]
+        doomed,
+        "doomed again: what the late writer wrote is the housekeeping's to remove"
     );
+    let missing = test
+        .get_file_info(&board_id, "doomed.png")
+        .await
+        .expect_err("nothing is recorded");
+    assert!(missing.is_not_found(), "{missing:?}");
     test.teardown().await;
 }
 
@@ -238,5 +255,40 @@ async fn the_list_of_one_organization_is_not_anothers() {
         1,
         "ours alone"
     );
+    test.teardown().await;
+}
+
+/// The purge of the trash by the system's handle, over two organizations, dooms each
+/// object as the organization's of its record.
+#[tokio::test]
+async fn the_system_dooms_each_object_as_its_organizations() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let (other_org, _) = common::organization(&unset, "the other").await;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    for (store, name) in [(&test.store, "ours"), (&theirs, "theirs")] {
+        let (board_id, user_id) = board(store).await;
+        store
+            .save_file_info(&file_at(&board_id, &format!("boards/{name}")))
+            .await
+            .expect("a file of the board");
+        store
+            .delete_board(&board_id, &user_id)
+            .await
+            .expect("the board goes to the trash");
+    }
+    let purged = test.system().purge_trash(i64::MAX).await.expect("purged");
+    assert_eq!(purged.files.len(), 2, "{purged:?}");
+    for (store, name) in [(&test.store, "ours"), (&theirs, "theirs")] {
+        let listed = store.loose_objects().await.expect("listed");
+        assert_eq!(
+            paths_in(&listed, LooseState::Doomed),
+            [format!("boards/{name}").as_str()],
+            "each organization lists its own"
+        );
+    }
     test.teardown().await;
 }

@@ -300,29 +300,32 @@ impl Store {
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
     pub async fn purge_trash(&self, deleted_before: i64) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
+            // One statement decides and deletes: a board restored meanwhile is not
+            // deleted, and so its files are not doomed.
             let org = loose_objects::org_column(scope);
-            let mut sql = scope.sql(&format!(
-                "SELECT files{} FROM deleted_boards WHERE deleted_at < ",
+            let mut sql = scope.sql("DELETE FROM deleted_boards WHERE deleted_at < ");
+            sql.bind(deleted_before).push(&format!(
+                " RETURNING files{}",
                 org.map_or(String::new(), |column| format!(", {column}"))
             ));
-            sql.bind(deleted_before);
+            let boards = scope.fetch_all(sql).await?;
+            let mut records = u64::try_from(boards.len()).unwrap_or(u64::MAX);
             let mut files = Vec::new();
-            for row in scope.fetch_all(sql).await? {
-                let of_board: StoredFiles = from_json(&row, 0, "files")?;
+            let mut doomed = Vec::new();
+            for row in &boards {
+                let of_board: StoredFiles = from_json(row, 0, "files")?;
                 let org_id = org.map(|_| row.id(1)).transpose()?;
                 for file in Vec::<FileInfo>::from(of_board) {
                     // Nothing else says where the file is once the board is gone.
-                    loose_objects::doom(scope, &file.path, org_id.as_deref()).await?;
+                    doomed.push((file.path.clone(), org_id.clone()));
                     files.push(file);
                 }
             }
+            loose_objects::doom(scope, &doomed).await?;
 
-            let mut records = 0;
-            for table in ["deleted_boards", "deleted_blocks"] {
-                let mut sql = scope.sql(&format!("DELETE FROM {table} WHERE deleted_at < "));
-                sql.bind(deleted_before);
-                records += scope.execute(sql).await?;
-            }
+            let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE deleted_at < ");
+            sql.bind(deleted_before);
+            records += scope.execute(sql).await?;
             // A block that was deleted on its own while its board existed has nothing to
             // come back to once the board is neither there nor in the trash.
             let sql = scope.sql(

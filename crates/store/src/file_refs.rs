@@ -44,12 +44,14 @@ impl Store {
             ));
             let rows = scope.fetch_all(sql).await?;
             let mut files = Vec::with_capacity(rows.len());
+            let mut doomed = Vec::with_capacity(rows.len());
             for row in &rows {
                 let file = file_info_from_row(row)?;
                 let org_id = org.map(|_| row.id(FILE_INFO_COLUMN_COUNT)).transpose()?;
-                loose_objects::doom(scope, &file.path, org_id.as_deref()).await?;
+                doomed.push((file.path.clone(), org_id));
                 files.push(file);
             }
+            loose_objects::doom(scope, &doomed).await?;
             Ok(files)
         })
         .await

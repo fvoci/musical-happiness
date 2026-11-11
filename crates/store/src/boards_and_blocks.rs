@@ -58,9 +58,8 @@ impl Store {
                 files.extend(file_info::file_infos_of_board(scope, &board.id).await?);
             }
             // The records go with the templates; their objects are doomed now.
-            for file in &files {
-                loose_objects::doom(scope, &file.path, None).await?;
-            }
+            let doomed: Vec<_> = files.iter().map(|file| (file.path.clone(), None)).collect();
+            loose_objects::doom(scope, &doomed).await?;
             boards::remove_builtin_templates(scope).await?;
             create_boards_and_blocks(scope, templates, "").await?;
             Ok(Some(files))
