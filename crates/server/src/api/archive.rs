@@ -268,13 +268,18 @@ fn archive_response(
             ("content-transfer-encoding", "binary".to_owned()),
             ("content-length", size.to_string()),
         ],
-        Body::from_stream(download(archive, slot, stall, move || {
-            if let Some(breaker) = &breaker {
-                breaker.cut();
-            }
-        })),
+        Body::from_stream(download(archive, slot, stall, cutting(breaker))),
     )
         .into_response()
+}
+
+/// What the download calls to break its connection: cuts `breaker`, if there is one.
+fn cutting(breaker: Option<Breaker>) -> impl FnOnce() + Send + 'static {
+    move || {
+        if let Some(breaker) = breaker {
+            breaker.cut();
+        }
+    }
 }
 
 /// The breaker of the connection a request came on, if it has one.
@@ -300,7 +305,19 @@ fn export_filename(now_millis: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::export_filename;
+    use super::{cutting, export_filename};
+    use crate::connection::Breaker;
+
+    #[test]
+    fn the_download_is_handed_what_cuts_the_connection() {
+        let breaker = Breaker::default();
+        let cut = cutting(Some(breaker.clone()));
+        assert!(!breaker.is_cut(), "not before it is called");
+        cut();
+        assert!(breaker.is_cut(), "the connection's breaker is cut");
+        // The administration socket has no breaker: nothing to cut.
+        cutting(None)();
+    }
 
     #[test]
     fn export_filename_formats_the_date() {

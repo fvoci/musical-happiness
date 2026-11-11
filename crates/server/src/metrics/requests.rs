@@ -8,6 +8,16 @@ use prometheus::{HistogramOpts, HistogramVec, IntGauge, Opts, Registry};
 
 use super::{Metrics, PREFIX};
 
+/// The route of a request that matched none: a page of the web app, a path that is no
+/// route, under the API or elsewhere.
+pub(crate) const UNMATCHED: &str = "unmatched";
+
+/// The status of a request whose client went away before it was answered.
+pub(crate) const ABANDONED: &str = "abandoned";
+
+/// The method of a request that is none of the methods the server has routes for.
+pub(crate) const OTHER_METHOD: &str = "other";
+
 /// The upper bounds of the buckets of the request durations, in seconds: from a
 /// cached read to an import or an export of a large archive.
 const DURATION_BUCKETS: [f64; 14] = [
@@ -65,8 +75,10 @@ impl RequestMetrics {
     }
 
     /// Measures a request that took `duration` until the head of its answer. The
-    /// labels are the caller's to keep to a fixed set: none is what a client sent.
-    pub(crate) fn took(&self, method: &str, route: &str, status: &str, duration: Duration) {
+    /// method is one the server has routes for or [`OTHER_METHOD`], the route a
+    /// template of the router or [`UNMATCHED`], the status that of the answer or
+    /// [`ABANDONED`]: none is what a client sent.
+    pub(crate) fn took(&self, method: &'static str, route: &str, status: &str, duration: Duration) {
         self.duration
             .with_label_values(&[method, route, status])
             .observe(duration.as_secs_f64());

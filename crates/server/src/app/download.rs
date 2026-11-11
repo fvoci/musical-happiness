@@ -70,6 +70,9 @@ struct Sending {
 /// The body of an export's download: the archive in pieces. A watch takes the archive and
 /// `slot` away, and calls `cut`, which is to break the connection the download goes out
 /// on, when no piece went out for `stall`.
+///
+/// `cut` is called at most once, from the watch's task, and not at all when the download
+/// is sent or dropped. It must not wait: the download is locked while it runs.
 pub(crate) fn download(
     archive: ExportedArchive,
     slot: Slot,

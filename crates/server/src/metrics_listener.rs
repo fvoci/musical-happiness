@@ -17,7 +17,7 @@ use crate::error::AppError;
 use crate::metrics;
 
 /// The path the metrics are served at, on the metrics listener.
-pub const PATH: &str = "/metrics";
+const PATH: &str = "/metrics";
 
 /// The router of the metrics listener: [`PATH`] and nothing else of the server. No
 /// route of the API, the websocket or the web app is on it. What it refuses it refuses

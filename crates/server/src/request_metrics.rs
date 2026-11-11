@@ -10,17 +10,7 @@ use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::Response;
 
-use crate::metrics::{Metrics, RequestMetrics};
-
-/// The route of a request that matched none: a page of the web app, a path that is no
-/// route, under the API or elsewhere.
-const UNMATCHED: &str = "unmatched";
-
-/// The status of a request whose client went away before it was answered.
-const ABANDONED: &str = "abandoned";
-
-/// The method of a request that is none of the methods the server has routes for.
-const OTHER_METHOD: &str = "other";
+use crate::metrics::{ABANDONED, Metrics, OTHER_METHOD, RequestMetrics, UNMATCHED};
 
 /// Where the template of the route a request is routed to is put, once routing has
 /// found it: given to the request by [`measure_requests`] and filled by [`note_route`],

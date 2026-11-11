@@ -10,7 +10,6 @@ pub mod client_address;
 pub mod config;
 pub mod error;
 pub mod metrics;
-pub mod metrics_listener;
 pub mod permissions;
 pub mod problems;
 pub mod scheduler;
@@ -852,6 +851,7 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
 }
 
 pub mod connection;
+mod metrics_listener;
 mod request_log;
 mod request_metrics;
 

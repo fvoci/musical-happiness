@@ -21,7 +21,7 @@ mod storage;
 mod websocket;
 
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
-pub(crate) use requests::RequestMetrics;
+pub(crate) use requests::{ABANDONED, OTHER_METHOD, RequestMetrics, UNMATCHED};
 pub(crate) use storage::{OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;
 
