@@ -4,13 +4,14 @@
   component keeps the store and the address in step.
 
   The parts are features of their own and meet here (src/lib/README.md):
-  `view-header`, the views (`kanban`, `table`, `gallery`), and `card`.
+  `view-header`, the views (`kanban`, `table`, `gallery`, `calendar`), and `card`.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
 
   import CardDialog from '$lib/features/card/CardDialog.svelte';
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
+  import Calendar from '$lib/features/views/calendar/Calendar.svelte';
   import Gallery from '$lib/features/views/gallery/Gallery.svelte';
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
   import Table from '$lib/features/views/table/Table.svelte';
@@ -139,9 +140,7 @@
       {:else if view.fields.viewType === 'gallery'}
         <Gallery {board} {view} {cards} {cardHref} onOpenCard={openCard} />
       {:else}
-        <div class="grid h-full place-items-center p-6 text-center">
-          <p class="max-w-sm text-muted-foreground">{m.app_calendar_not_built()}</p>
-        </div>
+        <Calendar {board} {view} {cards} {cardHref} onOpenCard={openCard} />
       {/if}
     </div>
   </div>

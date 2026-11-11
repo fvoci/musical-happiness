@@ -4,7 +4,6 @@
   "app_load_failed": "The workspace could not be loaded.",
   "app_retry": "Try again",
   "app_no_boards": "You have no boards yet.",
-  "app_calendar_not_built": "The calendar view is not built yet. Choose another view of this board.",
   "app_problem_load": "This could not be loaded.",
   "app_problem_save": "The change was not saved and has been taken back.",
   "app_problem_undo": "That could not be undone.",

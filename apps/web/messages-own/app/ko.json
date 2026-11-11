@@ -4,7 +4,6 @@
   "app_load_failed": "작업 공간을 불러오지 못했습니다.",
   "app_retry": "다시 시도",
   "app_no_boards": "아직 보드가 없습니다.",
-  "app_calendar_not_built": "캘린더 뷰는 아직 만들어지지 않았습니다. 이 보드의 다른 뷰를 골라 주세요.",
   "app_problem_load": "불러오지 못했습니다.",
   "app_problem_save": "변경이 저장되지 않아 되돌렸습니다.",
   "app_problem_undo": "실행 취소하지 못했습니다.",

@@ -1,0 +1,254 @@
+/**
+ * The arithmetic of a calendar view: which days the grid of a month shows,
+ * which property places the cards, which days each card is on, and where the
+ * bar of a card goes in a week.
+ *
+ * Days are calendar dates (dates.ts). Nothing here reads a clock or the time
+ * zone of the device: which day a moment falls on is decided by the reader's
+ * time zone, passed in, and the first day of the week is an argument.
+ */
+import { addDays, calendarDate, dateOfInstant, daysBetween, type CalendarDate } from './dates.ts';
+import { propertyBehavior } from './properties.ts';
+import type { Weekday } from './regional.ts';
+import { cardProperty, type Card, type PropertyTemplate } from './wire.ts';
+
+// ------------------------------------------------------------- months
+
+export interface Month {
+  year: number;
+  /** 1 to 12. */
+  month: number;
+}
+
+export function monthOf(date: CalendarDate): Month {
+  return { year: Number(date.slice(0, 4)), month: Number(date.slice(5, 7)) };
+}
+
+export function firstOf(month: Month): CalendarDate {
+  return calendarDate(month.year, month.month, 1);
+}
+
+export function lastOf(month: Month): CalendarDate {
+  // Day 0 of the next month rolls back to the last day of this one.
+  return calendarDate(month.year, month.month + 1, 0);
+}
+
+export function shiftMonth(month: Month, by: number): Month {
+  return monthOf(calendarDate(month.year, month.month + by, 1));
+}
+
+export function inMonth(date: CalendarDate, month: Month): boolean {
+  return date >= firstOf(month) && date <= lastOf(month);
+}
+
+/** The day of the week as ISO 8601 numbers it: 1 is Monday, 7 is Sunday. */
+export function weekdayOf(date: CalendarDate): Weekday {
+  // 1970-01-01 was a Thursday.
+  const sinceThursday = daysBetween(calendarDate(1970, 1, 1), date);
+  return (((((sinceThursday + 3) % 7) + 7) % 7) + 1) as Weekday;
+}
+
+/** The seven days of the week `date` is in, for a reader whose week starts on `weekStart`. */
+export function weekOf(date: CalendarDate, weekStart: Weekday): CalendarDate[] {
+  const back = (weekdayOf(date) - weekStart + 7) % 7;
+  const first = addDays(date, -back);
+  return Array.from({ length: 7 }, (_, at) => addDays(first, at));
+}
+
+/** The weeks the grid of a month shows: every week with a day of the month in it, four to six. */
+export function weeksOfMonth(month: Month, weekStart: Weekday): CalendarDate[][] {
+  const weeks: CalendarDate[][] = [];
+  const last = lastOf(month);
+  for (let day = firstOf(month); ; day = addDays(day, 7)) {
+    const week = weekOf(day, weekStart);
+    if ((week[0] ?? day) > last) break;
+    weeks.push(week);
+  }
+  return weeks;
+}
+
+// ---------------------------------------------------- what places a card
+
+/**
+ * The property a calendar view places its cards by: the one the view names,
+ * if it still is a kind of date; otherwise the first date property of the
+ * board; otherwise the first property that is a moment (created or updated
+ * time). Undefined when the board has none of these: the cards are then
+ * placed by when they were made (question C15 of docs/calendar-proposal.md).
+ */
+export function displayProperty(
+  dateDisplayPropertyId: string | undefined,
+  templates: readonly PropertyTemplate[],
+): PropertyTemplate | undefined {
+  const dated = (template: PropertyTemplate): boolean =>
+    propertyBehavior(template.type).days !== undefined;
+  const named = templates.find((template) => template.id === dateDisplayPropertyId);
+  if (named && dated(named)) return named;
+  return templates.find((template) => template.type === 'date') ?? templates.find(dated);
+}
+
+/** The properties a calendar can be placed by, in the order of the board. */
+export function displayableProperties(templates: readonly PropertyTemplate[]): PropertyTemplate[] {
+  return templates.filter((template) => propertyBehavior(template.type).days !== undefined);
+}
+
+/** The days a card is on: the same day twice when it is not a range. */
+export interface Span {
+  id: string;
+  first: CalendarDate;
+  last: CalendarDate;
+}
+
+/** The first and last day of a card for a reader in `timeZone`; undefined when it has no date. */
+export function cardDays(
+  card: Card,
+  template: PropertyTemplate | undefined,
+  timeZone: string,
+): { first: CalendarDate; last: CalendarDate } | undefined {
+  if (!template) {
+    const day = dateOfInstant(card.createAt, timeZone);
+    return { first: day, last: day };
+  }
+  const days = propertyBehavior(template.type).days;
+  return days?.(cardProperty(card, template.id), card, timeZone);
+}
+
+/** The cards that have days, as spans in the order given, and those that have none. */
+export function spansOf(
+  cards: readonly Card[],
+  template: PropertyTemplate | undefined,
+  timeZone: string,
+): { spans: Span[]; undated: string[] } {
+  const spans: Span[] = [];
+  const undated: string[] = [];
+  for (const card of cards) {
+    const days = cardDays(card, template, timeZone);
+    if (days) spans.push({ id: card.id, ...days });
+    else undated.push(card.id);
+  }
+  return { spans, undated };
+}
+
+/**
+ * The ids of the cards on each of `days`, in the order of the spans. One pass
+ * over the cards, not one per day: a month has 42 days and a board hundreds
+ * of cards.
+ */
+export function cardsByDay(
+  spans: readonly Span[],
+  days: readonly CalendarDate[],
+): Map<CalendarDate, string[]> {
+  const result = new Map<CalendarDate, string[]>(days.map((day) => [day, []]));
+  const first = days[0];
+  const last = days.at(-1);
+  if (!first || !last) return result;
+  for (const span of spans) {
+    if (span.last < first || span.first > last) continue;
+    const from = span.first < first ? first : span.first;
+    const to = span.last > last ? last : span.last;
+    for (let day = from; day <= to; day = addDays(day, 1)) result.get(day)?.push(span.id);
+  }
+  return result;
+}
+
+// --------------------------------------------------------------- bars
+
+/** The part of a card's span that falls in one week, as a bar. */
+export interface Segment {
+  id: string;
+  /** The row of bars it is in, from 0 at the top. */
+  lane: number;
+  /** The first column it covers, 0 to 6, and how many. */
+  column: number;
+  length: number;
+  /** The card began before this week, or goes on after it. */
+  fromBefore: boolean;
+  toAfter: boolean;
+}
+
+function compareSpans(a: Span, b: Span): number {
+  if (a.first !== b.first) return a.first < b.first ? -1 : 1;
+  return daysBetween(b.first, b.last) - daysBetween(a.first, a.last);
+}
+
+/**
+ * The bars of one week. A card that began earlier comes first, then the
+ * longer one, then the order given; each takes the highest row that is free
+ * on all its days. Rows are worked out a week at a time: a card that spans
+ * two weeks may sit in different rows of the two.
+ */
+export function layWeek(week: readonly CalendarDate[], spans: readonly Span[]): Segment[] {
+  const start = week[0];
+  const end = week[6];
+  if (!start || !end) return [];
+  const here = spans
+    .map((span, order) => ({ span, order }))
+    .filter(({ span }) => span.first <= end && span.last >= start)
+    .sort((a, b) => compareSpans(a.span, b.span) || a.order - b.order);
+  /** For each row, the columns taken. */
+  const taken: boolean[][] = [];
+  return here.map(({ span }) => {
+    const column = Math.max(0, daysBetween(start, span.first));
+    const until = Math.min(6, daysBetween(start, span.last));
+    let lane = 0;
+    const free = (row: boolean[] | undefined): boolean =>
+      !row || row.slice(column, until + 1).every((cell) => !cell);
+    while (!free(taken[lane])) lane += 1;
+    const row = (taken[lane] ??= Array.from({ length: 7 }, () => false));
+    for (let at = column; at <= until; at += 1) row[at] = true;
+    return {
+      id: span.id,
+      lane,
+      column,
+      length: until - column + 1,
+      fromBefore: span.first < start,
+      toAfter: span.last > end,
+    };
+  });
+}
+
+export interface Folded {
+  shown: Segment[];
+  /** For each column, how many cards of that day have no bar. */
+  more: number[];
+}
+
+const covers = (segment: Segment, column: number): boolean =>
+  column >= segment.column && column < segment.column + segment.length;
+
+/**
+ * What of a week's bars is drawn when a cell has room for `lanes` rows (at
+ * least one). When a day has more cards than rows, its last row says "+N"
+ * instead of a bar; a bar in the last row stays only if none of its days
+ * needs that row for "+N". A bar that does not fit is hidden in the whole
+ * week, not cut at the day that is full (question C4).
+ */
+export function foldWeek(segments: readonly Segment[], lanes: number): Folded {
+  const rows = Math.max(1, lanes);
+  const depth = Array.from({ length: 7 }, () => 0);
+  for (const segment of segments) {
+    for (let column = segment.column; column < segment.column + segment.length; column += 1) {
+      depth[column] = Math.max(depth[column] ?? 0, segment.lane + 1);
+    }
+  }
+  const fits = (segment: Segment): boolean => {
+    if (segment.lane < rows - 1) return true;
+    if (segment.lane > rows - 1) return false;
+    for (let column = segment.column; column < segment.column + segment.length; column += 1) {
+      if ((depth[column] ?? 0) > rows) return false;
+    }
+    return true;
+  };
+  const shown: Segment[] = [];
+  const more = Array.from({ length: 7 }, () => 0);
+  for (const segment of segments) {
+    if (fits(segment)) {
+      shown.push(segment);
+      continue;
+    }
+    for (let column = 0; column < 7; column += 1) {
+      if (covers(segment, column)) more[column] = (more[column] ?? 0) + 1;
+    }
+  }
+  return { shown, more };
+}

@@ -3,6 +3,7 @@
   "viewheader_add_board_view": "보드 뷰 추가",
   "viewheader_add_table_view": "표 뷰 추가",
   "viewheader_add_gallery_view": "갤러리 뷰 추가",
+  "viewheader_add_calendar_view": "달력 뷰 추가",
   "viewheader_rename_view": "뷰 이름 바꾸기",
   "viewheader_view_name": "뷰 이름",
   "viewheader_rename_save": "저장",
@@ -11,6 +12,7 @@
   "viewheader_delete_view_description": "뷰만 삭제됩니다. 보드의 카드는 그대로 남습니다.",
   "viewheader_group_by": "그룹화 기준",
   "viewheader_group_none": "없음",
+  "viewheader_display_by": "표시 기준",
   "viewheader_filter_property": "속성",
   "viewheader_filter_condition": "조건",
   "viewheader_filter_value_of": "{property}의 값",
@@ -31,5 +33,6 @@
   "viewheader_sort_remove": "{property} 정렬 삭제",
   "viewheader_sort_position": "{property}: {count}개 중 {position}번째가 되었습니다.",
   "viewheader_unknown_property": "(삭제된 속성)",
-  "viewheader_search_close": "검색 닫기"
+  "viewheader_search_close": "검색 닫기",
+  "viewheader_kind_calendar": "달력"
 }

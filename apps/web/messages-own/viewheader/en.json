@@ -3,6 +3,7 @@
   "viewheader_add_board_view": "Add board view",
   "viewheader_add_table_view": "Add table view",
   "viewheader_add_gallery_view": "Add gallery view",
+  "viewheader_add_calendar_view": "Add calendar view",
   "viewheader_rename_view": "Rename view",
   "viewheader_view_name": "View name",
   "viewheader_rename_save": "Save",
@@ -11,6 +12,7 @@
   "viewheader_delete_view_description": "Only the view is deleted. The cards of the board stay.",
   "viewheader_group_by": "Group by",
   "viewheader_group_none": "None",
+  "viewheader_display_by": "Display by",
   "viewheader_filter_property": "Property",
   "viewheader_filter_condition": "Condition",
   "viewheader_filter_value_of": "Value for {property}",
@@ -31,5 +33,6 @@
   "viewheader_sort_remove": "Remove the sort by {property}",
   "viewheader_sort_position": "{property} is now number {position} of {count}.",
   "viewheader_unknown_property": "(Deleted property)",
-  "viewheader_search_close": "Close search"
+  "viewheader_search_close": "Close search",
+  "viewheader_kind_calendar": "Calendar"
 }
