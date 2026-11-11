@@ -175,6 +175,53 @@ fn many_failing_children_of_one_parent_are_all_deleted() {
     );
 }
 
+/// A long run of failing children is one stretch and goes at once; a document that
+/// fails in more separate places than a repair deletes is refused as it is.
+#[test]
+fn a_repair_deletes_a_long_run_and_refuses_a_thousand_separate_ones() {
+    let run = written(|txn, root| {
+        paragraph(txn, root, "kept");
+        for _ in 0..100_000 {
+            root.push_front(txn, XmlElementPrelim::empty("video"));
+        }
+    });
+    let repair = repair(&run).expect("a repair");
+    assert_eq!(repair.deleted, 100_000);
+    assert_eq!(
+        json_of(repair.body.as_ref()),
+        document(&[text_paragraph("kept")])
+    );
+
+    let alternating = |failing: u32| {
+        written(|txn, root| {
+            for _ in 0..failing {
+                root.push_front(txn, XmlElementPrelim::empty("horizontalRule"));
+                root.push_front(txn, XmlElementPrelim::empty("video"));
+            }
+        })
+    };
+    assert_eq!(
+        repair_of(&alternating(1000)),
+        Ok(1000),
+        "a thousand stretches"
+    );
+    let too_many = alternating(1001);
+    let before = state_of(&too_many);
+    assert_eq!(
+        fvoci_collab::repair(&too_many),
+        Err(BodyError::InvalidNode {
+            path: String::new(),
+            problem: "more separate parts of the document fail than a repair deletes",
+        })
+    );
+    assert_eq!(state_of(&too_many), before, "nothing was deleted");
+}
+
+/// How many nodes a repair deleted, or why it did not repair.
+fn repair_of(doc: &Doc) -> Result<usize, BodyError> {
+    fvoci_collab::repair(doc).map(|repair| repair.deleted)
+}
+
 /// Values where the children of a node belong have no JSON at all. An editor passes
 /// over them; the server refuses the document, and a repair deletes the node that
 /// holds them.

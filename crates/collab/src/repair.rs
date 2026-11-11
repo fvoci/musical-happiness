@@ -53,7 +53,10 @@ pub struct Repair {
 /// [`BodyError::TooManyNodes`] if what would be left is past a limit, or a node that is
 /// judged is past one by itself: deleting what fails is not meant to bring a document
 /// under a limit. Returns [`BodyError::InvalidNode`] with an empty path if the root
-/// itself holds letters or values: there is no node to delete in their place. Any
+/// itself holds letters or values (there is no node to delete in their place), or if
+/// more than a thousand separate stretches of children would have to be deleted: a
+/// repair is for what a merge of edits leaves, and each stretch costs a walk through
+/// its parent. Any
 /// other error means the repaired document was still refused, which is a defect of
 /// this crate; the deletions were made.
 pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
@@ -72,6 +75,12 @@ pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
     if !left.is_empty() {
         Body::parse(json!({"type": "doc", "content": left}))?;
     }
+    if found.cuts.iter().map(Cuts::stretches).sum::<usize>() > MAX_STRETCHES {
+        return Err(BodyError::InvalidNode {
+            path: String::new(),
+            problem: "more separate parts of the document fail than a repair deletes",
+        });
+    }
     let deleted = found.cuts.iter().map(|cuts| cuts.indexes.len()).sum();
     for cuts in &found.cuts {
         cuts.make(&mut txn);
@@ -85,6 +94,13 @@ pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
     })
 }
 
+/// How many stretches of neighbouring children a repair deletes at most. The library
+/// deletes by index and walks to it from the front of the parent, over what was deleted
+/// before as well, so a repair costs about this many walks through a parent. What two
+/// edits leave when they merge is a stretch or two; a document that fails in a thousand
+/// separate places was made to.
+const MAX_STRETCHES: usize = 1000;
+
 /// The children of one parent to delete: their indexes, in order.
 #[derive(Debug)]
 struct Cuts {
@@ -93,27 +109,28 @@ struct Cuts {
 }
 
 impl Cuts {
-    /// Deletes the children, neighbours in one stretch, from the front: the library
-    /// walks to an index from the front of the parent, and what is deleted before a
-    /// stretch is then no longer in the way.
+    /// The stretches of neighbouring children among them: where each begins and how
+    /// many it is long.
+    fn each_stretch(&self) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.indexes
+            .chunk_by(|one, next| one.checked_add(1) == Some(*next))
+            .filter_map(|stretch| Some((*stretch.first()?, u32::try_from(stretch.len()).ok()?)))
+    }
+
+    fn stretches(&self) -> usize {
+        self.each_stretch().count()
+    }
+
+    /// Deletes the children, each stretch of neighbours at once, from the last to the
+    /// first, so that no deletion moves the place of another.
     fn make(&self, txn: &mut TransactionMut<'_>) {
-        let mut gone = 0_u32;
-        let mut rest = self.indexes.as_slice();
-        while let Some(&first) = rest.first() {
-            let stretch = rest
-                .iter()
-                .zip(first..)
-                .take_while(|(index, expected)| **index == *expected)
-                .count();
-            let length = u32::try_from(stretch).unwrap_or(u32::MAX);
-            let start = first.saturating_sub(gone);
+        let stretches: Vec<(u32, u32)> = self.each_stretch().collect();
+        for (start, length) in stretches.into_iter().rev() {
             // The indexes were read from this parent, so the stretch is there;
             // deleting past the end of a parent would panic in the library.
             if start.saturating_add(length) <= self.parent.len(txn) {
                 self.parent.remove_range(txn, start, length);
             }
-            gone = gone.saturating_add(length);
-            rest = rest.get(stretch..).unwrap_or(&[]);
         }
     }
 }
@@ -161,11 +178,11 @@ impl<T: ReadTxn> Survey<'_, T> {
             // What is noted below this child from here on goes with it if it goes.
             let noted = found.cuts.len();
             // A text at the root goes whatever it holds: an editor's binding throws on one.
-            let at_root = !matches!(child, Child::Text(_));
+            let is_node = !matches!(child, Child::Text(_));
             let stays = match self.child(child, 2, &mut found.cuts)? {
                 // Each was within the limits as the node it is, so this gives no error.
                 Some(nodes)
-                    if at_root
+                    if is_node
                         && nodes
                             .iter()
                             .all(|node| passes(node, Place::Block) == Ok(true)) =>
