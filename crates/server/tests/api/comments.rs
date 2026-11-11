@@ -121,6 +121,62 @@ async fn a_commenter_deletes_and_brings_back_their_own_comment() {
     );
 }
 
+/// Not in the original (user decision 2026-11-11 22:13 KST). Deleting a comment takes
+/// the replies below it, so a reply of somebody else keeps the author of the comment
+/// from deleting it and bringing it back, as the reply itself would: the board's admins
+/// do both. The author's own replies are no hindrance.
+#[tokio::test]
+async fn a_reply_of_somebody_else_keeps_a_comment_from_being_deleted_by_its_author() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let own = &content.comment;
+    let path = block_path(board_id, &own.id);
+    let back = undelete_path(board_id, &own.id);
+
+    insert_one(
+        &boards.commenter,
+        &child_of(own, BlockType::Comment, "my own reply"),
+    )
+    .await;
+    let reply = insert_one(
+        &boards.editor,
+        &child_of(own, BlockType::Comment, "a reply"),
+    )
+    .await;
+    boards.commenter.delete(&path).await.check_error(
+        StatusCode::FORBIDDEN,
+        "access denied to delete other users' comments",
+    );
+    assert_eq!(
+        blocks_of(&th.client, board_id).await.len(),
+        5,
+        "nothing was deleted"
+    );
+
+    delete(&th.client, own).await;
+    boards.commenter.post(&back, &json!({})).await.check_error(
+        StatusCode::FORBIDDEN,
+        "access denied to undelete other users' comments",
+    );
+    th.client.post(&back, &json!({})).await.check_ok();
+
+    // Without the reply of somebody else, the author deletes the comment and brings
+    // it back with their own reply, also after an admin deleted it.
+    delete(&boards.editor, &reply).await;
+    delete(&boards.commenter, own).await;
+    boards.commenter.post(&back, &json!({})).await.check_ok();
+    delete(&th.client, own).await;
+    boards.commenter.post(&back, &json!({})).await.check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"comment") && titles(&read).contains(&"my own reply"),
+        "{:?}",
+        titles(&read)
+    );
+}
+
 /// Not in the original (user decision 2026-11-11 21:00 KST). What comes back is the
 /// whole deletion, so the block that was deleted decides: a block below somebody else's
 /// comment, deleted with it, does not bring the comment back for an editor, and a

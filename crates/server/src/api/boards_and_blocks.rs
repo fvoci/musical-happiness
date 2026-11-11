@@ -25,10 +25,7 @@ use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, t
 /// `PatchBoardsAndBlocks`.
 const BLOCKS: &str = "/blocks";
 const PATCHES: &str = "/blockPatches";
-use super::{
-    require_block_change_permission, require_block_delete_permission,
-    require_block_patch_permission,
-};
+use super::{BlockAction, require_block_patch_permission, require_block_permission};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
@@ -311,12 +308,12 @@ async fn require_blocks_to_delete(
 ) -> Result<(), AppError> {
     for block_id in block_ids {
         let block = block_of_boards(app, block_id, board_ids).await?;
-        require_block_delete_permission(
+        require_block_permission(
             app,
             user_id,
             &block,
+            BlockAction::Delete,
             MODIFYING_CARDS_DENIED,
-            "access denied to delete other users' comments",
         )
         .await?;
     }
@@ -333,7 +330,14 @@ async fn require_block_patches(
 ) -> Result<(), AppError> {
     for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
         let block = block_of_boards(app, block_id, board_ids).await?;
-        require_block_change_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
+        require_block_permission(
+            app,
+            user_id,
+            &block,
+            BlockAction::Change,
+            MODIFYING_CARDS_DENIED,
+        )
+        .await?;
         require_block_patch_permission(app, user_id, &block, patch, MODIFYING_CARDS_DENIED).await?;
     }
     Ok(())
@@ -359,9 +363,9 @@ async fn block_of_boards(
 /// Deletes several boards of one team, all or none. The request names at least one
 /// board, and every block it names must be on one of its boards and be the user's to
 /// delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
-/// board takes all of its blocks along. The boards go to the
-/// trash as `deleteBoard` puts them there, and `undeleteBoard` brings each back with
-/// its blocks. For the admins of every board named.
+/// board takes all of its blocks along. The boards go to the trash as `deleteBoard`
+/// puts them there, and `undeleteBoard` brings each back with its blocks. For the
+/// admins of every board named.
 #[utoipa::path(
     delete,
     path = "/boards-and-blocks",

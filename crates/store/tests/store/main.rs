@@ -19,4 +19,5 @@ mod setup;
 mod sharing;
 mod subscriptions;
 mod teams;
+mod trash;
 mod users;
