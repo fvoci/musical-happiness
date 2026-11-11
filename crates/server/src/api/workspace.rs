@@ -137,8 +137,8 @@ impl Ws {
 }
 
 /// The workspace a request names in its path, for one who works in it: [`Ws`] for a
-/// member who is no guest ([`Ws::require_works_there`]). A guest is told what anybody
-/// else is: 404. A parameter of the path that is no text is a malformed request (400),
+/// member who is no guest, of a workspace of the server's organization
+/// ([`Ws::require_works_there`]). Anybody else is told 404. A parameter of the path that is no text is a malformed request (400),
 /// as it is on the routes that take their parameters as text.
 #[derive(Debug)]
 pub(crate) struct WorksIn(pub(crate) Ws);

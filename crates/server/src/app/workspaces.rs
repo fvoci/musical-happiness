@@ -28,7 +28,8 @@ pub struct Entered {
 
 impl App {
     /// Lets a member into a workspace; `None` unless the user is a member of it,
-    /// whether it exists or not.
+    /// whether it exists or not. [`Entered::home`] is told against the organization
+    /// this application stands in: the server's, for the one the routes are given.
     ///
     /// # Errors
     ///
