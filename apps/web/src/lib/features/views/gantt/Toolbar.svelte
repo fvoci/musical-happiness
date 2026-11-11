@@ -42,6 +42,8 @@
     onlate: () => void;
     /** How many cards with a bar are on a loop (else without a date), and what goes to the next. */
     loops: number;
+    /** The loops counted are of cards without a date: the button shows their list. */
+    loopsUndated?: boolean;
     onloop: () => void;
     zoom: GanttZoom;
     onzoom: (zoom: GanttZoom) => void;
@@ -61,6 +63,7 @@
     late,
     onlate,
     loops,
+    loopsUndated = false,
     onloop,
     zoom,
     onzoom,
@@ -180,7 +183,9 @@
       'gantt-loops',
       RepeatIcon,
       m.gantt_loop(),
-      m.gantt_loop_next({ count: loops }),
+      loopsUndated
+        ? m.gantt_loop_undated_next({ count: loops })
+        : m.gantt_loop_next({ count: loops }),
       loops,
       onloop,
     )}

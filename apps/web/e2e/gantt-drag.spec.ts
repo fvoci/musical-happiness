@@ -198,14 +198,29 @@ test.describe('a mouse', () => {
     await openGantt(page, info);
     const share = bar(page, 'Share a board');
     const before = (await share.boundingBox())?.x ?? 0;
+    // The next change of a card is refused; the calls of the backend are counted.
     await page.evaluate(() => {
-      (
+      const backend = (
         window as unknown as {
-          fvociDev: { backend: { failNext: (method: string, error: Error) => void } };
+          fvociDev: {
+            backend: {
+              failNext: (method: string, error: Error) => void;
+              patchCard: (...args: unknown[]) => Promise<unknown>;
+            };
+          };
         }
-      ).fvociDev.backend.failNext('patchCard', new Error('refused by the test'));
+      ).fvociDev.backend;
+      const patch = backend.patchCard.bind(backend);
+      Reflect.set(window, 'patches', 0);
+      backend.patchCard = (...args: unknown[]) => {
+        Reflect.set(window, 'patches', Number(Reflect.get(window, 'patches')) + 1);
+        return patch(...args);
+      };
+      backend.failNext('patchCard', new Error('refused by the test'));
     });
     await dragBy(page, share, 4);
+    // The drop was written, and refused.
+    await expect.poll(() => page.evaluate(() => Number(Reflect.get(window, 'patches')))).toBe(1);
     await expect.poll(async () => (await share.boundingBox())?.x).toBeCloseTo(before, 0);
     expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
   });
@@ -262,6 +277,7 @@ test.describe('a finger', () => {
     expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-14', to: '2026-11-25' });
 
     // So does resting on its grip, which makes it longer.
+    await centre(page, grip(page, 'Share a board', 'end'));
     const end = await pointOn(grip(page, 'Share a board', 'end'));
     await finger.down(end);
     await expect(dragged(page)).toHaveCount(1);
@@ -303,8 +319,17 @@ test('nothing is dragged by a reader, nor where the bars are placed by when card
       await board.setViewFields(viewId, { dateDisplayPropertyId: id });
     }, propertyId);
   await placeBy('made');
-  await expect(gantt(page).locator('[data-bar]').first()).toBeVisible();
+  const made = gantt(page).locator('[data-bar]').first();
+  await expect(made).toBeVisible();
   await expect(gantt(page).locator('[data-grip]')).toHaveCount(0);
+  if (!touch(info)) {
+    const from = await pointOn(made);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 40, from.y, { steps: 6 });
+    await expect(dragged(page)).toHaveCount(0);
+    await page.mouse.up();
+  }
   await placeBy(undefined);
   await expect(grip(page, 'Drag cards', 'end')).toHaveCount(1);
 

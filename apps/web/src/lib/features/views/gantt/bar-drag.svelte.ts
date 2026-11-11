@@ -34,6 +34,8 @@ export interface BarDragSource {
   scroller: () => HTMLElement | undefined;
   /** How wide the column of titles is, in pixels. */
   titles: () => number;
+  /** How wide the days in sight are, in pixels. */
+  room: () => number;
   /** The size of 1rem in pixels. */
   rem: () => number;
   /** A bar was let go on other days than its own. */
@@ -49,8 +51,16 @@ export interface BarPreview {
 
 /** Days are counted from here, with their fraction: any day does. */
 const FROM = calendarDate(2000, 1, 1);
-/** How many days the axis grows by at a time, beyond what the drag needs. */
-const GROWTH = 28;
+/**
+ * How far the axis grows at a time, beyond what the drag needs: twice the
+ * days in sight, and four weeks at least. In pixels and not in days, so
+ * that a chart scrolled at the edge at a far zoom grows a few times a
+ * second at most, each time drawing every bar again.
+ */
+const GROWTH_SIGHTS = 2;
+const GROWTH_DAYS = 28;
+const FIRST_DAY = calendarDate(1, 1, 1);
+const LAST_DAY = calendarDate(9999, 12, 31);
 
 const earlier = (a: CalendarDate, b: CalendarDate): CalendarDate => (a < b ? a : b);
 const later = (a: CalendarDate, b: CalendarDate): CalendarDate => (a > b ? a : b);
@@ -59,7 +69,13 @@ interface Drag {
   id: string;
   grip: BarGrip;
   days: Days;
-  /** The day under the press, with its fraction, counted from FROM. */
+  /** Where it was pressed. */
+  press: Point;
+  /**
+   * The day under the press, with its fraction, counted from FROM: read when
+   * the drag shows. A press may first give a bar the focus, which scrolls
+   * a bar that begins under the titles out from under them.
+   */
   origin: number;
   last: Point;
   frame: number | undefined;
@@ -110,11 +126,15 @@ export class BarDrag {
     if (!row || id === undefined) return undefined;
     // Where it was pressed, not what the browser gave the press to: for a
     // finger it moves a press to the nearest thing that can be pressed, the
-    // bar beside a grip.
-    const grip = [...row.querySelectorAll<HTMLElement>('[data-grip]')].find((each) => {
-      const box = each.getBoundingClientRect();
-      return event.clientX >= box.left && event.clientX <= box.right;
-    });
+    // bar beside a grip. On the bar itself, the bar is taken.
+    const within = (element: Element | null | undefined): boolean => {
+      const box = element?.getBoundingClientRect();
+      return box !== undefined && event.clientX >= box.left && event.clientX <= box.right;
+    };
+    const onBar = within(row.querySelector('[data-bar]'));
+    const grip = onBar
+      ? undefined
+      : [...row.querySelectorAll<HTMLElement>('[data-grip]')].find((each) => within(each));
     const days = this.#source.days(id);
     if (!days) return undefined;
     const which: BarGrip = grip ? (grip.dataset.grip === 'start' ? 'start' : 'end') : 'move';
@@ -125,7 +145,8 @@ export class BarDrag {
           id,
           grip: which,
           days,
-          origin: this.#dayAt(point),
+          press: point,
+          origin: 0,
           last: point,
           frame: undefined,
           time: 0,
@@ -162,9 +183,8 @@ export class BarDrag {
   #show(): void {
     const drag = this.#drag;
     if (!drag) return;
+    drag.origin = this.#dayAt(drag.press);
     this.preview = { id: drag.id, grip: drag.grip, days: drag.days };
-    const scroller = this.#source.scroller();
-    if (scroller) scroller.style.cursor = drag.grip === 'move' ? 'grabbing' : 'ew-resize';
     drag.time = performance.now();
     drag.frame = requestAnimationFrame(this.#frame);
   }
@@ -189,16 +209,28 @@ export class BarDrag {
    */
   #grow(days: Days, pointer: number): void {
     const axis = this.#source.axis();
-    const edge = Math.ceil(DRAG_SETTINGS.scrollEdge / (axis.dayWidth * this.#source.rem())) + 1;
+    const day = axis.dayWidth * this.#source.rem();
+    const edge = Math.ceil(DRAG_SETTINGS.scrollEdge / day) + 1;
     const near = addDays(FROM, pointer);
-    const first = earlier(days.first, addDays(near, -edge));
-    const last = later(days.last, addDays(near, edge));
+    const first = later(FIRST_DAY, earlier(days.first, addDays(near, -edge)));
+    const last = earlier(LAST_DAY, later(days.last, addDays(near, edge)));
     if (first >= axis.first && last <= axis.last) return;
+    const growth = Math.max(GROWTH_DAYS, Math.ceil((GROWTH_SIGHTS * this.#source.room()) / day));
     const reach = this.reach;
-    this.reach = {
-      first: earlier(reach?.first ?? first, first < axis.first ? addDays(first, -GROWTH) : first),
-      last: later(reach?.last ?? last, last > axis.last ? addDays(last, GROWTH) : last),
+    const next = {
+      first: earlier(
+        reach?.first ?? first,
+        first < axis.first ? later(FIRST_DAY, addDays(first, -growth)) : first,
+      ),
+      last: later(
+        reach?.last ?? last,
+        last > axis.last ? earlier(LAST_DAY, addDays(last, growth)) : last,
+      ),
     };
+    // At the first or the last day there is, or where the axis is as long as
+    // it may be (MAX_AXIS_DAYS), it cannot grow: nothing changes.
+    if (next.first === reach?.first && next.last === reach.last) return;
+    this.reach = next;
   }
 
   /** One frame of a drag: the days scroll while the pointer is near their left or right edge. */
@@ -228,8 +260,6 @@ export class BarDrag {
     const drag = this.#drag;
     this.#drag = undefined;
     if (drag?.frame !== undefined) cancelAnimationFrame(drag.frame);
-    const scroller = this.#source.scroller();
-    if (scroller) scroller.style.cursor = '';
     this.preview = undefined;
     this.reach = undefined;
   }

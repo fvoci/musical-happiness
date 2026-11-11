@@ -9,6 +9,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
   bar,
+  dayScale,
   gantt,
   openGantt,
   openRelated,
@@ -57,21 +58,28 @@ test('the header’s “New” makes a card of one day on today, or on the first
   await newCard(page).click();
   await expect(dialog(page)).toBeVisible();
   expect(await made(page, before)).toEqual({ from: '2026-11-10' });
+  // The first Escape leaves the title the new card asks for, the second closes the card.
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(dialog(page)).toHaveCount(0);
 
-  // Today out of sight: the first day in sight, after it.
+  // Today out of sight: the first day wholly in sight.
   await scroller(page).evaluate((element) => {
     element.scrollLeft = element.scrollWidth;
   });
-  const first = await gantt(page).getAttribute('data-first');
+  const first = (await gantt(page).getAttribute('data-first')) ?? '';
+  const { x, width } = await dayScale(page);
+  const titles = await gantt(page).locator('[data-gantt-corner]').boundingBox();
+  if (!titles) throw new Error('no column of titles');
+  const into = Math.ceil((titles.x + titles.width - x(first)) / width - 0.01);
+  const expected = new Date(Date.parse(`${first}T00:00:00Z`) + into * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
   before = await dues(page);
   await newCard(page).click();
   await expect(dialog(page)).toBeVisible();
-  const value = (await made(page, before)) as { from: string; to?: string };
-  expect(value.to).toBeUndefined();
-  expect(value.from > '2026-11-10').toBe(true);
-  expect(value.from > (first ?? '')).toBe(true);
+  expect(expected > '2026-11-10').toBe(true);
+  expect(await made(page, before)).toEqual({ from: expected });
 });
 
 test('a card cannot be made to come after a card that comes after it, and it says why', async ({
@@ -114,10 +122,18 @@ test('a loop of cards without a date is counted, and they are marked in their li
   const other = titles[0] ?? '';
   await setAfter(page, { 'Create a new view': [other], [other]: ['Create a new view'] });
   const loops = page.getByTestId('gantt-loops');
-  await expect(loops).toHaveAccessibleName('On a loop: 2. Show the next.');
+  // No card with a bar is on a loop: the two without a date are counted, and shown.
+  await expect(loops).toHaveAccessibleName('On a loop without a date: 2. Show them.');
   await loops.click();
   const list = page.getByTestId('undated-list');
   await expect(list).toBeVisible();
+  await expect(
+    list
+      .locator('[data-card]')
+      .filter({ has: page.locator('[data-mark="loop"]') })
+      .first()
+      .locator('a'),
+  ).toBeFocused();
   for (const title of ['Create a new view', other]) {
     await expect(
       list.locator('[data-card]').filter({ hasText: title }).locator('[data-mark="loop"]'),
@@ -130,6 +146,8 @@ test('the counts above the chart say what they count in words, on a narrow page 
   page,
 }, info) => {
   await openRelated(page, info);
+  // "Drag cards" (the 12th) after "Share a board" (to the 23rd): out of order.
+  await setAfter(page, { 'Drag cards': ['Share a board'] });
   const late = page.getByTestId('gantt-late');
   await expect(late).toHaveAccessibleName('Out of order: 1. Show the next.');
   await expect(late.getByText('Out of order', { exact: true })).toBeVisible();

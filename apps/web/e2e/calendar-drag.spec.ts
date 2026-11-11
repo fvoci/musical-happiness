@@ -133,6 +133,19 @@ test.describe('a mouse', () => {
     expect((await dueOf(page, title)) ?? undefined).toBeUndefined();
   });
 
+  test('in a week, a bar is dragged to another day, and by its end', async ({ page }, info) => {
+    await openCalendar(page, info);
+    await page.getByTestId('calendar-scale').locator('[data-scale="week"]').click();
+    await expect(calendar(page)).toHaveAttribute('data-scale', 'week');
+    // The week of the 10th: Sunday the 8th to Saturday the 14th.
+    await dragTo(page, bars(page, 'Drag cards'), '2026-11-13');
+    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-13' });
+    await dragGrip(page, bars(page, 'Drag cards'), 'end', '2026-11-14');
+    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-13', to: '2026-11-14' });
+    await undo(page);
+    expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-13' });
+  });
+
   test('a reader drags nothing', async ({ page }, info) => {
     await openCalendar(page, info);
     await expect(bars(page, 'Drag cards').locator('[data-grip]')).toHaveCount(2);

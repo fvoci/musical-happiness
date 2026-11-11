@@ -136,15 +136,29 @@ export class GanttChart {
       ),
   );
 
+  /** The axis last worked out. Not reactive. */
+  #lastAxis: Axis | undefined;
+
+  /**
+   * The days of the chart. The same object while they are the same days: a
+   * new axis draws every bar again, and the days a drag asks for (`reach`)
+   * often change nothing (the axis is as long as it may be).
+   */
   readonly axis = $derived.by<Axis>(() => {
     const reach = this.#source.reach?.();
-    return axisOf({
+    const next = axisOf({
       zoom: this.#source.zoom(),
       weekStart: this.#regional.weekStart,
       today: this.#source.today(),
       spans: reach ? [...this.placed.spans, reach] : this.placed.spans,
       minDays: this.#source.minDays(),
     });
+    const last = this.#lastAxis;
+    if (last?.first === next.first && last.last === next.last && last.zoom === next.zoom) {
+      return last;
+    }
+    this.#lastAxis = next;
+    return next;
   });
 
   readonly scale = $derived.by<Scale>(() => scaleOf(this.axis, this.#regional.weekStart));

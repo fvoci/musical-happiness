@@ -43,8 +43,8 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { page, Room } from '$lib/layout/room.svelte.ts';
-  import { datesWritable, newCardProperties } from '$lib/logic/calendar.ts';
-  import { addDays, dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
+  import { datesWritable } from '$lib/logic/calendar.ts';
+  import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
   import { barBox, DAY_WIDTH, xOfDay, zoomOf, type Axis } from '$lib/logic/gantt.ts';
   import type { Days } from '$lib/logic/dependencies.ts';
   import type { GanttZoom } from '$lib/logic/view-members.ts';
@@ -66,6 +66,7 @@
   import { GanttChart } from './chart.svelte.ts';
   import { DaysHold } from './days-hold.svelte.ts';
   import GroupRow from './GroupRow.svelte';
+  import { ganttCardMaker } from './making.ts';
   import { daysLabel } from './names.ts';
   import Toolbar from './Toolbar.svelte';
 
@@ -99,6 +100,7 @@
     enabled: () => writable,
     scroller: () => scroller,
     titles,
+    room: daysRoom,
     rem,
     ondrop: dropBar,
   });
@@ -210,39 +212,37 @@
     rem,
   });
 
+  /**
+   * "On a loop": the next bar on a loop; where none is, the cards without a
+   * date, whose list marks those on a loop, and the focus on the first.
+   */
+  async function showLoop(): Promise<void> {
+    if (chart.loopCount > 0) {
+      focus.focusNext('loop');
+      return;
+    }
+    if (!undated.open) await undated.toggle();
+    await tick();
+    document
+      .querySelector<HTMLElement>('[data-testid="undated-list"] [data-mark="loop"]')
+      ?.closest('[data-card]')
+      ?.querySelector<HTMLElement>('a')
+      ?.focus();
+  }
+
   // ------------------------------------------------------- making a card
 
-  /** A card is being made: a second "New" meanwhile makes nothing. Not reactive. */
-  let making = false;
-
-  /** The first and the last day wholly in sight. */
-  function daysInSight(): { first: CalendarDate; last: CalendarDate } {
-    const day = axis.dayWidth * rem();
-    const left = scroller?.scrollLeft ?? 0;
-    const first = Math.min(axis.days - 1, Math.ceil(left / day));
-    const last = Math.max(first, Math.floor((left + daysRoom()) / day) - 1);
-    return { first: addDays(axis.first, first), last: addDays(axis.first, last) };
-  }
-
-  /**
-   * The header's "New" (question C13): a card of one day, today, or the
-   * first day in sight where today is not; with the values the view's
-   * filter asks for. It opens, as a card made on a board does.
-   */
-  async function makeCard(): Promise<void> {
-    if (making) return;
-    making = true;
-    try {
-      const sight = daysInSight();
-      const day = today >= sight.first && today <= sight.last ? today : sight.first;
-      const templates = board.board?.cardProperties ?? [];
-      const properties = newCardProperties(view.fields.filter, templates, chart.template, day);
-      const card = await board.createCard({ properties });
-      if (card) focus.openCard(card.id);
-    } finally {
-      making = false;
-    }
-  }
+  const makeCard = ganttCardMaker({
+    board: () => board,
+    view: () => view,
+    template: () => chart.template,
+    axis: () => axis,
+    today: () => today,
+    scroller: () => scroller,
+    room: daysRoom,
+    rem,
+    onOpenCard: focus.openCard,
+  });
 
   $effect(() => {
     if (!writable) return;
@@ -331,11 +331,8 @@
       focus.focusNext('late');
     }}
     loops={chart.loopCount > 0 ? chart.loopCount : chart.undatedLoops.size}
-    onloop={() => {
-      // Cards without a date have no bar: their list shows which are on a loop.
-      if (chart.loopCount > 0) focus.focusNext('loop');
-      else if (!undated.open) void undated.toggle();
-    }}
+    loopsUndated={chart.loopCount === 0}
+    onloop={() => void showLoop()}
     {zoom}
     onzoom={setZoom}
     undated={chart.placed.undated.length}

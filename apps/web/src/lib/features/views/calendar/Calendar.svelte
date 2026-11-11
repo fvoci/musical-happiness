@@ -402,7 +402,11 @@
       -->
       <div
         data-testid="undated-panel"
-        class="absolute inset-y-0 right-0 z-30 flex w-80 max-w-full flex-col border-l bg-background pb-(--safe-bottom) shadow-lg"
+        class={[
+          'absolute inset-y-0 right-0 z-30 flex w-80 max-w-full flex-col border-l bg-background pb-(--safe-bottom) shadow-lg',
+          // While a card is dragged the days under the column can be reached.
+          drag.preview && 'pointer-events-none opacity-30',
+        ]}
         {@attach undated.attach}
       >
         <Undated

@@ -15,8 +15,9 @@
  * While a card is dragged its days are marked on the grid (`preview`) and a
  * chip with its title and days follows the pointer; the board changes only
  * when it is let go, in one step that one undo takes back. Any element with
- * `data-day` under the pointer is a day, the small grid's buttons included;
- * the column of cards without a date, lying over the grid, is not.
+ * `data-day` under the pointer is a day, the small grid's buttons included.
+ * The column of cards without a date lies over the grid at its right: while
+ * a card is dragged it fades and the pointer goes through it to the days.
  */
 import { pointerDrag, type PointerDragSession } from '$lib/drag/pointer-drag.ts';
 import { draggedDays, type BarGrip } from '$lib/logic/calendar.ts';

@@ -22,7 +22,8 @@
   finger. They lie beside the bar, not on it: the room around a bar that a
   finger may press (`roomy:after:`) then reaches up and down only, and the
   grips take the room at its sides. An end that is cut at the edge of the
-  axis has no grip.
+  axis has no grip, and for a finger a bar narrower than GRIPS_MIN_WIDTH
+  has none: a finger on it would mostly be on a grip.
 
   A card that starts before a card it comes after has ended carries a
   warning mark, and one on a loop a mark of going round: next to its title,
@@ -44,6 +45,8 @@
 
   /** In rem. */
   const LABEL_MIN_WIDTH = 3;
+  /** In rem: the narrowest bar that has grips for a finger. */
+  const GRIPS_MIN_WIDTH = 1.5;
 
   interface Props {
     line: CardLine;
@@ -116,6 +119,7 @@
     class={[
       'absolute top-1/2 flex h-6 w-2 -translate-y-1/2 cursor-ew-resize items-center justify-center roomy:h-8 roomy:w-3',
       end === 'start' ? '-translate-x-full' : '',
+      bar.width < GRIPS_MIN_WIDTH && 'roomy:hidden',
     ]}
     style:left="{end === 'start' ? bar.x : bar.x + bar.width}rem"
   >

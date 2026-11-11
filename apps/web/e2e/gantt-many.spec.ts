@@ -9,7 +9,10 @@ import { expect, test, type Locator, type Page, type TestInfo } from '@playwrigh
 import { arrows, bar, bars, gantt, scroller, type Backend, type Dev } from './gantt.support.ts';
 import { fitPane, nextFrame, paneOf } from './kanban.support.ts';
 
-test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
+// No trace: it takes a picture of the page at every action of the test, and
+// at 2,000 rows each picture takes a third of a second of the page's frames,
+// which a drag (an action at every step) would be measured with.
+test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US', trace: 'off' });
 
 const MANY = 2000;
 
@@ -135,12 +138,14 @@ async function scrollFrames(
 
 /**
  * Drags a bar across with the mouse, a step a frame, and answers the time
- * each frame took meanwhile, in milliseconds; then lets it go.
+ * each frame took meanwhile, in milliseconds; then lets it go. Without
+ * `press`, the same moves without the button down: what the page costs
+ * before a drag adds to it.
  */
-async function dragFrames(page: Page, target: Locator): Promise<number[]> {
+async function dragFrames(page: Page, target: Locator, press = true): Promise<number[]> {
   const box = await target.boundingBox();
   if (!box) throw new Error('the bar is not on the page');
-  const from = { x: box.x + Math.min(box.width / 2, 8), y: box.y + box.height / 2 };
+  const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   await page.evaluate(() => {
     const record = { times: [] as number[], going: true };
     Reflect.set(window, 'dragFrames', record);
@@ -153,18 +158,18 @@ async function dragFrames(page: Page, target: Locator): Promise<number[]> {
     requestAnimationFrame(frame);
   });
   await page.mouse.move(from.x, from.y);
-  await page.mouse.down();
+  if (press) await page.mouse.down();
   for (let step = 1; step <= 60; step += 1) {
     await page.mouse.move(from.x + step * 4, from.y);
     await nextFrame(page);
   }
-  await expect(gantt(page).locator('[data-bar][data-dragged]')).toHaveCount(1);
+  await expect(gantt(page).locator('[data-bar][data-dragged]')).toHaveCount(press ? 1 : 0);
   const times = await page.evaluate(() => {
     const record = Reflect.get(window, 'dragFrames') as { times: number[]; going: boolean };
     record.going = false;
     return record.times.slice(1);
   });
-  await page.mouse.up();
+  if (press) await page.mouse.up();
   await expect(gantt(page).locator('[data-bar][data-dragged]')).toHaveCount(0);
   return times;
 }
@@ -273,12 +278,24 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
   });
   await expect(bar(page, 'Task 1000, renamed')).toHaveCount(1);
 
-  // A bar dragged across 240 pixels, a step a frame: only that bar is drawn again.
+  // A bar dragged across 240 pixels, a step a frame, after the same moves without a press.
   await scroller(page).evaluate((element) => {
     element.scrollTop = 0;
   });
   const dragged = bars(page).nth(3);
   await dragged.scrollIntoViewIfNeeded();
+  // Its middle in the middle of the days in sight: not under the titles, nor near an edge.
+  const box = await dragged.boundingBox();
+  const corner = await gantt(page).locator('[data-gantt-corner]').boundingBox();
+  const sight = await scroller(page).boundingBox();
+  if (!box || !corner || !sight) throw new Error('nothing to drag');
+  await scroller(page).evaluate(
+    (element, by) => {
+      element.scrollLeft += by;
+    },
+    box.x + box.width / 2 - (corner.x + corner.width + sight.x + sight.width - 240) / 2,
+  );
+  const pointed = summary(await dragFrames(page, dragged, false));
   const drag = summary(await dragFrames(page, dragged));
 
   const figures = {
@@ -289,6 +306,7 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
     scrollDownFrameMs: down,
     scrollAcrossFrameMs: across,
     renameOneCardMs: renamed,
+    pointFrameMs: pointed,
     dragFrameMs: drag,
   };
   // Printed for a person to read, with the output of the run.

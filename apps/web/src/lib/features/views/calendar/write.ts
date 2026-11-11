@@ -16,7 +16,7 @@ import type { BoardStore } from '$lib/state/index.ts';
 
 /**
  * Writes the card's value of `template` as `change` makes it from the value
- * it has. True once the board has kept it: a change the backend refuses is
+ * it has, if the wire can carry it. True once the board has kept it: a change the backend refuses is
  * reported and put back by the board, and gives false. The board shows the
  * new value at once, before the backend has answered.
  */
@@ -27,6 +27,10 @@ async function writeDate(
   change: (value: DateValue) => DateValue,
 ): Promise<boolean> {
   const next = formatDateValue(change(parseDateValue(cardProperty(card, template.id))));
+  // A moment the wire cannot carry (before 1970 or after 9999 in UTC) does
+  // not read back: nothing is written, and the card stays where it was.
+  const readBack = formatDateValue(parseDateValue(next));
+  if (readBack?.from !== next?.from || readBack?.to !== next?.to) return false;
   await board.setCardProperty(card.id, template.id, next);
   const now = board.card(card.id);
   if (!now) return false;
