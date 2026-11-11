@@ -75,13 +75,50 @@ async fn the_metrics_are_served_on_a_listener_of_their_own() {
     }
     // Nothing but the metrics: no route of the API or the web app.
     for path in ["/", "/api/v1/hello", "/ws", "/static/main.js", "/metrics/"] {
-        let (status, _, _) = scrape_path(&server, path).await;
+        let (status, content_type, body) = scrape_path(&server, path).await;
         assert_eq!(
             status,
             StatusCode::NOT_FOUND,
             "{path} on the metrics listener"
         );
+        // Refused as the API refuses: a problem, whose type has its page here too.
+        assert_eq!(content_type, "application/problem+json", "{path}");
+        let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");
+        assert_eq!(
+            problem,
+            serde_json::json!({
+                "type": "/problems/not-found", "title": "Not found", "status": 404,
+                "detail": "route not found",
+            }),
+            "{path}: no request is identified, as none is logged here"
+        );
     }
+    let (status, content_type, body) = scrape_path(&server, "/problems/not-found").await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the page a refusal points at: {body}"
+    );
+    assert_eq!(content_type, "text/plain; charset=utf-8");
+    assert!(
+        body.starts_with("Not found\n\ntype: /problems/not-found\n"),
+        "{body}"
+    );
+    let address = server.metrics_address.expect("the server keeps metrics");
+    let posted = reqwest::Client::new()
+        .post(format!("http://{address}/metrics"))
+        .send()
+        .await
+        .expect("the metrics listener answers");
+    assert_eq!(posted.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(
+        posted
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json"),
+        "a method the path does not have"
+    );
     server.teardown().await;
 }
 
