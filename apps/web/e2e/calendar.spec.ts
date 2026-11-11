@@ -313,30 +313,59 @@ test('the cards without a date are counted in the row and listed on asking (C16)
   page,
 }, info) => {
   await openCalendar(page, info);
-  // Ten cards on the board, four with a "Due Date".
+  // Ten cards on the board, four with a "Due Date". The name starts with the words shown.
   const button = page.getByTestId('calendar-undated');
-  await expect(button).toHaveAccessibleName('Cards without a date: 6');
+  await expect(button).toHaveAccessibleName('No date: 6');
   await button.click();
-  const list = page.getByTestId('undated-list').last();
+  const list = page.getByTestId('undated-list');
+  await expect(list).toHaveCount(1);
   await expect(list.locator('[data-card]')).toHaveCount(6);
   await expect(list).toContainText('These cards have no Due Date');
   await expect(list.locator('[data-card]').filter({ hasText: 'Drag cards' })).toHaveCount(0);
-  // A compact page has it on a sheet; elsewhere a column at the right, closed with Escape.
-  const compact = info.project.name === 'mobile';
-  if (!compact) {
-    await expect(page.getByTestId('undated-panel')).toBeVisible();
+  const panel = page.getByTestId('undated-panel');
+  const sheet = page.getByTestId('bottom-sheet');
+  if (info.project.name === 'mobile') {
+    // A compact page has it on a sheet, and Escape closes the sheet.
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toContainText('No date: 6');
+    await expect(panel).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(list).toHaveCount(0);
+  } else {
+    // Elsewhere a column at the right: the focus goes in, and Escape brings it back.
+    await expect(panel).toBeVisible();
+    await expect(sheet).toHaveCount(0);
     await expect(page.locator(':focus')).toHaveAccessibleName('Close the cards without a date');
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('undated-panel')).toHaveCount(0);
-    await expect(page.locator(':focus')).toHaveAccessibleName('Cards without a date: 6');
+    await expect(panel).toHaveCount(0);
+    await expect(page.locator(':focus')).toHaveAccessibleName('No date: 6');
+    // Picking a day closes the column; opening the column closes the list of a day.
     await button.click();
+    // Tuesday: left of the column, which covers Thursday on a medium pane.
+    await day(page, '2026-11-10')
+      .locator('[data-day-button]')
+      .or(calendar(page).locator('[data-day="2026-11-10"][data-day-button]'))
+      .click();
+    await expect(panel).toHaveCount(0);
+    await expect(page.getByTestId('day-popover')).toBeVisible();
+    await button.click();
+    await expect(page.getByTestId('day-popover')).toHaveCount(0);
+    await expect(panel).toBeVisible();
+    // Shift+Tab out of the column into the grid it covers closes it.
+    await page.keyboard.press('Shift+Tab');
+    await page.keyboard.press('Shift+Tab');
+    await expect(panel).toHaveCount(0);
   }
-  // A card given a date leaves the list, and opens from it.
+  // A card given a date leaves the list; one opened from it gives the focus back to "No date".
   await setDates(page, { 'Add new properties': { from: '2026-11-20' } });
-  await expect(button).toHaveAccessibleName('Cards without a date: 5');
+  await expect(button).toHaveAccessibleName('No date: 5');
+  await button.click();
   await expect(list.locator('[data-card]')).toHaveCount(5);
   await list.locator('[data-card]').filter({ hasText: '@mention teammates' }).locator('a').click();
   await expect(dialog(page)).toContainText('@mention teammates');
+  await page.keyboard.press('Escape');
+  await expect(dialog(page)).toBeHidden();
+  await expect(page.locator(':focus')).toHaveAccessibleName('No date: 5');
 });
 
 test('"display by" places the cards by another date', async ({ page }, info) => {
@@ -357,6 +386,10 @@ test('"display by" places the cards by another date', async ({ page }, info) => 
   await expect(
     calendar(page).getByRole('button', { name: /^Tuesday, November 10, 4 cards$/ }),
   ).toHaveCount(1);
+  // Every card has a time it was changed: none is without a date.
+  await expect(page.getByTestId('calendar-undated')).toHaveAccessibleName('No date: 0');
+  await page.getByTestId('calendar-undated').click();
+  await expect(page.getByTestId('undated-list')).toContainText('Every card has a date.');
 });
 
 /**
@@ -394,18 +427,19 @@ test('the calendar in light and dark, at 390 pixels, and the cards of a day', as
   }
   await page.emulateMedia({ colorScheme: 'light' });
 
+  // The cards without a date: a sheet on the phone, a column elsewhere.
+  await page.getByTestId('calendar-undated').click();
+  await expect(page.getByTestId('undated-list').locator('[data-card]')).toHaveCount(2);
+  await shoot(`undated-${stage}`);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('undated-list')).toHaveCount(0);
+
   if (!wide(info)) await fitPane(page, 700);
   if (touch(info)) await day(page, '2026-11-12').click();
   else await day(page, '2026-11-12').locator('[data-day-button]').click();
   await expect(page.getByTestId('day-popover').locator('[data-card]')).toHaveCount(4);
   await shoot(`day-${stage}`);
   await page.keyboard.press('Escape');
-
-  await page.getByTestId('calendar-undated').click();
-  await expect(page.getByTestId('undated-panel').locator('[data-card]')).toHaveCount(2);
-  await shoot(`undated-${stage}`);
-  await page.keyboard.press('Escape');
-  await expect(page.getByTestId('undated-panel')).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(calendar(page)).toHaveAttribute('data-layout', 'mini');

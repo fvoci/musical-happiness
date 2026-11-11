@@ -24,9 +24,19 @@
     undated: number;
     undatedOpen: boolean;
     onundated: () => void;
+    /** "No date" itself, for the focus to come back to. Bindable. */
+    undatedButton?: HTMLElement | null;
   }
 
-  let { title, onstep, ontoday, undated, undatedOpen, onundated }: Props = $props();
+  let {
+    title,
+    onstep,
+    ontoday,
+    undated,
+    undatedOpen,
+    onundated,
+    undatedButton = $bindable(null),
+  }: Props = $props();
 </script>
 
 <div
@@ -68,6 +78,7 @@
   </h2>
   <div class="min-w-1 flex-1"></div>
   <Button
+    bind:ref={undatedButton}
     variant="ghost"
     aria-label={m.calendar_undated_count({ count: undated })}
     aria-expanded={undatedOpen}

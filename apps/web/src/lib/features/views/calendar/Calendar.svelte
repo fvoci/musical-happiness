@@ -62,14 +62,19 @@
   /** The box is wide enough for bars. */
   const box = new PaneRoom();
   const bars = $derived(box.columns);
+  const sheet = $derived(overlayPresentation(page.stage) === 'sheet');
   /**
    * The cards of the picked day are open over the grid of bars. Closed
    * whenever the box goes from bars to the small grid or back, so that a box
    * that widens again does not bring them back unasked.
    */
   let dayOpen = $derived<boolean>(bars && false);
-  /** The cards without a date are open: a column at the right, or a sheet on a compact page. */
-  let undatedOpen = $state(false);
+  /**
+   * The cards without a date are open: a column at the right, or a sheet on a
+   * compact page. Closed when the page changes between the two, so that a
+   * device turned on its side does not raise a sheet unasked.
+   */
+  let undatedOpen = $derived<boolean>(sheet && false);
   /** A card chosen in the popover of a day, opened once the popover has closed. Not reactive. */
   let chosenCard: string | undefined;
 
@@ -77,15 +82,30 @@
   const placed = $derived(new Placed(cards, template, regional, locale, weeks.flat()));
 
   const finger = $derived(fingerPointer.current);
-  const sheet = $derived(overlayPresentation(page.stage) === 'sheet');
 
   /** The box, for finding the button of a day in it. Not reactive: read on a key press. */
   let body: HTMLElement | undefined;
+  /** "No date" in the row above, and the column it opens: where the focus goes and comes back. */
+  let undatedButton = $state<HTMLElement | null>(null);
+  let undatedPanel: HTMLElement | undefined;
 
-  /** The box: kept for the focus, and measured. For `{@attach}`. */
+  /**
+   * The box: kept for the focus, and measured. The column of cards without a
+   * date lies over it: the focus going into the box (Shift+Tab out of the
+   * column, an arrow key) means the reader has left the column, which closes
+   * so that nothing focused is under it. For `{@attach}`.
+   */
   function attachBody(element: HTMLElement): () => void {
     body = element;
-    return box.attach(element);
+    const left = (): void => {
+      if (!sheet) undatedOpen = false;
+    };
+    element.addEventListener('focusin', left);
+    const stop = box.attach(element);
+    return () => {
+      element.removeEventListener('focusin', left);
+      stop();
+    };
   }
 
   /** Puts the focus on the button of the picked day. */
@@ -145,26 +165,46 @@
     if (!undatedOpen) return;
     dayOpen = false;
     await tick();
-    body?.parentElement
-      ?.querySelector<HTMLElement>('[data-testid="undated-panel"] [data-testid="undated-close"]')
-      ?.focus();
+    undatedPanel?.querySelector<HTMLElement>('[data-testid="undated-close"]')?.focus();
   }
 
-  /** Escape in the column of cards without a date closes it. For `{@attach}`. */
-  function closesOnEscape(element: HTMLElement): () => void {
+  /**
+   * The column of cards without a date: kept for the focus, and Escape in it
+   * closes it. A listener and not `onkeydown`: the column is a region of the
+   * page, not a control, and the key is the column's way out like its close
+   * button. For `{@attach}`.
+   */
+  function attachUndated(element: HTMLElement): () => void {
+    undatedPanel = element;
     const keys = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') closeUndated();
     };
     element.addEventListener('keydown', keys);
     return () => {
       element.removeEventListener('keydown', keys);
+      undatedPanel = undefined;
     };
   }
 
   /** Closes the column of cards without a date, the focus back on its button. */
   function closeUndated(): void {
     undatedOpen = false;
-    document.querySelector<HTMLElement>('[data-testid="calendar-undated"]')?.focus();
+    undatedButton?.focus();
+  }
+
+  /**
+   * A card opened from the cards without a date. Given a date, it may leave
+   * the list and have no bar in view either: the focus is put on "No date"
+   * first, which is where the card gives it back then (CardDialog gives it to
+   * the card's bar where there is one). On a sheet, the sheet closes first.
+   */
+  async function openUndated(cardId: string): Promise<void> {
+    if (sheet) {
+      undatedOpen = false;
+      await tick();
+    }
+    undatedButton?.focus();
+    onOpenCard(cardId);
   }
 
   /** A card opened from the list of a day: the list closes behind it. */
@@ -193,6 +233,7 @@
     ontoday={goToday}
     undated={placed.undated.length}
     {undatedOpen}
+    bind:undatedButton
     onundated={() => void toggleUndated()}
   />
 
@@ -224,7 +265,7 @@
           {month}
           {today}
           {selected}
-          onpick={select}
+          onpick={pick}
           onmove={(by: number) => void move(by)}
         />
         <div class="flex min-h-36 flex-1 flex-col border-t pb-(--safe-bottom)">
@@ -238,14 +279,17 @@
         Over the grid, at its right: the proposal's column stands beside the
         grid only from a pane of 54rem, a width this step does not add.
       -->
-      <aside
+      <div
         data-testid="undated-panel"
-        aria-label={m.calendar_undated()}
         class="absolute inset-y-0 right-0 z-30 flex w-80 max-w-full flex-col border-l bg-background pb-(--safe-bottom) shadow-lg"
-        {@attach closesOnEscape}
+        {@attach attachUndated}
       >
-        <Undated {...rows} {onOpenCard} onclose={closeUndated} />
-      </aside>
+        <Undated
+          {...rows}
+          onOpenCard={(cardId: string) => void openUndated(cardId)}
+          onclose={closeUndated}
+        />
+      </div>
     {/if}
   </div>
 </div>
@@ -255,13 +299,7 @@
     bind:open={undatedOpen}
     title={m.calendar_undated_count({ count: placed.undated.length })}
   >
-    <Undated
-      {...rows}
-      onOpenCard={(cardId: string) => {
-        undatedOpen = false;
-        onOpenCard(cardId);
-      }}
-    />
+    <Undated {...rows} onOpenCard={(cardId: string) => void openUndated(cardId)} />
   </BottomSheet>
 {/if}
 
@@ -284,9 +322,10 @@
         if (finger) event.preventDefault();
       }}
       onCloseAutoFocus={(event: Event) => {
-        // No trigger to go back to: the focus goes to the day the list was of.
+        // No trigger to go back to: the focus goes to the day the list was of,
+        // unless it closed for the column of cards without a date, which has it.
         event.preventDefault();
-        focusDay();
+        if (!undatedOpen) focusDay();
         // A card chosen in the list opens now, with the focus on its day: that
         // is where the card gives it back when it closes, unless the card has
         // a bar to go back to (card/CardDialog.svelte, `data-card`).

@@ -12,7 +12,7 @@
   "calendar_close_day": "그날의 목록 닫기",
   "calendar_day_of": "{count}일 중 {nth}일째",
   "calendar_undated": "날짜 없음",
-  "calendar_undated_count": "날짜 없는 카드: {count}개",
+  "calendar_undated_count": "날짜 없음: {count}",
   "calendar_undated_hint": "{property} 값이 없어 격자에 놓이지 않은 카드입니다.",
   "calendar_close_undated": "날짜 없음 닫기",
   "calendar_no_undated": "모든 카드에 날짜가 있습니다."

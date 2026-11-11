@@ -43,7 +43,7 @@
   }: Props = $props();
 
   const span = $derived(date ? placed.span(card.id) : undefined);
-  const time = $derived(span?.first === date ? placed.time(card) : undefined);
+  const time = $derived(span && span.first === date ? placed.time(card) : undefined);
   const range = $derived(date ? placed.range(card) : undefined);
   /** "Day 2 of 5", for a card of several days. */
   const dayOf = $derived(
