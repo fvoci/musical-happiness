@@ -21,10 +21,19 @@ pub fn new_doc() -> Doc {
     doc_of_client(None)
 }
 
-/// A Y document that counts the places in a text as the editors do, in UTF-16 code units.
+/// A Y document that counts the places in a text as the editors do, in UTF-16 code units,
+/// and keeps what was deleted instead of collecting it.
+///
+/// The library's garbage collection, given changes that no editor makes (one whose
+/// origins lie in a parent's map), left a change pointing at memory it had freed, and
+/// the next encoding of the document read it: the state came out different each time,
+/// or the process ended. Without it, what was deleted stays in the document as it was
+/// written; [`crate::UpdateLimits::state_bytes`] bounds it, and a document made again
+/// from its body ([`from_body`]) starts without it.
 pub(crate) fn doc_of_client(client: Option<u64>) -> Doc {
     let options = Options {
         offset_kind: OffsetKind::Utf16,
+        skip_gc: true,
         ..client.map_or_else(Options::default, |id| {
             Options::with_client_id(ClientID::new(id))
         })

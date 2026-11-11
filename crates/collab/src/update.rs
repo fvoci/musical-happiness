@@ -14,8 +14,9 @@ pub struct UpdateLimits {
     /// The largest update, in bytes as it arrives.
     pub update_bytes: usize,
     /// The largest Y document an update may leave, in bytes as it is stored (a version
-    /// 1 update of the whole document). A Y document keeps a trace of what was deleted,
-    /// so it grows with every edit even where the body does not.
+    /// 1 update of the whole document). The documents of this crate keep what was
+    /// deleted (they are made without garbage collection), so a document grows with
+    /// every edit even where the body does not.
     pub state_bytes: usize,
     /// The largest body an update may leave, in bytes of its stored JSON. Every body is
     /// held to [`fvoci_model::BODY_MAX_BYTES`] as well, so a larger value is that.

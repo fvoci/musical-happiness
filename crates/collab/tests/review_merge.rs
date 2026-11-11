@@ -30,8 +30,11 @@ fn document(content: Vec<Value>) -> Value {
 }
 
 fn fork(base: &Doc, client: u64) -> Doc {
+    // Without garbage collection, as the server's documents are: a replica that
+    // collected what was deleted writes its state in other bytes.
     let doc = Doc::with_options(Options {
         offset_kind: OffsetKind::Utf16,
+        skip_gc: true,
         ..Options::with_client_id(ClientID::new(client))
     });
     doc.get_or_insert_xml_fragment(FIELD);
