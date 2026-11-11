@@ -19,4 +19,5 @@ mod setup;
 mod sharing;
 mod subscriptions;
 mod teams;
+mod tenancy;
 mod users;

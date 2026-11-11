@@ -27,10 +27,16 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// The pause between two readiness probes.
 const PROBE_INTERVAL: Duration = Duration::from_millis(500);
 
-/// Test-only credentials of the PostgreSQL container.
+/// Test-only credentials of the PostgreSQL container. This user is the one the image
+/// makes, a superuser: it prepares the database and the tests do not connect as it.
 const POSTGRES_USER: &str = "fvoci";
 const POSTGRES_PASSWORD: &str = "fvoci-test";
 const POSTGRES_DATABASE: &str = "fvoci";
+
+/// The role the tests connect as: no superuser and not exempt from row-level security,
+/// so that the policies of the schema hold for it as they do for a server in use. A
+/// superuser passes every policy, and a test run as one would show nothing of them.
+const POSTGRES_TEST_ROLE: &str = "fvoci_app";
 
 /// The bucket the S3 storage test writes into.
 const S3_BUCKET: &str = "fvoci-test";
@@ -86,10 +92,10 @@ impl Container {
         })
     }
 
-    /// The PostgreSQL URL the tests connect with.
+    /// The PostgreSQL URL the tests connect with, as [`POSTGRES_TEST_ROLE`].
     pub(crate) fn postgres_url(&self) -> String {
         format!(
-            "postgres://{POSTGRES_USER}:{POSTGRES_PASSWORD}@localhost:{}/{POSTGRES_DATABASE}?sslmode=disable",
+            "postgres://{POSTGRES_TEST_ROLE}:{POSTGRES_PASSWORD}@localhost:{}/{POSTGRES_DATABASE}?sslmode=disable",
             self.host_port
         )
     }
@@ -464,11 +470,43 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
             POSTGRES_DATABASE,
         ])
     })?;
+    // Repeated like the probe: another run that prepares the same container at this
+    // moment makes the statements fail once ("tuple concurrently updated").
+    wait_until(&container.name, || {
+        docker(&[
+            "exec",
+            &container.name,
+            "psql",
+            "--username",
+            POSTGRES_USER,
+            "--dbname",
+            POSTGRES_DATABASE,
+            "--set",
+            "ON_ERROR_STOP=1",
+            "--quiet",
+            "--command",
+            &test_role_statements(),
+        ])
+    })?;
     say(&format!(
-        "    {}: accepting connections on port {}",
+        "    {}: accepting connections on port {}, the tests connect as {POSTGRES_TEST_ROLE}",
         container.name, container.host_port
     ));
     Ok(container.postgres_url())
+}
+
+/// The statements that make [`POSTGRES_TEST_ROLE`] what the tests need, whether it is
+/// there already or not: a role that logs in, is no superuser, is held by row-level
+/// security, and may make schemas in the test database. Every test database is a schema
+/// the role makes, and so owns.
+fn test_role_statements() -> String {
+    format!(
+        "DO $$ BEGIN CREATE ROLE {POSTGRES_TEST_ROLE}; \
+         EXCEPTION WHEN duplicate_object THEN NULL; END $$; \
+         ALTER ROLE {POSTGRES_TEST_ROLE} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB \
+         NOCREATEROLE PASSWORD '{POSTGRES_PASSWORD}'; \
+         GRANT CREATE ON DATABASE {POSTGRES_DATABASE} TO {POSTGRES_TEST_ROLE};"
+    )
 }
 
 /// Makes sure the object store runs and has the test bucket. Returns the endpoint and
@@ -688,13 +726,31 @@ mod tests {
     fn the_test_urls_name_the_host_port() {
         assert_eq!(
             probe().postgres_url(),
-            "postgres://fvoci:fvoci-test@localhost:15999/fvoci?sslmode=disable",
-            "the URL the store's test support reads"
+            "postgres://fvoci_app:fvoci-test@localhost:15999/fvoci?sslmode=disable",
+            "the URL the store's test support reads, of the role that is no superuser"
         );
         assert_eq!(
             probe().s3_endpoint(),
             "localhost:15999",
             "host and port, no scheme"
+        );
+    }
+
+    /// The role is made what it must be also where an older run left it otherwise.
+    #[test]
+    fn the_test_role_is_no_superuser_and_is_held_by_row_level_security() {
+        let statements = test_role_statements();
+        for word in [
+            "NOSUPERUSER",
+            "NOBYPASSRLS",
+            "LOGIN",
+            "GRANT CREATE ON DATABASE fvoci",
+        ] {
+            assert!(statements.contains(word), "{word}: {statements}");
+        }
+        assert!(
+            statements.contains("ALTER ROLE fvoci_app"),
+            "an existing role is altered: {statements}"
         );
     }
 
