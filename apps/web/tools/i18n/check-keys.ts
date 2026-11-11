@@ -12,8 +12,15 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { compareKeys, type KeyDifference, keyErrors, messageKeys } from './keys.ts';
-import { COMPLETE_LOCALES, WEB_ROOT } from './locales.ts';
+import {
+  COMPLETE_LOCALES,
+  compareKeys,
+  type KeyDifference,
+  keyErrors,
+  messageKeys,
+} from './keys.ts';
+
+const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
 
 interface Settings {
   baseLocale: string;

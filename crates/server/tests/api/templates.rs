@@ -324,20 +324,56 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
     ts.teardown().await;
 }
 
-/// The converter's index of the templates (`apps/web/tools/templates/output/README.md`).
-fn converter_index() -> Value {
-    serde_json::from_str(include_str!(
-        "../../../../apps/web/tools/templates/output/index.json"
-    ))
-    .expect("the index is JSON")
+/// The built-in template files (`assets/templates/`), in the order of their names.
+fn template_files() -> Vec<Value> {
+    let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/templates");
+    let mut paths: Vec<std::path::PathBuf> = std::fs::read_dir(&folder)
+        .expect("the folder of the templates")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect();
+    paths.sort();
+    paths
+        .iter()
+        .map(|path| {
+            let text = std::fs::read_to_string(path)
+                .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            serde_json::from_str(&text)
+                .unwrap_or_else(|error| panic!("{} is not JSON: {error}", path.display()))
+        })
+        .collect()
 }
 
-/// The built-in templates are the converter's output (`docs/s6-design.md` 3.10): the
-/// thirteen of its index, one marked for the onboarding tour, each with its key, the
-/// cards' bodies as documents, no pictures, dates in the shape of 5.7, and views whose
-/// card order names cards of their board.
+/// How many cards of the template files have a body, and how many of their property
+/// values are dates (the only values that are objects).
+fn bodies_and_dates(files: &[Value]) -> (usize, usize) {
+    let cards = || {
+        files
+            .iter()
+            .flat_map(|template| template["cards"].as_array().into_iter().flatten())
+    };
+    let bodies = cards().filter(|card| card["body"].is_object()).count();
+    let dates = cards()
+        .flat_map(|card| {
+            card["fields"]["properties"]
+                .as_object()
+                .into_iter()
+                .flat_map(serde_json::Map::values)
+        })
+        .filter(|value| value.is_object())
+        .count();
+    (bodies, dates)
+}
+
+/// The built-in templates are the files of `assets/templates/` (`docs/s6-design.md`
+/// 3.10), every one of them: thirteen, one marked for the onboarding tour, each with its
+/// key, the cards' bodies as documents, no pictures, dates in the shape of 5.7, and views
+/// whose card order names cards of their board.
 #[tokio::test]
-async fn the_built_in_templates_are_the_converted_ones() {
+async fn the_built_in_templates_are_the_template_files() {
     let ts = Setup::native()
         .with_templates()
         .start()
@@ -349,20 +385,19 @@ async fn the_built_in_templates_are_the_converted_ones() {
         .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
-    let index = converter_index();
-    let listed = index["templates"].as_array().expect("a list");
+    let files = template_files();
     let mut keys: Vec<&str> = boards
         .iter()
         .filter_map(|board| board.properties.get("templateKey").and_then(Value::as_str))
         .collect();
     keys.sort_unstable();
-    let mut expected: Vec<&str> = listed
+    let mut expected: Vec<&str> = files
         .iter()
         .filter_map(|template| template["key"].as_str())
         .collect();
     expected.sort_unstable();
     assert_eq!(keys.len(), 13, "{keys:?}");
-    assert_eq!(keys, expected, "the templates of the index, each once");
+    assert_eq!(keys, expected, "the templates of the files, each once");
     assert_eq!(
         boards
             .iter()
@@ -416,57 +451,18 @@ async fn the_built_in_templates_are_the_converted_ones() {
             }
         }
     }
-    let sum = |member: &str| -> u64 {
-        listed
-            .iter()
-            .filter_map(|template| template[member].as_u64())
-            .sum()
-    };
-    assert_eq!(bodies, sum("bodies"), "the cards have their bodies");
+    let (files_bodies, files_dates) = bodies_and_dates(&files);
+    assert!(
+        files_bodies > 0 && files_dates > 0,
+        "the files have bodies and dates"
+    );
+    assert_eq!(bodies, files_bodies, "the cards have their bodies");
     assert_eq!(
-        dates,
-        index["conversions"]["dateValues"]
-            .as_u64()
-            .expect("a count"),
+        dates, files_dates,
         "the dates of the templates, in the new shape"
     );
     assert!(ordered > 0, "the views have card orders");
     ts.teardown().await;
-}
-
-/// The server's copy of the templates is the converter's output as it is in the
-/// repository: a change there is taken over by copying the files again.
-#[test]
-fn the_server_copy_of_the_templates_is_the_converter_output() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let output = root.join("../../apps/web/tools/templates/output");
-    let copy = root.join("assets/templates");
-    let mut names: Vec<String> = std::fs::read_dir(&copy)
-        .expect("the server's copy")
-        .map(|entry| {
-            entry
-                .expect("an entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    names.sort();
-    let mut expected: Vec<String> = converter_index()["templates"]
-        .as_array()
-        .expect("a list")
-        .iter()
-        .filter_map(|template| template["file"].as_str().map(str::to_owned))
-        .collect();
-    expected.sort();
-    assert_eq!(names, expected, "the files of the index");
-    for name in &names {
-        assert_eq!(
-            std::fs::read(copy.join(name)).expect("the copy"),
-            std::fs::read(output.join(name)).expect("the output"),
-            "{name} is copied as it is: copy the template files that apps/web/tools/templates/output/index.json lists into this crate's assets/templates/"
-        );
-    }
 }
 
 /// Templates that are stored again take the files of the old ones with them, from the

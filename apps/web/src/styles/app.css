@@ -19,8 +19,6 @@
 @source not '../../tests';
 @source not '../../e2e';
 @source not '../../messages';
-@source not '../../messages-own';
-@source not '../../messages-fill';
 
 @custom-variant dark (&:is(.dark *));
 
