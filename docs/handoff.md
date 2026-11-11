@@ -89,7 +89,7 @@
 
 ```bash
 cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 길이, 계약, 라이선스·권고. 외부 서비스 없음
-cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 천장을 올리는 유일한 길이고, 따로 잰 묶음들을 합친 뒤 한 번만 돌린다
+cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 천장을 올리는 유일한 길이고, 따로 잰 묶음들을 합친 뒤 한 번만 돌린다. 웹앱의 것은 pnpm --filter web run lengths:measure
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
 cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
