@@ -235,7 +235,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 
 1. **설정 기본값을 실제로 적용한다.** 원본은 기본값의 키 이름이 설정 키와 달라 `session_expire_time`, `session_refresh_time`, `dbconfig`, `webhook_update` 등에 기본값이 적용되지 않는다(`server/services/config/config.go:75-110`). 포트는 문서화된 기본값(30일, 5시간, `./fvoci.db`)을 쓴다.
 2. **환경 변수는 `FVOCI_<키 대문자>`이고 설정 파일에 키가 없어도 적용된다.** 원본은 파일이나 기본값에 있는 키만 환경 변수로 덮을 수 있다. `featureFlags`는 환경 변수로 줄 수 없다. `filess3config`의 자격이 아닌 키는 `FVOCI_FILESS3CONFIG_<키>`다(사용자 결정 2026-11-11 11:05 KST).
-3. **지원하지 않는 설정은 시작 오류다:** `authMode`가 `native`가 아님, `prometheusaddress`, `filesdriver`가 `local`/`amazons3`가 아님, `filess3config.SignV2`, `dbtype: mysql`. `logging_cfg_*`, `audit_cfg_*`는 경고만 낸다. → **정리됨(2026-11-11 13:35 KST):** 이 둘과 `filess3config.trace`는 없앤 키다. 값이 있으면 시작하지 않는다(사용자 결정 11:05 KST).
+3. **지원하지 않는 설정은 시작 오류다:** `authMode`가 `native`가 아님, `prometheusaddress`(→ 2026-11-11부터 지표의 주소), `filesdriver`가 `local`/`amazons3`가 아님, `filess3config.SignV2`, `dbtype: mysql`. `logging_cfg_*`, `audit_cfg_*`는 경고만 낸다. → **정리됨(2026-11-11 13:35 KST):** 이 둘과 `filess3config.trace`는 없앤 키다. 값이 있으면 시작하지 않는다(사용자 결정 11:05 KST).
 4. **`/static/` 아래 디렉터리 목록을 보여 주지 않는다.** 원본은 파일 서버가 목록 HTML을 만든다. 포트는 404다.
 5. **캐시 헤더와 사전 압축 파일**: 정적 파일은 이름에 내용 해시가 있으면 `public, max-age=31536000, immutable`, 없으면 `no-cache`(ETag 재검증). `index.html`은 `no-cache`. 요청한 파일 옆에 `.br`/`.gz`가 있고 클라이언트가 받으면 그것을 보낸다. 원본에는 없는 동작이다.
 6. **파일 저장 경로 검사**: 절대 경로나 `..`이 든 저장 경로는 거절한다. 원본은 호스트 애플리케이션의 파일 저장소에 그대로 넘긴다.
@@ -256,7 +256,7 @@ mock 저장소를 쓰던 `server/app`의 테스트는 실제 저장소로 옮겼
 21. **TLS 세부.** TLS 1.2/1.3, HTTP/1.1만 지원한다(원본은 HTTP/2도 협상). TLS 포트로 온 평문 요청은 응답 없이 닫는다(원본은 400 안내문).
 22. **패닉 처리 범위.** 원본은 `/api/v2`만, 포트는 관리자 소켓을 포함한 모든 라우트에서 표준 500 본문으로 바꾼다.
 23. **요청 로그.** 요청마다 메서드, 쿼리 없는 경로, 상태, 소요 시간, 클라이언트 주소를 INFO로 남긴다. `trust_forwarded_for`가 켜져 있고 `X-Forwarded-For`의 첫 항목이 IP 주소로 읽힐 때만 그 값을 클라이언트 주소로 쓴다.
-24. **옮기지 않은 시작 작업:** 메트릭 갱신 작업, 텔레메트리 작업과 `system_settings`의 `TelemetryID` 행, Prometheus 서버, `--monitorpid`, 시작 시 버전·설정 전체 로그(원본은 DB 접속 문자열까지 찍는다).
+24. **옮기지 않은 시작 작업:** 메트릭 갱신 작업, 텔레메트리 작업과 `system_settings`의 `TelemetryID` 행, `--monitorpid`, 시작 시 버전·설정 전체 로그(원본은 DB 접속 문자열까지 찍는다).
 25. **없는 블록의 undelete는 404.** 원본은 nil 역참조로 500(오라클 확인, `server/api/blocks.go:452-458`).
 26. **댓글 블록 복제는 404.** 원본은 충돌로 500(오라클 확인, `sqlstore/blocks.go:883-901`).
 27. **묶음 패치가 중간에 실패하면 아무것도 적용되지 않는다.** 원본 SQLite는 앞선 패치가 이미 적용된 채 500/400을 준다(스토어의 트랜잭션 차이).

@@ -36,7 +36,38 @@ pub struct UploadUsage {
     pub server_bytes: i64,
 }
 
+/// The open upload sessions of the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OpenUploads {
+    /// How many there are.
+    pub sessions: i64,
+    /// The sum of their sizes, in bytes: what they hold back.
+    pub bytes: i64,
+}
+
 impl Store {
+    /// Returns the upload sessions open at `now`, all users' together, as
+    /// [`Store::upload_usage`] counts them for the server.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn open_uploads(&self, now: i64) -> Result<OpenUploads, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(
+                "SELECT CAST(COUNT(*) AS BIGINT), CAST(COALESCE(SUM(size), 0) AS BIGINT) \
+                 FROM uploads WHERE closed_at = 0 AND expires_at > ",
+            );
+            sql.bind(now);
+            let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
+            Ok(OpenUploads {
+                sessions: row.int(0)?,
+                bytes: row.int(1)?,
+            })
+        })
+        .await
+    }
+
     /// Returns what the open upload sessions hold back at `now`: those that are not
     /// closed and have not ended. A session that was closed and is not thrown away yet,
     /// as after a crash, does not count.
