@@ -190,6 +190,23 @@ describe('comments and attachments', () => {
     expect(card.comments).toHaveLength(4);
   });
 
+  it('changes the text of a comment, and on a stale version reads the comments again', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    expect(await card.addComment(text('mine'))).toBe(true);
+    const mine = card.comments.at(-1);
+    if (!mine) throw new Error('no comment');
+    expect(await card.editComment(mine.id, text('mine, changed'))).toBe(true);
+    expect(card.comments.at(-1)?.body).toEqual(text('mine, changed'));
+
+    // Refused as stale: the comments are read again, and nothing is written.
+    const refresh = vi.spyOn(card, 'refresh');
+    backend.failNext('patchComment', new BackendError(409));
+    expect(await card.editComment(mine.id, text('again'))).toBe(false);
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 409 } });
+    expect(card.comments.at(-1)?.body).toEqual(text('mine, changed'));
+  });
+
   it('uploads a file, shows its progress, and attaches it', async () => {
     const { card, backend } = await openAlpha();
     backend.latency = 2;

@@ -354,6 +354,11 @@ export interface Backend {
   // Comments and attachments of a card.
   comments(boardId: string, cardId: string): Promise<Comment[]>;
   createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment>;
+  /**
+   * Replaces the text of a comment. Rejects with 409 when the comment changed
+   * since `readAt`, and with 400 when the body is empty: a comment has a text.
+   */
+  patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment>;
   attachments(boardId: string, cardId: string): Promise<Attachment[]>;
   createAttachment(boardId: string, cardId: string, file: UploadedFile): Promise<Attachment>;
 

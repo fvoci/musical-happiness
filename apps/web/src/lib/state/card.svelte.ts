@@ -327,6 +327,30 @@ export class CardStore {
     }
   }
 
+  /**
+   * Changes the text of a comment, on the version shown. When somebody
+   * changed it meanwhile (409) nothing is overwritten: the comments are read
+   * again, so that theirs shows, and the reader's text stays with the caller
+   * to be saved again. True when it was stored.
+   */
+  async editComment(commentId: string, body: DocNode): Promise<boolean> {
+    const comment = this.#comments.find((existing) => existing.id === commentId);
+    if (!comment) return false;
+    try {
+      this.receive(
+        await this.#backend.patchComment(this.#boardId, commentId, {
+          body,
+          readAt: comment.updateAt,
+        }),
+      );
+      return true;
+    } catch (error) {
+      if (isConflict(error)) await this.refresh();
+      this.board.workspace.report('save', error);
+      return false;
+    }
+  }
+
   async #deleteChild(blockId: string, description: string): Promise<void> {
     const comment = this.#comments.find((existing) => existing.id === blockId);
     const attachment = this.#attachments.find((existing) => existing.id === blockId);

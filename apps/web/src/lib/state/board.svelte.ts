@@ -147,6 +147,16 @@ export class BoardStore {
     return this.canEdit && createdBy === this.workspace.me?.id;
   }
 
+  /**
+   * Whether the reader may change the text of a comment written by
+   * `createdBy`: their own, when they may edit the board. The server lets an
+   * editor change anyone's comment and a commenter none (`patchBlock`); the
+   * screen offers only one's own (`docs/contract-assumptions.md`, B1).
+   */
+  canEditComment(createdBy: string): boolean {
+    return this.canEdit && createdBy === this.workspace.me?.id;
+  }
+
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */

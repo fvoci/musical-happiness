@@ -654,6 +654,20 @@ export class MemoryBackend implements Backend {
     return commentOf(block);
   }
 
+  async patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
+    await this.#enter('patchComment');
+    const block = this.#block(boardId, commentId, 'comment');
+    const checked = this.#checkBody(boardId, write.body);
+    if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
+    if (block.updateAt !== write.readAt) {
+      fail(409, 'the comment changed since it was read', { reason: 'stale' });
+    }
+    block.body = checked;
+    this.#touch(block);
+    this.#tellBlocks(boardId, [block]);
+    return commentOf(block);
+  }
+
   async attachments(boardId: string, cardId: string): Promise<Attachment[]> {
     await this.#enter('attachments');
     this.#block(boardId, cardId, 'card');

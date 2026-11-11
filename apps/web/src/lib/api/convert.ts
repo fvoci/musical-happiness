@@ -166,17 +166,19 @@ export function newCardOf(draft: CardDraft): Schemas['NewCard'] {
 }
 
 /**
- * A comment as the server keeps it today: a block whose title is its text.
- * The screens' comment is a document (`contract-assumptions.md`, B1); until
- * the server keeps one, each line of the text is a paragraph of plain text.
+ * A comment: a block whose text is its body. A comment stored before bodies
+ * were (its text in the title, as the original app wrote it) is shown with
+ * each line of the title as a paragraph of plain text.
  */
 export function commentOf(block: Schemas['Block']): Comment {
+  const body = bodyOf(block.body);
   const lines = block.title.trim().split(/\r?\n/);
   return {
     ...blockOf(block),
     type: 'comment',
     body:
-      lines.join('') === ''
+      body ??
+      (lines.join('') === ''
         ? null
         : {
             type: 'doc',
@@ -185,7 +187,7 @@ export function commentOf(block: Schemas['Block']): Comment {
                 ? { type: 'paragraph', content: [{ type: 'text', text }] }
                 : { type: 'paragraph' },
             ),
-          },
+          }),
   };
 }
 

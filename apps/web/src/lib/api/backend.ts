@@ -405,13 +405,76 @@ export class ServerBackend implements Backend, Account {
     });
   }
 
-  /** The comments of a card, read only for now (`commentOf`). */
+  /** The comments of a card: blocks of the type `comment` under it. */
   async comments(boardId: string, cardId: string): Promise<Comment[]> {
     return (await this.#children(boardId, cardId, 'comment')).map(commentOf);
   }
 
-  createComment(_boardId: string, _cardId: string, _body: DocNode): Promise<Comment> {
-    return notWired('createComment');
+  /**
+   * A comment is a block under the card with the text as its body
+   * (`docs/contract-pending.md`, 1). The contract's `NewBlock` does not list
+   * `body`, but the server takes it there (`docs/contract-assumptions.md`, 8).
+   */
+  async createComment(boardId: string, cardId: string, body: DocNode): Promise<Comment> {
+    const block = {
+      boardId,
+      parentId: cardId,
+      type: 'comment',
+      title: '',
+      fields: {},
+      createAt: 1,
+      updateAt: 1,
+      body: wireBody(body),
+    } satisfies Schemas['NewBlock'] & { body: Schemas['Body'] };
+    const [made] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { method: 'POST', json: [block] },
+    );
+    if (!made) throw new BackendError(500, { message: 'the server made no comment' });
+    return commentOf(made);
+  }
+
+  /**
+   * Replaces a comment's body through its block, with the version it was
+   * read at (409 when it changed since). The server answers 204 alone, so
+   * the comment is read again; if only that fails, what was sent is what it
+   * is. The changes of one comment go in turn.
+   */
+  patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
+    return this.#inTurn(commentId, async () => {
+      const before = await this.#comment(boardId, commentId);
+      const patch: Schemas['BlockPatch'] = {
+        body: write.body ? wireBody(write.body) : null,
+        readAt: write.readAt,
+      };
+      await this.#http.request(
+        '/api/v1/boards/{boardId}/blocks/{blockId}',
+        { boardId, blockId: commentId },
+        { method: 'PATCH', json: patch },
+      );
+      try {
+        return await this.#comment(boardId, commentId);
+      } catch {
+        return { ...before, body: write.body };
+      }
+    });
+  }
+
+  /** A comment of this board, by its block: 404 for another block or none. */
+  async #comment(boardId: string, commentId: string): Promise<Comment> {
+    const [block] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { query: { blockId: commentId } },
+    );
+    if (block?.type !== 'comment') {
+      throw new BackendError(404, {
+        message: 'no such comment on this board',
+        reason: 'not_found',
+      });
+    }
+    return commentOf(block);
   }
 
   /** The attachments of a card, read only for now (`attachmentOf`). */

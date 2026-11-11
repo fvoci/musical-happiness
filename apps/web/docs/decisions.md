@@ -1406,7 +1406,7 @@
   - 바꾸려면: `lib/api/backend.ts`의 `cards`, `card`.
 
 - **연결 11.** 카드는 `createCard`로 만든다. 본문이 든 초안(복제)은 본문을 함께 싣는다.
-  - 카드를 열면 댓글과 첨부도 읽는다(보드의 블록을 `parentId`와 종류로 거른다). 댓글은 제목을 글자만 든 문단 하나로, 첨부는 `fields`의 `fileId`, `size`, `contentType`과 제목(이름)으로 읽는다. 쓰기(댓글 달기, 첨부 올리기)는 그대로 `not_wired`다.
+  - 카드를 열면 댓글과 첨부도 읽는다(보드의 블록을 `parentId`와 종류로 거른다). 댓글은 블록의 `body`로(본문이 없는 옛 댓글은 제목의 줄마다 문단 하나로), 첨부는 `fields`의 `fileId`, `size`, `contentType`과 제목(이름)으로 읽는다.
   - 만든 카드의 실행 취소는 `deleteBlock`이다(연결 15).
   - 왜: 카드 상세는 셋을 함께 읽고, 하나라도 실패하면 열리지 않는다. 만든 카드가 곧장 열린다.
   - 바꾸려면: `lib/api/backend.ts`의 `createCard`, `comments`, `attachments`, `lib/api/convert.ts`의 `newCardOf`, `commentOf`, `attachmentOf`.
@@ -1435,6 +1435,8 @@
   - 바꾸려면: `lib/api/backend.ts`의 `deleteBlock`, `restoreBlock`.
 
 - **연결 16.** 본문 검증기(`editor/schema.ts`의 `validateDoc`)는 서버의 허용 목록을 따른다. 공유 벡터 `contracts/body-vectors.json`을 `tests/editor/body-vectors.test.ts`가 읽는다. 그래서 멘션의 `userId`는 소문자 UUID이고, U+0000과 `content`·`marks`의 `null`은 거절한다. 그리기(`renderBody`)만 `shown`으로 느슨하다: 빈 `userId`(익명 독자에게 오는 멘션)와 U+0000을 그린다. 편집기는 쓰기의 규칙으로 싣는다.
+
+- **연결 17.** 댓글은 `createBlocks`로(`type: comment`, 카드가 부모, 글이 `body`) 만들고, `patchBlock`의 `body`와 `readAt`으로 고친다(답이 204라 다시 읽는다). 고치기 단추는 보드를 고칠 수 있는 사람의 자기 댓글에만 있고, 글자만 든 문단으로 된 댓글만 고친다(댓글 칸이 그 밖의 것을 담지 못한다). 낡은 판(409)이면 댓글을 다시 읽고 쓴 글은 칸에 남긴다.
 
 ## 검토에서 나온 것과 처리
 

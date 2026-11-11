@@ -100,7 +100,67 @@ describe('the server backend', () => {
     expect(sent[1]?.body).toMatchObject({ title: 'Copy', body });
   });
 
+  it('makes a comment as a block under the card, its text the body', async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hi' }] }],
+    };
+    const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: '', body }], 201);
+    const comment = await new ServerBackend('').createComment('b', 'c', body);
+    expect(sent[0]).toMatchObject({
+      url: '/api/v1/boards/b/blocks',
+      method: 'POST',
+      body: [{ boardId: 'b', parentId: 'c', type: 'comment', body }],
+    });
+    expect(comment).toMatchObject({ id: 'm', type: 'comment', body });
+  });
+
+  it('changes a comment by its block with the version it was read at, and reads it again', async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'New' }] }],
+    };
+    const comment = { ...BLOCK, id: 'm', type: 'comment', title: '', updateAt: 9, body };
+    const sent: Sent[] = [];
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      sent.push({
+        url,
+        method: init.method ?? 'GET',
+        headers: {},
+        body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+      });
+      return Promise.resolve(
+        init.method === 'PATCH'
+          ? new Response(null, { status: 204 })
+          : new Response(JSON.stringify([comment]), { status: 200 }),
+      );
+    });
+    const changed = await new ServerBackend('').patchComment('b', 'm', { body, readAt: 7 });
+    expect(sent.map((one) => `${one.method} ${one.url}`)).toEqual([
+      'GET /api/v1/boards/b/blocks?blockId=m',
+      'PATCH /api/v1/boards/b/blocks/m',
+      'GET /api/v1/boards/b/blocks?blockId=m',
+    ]);
+    expect(sent[1]?.body).toEqual({ body, readAt: 7 });
+    expect(changed).toMatchObject({ id: 'm', body, updateAt: 9 });
+
+    // A block that is not a comment is not changed.
+    const other = serve([{ ...BLOCK, id: 'c', type: 'card', title: 'x' }]);
+    const refused = await new ServerBackend('')
+      .patchComment('b', 'c', { body, readAt: 1 })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(404);
+    expect(other.map((one) => one.method)).toEqual(['GET']);
+  });
+
   it("reads a card's comments and attachments as blocks under it", async () => {
+    const body = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Body' }] }],
+    };
+    serve([{ ...BLOCK, id: 'n', type: 'comment', title: '', body }]);
+    expect((await new ServerBackend('').comments('b', 'c'))[0]?.body).toEqual(body);
+    // One stored before comments had bodies: its title, a paragraph a line.
     const sent = serve([{ ...BLOCK, id: 'm', type: 'comment', title: 'Looks good\nShip it' }]);
     const backend = new ServerBackend('');
     const [comment] = await backend.comments('b', 'c');
