@@ -1,10 +1,15 @@
 //! What is asked before the organization of a request is known, and what makes an
 //! organization: which workspaces a user has, whose a workspace or a shared board is.
+//! And whether an object of the file storage is held, which is asked of every
+//! organization: an object's place is one across them.
 //!
 //! Every function here runs one statement, or one short transaction, that reaches the
 //! rows of every organization ([`Tenant::System`](crate::Tenant::System)) and is
-//! narrowed by what the caller holds: a user's identifier, a read token. Nothing else
-//! of the server asks across organizations on behalf of a request.
+//! narrowed by what the caller holds: a user's identifier, a read token, the places of
+//! objects. Nothing else of the server asks across organizations on behalf of a
+//! request.
+
+use std::collections::BTreeSet;
 
 use fvoci_model::{OrgRole, Team, UserWorkspace, WorkspaceRole, new_id};
 use subtle::ConstantTimeEq as _;
@@ -12,6 +17,7 @@ use subtle::ConstantTimeEq as _;
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
+use crate::loose_objects::LooseState;
 use crate::teams;
 use crate::uploads::{OpenUploads, UploadUsage};
 
@@ -256,6 +262,61 @@ impl Store {
                     user_bytes: row.int(1)?,
                     server_bytes: row.int(2)?,
                 })
+            })
+            .await
+    }
+
+    /// The places among `paths` whose object something of any organization holds: a
+    /// file's record, of a board or of a board in the trash, an object being written
+    /// there, or an upload session that makes its file there, but for `except_upload`.
+    /// Whatever a row says of its board or organization, an object it names is not
+    /// removed under it: whether one may go is asked here, of every organization,
+    /// before it is removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if a query fails.
+    pub async fn held_objects(
+        &self,
+        paths: &[&str],
+        except_upload: Option<&str>,
+    ) -> Result<BTreeSet<String>, StoreError> {
+        if paths.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        self.system()
+            .with_conn(async |scope| {
+                let (trashed_path, trashed_files) = match scope.dialect() {
+                    Dialect::Sqlite => {
+                        ("json_extract(f.value, '$.path')", "json_each(d.files) AS f")
+                    }
+                    Dialect::Postgres => (
+                        "f.value ->> 'path'",
+                        "json_array_elements(d.files) AS f(value)",
+                    ),
+                };
+                let mut sql = scope.sql("SELECT path FROM file_info WHERE path IN (");
+                sql.bind_list(paths.iter().copied())
+                    .push(&format!(
+                        ") UNION SELECT {trashed_path} FROM deleted_boards AS d, {trashed_files} \
+                         WHERE {trashed_path} IN ("
+                    ))
+                    .bind_list(paths.iter().copied())
+                    .push(") UNION SELECT path FROM loose_objects WHERE path IN (")
+                    .bind_list(paths.iter().copied())
+                    .push_bind(") AND state = ", LooseState::Writing.as_str())
+                    .push(" UNION SELECT path FROM uploads WHERE path IN (")
+                    .bind_list(paths.iter().copied())
+                    .push(")");
+                if let Some(upload_id) = except_upload {
+                    sql.push_bind(" AND id <> ", upload_id);
+                }
+                scope
+                    .fetch_all(sql)
+                    .await?
+                    .iter()
+                    .map(|row| row.text(0))
+                    .collect()
             })
             .await
     }

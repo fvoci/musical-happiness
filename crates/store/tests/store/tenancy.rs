@@ -408,12 +408,46 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
     test.teardown().await;
 }
 
+/// Stores, through `store`, an upload with a part and an object being written.
+async fn in_the_files(store: &Store, user_id: &str, board_id: &str, username: &str) {
+    let upload = Upload {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        board_id: board_id.to_owned(),
+        name: "upload.bin".to_owned(),
+        size: 1,
+        part_size: 1,
+        create_at: 1,
+        expires_at: i64::MAX,
+        ..Upload::default()
+    };
+    store
+        .create_upload(&upload)
+        .await
+        .expect("an upload is opened");
+    store
+        .put_upload_part(
+            &upload.id,
+            &UploadPart {
+                number: 1,
+                size: 1,
+                part_id: String::new(),
+            },
+        )
+        .await
+        .expect("a part is recorded");
+    store
+        .mark_writing(&format!("boards/{username}/being-written"), i64::MAX)
+        .await
+        .expect("an object is being written");
+}
+
 /// Stores, through `store`, something in every table of an organization: a team, a
 /// board with a member, a card and a comment whose text was changed, files, sharing, a
-/// subscription, a category with the board in it, an upload with a part, and a board
-/// and a card in the trash. The user is made through `store` too, and so joins its
-/// organization. Returns the identifiers of the card that went to the trash and of the
-/// user.
+/// subscription, a category with the board in it, an upload with a part, an object
+/// being written, and a board and a card in the trash. The user is made through `store`
+/// too, and so joins its organization. Returns the identifiers of the card that went to
+/// the trash and of the user.
 async fn something_in_every_table(store: &Store, username: &str) -> (String, String) {
     let user_id = common::user(store, username).await;
     let comment = crate::file_info::posted_comment(store, &user_id).await;
@@ -467,32 +501,7 @@ async fn something_in_every_table(store: &Store, username: &str) -> (String, Str
         .add_update_category_board(&user_id, &category.id, std::slice::from_ref(&board_id))
         .await
         .expect("the board is filed");
-    let upload = Upload {
-        id: new_id(),
-        user_id: user_id.clone(),
-        board_id: board_id.clone(),
-        name: "upload.bin".to_owned(),
-        size: 1,
-        part_size: 1,
-        create_at: 1,
-        expires_at: i64::MAX,
-        ..Upload::default()
-    };
-    store
-        .create_upload(&upload)
-        .await
-        .expect("an upload is opened");
-    store
-        .put_upload_part(
-            &upload.id,
-            &UploadPart {
-                number: 1,
-                size: 1,
-                part_id: String::new(),
-            },
-        )
-        .await
-        .expect("a part is recorded");
+    in_the_files(store, &user_id, &board_id, username).await;
     // The trash: a card of the live board, and a whole board.
     let mut card = fvoci_model::Block {
         id: new_id(),

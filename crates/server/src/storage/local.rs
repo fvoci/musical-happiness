@@ -9,7 +9,7 @@ use tokio::fs;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
 use tokio_util::io::ReaderStream;
 
-use super::{FileStream, StorageError};
+use super::{FileStream, ObjectListing, StorageError, StoredObject};
 
 /// Files kept in a directory on the local disk, the `filespath` setting.
 ///
@@ -144,6 +144,19 @@ impl LocalFiles {
         }
     }
 
+    pub(super) fn list(&self) -> ObjectListing {
+        let walk = Walk {
+            root: self.root.clone(),
+            directories: vec![String::new()],
+            entries: None,
+        };
+        futures_util::stream::unfold(walk, |mut walk| async move {
+            let next = walk.next().await.transpose()?;
+            Some((next, walk))
+        })
+        .boxed()
+    }
+
     pub(super) async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         let (source, target) = (self.resolve(from)?, self.resolve(to)?);
         if let Some(parent) = target.parent() {
@@ -152,6 +165,80 @@ impl LocalFiles {
         fs::rename(source, target)
             .await
             .map_err(|error| not_found_or_io(error, from))
+    }
+}
+
+/// A walk through the files under the root, a directory at a time: the directories
+/// still to read, by their path under the root, and the one being read.
+struct Walk {
+    root: PathBuf,
+    directories: Vec<String>,
+    entries: Option<(String, fs::ReadDir)>,
+}
+
+impl Walk {
+    /// The next file, or `None` once every directory was read.
+    async fn next(&mut self) -> Result<Option<StoredObject>, StorageError> {
+        loop {
+            let Some((directory, entries)) = &mut self.entries else {
+                let Some(directory) = self.directories.pop() else {
+                    return Ok(None);
+                };
+                let entries = match fs::read_dir(self.root.join(&directory)).await {
+                    Ok(entries) => entries,
+                    // The root before the first write, or a directory gone meanwhile.
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    // A directory under the root the server may not read (a volume's
+                    // `lost+found`) holds none of its files.
+                    Err(error) if !directory.is_empty() => {
+                        tracing::warn!(%error, directory, "a directory under the files could not be read");
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                self.entries = Some((directory, entries));
+                continue;
+            };
+            let Some(entry) = entries.next_entry().await? else {
+                self.entries = None;
+                continue;
+            };
+            // A name that is no text names no stored file: no record can name it.
+            let Ok(name) = entry.file_name().into_string() else {
+                tracing::warn!(directory, "a file whose name is no text is left out");
+                continue;
+            };
+            let path = if directory.is_empty() {
+                name.clone()
+            } else {
+                format!("{directory}/{name}")
+            };
+            // An entry removed since it was read, as by the housekeeping, is gone.
+            let kind = match entry.file_type().await {
+                Ok(kind) => kind,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            if kind.is_dir() {
+                // The files being written and the temporary files are no stored files.
+                if !(directory.is_empty() && name.starts_with('.')) {
+                    self.directories.push(path);
+                }
+            } else if kind.is_file() {
+                let modified = match entry.metadata().await {
+                    Ok(metadata) => metadata.modified()?,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                let since_epoch = modified
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default();
+                return Ok(Some(StoredObject {
+                    path,
+                    modified_at: i64::try_from(since_epoch.as_millis()).unwrap_or(i64::MAX),
+                }));
+            }
+        }
     }
 }
 

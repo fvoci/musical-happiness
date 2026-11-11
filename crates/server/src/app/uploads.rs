@@ -651,18 +651,6 @@ impl App {
         recorded
     }
 
-    /// Removes a file of the object store that has no record: one is given out through no
-    /// board, and only taking room. Returns whether it went.
-    async fn remove_unrecorded(&self, path: &str) -> bool {
-        match self.files().delete(path).await {
-            Ok(()) => true,
-            Err(error) => {
-                tracing::warn!(%error, "an uploaded file without a record could not be removed");
-                false
-            }
-        }
-    }
-
     /// Checks that every part of an upload was received with its size, and returns the
     /// parts by number.
     async fn check_parts(&self, upload: &Upload) -> Result<Vec<UploadPart>, AppError> {
@@ -815,17 +803,22 @@ impl App {
         self.forget_upload(upload).await && settled
     }
 
-    /// Removes the object at the place of a multipart upload unless a file's record names
-    /// it: a completion that took effect without its file being recorded, as when the
-    /// answer was lost or the server stopped in between, leaves an object nothing gives
-    /// out. The place is the session's own, a new secret. Returns `None` if it is not
-    /// settled, as whether the record is there could not be read; else whether all went
-    /// (false if the object is there and could not be removed, which is logged).
+    /// Removes the object at the place of a multipart upload unless something of any
+    /// organization holds it (`Store::held_objects`): a completion that took effect
+    /// without its record, as when the answer was lost, leaves an object nothing gives
+    /// out. Doomed first, it is removed by the housekeeping if not now. Returns `None`
+    /// if that is not settled (the holds or the doom failed); else whether it went now.
     async fn remove_if_unrecorded(&self, upload: &Upload) -> Option<bool> {
-        let stored_name = upload.path.rsplit('/').next().unwrap_or_default();
-        match self.file_info(&upload.board_id, stored_name).await {
-            Ok(None) => Some(self.remove_unrecorded(&upload.path).await),
-            Ok(Some(_)) => Some(true),
+        let paths = [upload.path.as_str()];
+        match self.store().held_objects(&paths, Some(&upload.id)).await {
+            Ok(held) if !held.is_empty() => Some(true),
+            Ok(_) => match self.store().doom_unrecorded(&paths).await {
+                Ok(_) => Some(self.remove_doomed_now(&upload.path).await),
+                Err(error) => {
+                    tracing::warn!(%error, "an uploaded file without a record could not be doomed");
+                    None
+                }
+            },
             Err(error) => {
                 tracing::warn!(%error, "whether an uploaded file has a record could not be read");
                 None

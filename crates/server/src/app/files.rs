@@ -16,6 +16,7 @@ use serde_json::Value;
 use tokio::io::AsyncRead;
 
 use super::App;
+use super::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
@@ -78,9 +79,16 @@ impl App {
     /// `filename` (`.jpeg` becomes `.jpg`). Nothing of the client's name ends up in a
     /// path: it is kept in the record only.
     ///
+    /// The place is marked as being written before anything is written there, and the
+    /// record takes the mark away in its transaction: a write or a record that fails,
+    /// or a server that stops in between, leaves a mark that is doomed and removed,
+    /// now or by the housekeeping, and no object that nothing names.
+    ///
     /// # Errors
     ///
-    /// Returns a server error if the file or its record cannot be written.
+    /// Returns a server error if the place cannot be marked, if the file cannot be
+    /// written within a day or its record cannot be written, and if the housekeeping
+    /// gave the write up meanwhile.
     pub async fn save_file(
         &self,
         reader: &mut (dyn AsyncRead + Send + Unpin),
@@ -88,20 +96,47 @@ impl App {
         filename: &str,
     ) -> Result<String, AppError> {
         let place = FilePlace::new(board_id, filename);
-        let size = self
-            .files()
-            .write(&place.path, reader)
-            .await
-            .map_err(|error| {
-                AppError::internal(format_args!(
+        self.mark_writing(&place.path).await?;
+        let write = self.files().write(&place.path, reader);
+        let size = match tokio::time::timeout(WRITE_TIMEOUT, write).await {
+            Ok(Ok(size)) => size,
+            failed => {
+                // The object store may have taken it with its answer lost.
+                self.give_up_writing(&place.path, Written::Unsettled).await;
+                let error = match failed {
+                    Ok(Err(error)) => error.to_string(),
+                    _ => "it took longer than a write may take".to_owned(),
+                };
+                return Err(AppError::internal(format_args!(
                     "unable to store the file in the files storage: {error}"
-                ))
-            })?;
-        self.record_file(board_id, place, size).await
+                )));
+            }
+        };
+        let info = file_info(board_id, place, size);
+        self.record_written(&info).await?;
+        Ok(info.stored_name)
+    }
+
+    /// Records a file whose object was written at a marked place; gives the object up
+    /// if it cannot be recorded.
+    async fn record_written(&self, info: &FileInfo) -> Result<(), AppError> {
+        match self.store().record_written_file(info).await {
+            Ok(true) => Ok(()),
+            // Doomed while it was written, which took longer than any write takes: the
+            // store doomed it again, for the housekeeping to remove.
+            Ok(false) => Err(AppError::internal(
+                "the file was given up while it was written",
+            )),
+            Err(error) => {
+                self.give_up_writing(&info.path, Written::Settled).await;
+                Err(error.into())
+            }
+        }
     }
 
     /// Records the file of `size` bytes stored at `place` as a file of `board_id`, and
-    /// returns its stored name.
+    /// returns its stored name. For an object whose place an upload session holds,
+    /// which is its mark: the place is not marked as being written.
     ///
     /// # Errors
     ///
@@ -112,18 +147,9 @@ impl App {
         place: FilePlace,
         size: u64,
     ) -> Result<String, AppError> {
-        let info = FileInfo {
-            id: new_id(),
-            board_id: board_id.to_owned(),
-            stored_name: place.stored_name.clone(),
-            path: place.path,
-            size: size_to_i64(size),
-            name: place.name,
-            extension: place.extension,
-            create_at: now_millis(),
-        };
+        let info = file_info(board_id, place, size);
         self.store().save_file_info(&info).await?;
-        Ok(place.stored_name)
+        Ok(info.stored_name)
     }
 
     /// Returns the record of the file a board has under a stored name, or `None` if the
@@ -319,14 +345,6 @@ impl App {
         }
     }
 
-    /// Removes a file that was written but has no record, after the record could not be
-    /// stored. A file that cannot be removed either is logged: nothing names it.
-    async fn remove_stray_file(&self, path: &str) {
-        if let Err(error) = self.files().delete(path).await {
-            tracing::warn!(%error, path, "a file without a record could not be removed");
-        }
-    }
-
     /// Copies each file referred to by an attachment block and returns a map
     /// from the original stored names to those of the copies. Only files of the source
     /// board are copied.
@@ -383,25 +401,76 @@ impl App {
                 create_at: now_millis(),
                 ..source.clone()
             };
-            // The bytes first, then the record that says where they are. A file that
-            // could not be copied gets no record and no name: the block that pointed at
-            // it ends up naming no file, not a file that is not there.
-            if let Err(error) = self.files().copy(&source.path, &copy.path).await {
+            // The mark, the bytes, then the record that says where they are and takes
+            // the mark away. A file that could not be copied gets no record and no
+            // name: the block that pointed at it ends up naming no file, not a file
+            // that is not there.
+            if let Err(error) = self.mark_writing(&copy.path).await {
+                tracing::error!(%error, "CopyCardFiles could not mark a copy");
+                continue;
+            }
+            let copied = self.files().copy(&source.path, &copy.path);
+            if let Err(error) = tokio::time::timeout(WRITE_TIMEOUT, copied)
+                .await
+                .unwrap_or_else(|_| Err(StorageError::Io(std::io::ErrorKind::TimedOut.into())))
+            {
                 tracing::error!(
                     %error,
                     source_path = source.path,
                     destination_path = copy.path,
                     "CopyCardFiles failed to copy file"
                 );
+                self.give_up_writing(&copy.path, Written::Unsettled).await;
                 continue;
             }
-            if let Err(error) = self.store().save_file_info(&copy).await {
-                self.remove_stray_file(&copy.path).await;
-                return Err(error.into());
+            if let Err(error) = self.record_written(&copy).await {
+                tracing::error!(%error, "CopyCardFiles could not record a copy");
+                continue;
             }
             new_file_names.insert(file_id, stored_name);
         }
         Ok(new_file_names)
+    }
+}
+
+/// Whether a place of the file storage has the shape of one the server makes
+/// ([`FilePlace::new`]): `boards/<YYYYMMDD>/<board>/<stored name>`, the stored name a
+/// secret of letters, digits, `-` and `_`, with a plain extension or none. Anything
+/// else in the storage is none of the server's making, whatever names it.
+pub(crate) fn is_server_place(path: &str) -> bool {
+    let mut parts = path.split('/');
+    let (Some(root), Some(day), Some(board), Some(name), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return false;
+    };
+    let (secret, extension) = name.split_once('.').unwrap_or((name, ""));
+    root == UPLOADS_ROOT
+        && day.len() == 8
+        && day.bytes().all(|byte| byte.is_ascii_digit())
+        && fvoci_model::is_id(board)
+        && !secret.is_empty()
+        && secret
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        && extension.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+
+/// The record of a file of `board_id` of `size` bytes stored at `place`, made now.
+fn file_info(board_id: &str, place: FilePlace, size: u64) -> FileInfo {
+    FileInfo {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        stored_name: place.stored_name,
+        path: place.path,
+        size: size_to_i64(size),
+        name: place.name,
+        extension: place.extension,
+        create_at: now_millis(),
     }
 }
 
@@ -529,6 +598,27 @@ mod tests {
             "x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         ] {
             assert_eq!(stored_extension(name), "", "name {name:?}");
+        }
+    }
+
+    #[test]
+    fn a_place_the_server_makes_has_its_shape() {
+        let place = FilePlace::new("01890000-0000-7000-8000-000000000001", "a.PNG");
+        assert!(is_server_place(&place.path), "{}", place.path);
+        let plain = FilePlace::new("01890000-0000-7000-8000-000000000001", "noext");
+        assert!(is_server_place(&plain.path), "{}", plain.path);
+        for other in [
+            "boards/20261112/x.png",
+            "boards/2026111/01890000-0000-7000-8000-000000000001/x.png",
+            "boards/20261112/not-an-id/x.png",
+            "b/boards/20261112/01890000-0000-7000-8000-000000000001/x.png",
+            "boards/20261112/01890000-0000-7000-8000-000000000001/x%y.png",
+            "boards/20261112/01890000-0000-7000-8000-000000000001/.png",
+            "boards/20261112/01890000-0000-7000-8000-000000000001/a.b.png",
+            "tmp/uploads/abc/1.xyz",
+            "data/users/x",
+        ] {
+            assert!(!is_server_place(other), "{other}");
         }
     }
 
