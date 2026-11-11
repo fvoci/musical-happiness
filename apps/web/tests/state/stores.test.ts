@@ -179,6 +179,54 @@ describe('the workspace', () => {
     expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(before);
   });
 
+  it('lists the hidden boards, and shows one in the sidebar again', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const hidden = workspace.sidebar[0]?.boards[0];
+    if (!hidden) throw new Error('unexpected seed');
+    expect(workspace.hiddenBoards).toEqual([]);
+    await workspace.hideBoard(hidden.id);
+    expect(workspace.hiddenBoards.map((board) => board.id)).toEqual([hidden.id]);
+    await workspace.unhideBoard(hidden.id);
+    expect(workspace.hiddenBoards).toEqual([]);
+    expect(workspace.sidebar[0]?.boards[0]?.id).toBe(hidden.id);
+  });
+
+  it('keeps a board hidden when its category is deleted', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const [team] = workspace.sidebar;
+    const hidden = team?.boards[0];
+    if (!team || !hidden) throw new Error('unexpected seed');
+    await workspace.hideBoard(hidden.id);
+    await workspace.deleteCategory(team.category.id);
+    const shown = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id));
+    expect(shown).not.toContain(hidden.id);
+    expect(workspace.hiddenBoards.map((board) => board.id)).toEqual([hidden.id]);
+    await settle();
+    expect(workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id))).toEqual(
+      shown,
+    );
+  });
+
+  it('shows a new category first at once', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    await workspace.createCategory('Zebra');
+    expect(workspace.sidebar[0]?.category.name).toBe('Zebra');
+  });
+
+  it('reads the sidebar again when a write of it is refused', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const reading = vi.spyOn(backend, 'categories');
+    backend.failNext('patchCategory', refused());
+    await workspace.renameCategory(workspace.sidebar[0]?.category.id ?? '', 'Renamed');
+    await settle();
+    expect(workspace.sidebar[0]?.category.name).toBe('Team');
+    expect(reading).toHaveBeenCalled();
+  });
+
   it('shows a hidden board again when hiding it is refused', async () => {
     const { workspace, backend } = setup(await loadTemplates());
     await workspace.load();

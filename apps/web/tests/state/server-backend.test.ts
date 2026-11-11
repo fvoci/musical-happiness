@@ -631,6 +631,30 @@ describe('the sidebar on the server', () => {
     expect(sent[2]?.body).toEqual(['b1', 'b9', 'b2', 'b3']);
   });
 
+  it('sends the sidebar’s writes of a team one after another, each reading after the last', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/teams/t/categories/k1/boards/', undefined, 204],
+      ['GET /api/v1/teams/t/categories', CATEGORIES],
+      ['PUT /api/v1/teams/t/categories/k1', CATEGORY],
+    ]);
+    const backend = new ServerBackend('');
+    await Promise.all([
+      backend.moveBoardToCategory('t', 'b3', 'k1', 0),
+      backend.patchCategory('t', 'k1', { collapsed: false }),
+      backend.moveBoardToCategory('t', 'b2', 'k1', 0),
+    ]);
+    expect(sentLines(sent)).toEqual([
+      'POST /api/v1/teams/t/categories/k1/boards/b3',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1/board-order',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1',
+      'POST /api/v1/teams/t/categories/k1/boards/b2',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1/board-order',
+    ]);
+  });
+
   it('hides a board and shows it again by its routes', async () => {
     const sent = serveRoutes([['PUT /api/v1/teams/t/categories/k1/boards/b1/', undefined, 204]]);
     const backend = new ServerBackend('');

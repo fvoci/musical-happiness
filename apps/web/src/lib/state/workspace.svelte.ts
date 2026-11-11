@@ -28,7 +28,7 @@ import {
   type User,
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
-import { sidebarOf, type SidebarCategory } from './order.ts';
+import { hiddenBoardsOf, sidebarOf, type SidebarCategory } from './order.ts';
 import { reread } from './write.ts';
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
@@ -79,6 +79,11 @@ export class Workspace {
   /** The sidebar: categories and their boards, in the order to show them. */
   readonly sidebar = $derived<SidebarCategory[]>(
     sidebarOf(this.categories, this.boards, this.locale),
+  );
+
+  /** The boards the reader hid from the sidebar, by title. */
+  readonly hiddenBoards = $derived<Board[]>(
+    hiddenBoardsOf(this.categories, this.boards, this.sidebar, this.locale),
   );
 
   /** Time zone, first day of the week and way of writing hours, settled for this device. */
@@ -367,24 +372,40 @@ export class Workspace {
 
   // --------------------------------------------------------- categories
 
+  /**
+   * Shows a sidebar write at once. When it is refused the sidebar goes back
+   * to what it was and is read again: what was taken back may be older than
+   * what arrived from elsewhere meanwhile.
+   */
   async #categoryWrite(optimistic: Category[], send: () => Promise<unknown>): Promise<void> {
     const before = this.categories;
     this.categories = optimistic;
     try {
       await send();
     } catch (error) {
-      this.categories = before;
+      this.#sidebarRefused(before);
       this.report('save', error);
     }
   }
 
+  #sidebarRefused(before: Category[]): void {
+    this.categories = before;
+    void this.#refresh();
+  }
+
+  /** A new category goes first, as the backend puts it. */
   async createCategory(name: string): Promise<void> {
     if (!this.team) return;
     try {
       const category = await this.backend.createCategory(this.team.id, { name });
-      if (!this.categories.some((existing) => existing.id === category.id)) {
-        this.categories = [...this.categories, category];
-      }
+      if (this.categories.some((existing) => existing.id === category.id)) return;
+      // The others were moved down to make room; until they are read again,
+      // the new one is put before them.
+      const first = Math.min(...this.categories.map((existing) => existing.sortOrder));
+      this.categories = [
+        ...this.categories,
+        { ...category, sortOrder: Math.min(category.sortOrder, first - 1) },
+      ];
     } catch (error) {
       this.report('save', error);
     }
@@ -420,8 +441,13 @@ export class Workspace {
       this.categories
         .filter((category) => category.id !== categoryId)
         .map((category) =>
+          // Its boards go to the default category, those it hid still hidden.
           category.type === 'system'
-            ? { ...category, boardIds: [...category.boardIds, ...gone.boardIds] }
+            ? {
+                ...category,
+                boardIds: [...category.boardIds, ...gone.boardIds],
+                hiddenBoardIds: [...category.hiddenBoardIds, ...gone.hiddenBoardIds],
+              }
             : category,
         ),
       () => this.backend.deleteCategory(team.id, categoryId),
@@ -487,7 +513,10 @@ export class Workspace {
     }
   }
 
-  /** Shows the change at once; takes it back and rejects when the backend refuses it. */
+  /**
+   * Shows the change at once; when the backend refuses it, takes it back as
+   * any sidebar write (`#sidebarRefused`) and rejects.
+   */
   async #setBoardHidden(categoryId: string, boardId: string, hidden: boolean): Promise<void> {
     const team = this.team;
     if (!team) return;
@@ -500,7 +529,7 @@ export class Workspace {
     try {
       await this.backend.setBoardHidden(team.id, categoryId, boardId, hidden);
     } catch (error) {
-      this.categories = before;
+      this.#sidebarRefused(before);
       throw error;
     }
   }

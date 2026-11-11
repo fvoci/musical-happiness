@@ -631,15 +631,18 @@ test.describe('categories', () => {
     await expect.poll(() => boardsIn(page, 'Boards')).toContain('Roadmap');
   });
 
-  test('the default category cannot be deleted', async ({ page }) => {
+  test('the default category cannot be deleted or renamed', async ({ page }) => {
     await openApp(page);
     await showSidebar(page);
     await categoryMenu(page, 'Boards').click();
-    await expect(page.locator('[data-action="rename"]')).toBeVisible();
+    await expect(page.locator('[data-action="move-up"]')).toBeVisible();
     await expect(page.locator('[data-action="delete"]')).toHaveCount(0);
+    // The server keeps its name whatever is sent.
+    await expect(page.locator('[data-action="rename"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
 
     await categoryMenu(page, 'Team').click();
     await expect(page.locator('[data-action="delete"]')).toBeVisible();
+    await expect(page.locator('[data-action="rename"]')).toBeVisible();
   });
 });

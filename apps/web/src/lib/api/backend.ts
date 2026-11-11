@@ -104,7 +104,6 @@ export class ServerBackend implements Backend, Account {
   async signIn(login: string, password: string): Promise<void> {
     const request: Schemas['LoginRequest'] = { username: login, email: login, password };
     await this.#http.request('/api/v1/login', {}, { method: 'POST', json: request });
-    this.#me = undefined;
     // The page's connection was opened with the old cookie, or none.
     this.#live.restart();
   }
@@ -242,10 +241,24 @@ export class ServerBackend implements Backend, Account {
     return categories.map(categoryOf);
   }
 
+  /**
+   * The sidebar's writes of a team go one after another: a rename or a
+   * filing reads the category first and sends what it read, so a write
+   * begun before the last one ended would send what that one changed back.
+   */
+  #sidebarTurn<T>(teamId: string, write: () => Promise<T>): Promise<T> {
+    return this.#inTurn(`sidebar ${teamId}`, write);
+  }
+
   /** A new category of the reader, first among theirs (the server puts it there). */
-  async createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
-    const me = await this.#myId();
-    const request: Schemas['NewCategory'] = { name: draft.name, userId: me, teamId };
+  createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
+    return this.#sidebarTurn(teamId, () => this.#createCategory(teamId, draft));
+  }
+
+  async #createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
+    // Read each time: another tab may have signed in as somebody else.
+    const { id: userId } = await this.me();
+    const request: Schemas['NewCategory'] = { name: draft.name, userId, teamId };
     const made = await this.#http.request<Schemas['Category']>(
       '/api/v1/teams/{teamId}/categories',
       { teamId },
@@ -259,7 +272,15 @@ export class ServerBackend implements Backend, Account {
    * folding together: the one the patch leaves is read first. A default
    * category keeps its name (the server answers 200 and leaves it).
    */
-  async patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
+  patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
+    return this.#sidebarTurn(teamId, () => this.#patchCategory(teamId, categoryId, patch));
+  }
+
+  async #patchCategory(
+    teamId: string,
+    categoryId: string,
+    patch: CategoryPatch,
+  ): Promise<Category> {
     const before = await this.#category(teamId, categoryId);
     const request: Schemas['CategoryUpdate'] = {
       id: categoryId,
@@ -281,20 +302,24 @@ export class ServerBackend implements Backend, Account {
     };
   }
 
-  async deleteCategory(teamId: string, categoryId: string): Promise<void> {
-    await this.#http.request(
-      '/api/v1/teams/{teamId}/categories/{categoryId}',
-      { teamId, categoryId },
-      { method: 'DELETE' },
-    );
+  deleteCategory(teamId: string, categoryId: string): Promise<void> {
+    return this.#sidebarTurn(teamId, async () => {
+      await this.#http.request(
+        '/api/v1/teams/{teamId}/categories/{categoryId}',
+        { teamId, categoryId },
+        { method: 'DELETE' },
+      );
+    });
   }
 
-  async reorderCategories(teamId: string, categoryIds: string[]): Promise<void> {
-    await this.#http.request(
-      '/api/v1/teams/{teamId}/category-order',
-      { teamId },
-      { method: 'PUT', json: categoryIds },
-    );
+  reorderCategories(teamId: string, categoryIds: string[]): Promise<void> {
+    return this.#sidebarTurn(teamId, async () => {
+      await this.#http.request(
+        '/api/v1/teams/{teamId}/category-order',
+        { teamId },
+        { method: 'PUT', json: categoryIds },
+      );
+    });
   }
 
   /**
@@ -303,7 +328,18 @@ export class ServerBackend implements Backend, Account {
    * orders a category's boards (`reorderCategoryBoards`) apart. The order is
    * made from the category as it is after the filing, read again.
    */
-  async moveBoardToCategory(
+  moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void> {
+    return this.#sidebarTurn(teamId, () =>
+      this.#moveBoardToCategory(teamId, boardId, categoryId, index),
+    );
+  }
+
+  async #moveBoardToCategory(
     teamId: string,
     boardId: string,
     categoryId: string,
@@ -325,19 +361,21 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
-  async setBoardHidden(
+  setBoardHidden(
     teamId: string,
     categoryId: string,
     boardId: string,
     hidden: boolean,
   ): Promise<void> {
-    await this.#http.request(
-      hidden
-        ? '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide'
-        : '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide',
-      { teamId, categoryId, boardId },
-      { method: 'PUT' },
-    );
+    return this.#sidebarTurn(teamId, async () => {
+      await this.#http.request(
+        hidden
+          ? '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide'
+          : '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide',
+        { teamId, categoryId, boardId },
+        { method: 'PUT' },
+      );
+    });
   }
 
   /** One of the reader's categories as the server has it now: 404 for none. */
@@ -347,17 +385,6 @@ export class ServerBackend implements Backend, Account {
       throw new BackendError(404, { message: 'no such category', reason: 'not_found' });
     }
     return found;
-  }
-
-  /** The reader's identifier, read once a session (`signIn` forgets it). */
-  #me: Promise<string> | undefined;
-
-  #myId(): Promise<string> {
-    this.#me ??= this.me().then((me) => me.id);
-    this.#me.catch(() => {
-      this.#me = undefined;
-    });
-    return this.#me;
   }
 
   // ------------------------------------------------------- views, cards

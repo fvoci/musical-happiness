@@ -539,11 +539,12 @@ export class MemoryBackend implements Backend {
     await this.#enter('deleteCategory');
     if (teamId !== this.world.team.id) fail(404, 'no such team');
     const category = this.#category(categoryId);
-    if (category.type === 'system') fail(400, 'the default category cannot be deleted');
+    if (category.type === 'system') fail(403, 'the default category cannot be deleted');
     const mine = this.#categories();
-    // Its boards fall back to the default category.
+    // Its boards fall back to the default category, those it hid still hidden.
     const fallback = mine.find((candidate) => candidate.type === 'system');
     fallback?.boardIds.push(...category.boardIds);
+    fallback?.hiddenBoardIds.push(...category.hiddenBoardIds);
     mine.splice(mine.indexOf(category), 1);
     this.#tellCategories();
   }

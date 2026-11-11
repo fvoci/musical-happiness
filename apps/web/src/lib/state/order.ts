@@ -100,3 +100,18 @@ export function sidebarOf(
   fallback?.boards.push(...loose);
   return result;
 }
+
+/** The boards a category hides that the sidebar does not show elsewhere, by title. */
+export function hiddenBoardsOf(
+  categories: readonly Category[],
+  boards: readonly Board[],
+  sidebar: readonly SidebarCategory[],
+  locale: string,
+): Board[] {
+  const hidden = new Set(categories.flatMap((category) => category.hiddenBoardIds));
+  const shown = new Set(sidebar.flatMap((entry) => entry.boards.map((board) => board.id)));
+  return byTitle(
+    boards.filter((board) => hidden.has(board.id) && !shown.has(board.id)),
+    locale,
+  );
+}

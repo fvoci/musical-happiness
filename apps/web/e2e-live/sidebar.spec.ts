@@ -89,6 +89,8 @@ test('categories and the boards under them are kept on the server and show in th
   // A new category goes first.
   await sidebar(first).getByTestId('new-category').click();
   await nameCategory(first, 'Work', 'Create');
+  // First in this tab at once, before the server's message is read.
+  expect(await categories(first)).toEqual(['Work', home]);
   await expect.poll(() => categories(second)).toEqual(['Work', home]);
   expect(await storedNames(api, teamId)).toEqual(['Work', home]);
 
@@ -139,6 +141,21 @@ test('categories and the boards under them are kept on the server and show in th
   expect((await storedCategory(api, teamId, 'Projects'))?.collapsed).toBe(true);
   await categoryToggle(second, 'Projects').click();
   await expect(categoryToggle(first, 'Projects')).toHaveAttribute('aria-expanded', 'true');
+  await expect
+    .poll(async () => (await storedCategory(api, teamId, 'Projects'))?.collapsed)
+    .toBe(false);
+
+  // Hidden, and undo shows it again.
+  await chooseFromMenu(first, boardMenu(first, 'Alpha'), 'hide');
+  await expect(boardLink(second, 'Alpha')).toHaveCount(0);
+  await first.getByTestId('undo').click();
+  await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Alpha', 'Beta']);
+  await expect
+    .poll(async () => (await storedCategory(api, teamId, 'Projects'))?.boardMetadata)
+    .toEqual([
+      { boardId: alpha.boardId, hidden: false },
+      { boardId: beta.boardId, hidden: false },
+    ]);
 
   // Hidden: gone from both tabs, still filed, hidden on the server.
   await chooseFromMenu(first, boardMenu(first, 'Alpha'), 'hide');
@@ -154,9 +171,27 @@ test('categories and the boards under them are kept on the server and show in th
   // Deleted: its boards go back to the default category.
   await chooseFromMenu(first, categoryMenu(first, 'Projects'), 'delete');
   await first.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  // Alpha stays hidden there, in this tab too.
+  expect(await categories(first)).toEqual([home]);
+  expect(await boardsIn(first, home)).toEqual(['Beta']);
   await expect.poll(() => categories(second)).toEqual([home]);
   await expect.poll(() => boardsIn(second, home)).toEqual(['Beta']);
   expect(await storedNames(api, teamId)).toEqual([home]);
+
+  // The hidden boards are listed at the foot of the sidebar; one is shown again from there.
+  const hiddenList = sidebar(first).getByTestId('hidden-boards');
+  await hiddenList.getByRole('button', { name: 'Hidden boards (1)' }).click();
+  await hiddenList.getByRole('button', { name: 'Show Alpha in the sidebar' }).click();
+  await expect(hiddenList).toHaveCount(0);
+  await expect.poll(() => boardsIn(second, home)).toContain('Alpha');
+  await expect
+    .poll(async () =>
+      (await storedCategory(api, teamId, home))?.boardMetadata.find(
+        (entry) => entry.boardId === alpha.boardId,
+      ),
+    )
+    .toEqual({ boardId: alpha.boardId, hidden: false });
+  await chooseFromMenu(first, boardMenu(first, 'Alpha'), 'hide');
 
   // As it was left, after a reload.
   await second.reload();

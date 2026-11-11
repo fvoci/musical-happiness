@@ -197,6 +197,8 @@
   "shell_category_name": "Category name",
   "shell_board_menu": "Menu of the board {name}",
   "shell_board_move_to": "Move to {category}",
+  "shell_hidden_boards": "Hidden boards ({count})",
+  "shell_board_unhide": "Show {name} in the sidebar",
   "shell_board_title": "Board title",
   "shell_members": "Members of this board",
   "shell_members_more": "{count} more",
