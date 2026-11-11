@@ -11,7 +11,7 @@ use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::Response;
 
-use crate::error::{ErrorKind, PROBLEMS_PATH, Reason};
+use crate::error::PROBLEMS_PATH;
 use crate::error_response::ReportedError;
 use crate::metrics::{ABANDONED, Metrics, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
 
@@ -68,7 +68,7 @@ pub(crate) async fn measure_requests(
     let response = next.run(request).await;
     measuring.finish(response.status().as_str());
     if let Some(ReportedError(problem)) = response.extensions().get::<ReportedError>() {
-        requests.refused(problem_label(&problem.problem_type));
+        requests.problem(problem_label(&problem.problem_type));
     }
     response
 }
@@ -142,23 +142,34 @@ fn method_label(method: &Method) -> &'static str {
     }
 }
 
-/// The problem as a label: the name of the server's problem the `type` ends in, after
-/// [`PROBLEMS_PATH`] and whatever base path is before it, or [`OTHER_PROBLEM`]. The names
-/// are those of the kinds of errors and of the reasons, a set fixed in the code.
-fn problem_label(problem_type: &str) -> &'static str {
+/// The names of the server's problems, those its pages describe (`problems::all`): a
+/// set fixed in the code.
+fn problem_names() -> &'static [String] {
     static NAMES: OnceLock<Vec<String>> = OnceLock::new();
-    let names = NAMES.get_or_init(|| {
-        ErrorKind::ALL
-            .iter()
-            .map(|kind| kind.name().to_owned())
-            .chain(Reason::ALL.iter().map(|reason| reason.name()))
+    NAMES.get_or_init(|| {
+        crate::problems::all()
+            .into_iter()
+            .map(|problem| problem.name)
             .collect()
-    });
+    })
+}
+
+/// Starts the count of every problem at zero, if the metrics are kept.
+pub(crate) fn know_problems(metrics: &Metrics) {
+    if let Some(requests) = metrics.requests() {
+        let names: Vec<&'static str> = problem_names().iter().map(String::as_str).collect();
+        requests.know_problems(&names);
+    }
+}
+
+/// The problem as a label: the name of the server's problem the `type` ends in, after
+/// [`PROBLEMS_PATH`] and whatever base path is before it, or [`OTHER_PROBLEM`].
+fn problem_label(problem_type: &str) -> &'static str {
     let name = problem_type
         .rsplit_once('/')
         .filter(|(pages, _)| pages.ends_with(PROBLEMS_PATH))
         .map(|(_, name)| name);
-    name.and_then(|name| names.iter().find(|known| *known == name))
+    name.and_then(|name| problem_names().iter().find(|known| *known == name))
         .map_or(OTHER_PROBLEM, String::as_str)
 }
 
@@ -183,7 +194,7 @@ mod tests {
     use tower::ServiceExt as _;
 
     use super::*;
-    use crate::error::AppError;
+    use crate::error::{AppError, ErrorKind, Reason};
 
     /// A router with a route that panics and one that takes a minute, measured as the
     /// server's router is.
@@ -243,6 +254,10 @@ mod tests {
                  route=\"/boards/{boardId}/panic\",status=\"500\"} 1"
             ),
             "{text}"
+        );
+        assert!(
+            text.contains("fvoci_http_problems_total{problem=\"internal\"} 1"),
+            "the contained panic is the problem it was answered with: {text}"
         );
     }
 

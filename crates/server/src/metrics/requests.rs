@@ -101,9 +101,17 @@ impl RequestMetrics {
             .observe(duration.as_secs_f64());
     }
 
+    /// Starts the count of each of `problems`, the names of the server's problems, and
+    /// of [`OTHER_PROBLEM`] at zero, so that the first answer of each is a change.
+    pub(crate) fn know_problems(&self, problems: &[&'static str]) {
+        for problem in problems.iter().copied().chain([OTHER_PROBLEM]) {
+            self.problems.with_label_values(&[problem]).reset();
+        }
+    }
+
     /// Counts an answer that was the problem `problem`: the name of one of the server's
     /// problems, or [`OTHER_PROBLEM`], and never what a client sent.
-    pub(crate) fn refused(&self, problem: &str) {
+    pub(crate) fn problem(&self, problem: &'static str) {
         self.problems.with_label_values(&[problem]).inc();
     }
 }

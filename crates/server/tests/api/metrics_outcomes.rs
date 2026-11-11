@@ -22,24 +22,54 @@ fn series<'a>(body: &'a str, name: &str) -> Vec<&'a str> {
         .collect()
 }
 
+/// The values of the label `problem` of the samples of the problems.
+fn problem_labels(body: &str) -> Vec<String> {
+    series(body, "fvoci_http_problems_total")
+        .iter()
+        .filter_map(|line| {
+            let rest = line.split_once("problem=\"")?.1;
+            Some(rest.split_once('"')?.0.to_owned())
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn refusals_are_counted_by_the_name_of_their_problem() {
-    let server = server_with_metrics().await;
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let before = scrape(&server).await;
+    assert_eq!(
+        problems(&before, "username-taken"),
+        Some(0.0),
+        "every problem is there from the start: {before}"
+    );
+    let stranger = server.anonymous();
     for _ in 0..2 {
-        let response = server.client.get("/users/me").await;
+        let response = stranger.get("/users/me").await;
         assert_eq!(response.status, StatusCode::UNAUTHORIZED);
     }
     let response = server.client.get("/no-such-route").await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
+    // Refused by the framework, and made a problem.
+    let response = server.client.get("/boards/%FF").await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
     let response = server.client.get("/hello").await;
     assert_eq!(response.status, StatusCode::OK);
-    let body = scrape(&server).await;
-    assert_eq!(problems(&body, "unauthorized"), Some(2.0), "{body}");
-    assert_eq!(problems(&body, "not-found"), Some(1.0), "{body}");
+    let after = scrape(&server).await;
+    let counted = |name: &str| {
+        problems(&after, name).unwrap_or_default() - problems(&before, name).unwrap_or_default()
+    };
+    assert_eq!(counted("unauthorized"), 2.0, "{after}");
+    assert_eq!(counted("not-found"), 1.0, "{after}");
+    assert_eq!(counted("bad-request"), 1.0, "{after}");
     assert_eq!(
-        series(&body, "fvoci_http_problems_total").len(),
-        2,
-        "an answer that is no problem is not counted: {body}"
+        problem_labels(&before),
+        problem_labels(&after),
+        "the same problems, counted: {after}"
     );
     server.teardown().await;
 }
@@ -47,7 +77,7 @@ async fn refusals_are_counted_by_the_name_of_their_problem() {
 #[tokio::test]
 async fn what_a_client_sends_makes_no_problem_of_its_own() {
     let server = server_with_metrics().await;
-    let name = "fvoci_http_problems_total";
+    let before = scrape(&server).await;
     let mut asked = Vec::new();
     for n in 0..40 {
         let word = fvoci_model::new_id();
@@ -65,16 +95,19 @@ async fn what_a_client_sends_makes_no_problem_of_its_own() {
         Client::send(server.client.raw_request(method, &path)).await;
         asked.push(word);
     }
-    let body = scrape(&server).await;
-    let lines = series(&body, name);
-    assert!(
-        (1..=3).contains(&lines.len()),
-        "a few problems, whatever was asked: {lines:?}"
-    );
+    let after = scrape(&server).await;
+    let labels = problem_labels(&after);
+    assert_eq!(labels, problem_labels(&before), "no new problem: {after}");
+    for label in &labels {
+        assert!(
+            !label.contains('/') && label.len() < 40,
+            "a name, and nothing asked: {label}"
+        );
+    }
     for word in &asked {
         assert!(
-            !body.contains(word.as_str()),
-            "nothing asked is a label: {body}"
+            !after.contains(word.as_str()),
+            "nothing asked is a label: {after}"
         );
     }
     server.teardown().await;
