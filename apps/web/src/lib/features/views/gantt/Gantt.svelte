@@ -208,6 +208,7 @@
   function barFocused(cardId: string, bar: HTMLElement): void {
     focused = cardId;
     viaTitle = undefined;
+    if (pointed !== cardId) pointed = undefined;
     if (!scroller) return;
     const titles = scroller.querySelector('[data-gantt-corner]')?.getBoundingClientRect().right;
     const hidden = (titles ?? 0) - bar.getBoundingClientRect().left;
@@ -220,10 +221,24 @@
     scroller?.querySelector<HTMLElement>(`[data-bar="${CSS.escape(cardId)}"]`)?.focus();
   }
 
-  /** Goes to the next of `cardIds` after the bar last focused, round and round. */
-  function focusNext(cardIds: readonly string[]): void {
-    const at = focused === undefined ? -1 : cardIds.indexOf(focused);
-    focusBar(cardIds[(at + 1) % cardIds.length]);
+  /**
+   * The bar the reader was sent to from a count above the chart. It shows
+   * its ring also where the focus came by a press of a pointer, which draws
+   * none by itself: the reader has to see which bar is meant.
+   */
+  let pointed = $state<string | undefined>(undefined);
+
+  /**
+   * Goes to the next card with a mark below the bar last focused, whether
+   * that bar has the mark or not, and from the last on to the first.
+   */
+  function focusNext(mark: 'late' | 'loop'): void {
+    const lines = chart.cardLines;
+    const from = lines.findIndex((line) => line.id === focused);
+    const next =
+      lines.slice(from + 1).find((line) => line[mark]) ?? lines.find((line) => line[mark]);
+    pointed = next?.id;
+    focusBar(next?.id);
   }
 
   /** The arrow keys walk the bars: up and down a row, Home and End to the first and last. */
@@ -315,13 +330,14 @@
     ontoday={() => {
       showDay(today);
     }}
+    related={chart.dependency !== undefined}
     late={chart.relations.late.size}
     onlate={() => {
-      focusNext(chart.lateIds);
+      focusNext('late');
     }}
-    loops={chart.loopIds.length}
+    loops={chart.loopCount}
     onloop={() => {
-      focusNext(chart.loopIds);
+      focusNext('loop');
     }}
     {zoom}
     onzoom={setZoom}
@@ -387,6 +403,7 @@
                         current={line.id === stop}
                         href={cardHref(line.id)}
                         viaTitle={line.id === viaTitle}
+                        pointed={line.id === pointed}
                         onopen={onOpenCard}
                         onopentitle={openFromTitle}
                         onkeys={barKeys}

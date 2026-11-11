@@ -8,9 +8,9 @@
   to whatever height the style sheet gives a row. Lines keep their thickness
   whatever the stretch.
 
-  An arrow between two cards whose dates are out of order is dashed, and one
-  that lies on a loop is dotted: the colour they also get is not the only
-  sign. The row of the card says the same with a mark by its title, and its
+  An arrow between two cards whose dates are out of order is dashed, one
+  that lies on a loop is dotted, and one that is both has a dot after each
+  dash: the colour they also get is not the only sign. The row of the card says the same with a mark by its title, and its
   bar in words.
 
   For the eye only: a bar says to a screen reader which cards it comes after.
@@ -27,9 +27,15 @@
 
   let { arrows, width, rows }: Props = $props();
 
-  /** In pixels, as the thickness of the line is. */
+  /** In pixels, as the thickness of the line is. A dot is a dash of no length with a round end. */
   const DASHED = '6 4';
   const DOTTED = '0.1 4.5';
+  const DASH_DOT = '6 4.5 0.1 4.5';
+
+  function dashes(arrow: ArrowLine): string | undefined {
+    if (arrow.late) return arrow.loop ? DASH_DOT : DASHED;
+    return arrow.loop ? DOTTED : undefined;
+  }
 </script>
 
 {#if arrows.length > 0 && rows > 0}
@@ -56,8 +62,8 @@
           stroke="currentColor"
           stroke-width="1.5"
           stroke-linejoin="round"
-          stroke-linecap={arrow.loop && !arrow.late ? 'round' : undefined}
-          stroke-dasharray={arrow.late ? DASHED : arrow.loop ? DOTTED : undefined}
+          stroke-linecap={arrow.loop ? 'round' : undefined}
+          stroke-dasharray={dashes(arrow)}
           vector-effect="non-scaling-stroke"
         />
         <path d={arrow.head} fill="currentColor" />

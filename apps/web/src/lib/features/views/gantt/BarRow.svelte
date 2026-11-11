@@ -33,6 +33,8 @@
     href: string;
     /** The card is open and was opened from the title: the focus comes back to the title. */
     viaTitle: boolean;
+    /** The reader was sent to this bar: its ring shows however the focus came. */
+    pointed: boolean;
     onopen: (cardId: string) => void;
     /** The title was pressed. */
     onopentitle: (cardId: string) => void;
@@ -41,7 +43,8 @@
     onfocused: (cardId: string, bar: HTMLElement) => void;
   }
 
-  let { line, current, href, viaTitle, onopen, onopentitle, onkeys, onfocused }: Props = $props();
+  let { line, current, href, viaTitle, pointed, onopen, onopentitle, onkeys, onfocused }: Props =
+    $props();
 
   /** The bar is wide enough for a few letters of the title; a narrower one is a plain block. */
   const labelled = $derived(line.bar.width >= LABEL_MIN_WIDTH);
@@ -94,6 +97,7 @@
       class={[
         'absolute top-1/2 flex h-6 -translate-y-1/2 items-center gap-1 rounded-sm bg-primary/80 text-left text-xs text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background can-hover:hover:bg-primary roomy:h-8 roomy:after:absolute roomy:after:-inset-x-3 roomy:after:-inset-y-1.5',
         labelled && 'px-1.5',
+        pointed && 'focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
         line.bar.fromBefore && 'rounded-l-none',
         line.bar.toAfter && 'rounded-r-none',
       ]}

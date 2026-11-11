@@ -296,13 +296,17 @@ export class GanttChart {
     const before = this.#before.get(card.id);
     const late = this.#lateBefore(card.id);
     const name = this.#titleAndDays(card);
-    return [
-      before ? m.gantt_bar_after({ name, cards: this.#listed(before) }) : name,
+    const more = [
       late.length > 0 ? m.gantt_bar_late({ cards: this.#listed(late) }) : undefined,
       this.relations.loopCards.has(card.id) ? m.gantt_bar_loop() : undefined,
-    ]
-      .filter((part) => part !== undefined)
-      .join(' ');
+    ].filter((part) => part !== undefined);
+    // The title and the days are a sentence of their own once another follows.
+    const first = before
+      ? m.gantt_bar_after({ name, cards: this.#listed(before) })
+      : more.length > 0
+        ? m.gantt_bar_alone({ name })
+        : name;
+    return [first, ...more].join(' ');
   }
 
   readonly #keptLines = new Kept<ChartLine>();
@@ -344,11 +348,6 @@ export class GanttChart {
   /** The rows of cards, from the top: what the arrow keys walk. */
   readonly cardLines = $derived.by(() => this.lines.filter((line) => line.kind === 'card'));
 
-  /** The cards with a bar that are out of order, and those on a loop, from the top. */
-  readonly lateIds = $derived.by(() =>
-    this.cardLines.filter((line) => line.late).map((line) => line.id),
-  );
-  readonly loopIds = $derived.by(() =>
-    this.cardLines.filter((line) => line.loop).map((line) => line.id),
-  );
+  /** How many cards with a bar are on a loop. */
+  readonly loopCount = $derived.by(() => this.cardLines.filter((line) => line.loop).length);
 }

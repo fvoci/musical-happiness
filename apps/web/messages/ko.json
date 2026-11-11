@@ -103,6 +103,8 @@
   "gantt_empty": "막대로 그릴 날짜가 있는 카드가 없습니다.",
   "gantt_days_range": "{first} – {last}",
   "gantt_bar_after": "{name}. 선행 카드: {cards}.",
+  "gantt_bar_alone": "{name}.",
+  "gantt_problems": "어긋남 {late}. 순환 {loops}.",
   "gantt_bar_late": "어긋남: 선행 카드({cards})가 끝나기 전에 시작합니다.",
   "gantt_bar_loop": "순환: 선행 카드를 따라가면 이 카드로 돌아옵니다.",
   "gantt_late": "어긋남",

@@ -103,6 +103,8 @@
   "gantt_empty": "No card has a date to draw a bar for.",
   "gantt_days_range": "{first} – {last}",
   "gantt_bar_after": "{name}. After {cards}.",
+  "gantt_bar_alone": "{name}.",
+  "gantt_problems": "Out of order: {late}. On a loop: {loops}.",
   "gantt_bar_late": "Out of order: starts before the end of {cards}.",
   "gantt_bar_loop": "On a loop: following what it comes after leads back to it.",
   "gantt_late": "Out of order",

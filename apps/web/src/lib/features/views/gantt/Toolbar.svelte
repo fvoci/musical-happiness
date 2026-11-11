@@ -7,7 +7,12 @@
   a card it comes after has ended) and how many cards are on a loop, each
   only where there are any, and the cards without a date, as the calendar
   has them: the word where the pane has room, the mark and the count always.
-  The first two are buttons that go to the next such card.
+  The first two are buttons that go to the next such card. One that has the
+  focus when its count comes to nothing stays until the focus leaves it, and
+  a change of the counts is said to a screen reader.
+
+  The row scrolls sideways where it is too narrow for all of it (a phone,
+  and counts of several digits).
 -->
 <script lang="ts">
   import CalendarOffIcon from '@lucide/svelte/icons/calendar-off';
@@ -25,6 +30,8 @@
 
   interface Props {
     ontoday: () => void;
+    /** The view reads a card relation as its dependencies: there is something to count. */
+    related: boolean;
     /** How many relations are out of order, and what goes to the next card of one. */
     late: number;
     onlate: () => void;
@@ -43,6 +50,7 @@
 
   let {
     ontoday,
+    related,
     late,
     onlate,
     loops,
@@ -60,6 +68,9 @@
     week: m.gantt_zoom_week,
     month: m.gantt_zoom_month,
   };
+  /** The count that has the focus: it stays in the row while it does, also at nothing. */
+  let kept = $state<string | undefined>(undefined);
+
   /** The steps either side of the one in use: closer is earlier in the list. */
   const closer = $derived(GANTT_ZOOMS[GANTT_ZOOMS.indexOf(zoom) - 1]);
   const farther = $derived(GANTT_ZOOMS[GANTT_ZOOMS.indexOf(zoom) + 1]);
@@ -76,9 +87,16 @@
   <Button
     variant="ghost"
     aria-label={name}
+    title={name}
     data-testid={id}
     class="shrink-0 gap-1.5 px-2 text-destructive roomy:h-touch roomy:min-w-touch"
     {onclick}
+    onfocus={() => {
+      kept = id;
+    }}
+    onblur={() => {
+      kept = undefined;
+    }}
   >
     <Mark />
     <span class="hidden @columns/pane:inline">{word}</span>
@@ -93,7 +111,7 @@
 
 <div
   data-testid="gantt-toolbar"
-  class="flex h-12 shrink-0 items-center gap-1 border-b px-1.5 @columns/pane:px-3"
+  class="flex h-12 shrink-0 [scrollbar-width:none] items-center gap-1 overflow-x-auto border-b px-1.5 @columns/pane:px-3"
 >
   <Button
     variant="outline"
@@ -135,7 +153,11 @@
     <ZoomInIcon />
   </IconButton>
   <div class="min-w-1 flex-1"></div>
-  {#if late > 0}
+  <!-- Said when a count changes, also when it comes to nothing: the buttons come and go without a word. -->
+  <span class="sr-only" aria-live="polite" data-testid="gantt-problems">
+    {related ? m.gantt_problems({ late, loops }) : ''}
+  </span>
+  {#if late > 0 || kept === 'gantt-late'}
     {@render problem(
       'gantt-late',
       TriangleAlertIcon,
@@ -145,7 +167,7 @@
       onlate,
     )}
   {/if}
-  {#if loops > 0}
+  {#if loops > 0 || kept === 'gantt-loops'}
     {@render problem(
       'gantt-loops',
       RepeatIcon,
