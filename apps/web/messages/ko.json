@@ -128,6 +128,7 @@
   "property_relation_more": "더 있는 카드: {count}개. 입력해서 좁히세요.",
   "property_relation_picked": "고른 카드",
   "property_relation_loop": "보이지 않는 카드: {count}개. 고르면 순환이 생깁니다.",
+  "property_relation_in_loop": "순환 안에 있음",
   "editor_body_label": "본문",
   "editor_body_unreadable": "이 본문은 여기서 고칠 수 없습니다. 더 새로운 버전에서 저장했거나 손상된 본문입니다.",
   "editor_suggest_people": "사람",

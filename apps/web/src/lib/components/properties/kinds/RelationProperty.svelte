@@ -17,6 +17,7 @@
 -->
 <script lang="ts">
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import RepeatIcon from '@lucide/svelte/icons/repeat';
   import XIcon from '@lucide/svelte/icons/x';
 
   import PickList from '$lib/components/pick-list/PickList.svelte';
@@ -39,7 +40,11 @@
     cards: ReadonlyMap<string, Card>;
     /** BCP 47 tag: the alphabetical order of the list. */
     locale: string;
-    /** Cards that may not be picked besides the card itself (they would close a loop). */
+    /**
+     * Cards that may not be picked besides the card itself (they would close
+     * a loop). A picked card among them is on a loop that is there already:
+     * it is marked, and can be taken out.
+     */
     excluded?: ReadonlySet<string>;
     editable: boolean;
     /** Shown where there is no value; empty for nothing. */
@@ -118,13 +123,29 @@
     ].map((entry) => entry.card);
   });
   const listed = $derived(matches.slice(0, LIST_LIMIT));
-  /** How many cards are not offered because they may not be picked. */
+  /** How many cards that match what was typed are not offered because they would close a loop. */
   const leftOut = $derived.by(() => {
-    if (!excluded) return 0;
+    if (!excluded || full) return 0;
+    const wanted = foldCase(search.trim());
     const picked = new Set(shown);
-    return candidates.filter((entry) => excluded.has(entry.card.id) && !picked.has(entry.card.id))
-      .length;
+    return candidates.filter(
+      (entry) =>
+        excluded.has(entry.card.id) &&
+        !picked.has(entry.card.id) &&
+        (wanted === '' || entry.folded.includes(wanted)),
+    ).length;
   });
+  /** What the reader is told about the cards held back: the limit first, then loops. */
+  const heldBack = $derived(
+    full
+      ? m.property_relation_full({ count: RELATION_LIMIT })
+      : leftOut > 0
+        ? m.property_relation_loop({ count: leftOut })
+        : '',
+  );
+
+  /** A picked card on a loop that is there already. */
+  const onLoop = (id: string): boolean => excluded?.has(id) ?? false;
 
   /** Writes the value: only cards that are there, each once, so that the identifiers of deleted ones go. */
   function write(next: readonly string[]): void {
@@ -140,6 +161,16 @@
     'inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-sm text-foreground';
 </script>
 
+{#snippet loopMark(id: string)}
+  {#if onLoop(id)}
+    <RepeatIcon
+      class="size-3.5 shrink-0 text-destructive"
+      aria-hidden="true"
+      data-slot="relation-loop"
+    />
+  {/if}
+{/snippet}
+
 {#snippet chips()}
   {#each shown as id (id)}
     {#if onOpenCard}
@@ -150,16 +181,26 @@
         data-inner={innerTabindex === undefined ? undefined : ''}
         tabindex={innerTabindex}
         class={cn(chipClass, 'underline-offset-2 hover:underline focus-visible:underline')}
-        aria-label={m.property_relation_open({ title: titleOf(id) })}
+        data-loop={onLoop(id) ? '' : undefined}
+        aria-label={m.property_relation_open({ title: titleOf(id) }) +
+          (onLoop(id) ? `, ${m.property_relation_in_loop()}` : '')}
         onclick={() => {
           onOpenCard(id);
         }}
       >
         <span class="truncate">{titleOf(id)}</span>
+        {@render loopMark(id)}
       </button>
     {:else}
-      <span data-slot="relation-chip" data-card-id={id} class={chipClass}>
+      <span
+        data-slot="relation-chip"
+        data-card-id={id}
+        data-loop={onLoop(id) ? '' : undefined}
+        class={chipClass}
+      >
         <span class="truncate">{titleOf(id)}</span>
+        {@render loopMark(id)}
+        {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
       </span>
     {/if}
   {/each}
@@ -208,6 +249,8 @@
             {#each shown as id (id)}
               <li class={cn(chipClass, 'pr-0.5')}>
                 <span class="truncate">{titleOf(id)}</span>
+                {@render loopMark(id)}
+                {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
                 <button
                   type="button"
                   class="relative inline-flex size-5 shrink-0 items-center justify-center rounded-sm group-data-[presentation=sheet]/surface:size-8 group-data-[presentation=sheet]/surface:after:absolute group-data-[presentation=sheet]/surface:after:-inset-1.5 hover:bg-foreground/10"
@@ -246,14 +289,13 @@
             {m.property_relation_more({ count: matches.length - listed.length })}
           </p>
         {/if}
-        {#if leftOut > 0}
-          <p class="px-2 py-1 text-sm text-muted-foreground" data-slot="relation-left-out">
-            {m.property_relation_loop({ count: leftOut })}
-          </p>
-        {/if}
-        <!-- There from the start, so that the line said when the value fills up is heard. -->
-        <p class={['px-2 text-sm text-muted-foreground', full && 'py-1']} role="status">
-          {full ? m.property_relation_full({ count: RELATION_LIMIT }) : ''}
+        <!-- There from the start, so that what it comes to say is heard. -->
+        <p
+          class={['px-2 text-sm text-muted-foreground', heldBack !== '' && 'py-1']}
+          role="status"
+          data-slot="relation-held-back"
+        >
+          {heldBack}
         </p>
         {#if shown.length > 0}
           <Button

@@ -196,6 +196,12 @@ describe('a relation property, opened', () => {
 });
 
 describe('a relation read as an order', () => {
+  const heldBack = (): HTMLElement =>
+    document.querySelector<HTMLElement>('[data-slot="relation-held-back"]') ??
+    (() => {
+      throw new Error('no line about held back cards');
+    })();
+
   /** card-2 comes after the card under test, and card-3 after card-2. */
   function ordered(): Map<string, Card> {
     const cards = cardsOf({
@@ -218,7 +224,30 @@ describe('a relation read as an order', () => {
     mount('relation', [], { cards: ordered(), preventLoops: true });
     await fireEvent.click(button());
     expect(rows()).toEqual(['Ship it']);
-    expect(screen.getByText('Not offered: 2. Picking them would make a loop.')).toBeInTheDocument();
+    expect(heldBack()).toHaveTextContent('Not offered: 2. Picking them would make a loop.');
+    // Counted among what was typed: the card looked for is there, and held back.
+    await type(search(), 'design');
+    expect(rows()).toEqual([]);
+    expect(heldBack()).toHaveTextContent('Not offered: 1. Picking them would make a loop.');
+    await type(search(), 'ship');
+    expect(rows()).toEqual(['Ship it']);
+    expect(heldBack()).toHaveTextContent(/^$/);
+  });
+
+  it('says only that the value is full when it is', async () => {
+    const cards = ordered();
+    for (let at = 0; at < RELATION_LIMIT; at += 1) {
+      const extra = createCard();
+      extra.id = `extra-${String(at)}`;
+      extra.title = `Extra ${String(at)}`;
+      cards.set(extra.id, extra);
+    }
+    const picked = [...cards.keys()].filter((id) => id.startsWith('extra-'));
+    mount('relation', picked, { cards, preventLoops: true });
+    await fireEvent.click(button());
+    expect(heldBack()).toHaveTextContent(
+      `No more than ${String(RELATION_LIMIT)} cards can be picked.`,
+    );
   });
 
   it('offers every card where the relation is not read as an order', async () => {
@@ -227,15 +256,20 @@ describe('a relation read as an order', () => {
     expect(rows()).toEqual(['Build the form', 'Design the form', 'Ship it']);
   });
 
-  it('shows a loop that is there already, and lets the card in it be taken out', async () => {
-    const { container, onChange } = mount('relation', ['card-3'], {
+  it('marks a card on a loop that is there already, and lets it be taken out', async () => {
+    const { container, onChange } = mount('relation', ['card-3', 'card-4'], {
       cards: ordered(),
       preventLoops: true,
+      onOpenCard: vi.fn(),
     });
-    expect(chips(container)).toEqual(['Build the form']);
+    expect(chips(container)).toEqual(['Build the form', 'Ship it']);
+    expect(screen.getByRole('button', { name: 'Open Build the form, in a loop' })).toHaveAttribute(
+      'data-loop',
+    );
+    expect(screen.getByRole('button', { name: 'Open Ship it' })).not.toHaveAttribute('data-loop');
     await fireEvent.click(button());
     expect(rows()).toEqual(['Build the form', 'Ship it']);
     await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
-    expect(onChange).toHaveBeenCalledExactlyOnceWith([]);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-4']);
   });
 });

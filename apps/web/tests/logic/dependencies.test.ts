@@ -183,6 +183,33 @@ describe('dates out of order', () => {
     expect(isOutOfOrder(before, after, DUE, 'Asia/Seoul')).toBe(true);
   });
 
+  it('a time on the later card, and a range of times that ends on the next day for the reader', () => {
+    const before = card('a', undefined, day('2026-03-10'));
+    // 15:30 UTC on 9 March is 00:30 on 10 March in Seoul.
+    const after = card('b', ['a'], { from: Date.UTC(2026, 2, 9, 15, 30) });
+    expect(isOutOfOrder(before, after, DUE, 'UTC')).toBe(true);
+    expect(isOutOfOrder(before, after, DUE, 'Asia/Seoul')).toBe(false);
+    // 10:00 to 16:00 UTC on 10 March ends at 01:00 on the 11th in Seoul.
+    const evening = card('c', undefined, {
+      from: Date.UTC(2026, 2, 10, 10),
+      to: Date.UTC(2026, 2, 10, 16),
+    });
+    const next = card('d', ['c'], day('2026-03-10'));
+    expect(isOutOfOrder(evening, next, DUE, 'UTC')).toBe(false);
+    expect(isOutOfOrder(evening, next, DUE, 'Asia/Seoul')).toBe(true);
+  });
+
+  it('by the moment a card was made, for the kind that has no stored value', () => {
+    const made: PropertyTemplate = { id: 'made', name: 'Made', type: 'createdTime', options: [] };
+    const before = card('a');
+    before.createAt = Date.UTC(2026, 2, 10, 16);
+    const after = card('b', ['a']);
+    after.createAt = Date.UTC(2026, 2, 10, 12);
+    // Both on the 10th in UTC; in Seoul the first is on the 11th, the second on the 10th.
+    expect(isOutOfOrder(before, after, made, 'UTC')).toBe(false);
+    expect(isOutOfOrder(before, after, made, 'Asia/Seoul')).toBe(true);
+  });
+
   it('are the edges of a relation whose cards are out of order', () => {
     const cards = [
       card('a', undefined, day('2026-03-05')),

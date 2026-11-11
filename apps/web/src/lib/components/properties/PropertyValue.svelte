@@ -84,8 +84,9 @@
   });
 
   /**
-   * The cards a relation may not name without closing a loop. Worked out
-   * only when the list of a relation is open: nothing reads it otherwise.
+   * The cards a relation may not name without closing a loop; a picked one
+   * among them is on a loop already. Worked out only where loops are
+   * prevented, again when the cards change.
    */
   const closingLoop = $derived(
     preventLoops && type === 'relation'

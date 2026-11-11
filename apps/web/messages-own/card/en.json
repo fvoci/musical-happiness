@@ -43,5 +43,6 @@
   "property_relation_full": "No more than {count} cards can be picked.",
   "property_relation_more": "More cards: {count}. Type to narrow the list.",
   "property_relation_picked": "Picked cards",
-  "property_relation_loop": "Not offered: {count}. Picking them would make a loop."
+  "property_relation_loop": "Not offered: {count}. Picking them would make a loop.",
+  "property_relation_in_loop": "in a loop"
 }
