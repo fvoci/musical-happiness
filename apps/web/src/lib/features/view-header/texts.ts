@@ -1,5 +1,6 @@
 /** The words and icons the parts of the header share. */
 import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
+import ChartGanttIcon from '@lucide/svelte/icons/chart-gantt';
 import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
 import SquareKanbanIcon from '@lucide/svelte/icons/square-kanban';
 import TableIcon from '@lucide/svelte/icons/table-2';
@@ -25,6 +26,7 @@ export const VIEW_ICONS: Record<ViewType, Icon> = {
   table: TableIcon,
   gallery: LayoutGridIcon,
   calendar: CalendarDaysIcon,
+  gantt: ChartGanttIcon,
 };
 
 /** The title of a view, or the words for one without a title. */
@@ -38,6 +40,7 @@ export const VIEW_KIND_NAMES: Record<AddableViewType, () => string> = {
   table: m['View.Table'],
   gallery: m['View.Gallery'],
   calendar: m.viewheader_kind_calendar,
+  gantt: m.viewheader_kind_gantt,
 };
 
 /** The line that adds a view of a kind, where it stands among other lines. */
@@ -46,6 +49,7 @@ export const ADD_VIEW_LABELS: Record<AddableViewType, () => string> = {
   table: m.viewheader_add_table_view,
   gallery: m.viewheader_add_gallery_view,
   calendar: m.viewheader_add_calendar_view,
+  gantt: m.viewheader_add_gantt_view,
 };
 
 /** The title a new view of a kind starts with. */
@@ -54,6 +58,7 @@ export const NEW_VIEW_TITLES: Record<AddableViewType, () => string> = {
   table: m['View.NewTableTitle'],
   gallery: m['View.NewGalleryTitle'],
   calendar: m['View.NewCalendarTitle'],
+  gantt: m.viewheader_new_gantt_title,
 };
 
 /** The names of the conditions of a filter. */

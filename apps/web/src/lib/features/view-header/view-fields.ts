@@ -8,6 +8,7 @@
  * screen.
  */
 import { displayableProperties, displayProperty } from '$lib/logic/calendar.ts';
+import { DEFAULT_GANTT_ZOOM } from '$lib/logic/gantt.ts';
 import { propertyBehavior } from '$lib/logic/properties.ts';
 import {
   createBoardView,
@@ -20,12 +21,13 @@ import {
 type ViewFields = BoardView['fields'];
 
 /** The kinds of view that can be added. */
-export const ADDABLE_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar'] as const;
+export const ADDABLE_VIEW_TYPES = ['board', 'table', 'gallery', 'calendar', 'gantt'] as const;
 export type AddableViewType = (typeof ADDABLE_VIEW_TYPES)[number];
 
 /** Whether a view of this kind has a grouping, and whether "no grouping" is a choice. */
 export function groupingOf(viewType: ViewType): { offered: boolean; optional: boolean } {
-  return { offered: viewType === 'board' || viewType === 'table', optional: viewType === 'table' };
+  const optional = viewType === 'table' || viewType === 'gantt';
+  return { offered: viewType === 'board' || optional, optional };
 }
 
 /** A calendar places its cards by date: it has no sort. */
@@ -73,7 +75,8 @@ export function groupingFields(
  * The fields a new view starts with: a board grouped by the first select
  * property, a table that shows every property, a gallery that shows titles,
  * a calendar placed by the first date property (or the first kind of date;
- * by when cards were made where the board has none, and then it names none).
+ * by when cards were made where the board has none, and then it names none),
+ * a Gantt chart placed the same way, not grouped, zoomed to weeks.
  * A table stores no width for its title column: until the reader sets one
  * the table gives the column what the room it has allows (table/columns.ts).
  */
@@ -93,9 +96,12 @@ export function newViewFields(
       visiblePropertyIds: templates.map((template) => template.id),
     };
   }
-  if (viewType === 'calendar') {
+  if (viewType === 'calendar' || viewType === 'gantt') {
     return {
       ...fields,
+      ...(viewType === 'gantt'
+        ? { ...groupingFields(undefined), ganttZoom: DEFAULT_GANTT_ZOOM }
+        : {}),
       visiblePropertyIds: [TITLE_COLUMN_ID],
       dateDisplayPropertyId: displayProperty(undefined, templates)?.id,
     };
@@ -103,9 +109,9 @@ export function newViewFields(
   return { ...fields, visiblePropertyIds: [TITLE_COLUMN_ID] };
 }
 
-/** A calendar is placed by a date: it has "display by" in place of a grouping. */
+/** A calendar and a Gantt chart are placed by a date: they have "display by". */
 export function displayByOffered(viewType: ViewType): boolean {
-  return viewType === 'calendar';
+  return viewType === 'calendar' || viewType === 'gantt';
 }
 
 /** What "display by" names: the kind of date in use, or `madeName` where the board has none. */

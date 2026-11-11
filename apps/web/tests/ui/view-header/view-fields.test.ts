@@ -145,6 +145,26 @@ describe('a calendar', () => {
   });
 });
 
+describe('a Gantt chart', () => {
+  const due: PropertyTemplate = { id: 'due', name: 'Due', type: 'date', options: [] };
+
+  it('when new, is placed by the first date property, not grouped, zoomed to weeks', () => {
+    const fields = newViewFields('gantt', [...TEMPLATES, due]);
+    expect(fields.viewType).toBe('gantt');
+    expect(fields.dateDisplayPropertyId).toBe('due');
+    expect(fields.ganttZoom).toBe('week');
+    expect(fields.groupById).toBe('');
+    expect(fields.visiblePropertyIds).toEqual([TITLE_COLUMN_ID]);
+    expect(newViewFields('gantt', TEMPLATES).dateDisplayPropertyId).toBeUndefined();
+  });
+
+  it('has "display by", a sort, and a grouping it can do without', () => {
+    expect(displayByOffered('gantt')).toBe(true);
+    expect(sortOffered('gantt')).toBe(true);
+    expect(groupingOf('gantt')).toEqual({ offered: true, optional: true });
+  });
+});
+
 describe('grouping', () => {
   it('is offered for boards and tables, and only a table can do without', () => {
     expect(groupingOf('board')).toEqual({ offered: true, optional: false });

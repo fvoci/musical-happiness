@@ -284,7 +284,7 @@ export function createFilterGroup(source?: FilterGroup): FilterGroup {
 
 // ------------------------------------------------------------------ views
 
-export type ViewType = 'board' | 'table' | 'gallery' | 'calendar';
+export type ViewType = 'board' | 'table' | 'gallery' | 'calendar' | 'gantt';
 
 /** How far in a Gantt view is zoomed: what one mark of its axis is. */
 export type GanttZoom = 'day' | 'week' | 'month';
