@@ -4,8 +4,8 @@
 use std::io::Read as _;
 
 use fvoci_model::BoardType;
-use reqwest::Method;
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, VARY};
+use reqwest::{Method, StatusCode};
 
 use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID};
 
@@ -122,5 +122,56 @@ async fn compression_can_be_turned_off() {
     .await;
     response.check_ok();
     assert_eq!(encoding(&response), "", "not compressed");
+    ts.teardown().await;
+}
+
+/// An error is sent as it is, whatever the client accepts: its body carries the
+/// request's identifier, which is added after the handler.
+#[tokio::test]
+async fn an_error_is_not_compressed() {
+    let ts = Setup::native().start().await.init_basic().await;
+    for asked in ["gzip", "br", "zstd"] {
+        let response = get_encoded(&ts.client, "/boards/no-such-board", asked).await;
+        assert_eq!(response.status, StatusCode::NOT_FOUND, "{asked}");
+        assert_eq!(encoding(&response), "", "{asked}: not compressed");
+        let body = response.value();
+        assert_eq!(body["error"], "not_found", "{asked}: {body}");
+        assert!(body["request_id"].is_string(), "{asked}: {body}");
+    }
+    ts.teardown().await;
+}
+
+/// A client that refuses the uncompressed answer gets it all the same, with the status
+/// of what was done: no 406 after the board was made.
+#[tokio::test]
+async fn refusing_identity_changes_no_status() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let before = crate::export::boards_of(&ts).await.len();
+    for refusal in ["identity;q=0", "*;q=0", "deflate, identity;q=0"] {
+        let request = ts
+            .client
+            .request(Method::POST, "/boards")
+            .header(ACCEPT_ENCODING, refusal)
+            .json(&serde_json::json!({"teamId": TEST_TEAM_ID, "type": "O", "title": "made"}));
+        let response = Client::send(request).await;
+        assert_eq!(response.status, StatusCode::CREATED, "{refusal}");
+        assert_eq!(
+            encoding(&response),
+            "",
+            "{refusal}: no encoding was acceptable"
+        );
+        let listed = get_encoded(
+            &ts.client,
+            &format!("/teams/{TEST_TEAM_ID}/boards"),
+            refusal,
+        )
+        .await;
+        assert_eq!(listed.status, StatusCode::OK, "{refusal}");
+    }
+    assert_eq!(
+        crate::export::boards_of(&ts).await.len(),
+        before + 3,
+        "all made"
+    );
     ts.teardown().await;
 }

@@ -64,7 +64,9 @@ utoipa = "6"
 utoipa-axum = "0.3"
 tower = { version = "0.5", features = ["util"] }
 # The static files and the compression of API answers: gzip, brotli and zstd (the
-# encoders are the C zstd library and the pure-Rust brotli). License: MIT.
+# encoders are the C zstd library and the pure-Rust brotli). License: MIT. The zstd
+# library that `zstd-sys` builds into the binary is BSD-3-Clause (or GPL-2.0); its
+# notice is in about.hbs, as cargo-about sees the crate's own license only.
 tower-http = { version = "0.7", features = ["fs", "compression-br", "compression-gzip", "compression-zstd"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }

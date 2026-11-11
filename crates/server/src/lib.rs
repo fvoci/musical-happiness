@@ -25,7 +25,7 @@ use axum::body::Body;
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::ws::rejection::WebSocketUpgradeRejection;
 use axum::extract::{OriginalUri, Request, State};
-use axum::http::header::{ALLOW, CONTENT_TYPE, ORIGIN, REFERRER_POLICY};
+use axum::http::header::{ACCEPT_ENCODING, ALLOW, CONTENT_TYPE, ORIGIN, REFERRER_POLICY};
 use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Version};
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
@@ -43,7 +43,7 @@ use crate::app::App;
 use crate::auth::token::Credential;
 use crate::client_address::TrustedProxies;
 use crate::config::Configuration;
-use crate::error::{AppError, ErrorKind};
+use crate::error::{AppError, ErrorKind, ReportedError};
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
 use crate::tls::TlsListener;
@@ -156,6 +156,7 @@ impl Server {
             .method_not_allowed_fallback(method_not_allowed);
         let api = if self.app.config().compress_responses {
             api.layer(compression())
+                .layer(middleware::from_fn(identity_is_always_acceptable))
         } else {
             api
         };
@@ -613,19 +614,71 @@ async fn method_not_allowed() -> AppError {
 
 /// Compresses the JSON answers of the API as the client's `Accept-Encoding` asks: zstd,
 /// brotli or gzip, the one it prefers (zstd on a tie), at the codecs' default levels.
-/// Nothing else is compressed: an archive or a file is sent with its length, as it is.
+/// Nothing else is compressed: an archive or a file is sent with its length, as it is,
+/// and an error is not, as the request log rewrites its body to add the request's
+/// identifier.
 fn compression() -> CompressionLayer<impl Predicate> {
     CompressionLayer::new()
         .no_deflate()
-        .compress_when(DefaultPredicate::new().and(is_json))
+        .compress_when(DefaultPredicate::new().and(is_compressed))
 }
 
-/// Whether an answer is JSON, by its `Content-Type`.
-fn is_json(_: StatusCode, _: Version, headers: &HeaderMap, _: &Extensions) -> bool {
-    headers
-        .get(CONTENT_TYPE)
+/// Whether an answer is compressed: JSON, by its `Content-Type`, that is no error.
+fn is_compressed(_: StatusCode, _: Version, headers: &HeaderMap, extensions: &Extensions) -> bool {
+    extensions.get::<ReportedError>().is_none()
+        && headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("application/json"))
+}
+
+/// Drops from `Accept-Encoding` the entries that refuse the uncompressed answer
+/// (`identity;q=0`, `*;q=0`). The compression layer would answer such a request whose
+/// answer it does not compress with 406 after the handler ran, a change made and
+/// reported as refused; an answer as it is serves the client better.
+async fn identity_is_always_acceptable(mut request: Request, next: middleware::Next) -> Response {
+    if let Some(accepted) = request
+        .headers()
+        .get(ACCEPT_ENCODING)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("application/json"))
+        .and_then(without_refused_identity)
+    {
+        let headers = request.headers_mut();
+        match HeaderValue::from_str(&accepted) {
+            Ok(value) if !accepted.is_empty() => {
+                headers.insert(ACCEPT_ENCODING, value);
+            }
+            _ => {
+                headers.remove(ACCEPT_ENCODING);
+            }
+        }
+    }
+    next.run(request).await
+}
+
+/// `Accept-Encoding` without its entries that refuse `identity`, or `None` if it has
+/// none of them.
+fn without_refused_identity(accepted: &str) -> Option<String> {
+    let refuses = |entry: &str| {
+        let mut parts = entry.split(';').map(str::trim);
+        let name = parts.next().unwrap_or_default();
+        let refused = parts.any(|parameter| {
+            parameter
+                .strip_prefix("q=")
+                .and_then(|q| q.parse::<f32>().ok())
+                .is_some_and(|q| q <= 0.0)
+        });
+        refused && (name == "*" || name.eq_ignore_ascii_case("identity"))
+    };
+    if !accepted.split(',').any(refuses) {
+        return None;
+    }
+    let kept: Vec<&str> = accepted
+        .split(',')
+        .filter(|entry| !refuses(entry))
+        .map(str::trim)
+        .collect();
+    Some(kept.join(", "))
 }
 
 /// Everything that is neither an API route nor a static file is a route of the web app:
@@ -690,3 +743,31 @@ mod admin_socket;
 #[cfg(not(unix))]
 #[path = "admin_socket_unsupported.rs"]
 mod admin_socket;
+
+#[cfg(test)]
+mod tests {
+    use super::without_refused_identity;
+
+    #[test]
+    fn only_the_entries_that_refuse_identity_are_dropped() {
+        assert_eq!(
+            without_refused_identity("gzip, br"),
+            None,
+            "nothing refused"
+        );
+        assert_eq!(
+            without_refused_identity("gzip, identity;q=0"),
+            Some("gzip".to_owned())
+        );
+        assert_eq!(
+            without_refused_identity("deflate, *;q=0.000, br;q=0.5"),
+            Some("deflate, br;q=0.5".to_owned())
+        );
+        assert_eq!(
+            without_refused_identity("Identity; q=0"),
+            Some(String::new()),
+            "nothing left"
+        );
+        assert_eq!(without_refused_identity("identity;q=0.1"), None, "accepted");
+    }
+}
