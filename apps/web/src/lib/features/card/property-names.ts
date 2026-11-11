@@ -18,6 +18,7 @@ const NAMES: Record<PropertyType, () => string> = {
   createdBy: m['PropertyType.CreatedBy'],
   updatedTime: m['PropertyType.UpdatedTime'],
   updatedBy: m['PropertyType.UpdatedBy'],
+  relation: m.property_type_relation,
   file: m['PropertyType.Unknown'],
   unknown: m['PropertyType.Unknown'],
 };

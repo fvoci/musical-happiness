@@ -12,6 +12,7 @@ import { diagnostics } from './diagnostics.ts';
 import {
   cardProperty,
   parseDateValue,
+  parseRelationValue,
   plainPropertyValue,
   TITLE_COLUMN_ID,
   type BoardView,
@@ -81,6 +82,8 @@ export interface SortContext {
   locale: string;
   /** The reader's time zone, an IANA name: decides which day a date with a time is on. */
   timeZone: string;
+  /** The title of a card of the board; undefined for one that is not there (deleted). */
+  cardTitle?: (cardId: string) => string | undefined;
 }
 
 /** The value a card is sorted by, per kind of property: absent when the card has none. */
@@ -118,6 +121,14 @@ function sortKey(card: Card, template: PropertyTemplate, context: SortContext): 
       const ids = Array.isArray(stored) ? stored : stored ? [stored] : [];
       return text(ids.map(username).join(', '));
     }
+    case 'relation': {
+      // By the titles shown, in the order picked; cards that are not there are not shown.
+      // An untitled card adds nothing, as untitled cards go last by title.
+      const { cardTitle } = context;
+      const ids = parseRelationValue(value).filter((id) => id !== card.id);
+      const titles = cardTitle ? ids.flatMap((id) => cardTitle(id) || []) : ids;
+      return text(titles.join(', '));
+    }
     default:
       return text(Array.isArray(stored) ? stored.join(', ') : stored);
   }
@@ -148,9 +159,17 @@ function optionComparator(
     diagnostics.report(`sortCards: no template for property ${option.propertyId}`);
     return undefined;
   }
+  // A key is worked out once per card and sort: a relation's key looks up titles.
+  const keys = new Map<Card, SortKey>();
+  const keyOf = (card: Card): SortKey => {
+    if (keys.has(card)) return keys.get(card);
+    const key = sortKey(card, template, context);
+    keys.set(card, key);
+    return key;
+  };
   return (first, second) => {
-    const a = sortKey(first, template, context);
-    const b = sortKey(second, template, context);
+    const a = keyOf(first);
+    const b = keyOf(second);
     if (a === undefined || b === undefined)
       return Number(a === undefined) - Number(b === undefined);
     if (typeof a === 'number' && typeof b === 'number') return direction * Math.sign(a - b);
