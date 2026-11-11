@@ -315,7 +315,7 @@ async fn handle_put_upload_part(
     let received = async {
         let (upload, _) = app.upload(&upload_id, &session.user_id).await?;
         let number: i64 = number.parse().map_err(|_| {
-            AppError::bad_request("the part number is a whole number").with_field("partNumber")
+            AppError::bad_request("the part number is a whole number").with_parameter("partNumber")
         })?;
         let length = content_length(&headers)?;
         let digest = content_digest(&headers)?;
@@ -360,7 +360,7 @@ async fn handle_complete_upload(
         return Err(AppError::bad_request(
             "the upload is of an archive; import it with importArchive",
         )
-        .with_field("uploadId"));
+        .with_parameter("uploadId"));
     }
     if let Err(refusal) = require_board_permission(
         &app,
@@ -413,7 +413,7 @@ fn content_length(headers: &HeaderMap) -> Result<u64, AppError> {
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse().ok())
         .ok_or_else(|| {
-            AppError::bad_request("a part needs a Content-Length").with_field("Content-Length")
+            AppError::bad_request("a part needs a Content-Length").with_header("Content-Length")
         })
 }
 
@@ -422,7 +422,7 @@ fn content_length(headers: &HeaderMap) -> Result<u64, AppError> {
 fn content_digest(headers: &HeaderMap) -> Result<PartDigest, AppError> {
     let refusal = || {
         AppError::bad_request("a part needs a Content-Digest of sha-256=:<base64>:")
-            .with_field("Content-Digest")
+            .with_header("Content-Digest")
     };
     let value = headers
         .get(CONTENT_DIGEST)

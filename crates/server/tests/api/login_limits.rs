@@ -36,7 +36,7 @@ fn retry_after(response: &ApiResponse) -> u64 {
         StatusCode::TOO_MANY_REQUESTS,
         "too many attempts; try again later",
     );
-    let in_body = response.value()["retry_after"]
+    let in_body = response.value()["retryAfter"]
         .as_u64()
         .expect("the body says how long to wait");
     assert_eq!(

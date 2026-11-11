@@ -382,19 +382,19 @@ pub(crate) async fn cards(s: &mut Session) {
         Body::Text(text) => text.clone(),
         Body::Bytes(bytes) => String::from_utf8_lossy(bytes).into_owned(),
     };
-    let (first_object, rest) = match text.find('}') {
-        Some(end) => text.split_at(end + 1),
-        None => (text.as_str(), ""),
+    // The first JSON value of the body, and whether anything comes after it. As JSON,
+    // so that what differs from request to request is normalized like in any other
+    // answer.
+    let mut values = serde_json::Deserializer::from_str(&text).into_iter::<Value>();
+    let first_object = match values.next() {
+        Some(Ok(value)) => value,
+        _ => Value::String(text.clone()),
     };
-    let what_follows = if rest.is_empty() {
+    let what_follows = if text[values.byte_offset()..].trim().is_empty() {
         "alone"
     } else {
         "followed by more"
     };
-    // As JSON, so that what differs from request to request is normalized like in any
-    // other answer.
-    let first_object: Value = serde_json::from_str(first_object)
-        .unwrap_or_else(|_| Value::String(first_object.to_owned()));
     s.note(
         "list: bad page",
         &json!([bad_page.status, first_object, what_follows]),

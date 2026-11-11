@@ -8,7 +8,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType, PropertyChanges};
 use crate::body::{Body, BodyChange, BodySummary};
+use crate::card_property::check_card_property_values;
 use crate::id::new_id;
+use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 
 /// Errors from validating cards and converting them to and from blocks.
@@ -124,6 +126,23 @@ impl Card {
         if self.update_at == 0 {
             self.update_at = now;
         }
+    }
+
+    /// Checks the shape of the card as a request to make it sends it, all of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member that is refused: an icon of more than one grapheme, and
+    /// each value of `properties` that has not the shape of one.
+    pub fn check_request(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        refuse_icon_and_values(
+            &mut refused,
+            Some(&self.icon),
+            &self.properties,
+            "properties",
+        );
+        refused.into_result()
     }
 
     /// Checks that the card is complete.
@@ -281,6 +300,36 @@ pub struct CardPatch {
 }
 
 impl CardPatch {
+    /// Checks the shape of the patch as a request sends it, all of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member that is refused: an icon of more than one grapheme, a new
+    /// body without `readAt`, and each value of `updatedProperties` that has not the
+    /// shape of one. A value of a property the patch also deletes is not looked at: it
+    /// is gone when the patch is applied.
+    pub fn check_request(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        if !self.body.is_keep() && self.read_at.is_none() {
+            refused.refuse(
+                "readAt",
+                RefusalReason::Required,
+                CardError::ReadAtMissing.to_string(),
+            );
+        }
+        let kept = self
+            .updated_properties
+            .iter()
+            .filter(|(id, _)| !self.deleted_properties.contains(id));
+        refuse_icon_and_values(
+            &mut refused,
+            self.icon.as_deref(),
+            kept,
+            "updatedProperties",
+        );
+        refused.into_result()
+    }
+
     /// Applies the patch to `card`: the updated properties are set, then the deleted ones
     /// removed.
     pub fn apply(&self, card: &mut Card) {
@@ -344,10 +393,35 @@ impl CardPatch {
     }
 }
 
+/// What an icon of more than one grapheme cluster is refused with.
+const ICON_OF_SEVERAL: &str = "Icon can have only one grapheme";
+
 /// Rejects an icon of more than one grapheme cluster.
 fn check_icon(icon: &str) -> Result<(), CardError> {
     if icon.graphemes(true).count() > 1 {
-        return Err(CardError::Invalid("Icon can have only one grapheme"));
+        return Err(CardError::Invalid(ICON_OF_SEVERAL));
     }
     Ok(())
+}
+
+/// Gathers what [`check_icon`] and the check of property values refuse of a request
+/// whose values are its member `values_member`.
+fn refuse_icon_and_values<'v>(
+    refused: &mut Refusals,
+    icon: Option<&str>,
+    values: impl IntoIterator<Item = (&'v String, &'v Value)>,
+    values_member: &str,
+) {
+    if icon.is_some_and(|icon| check_icon(icon).is_err()) {
+        refused.refuse(
+            "icon",
+            RefusalReason::Invalid,
+            CardError::Invalid(ICON_OF_SEVERAL).to_string(),
+        );
+    }
+    if let Err(of_values) = check_card_property_values(values, values_member) {
+        for refusal in of_values {
+            refused.push(refusal);
+        }
+    }
 }

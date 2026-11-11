@@ -93,33 +93,42 @@
     "name": "create: viewer",
     "request": "POST /api/v1/boards/<id:2>/cards as cards-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to create card",
-      "request_id": "<request-id>"
+      "detail": "access denied to create card",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "create: malformed body",
     "request": "POST /api/v1/boards/<id:2>/cards as cards-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
+      "detail": "EOF while parsing an object at line 1 column 1",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: unknown board",
     "request": "POST /api/v1/boards/unknown-board/cards as cards-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -221,10 +230,19 @@
     "body": [
       400,
       {
-        "error": "bad_request",
-        "field": "page",
-        "message": "invalid `page` parameter: not a whole number",
-        "request_id": "<request-id>"
+        "detail": "invalid `page` parameter: not a whole number",
+        "errors": [
+          {
+            "detail": "invalid `page` parameter: not a whole number",
+            "parameter": "page",
+            "reason": "invalid"
+          }
+        ],
+        "instance": "urn:uuid:<request-id>",
+        "requestId": "<request-id>",
+        "status": 400,
+        "title": "Bad request",
+        "type": "/problems/bad-request"
       },
       "alone"
     ]
@@ -233,11 +251,14 @@
     "name": "list: unknown board",
     "request": "GET /api/v1/boards/unknown-board/cards as cards-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -296,11 +317,14 @@
     "name": "get: unknown card",
     "request": "GET /api/v1/cards/unknown-card as cards-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "card not found",
-      "request_id": "<request-id>"
+      "detail": "card not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -334,33 +358,42 @@
     "name": "patch: viewer",
     "request": "PATCH /api/v1/cards/<id:5> as cards-bob",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "message": "access denied to patch card",
-      "request_id": "<request-id>"
+      "detail": "access denied to patch card",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "patch: unknown card",
     "request": "PATCH /api/v1/cards/unknown-card as cards-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "card not found",
-      "request_id": "<request-id>"
+      "detail": "card not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "patch: malformed body",
     "request": "PATCH /api/v1/cards/<id:5> as cards-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
+      "detail": "EOF while parsing an object at line 1 column 1",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -474,11 +507,14 @@
     "name": "move: the route is gone",
     "request": "POST /api/v1/content-blocks/<id:7>/moveto/after/<id:9> as cards-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   }
 ]

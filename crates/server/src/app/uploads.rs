@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
-use fvoci_model::{Upload, UploadPart, UploadPurpose};
+use fvoci_model::{RefusalReason, Refusals, Upload, UploadPart, UploadPurpose};
 use fvoci_store::PartRecord;
 use sha2::{Digest as _, Sha256};
 use tokio::fs;
@@ -144,6 +144,47 @@ impl Drop for Turn<'_> {
     }
 }
 
+impl FileToUpload {
+    /// Checks what a request says of the file it is going to send, all of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member that is refused: a name that is blank or too long, a
+    /// content type that is too long, a size below zero.
+    fn check(&self) -> Result<(), Refusals> {
+        // Every member that is refused, not the first alone.
+        let mut refused = Refusals::new();
+        let name_chars = self.name.chars().count();
+        if self.name.trim().is_empty() || name_chars > MAX_UPLOAD_NAME_CHARS {
+            let reason = if name_chars > MAX_UPLOAD_NAME_CHARS {
+                RefusalReason::TooLong
+            } else {
+                RefusalReason::Required
+            };
+            refused.refuse(
+                "name",
+                reason,
+                format!("the name is 1 to {MAX_UPLOAD_NAME_CHARS} characters"),
+            );
+        }
+        if self.content_type.chars().count() > MAX_UPLOAD_NAME_CHARS {
+            refused.refuse(
+                "contentType",
+                RefusalReason::TooLong,
+                format!("the content type is at most {MAX_UPLOAD_NAME_CHARS} characters"),
+            );
+        }
+        if self.size < 0 {
+            refused.refuse(
+                "size",
+                RefusalReason::Invalid,
+                "the size is 0 or more bytes",
+            );
+        }
+        refused.into_result()
+    }
+}
+
 impl App {
     /// Opens a session for `user_id` to upload a file to `board_id`. The caller has
     /// checked that the user may upload files to the board.
@@ -192,21 +233,7 @@ impl App {
         target: &str,
         new: FileToUpload,
     ) -> Result<Upload, AppError> {
-        if new.name.trim().is_empty() || new.name.chars().count() > MAX_UPLOAD_NAME_CHARS {
-            return Err(AppError::bad_request(format_args!(
-                "the name is 1 to {MAX_UPLOAD_NAME_CHARS} characters"
-            ))
-            .with_field("name"));
-        }
-        if new.content_type.chars().count() > MAX_UPLOAD_NAME_CHARS {
-            return Err(AppError::bad_request(format_args!(
-                "the content type is at most {MAX_UPLOAD_NAME_CHARS} characters"
-            ))
-            .with_field("contentType"));
-        }
-        if new.size < 0 {
-            return Err(AppError::bad_request("the size is 0 or more bytes").with_field("size"));
-        }
+        new.check()?;
         let limit = match purpose {
             UploadPurpose::File => self.largest_upload(),
             UploadPurpose::Import => self.largest_import(),
@@ -375,7 +402,7 @@ impl App {
                 "the upload has parts 1 to {}",
                 upload.part_count()
             ))
-            .with_field("partNumber"));
+            .with_parameter("partNumber"));
         };
         let size = u64::try_from(size).unwrap_or_default();
         if length != size {
@@ -545,7 +572,7 @@ impl App {
             return Err(AppError::bad_request(
                 "the upload is of an archive; import it with importArchive",
             )
-            .with_field("uploadId"));
+            .with_parameter("uploadId"));
         }
         // Before the session is closed, so that a missing part leaves it open.
         self.check_parts(upload).await?;
@@ -1000,7 +1027,7 @@ where
         return Err(AppError::bad_request(
             "the part's SHA-256 digest is not the one of the Content-Digest header",
         )
-        .with_field("Content-Digest"));
+        .with_header("Content-Digest"));
     }
     file.flush().await.map_err(|error| part_error(&error))?;
     file.sync_all().await.map_err(|error| part_error(&error))?;

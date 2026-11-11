@@ -13,14 +13,15 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use axum::Router;
+use axum::http::HeaderValue;
 use axum::http::header::CONTENT_TYPE;
-use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
 
 use crate::app::App;
 use crate::config::MetricsAddress;
+use crate::error::AppError;
 
 mod background;
 mod http;
@@ -124,13 +125,17 @@ impl Metrics {
     }
 }
 
-/// The router of the metrics listener: [`PATH`] and nothing else. No route of the API,
-/// the websocket or the web app is on it.
+/// The router of the metrics listener: [`PATH`] and nothing else of the server. No
+/// route of the API, the websocket or the web app is on it. What it refuses it refuses
+/// as the API does, with a problem (RFC 9457), and so it serves the pages such an
+/// answer points at; without the identifier of a request, as nothing is logged here.
 pub(crate) fn router(app: App) -> Router {
     Router::new()
         .route(PATH, get(answer_scrape))
-        .fallback(|| async { StatusCode::NOT_FOUND })
+        .fallback(|| async { AppError::not_found("route") })
+        .method_not_allowed_fallback(|| async { AppError::method_not_allowed() })
         .with_state(app)
+        .merge(crate::problems::routes())
 }
 
 /// Answers a scrape: reads what is measured by asking, then writes all.
@@ -146,11 +151,11 @@ async fn answer_scrape(axum::extract::State(app): axum::extract::State<App>) -> 
             text,
         )
             .into_response(),
+        // The cause is logged where the error becomes its answer, and not sent.
         Some(Err(error)) => {
-            tracing::error!(error = format!("{error:#}"), "unable to answer a scrape");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            AppError::from(error.context("unable to answer a scrape")).into_response()
         }
-        None => StatusCode::NOT_FOUND.into_response(),
+        None => AppError::not_found("route").into_response(),
     }
 }
 

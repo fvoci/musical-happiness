@@ -102,7 +102,7 @@
       if (workspace?.status === 'signedOut') {
         throw new BackendError(401, {
           reason: 'session_not_kept',
-          message: 'the session was not kept',
+          detail: 'the session was not kept',
         });
       }
     }}

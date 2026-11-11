@@ -271,7 +271,12 @@ async fn import_of_a_non_archive_is_a_bad_request() {
     let ts = Setup::native().start().await.init_basic().await;
     let response = import(&ts.client, ROOT_TEAM_ID, b"this is not a zip file").await;
     response.check_bad_request();
-    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
+    assert_eq!(
+        response.problem_type(),
+        "/problems/bad-request",
+        "{}",
+        response.text()
+    );
     ts.teardown().await;
 }
 
@@ -285,7 +290,12 @@ async fn import_of_an_empty_zip_is_a_bad_request() {
         .into_inner();
     let response = import(&ts.client, ROOT_TEAM_ID, &empty).await;
     response.check_bad_request();
-    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
+    assert_eq!(
+        response.problem_type(),
+        "/problems/bad-request",
+        "{}",
+        response.text()
+    );
     ts.teardown().await;
 }
 
@@ -303,7 +313,12 @@ async fn import_of_an_unsupported_version_is_a_bad_request() {
     let bytes = writer.finish().expect("finish").into_inner();
     let response = import(&ts.client, ROOT_TEAM_ID, &bytes).await;
     response.check_bad_request();
-    assert_eq!(response.error_code(), "bad_request", "{}", response.text());
+    assert_eq!(
+        response.problem_type(),
+        "/problems/bad-request",
+        "{}",
+        response.text()
+    );
     ts.teardown().await;
 }
 
@@ -444,8 +459,8 @@ async fn archives_of_the_former_formats_are_refused() {
         let response = import(&ts.client, TEST_TEAM_ID, &bytes).await;
         response.check_bad_request();
         assert_eq!(
-            response.error_code(),
-            "bad_request",
+            response.problem_type(),
+            "/problems/bad-request",
             "{what}: {}",
             response.text()
         );
@@ -672,7 +687,7 @@ async fn an_archive_with_a_refused_board_stores_nothing() {
         let response = import(&ts.client, TEST_TEAM_ID, &two_board_archive(&[block])).await;
         response.check_bad_request();
         assert!(
-            response.value()["message"]
+            response.value()["detail"]
                 .as_str()
                 .is_some_and(|message| message.contains(says)),
             "the refusal says {says}: {}",

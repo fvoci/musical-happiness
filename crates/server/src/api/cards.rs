@@ -4,7 +4,7 @@ use std::num::IntErrorKind;
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use fvoci_model::{Block, BlockType, Card, CardError, CardPatch};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, RefusalReason, Refusals};
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -32,6 +32,18 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_get_card, handle_patch_card))
 }
 
+/// Reads the `page` and `perPage` of a list that is answered in pages. Both are read,
+/// so that a request with both wrong is told of both.
+pub(super) fn page_params(query: Option<&str>) -> Result<(i64, i64), AppError> {
+    let page = int_query_param(query, "page", DEFAULT_PAGE);
+    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE);
+    match (page, per_page) {
+        (Ok(page), Ok(per_page)) => Ok((page, per_page)),
+        (Err(refusal), Ok(_)) | (Ok(_), Err(refusal)) => Err(refusal),
+        (Err(page), Err(per_page)) => Err(page.and(per_page)),
+    }
+}
+
 /// Reads a whole number from a query parameter; `default` if the parameter is absent
 /// or empty.
 pub(super) fn int_query_param(
@@ -48,7 +60,8 @@ pub(super) fn int_query_param(
             IntErrorKind::PosOverflow | IntErrorKind::NegOverflow => "out of range",
             _ => "not a whole number",
         };
-        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}")).with_field(name)
+        AppError::bad_request(format_args!("invalid `{name}` parameter: {reason}"))
+            .with_parameter(name)
     })
 }
 
@@ -107,11 +120,18 @@ async fn handle_create_card(
     )
     .await?;
     let (mut card, document): (Card, _) = decode_with_document(&body)?;
+    // Everything of the request's shape that is refused, before the store is asked.
+    let mut refused: Refusals = card.check_request().err().unwrap_or_default();
+    if !card.board_id.is_empty() && card.board_id != board_id {
+        refused.refuse(
+            "boardId",
+            RefusalReason::Invalid,
+            CardError::BoardIdMismatch.to_string(),
+        );
+    }
+    refused.into_result()?;
     card.body = document.into_body();
     app.check_body_files(&board_id, card.body.as_ref()).await?;
-    if !card.board_id.is_empty() && card.board_id != board_id {
-        return Err(CardError::BoardIdMismatch.into());
-    }
     card.board_id.clone_from(&board_id);
     card.populate(now_millis());
     card.validate().map_err(AppError::bad_request)?;
@@ -152,8 +172,7 @@ async fn handle_get_cards(
     )
     .await?;
 
-    let page = int_query_param(query, "page", DEFAULT_PAGE)?;
-    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE)?;
+    let (page, per_page) = page_params(query)?;
 
     let cards = app.cards_for_board(&board_id, page, per_page).await?;
     tracing::debug!(
@@ -200,9 +219,11 @@ async fn handle_patch_card(
     .await?;
     // The block, read to check the permission, is the card as it was.
     let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
-    app.check_body_files(&card.board_id, document.new_body())
-        .await?;
     patch.body = document;
+    // Everything of the request's shape that is refused, before the store is asked.
+    patch.check_request()?;
+    app.check_body_files(&card.board_id, patch.body.new_body())
+        .await?;
 
     let patched = app
         .patch_card(&patch, &card.id, user_id, notification)

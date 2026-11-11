@@ -25,6 +25,7 @@ mod metrics;
 mod onboarding;
 mod paths;
 mod properties;
+mod refusals;
 mod search;
 mod sharing;
 mod sidebar;

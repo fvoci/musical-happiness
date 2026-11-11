@@ -14,6 +14,7 @@ use thiserror::Error;
 
 use crate::JsonMap;
 use crate::date_value::{DateValueError, check_date_value};
+use crate::refusal::{RefusalReason, Refusals};
 
 /// The `type` of a property definition whose values are date values.
 pub const DATE_PROPERTY_TYPE: &str = "date";
@@ -99,24 +100,50 @@ pub enum CardPropertyError {
 /// Returns [`CardPropertyError::InvalidValue`] for the first value of another shape,
 /// and [`CardPropertyError::InvalidDateValue`] for an object that is no date value.
 pub fn validate_card_property_values(values: &JsonMap) -> Result<(), CardPropertyError> {
+    values
+        .iter()
+        .try_for_each(|(id, value)| check_property_value(id, value))
+}
+
+/// Checks the value of one property of a card.
+fn check_property_value(id: &str, value: &Value) -> Result<(), CardPropertyError> {
+    let valid = match value {
+        Value::Null | Value::String(_) => true,
+        Value::Array(items) => items.iter().all(Value::is_string),
+        Value::Object(date) => {
+            check_date_value(date).map_err(|reason| CardPropertyError::InvalidDateValue {
+                id: id.to_owned(),
+                reason,
+            })?;
+            true
+        }
+        Value::Bool(_) | Value::Number(_) => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(CardPropertyError::InvalidValue { id: id.to_owned() })
+    }
+}
+
+/// Checks the property values a request carries as its member `member` (`properties`
+/// of a card, `updatedProperties` of a patch), as [`validate_card_property_values`]
+/// does, and tells of every value that is refused, not the first alone.
+///
+/// # Errors
+///
+/// Returns every value of another shape, each at `/<member>/<property>`.
+pub(crate) fn check_card_property_values<'v>(
+    values: impl IntoIterator<Item = (&'v String, &'v Value)>,
+    member: &str,
+) -> Result<(), Refusals> {
+    let mut refused = Refusals::new();
     for (id, value) in values {
-        let valid = match value {
-            Value::Null | Value::String(_) => true,
-            Value::Array(items) => items.iter().all(Value::is_string),
-            Value::Object(date) => {
-                check_date_value(date).map_err(|reason| CardPropertyError::InvalidDateValue {
-                    id: id.clone(),
-                    reason,
-                })?;
-                true
-            }
-            Value::Bool(_) | Value::Number(_) => false,
-        };
-        if !valid {
-            return Err(CardPropertyError::InvalidValue { id: id.clone() });
+        if let Err(error) = check_property_value(id, value) {
+            refused.refuse_within(member, id, RefusalReason::Invalid, error.to_string());
         }
     }
-    Ok(())
+    refused.into_result()
 }
 
 /// Checks that the date values of a card are the values of its board's date properties,

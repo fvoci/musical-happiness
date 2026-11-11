@@ -2,8 +2,8 @@
 
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardType,
-    Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig, ErrorBody,
-    LoginRequest, MinimumRole, PatchBoardsAndBlocks, Sharing, Subscriber, SubscriberType,
+    Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig, InvalidInput,
+    LoginRequest, MinimumRole, PatchBoardsAndBlocks, Problem, Sharing, Subscriber, SubscriberType,
     Subscription, Team, User, UserPreferencesPatch,
 };
 use serde_json::{Value, json};
@@ -589,33 +589,61 @@ fn config_error_and_request_json_members() {
         })
     );
 
-    // An error says its kind and a sentence; the optional members appear only when set.
+    // A problem says its type, title, status and detail; the other members appear only
+    // when set.
     assert_eq!(
-        to_json(&ErrorBody {
-            error: "not_found".to_owned(),
-            message: "board not found".to_owned(),
-            ..ErrorBody::default()
+        to_json(&Problem {
+            problem_type: "/problems/not-found".to_owned(),
+            title: "Not found".to_owned(),
+            status: 404,
+            detail: "board not found".to_owned(),
+            ..Problem::default()
         }),
-        json!({ "error": "not_found", "message": "board not found" })
+        json!({
+            "type": "/problems/not-found", "title": "Not found", "status": 404,
+            "detail": "board not found"
+        })
     );
     assert_eq!(
-        to_json(&ErrorBody {
-            error: "payload_too_large".to_owned(),
-            message: "the request body is too large".to_owned(),
+        to_json(&Problem {
+            problem_type: "/problems/r".to_owned(),
+            title: "R".to_owned(),
+            status: 413,
+            detail: "the request body is too large".to_owned(),
+            instance: Some("urn:uuid:id".to_owned()),
             reason: Some("r".to_owned()),
-            field: Some("f".to_owned()),
+            errors: vec![
+                InvalidInput {
+                    pointer: Some("/f".to_owned()),
+                    detail: "too long".to_owned(),
+                    reason: "too_long".to_owned(),
+                    ..InvalidInput::default()
+                },
+                InvalidInput {
+                    parameter: Some("page".to_owned()),
+                    detail: "no number".to_owned(),
+                    reason: "invalid".to_owned(),
+                    ..InvalidInput::default()
+                },
+            ],
             limit: Some(4_194_304),
             retry_after: Some(30),
             request_id: Some("id".to_owned()),
         }),
         json!({
-            "error": "payload_too_large",
-            "message": "the request body is too large",
+            "type": "/problems/r",
+            "title": "R",
+            "status": 413,
+            "detail": "the request body is too large",
+            "instance": "urn:uuid:id",
             "reason": "r",
-            "field": "f",
+            "errors": [
+                { "pointer": "/f", "detail": "too long", "reason": "too_long" },
+                { "parameter": "page", "detail": "no number", "reason": "invalid" },
+            ],
             "limit": 4_194_304,
-            "retry_after": 30,
-            "request_id": "id",
+            "retryAfter": 30,
+            "requestId": "id",
         })
     );
 

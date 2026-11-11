@@ -36,7 +36,12 @@ function uploadServer(options: {
       json: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
     });
     const answer = (status: number, body?: unknown): Response =>
-      new Response(body === undefined ? null : JSON.stringify(body), { status });
+      new Response(body === undefined ? null : JSON.stringify(body), {
+        status,
+        headers: status >= 400 ? { 'Content-Type': 'application/problem+json' } : undefined,
+      });
+    const problem = (status: number, name: string, detail: string): Response =>
+      answer(status, { type: `/problems/${name}`, title: name, status, detail });
     if (url.endsWith('/client-config')) {
       return answer(200, { maxFileSize: options.maxFileSize ?? 1000 });
     }
@@ -56,11 +61,11 @@ function uploadServer(options: {
       attempts.set(number, attempt);
       const status = options.fail?.(number, attempt);
       if (status === 0) throw new TypeError('no answer');
-      return status ? answer(status, { error: 'internal', message: 'x' }) : answer(204);
+      return status ? problem(status, 'internal', 'x') : answer(204);
     }
     if (url.endsWith('/complete')) return answer(201, { fileId: 'f1.txt' });
     if (method === 'DELETE') return answer(204);
-    return answer(404, { error: 'not_found', message: url });
+    return problem(404, 'not-found', url);
   });
   return calls;
 }

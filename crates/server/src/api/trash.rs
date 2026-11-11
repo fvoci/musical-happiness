@@ -6,7 +6,7 @@ use fvoci_model::DeletedItem;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::cards::{DEFAULT_PAGE, DEFAULT_PER_PAGE, int_query_param};
+use super::cards::page_params;
 use super::contract::params::{BoardId, Page, PerPage, TeamId};
 use super::contract::tag;
 use super::require_team_access;
@@ -50,8 +50,7 @@ async fn handle_get_deleted_cards(
         "access denied to the trash of the board",
     )
     .await?;
-    let page = int_query_param(query, "page", DEFAULT_PAGE)?;
-    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE)?;
+    let (page, per_page) = page_params(query)?;
     Ok(json_response(
         &app.deleted_cards(&board_id, page, per_page).await?,
     ))
@@ -81,8 +80,7 @@ async fn handle_get_deleted_boards(
     let query = query.as_deref();
     let user_id = session.user_id.as_str();
     require_team_access(&app, user_id, &team_id, "access denied to the team").await?;
-    let page = int_query_param(query, "page", DEFAULT_PAGE)?;
-    let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE)?;
+    let (page, per_page) = page_params(query)?;
     Ok(json_response(
         &app.deleted_boards(&team_id, user_id, page, per_page)
             .await?,

@@ -219,7 +219,7 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
         &response,
         "invalid boardId nonexistent-board-id (no board of the request has that id)",
     );
-    assert_eq!(response.value()["field"], json!("boardId"));
+    assert_eq!(response.refused_at(), "/blocks/0/boardId");
     th.teardown().await;
 }
 
@@ -377,7 +377,7 @@ async fn create_boards_and_blocks_refusals() {
     for body in ["{bad", "", "null", "[]"] {
         let response = th.client.send_raw_body(Method::POST, PATH, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     // Every board needs an identifier for the blocks to name, the first one too. (The
@@ -420,7 +420,11 @@ async fn create_boards_and_blocks_refusals() {
             .post(PATH, &json!({"boards": [board], "blocks": [block]}))
             .await;
         expect_bad_request(&response, message);
-        assert_eq!(response.value()["field"], json!(field), "{message}");
+        assert_eq!(
+            response.refused_at(),
+            format!("/blocks/0/{field}"),
+            "{message}"
+        );
     }
 
     // No team at all, a team that does not exist, and text that is no identifier: the
@@ -440,8 +444,8 @@ async fn create_boards_and_blocks_refusals() {
             .await;
         expect_bad_request(&response, "no such team");
         assert_eq!(
-            response.value()["field"],
-            json!("boards"),
+            response.refused_at(),
+            "/boards",
             "the member at fault: {board}"
         );
     }
@@ -880,7 +884,7 @@ async fn patch_boards_and_blocks_undecodable_bodies_are_bad_requests() {
     for body in ["{bad", "null", "[]", &null_patch, &number_type] {
         let response = th.client.send_raw_body(Method::PATCH, PATH, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     // An empty object is decoded, and then found to list no boards.
@@ -1210,7 +1214,7 @@ async fn delete_boards_and_blocks_checks() {
     for body in ["{bad", "[]", "null"] {
         let response = th.client.send_raw_body(Method::DELETE, PATH, body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     for nothing in [UNKNOWN_ID, "nonexistent"] {

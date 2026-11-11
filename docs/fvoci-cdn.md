@@ -13,7 +13,7 @@ CloudFront와 Cloudflare의 수치, 정책 이름은 2026-11-10에 각 벤더 �
 | `/api/v1/*` | `Cache-Control: no-store` | 캐시하지 않는다. | 메서드 `GET`, `HEAD`, `OPTIONS`, `PUT`, `POST`, `PATCH`, `DELETE`. 뷰어 헤더 전부(최소 `Cookie`, `Origin`, `X-Requested-With`, `Content-Type`, 그리고 브라우저가 아닌 클라이언트가 쓰는 `Authorization`). 쿼리 문자열 전부(공유 보드의 `readToken` 포함). 쿠키 `__Host-fvoci_session`(HTTP로 서비스하면 `fvoci_session`). 응답의 `Set-Cookie`와 `Retry-After`를 그대로 돌려준다. |
 | `/api/v1/boards/{board}/files/{file}` | `Cache-Control: private, no-cache`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; frame-ancestors 'none'`, `Range` 지원 | 캐시하지 않는다. | 위와 같고 `Range`, `If-Range`. |
 | `/ws` | WebSocket(`101 Switching Protocols`) | 캐시하지 않는다. | 메서드 `GET`. 헤더 `Upgrade`, `Connection`, `Sec-WebSocket-*`, 그리고 `Origin`과 `Cookie`. 인증은 핸드셰이크에서 세션 쿠키로 하고, `Origin`이 서버 자신의 것(`serverRoot`)이나 `allowed_origins`가 아니면 403으로 거절한다. CDN이 `Origin`을 고쳐 쓰거나 쿠키를 떼면 실시간 갱신이 되지 않는다. |
-| 그 밖의 모든 경로 | 웹 앱의 `index.html`, 상태 200, `Cache-Control: no-cache` | 캐시하지 않거나 매번 재검증한다. | 메서드 `GET`, `HEAD`. 그 외에는 필요 없다. |
+| 그 밖의 모든 경로 | 웹 앱의 `index.html`, 상태 200, `Cache-Control: no-cache`. `/problems`와 그 아래는 오류의 종류를 설명하는 글(`text/plain`, `Cache-Control: public, max-age=3600`)이다 | 캐시하지 않거나 매번 재검증한다. `/problems`는 캐시해도 된다. | 메서드 `GET`, `HEAD`. 그 외에는 필요 없다. |
 
 - 정적 파일 옆에 `<file>.br`이나 `<file>.gz`가 있고 클라이언트가 받아들이면, 서버는 미리 압축한 파일을 `Content-Encoding`, `Vary: Accept-Encoding`과 함께 보낸다. CDN 캐시 키에 `Accept-Encoding`이 반영되어야 한다.
 - 무언가를 바꾸는 API 요청(`GET`, `HEAD`, `OPTIONS`가 아닌 것)에는 `X-Requested-With: XMLHttpRequest`가 있어야 한다. 없으면 서버가 403(`reason`이 `csrf`)으로 답한다. `Origin` 헤더가 있으면 그 값이 서버 자신의 것이거나 `allowed_origins`에 있어야 하고, 아니면 403(`foreign_origin`)이다. CDN이 `X-Requested-With`를 떼거나 `Origin`을 바꾸면 로그인을 포함해 쓰는 요청 전체가 403이 된다. `Authorization: Bearer`를 단 요청은 `X-Requested-With` 없이도 받는다.
@@ -257,7 +257,7 @@ curl -si --http1.1 --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket'
 
 - 웹 앱을 열어 둔 채 CDN의 유휴 타임아웃보다 오래 기다린 뒤, 다른 브라우저에서 보드를 고쳐 변경이 실시간으로 보이는지 본다.
 - 한도에 가까운 크기의 파일을 UI에서 올려 본다. 실패하면 응답 헤더로 CDN이 답했는지 서버가 답했는지 구분한다.
-- `POST /api/v1/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다. CDN의 규칙보다 서버의 제한이 먼저 걸리면 429와 `Retry-After`가 서버에서 온다(응답에 `request_id`가 든 JSON 본문이 있다).
+- `POST /api/v1/login`을 임계값보다 많이 보내 rate limiting 규칙이 동작하는지 본다. CDN의 규칙보다 서버의 제한이 먼저 걸리면 429와 `Retry-After`가 서버에서 온다(응답에 `requestId`가 든 JSON 본문이 있다).
 - 서버의 요청 로그에 찍히는 클라이언트 주소가 CDN의 주소가 아니라 실제 클라이언트의 주소인지 본다. CDN의 주소면 `trusted_proxies`가 비었거나 범위가 틀렸다.
 
 ## 6. 자주 생기는 문제

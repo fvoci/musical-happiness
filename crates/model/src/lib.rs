@@ -22,9 +22,10 @@ mod client_config;
 mod comment_version;
 mod date_value;
 mod deleted_item;
-mod error_response;
 mod file_info;
 mod id;
+mod problem;
+mod refusal;
 mod serde_util;
 mod settings;
 mod sharing;
@@ -73,9 +74,10 @@ pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
 pub use deleted_item::DeletedItem;
-pub use error_response::ErrorBody;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
+pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
+pub use refusal::{NAME_SHOWN_CHARS, Refusal, RefusalReason, Refusals, shown_name};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
     ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,
