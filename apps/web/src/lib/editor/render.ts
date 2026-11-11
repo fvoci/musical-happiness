@@ -350,7 +350,8 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
  * from JSON; `null` or `undefined` is an empty body, not a failure. A
  * document the validator refuses is not drawn, not even in part: the result
  * says so and the caller decides what to show in its place. A mention that
- * names nobody (as an anonymous reader gets them) is drawn as an unknown user.
+ * names nobody (as an anonymous reader gets them) is drawn, named by the
+ * caller's `resolveUser` (the app's says "Unknown user").
  */
 export function renderBody(doc: unknown, options: RenderBodyOptions = {}): RenderedBody {
   const page = options.document ?? document;

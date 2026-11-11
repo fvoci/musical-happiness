@@ -1,10 +1,11 @@
 /**
  * What an anonymous reader of a shared board gets on the real server: every
- * mention of a body with an empty `userId`. The web app's validator draws
- * such a body (`shown`) and refuses to write it, as the server refuses it;
- * the app's screens of a card name somebody not known "Unknown user". The
- * app has no screen for an anonymous reader (a shared board by its read
- * token), so the body is taken from the server's answer here.
+ * mention of a body with an empty `userId`. The app has no screen for an
+ * anonymous reader (a shared board by its read token), so that body is taken
+ * from the server's answer here, and what is checked of it is the web app's
+ * validator (it draws the body, `shown`, and would not write it) and the
+ * server (it refuses the body back). The app's own card screen is checked to
+ * name somebody it does not know "Unknown user", as it names nobody.
  */
 import { expect, request, test } from '@playwright/test';
 
@@ -48,6 +49,9 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
             content: [
               { type: 'text', text: 'ask ' },
               { type: 'mention', attrs: { userId: me.id } },
+              { type: 'text', text: ' and ' },
+              // A user's identifier the server takes, of nobody the team has.
+              { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-0000000000ff' } },
             ],
           },
         ],
@@ -81,13 +85,14 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
   expect(back.status()).toBe(400);
   expect(((await back.json()) as { field?: string }).field).toBe('body');
 
-  // The owner's own page names the owner: the mention is a user's there.
+  // The owner's own card screen names the owner, and the one it does not know "Unknown user".
   const errors = watchErrors(page);
   await page.goto(`/board/${board.boardId}/${board.viewId}/${cardId}`);
   await signInOnPage(page, owner);
-  await expect(page.getByTestId('card-body').locator('[data-mention]')).toHaveText(
+  await expect(page.getByTestId('card-body').locator('[data-mention]')).toHaveText([
     `@${owner.username}`,
-  );
+    '@Unknown user',
+  ]);
   await api.dispose();
   expect(errors).toEqual([]);
 });
