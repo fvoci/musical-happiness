@@ -12,7 +12,7 @@ use fvoci_model::{Board, Session, User, UserWorkspace, Workspace, WorkspaceRole}
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{UserSearch, WorkspaceId};
+use super::contract::params::{MemberWorkspaceId, UserSearch, WorkspaceId};
 use super::contract::tag;
 use super::session::session_of;
 use super::{ApiResult, RequiredSession, decode_json, json_response, query_param, user_is_guest};
@@ -57,13 +57,23 @@ impl FromRequestParts<App> for Ws {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        // A path that is no text names no workspace the user could be in.
+        Self::extract(parts, app, workspace_not_found).await
+    }
+}
+
+impl Ws {
+    /// The workspace of the path for the session's user; `no_text` is the refusal of a
+    /// parameter of the path that is no text.
+    async fn extract(
+        parts: &mut Parts,
+        app: &App,
+        no_text: fn() -> AppError,
+    ) -> Result<Self, AppError> {
         let session = session_of(app, &parts.headers, &parts.extensions).await?;
         let params = match RawPathParams::from_request_parts(parts, app).await {
             Ok(params) => params,
-            // A path that is no text names no workspace the user could be in.
-            Err(RawPathParamsRejection::InvalidUtf8InPathParam(_)) => {
-                return Err(workspace_not_found());
-            }
+            Err(RawPathParamsRejection::InvalidUtf8InPathParam(_)) => return Err(no_text()),
             Err(_) => return Err(AppError::internal("the route has no path parameters")),
         };
         let workspace_id = params
@@ -109,7 +119,7 @@ impl Ws {
     /// # Errors
     ///
     /// Returns 404 for a guest.
-    pub(crate) fn works_there(self) -> Result<Self, AppError> {
+    pub(crate) fn require_works_there(self) -> Result<Self, AppError> {
         if self.role == WorkspaceRole::Guest {
             return Err(workspace_not_found());
         }
@@ -118,8 +128,9 @@ impl Ws {
 }
 
 /// The workspace a request names in its path, for one who works in it: [`Ws`] for a
-/// member who is no guest ([`Ws::works_there`]). A guest is told what anybody else is:
-/// 404.
+/// member who is no guest ([`Ws::require_works_there`]). A guest is told what anybody
+/// else is: 404. A parameter of the path that is no text is a malformed request (400),
+/// as it is on the routes that take their parameters as text.
 #[derive(Debug)]
 pub(crate) struct WorksIn(pub(crate) Ws);
 
@@ -127,15 +138,20 @@ impl FromRequestParts<App> for WorksIn {
     type Rejection = AppError;
 
     async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
-        Ws::from_request_parts(parts, app)
+        Ws::extract(parts, app, malformed_path)
             .await?
-            .works_there()
+            .require_works_there()
             .map(Self)
     }
 }
 
 fn workspace_not_found() -> AppError {
     AppError::not_found("workspace")
+}
+
+/// What the framework answers for a parameter of the path that is no text.
+fn malformed_path() -> AppError {
+    AppError::bad_request("the request is malformed")
 }
 
 /// The workspaces of the user
@@ -168,7 +184,7 @@ async fn handle_get_my_workspaces(
     path = "/w/{workspaceId}/boards",
     operation_id = "getWorkspaceBoards",
     tag = tag::WORKSPACES,
-    params(WorkspaceId),
+    params(MemberWorkspaceId),
     responses((status = 200, description = "The boards.", body = Vec<Board>)),
 )]
 async fn handle_get_workspace_boards(ws: Ws) -> ApiResult {
@@ -246,7 +262,7 @@ async fn handle_get_workspace_users_by_id(
     let user_ids: Vec<String> = decode_json(&body)?;
     let ws = Ws::enter(&app, session, workspace_id)
         .await?
-        .works_there()?;
+        .require_works_there()?;
     if user_ids.is_empty() {
         return Err(AppError::bad_request("User IDs are empty"));
     }

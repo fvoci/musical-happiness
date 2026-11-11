@@ -294,14 +294,14 @@ async fn the_original_paths_of_routes_that_have_another_path_are_not_found() {
         (Method::GET, "/clientConfig".to_owned()),
         (
             Method::POST,
-            format!("/w/{workspace}/regenerate_signup_token"),
+            format!("/teams/{workspace}/regenerate_signup_token"),
         ),
         (Method::POST, format!("/users/{me}/changepassword")),
         (Method::POST, format!("/users/{other}/changepassword")),
         (Method::GET, "/users/me/config".to_owned()),
         (Method::PUT, format!("/users/{me}/config")),
         (Method::PUT, format!("/users/{other}/config")),
-        (Method::POST, format!("/w/{workspace}/{board}/files")),
+        (Method::POST, format!("/teams/{workspace}/{board}/files")),
         (
             Method::GET,
             format!("/files/teams/{workspace}/{board}/{file}"),

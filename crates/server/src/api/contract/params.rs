@@ -32,7 +32,9 @@ macro_rules! parameter {
 
 // -- in the path -----------------------------------------------------------------------
 
-parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it.");
+parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it: a member who is no guest.");
+parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.");
+parameter!(ExportedWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. A workspace that is not there, or that the user is not in, is not refused: its archive has no boards.");
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");

@@ -16,7 +16,7 @@ use utoipa_axum::routes;
 
 use super::body::decode_object;
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, WorkspaceId};
+use super::contract::params::{BoardId, ExportedWorkspaceId, WorkspaceId};
 use super::contract::tag;
 use super::workspace::Ws;
 use super::{ApiResult, RequiredSession, no_content};
@@ -46,7 +46,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 }
 
 /// The workspace for a user who may import into it: any signed-in user who works in it
-/// ([`Ws::works_there`]) and is no guest of the server.
+/// ([`Ws::require_works_there`]) and is no guest of the server.
 ///
 /// # Errors
 ///
@@ -57,7 +57,9 @@ pub(super) async fn require_import_access(
     session: Session,
     workspace_id: String,
 ) -> Result<Ws, AppError> {
-    let ws = Ws::enter(app, session, workspace_id).await?.works_there()?;
+    let ws = Ws::enter(app, session, workspace_id)
+        .await?
+        .require_works_there()?;
     if user_is_guest(&ws.app, &ws.session.user_id).await? {
         return Err(AppError::forbidden(IMPORT_DENIAL));
     }
@@ -127,7 +129,7 @@ async fn handle_export_board(
 
 /// Export the boards of a workspace
 ///
-/// An archive of all boards of the workspace that `getBoards` lists for the user, offered
+/// An archive of all boards of the workspace that `getWorkspaceBoards` lists for the user, offered
 /// as a download with its length, in the format of `exportBoardArchive`, and under its
 /// limits. A workspace that is not there, or that the user is not in, is not refused: its
 /// archive has no boards.
@@ -136,7 +138,7 @@ async fn handle_export_board(
     path = "/w/{workspaceId}/archive/export",
     operation_id = "exportWorkspaceArchive",
     tag = tag::ARCHIVES,
-    params(WorkspaceId),
+    params(ExportedWorkspaceId),
     responses((
         status = 200,
         description = "The archive.",

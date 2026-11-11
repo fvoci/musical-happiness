@@ -204,6 +204,11 @@ async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) 
     violations
 }
 
+/// Every route under `/w/{workspaceId}` answers for a workspace the asker is not in, a
+/// workspace of another organization, and a workspace the asker is a guest of as for one
+/// that does not exist; but `getWorkspaceBoards`, which lets a guest see the boards the
+/// guest is on, and `exportWorkspaceArchive`, whose archive of such a workspace has no
+/// boards.
 #[tokio::test]
 async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
     let ts = Setup::native().start().await.init_basic().await;

@@ -23,7 +23,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// Search the boards, asked through a workspace
 ///
-/// The boards the user may find, as `getBoards` lists them, whose title matches the
+/// The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches the
 /// term as `searchBoards` matches it, or with `field=property_name` those whose own
 /// `properties` have a member of exactly that name, whatever its value (`null` too). The workspace of the path is not part of
 /// the search: the boards of every workspace are searched. A `field` that is neither is 400.
@@ -54,7 +54,7 @@ async fn handle_search_boards(
     // The query is read before the workspace is asked for, as it always was.
     let ws = Ws::enter(&app, session, workspace_id)
         .await?
-        .works_there()?;
+        .require_works_there()?;
     let workspace_id = &ws.workspace_id;
 
     // Preserved quirk: the workspace of the path is not part of the search. The boards found
@@ -66,7 +66,7 @@ async fn handle_search_boards(
 
 /// Search the boards
 ///
-/// The boards the user may find, as `getBoards` lists them, whose title matches the
+/// The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches the
 /// term: a title matches if every word of the term, as spaces divide it, is somewhere
 /// in it, whatever the case of the letters (of every letter, not only ASCII). Templates
 /// are never found. `%` and `_` are characters like any other. Oldest first.
