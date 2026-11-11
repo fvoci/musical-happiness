@@ -221,7 +221,10 @@ describe('a Gantt chart', () => {
     ]);
     // A member that is there, the empty one too, is kept as it is.
     expect(createBoardView(viewOf({ groupById: '' })).fields.groupById).toBe('');
-    expect(optionalViewFields({ groupById: '', ganttZoom: undefined })).toEqual({ groupById: '' });
+    expect(optionalViewFields({ groupById: '', ganttZoom: undefined })).toStrictEqual({
+      groupById: '',
+    });
+    expect(optionalViewFields({})).toStrictEqual({});
   });
 
   it('takes its first choice of dependencies back by dropping the member, not by emptying it', () => {

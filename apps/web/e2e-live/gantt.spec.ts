@@ -3,7 +3,9 @@
  * kinds, dated cards as bars on their days, and what the view is placed by,
  * the card relation it reads as its dependencies and its zoom chosen on the
  * page; after a reload the view is as it was left, as the server keeps it.
- * A choice taken back (an undo) reaches the server too.
+ * A choice taken back (an undo) reaches the server too; the last test has
+ * that for a view that names no date, which only the API can make on a
+ * board that has one.
  *
  * The server does not check the kind of a view or the members of its
  * `fields`, so a Gantt chart is a view like any other to it.
@@ -68,6 +70,17 @@ async function card(
   return ((await answer.json()) as Schemas['Card']).id;
 }
 
+/** The fields of a view as the server keeps them; the view has to be there. */
+async function storedFields(
+  api: APIRequestContext,
+  boardId: string,
+  viewId: string,
+): Promise<Record<string, unknown>> {
+  const view = (await ganttViews(api, boardId)).find((each) => each.id === viewId);
+  if (!view) throw new Error(`the server has no Gantt view ${viewId}`);
+  return view.fields;
+}
+
 /** The Gantt views of a board as the server keeps them. */
 async function ganttViews(api: APIRequestContext, boardId: string): Promise<Schemas['Block'][]> {
   const views = (await (
@@ -110,13 +123,13 @@ test('a Gantt view made on the page draws dated cards as bars, and the server ke
   });
   const errors = watchErrors(page);
   const viewId = await addGantt(page, owner, api, board);
-  const fields = async (): Promise<Record<string, unknown>> =>
-    (await ganttViews(api, board.boardId)).find((view) => view.id === viewId)?.fields ?? {};
+  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board.boardId, viewId);
 
   // Made as the page makes one: placed by the first date, zoomed to weeks, no relation to read.
   expect(await fields()).toMatchObject({ dateDisplayPropertyId: 'due', ganttZoom: 'week' });
   expect('dependencyPropertyId' in (await fields())).toBe(false);
   const gantt = page.getByTestId('gantt');
+  await expect(gantt).toHaveAttribute('data-zoom', 'week');
   await expect(gantt.locator('[data-bar]')).toHaveCount(2);
   await expect(bar(page, 'Pick apples')).toHaveAccessibleName('Pick apples, November 12');
   await expect(bar(page, 'Press cider')).toHaveAccessibleName(
@@ -160,8 +173,7 @@ test('the dependencies and the zoom chosen on the page are kept by the server, a
   const errors = watchErrors(page);
   // Made before the board has a relation: the view names none.
   const viewId = await addGantt(page, owner, api, board);
-  const fields = async (): Promise<Record<string, unknown>> =>
-    (await ganttViews(api, board.boardId)).find((view) => view.id === viewId)?.fields ?? {};
+  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board.boardId, viewId);
   expect('dependencyPropertyId' in (await fields())).toBe(false);
 
   await define(api, board.boardId, { id: 'after', name: 'After', type: 'relation' });
@@ -184,6 +196,10 @@ test('the dependencies and the zoom chosen on the page are kept by the server, a
   // "Dependencies" is behind "…" of the header.
   const more = page.getByTestId('view-header').locator('[data-tool="more"]');
   const line = page.locator('[role="menuitem"][data-action="dependencies"]');
+  await more.click();
+  await expect(line).toContainText('None');
+  await page.keyboard.press('Escape');
+  await expect(line).toHaveCount(0);
   const choose = async (): Promise<void> => {
     await more.click();
     await line.click();
@@ -261,8 +277,7 @@ test('"display by" chosen for a view that named no date can be taken back on the
   });
   expect(made.ok(), await made.text()).toBe(true);
   const viewId = ((await made.json()) as Schemas['Block'][])[0]?.id ?? '';
-  const fields = async (): Promise<Record<string, unknown>> =>
-    (await ganttViews(api, board.boardId)).find((view) => view.id === viewId)?.fields ?? {};
+  const fields = (): Promise<Record<string, unknown>> => storedFields(api, board.boardId, viewId);
 
   await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
   const errors = watchErrors(page);

@@ -29,18 +29,18 @@ export interface OptionalViewFields extends GanttViewFields {
   dateDisplayPropertyId?: string;
 }
 
-const OPTIONAL = [
-  'groupById',
-  'dateDisplayPropertyId',
-  'dependencyPropertyId',
-  'ganttZoom',
-] as const;
+/** Every optional member, by name: one that is added to the type and not here does not compile. */
+const OPTIONAL: Record<keyof OptionalViewFields, true> = {
+  groupById: true,
+  dateDisplayPropertyId: true,
+  dependencyPropertyId: true,
+  ganttZoom: true,
+};
 
 /** Those of the optional members that `fields` has a value for, and no others. */
 export function optionalViewFields(fields: OptionalViewFields): OptionalViewFields {
-  const given: Record<string, unknown> = {};
-  for (const member of OPTIONAL) {
-    if (fields[member] !== undefined) given[member] = fields[member];
-  }
-  return given;
+  const members = Object.keys(OPTIONAL) as (keyof OptionalViewFields)[];
+  return Object.fromEntries(
+    members.flatMap((member) => (fields[member] === undefined ? [] : [[member, fields[member]]])),
+  );
 }

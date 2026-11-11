@@ -356,6 +356,13 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
   await shoot(`${info.project.name}-undated`);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('undated-list')).toHaveCount(0);
+  // Not grouped again, for the picture of a phone below.
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const view = store.views.find((each) => each.fields.viewType === 'gantt');
+    if (view) await store.setViewFields(view.id, { groupById: '' });
+  });
+  await expect(gantt(page).locator('[data-group]')).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByTestId('gantt-today').click();
