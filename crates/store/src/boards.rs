@@ -144,8 +144,8 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::NotFound`] if there is no such board, and
-    /// [`StoreError::InvalidBoard`] with [`fvoci_model::BoardError::PropertyOrder`], and
-    /// nothing written, if `order` does not name each property once.
+    /// [`StoreError::InvalidBoard`], and nothing written, if `order` does not name each
+    /// property once ([`Board::reorder_card_properties`]).
     pub async fn reorder_card_properties(
         &self,
         board_id: &str,

@@ -371,7 +371,10 @@ impl From<StoreError> for AppError {
                 ..
             }
             | StoreError::InvalidBoard(
-                BoardError::InvalidCardProperty(_) | BoardError::PropertyOrder { .. },
+                BoardError::InvalidCardProperty(_)
+                | BoardError::PropertyNamedTwice { .. }
+                | BoardError::PropertyUnknown { .. }
+                | BoardError::PropertiesLeftOut { .. },
             )
             | StoreError::InvalidBoardsAndBlocks(_)
             | StoreError::BlockNotInDeletedBoards { .. }

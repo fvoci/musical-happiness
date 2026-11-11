@@ -112,7 +112,7 @@ impl From<MinimumRole> for BoardRole {
     }
 }
 
-/// Reasons a [`Board`] is rejected before it is stored.
+/// Reasons a [`Board`], or a change of one, is rejected before it is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BoardError {
     /// The board names no team.
@@ -128,12 +128,25 @@ pub enum BoardError {
         /// The member, as the API names it.
         member: &'static str,
     },
-    /// A new order of the card properties does not name each property of the board
-    /// exactly once.
-    #[error("the order names each property of the board once, and nothing else: {problem}")]
-    PropertyOrder {
-        /// What is wrong with it.
-        problem: String,
+    /// A new order of the card properties names a property twice.
+    #[error("the order names each property of the board once: {id:?} is named twice")]
+    PropertyNamedTwice {
+        /// The property's identifier.
+        id: String,
+    },
+    /// A new order of the card properties names a property the board does not have.
+    #[error("the order names the properties of the board: it has no {id:?}")]
+    PropertyUnknown {
+        /// The identifier the order named.
+        id: String,
+    },
+    /// A new order of the card properties leaves some of the board's properties out.
+    #[error("the order names every property of the board: {named} of its {total} are named")]
+    PropertiesLeftOut {
+        /// How many the order names.
+        named: usize,
+        /// How many the board has.
+        total: usize,
     },
 }
 
@@ -228,42 +241,35 @@ impl Board {
     ///
     /// # Errors
     ///
-    /// Returns [`BoardError::PropertyOrder`], and changes nothing, if `order` leaves a
-    /// property out, names one twice, or names one the board does not have.
+    /// Returns [`BoardError::PropertyNamedTwice`], [`BoardError::PropertyUnknown`] or
+    /// [`BoardError::PropertiesLeftOut`], and changes nothing, if `order` names one twice,
+    /// names one the board does not have, or leaves one out.
     pub fn reorder_card_properties(&mut self, order: &[String]) -> Result<(), BoardError> {
-        let problem = |problem: String| Err(BoardError::PropertyOrder { problem });
-        let mut seen = std::collections::BTreeSet::new();
-        for id in order {
-            if !seen.insert(id.as_str()) {
-                return problem(format!("{id} is named twice"));
+        let known: HashSet<String> = self
+            .card_properties
+            .iter()
+            .filter_map(property_id)
+            .collect();
+        let mut rank = HashMap::with_capacity(order.len());
+        for (at, id) in order.iter().enumerate() {
+            if !known.contains(id) {
+                return Err(BoardError::PropertyUnknown { id: id.clone() });
+            }
+            if rank.insert(id.as_str(), at).is_some() {
+                return Err(BoardError::PropertyNamedTwice { id: id.clone() });
             }
         }
-        let mut reordered = Vec::with_capacity(self.card_properties.len());
-        for id in order {
-            let Some(at) = self
-                .card_properties
-                .iter()
-                .position(|property| property.get("id").and_then(Value::as_str) == Some(id))
-            else {
-                return problem(format!("the board has no property {id}"));
-            };
-            reordered.push(at);
+        // Each named once and each known: the order is the board's when it names as many
+        // as the board has (a stored board's identifiers are its own and distinct).
+        if rank.len() != self.card_properties.len() {
+            return Err(BoardError::PropertiesLeftOut {
+                named: rank.len(),
+                total: self.card_properties.len(),
+            });
         }
-        if reordered.len() != self.card_properties.len() {
-            return problem(format!(
-                "{} of the board's {} properties are named",
-                reordered.len(),
-                self.card_properties.len()
-            ));
-        }
-        let mut old = std::mem::take(&mut self.card_properties)
-            .into_iter()
-            .map(Some)
-            .collect::<Vec<_>>();
-        self.card_properties = reordered
-            .into_iter()
-            .filter_map(|at| old.get_mut(at).and_then(Option::take))
-            .collect();
+        self.card_properties.sort_by_key(|property| {
+            property_id(property).and_then(|id| rank.get(id.as_str()).copied())
+        });
         Ok(())
     }
 

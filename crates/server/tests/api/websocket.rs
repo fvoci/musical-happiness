@@ -1061,16 +1061,9 @@ async fn messages_match_the_websocket_contract() {
     th.teardown().await;
 }
 
-/// Not in the original (user decision 2026-11-11 14:25 KST). The card properties of a
-/// board are put in a new order by naming all of them: the answer is the order, the
-/// board has it, and the listeners hear `UPDATE_BOARD`. An order that leaves one out,
-/// names one twice or names one the board does not have is 400 and changes nothing; a
-/// commenter may not, nor a stranger.
-#[tokio::test]
-async fn card_properties_are_put_in_order_and_the_board_is_told() {
-    let th = Setup::native().start().await.init_basic().await;
-    let user1 = th.client.me().await;
-    let user2 = th.client2.me().await;
+/// A private board of the root team with the text properties `a`, `b` and `c`, in that
+/// order, and `admin` as its admin.
+async fn board_with_three_properties(th: &TestServer, admin: &str) -> Board {
     let property = |id: &str| {
         json!({"id": id, "name": id, "type": "text", "options": []})
             .as_object()
@@ -1086,18 +1079,37 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
     };
     th.app
         .store()
-        .insert_board_with_admin(&mut board, &user1.id)
+        .insert_board_with_admin(&mut board, admin)
         .await
-        .expect("the board is stored with user1 as admin");
-    th.client
-        .add_member(&fvoci_model::BoardMember {
-            board_id: board.id.clone(),
-            user_id: user2.id.clone(),
-            scheme_commenter: true,
-            ..fvoci_model::BoardMember::default()
-        })
-        .await
-        .check_ok();
+        .expect("the board is stored with the admin");
+    board
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The card properties of a
+/// board are put in a new order by naming all of them: the answer is the order, the
+/// board has it, and the listeners hear `UPDATE_BOARD`. An order that leaves one out,
+/// names one twice or names one the board does not have is 400 and changes nothing; a
+/// commenter may not, nor a stranger.
+#[tokio::test]
+async fn card_properties_are_put_in_order_and_the_board_is_told() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    let editor_client = th.add_user("editor").await;
+    let editor = editor_client.me().await;
+    let board = board_with_three_properties(&th, &user1.id).await;
+    for (user, role) in [(&user2.id, "commenter"), (&editor.id, "editor")] {
+        th.client
+            .add_member(&fvoci_model::BoardMember {
+                board_id: board.id.clone(),
+                user_id: user.clone(),
+                scheme_commenter: true,
+                scheme_editor: role == "editor",
+                ..fvoci_model::BoardMember::default()
+            })
+            .await
+            .check_ok();
+    }
     let path = format!("/boards/{}/property-order", board.id);
     let ids = |board: &Value| -> Vec<Value> {
         board["cardProperties"]
@@ -1124,6 +1136,22 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
         .await
         .value();
     assert_eq!(ids(&stored), [json!("c"), json!("a"), json!("b")]);
+    assert_eq!(stored["modifiedBy"], json!(user1.id), "{stored}");
+
+    // An editor may, as with patchBoard; the board is marked as changed by them.
+    let answered: Vec<String> = editor_client.put(&path, &["b", "c", "a"]).await.ok_json();
+    assert_eq!(answered, ["b", "c", "a"]);
+    let by_editor = th
+        .client
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .value();
+    assert_eq!(by_editor["modifiedBy"], json!(editor.id), "{by_editor}");
+    assert!(
+        by_editor["updateAt"].as_i64() >= stored["updateAt"].as_i64(),
+        "{by_editor}"
+    );
+    socket.next_json(PATIENCE).await.expect("told again");
 
     for order in [
         json!(["c", "a"]),
@@ -1150,7 +1178,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
         .value();
     assert_eq!(
         ids(&stored),
-        [json!("c"), json!("a"), json!("b")],
+        [json!("b"), json!("c"), json!("a")],
         "nothing refused changed it"
     );
 }
