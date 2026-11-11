@@ -317,8 +317,10 @@ test('a commenter deletes their own comment and brings it back with undo; somebo
 
   const theirs = comments.filter({ hasText: 'The owner says' });
   const mine = comments.filter({ hasText: 'I take it back' });
+  const deleteMine = mine.getByRole('button', { name: /^Delete the comment from/ });
+  await expect(deleteMine).toBeVisible();
   await expect(theirs.getByRole('button', { name: /^Delete the comment from/ })).toHaveCount(0);
-  await mine.getByRole('button', { name: /^Delete the comment from/ }).click();
+  await deleteMine.click();
   await expect(comments).toHaveCount(1);
   await expect.poll(stored).toEqual([['The owner says']]);
 

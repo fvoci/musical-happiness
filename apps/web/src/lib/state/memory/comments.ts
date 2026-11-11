@@ -44,15 +44,18 @@ export function lastCommentAt(blocks: readonly StoredBlock[]): number {
 
 /**
  * Whether the user may delete a comment with what goes with it, or bring that
- * back: every comment of it, its replies too, theirs to delete.
+ * back: every comment of it, its replies too, theirs to delete, and any other
+ * block under it an editor's.
  */
 export function mayRemoveComments(
   role: Role,
   userId: string,
   blocks: readonly Pick<StoredBlock, 'type' | 'createdBy'>[],
 ): boolean {
-  return blocks.every(
-    (block) => block.type !== 'comment' || mayDeleteComment(role, block.createdBy === userId),
+  return blocks.every((block) =>
+    block.type === 'comment'
+      ? mayDeleteComment(role, block.createdBy === userId)
+      : role === 'admin' || role === 'editor',
   );
 }
 

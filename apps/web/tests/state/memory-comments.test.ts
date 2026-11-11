@@ -111,6 +111,13 @@ describe('a comment with a reply of somebody else', () => {
     expect(await statusOf(backend.restoreBlock(boardId, mine.id))).toBe(403);
     setRole(world, boardId, backend, 'admin');
     expect(await statusOf(backend.restoreBlock(boardId, mine.id))).toBe('ok');
+
+    // Any other block under it is an editor's.
+    if (stored) stored.type = 'attachment';
+    setRole(world, boardId, backend, 'commenter');
+    expect(await statusOf(backend.deleteBlock(boardId, mine.id))).toBe(403);
+    setRole(world, boardId, backend, 'editor');
+    expect(await statusOf(backend.deleteBlock(boardId, mine.id))).toBe('ok');
   });
 });
 
