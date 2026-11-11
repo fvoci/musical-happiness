@@ -850,6 +850,12 @@ mod tests {
     }
 
     #[test]
+    fn edited_at_is_the_column_after_the_block_columns() {
+        assert_eq!(BLOCK_COLUMNS.split(", ").count(), EDITED_AT);
+        assert!(block_read_columns().ends_with(EDITED_AT_COLUMN));
+    }
+
+    #[test]
     fn parents_come_before_their_children_whatever_the_given_order() {
         let blocks = [
             block("text", "card"),

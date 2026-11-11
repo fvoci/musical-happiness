@@ -13,25 +13,25 @@ use fvoci_model::{Block, BlockType, Body, CommentVersion};
 use serde_json::Value;
 
 use crate::Store;
-use crate::db::{Id, OptId, Param, Scope};
+use crate::db::{Id, OptId, Param, Scope, to_json_text};
 use crate::error::StoreError;
 
 /// How many earlier versions of a comment the store keeps unless told otherwise.
-pub const DEFAULT_COMMENT_VERSIONS_KEPT: usize = 50;
+pub const DEFAULT_COMMENT_VERSIONS_KEPT: u32 = 50;
 
 impl Store {
     /// Sets how many earlier versions of a comment are kept: the first one, with which
     /// the comment was posted, and the newest. At least one, the first, is kept. Counts
     /// for the changes that come after.
-    pub fn set_comment_versions_kept(&self, kept: usize) {
+    pub fn set_comment_versions_kept(&self, kept: u32) {
+        let kept = usize::try_from(kept.max(1)).unwrap_or(usize::MAX);
         self.inner
             .comment_versions_kept
-            .store(kept.max(1), Ordering::Relaxed);
+            .store(kept, Ordering::Relaxed);
     }
 
     /// Returns the earlier versions of a comment's body, the first first: all but the
-    /// one it has now. Empty for a comment whose body was never changed and for a block
-    /// that is no comment.
+    /// one it has now. Empty for a comment whose body was never changed.
     ///
     /// # Errors
     ///
@@ -78,37 +78,57 @@ impl Store {
     }
 }
 
-/// Writes down a change of a comment's body: `before` is the comment as it was stored,
-/// `after` as it is stored now, changed by `user_id`. Nothing for a block that is not a
-/// comment before and after, or whose body stays as it was. The first change also writes
-/// down the version the comment was posted with, by its author at its creation.
+/// Writes down a change of a comment's body: `before` is the block as it was stored,
+/// `after` as it is stored now, a comment, changed by `user_id`. Nothing for a block that
+/// is no comment now, or whose body stays as it was. The first change also writes down
+/// the version the comment was posted with, by its author at its creation. A block that
+/// was no comment for a while (an editor may make a card of a comment and a comment
+/// again) may have a body that its newest version does not have: that body is written
+/// down first, by who changed the block last, when they did.
 ///
-/// Returns whether anything was written: the files the comment shows are then to be
-/// put down again.
+/// Returns whether anything was written: the files the block shows are then to be put
+/// down again.
 pub(crate) async fn record_change(
     scope: &mut Scope<'_>,
     before: &Block,
     after: &Block,
     user_id: &str,
 ) -> Result<bool, StoreError> {
-    if before.block_type != BlockType::Comment
-        || after.block_type != BlockType::Comment
-        || before.body == after.body
-    {
+    if after.block_type != BlockType::Comment || before.body == after.body {
         return Ok(false);
     }
-    let mut sql = scope.sql("SELECT MAX(version) FROM comment_versions WHERE block_id = ");
-    sql.bind(Id(&after.id));
+    let mut sql = scope.sql("SELECT version, body FROM comment_versions WHERE block_id = ");
+    sql.bind(Id(&after.id))
+        .push(" ORDER BY version DESC LIMIT 1");
     let newest = match scope.fetch_optional(sql).await? {
-        Some(row) => row.int(0)?,
-        None => 0,
+        Some(row) => {
+            let body = match row.json(1, "body")? {
+                Value::Null => None,
+                document => Some(Body::from_stored(document)),
+            };
+            Some((row.int(0)?, body))
+        }
+        None => None,
     };
-    let version = if newest == 0 {
-        insert(scope, before, 1, &before.created_by, before.create_at).await?;
-        2
-    } else {
-        newest + 1
+    let mut version = match newest {
+        None => {
+            insert(scope, before, 1, &before.created_by, before.create_at).await?;
+            1
+        }
+        Some((version, body)) if body != before.body => {
+            insert(
+                scope,
+                before,
+                version + 1,
+                &before.modified_by,
+                before.update_at,
+            )
+            .await?;
+            version + 1
+        }
+        Some((version, _)) => version,
     };
+    version += 1;
     insert(scope, after, version, user_id, after.update_at).await?;
 
     // The one it has now and the newest earlier ones, and the first.
@@ -130,16 +150,8 @@ async fn insert(
     written_by: &str,
     written_at: i64,
 ) -> Result<(), StoreError> {
-    let files = block
-        .body
-        .as_ref()
-        .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
-        .unwrap_or_default();
-    let files =
-        serde_json::to_string::<Vec<String>>(&files).map_err(|error| StoreError::Corrupt {
-            column: "files",
-            reason: error.to_string(),
-        })?;
+    let files: Vec<&str> = block.body.as_ref().map(Body::file_ids).unwrap_or_default();
+    let files = to_json_text(&files)?;
     let mut sql = scope.sql(
         "INSERT INTO comment_versions (block_id, version, body, files, written_by, written_at) \
          VALUES (",
@@ -190,6 +202,7 @@ pub(crate) async fn forget_gone_comments(scope: &mut Scope<'_>) -> Result<(), St
 }
 
 /// The column that a block read with [`crate::blocks::BLOCK_COLUMNS`] has after them:
-/// when its body was last changed, if it is a comment that has versions.
-pub(crate) const EDITED_AT_COLUMN: &str =
-    "(SELECT MAX(v.written_at) FROM comment_versions v WHERE v.block_id = blocks.id)";
+/// when its body was last changed, if it is a comment that has versions. A block that
+/// was a comment and is no longer one keeps its versions, and has none of this.
+pub(crate) const EDITED_AT_COLUMN: &str = "CASE WHEN blocks.type = 'comment' THEN \
+     (SELECT MAX(v.written_at) FROM comment_versions v WHERE v.block_id = blocks.id) END";

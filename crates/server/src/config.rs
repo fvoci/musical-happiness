@@ -442,7 +442,7 @@ const DEFAULT_MAX_PENDING_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const DEFAULT_MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
 
 /// How many earlier versions of a comment the server keeps unless configured.
-const DEFAULT_MAX_COMMENT_VERSIONS: u32 = 50;
+const DEFAULT_MAX_COMMENT_VERSIONS: u32 = fvoci_store::DEFAULT_COMMENT_VERSIONS_KEPT;
 
 /// How many exports, and how many imports, the server runs at once unless configured.
 const DEFAULT_MAX_CONCURRENT_ARCHIVES: u32 = 2;

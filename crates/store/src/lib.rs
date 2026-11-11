@@ -123,7 +123,8 @@ impl Store {
                 pool,
                 sqlite_writers: tokio::sync::Mutex::new(()),
                 comment_versions_kept: std::sync::atomic::AtomicUsize::new(
-                    comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT,
+                    usize::try_from(comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT)
+                        .unwrap_or(usize::MAX),
                 ),
             }),
         };

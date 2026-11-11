@@ -131,9 +131,7 @@ impl App {
     /// Returns an error if `serverRoot` or an allowed origin is no URL, or if webhooks
     /// are configured and their HTTP client cannot be set up.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
-        store.set_comment_versions_kept(
-            usize::try_from(config.max_comment_versions).unwrap_or(usize::MAX),
-        );
+        store.set_comment_versions_kept(config.max_comment_versions);
         let auth = Authenticator::new(store.clone(), &config)?;
         let login_limiter = LoginLimiter::new(Limits::from_config(&config));
         let password_work = HashQueue::new(

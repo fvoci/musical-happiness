@@ -170,7 +170,7 @@ impl Param {
     }
 }
 
-fn to_json_text(value: &impl serde::Serialize) -> Result<String, StoreError> {
+pub(crate) fn to_json_text(value: &impl serde::Serialize) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(|error| StoreError::Corrupt {
         column: "(parameter)",
         reason: error.to_string(),
