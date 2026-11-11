@@ -1,7 +1,8 @@
 /**
  * The Gantt view on the real server: a view of the kind `gantt` that the
  * server keeps, dated cards as bars on their days, and what the view is
- * placed by chosen on the page and still there after a reload.
+ * placed by, the card relation it reads as its dependencies and its zoom
+ * chosen on the page and still there after a reload.
  *
  * The view is made through the API: the page's own "add a view" is not yet
  * wired to the server (`createView` answers `not_wired`, src/lib/api). The
@@ -138,6 +139,97 @@ test('a Gantt view of the server draws dated cards as bars, and keeps its "displ
   await expect(bar(page, 'Pick apples')).toHaveAccessibleName('Pick apples, November 3');
   expect(await daysWide('Press cider')).toBe(1);
   expect((await storedFields(api, board.boardId, viewId)).viewType).toBe('gantt');
+  expect(errors).toEqual([]);
+  await api.dispose();
+});
+
+test('the dependencies and the zoom chosen on the page are kept by the server', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('gantt-deps');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, { title: 'Building plan' });
+  const defined = await api.patch(`/api/v1/boards/${board.boardId}`, {
+    data: {
+      updatedCardProperties: [{ id: 'after', name: 'After', type: 'relation', options: [] }],
+    },
+  });
+  expect(defined.ok(), await defined.text()).toBe(true);
+  /** Makes a card and answers its identifier. */
+  const card = async (title: string, due: object, after: string[]): Promise<string> => {
+    const answer = await api.post(`/api/v1/boards/${board.boardId}/cards`, {
+      data: { title, properties: { due, ...(after.length > 0 ? { after } : {}) } },
+    });
+    expect(answer.ok(), await answer.text()).toBe(true);
+    return ((await answer.json()) as Schemas['Card']).id;
+  };
+  const foundation = await card(
+    'Pour the foundation',
+    { from: '2026-11-03', to: '2026-11-06' },
+    [],
+  );
+  // Starts on the day the foundation ends: in order.
+  const walls = await card('Build the walls', { from: '2026-11-06', to: '2026-11-13' }, [
+    foundation,
+  ]);
+  // Starts before the walls end: out of order. And names a card that is not there.
+  await card('Raise the roof', { from: '2026-11-11', to: '2026-11-14' }, [walls, 'no-such-card']);
+  // A chart that names no relation: no arrows until one is chosen.
+  const viewId = await makeGantt(api, board.boardId, { dateDisplayPropertyId: 'due' });
+
+  await page.clock.setFixedTime(new Date('2026-11-10T00:00:00Z'));
+  const errors = watchErrors(page);
+  await page.goto(`/board/${board.boardId}/${viewId}`);
+  await signInOnPage(page, owner);
+
+  const gantt = page.getByTestId('gantt');
+  const arrows = gantt.locator('[data-arrow]');
+  await expect(gantt.locator('[data-bar]')).toHaveCount(3);
+  await expect(arrows).toHaveCount(0);
+
+  // "Dependencies" is behind "…" of the header.
+  const more = page.getByTestId('view-header').locator('[data-tool="more"]');
+  const line = page.locator('[role="menuitem"][data-action="dependencies"]');
+  await more.click();
+  await expect(line).toContainText('None');
+  await line.click();
+  await page.locator('[role="menuitem"][data-action="after"]').click();
+  await expect
+    .poll(async () => (await storedFields(api, board.boardId, viewId)).dependencyPropertyId)
+    .toBe('after');
+  await expect(arrows).toHaveCount(2);
+  await expect(gantt).toHaveAttribute('data-edges', '2');
+  await expect(page.getByTestId('gantt-late')).toHaveAccessibleName(
+    'Out of order: 1. Show the next.',
+  );
+  await expect(bar(page, 'Raise the roof')).toHaveAccessibleName(
+    'Raise the roof, November 11 – November 14. After Build the walls. Out of order: starts before the end of Build the walls.',
+  );
+
+  await page.getByTestId('gantt-zoom-in').click();
+  await expect(gantt).toHaveAttribute('data-zoom', 'day');
+  await expect
+    .poll(async () => (await storedFields(api, board.boardId, viewId)).ganttZoom)
+    .toBe('day');
+
+  // After a reload the chart is as it was left: its relation, its arrows, its zoom.
+  await page.reload();
+  await expect(gantt).toHaveAttribute('data-zoom', 'day');
+  await expect(arrows).toHaveCount(2);
+  await expect(gantt.locator('[data-arrow][data-late]')).toHaveCount(1);
+  await more.click();
+  await expect(line).toContainText('After');
+  await page.keyboard.press('Escape');
+  const kept = await storedFields(api, board.boardId, viewId);
+  expect(kept).toMatchObject({
+    viewType: 'gantt',
+    dateDisplayPropertyId: 'due',
+    dependencyPropertyId: 'after',
+    ganttZoom: 'day',
+  });
   expect(errors).toEqual([]);
   await api.dispose();
 });
