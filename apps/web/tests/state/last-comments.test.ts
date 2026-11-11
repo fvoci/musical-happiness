@@ -82,33 +82,105 @@ describe('an open board', () => {
     expect(board.card(betaId)?.lastCommentAt).toBe(newer.createAt);
   });
 
-  it('reads the board again when a comment of no card it knows is deleted', async () => {
+  it('reads the times of all cards again when a comment of no card it knows is deleted', async () => {
     const { board, backend, world, betaId } = await onBeta();
-    // Posted while nobody watched: the board never heard of it.
-    const unseen = world.newId();
-    const at = world.now();
-    world.blocks.set(unseen, {
-      id: unseen,
-      boardId: board.boardId,
-      parentId: betaId,
-      createdBy: backend.userId,
-      modifiedBy: backend.userId,
-      schema: 1,
-      type: 'comment',
-      title: '',
-      fields: {},
-      createAt: at,
-      updateAt: at,
-      deleteAt: 0,
-      body: text('unseen'),
-    });
-    const before = board.card(betaId)?.lastCommentAt;
+    // Posted while nobody watched: the board never heard of them.
+    const silently = (words: string): string => {
+      const id = world.newId();
+      const at = world.now();
+      world.blocks.set(id, {
+        id,
+        boardId: board.boardId,
+        parentId: betaId,
+        createdBy: backend.userId,
+        modifiedBy: backend.userId,
+        schema: 1,
+        type: 'comment',
+        title: '',
+        fields: {},
+        createAt: at,
+        updateAt: at,
+        deleteAt: 0,
+        body: text(words),
+      });
+      return id;
+    };
+    const kept = silently('kept');
+    const gone = silently('gone');
     const cards = vi.spyOn(backend, 'cards');
-    await backend.deleteBlock(board.boardId, unseen);
+    await backend.deleteBlock(board.boardId, gone);
     await settle();
     await vi.waitFor(() => {
-      expect(cards).toHaveBeenCalled();
+      expect(board.card(betaId)?.lastCommentAt).toBe(world.blocks.get(kept)?.createAt);
     });
-    expect(board.card(betaId)?.lastCommentAt).toBe(before);
+    expect(cards).toHaveBeenCalledOnce();
+  });
+
+  it('does not take an older time from a reading begun before a comment was heard', async () => {
+    const { board, backend, other, betaId } = await onBeta();
+    const card = vi.spyOn(backend, 'card');
+    // A reading of the card on its way (opening it) while somebody comments.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = backend.card.bind(backend);
+    card.mockImplementationOnce(async (boardId, cardId) => {
+      const answer = await real(boardId, cardId);
+      await held;
+      return answer;
+    });
+    const opening = board.showCard(betaId);
+    await settle();
+    const posted = await other.createComment(board.boardId, betaId, text('meanwhile'));
+    await settle();
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+    release();
+    await opening;
+    await settle();
+    expect(board.card(betaId)?.lastCommentAt).toBe(posted.createAt);
+  });
+
+  it('reads the card again after a deletion even when another comment of it is changed meanwhile', async () => {
+    const { board, backend, other, betaId } = await onBeta();
+    const older = await other.createComment(board.boardId, betaId, text('older'));
+    const newer = await other.createComment(board.boardId, betaId, text('newer'));
+    await settle();
+    // The reading of the card after the deletion is held until the change below is heard.
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = backend.card.bind(backend);
+    vi.spyOn(backend, 'card').mockImplementationOnce(async (boardId, cardId) => {
+      const answer = await real(boardId, cardId);
+      await held;
+      return answer;
+    });
+    await backend.deleteBlock(board.boardId, newer.id);
+    await settle();
+    // The older one is changed while the card is read again: it does not make the time newer.
+    await other.patchComment(board.boardId, older.id, {
+      body: text('older, changed'),
+      readAt: older.updateAt,
+    });
+    await settle();
+    release();
+    await vi.waitFor(() => {
+      expect(board.card(betaId)?.lastCommentAt).toBe(older.createAt);
+    });
+  });
+
+  it('reads nothing of the whole board for a comment the reader deleted', async () => {
+    const { board, backend, betaId } = await onBeta();
+    const card = await board.showCard(betaId);
+    await card.addComment(text('mine'));
+    await settle();
+    const mine = card.comments.at(-1);
+    if (!mine) throw new Error('no comment');
+    const cards = vi.spyOn(backend, 'cards');
+    await card.deleteComment(mine.id);
+    await settle();
+    expect(cards).not.toHaveBeenCalled();
   });
 });

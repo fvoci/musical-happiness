@@ -398,6 +398,7 @@ export class CardStore {
     try {
       await this.board.workspace.undo.perform(
         async () => {
+          this.board.deleting(blockId, comment ? this.cardId : undefined);
           await this.#backend.deleteBlock(this.#boardId, blockId);
           this.forget([blockId]);
         },

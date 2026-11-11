@@ -181,7 +181,19 @@ export class BoardStore {
   readonly canReadCommentHistory = $derived(this.role !== '');
 
   /** Keeps the cards' `lastCommentAt` current between readings. */
-  readonly #lastComments = new LastComments();
+  readonly #lastComments = new LastComments({
+    cards: () => this.cards,
+    setCards: (cards) => {
+      this.cards = cards;
+    },
+    readCard: (cardId) => this.#backend.card(this.boardId, cardId),
+    readCards: () => this.#backend.cards(this.boardId),
+    blockIds: () =>
+      [...this.cards, ...this.views, ...(this.openCard?.attachments ?? [])].map(
+        (block) => block.id,
+      ),
+    openComments: () => this.openCard?.comments ?? [],
+  });
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
@@ -363,15 +375,13 @@ export class BoardStore {
           if (isCardBlock(block)) this.#receiveCard(block);
           else if (isViewBlock(block)) this.#receiveView(block);
           else {
-            if (block.type === 'comment' && block.deleteAt === 0) {
-              this.cards = this.#lastComments.commented(this.cards, block);
-            }
+            if (block.type === 'comment' && block.deleteAt === 0) this.#lastComments.heard(block);
             this.openCard?.receive(block);
           }
         }
         break;
       case 'blocksDeleted':
-        this.#commentsGone(change.blockIds);
+        this.#lastComments.deleted(change.blockIds);
         this.cards = this.cards.filter((card) => !change.blockIds.includes(card.id));
         this.views = this.views.filter((view) => !change.blockIds.includes(view.id));
         this.openCard?.forget(change.blockIds);
@@ -410,7 +420,8 @@ export class BoardStore {
       if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
       this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
       const shown = this.cards;
-      this.cards = reread(shown, cards, cardsBefore, (card) => this.#cardWrites.receive(card));
+      const read = cards.map((card) => this.#lastComments.merge(card, this.card(card.id)));
+      this.cards = reread(shown, read, cardsBefore, (card) => this.#cardWrites.receive(card));
       if (membersTold === this.#membersTold) {
         this.members = members;
         void this.workspace.learnUsers(members.map((member) => member.userId));
@@ -433,34 +444,13 @@ export class BoardStore {
     }
   }
 
-  /**
-   * Blocks deleted that may be comments: the cards they were on are read
-   * again for their last comment; one of no card known reads the board again.
-   */
-  #commentsGone(blockIds: readonly string[]): void {
-    const open = this.openCard;
-    for (const comment of open?.comments ?? []) this.#lastComments.know(comment);
-    const known = [...this.cards, ...this.views, ...(open?.attachments ?? [])];
-    const gone = this.#lastComments.deleted(
-      blockIds,
-      known.map((block) => block.id),
-    );
-    for (const cardId of gone.cardIds) void this.#readLastComment(cardId);
-    if (gone.unknown) void this.#refresh();
-  }
-
-  async #readLastComment(cardId: string): Promise<void> {
-    const mark = this.#lastComments.mark(cardId);
-    try {
-      const card = await this.#backend.card(this.boardId, cardId);
-      this.cards = this.#lastComments.read(this.cards, cardId, card.lastCommentAt ?? 0, mark);
-    } catch {
-      // Gone too, or not read: the next reading of the board brings it.
-    }
+  /** The reader is deleting a block of the board; a comment's card is `cardId`. */
+  deleting(blockId: string, cardId?: string): void {
+    this.#lastComments.deleting(blockId, cardId);
   }
 
   #receiveCard(incoming: CardSummary): void {
-    const card = LastComments.keep(incoming, this.card(incoming.id));
+    const card = this.#lastComments.merge(incoming, this.card(incoming.id));
     if (!this.#cardWrites.receive(card)) return;
     this.cards = take(this.cards, card);
     this.openCard?.cardChanged(card);
@@ -610,6 +600,7 @@ export class BoardStore {
    * deleted meanwhile (404) is as good as deleted, so the undo goes on.
    */
   async #deleteForUndo(blockId: string): Promise<void> {
+    this.deleting(blockId);
     try {
       await this.#backend.deleteBlock(this.boardId, blockId);
     } catch (error) {
@@ -623,6 +614,7 @@ export class BoardStore {
     for (const cardId of cardIds) {
       await this.#perform(
         async () => {
+          this.deleting(cardId);
           await this.#backend.deleteBlock(this.boardId, cardId);
           this.cards = this.cards.filter((card) => card.id !== cardId);
           if (this.openCard?.cardId === cardId) this.closeCard();
@@ -782,6 +774,7 @@ export class BoardStore {
     if (!gone) return;
     await this.#perform(
       async () => {
+        this.deleting(viewId);
         await this.#backend.deleteBlock(this.boardId, viewId);
         this.views = this.views.filter((view) => view.id !== viewId);
       },
