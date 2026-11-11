@@ -28,13 +28,13 @@ export function passwordProblemOf(error: unknown, next: string): PasswordProblem
   const refused = error.status === 400 ? error.refusalAt('/newPassword') : undefined;
   if (refused) {
     if (refused.reason === 'too_short' || characters(next) < PASSWORD_MIN_CHARACTERS) {
-      return { text: m.account_password_too_short(), field: 'next' };
+      return { text: m.account_new_password_too_short(), field: 'next' };
     }
     if (
       refused.reason === 'too_long' ||
       new TextEncoder().encode(next).length > PASSWORD_MAX_BYTES
     ) {
-      return { text: m.account_password_too_long(), field: 'next' };
+      return { text: m.account_new_password_too_long(), field: 'next' };
     }
   }
   return { text: m.account_failed(), field: undefined };
