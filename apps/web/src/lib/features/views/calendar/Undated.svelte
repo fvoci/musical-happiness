@@ -11,6 +11,7 @@
   import type { PropertyUser } from '$lib/components/properties/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { PropertyTemplate } from '$lib/logic/wire.ts';
+  import type { BoardStore } from '$lib/state/index.ts';
 
   import CardRow from './CardRow.svelte';
   import type { Placed } from './placed.ts';
@@ -20,9 +21,11 @@
     templates: readonly PropertyTemplate[];
     visiblePropertyIds: readonly string[];
     users: readonly PropertyUser[];
-    nameFormat: string;
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
+    board: BoardStore;
+    /** Opens the picker of a day for a card; none where dates cannot be set. */
+    onChangeDate?: (cardId: string, line: HTMLElement | undefined) => void;
     /** Given where the list has its own heading: the column. A sheet has its title. */
     onclose?: () => void;
   }
@@ -32,9 +35,10 @@
     templates,
     visiblePropertyIds,
     users,
-    nameFormat,
     cardHref,
     onOpenCard,
+    board,
+    onChangeDate,
     onclose,
   }: Props = $props();
 
@@ -44,9 +48,10 @@
     templates,
     visiblePropertyIds,
     users,
-    nameFormat,
     cardHref,
     onOpenCard,
+    board,
+    onChangeDate,
   });
 </script>
 

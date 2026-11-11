@@ -1,6 +1,6 @@
 /**
  * One person, picked from the people of the board. Typing narrows the list by
- * user name, nickname, first and last name.
+ * login name and display name.
  */
 import type { Meta, StoryObj } from '@storybook/svelte';
 
@@ -27,5 +27,5 @@ export const Editing: Story = { args: { value: 'u-minho', startOpen: true } };
 /** Someone who is no longer among the people of the board. */
 export const UnknownUser: Story = { args: { value: 'u-gone' } };
 
-/** Names shown as user names. */
-export const UserNames: Story = { args: { value: 'u-jisoo', nameFormat: 'username' } };
+/** Somebody without a display name: the login name alone. */
+export const LoginNameOnly: Story = { args: { value: 'u-bot' } };

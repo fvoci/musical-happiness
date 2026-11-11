@@ -52,6 +52,7 @@ import {
   viewPatches,
 } from './patches.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
+import { restoreCard } from './trash.svelte.ts';
 import { PendingWrites, put, reread, take } from './write.ts';
 
 function roleOf(member: BoardMember | undefined): MemberRole {
@@ -591,16 +592,7 @@ export class BoardStore {
           this.cards = this.cards.filter((card) => card.id !== cardId);
           if (this.openCard?.cardId === cardId) this.closeCard();
         },
-        async () => {
-          await this.#backend.restoreBlock(this.boardId, cardId);
-          // Back: the undo is done even if reading the card fails (it cannot be
-          // restored twice). The server's message, or the next reading, shows it.
-          try {
-            this.cards = take(this.cards, await this.#backend.card(this.boardId, cardId));
-          } catch (error) {
-            this.workspace.report('load', error);
-          }
-        },
+        () => restoreCard(this, cardId),
         'deleteCard',
         groupId,
       );

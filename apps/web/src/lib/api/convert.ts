@@ -8,6 +8,7 @@
  */
 import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
+import { readLanguageSettings } from '../logic/language.ts';
 import { readRegionalSettings } from '../logic/regional.ts';
 import {
   createBoardView,
@@ -39,17 +40,14 @@ import type { components } from './contract.ts';
 export type Schemas = components['schemas'];
 
 /**
- * A user. The contract's user has a name to log in with and nothing else:
- * no nickname, first or last name, and no email address (it is never
- * answered). The screens show the name to log in with.
+ * A user: a name to log in with and one to be shown by, and no email
+ * address (it is never answered).
  */
 export function userOf(user: Schemas['User']): User {
   return {
     id: user.id,
     username: user.username,
-    nickname: '',
-    firstname: '',
-    lastname: '',
+    displayName: user.displayName,
     email: '',
     isAdmin: user.isAdmin,
     createAt: user.createAt,
@@ -237,7 +235,11 @@ export function categoryOf(category: Schemas['CategoryBoards']): Category {
 
 /** The settings, under the names of the contract. */
 export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
-  return { ...readRegionalSettings(settings), ...readDisplaySettings(settings) };
+  return {
+    ...readRegionalSettings(settings),
+    ...readDisplaySettings(settings),
+    ...readLanguageSettings(settings),
+  };
 }
 
 export function settingsChangeOf(patch: AccountSettingsPatch): Schemas['SettingsChange'] {

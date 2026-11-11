@@ -57,10 +57,12 @@
     onOpenBoard: (boardId: string) => void;
     /** The languages the app has, as tags, for the settings. */
     locales?: readonly string[];
-    /** The language the app is shown in. */
-    locale?: string;
-    /** Changes the language; the page is loaded again in it. */
-    onChooseLocale?: (locale: string) => void;
+    /** The reader's language setting: `auto`, or the one of `locales` it is shown in. */
+    language?: string;
+    /** The one of `locales` that `auto` shows the app in. */
+    autoLocale?: string;
+    /** Changes the language setting (`auto` or one of `locales`); the page is loaded again in it. */
+    onChooseLanguage?: (setting: string) => void;
     /** Signs the reader out. Without it (no accounts: the backend in memory) it is not offered. */
     onSignOut?: () => void;
     /** Changes the reader's password. Without it (no accounts) it is not offered. */
@@ -75,8 +77,9 @@
     boardHref,
     onOpenBoard,
     locales,
-    locale,
-    onChooseLocale,
+    language,
+    autoLocale,
+    onChooseLanguage,
     onSignOut,
     onChangePassword,
     children,
@@ -335,8 +338,9 @@
   bind:open={settingsOpen}
   {workspace}
   {locales}
-  {locale}
-  {onChooseLocale}
+  {language}
+  {autoLocale}
+  {onChooseLanguage}
   {onSignOut}
   {onChangePassword}
 />

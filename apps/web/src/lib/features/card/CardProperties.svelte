@@ -91,7 +91,6 @@
             readOnly={!editable}
             showEmptyPlaceholder
             {users}
-            nameFormat={workspace.nameFormat}
             locale={workspace.locale}
             regional={workspace.regional}
             {presentation}

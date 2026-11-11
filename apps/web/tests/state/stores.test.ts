@@ -21,7 +21,7 @@ describe('the workspace', () => {
     await workspace.load();
     expect(workspace.status).toBe('ready');
     expect(workspace.me?.username).toBe('hana');
-    expect(workspace.userName(workspace.me?.id ?? '')).toBe('김하나');
+    expect(workspace.userName(workspace.me?.id ?? '')).toBe('김하나 (@hana)');
     expect(workspace.boards).toHaveLength(13);
     expect(workspace.sidebar.map((entry) => entry.category.name)).toEqual([
       'Team',
@@ -270,12 +270,13 @@ describe('making and deleting boards', () => {
     expect(await backend.cards(first?.id ?? '')).toHaveLength(3);
   });
 
-  it('brings a deleted board back at the end of the default category, and the open board with it', async () => {
+  it('brings a deleted board back to its place in its category, and the open board with it', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
     const [team] = workspace.sidebar;
-    const gone = team?.boards[0];
+    const gone = team?.boards[1];
     if (!team || !gone) throw new Error('unexpected seed');
+    const place = team.boards.map((board) => board.id);
     const open = await workspace.openBoard(gone.id);
     await workspace.deleteBoard(gone.id);
     await settle();
@@ -285,8 +286,7 @@ describe('making and deleting boards', () => {
     );
     await workspace.undoLast();
     await settle();
-    expect(workspace.sidebar.at(-1)?.boards.at(-1)?.id).toBe(gone.id);
-    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).not.toContain(gone.id);
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(place);
     await vi.waitFor(() => {
       expect(open.status).toBe('ready');
     });
@@ -938,10 +938,11 @@ describe('searching boards', () => {
 });
 
 describe('the sidebar across the steps', () => {
-  it('hides a board brought back from the trash, filing it first, and it stays hidden', async () => {
+  it('hides a board brought back from the trash in the category it came back to, and it stays hidden', async () => {
     const { workspace, backend } = setup(await loadTemplates());
     await workspace.load();
     const gone = workspace.sidebar[0]?.boards[0];
+    const categoryId = workspace.sidebar[0]?.category.id;
     if (!gone) throw new Error('unexpected seed');
     await workspace.deleteBoard(gone.id);
     await workspace.undoLast();
@@ -951,7 +952,7 @@ describe('the sidebar across the steps', () => {
     const shown = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id));
     expect(shown).not.toContain(gone.id);
     const stored = await backend.categories(workspace.team?.id ?? '');
-    const home = stored.find((category) => category.type === 'system');
+    const home = stored.find((category) => category.id === categoryId);
     expect(home?.boardIds).toContain(gone.id);
     expect(home?.hiddenBoardIds).toContain(gone.id);
   });

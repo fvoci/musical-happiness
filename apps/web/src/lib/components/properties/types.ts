@@ -58,8 +58,6 @@ export interface PropertyValueProps extends OptionCallbacks, ReaderContext {
   startOpen?: boolean;
   /** The people a person property can be set to. */
   users?: readonly PropertyUser[];
-  /** How names are shown: one of the formats of logic/users.ts. */
-  nameFormat?: string;
   /** How pickers open. The caller decides; nothing here looks at the viewport. */
   presentation?: Presentation;
   /**

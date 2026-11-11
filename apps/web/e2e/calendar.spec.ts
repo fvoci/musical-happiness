@@ -12,62 +12,25 @@
  * desktop (a pane of 1024 pixels, a mouse) and the unfolded device (570, a
  * finger) have room for bars; the phone (412) gets the small grid.
  */
-import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 
+import {
+  bars,
+  calendar,
+  CALENDAR_PAGE,
+  day,
+  dayList,
+  grid,
+  mini,
+  NOW,
+  openCalendar,
+  setDates,
+  wide,
+} from './calendar.support.ts';
 import { boardPage, dialog, fitPane, openView, touch } from './kanban.support.ts';
 import { screensDir } from './screens.ts';
 
-const WELCOME = ['Welcome to fvoci!', 'Preview: Calendar View'] as const;
-const NOW = new Date('2026-11-09T16:00:00Z'); // 01:00 on the 10th in Seoul
-
-test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
-
-const calendar = (page: Page): Locator => page.getByTestId('calendar');
-const grid = (page: Page): Locator => page.getByTestId('month-grid');
-const mini = (page: Page): Locator => page.getByTestId('mini-month');
-const day = (page: Page, date: string): Locator => calendar(page).locator(`[data-day="${date}"]`);
-const bars = (page: Page, title: string): Locator =>
-  grid(page).locator('[data-bar]').filter({ hasText: title });
-const dayList = (page: Page): Locator => page.getByTestId('day-list');
-const wide = (info: TestInfo): boolean => info.project.name !== 'mobile';
-
-/** A date value as the wire has it: a day as text, a moment as milliseconds. */
-type Stored = { from: string | number; to?: string | number } | undefined;
-
-/** Gives cards of the open board a value of "Due Date", through the board store. */
-async function setDates(page: Page, values: Record<string, Stored>): Promise<void> {
-  await page.evaluate(async (wanted) => {
-    interface Store {
-      board: { cardProperties: { id: string; name: string }[] };
-      cards: { id: string; title: string }[];
-      setCardProperty(cardId: string, propertyId: string, value: unknown): Promise<void>;
-    }
-    const { workspace } = (window as unknown as { fvociDev: { workspace: { board: Store } } })
-      .fvociDev;
-    const store = workspace.board;
-    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
-    for (const [title, value] of Object.entries(wanted)) {
-      const card = store.cards.find((each) => each.title === title);
-      if (!card || !due) throw new Error(`no card "${title}" or no Due Date`);
-      await store.setCardProperty(card.id, due.id, value);
-    }
-  }, values);
-}
-
-/** Opens the calendar of the welcome board with a few dated cards. */
-async function openCalendar(page: Page, info: TestInfo): Promise<void> {
-  await page.clock.setFixedTime(NOW);
-  await openView(page, info, ...WELCOME);
-  await setDates(page, {
-    'Drag cards': { from: '2026-11-12' },
-    // Three weeks: 12 to 24 November.
-    'Share a board': { from: '2026-11-12', to: '2026-11-24' },
-    // 08:00 on the 10th in Seoul.
-    'Create a new card': { from: Date.parse('2026-11-09T23:00:00Z') },
-    'Filter and sort cards': { from: '2026-12-03' },
-  });
-  await expect(calendar(page)).toHaveAttribute('data-layout', wide(info) ? 'bars' : 'mini');
-}
+test.use(CALENDAR_PAGE);
 
 test('a calendar view is made from the list of kinds, placed by the first date', async ({
   page,

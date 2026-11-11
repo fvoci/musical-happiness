@@ -30,13 +30,14 @@
   let mode = $state<'signIn' | 'register'>('signIn');
   let login = $state('');
   let username = $state('');
+  let displayName = $state('');
   let email = $state('');
   let password = $state('');
   let token = $state('');
   let working = $state(false);
   let problem = $state<string | undefined>(undefined);
 
-  type Field = 'login' | 'username' | 'email' | 'password' | 'token';
+  type Field = 'login' | 'username' | 'displayName' | 'email' | 'password' | 'token';
 
   /** What is wrong with each field, where the server said so of the field. */
   let fieldProblems = $state.raw<Partial<Record<Field, string>>>({});
@@ -50,6 +51,7 @@
     signIn: { '/username': 'login', '/email': 'login', '/password': 'password' },
     register: {
       '/username': 'username',
+      '/displayName': 'displayName',
       '/email': 'email',
       '/password': 'password',
       '/token': 'token',
@@ -64,7 +66,11 @@
       case 'too_short':
         return field === 'password' ? m.account_password_too_short() : m.account_field_invalid();
       case 'too_long':
-        return m.account_field_too_long();
+        return field === 'displayName'
+          ? m.account_display_name_too_long()
+          : m.account_field_too_long();
+      case 'invalid_characters':
+        return m.account_display_name_invalid_characters();
       case 'invalid_format':
         return field === 'email' ? m.account_email_invalid() : m.account_field_invalid();
       case 'username_taken':
@@ -100,7 +106,14 @@
   }
 
   /** The fields in the order the forms show them, for finding the first that is wrong. */
-  const FIELD_ORDER: readonly Field[] = ['login', 'username', 'email', 'password', 'token'];
+  const FIELD_ORDER: readonly Field[] = [
+    'login',
+    'username',
+    'displayName',
+    'email',
+    'password',
+    'token',
+  ];
 
   /** The words for a refusal. */
   function problemOf(error: unknown): string {
@@ -136,6 +149,8 @@
       if (mode === 'register') {
         await onRegister({
           username: username.trim(),
+          // Trimmed by the server, as it counts white space.
+          displayName,
           email: email.trim(),
           password,
           token: token.trim(),
@@ -230,6 +245,24 @@
           class="roomy:h-touch roomy:text-base"
         />
         {@render fieldProblem('username')}
+      </div>
+      <div class="grid gap-1.5">
+        <Label for="account-displayName">{m.account_display_name()}</Label>
+        <Input
+          id="account-displayName"
+          name="displayName"
+          bind:value={displayName}
+          autocomplete="name"
+          aria-invalid={fieldProblems.displayName ? 'true' : undefined}
+          aria-describedby={fieldProblems.displayName
+            ? 'account-displayName-problem account-displayName-hint'
+            : 'account-displayName-hint'}
+          class="roomy:h-touch roomy:text-base"
+        />
+        {@render fieldProblem('displayName')}
+        <p id="account-displayName-hint" class="text-xs text-muted-foreground">
+          {m.account_display_name_hint()}
+        </p>
       </div>
       <div class="grid gap-1.5">
         <Label for="account-email">{m.account_email()}</Label>

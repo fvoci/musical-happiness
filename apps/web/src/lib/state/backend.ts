@@ -18,6 +18,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { DisplaySettings } from '../logic/display.ts';
+import type { LanguageSettings } from '../logic/language.ts';
 import type { RegionalSettings } from '../logic/regional.ts';
 import type { UserNames } from '../logic/users.ts';
 import type {
@@ -29,6 +30,11 @@ import type {
   BoardView,
   Card,
 } from '../logic/wire.ts';
+
+import type { TrashReads } from './trash-reads.ts';
+
+export type { Account, Registration } from './account-types.ts';
+export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
 
 // ----------------------------------------------------------------- errors
 
@@ -159,11 +165,11 @@ export interface Team {
 }
 
 /**
- * The reader's account settings: the three of the server design (5.8) and
- * the four display settings the plan adds to them. The answer always holds
- * every member.
+ * The reader's account settings: the three of the server design (5.8), the
+ * four display settings the plan adds to them, and the language of the
+ * interface. The answer always holds every member.
  */
-export type AccountSettings = RegionalSettings & DisplaySettings;
+export type AccountSettings = RegionalSettings & DisplaySettings & LanguageSettings;
 
 /** A member set to `null` goes back to its default. */
 export type AccountSettingsPatch = { [K in keyof AccountSettings]?: AccountSettings[K] | null };
@@ -308,37 +314,6 @@ export interface UploadedFile {
   contentType: string;
 }
 
-// ---------------------------------------------------------------- account
-
-/** What an account is made with. */
-export interface Registration {
-  /** The name to sign in with. */
-  username: string;
-  email: string;
-  password: string;
-  /** The team's invitation; the first account of a server needs none. */
-  token?: string;
-}
-
-/**
- * Signing in and out, where a backend has accounts: the server has, the one
- * in memory has not. Until somebody is signed in, every read of a backend
- * with accounts is refused with 401.
- */
-export interface Account {
-  /** `login` is the name to sign in with, or the email address. */
-  signIn(login: string, password: string): Promise<void>;
-  /** Makes an account. It does not sign in. */
-  register(registration: Registration): Promise<void>;
-  signOut(): Promise<void>;
-  /**
-   * Changes the reader's password; `oldPassword` proves they know it. Their
-   * other sessions end, this one goes on. A wrong old password is 400 with
-   * the reason `invalid_credentials`, too many tries 429.
-   */
-  changePassword(oldPassword: string, newPassword: string): Promise<void>;
-}
-
 // ---------------------------------------------------------------- changes
 
 /**
@@ -377,9 +352,11 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend {
+export interface Backend extends TrashReads {
   // The reader and the people around them.
   me(): Promise<User>;
+  /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
+  patchMe(patch: { displayName: string | null }): Promise<User>;
   teams(): Promise<Team[]>;
   /** The people of a team: who can be mentioned or set as a person. */
   users(teamId: string): Promise<User[]>;
@@ -432,7 +409,7 @@ export interface Backend {
   searchBoards(teamId: string, query: string): Promise<Board[]>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
-  /** Takes the board, its blocks and its members back out of the trash. */
+  /** Takes the board back out of the trash, filed where each person had it (`TrashReads`). */
   restoreBoard(boardId: string): Promise<Board>;
   members(boardId: string): Promise<BoardMember[]>;
   /**

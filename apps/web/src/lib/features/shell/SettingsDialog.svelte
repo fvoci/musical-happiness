@@ -8,12 +8,13 @@
     answers are shown, so that the place is known, and cannot be chosen.
   - Time zone, first day of the week, way of writing hours: `Automatic`
     follows the device and the language.
-  - Language: kept on the device, not in the account; the page loads again in
-    the chosen one. The list and the function that changes it come from the
-    app (a feature cannot import them).
+  - Language: an account setting, `Automatic` following the browser; the page
+    loads again in the chosen one. The list and the function that changes it
+    come from the app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
   - Archives: every board of the team exported, an archive imported; the
     progress shows at the foot of the page (`Transfers.svelte`).
+  - The display name (`DisplayNameField.svelte`).
   - Who is signed in, signing out and changing the password: only where the
     backend has accounts.
 
@@ -52,6 +53,7 @@
   import { Switch } from '$lib/ui/switch/index.js';
 
   import { devReadout } from './dev.svelte.ts';
+  import DisplayNameField from './DisplayNameField.svelte';
   import PasswordChange from './PasswordChange.svelte';
   import SettingChoice from './SettingChoice.svelte';
   import SettingPicker from './SettingPicker.svelte';
@@ -68,10 +70,12 @@
     workspace: Workspace;
     /** The languages the app has, as tags. Without them the language is not offered. */
     locales?: readonly string[];
-    /** The language the app is shown in. */
-    locale?: string;
-    /** Changes the language; the page is loaded again in it. */
-    onChooseLocale?: (locale: string) => void;
+    /** The reader's language setting: `auto`, or the one of `locales` it is shown in. */
+    language?: string;
+    /** The one of `locales` that `auto` shows the app in. */
+    autoLocale?: string;
+    /** Changes the language setting; the page is loaded again in it. */
+    onChooseLanguage?: (setting: string) => void;
     /** Signs the reader out. Without it there is no account to leave (the backend in memory). */
     onSignOut?: () => void;
     /** Changes the password. Without it there is no account (the backend in memory). */
@@ -82,8 +86,9 @@
     open = $bindable(),
     workspace,
     locales = [],
-    locale,
-    onChooseLocale,
+    language,
+    autoLocale,
+    onChooseLanguage,
     onSignOut,
     onChangePassword,
   }: Props = $props();
@@ -143,9 +148,13 @@
     })),
   ]);
 
-  const languages = $derived(
-    locales.map((tag) => ({ id: tag, label: languageName(tag), also: [tag] })),
-  );
+  const languages = $derived([
+    {
+      id: AUTO,
+      label: m.shell_settings_language_auto({ language: languageName(autoLocale ?? '') }),
+    },
+    ...locales.map((tag) => ({ id: tag, label: languageName(tag), also: [tag] })),
+  ]);
 
   /** How long the change of language waits for the history at most, in milliseconds. */
   const GIVE_BACK_LIMIT = 2000;
@@ -155,7 +164,7 @@
    * their entries of the history back: the page is loaded again right after,
    * and entries left behind would make "back" do nothing a few times.
    */
-  function chooseLocale(tag: string): void {
+  function chooseLanguage(tag: string): void {
     open = false;
     const started = performance.now();
     const whenGivenBack = (): void => {
@@ -163,7 +172,7 @@
       if (isOverlayEntry(history.state) && performance.now() - started < GIVE_BACK_LIMIT) {
         requestAnimationFrame(whenGivenBack);
       } else {
-        onChooseLocale?.(tag);
+        onChooseLanguage?.(tag);
       }
     };
     requestAnimationFrame(whenGivenBack);
@@ -262,14 +271,14 @@
         onChange={(hourCycle: HourCycleSetting) => void workspace.changeSettings({ hourCycle })}
       />
 
-      {#if languages.length > 0 && locale !== undefined && onChooseLocale}
+      {#if locales.length > 0 && language !== undefined && onChooseLanguage}
         <SettingPicker
           name="language"
           label={m.shell_settings_language()}
           searchLabel={m.shell_settings_language_search()}
           items={languages}
-          value={locale}
-          onPick={chooseLocale}
+          value={language}
+          onPick={chooseLanguage}
         />
       {/if}
 
@@ -328,6 +337,12 @@
         <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
       </section>
 
+      {#if workspace.me}
+        <div class="border-t pt-4">
+          <DisplayNameField {workspace} />
+        </div>
+      {/if}
+
       {#if onChangePassword}
         <PasswordChange onChange={onChangePassword} />
       {/if}
@@ -335,7 +350,9 @@
       {#if onSignOut}
         <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">
           <span class="min-w-0 flex-1 truncate text-muted-foreground" data-testid="signed-in-as">
-            {m.account_signed_in_as({ name: workspace.me?.username ?? '' })}
+            {m.account_signed_in_as({
+              name: (workspace.me && workspace.userName(workspace.me.id)) ?? '',
+            })}
           </span>
           <Button variant="outline" class="roomy:min-h-touch" onclick={onSignOut}>
             {m.account_sign_out()}

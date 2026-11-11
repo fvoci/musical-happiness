@@ -1,7 +1,7 @@
 /** Addresses: a board, a view and a card under the base path the server names. */
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { matchLocale } from '../../../src/app/locale.ts';
+import { localeOfSetting, matchLocale } from '../../../src/app/locale.ts';
 import { parseRoute, readBasePath, routePath, Router } from '../../../src/app/router.svelte.ts';
 
 const none = { boardId: undefined, viewId: undefined, cardId: undefined, unknown: false };
@@ -129,5 +129,16 @@ describe('the language', () => {
     expect(matchLocale('zh-CN')).toBe('zh-Hans');
     expect(matchLocale('pt-PT')).toBe('pt-BR');
     expect(matchLocale('xx-YY')).toBeUndefined();
+    // The server answers a tag as it was given, case and all.
+    expect(matchLocale('PT-br')).toBe('pt-BR');
+    expect(matchLocale('ZH-hant')).toBe('zh-Hant');
+  });
+
+  it('shows the account setting in its closest set, and auto or one it has none for as the browser asks', () => {
+    const browser = matchLocale(navigator.languages[0] ?? '') ?? 'en';
+    expect(localeOfSetting('ko')).toBe('ko');
+    expect(localeOfSetting('de-AT')).toBe('de');
+    expect(localeOfSetting('auto')).toBe(browser);
+    expect(localeOfSetting('xx')).toBe(browser);
   });
 });
