@@ -31,12 +31,10 @@ import {
   isBackendError,
   isCardBlock,
   isViewBlock,
-  type Attachment,
   type CardDraft,
   type CardPatch,
   type CardSummary,
   type Change,
-  type Comment,
   type ViewDraft,
 } from './backend.ts';
 import { droppedCardOrder, placeAmongAll } from './card-order.ts';
@@ -322,6 +320,12 @@ export class BoardStore {
         if (!this.board || change.board.updateAt >= this.board.updateAt) this.board = change.board;
         break;
       case 'boardDeleted':
+        // An open board may only have been closed to the reader (taken off
+        // it): read again, it shows as one to join, or as gone.
+        if (this.board?.type === 'O' && !this.board.isTemplate && !this.#closed) {
+          void this.load();
+          break;
+        }
         this.missing = true;
         this.status = 'failed';
         break;
@@ -412,11 +416,6 @@ export class BoardStore {
   /** A card came back from the backend, outside of the card list's own writes. */
   receiveCard(card: CardSummary): void {
     this.#receiveCard(card);
-  }
-
-  /** A comment or attachment of the open card changed. */
-  receiveChild(block: Comment | Attachment): void {
-    this.openCard?.receive(block);
   }
 
   async #perform<T>(

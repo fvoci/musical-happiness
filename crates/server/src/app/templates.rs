@@ -1,9 +1,9 @@
 //! The built-in template boards.
 //!
-//! Ports `server/app/templates.go`. The templates are the web app's conversion of the
-//! original's (`apps/web/tools/templates/output/`, `docs/s6-design.md` 3.10 and 5.7),
-//! copied into this crate's `assets/templates/` and embedded in the binary. They are
-//! stored once, when a database has none or an older version of them.
+//! Ports `server/app/templates.go`. The templates are the files of this crate's
+//! `assets/templates/` (`docs/s6-design.md` 3.10 and 5.7), embedded in the binary; the
+//! web app's in-memory backend reads the same files. They are stored once, when a
+//! database has none or an older version of them.
 
 use fvoci_model::{
     Block, BlockType, Board, BoardType, BoardsAndBlocks, renew_boards_and_blocks_ids,
@@ -23,12 +23,12 @@ const DEFAULT_TEMPLATE_VERSION: i64 = 7;
 /// boards; see [`is_onboarding_template`].
 pub(crate) const ONBOARDING_PROPERTY: &str = "onboarding";
 
-/// The board property that names a built-in template, as the converter does (`key`). It
+/// The board property that names a built-in template, as its file does (`key`). It
 /// stays when the title changes; a copy carries it too, so it names a template only
 /// together with `isBuiltin`.
 const TEMPLATE_KEY_PROPERTY: &str = "templateKey";
 
-/// The template files, by name, in the order of the converter's `index.json`.
+/// The template files of `assets/templates/`, by name, in the order of their names.
 const TEMPLATE_FILES: [(&str, &str); 13] = [
     (
         "01-meeting-agenda.json",
@@ -84,7 +84,7 @@ const TEMPLATE_FILES: [(&str, &str); 13] = [
     ),
 ];
 
-/// One template file as the converter writes it.
+/// One template file of `assets/templates/`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TemplateFile {
@@ -117,8 +117,8 @@ struct TemplateBoard {
 ///
 /// # Errors
 ///
-/// Returns a server error if a template file is not what the converter writes: a
-/// mistake in the embedded files, which the tests catch.
+/// Returns a server error if a template file is not of the shape of [`TemplateFile`]:
+/// a mistake in the embedded files, which the tests catch.
 fn builtin_templates(team_id: &str) -> Result<BoardsAndBlocks, AppError> {
     let mut boards_and_blocks = BoardsAndBlocks::default();
     for (name, text) in TEMPLATE_FILES {
@@ -301,6 +301,22 @@ mod tests {
             .properties
             .insert(ONBOARDING_PROPERTY.to_owned(), Value::Bool(true));
         board
+    }
+
+    #[test]
+    fn every_template_file_is_read_with_one_marked_for_the_tour() {
+        let templates = builtin_templates("t-root").expect("the embedded template files are read");
+        assert_eq!(
+            templates.boards.len(),
+            TEMPLATE_FILES.len(),
+            "a board per file"
+        );
+        let marked = templates
+            .boards
+            .iter()
+            .filter(|board| board.properties.get(ONBOARDING_PROPERTY) == Some(&Value::Bool(true)))
+            .count();
+        assert_eq!(marked, 1, "one template is marked for the onboarding tour");
     }
 
     #[test]

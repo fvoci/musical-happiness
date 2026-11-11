@@ -714,6 +714,34 @@ describe('an open board the reader is no member of', () => {
     expect(board.members.some((member) => member.userId === readerId)).toBe(true);
   });
 
+  it('is shown to join again when the reader is taken off it while it is open', async () => {
+    const made = setup();
+    const listeners: ChangeListener[] = [];
+    const watch = made.backend.watchBoard.bind(made.backend);
+    vi.spyOn(made.backend, 'watchBoard').mockImplementation((boardId, listener) => {
+      listeners.push(listener);
+      return watch(boardId, listener);
+    });
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const stored = made.world.boards.get(first.id);
+    if (!stored) throw new Error('no stored board');
+    made.world.boards.set(first.id, { ...stored, type: 'O' });
+    const board = await made.workspace.openBoard(first.id);
+    expect(board.status).toBe('ready');
+
+    // Taken off it: the members read on the message are refused (the live
+    // connection tells that as the board gone), and so are its views.
+    made.backend.failNext('views', new BackendError(403));
+    // Over a copy, as the live connection tells: reading again listens again.
+    for (const listener of [...listeners]) listener({ kind: 'boardDeleted', boardId: first.id });
+    await vi.waitFor(() => {
+      expect(board.joinable).toBe(true);
+    });
+    expect(board.missing).toBe(false);
+  });
+
   it('is gone when joining finds it no longer open, and is not read once left', async () => {
     const made = setup();
     await made.workspace.load();
