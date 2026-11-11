@@ -33,9 +33,9 @@
     workspace: Workspace;
     /** The board on the page. */
     boardId: string | undefined;
-    /** Show the button that opens the drawer. */
     /** The address of a board's page. */
     boardHref: (boardId: string) => string;
+    /** Show the button that opens the drawer. */
     menuButton: boolean;
     onOpenSidebar: () => void;
   }
@@ -57,6 +57,8 @@
   );
   const board = $derived(store?.board ?? listed);
   const members = $derived(store?.orderedMembers ?? []);
+  /** Sharing is for the board's admins; a template is shared as it is made, never joined. */
+  const canShare = $derived(store?.canShare === true && store.board?.isTemplate !== true);
 </script>
 
 <header
@@ -131,7 +133,7 @@
     </ul>
   {/if}
 
-  {#if store?.canShare}
+  {#if canShare}
     <Button
       variant="outline"
       size="sm"
@@ -165,7 +167,7 @@
   </IconButton>
 </header>
 
-{#if store?.canShare}
+{#if store && canShare}
   <ShareDialog
     bind:open={sharing}
     {workspace}

@@ -823,5 +823,7 @@ describe('sharing a board', () => {
     if (!someone) throw new Error('unexpected seed');
     const found = await workspace.searchUsers(someone.username.slice(1, 4).toUpperCase());
     expect(found.map((user) => user.id)).toContain(someone.id);
+    // The team's list without a search stays what it was.
+    expect(workspace.teamUsers).toEqual(workspace.users);
   });
 });

@@ -7,7 +7,8 @@
   takes it back when the server refuses it. The people offered to add are
   the team's oldest ten until something is typed, then the ten the server
   finds by name (D2); members are left out. The public link is read when the
-  dialog opens.
+  dialog opens. The reader's own role is not changed here: that is another
+  admin's to do, so that nobody locks themselves out by a slip.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -77,6 +78,8 @@
       ? board.board.minimumRole
       : 'editor',
   );
+  /** The role a person is added with: what joining gives on an open board, an editor otherwise. */
+  const addedRole = $derived<BoardRole>(isOpen ? minimumRole : 'editor');
 
   // ------------------------------------------------------- adding people
 
@@ -85,8 +88,10 @@
   /** Readings of `found` begun: the latest is the one that counts. */
   let searches = 0;
 
+  let searchField = $state<HTMLInputElement | null>(null);
+
   const candidates = $derived(
-    (query.trim() === '' ? workspace.users : found).filter(
+    (query.trim() === '' ? workspace.teamUsers : found).filter(
       (user) => !board.members.some((member) => member.userId === user.id),
     ),
   );
@@ -109,6 +114,8 @@
   let sharingOff = $state(false);
   let sharingBusy = $state(false);
   let copied = $state(false);
+  /** Made anew when a change of the link is refused: the switch shows the link as it is again. */
+  let switchVersion = $state(0);
   /** Asking before a new link stops the old one. */
   let confirmOpen = $state(false);
 
@@ -133,8 +140,9 @@
     try {
       sharing = await workspace.backend.setSharing(board.boardId, { enabled, regenerate });
     } catch (error) {
-      if (isBackendError(error) && error.status === 403) sharingOff = true;
+      if (isBackendError(error) && error.reason === 'sharing_disabled') sharingOff = true;
       else workspace.report('save', error);
+      switchVersion += 1;
     } finally {
       sharingBusy = false;
     }
@@ -147,6 +155,17 @@
       found = [];
       void readSharing();
     });
+  }
+
+  /** The row that held the focus goes away: the focus goes to the search. */
+  async function addMember(user: User): Promise<void> {
+    searchField?.focus();
+    await board.addMember(user.id, addedRole);
+  }
+
+  async function removeMember(userId: string): Promise<void> {
+    searchField?.focus();
+    await board.removeMember(userId);
   }
 
   async function copyLink(): Promise<void> {
@@ -230,13 +249,19 @@
                     {m['ShareBoard.userPermissionsYouText']()}</span
                   >{/if}
               </span>
+              <!-- The reader's own role is another admin's to change: no locking oneself out. -->
               <select
-                class="h-8 rounded-md border border-input-border bg-background px-2 roomy:h-touch"
+                class="h-8 rounded-md border border-input-border bg-background px-2 disabled:opacity-60 roomy:h-touch"
                 aria-label={m.share_role_of({ name })}
+                title={mine ? m.share_you_note() : undefined}
+                disabled={mine}
                 value={roleOfMember(member)}
                 onchange={(event) =>
                   void board.setMemberRole(member.userId, event.currentTarget.value as BoardRole)}
               >
+                {#if roleOfMember(member) === 'none'}
+                  <option value="none" disabled>{m.share_role_none()}</option>
+                {/if}
                 {#each ROLE_ORDER as role (role)}
                   <option value={role}>{ROLE_LABELS[role]()}</option>
                 {/each}
@@ -244,7 +269,8 @@
               <IconButton
                 label={m.share_remove({ name })}
                 class="text-muted-foreground"
-                onclick={() => void board.removeMember(member.userId)}
+                disabled={mine}
+                onclick={() => void removeMember(member.userId)}
               >
                 <XIcon />
               </IconButton>
@@ -253,6 +279,7 @@
         </ul>
 
         <Input
+          bind:ref={searchField}
           type="search"
           bind:value={query}
           oninput={() => void search(query)}
@@ -265,7 +292,7 @@
         {#if candidates.length > 0}
           <ul class="grid gap-1" data-testid="share-candidates">
             {#each candidates as user (user.id)}
-              {@const name = nameOf(user.id)}
+              {@const name = user.username}
               <li class="flex min-h-8 items-center gap-2 roomy:min-h-touch">
                 <Avatar {name} colorKey={user.id} locale={workspace.locale} decorative />
                 <span class="min-w-0 flex-1 truncate">{name}</span>
@@ -274,7 +301,7 @@
                   size="sm"
                   class="roomy:min-h-touch"
                   aria-label={m.share_add({ name })}
-                  onclick={() => void board.addMember(user.id, minimumRole)}
+                  onclick={() => void addMember(user)}
                 >
                   <UserPlusIcon aria-hidden="true" />
                   {m.share_add_short()}
@@ -282,9 +309,11 @@
               </li>
             {/each}
           </ul>
-        {:else if query.trim() !== ''}
-          <p class="text-muted-foreground" role="status">{m.share_nobody_found()}</p>
         {/if}
+        <!-- In the page from the start: a live region that appears with its words is often not read. -->
+        <p class="text-muted-foreground empty:hidden" role="status">
+          {candidates.length === 0 && query.trim() !== '' ? m.share_nobody_found() : ''}
+        </p>
       </section>
 
       <!-- The public link. -->
@@ -294,12 +323,14 @@
           <span class="min-w-0 flex-1 text-muted-foreground">
             {m['ShareBoard.PublishDescription']()}
           </span>
-          <Switch
-            checked={sharing?.enabled ?? false}
-            disabled={!sharing || sharingBusy || sharingOff}
-            data-testid="share-public"
-            onCheckedChange={(checked: boolean) => void changeSharing(checked)}
-          />
+          {#key switchVersion}
+            <Switch
+              checked={sharing?.enabled ?? false}
+              disabled={!sharing || sharingBusy || sharingOff}
+              data-testid="share-public"
+              onCheckedChange={(checked: boolean) => void changeSharing(checked)}
+            />
+          {/key}
         </label>
         {#if sharingOff}
           <p class="text-muted-foreground" role="status">{m.share_public_off()}</p>

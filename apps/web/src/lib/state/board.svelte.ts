@@ -798,7 +798,7 @@ export class BoardStore {
     await this.changeBoard((board) => ({ ...board, type: open ? 'O' : 'P' }), 'changeBoardType');
   }
 
-  /** The role somebody gets by joining the board, and that every member has at least. */
+  /** The role somebody gets by joining the board. Members keep theirs. */
   async setMinimumRole(role: BoardRole): Promise<void> {
     await this.changeBoard((board) => ({ ...board, minimumRole: role }), 'changeMinimumRole');
   }
@@ -842,8 +842,11 @@ export class BoardStore {
     } catch (error) {
       this.members = before;
       this.workspace.report('save', error);
+      const told = this.#membersTold;
       try {
-        this.members = await this.#backend.members(this.boardId);
+        const members = await this.#backend.members(this.boardId);
+        // Members told meanwhile are newer than this reading.
+        if (told === this.#membersTold) this.members = members;
       } catch {
         // The next message, or the next reading, brings them.
       }

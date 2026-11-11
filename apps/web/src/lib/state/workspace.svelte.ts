@@ -63,6 +63,8 @@ export class Workspace {
   me = $state.raw<User | undefined>(undefined);
   team = $state.raw<Team | undefined>(undefined);
   users = $state.raw<User[]>([]);
+  /** The team's list as the backend gives it without a search: on the server, its oldest ten (D2). */
+  teamUsers = $state.raw<User[]>([]);
   boards = $state.raw<Board[]>([]);
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
@@ -144,6 +146,7 @@ export class Workspace {
       this.me = me;
       this.team = team;
       this.users = users;
+      this.teamUsers = users;
       this.boards = boards;
       this.categories = categories;
       this.#takeSettings(settings);
@@ -297,19 +300,14 @@ export class Workspace {
   }
 
   /**
-   * People of the team whose name has `query` in it (ten at most); their
-   * names are learnt. A failure finds nobody; a session that is over signs out.
+   * People of the team whose name has `query` in it (ten at most). A failure
+   * finds nobody; a session that is over signs out.
    */
   async searchUsers(query: string): Promise<User[]> {
     const team = this.team;
     if (!team) return [];
     try {
-      const found = await this.backend.searchUsers(team.id, query);
-      this.users = [
-        ...this.users,
-        ...found.filter((user) => this.#usersById[user.id] === undefined),
-      ];
-      return found;
+      return await this.backend.searchUsers(team.id, query);
     } catch (error) {
       if (isBackendError(error) && error.status === 401) this.report('load', error);
       else if (!isBackendError(error)) console.error(error);

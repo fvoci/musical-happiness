@@ -61,10 +61,14 @@ test('a board is shared from its dialog, and every change is kept on the server'
   const dialog = ownerPage.getByTestId('share-dialog');
   await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(1);
 
-  // Found by name, added with the board's minimum role, an editor.
+  // Not among the team's first ten, offered before anything is typed.
+  await expect(dialog.getByTestId('share-candidates').locator('li').first()).toBeVisible();
+  await expect(dialog.getByRole('button', { name: `Add ${guest.username}` })).toHaveCount(0);
+  // Found by name, added as an editor (the board is private).
   await dialog.getByTestId('share-search').fill(guest.username);
   await dialog.getByRole('button', { name: `Add ${guest.username}` }).click();
   await expect(dialog.getByTestId('share-members').locator('li')).toHaveCount(2);
+  await expect(dialog.getByTestId('share-search')).toBeFocused();
   await expect
     .poll(async () => (await members(api, board.boardId)).find((one) => one.userId === guestId))
     .toMatchObject({ schemeEditor: true, schemeAdmin: false });
@@ -77,11 +81,9 @@ test('a board is shared from its dialog, and every change is kept on the server'
     .poll(async () => (await members(api, board.boardId)).find((one) => one.userId === guestId))
     .toMatchObject({ schemeViewer: true, schemeEditor: false });
 
-  // The last admin cannot step down: the server refuses, and the role goes back.
-  await dialog.getByLabel(`Role of ${owner.username}`).selectOption('editor');
-  await expect(dialog.getByLabel(`Role of ${owner.username}`)).toHaveValue('admin');
-  await expect(ownerPage.locator('[data-problem]')).toHaveCount(1);
-  await ownerPage.locator('[data-problem]').getByRole('button').first().click();
+  // The reader's own role is another admin's to change.
+  await expect(dialog.getByLabel(`Role of ${owner.username}`)).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: `Remove ${owner.username}` })).toBeDisabled();
 
   // Taken off.
   await dialog.getByRole('button', { name: `Remove ${guest.username}` }).click();

@@ -23,7 +23,8 @@ describe('the share dialog', () => {
   it('names the highest role of a membership', () => {
     expect(roleOfMember(member({ schemeAdmin: true, schemeViewer: true }))).toBe('admin');
     expect(roleOfMember(member({ schemeCommenter: true }))).toBe('commenter');
-    expect(roleOfMember(member({}))).toBe('viewer');
+    expect(roleOfMember(member({ schemeViewer: true }))).toBe('viewer');
+    expect(roleOfMember(member({}))).toBe('none');
   });
 
   it('puts the read token on the board’s address', () => {

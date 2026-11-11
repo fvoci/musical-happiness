@@ -8,12 +8,15 @@ import type { BoardRole } from '$lib/state/index.ts';
 /** The roles, highest first. */
 export const ROLE_ORDER: readonly BoardRole[] = ['admin', 'editor', 'commenter', 'viewer'];
 
-/** The highest role a membership has; a membership with none counts as viewing. */
-export function roleOfMember(member: BoardMember): BoardRole {
+/**
+ * The highest role a membership has. `none`: the server keeps memberships
+ * without a role (they may not even view the board).
+ */
+export function roleOfMember(member: BoardMember): BoardRole | 'none' {
   if (member.schemeAdmin) return 'admin';
   if (member.schemeEditor) return 'editor';
   if (member.schemeCommenter) return 'commenter';
-  return 'viewer';
+  return member.schemeViewer ? 'viewer' : 'none';
 }
 
 /**

@@ -541,10 +541,13 @@ export class MemoryBackend implements Backend {
     return copy(sharing);
   }
 
+  /** As the server: whatever the case, the oldest first, ten at most. */
   async searchUsers(teamId: string, query: string): Promise<User[]> {
+    await this.#enter('searchUsers');
     const wanted = query.trim().toLowerCase();
     return (await this.users(teamId))
       .filter((user) => user.username.toLowerCase().includes(wanted))
+      .sort((first, second) => first.createAt - second.createAt)
       .slice(0, 10);
   }
 
