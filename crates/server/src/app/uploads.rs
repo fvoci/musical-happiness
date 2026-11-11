@@ -29,6 +29,7 @@ use tokio::sync::{OwnedMutexGuard, Semaphore};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use super::App;
+use super::doomed::Doomed;
 use super::files::FilePlace;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
@@ -697,14 +698,16 @@ impl App {
         // archive stays until it is imported. A server that stops meanwhile leaves a
         // directory that is no session's, which the start-up sweep removes.
         let directory = self.upload_dir(&upload.id);
-        let working = directory.with_extension(format!("importing-{}", new_secret()));
+        // Removed however the import ends, also when its request is dropped meanwhile.
+        let working =
+            Doomed::directory(directory.with_extension(format!("importing-{}", new_secret())));
         let moved = match fs::create_dir_all(&directory).await {
-            Ok(()) => fs::rename(&directory, &working).await,
+            Ok(()) => fs::rename(&directory, working.path()).await,
             Err(error) => Err(error),
         };
-        let archive = working.join("archive.boardarchive");
+        let archive = working.path().join("archive.boardarchive");
         let joined = match moved {
-            Ok(()) => join_parts(&parts, &working, &archive).await,
+            Ok(()) => join_parts(&parts, working.path(), &archive).await,
             Err(error) => Err(part_error(&error)),
         };
         self.discard_in_turn(upload).await;
@@ -716,7 +719,7 @@ impl App {
             }
             Err(error) => Err(error),
         };
-        remove_dir_quietly(&working).await;
+        drop(working);
         imported
     }
 

@@ -10,6 +10,7 @@ mod boards_and_blocks;
 mod cards;
 mod category;
 mod category_boards;
+mod doomed;
 mod export;
 mod files;
 mod import;

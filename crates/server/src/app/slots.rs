@@ -7,7 +7,7 @@
 //! again.
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// Why a slot was not given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,10 +45,8 @@ impl Slots {
 
     /// Takes a slot for the user, held until the [`Slot`] is dropped.
     pub(crate) fn take(&self, user_id: &str) -> Result<Slot, Busy> {
-        let mut held = self
-            .inner
-            .lock()
-            .expect("the slots are never held across a panic");
+        // The set has nothing a panic could leave half done.
+        let mut held = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if held.users.contains(user_id) {
             return Err(Busy::User);
         }
@@ -73,11 +71,8 @@ pub struct Slot {
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        // A poisoned lock means a panic while the map was changed; the slot is lost then
-        // rather than the drop panicking too.
-        if let Ok(mut held) = self.slots.lock() {
-            held.users.remove(&self.user_id);
-        }
+        let mut held = self.slots.lock().unwrap_or_else(PoisonError::into_inner);
+        held.users.remove(&self.user_id);
     }
 }
 

@@ -6,7 +6,6 @@
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
-use futures_util::StreamExt as _;
 use fvoci_model::UploadPurpose;
 use fvoci_store::PublicBoards;
 use serde::Deserialize;
@@ -21,7 +20,7 @@ use super::contract::params::{BoardId, TeamId};
 use super::contract::tag;
 use super::{ApiResult, RequiredSession, no_content};
 use super::{require_board_permission, require_team_access, user_is_guest};
-use crate::app::{App, ExportedArchive, Slot};
+use crate::app::{App, ExportedArchive};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
@@ -74,8 +73,8 @@ pub(super) async fn require_import_access(
 /// and the files the blocks show, the images of bodies among them.
 ///
 /// A user runs one export at a time, and the server as many as its setting
-/// `max_concurrent_exports` (2 unless set); an export runs until its archive is sent.
-/// Over either it is 429 with the reason `export_running` or `server_exports_busy`, and
+/// `max_concurrent_exports` (2 unless set); an export runs until its archive is written,
+/// and its download does not count. Over either it is 429 with the reason `export_running` or `server_exports_busy`, and
 /// is to be asked for again later.
 #[utoipa::path(
     get,
@@ -115,7 +114,8 @@ async fn handle_export_board(
     let archive = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
         .await?;
-    Ok(archive_response(archive, slot))
+    drop(slot);
+    Ok(archive_response(archive))
 }
 
 /// Export the boards of a team
@@ -157,7 +157,8 @@ async fn handle_export_team(
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
     let slot = app.start_export(user_id)?;
     let archive = app.export_archive(&team_id, &ids).await?;
-    Ok(archive_response(archive, slot))
+    drop(slot);
+    Ok(archive_response(archive))
 }
 
 /// Import an archive
@@ -232,8 +233,8 @@ async fn handle_import(
 }
 
 /// Sends an archive, written whole before, as the download the original sends, with its
-/// length. The export's `slot` is held until the archive is sent, or the client is gone.
-fn archive_response(archive: ExportedArchive, slot: Slot) -> Response {
+/// length.
+fn archive_response(archive: ExportedArchive) -> Response {
     let filename = export_filename(crate::auth::now_millis());
     (
         [
@@ -246,12 +247,7 @@ fn archive_response(archive: ExportedArchive, slot: Slot) -> Response {
             ("content-length", archive.size.to_string()),
         ],
         // Read in large pieces: each read of the file is a task of its own.
-        Body::from_stream(
-            ReaderStream::with_capacity(archive.file, SEND_CHUNK_BYTES).map(move |piece| {
-                let _held = &slot;
-                piece
-            }),
-        ),
+        Body::from_stream(ReaderStream::with_capacity(archive.file, SEND_CHUNK_BYTES)),
     )
         .into_response()
 }

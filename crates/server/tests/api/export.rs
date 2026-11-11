@@ -774,6 +774,13 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
     refused(&ts.client.get(&team_export).await, "export_running");
     let other = ts.app.start_export(&new_id()).expect("a place for another");
     refused(&ts.client2.get(&team_export).await, "server_exports_busy");
+    // Who may not export the board is told so first: a full server says nothing of it.
+    let outsider = export_board(&ts.client2, &board.id).await;
+    assert!(
+        [StatusCode::FORBIDDEN, StatusCode::NOT_FOUND].contains(&outsider.status),
+        "{}",
+        outsider.text()
+    );
 
     drop(mine);
     drop(other);

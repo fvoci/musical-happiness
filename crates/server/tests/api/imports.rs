@@ -447,6 +447,10 @@ async fn imports_run_one_per_user_and_two_on_the_server() {
     let response = import_upload(&ts.client, ROOT_TEAM_ID, &opened).await;
     response.check_status(StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.error_reason(), "server_imports_busy");
+    // Another user's upload is not there for whoever names it, full server or not.
+    import_upload(&ts.client2, ROOT_TEAM_ID, &opened)
+        .await
+        .check_not_found();
 
     drop(first);
     drop(second);

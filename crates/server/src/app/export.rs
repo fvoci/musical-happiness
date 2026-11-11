@@ -18,6 +18,7 @@ use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
 
 use super::App;
+use super::doomed::Doomed;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
@@ -71,20 +72,14 @@ impl App {
         fs::create_dir_all(&directory)
             .await
             .map_err(|error| io_error(&error))?;
-        let path = directory.join(format!("{}.boardarchive", new_secret()));
-        let written = self.write_archive(&path, team_id, &boards).await;
-        let opened = match written {
-            Ok(()) => fs::File::open(&path)
-                .await
-                .map_err(|error| io_error(&error)),
-            Err(error) => Err(error),
-        };
-        if let Err(error) = fs::remove_file(&path).await
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            tracing::warn!(%error, "a temporary archive could not be removed");
-        }
-        let file = opened?;
+        // Removed however the export ends, also when its request is dropped meanwhile;
+        // what is sent is read from the file opened before.
+        let path = Doomed::file(directory.join(format!("{}.boardarchive", new_secret())));
+        self.write_archive(path.path(), team_id, &boards).await?;
+        let file = fs::File::open(path.path())
+            .await
+            .map_err(|error| io_error(&error))?;
+        drop(path);
         let size = file
             .metadata()
             .await
