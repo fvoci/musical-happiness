@@ -74,17 +74,31 @@ impl LocalFiles {
         }
     }
 
-    /// Whether the directory can be used: it is a directory, or is not there yet and is
-    /// made on the first write.
-    pub(super) async fn check(&self) -> Result<(), StorageError> {
+    /// Writes `bytes` at `path` as every file is written, reads them back and removes
+    /// them: whether the directory is one (or can be made) and the server may write,
+    /// read and remove files in it. Returns what was read.
+    pub(super) async fn check(
+        &self,
+        path: &str,
+        mut bytes: &[u8],
+    ) -> Result<Vec<u8>, StorageError> {
         match fs::metadata(&self.root).await {
-            Ok(metadata) if metadata.is_dir() => Ok(()),
-            Ok(_) => Err(StorageError::Config(
-                "filespath is not a directory".to_owned(),
-            )),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
+            Ok(metadata) if !metadata.is_dir() => {
+                return Err(StorageError::Config(
+                    "filespath is not a directory".to_owned(),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
+        self.write(path, &mut bytes).await?;
+        let read = fs::read(self.resolve(path)?).await;
+        // Removed also when it could not be read.
+        let removed = self.delete(path).await;
+        let read = read?;
+        removed?;
+        Ok(read)
     }
 
     pub(super) async fn write(

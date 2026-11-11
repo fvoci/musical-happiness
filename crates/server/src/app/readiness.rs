@@ -37,8 +37,8 @@ pub enum ReadinessCheck {
 pub struct Readiness {
     /// Whether the database answers a statement.
     pub database: ReadinessCheck,
-    /// Whether the file storage can be used: on the local disk, the directory; on the
-    /// object store, the bucket with the credentials.
+    /// Whether the file storage can be used: a small file is written to it, read back and
+    /// removed, on the local disk as on the object store.
     pub files: ReadinessCheck,
 }
 

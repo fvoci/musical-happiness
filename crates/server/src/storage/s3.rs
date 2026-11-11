@@ -154,14 +154,27 @@ impl S3Files {
         Ok(written)
     }
 
-    /// Whether the bucket is there and answers with these credentials: a list under
-    /// `path`, which need not be there. A look at a key would not do: the object store
-    /// answers a missing bucket and a missing key alike to it.
-    pub(super) async fn check(&self, path: &str) -> Result<(), StorageError> {
-        match self.store.list(Some(&self.key(path)?)).next().await {
-            None | Some(Ok(_)) => Ok(()),
-            Some(Err(error)) => Err(StorageError::ObjectStore(error)),
-        }
+    /// Writes `bytes` at `path`, reads them back and removes them: whether the bucket is
+    /// there and takes, gives and removes objects with these credentials. Returns what
+    /// was read.
+    pub(super) async fn check(
+        &self,
+        path: &str,
+        bytes: &'static [u8],
+    ) -> Result<Bytes, StorageError> {
+        let key = self.key(path)?;
+        self.store
+            .put(&key, PutPayload::from_static(bytes))
+            .await
+            .map_err(StorageError::ObjectStore)?;
+        let read = async { self.store.get(&key).await?.bytes().await }
+            .await
+            .map_err(StorageError::ObjectStore);
+        // Removed also when it could not be read.
+        let removed = self.delete(path).await;
+        let read = read?;
+        removed?;
+        Ok(read)
     }
 
     pub(super) async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {

@@ -834,8 +834,8 @@ export interface paths {
         /**
          * Whether the server can serve
          * @description The check that the server is ready: the database answers a statement, and the file
-         *     storage can be used, each within two seconds; on S3 the check lists the bucket under
-         *     a key, which needs the permission to list it. An answer is kept five seconds; a
+         *     storage takes a small file, gives it back and removes it, each within two seconds.
+         *     An answer is kept five seconds; a
          *     request after that waits for the checks made anew, up to two and a half seconds
          *     (a probe's timeout of three seconds is enough), and else gets the answer before.
          *     Neither answer says why a check failed: the log does.
@@ -2567,8 +2567,8 @@ export interface components {
             /** @description Whether the database answers a statement. */
             database: components["schemas"]["ReadinessCheck"];
             /**
-             * @description Whether the file storage can be used: on the local disk, the directory; on the
-             *     object store, the bucket with the credentials.
+             * @description Whether the file storage can be used: a small file is written to it, read back and
+             *     removed, on the local disk as on the object store.
              */
             files: components["schemas"]["ReadinessCheck"];
         };
