@@ -29,8 +29,8 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, { title: 'Harvest calendar' });
-  // A second date, after "Due": the one the page will choose. Not the first,
-  // which a view that names no date falls back to.
+  // A second date, after "Due": the one the page will choose. Not the first, which a new
+  // calendar is placed by, so that the reload shows the choice and not the start.
   const added = await api.patch(`/api/v1/boards/${board.boardId}`, {
     data: { updatedCardProperties: [{ id: 'start', name: 'Start', type: 'date', options: [] }] },
   });
