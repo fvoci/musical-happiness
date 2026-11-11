@@ -11,6 +11,7 @@
 import { cardsOfView } from '../logic/card-list.ts';
 import { getVisibleAndHiddenGroups, type BoardGroups, type NoValueLabel } from '../logic/group.ts';
 import { propertyBehavior } from '../logic/properties.ts';
+import { sameOrder, withPropertyOrder } from '../logic/property-order.ts';
 import { manualComparator } from '../logic/sort.ts';
 import {
   createBoardView,
@@ -824,6 +825,38 @@ export class BoardStore {
       description,
       groupId,
     );
+  }
+
+  /**
+   * Puts the board's card properties in an order (`reorderCardProperties`),
+   * shown at once and put back if refused; undo puts the order before back.
+   */
+  async reorderProperties(order: readonly string[]): Promise<void> {
+    const before = this.board?.cardProperties.map((template) => template.id);
+    if (!before || sameOrder(before, order)) return;
+    await this.#perform(
+      () => this.#sendPropertyOrder(order, before),
+      () => this.#sendPropertyOrder(before, order),
+      'reorderProperties',
+    );
+  }
+
+  async #sendPropertyOrder(order: readonly string[], reverse: readonly string[]): Promise<void> {
+    if (!this.board) return;
+    this.board = withPropertyOrder(this.board, order);
+    try {
+      await this.#backend.reorderCardProperties(this.boardId, [...order]);
+    } catch (error) {
+      // The board as it is now: a message may have brought a newer one meanwhile.
+      const now = this.#boardNow();
+      if (now) this.board = withPropertyOrder(now, reverse);
+      throw error;
+    }
+  }
+
+  /** The board as it is now (read after a wait, when it may have changed). */
+  #boardNow(): Board | undefined {
+    return this.board;
   }
 
   // ------------------------------------------------------------ sharing

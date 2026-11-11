@@ -11,10 +11,14 @@
     closes. An empty name is not a name: the stored one comes back.
   - Changing the kind asks first when cards have a value: it says how many
     values stay and how many are removed (property-change.ts has the rules).
+  - Moving it up or down changes the order of the board's properties, which
+    every card and the view's panel show (`BoardStore.reorderProperties`).
   - Deleting always asks.
 -->
 <script lang="ts">
+  import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import CheckIcon from '@lucide/svelte/icons/check';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -26,6 +30,7 @@
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { SELECTABLE_PROPERTY_TYPES } from '$lib/logic/properties.ts';
+  import { movedProperty } from '$lib/logic/property-order.ts';
   import type { PropertyTemplate, PropertyType } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -60,6 +65,12 @@
   let typeQuestion = $state('');
 
   const Icon = $derived(propertyTypeIcon(template.type));
+  const order = $derived(board.board?.cardProperties.map((each) => each.id) ?? []);
+  const place = $derived(order.indexOf(template.id));
+
+  function move(step: -1 | 1): void {
+    void board.reorderProperties(movedProperty(order, template.id, step));
+  }
 
   // A name that changes elsewhere replaces the text, unless the menu is open on it.
   $effect(() => {
@@ -202,6 +213,30 @@
         <span class="min-w-0 flex-1 truncate">{m['PropertyMenu.typeTitle']()}</span>
         <span class="shrink-0 text-muted-foreground">{propertyTypeName(template.type)}</span>
         <ChevronRightIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        data-action="move-up"
+        class={[ROW, 'disabled:opacity-50']}
+        disabled={place <= 0}
+        onclick={() => {
+          move(-1);
+        }}
+      >
+        <ArrowUpIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span class="min-w-0 flex-1 truncate">{m.card_property_move_up()}</span>
+      </button>
+      <button
+        type="button"
+        data-action="move-down"
+        class={[ROW, 'disabled:opacity-50']}
+        disabled={place < 0 || place >= order.length - 1}
+        onclick={() => {
+          move(1);
+        }}
+      >
+        <ArrowDownIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <span class="min-w-0 flex-1 truncate">{m.card_property_move_down()}</span>
       </button>
       <button
         type="button"

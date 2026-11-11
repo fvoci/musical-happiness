@@ -73,6 +73,7 @@ import {
   type ViewDraft,
 } from '../backend.ts';
 
+import { withPropertyOrder } from '../../logic/property-order.ts';
 import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
 import {
@@ -491,6 +492,25 @@ export class MemoryBackend implements Backend {
     board.modifiedBy = this.userId;
     this.#tellBoard(board);
     return copy(board);
+  }
+
+  async reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]> {
+    await this.#enter('reorderCardProperties');
+    const stored = this.#board(boardId);
+    const ids = stored.cardProperties.map((template) => template.id);
+    // As the server: every property of the board once, or nothing changes.
+    if (new Set(propertyIds).size !== propertyIds.length) {
+      fail(400, 'the order names each property of the board once');
+    }
+    if (propertyIds.some((id) => !ids.includes(id)) || propertyIds.length !== ids.length) {
+      fail(400, 'the order names every property of the board');
+    }
+    const board = withPropertyOrder(stored, propertyIds);
+    board.updateAt = this.world.now();
+    board.modifiedBy = this.userId;
+    this.world.boards.set(boardId, board);
+    this.#tellBoard(board);
+    return [...propertyIds];
   }
 
   async deleteBoard(boardId: string): Promise<void> {

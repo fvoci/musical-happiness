@@ -261,6 +261,15 @@ export class ServerBackend implements Backend, Account {
     return { board: boardOf(board), view: viewOf(view) };
   }
 
+  /** Puts the card properties in an order (`reorderCardProperties`); the answer is the order. */
+  async reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]> {
+    return this.#http.request<string[]>(
+      '/api/v1/boards/{boardId}/property-order',
+      { boardId },
+      { method: 'PUT', json: propertyIds },
+    );
+  }
+
   /**
    * Changes the board itself. A minimum role the contract does not have
    * (none, or admin) is refused here as the server would refuse it.

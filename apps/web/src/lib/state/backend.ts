@@ -433,6 +433,12 @@ export interface Backend {
   ): Promise<{ board: Board; view: BoardView }>;
   patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
   /**
+   * Puts the board's card properties in an order: every property once, or
+   * 400 and nothing changes. Who may change the properties may (editors).
+   * The board's listeners are told the board.
+   */
+  reorderCardProperties(boardId: string, propertyIds: string[]): Promise<string[]>;
+  /**
    * The templates the reader may make a board from: the team's they may
    * see, then the built-in ones every team is offered.
    */
