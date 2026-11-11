@@ -210,7 +210,8 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
         &child_of(&attachment, BlockType::Attachment, "below the attachment"),
     )
     .await;
-    for (block, to) in [(&attachment, "comment"), (card, "view")] {
+    let view = insert_one(&th.client, &new_block(board_id, BlockType::View, "view")).await;
+    for (block, to) in [(&attachment, "comment"), (card, "view"), (&view, "comment")] {
         let response = th
             .client
             .patch(&block_path(board_id, &block.id), &json!({"type": to}))
@@ -234,6 +235,62 @@ async fn a_comment_is_on_a_card_and_has_nothing_below_it() {
         .patch(&block_path(board_id, &leaf.id), &json!({"type": "comment"}))
         .await
         .check_no_content();
+}
+
+/// Not in the original (contract B1). A block comes back from the trash only where it
+/// may be: a comment whose card became a view, or a block whose parent became a
+/// comment, while it was in the trash, is refused (409) and stays there.
+#[tokio::test]
+async fn a_block_comes_back_from_the_trash_only_where_it_may_be() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let refused = |what: &str| format!("the block cannot come back where it was: {what}");
+
+    delete(&boards.commenter, &content.comment).await;
+    th.client
+        .patch(
+            &block_path(board_id, &content.card.id),
+            &json!({"type": "view"}),
+        )
+        .await
+        .check_no_content();
+    boards
+        .commenter
+        .post(&undelete_path(board_id, &content.comment.id), &json!({}))
+        .await
+        .check_error(StatusCode::CONFLICT, &refused(OFF_A_CARD));
+
+    let card = insert_one(&th.client, &new_block(board_id, BlockType::Card, "card 2")).await;
+    let middle = insert_one(
+        &th.client,
+        &child_of(&card, BlockType::Attachment, "middle"),
+    )
+    .await;
+    let below = insert_one(
+        &th.client,
+        &child_of(&middle, BlockType::Attachment, "below"),
+    )
+    .await;
+    delete(&th.client, &below).await;
+    th.client
+        .patch(
+            &block_path(board_id, &middle.id),
+            &json!({"type": "comment"}),
+        )
+        .await
+        .check_no_content();
+    th.client
+        .post(&undelete_path(board_id, &below.id), &json!({}))
+        .await
+        .check_error(StatusCode::CONFLICT, &refused(BELOW_A_COMMENT));
+    let read = blocks_of(&th.client, board_id).await;
+    let read = titles(&read);
+    assert!(
+        !read.contains(&"comment") && !read.contains(&"below"),
+        "both still in the trash: {read:?}"
+    );
 }
 
 /// Not in the original (user decision 2026-11-11 22:13 KST). The author of a comment

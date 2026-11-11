@@ -3214,7 +3214,7 @@
     },
     "/api/v1/boards/{boardId}/blocks/{blockId}/undelete": {
       "post": {
-        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404. For who may\ndelete what comes back, as `deleteBlock` has it: editors, a comment its author from\nthe commenter's role up, and a comment of somebody else the board's admins only\n(403, `access denied to undelete other users' comments`). What decides is what was\ndeleted, as `deleteBlock` decided it: a comment with every reply that went with it,\nso a block below somebody else's comment is brought back by the admins only, and a\ncard alone, so a comment that went with its card comes back for whoever may bring\nback the card.",
+        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404; one whose parent\nmay no longer hold it (a comment off a card, a block below a comment): 409. For who may\ndelete what comes back, as `deleteBlock` has it: editors, a comment its author from\nthe commenter's role up, and a comment of somebody else the board's admins only\n(403, `access denied to undelete other users' comments`). What decides is what was\ndeleted, as `deleteBlock` decided it: a comment with every reply that went with it,\nso a block below somebody else's comment is brought back by the admins only, and a\ncard alone, so a comment that went with its card comes back for whoever may bring\nback the card.",
         "operationId": "undeleteBlock",
         "parameters": [
           {

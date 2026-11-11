@@ -89,6 +89,16 @@ pub enum StoreError {
     #[error("{0} is taken")]
     Conflict(Taken),
 
+    /// A block of the trash cannot come back where it was: what it was on has since
+    /// become a block it may not be on (a comment is on a card, nothing is below one).
+    #[error("block {id} cannot come back where it was: {source}")]
+    NotRestorable {
+        /// The block at the top of what would come back.
+        id: String,
+        /// What it would break.
+        source: BlockError,
+    },
+
     /// A patch was made against a block as it was before its last change.
     #[error("block {id} changed at {update_at}, after it was read at {read_at}")]
     Stale {

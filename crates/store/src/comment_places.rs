@@ -55,7 +55,12 @@ pub(crate) async fn check(
     let is_comment = block.block_type == BlockType::Comment;
     let becomes_comment = is_comment && old_type != Some(&BlockType::Comment);
     if is_comment && (moves || becomes_comment) && parent_type != Some(&BlockType::Card) {
-        return refuse(BlockError::CommentNotOnCard);
+        // Where only the type changed, the type is what the request got wrong.
+        return refuse(if moves {
+            BlockError::CommentNotOnCard
+        } else {
+            BlockError::TypeStrandsComments
+        });
     }
     if moves && parent_type == Some(&BlockType::Comment) {
         return refuse(BlockError::ParentIsComment);
@@ -70,4 +75,19 @@ pub(crate) async fn check(
         return refuse(BlockError::TypeStrandsComments);
     }
     Ok(())
+}
+
+/// What a block that comes back from the trash onto `parent_type` would break, if
+/// anything: the parent may have changed type since the block was deleted.
+pub(crate) fn restore_refusal(
+    block_type: &BlockType,
+    parent_type: &BlockType,
+) -> Option<BlockError> {
+    if *block_type == BlockType::Comment && *parent_type != BlockType::Card {
+        Some(BlockError::CommentNotOnCard)
+    } else if *parent_type == BlockType::Comment {
+        Some(BlockError::ParentIsComment)
+    } else {
+        None
+    }
 }
