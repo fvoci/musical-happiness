@@ -26,7 +26,7 @@ use super::{change_notification, duplicate_as, require_board_permission, user_is
 use super::{
     decode_object_with, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
 };
-use super::{require_block_change_permission, require_block_type_change_permission};
+use super::{require_block_change_permission, require_block_patch_permission};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -499,8 +499,9 @@ async fn handle_get_comment_versions(
 ///
 /// For editors. A comment is changed by its author with the commenter's role, and the
 /// comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-/// editor may not change it. Making a comment a block of another type is for editors,
-/// and making a block of somebody else a comment for the board's admins.
+/// editor may not change it. The commenter's role changes a comment's text (its body);
+/// moving a comment to another card (`parentId`) or making it a block of another type
+/// is for editors, and making a block of somebody else a comment for the board's admins.
 /// The block's `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,
@@ -534,7 +535,7 @@ async fn handle_patch_block(
     let (mut patch, changes): (BlockPatch, _) =
         decode_object_with(&body, |patch| take_patch_bodies([Some(patch)]))?;
     put_patch_bodies([&mut patch], changes?)?;
-    require_block_type_change_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
+    require_block_patch_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
     app.check_body_files(&board_id, patch.body.new_body())
         .await?;
 
@@ -600,7 +601,7 @@ async fn handle_patch_blocks(
     for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
         let block = block_on_board(&app, block_id, &board_id).await?;
         require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
-        require_block_type_change_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
+        require_block_patch_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
     }
     for patch in &batch.block_patches {
         app.check_body_files(&board_id, patch.body.new_body())

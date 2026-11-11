@@ -41,9 +41,9 @@ use serde::Serialize;
 use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
-    board_refusal, require_admin, require_block_change_permission,
-    require_block_type_change_permission, require_board_permission, require_board_visible,
-    require_permission_through, require_team_access, require_team_in_body, user_is_guest,
+    board_refusal, require_admin, require_block_change_permission, require_block_patch_permission,
+    require_board_permission, require_board_visible, require_permission_through,
+    require_team_access, require_team_in_body, user_is_guest,
 };
 pub(crate) use body::{
     decode_json, decode_object, decode_object_members, decode_object_with, decode_with_document,

@@ -228,8 +228,9 @@ export interface paths {
          * Change a block
          * @description For editors. A comment is changed by its author with the commenter's role, and the
          *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-         *     editor may not change it. Making a comment a block of another type is for editors,
-         *     and making a block of somebody else a comment for the board's admins.
+         *     editor may not change it. The commenter's role changes a comment's text (its body);
+         *     moving a comment to another card (`parentId`) or making it a block of another type
+         *     is for editors, and making a block of somebody else a comment for the board's admins.
          *     The block's `modifiedBy` and `updateAt` say who changed it and when.
          */
         patch: operations["patchBlock"];

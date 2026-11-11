@@ -2986,6 +2986,95 @@ async fn a_commenter_changes_no_card_and_makes_none() {
     );
 }
 
+/// Not in the original (coordinator's decision 2026-11-11 21:10 KST). The commenter's
+/// role changes the text of the commenter's own comment, its body; moving it to another
+/// card (`parentId`) is for editors, on patchBlock, patchBlocks and
+/// patchBoardsAndBlocks alike, and refused as any change they may not make. A
+/// `parentId` that stays as it was moves nothing. An editor moves their own comment.
+#[tokio::test]
+async fn a_commenter_changes_the_text_of_their_comment_but_does_not_move_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
+    let own = &content.comment;
+    let path = block_path(board_id, &own.id);
+    let doc = |text: &str| {
+        json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": text}]},
+        ]})
+    };
+
+    boards
+        .commenter
+        .patch(
+            &path,
+            &json!({"body": doc("changed"), "readAt": own.update_at, "parentId": own.parent_id}),
+        )
+        .await
+        .check_no_content();
+    let refused = "access denied to make board changes";
+    boards
+        .commenter
+        .patch(&path, &json!({"parentId": second.id}))
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    boards
+        .commenter
+        .patch(
+            &blocks_path(board_id),
+            &json!({"blockIds": [own.id], "blockPatches": [{"parentId": second.id}]}),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    let moved_together = json!({
+        "boardIds": [board_id], "boardPatches": [{}],
+        "blockIds": [own.id], "blockPatches": [{"parentId": second.id}],
+    });
+    boards
+        .commenter
+        .patch("/boards-and-blocks", &moved_together)
+        .await
+        .check_status(StatusCode::FORBIDDEN);
+    let read = blocks_of(&th.client, board_id).await;
+    let comment = find(&read, &own.id);
+    assert_eq!(comment.parent_id, content.card.id, "not moved");
+    assert_eq!(
+        comment.body.as_ref().map(|body| body.document().clone()),
+        Some(doc("changed")),
+        "its text changed"
+    );
+
+    // An editor moves their own comment, alone or with the board.
+    let editors = insert_one(
+        &boards.editor,
+        &child_of(&content.card, BlockType::Comment, "the editor's"),
+    )
+    .await;
+    boards
+        .editor
+        .patch(
+            &block_path(board_id, &editors.id),
+            &json!({"parentId": second.id}),
+        )
+        .await
+        .check_no_content();
+    boards
+        .editor
+        .patch(
+            "/boards-and-blocks",
+            &json!({
+                "boardIds": [board_id], "boardPatches": [{}],
+                "blockIds": [editors.id], "blockPatches": [{"parentId": content.card.id}],
+            }),
+        )
+        .await
+        .check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert_eq!(find(&read, &editors.id).parent_id, content.card.id);
+}
+
 /// A block of somebody else is made a comment by the board's admins only: a comment
 /// says who wrote it, and an editor makes nobody else say anything. The author of a
 /// block makes it a comment with the editor's role.

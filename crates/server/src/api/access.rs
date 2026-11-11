@@ -71,7 +71,7 @@ const OTHERS_COMMENTS_DENIED: &str = "access denied to change other users' comme
 /// is its author's to change with the commenter's role, and somebody else's only the
 /// board's admins change (as only they delete it); any other block is the editors'.
 /// A refusal says `denial`, except for the comment of somebody else, whose refusal says
-/// so. [`require_block_type_change_permission`] checks the patch itself.
+/// so. [`require_block_patch_permission`] checks the patch itself.
 pub(crate) async fn require_block_change_permission(
     app: &App,
     user_id: &str,
@@ -85,18 +85,33 @@ pub(crate) async fn require_block_change_permission(
     require_board_permission(app, user_id, &block.board_id, permission, denial).await
 }
 
-/// Checks the change of a block's type that a patch makes: making a comment a block of
-/// another type is for editors (the commenter's role makes no card), and making a block
-/// a comment is for who may change that comment, so that nobody makes a comment that
-/// says somebody else wrote it. A refusal says what
-/// [`require_block_change_permission`]'s says.
-pub(crate) async fn require_block_type_change_permission(
+/// Checks what a patch does beyond changing a block's text. Changing a comment is its
+/// text (its body and the files that go with it): moving it to another card
+/// (`parentId`) or making it a block of another type is for editors (the commenter's
+/// role makes no card and moves none), and making a block a comment is for who may
+/// change that comment, so that nobody makes a comment that says somebody else wrote
+/// it. A refusal says what [`require_block_change_permission`]'s says.
+pub(crate) async fn require_block_patch_permission(
     app: &App,
     user_id: &str,
     block: &Block,
     patch: &BlockPatch,
     denial: &str,
 ) -> Result<(), AppError> {
+    let moves = patch
+        .parent_id
+        .as_ref()
+        .is_some_and(|parent_id| *parent_id != block.parent_id);
+    if block.block_type == BlockType::Comment && moves {
+        require_board_permission(
+            app,
+            user_id,
+            &block.board_id,
+            BoardPermission::ManageBoardCards,
+            denial,
+        )
+        .await?;
+    }
     let Some(new_type) = patch.block_type.as_ref() else {
         return Ok(());
     };
