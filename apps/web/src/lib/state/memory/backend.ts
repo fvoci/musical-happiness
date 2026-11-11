@@ -41,6 +41,8 @@ import {
 } from '../../logic/wire.ts';
 import {
   BackendError,
+  problemOf,
+  refusedMember,
   type AccountSettings,
   type AccountSettingsPatch,
   type Attachment,
@@ -89,8 +91,26 @@ const copy = <T>(value: T): T => structuredClone(value);
 /** The first line of an archive of the memory backend. */
 const MEMORY_ARCHIVE = 'fvoci-memory-1';
 
-function fail(status: ErrorStatus, message: string, extra: object = {}): never {
-  throw new BackendError(status, { message, ...extra });
+/**
+ * Rejects as the server does: with the status and the detail, and, where the
+ * refusal is about a member of the request, that member in `errors` (with
+ * the reason); a reason about no member is the problem's own (`last_admin`).
+ */
+function fail(
+  status: ErrorStatus,
+  detail: string,
+  extra: { field?: string; within?: string; reason?: string; limit?: number } = {},
+): never {
+  const { field, within, reason, limit } = extra;
+  const entry = field === undefined ? undefined : refusedMember(field, detail, reason);
+  // A member of a map the request carries is under the map's own member.
+  if (entry && within !== undefined) entry.pointer = `/${within}${entry.pointer ?? ''}`;
+  throw new BackendError(status, {
+    ...problemOf(status, detail),
+    ...(limit === undefined ? {} : { limit }),
+    ...(entry === undefined ? {} : { errors: [entry] }),
+    ...(entry === undefined && reason !== undefined ? { reason } : {}),
+  });
 }
 
 function summaryOf(card: StoredCard): CardSummary {
@@ -194,7 +214,7 @@ export class MemoryBackend implements Backend {
     } else {
       await Promise.resolve();
     }
-    if (signal?.aborted) throw new BackendError(0, { message: 'the call was given up' });
+    if (signal?.aborted) throw new BackendError(0, { detail: 'the call was given up' });
     const failure = this.#failures.get(method);
     if (failure) {
       this.#failures.delete(method);
@@ -353,9 +373,20 @@ export class MemoryBackend implements Backend {
       ),
     );
     for (const [key, value] of Object.entries(updated)) {
-      if (!SCREEN_STATE_KEY.test(key)) fail(400, 'invalid key', { field: key });
+      if (!SCREEN_STATE_KEY.test(key)) {
+        fail(400, 'invalid key', {
+          field: key,
+          within: 'updatedFields',
+          reason: 'invalid_characters',
+        });
+      }
       if (new TextEncoder().encode(value).length > LIMITS.screenStateValueBytes) {
-        fail(400, 'value too long', { field: key, limit: LIMITS.screenStateValueBytes });
+        fail(400, 'value too long', {
+          field: key,
+          within: 'updatedFields',
+          reason: 'too_long',
+          limit: LIMITS.screenStateValueBytes,
+        });
       }
       next[key] = value;
     }
@@ -975,7 +1006,7 @@ export class MemoryBackend implements Backend {
     const card = this.#block(boardId, cardId, 'card') as StoredCard;
     const body = this.#checkBody(boardId, write.body);
     if (card.updateAt !== write.readAt) {
-      fail(409, 'the card changed since it was read', { reason: 'stale' });
+      fail(409, 'the card changed since it was read');
     }
     card.body = body;
     this.#touch(card);
@@ -1011,7 +1042,7 @@ export class MemoryBackend implements Backend {
     const checked = this.#checkBody(boardId, write.body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     if (block.updateAt !== write.readAt) {
-      fail(409, 'the comment changed since it was read', { reason: 'stale' });
+      fail(409, 'the comment changed since it was read');
     }
     block.body = checked;
     this.#touch(block);

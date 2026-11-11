@@ -6,14 +6,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { BackendError } from '$lib/state/index.ts';
-import type { ChangeListener } from '$lib/state/backend.ts';
+import { refusedMember, type ChangeListener } from '$lib/state/backend.ts';
 import { droppedCardOrder, placeAmongAll } from '$lib/state/card-order.ts';
 import { sidebarOf } from '$lib/state/order.ts';
 import { reread } from '$lib/state/write.ts';
 
 import { loadTemplates, openFirstBoard, settle, setup, STATUS } from './support.ts';
 
-const refused = (): BackendError => new BackendError(403, { message: 'no' });
+const refused = (): BackendError => new BackendError(403, { detail: 'no' });
 
 describe('the workspace', () => {
   it('reads the reader, the people, the boards and the sidebar', async () => {
@@ -88,27 +88,30 @@ describe('the workspace', () => {
     await changing;
     expect(workspace.settings.theme).toBe('dark');
 
-    backend.failNext('patchSettings', new BackendError(400, { field: 'timeZone' }));
+    backend.failNext(
+      'patchSettings',
+      new BackendError(400, { errors: [refusedMember('timeZone', 'unknown time zone')] }),
+    );
     const failing = workspace.changeSettings({ timeZone: 'Asia/Seoul' });
     expect(workspace.settings.timeZone).toBe('Asia/Seoul');
     await failing;
     expect(workspace.settings.timeZone).toBe('auto');
     expect(workspace.problems.at(-1)).toMatchObject({
       action: 'save',
-      error: { field: 'timeZone' },
+      error: { errors: [{ pointer: '/timeZone' }] },
     });
   });
 
   it('is signed out, with nothing to tell, when the backend says the session is over', async () => {
     const { workspace, backend } = setup();
-    backend.failNext('me', new BackendError(401, { message: 'no session' }));
+    backend.failNext('me', new BackendError(401, { detail: 'no session' }));
     await workspace.load();
     expect(workspace.status).toBe('signedOut');
     expect(workspace.problems).toEqual([]);
 
     await workspace.load();
     expect(workspace.status).toBe('ready');
-    backend.failNext('patchSettings', new BackendError(401, { message: 'session over' }));
+    backend.failNext('patchSettings', new BackendError(401, { detail: 'session over' }));
     await workspace.changeSettings({ theme: 'dark' });
     expect(workspace.status).toBe('signedOut');
     expect(workspace.problems).toEqual([]);
@@ -131,7 +134,7 @@ describe('the workspace', () => {
     const board = await workspace.openBoard(first.id);
     const stopBoard = vi.spyOn(board, 'close');
 
-    workspace.report('save', new BackendError(401, { message: 'session over' }));
+    workspace.report('save', new BackendError(401, { detail: 'session over' }));
     expect(workspace.status).toBe('signedOut');
     expect(stopped).toHaveBeenCalledOnce();
     expect(stopBoard).toHaveBeenCalled();

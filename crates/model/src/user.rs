@@ -5,8 +5,12 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
-use crate::settings::{ClientStateError, check_client_state_name, check_client_state_value};
+use crate::settings::{
+    CLIENT_STATE_MAX_NAME_LENGTH, ClientStateError, check_client_state_name,
+    check_client_state_value,
+};
 
 /// A user account.
 ///
@@ -19,6 +23,9 @@ pub struct User {
     pub id: String,
     /// The login name.
     pub username: String,
+    /// The name the user chose to be shown by; empty for none, and then the login name
+    /// is shown. At most 64 UTF-16 code units, not unique.
+    pub display_name: String,
     /// The email address.
     #[serde(skip)]
     pub email: String,
@@ -63,6 +70,7 @@ impl fmt::Debug for User {
         f.debug_struct("User")
             .field("id", &self.id)
             .field("username", &self.username)
+            .field("display_name", &self.display_name)
             .field("email", &self.email)
             .field("nickname", &self.nickname)
             .field("first_name", &self.first_name)
@@ -99,14 +107,26 @@ impl UserPreferencesPatch {
     ///
     /// # Errors
     ///
-    /// Returns what is wrong with the first entry, in the order of the names, that the
-    /// bag does not take.
-    pub fn validate(&self) -> Result<(), ClientStateError> {
+    /// Returns every entry, in the order of the names, that the bag does not take: each
+    /// at `/updatedFields/<name>`, with what is wrong with its name or its value.
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
         for (name, value) in &self.updated_fields {
-            check_client_state_name(name)?;
-            check_client_state_value(value)?;
+            let checked =
+                check_client_state_name(name).and_then(|()| check_client_state_value(value));
+            if let Err(error) = checked {
+                let reason = match error {
+                    ClientStateError::InvalidName if name.is_empty() => RefusalReason::Required,
+                    ClientStateError::InvalidName if name.len() > CLIENT_STATE_MAX_NAME_LENGTH => {
+                        RefusalReason::TooLong
+                    }
+                    ClientStateError::InvalidName => RefusalReason::InvalidCharacters,
+                    ClientStateError::ValueTooLong => RefusalReason::TooLong,
+                };
+                refused.refuse_within("updatedFields", name, reason, error.to_string());
+            }
         }
-        Ok(())
+        refused.into_result()
     }
 }
 

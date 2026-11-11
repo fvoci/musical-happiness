@@ -2,8 +2,8 @@
 
 use fvoci_model::{
     Block, BlockPatch, BlockPatchBatch, BlockType, Board, BoardMember, BoardPatch, BoardType,
-    Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig, ErrorBody,
-    LoginRequest, MinimumRole, PatchBoardsAndBlocks, Sharing, Subscriber, SubscriberType,
+    Category, CategoryBoardMetadata, CategoryBoards, CategoryType, ClientConfig, InvalidInput,
+    LoginRequest, MinimumRole, PatchBoardsAndBlocks, Problem, Sharing, Subscriber, SubscriberType,
     Subscription, Team, User, UserPreferencesPatch,
 };
 use serde_json::{Value, json};
@@ -28,17 +28,27 @@ fn block_json_members() {
         update_at: 20,
         delete_at: 0,
         board_id: "b1".to_owned(),
+        edited_at: 0,
     };
     let want = json!({
         "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2", "schema": 1,
         "type": "comment", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
         "createAt": 10, "updateAt": 20, "deleteAt": 0, "boardId": "b1"
     });
-    assert_eq!(to_json(&block), want);
+    assert_eq!(
+        to_json(&block),
+        want,
+        "a comment never changed has no editedAt"
+    );
     assert_eq!(
         serde_json::from_value::<Block>(want).expect("decodes"),
         block
     );
+    let edited = Block {
+        edited_at: 30,
+        ..block
+    };
+    assert_eq!(to_json(&edited)["editedAt"], json!(30), "one that was has");
 }
 
 #[test]
@@ -449,6 +459,7 @@ fn user_json_hides_credentials_and_what_nothing_stores() {
     let user = User {
         id: "u1".to_owned(),
         username: "alice".to_owned(),
+        display_name: "Alice A.".to_owned(),
         email: "alice@example.com".to_owned(),
         nickname: "al".to_owned(),
         first_name: "Alice".to_owned(),
@@ -466,8 +477,8 @@ fn user_json_hides_credentials_and_what_nothing_stores() {
     assert_eq!(
         to_json(&user),
         json!({
-            "id": "u1", "username": "alice", "createAt": 0, "updateAt": 5, "deleteAt": 0,
-            "isAdmin": true
+            "id": "u1", "username": "alice", "displayName": "Alice A.", "createAt": 0,
+            "updateAt": 5, "deleteAt": 0, "isAdmin": true
         })
     );
 
@@ -578,33 +589,61 @@ fn config_error_and_request_json_members() {
         })
     );
 
-    // An error says its kind and a sentence; the optional members appear only when set.
+    // A problem says its type, title, status and detail; the other members appear only
+    // when set.
     assert_eq!(
-        to_json(&ErrorBody {
-            error: "not_found".to_owned(),
-            message: "board not found".to_owned(),
-            ..ErrorBody::default()
+        to_json(&Problem {
+            problem_type: "/problems/not-found".to_owned(),
+            title: "Not found".to_owned(),
+            status: 404,
+            detail: "board not found".to_owned(),
+            ..Problem::default()
         }),
-        json!({ "error": "not_found", "message": "board not found" })
+        json!({
+            "type": "/problems/not-found", "title": "Not found", "status": 404,
+            "detail": "board not found"
+        })
     );
     assert_eq!(
-        to_json(&ErrorBody {
-            error: "payload_too_large".to_owned(),
-            message: "the request body is too large".to_owned(),
+        to_json(&Problem {
+            problem_type: "/problems/r".to_owned(),
+            title: "R".to_owned(),
+            status: 413,
+            detail: "the request body is too large".to_owned(),
+            instance: Some("urn:uuid:id".to_owned()),
             reason: Some("r".to_owned()),
-            field: Some("f".to_owned()),
+            errors: vec![
+                InvalidInput {
+                    pointer: Some("/f".to_owned()),
+                    detail: "too long".to_owned(),
+                    reason: "too_long".to_owned(),
+                    ..InvalidInput::default()
+                },
+                InvalidInput {
+                    parameter: Some("page".to_owned()),
+                    detail: "no number".to_owned(),
+                    reason: "invalid".to_owned(),
+                    ..InvalidInput::default()
+                },
+            ],
             limit: Some(4_194_304),
             retry_after: Some(30),
             request_id: Some("id".to_owned()),
         }),
         json!({
-            "error": "payload_too_large",
-            "message": "the request body is too large",
+            "type": "/problems/r",
+            "title": "R",
+            "status": 413,
+            "detail": "the request body is too large",
+            "instance": "urn:uuid:id",
             "reason": "r",
-            "field": "f",
+            "errors": [
+                { "pointer": "/f", "detail": "too long", "reason": "too_long" },
+                { "parameter": "page", "detail": "no number", "reason": "invalid" },
+            ],
             "limit": 4_194_304,
-            "retry_after": 30,
-            "request_id": "id",
+            "retryAfter": 30,
+            "requestId": "id",
         })
     );
 

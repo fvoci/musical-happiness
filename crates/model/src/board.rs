@@ -9,7 +9,9 @@ use thiserror::Error;
 
 use crate::JsonMap;
 use crate::allowlist::holds_nul;
-use crate::card_property::{CardPropertyError, validate_card_property_definitions};
+use crate::card_property::{
+    CardPropertyError, PersonProperties, validate_card_property_definitions,
+};
 use crate::serde_util::null_as_default;
 
 /// Who may see and join a board.
@@ -214,6 +216,22 @@ pub struct Board {
 }
 
 impl Board {
+    /// The board as it goes to whoever reads by a read token alone, or to a user who
+    /// reads it by the token without being a member: no `createdBy` or `modifiedBy`
+    /// (`docs/s6-design.md`, decision 7). The blocks go so by [`Block::hide_people`].
+    ///
+    /// [`Block::hide_people`]: crate::Block::hide_people
+    pub fn hide_people(&mut self) {
+        self.created_by.clear();
+        self.modified_by.clear();
+    }
+
+    /// The properties of the board's cards whose values name users.
+    #[must_use]
+    pub fn person_properties(&self) -> PersonProperties {
+        PersonProperties::of(&self.card_properties)
+    }
+
     /// Checks that the board may be stored.
     ///
     /// # Errors

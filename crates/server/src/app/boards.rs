@@ -1,7 +1,8 @@
 //! Boards and their members.
 
 use fvoci_model::{
-    Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, DeleteBoardsAndBlocks, new_id,
+    Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
+    DeleteBoardsAndBlocks, new_id,
 };
 use fvoci_store::{DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards};
 
@@ -271,8 +272,8 @@ impl App {
     }
 
     /// Restores a board from the trash, with its blocks, its file records and the
-    /// memberships of the users who still exist, tells the board's members and returns
-    /// the board.
+    /// memberships and places in the sidebar of the users who still exist, tells the
+    /// board's members and each user it is filed for, and returns the board.
     ///
     /// # Errors
     ///
@@ -295,8 +296,58 @@ impl App {
             app.ws()
                 .broadcast_board_change(&restored.team_id, &restored)
                 .await;
+            app.tell_where_restored_board_is(&restored).await;
         });
         Ok(board)
+    }
+
+    /// Tells each user who has a restored board filed where it is: the board's entry, and
+    /// the order of the boards of that category, which moved to make room for it. Read
+    /// after the restore; a failed read is logged, the restore stands.
+    async fn tell_where_restored_board_is(&self, board: &Board) {
+        let places = match self.store().get_board_places(&board.id).await {
+            Ok(places) => places,
+            Err(error) => {
+                tracing::error!(%error, board_id = board.id, "the places of a restored board could not be read");
+                return;
+            }
+        };
+        for place in places {
+            let filed = BoardCategoryWebsocketData {
+                board_id: board.id.clone(),
+                category_id: place.category_id.clone(),
+                hidden: place.hidden,
+            };
+            self.ws().broadcast_category_board_change(
+                &board.team_id,
+                &place.user_id,
+                std::slice::from_ref(&filed),
+            );
+            let categories = self
+                .store()
+                .get_user_category_boards(&place.user_id, &board.team_id)
+                .await;
+            let order: Option<Vec<String>> = categories.ok().and_then(|categories| {
+                categories
+                    .into_iter()
+                    .find(|entry| entry.category.id == place.category_id)
+                    .map(|entry| {
+                        entry
+                            .board_metadata
+                            .into_iter()
+                            .map(|metadata| metadata.board_id)
+                            .collect()
+                    })
+            });
+            if let Some(order) = order {
+                self.ws().broadcast_category_boards_reorder(
+                    &board.team_id,
+                    &place.user_id,
+                    &place.category_id,
+                    &order,
+                );
+            }
+        }
     }
 
     /// Copies a board and its blocks, except comments, into `to_team` for a user, who

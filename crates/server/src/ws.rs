@@ -13,7 +13,8 @@ use std::time::Duration;
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig, Session,
+    Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig,
+    PersonProperties, Session,
 };
 use fvoci_store::Store;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
-use crate::permissions::{TeamPermission, has_permission_to_team};
+use crate::permissions::{
+    BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
+};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -506,46 +509,96 @@ impl Hub {
 
     /// Tells the board's members in the team, and the listeners of the block and of its
     /// parent, that a block changed.
+    ///
+    /// A listener of the block whose connection has no session, or whose user is no
+    /// member of the board who may read it, follows it by the read token alone and is
+    /// told no user's identifier ([`Block::hide_people`]), as over HTTP (`getBlocks`).
     pub async fn broadcast_block_change(&self, team_id: &str, block: &Block) {
+        let followers = self.block_followers(block);
+        // Most changes happen with nobody listening; do not ask the store then.
+        if followers.is_empty() && !self.listeners().by_team.contains_key(team_id) {
+            return;
+        }
+        let members = match self
+            .inner
+            .store
+            .get_members_for_board(&block.board_id)
+            .await
+        {
+            Ok(members) => members,
+            Err(error) => {
+                tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board's members failed");
+                return;
+            }
+        };
+        let mut recipients = self.listeners_among(team_id, &members, None);
+        let mut by_token = Vec::new();
+        // A connection that listens both as a board member and to the block itself
+        // gets the message once per subscription.
+        for (id, user_id) in followers {
+            let reader = !user_id.is_empty()
+                && members.iter().any(|member| {
+                    member.user_id == user_id
+                        && member_has_permission(member, BoardPermission::ViewBoard)
+                });
+            if reader {
+                recipients.push(id);
+            } else {
+                by_token.push(id);
+            }
+        }
         let message = UpdateBlockMessage {
             action: "UPDATE_BLOCK",
             team_id,
             block,
         };
-        let mut recipients = self
-            .listeners_for_team_and_board(team_id, &block.board_id, None)
-            .await;
-        let mut anonymous = Vec::new();
-        {
-            // A connection that listens both as a board member and to the block itself
-            // gets the message once per subscription.
-            let listeners = self.listeners();
-            for block_id in [&block.id, &block.parent_id] {
-                for id in listeners.by_block.get(block_id).into_iter().flatten() {
-                    let signed_in = listeners
-                        .by_id
-                        .get(id)
-                        .is_some_and(|listener| !listener.user_id.is_empty());
-                    if signed_in {
-                        recipients.push(*id);
-                    } else {
-                        anonymous.push(*id);
-                    }
-                }
-            }
-        }
         self.send(&recipients, &message);
-        if !anonymous.is_empty() {
-            // As over HTTP (`getBlocks`).
-            let mut without_authors = block.clone();
-            without_authors.hide_people();
-            let message = UpdateBlockMessage {
-                action: "UPDATE_BLOCK",
-                team_id,
-                block: &without_authors,
-            };
-            self.send(&anonymous, &message);
+        if by_token.is_empty() {
+            return;
         }
+        // A block without fields names nobody there, such as the block of a deletion.
+        let people = if block.fields.is_empty() {
+            Ok(PersonProperties::default())
+        } else {
+            self.inner
+                .store
+                .get_board(&block.board_id)
+                .await
+                .map(|board| board.person_properties())
+        };
+        let people = match people {
+            Ok(people) => people,
+            Err(error) => {
+                // Without the board's person properties the block cannot be told
+                // without its people: it is not told.
+                tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board of a followed block failed");
+                return;
+            }
+        };
+        let mut without_people = block.clone();
+        without_people.hide_people(&people);
+        let message = UpdateBlockMessage {
+            action: "UPDATE_BLOCK",
+            team_id,
+            block: &without_people,
+        };
+        self.send(&by_token, &message);
+    }
+
+    /// The connections that follow the block or its parent by `SUBSCRIBE_BLOCKS`, with
+    /// their users (empty for a connection without a session).
+    fn block_followers(&self, block: &Block) -> Vec<(ListenerId, String)> {
+        let listeners = self.listeners();
+        [&block.id, &block.parent_id]
+            .into_iter()
+            .flat_map(|block_id| listeners.by_block.get(block_id).into_iter().flatten())
+            .filter_map(|id| {
+                listeners
+                    .by_id
+                    .get(id)
+                    .map(|listener| (*id, listener.user_id.clone()))
+            })
+            .collect()
     }
 
     /// Tells the same listeners that a block was deleted. The message is a block change

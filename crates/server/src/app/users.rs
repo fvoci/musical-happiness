@@ -7,6 +7,15 @@ use super::App;
 use crate::error::{AppError, Reason};
 
 impl App {
+    /// Sets the name the user is shown by; empty for none. Returns the user as stored.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error, a 404 if there is no such user.
+    pub async fn set_display_name(&self, user_id: &str, name: &str) -> Result<User, AppError> {
+        Ok(self.store().set_display_name(user_id, name).await?)
+    }
+
     /// Returns the user with the given identifier.
     ///
     /// # Errors
@@ -97,7 +106,8 @@ impl App {
         Ok(true)
     }
 
-    /// Returns the team's users whose name matches `search_query`, at most ten.
+    /// Returns the team's users whose login name or display name matches
+    /// `search_query`, at most ten.
     ///
     /// # Errors
     ///

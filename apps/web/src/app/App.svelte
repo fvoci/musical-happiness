@@ -107,7 +107,7 @@
       if (workspace?.status === 'signedOut') {
         throw new BackendError(401, {
           reason: 'session_not_kept',
-          message: 'the session was not kept',
+          detail: 'the session was not kept',
         });
       }
       // A new account starts on its own copy of the welcome board, made once.

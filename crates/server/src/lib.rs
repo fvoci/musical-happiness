@@ -10,6 +10,7 @@ pub mod client_address;
 pub mod config;
 pub mod error;
 pub mod permissions;
+pub mod problems;
 pub mod scheduler;
 pub mod storage;
 pub mod web;
@@ -43,6 +44,7 @@ use crate::app::App;
 use crate::auth::token::Credential;
 use crate::client_address::TrustedProxies;
 use crate::config::Configuration;
+use crate::connection::{BreakableListener, Connection};
 use crate::error::{AppError, ErrorKind, ReportedError};
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
@@ -153,7 +155,9 @@ impl Server {
             ))
             // Under the API prefix nothing is ever answered with the web app's page.
             .fallback(api_not_found)
-            .method_not_allowed_fallback(method_not_allowed);
+            .method_not_allowed_fallback(method_not_allowed)
+            // Nor with an error in the framework's words.
+            .layer(middleware::from_fn(error::problems_only));
         let api = if self.app.config().compress_responses {
             api.layer(compression())
                 .layer(middleware::from_fn(identity_is_always_acceptable))
@@ -163,6 +167,8 @@ impl Server {
         let routes = Router::new()
             .nest(api::PREFIX, api)
             .route("/ws", get(handle_websocket))
+            // What the `type` of a problem points at.
+            .merge(problems::routes())
             .route("/static/{*path}", get(handle_static))
             .fallback(handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
@@ -181,25 +187,36 @@ impl Server {
                 .merge(root)
                 .fallback(|| async { web::not_found() })
         };
-        self.with_request_layers(routes)
+        self.with_request_layers(routes, &self.base_path)
     }
 
     /// The router of the administration socket. It must never be served on a TCP
     /// listener; its routes refuse requests that did not arrive through a Unix socket.
     pub fn admin_router(&self) -> Router {
-        self.with_request_layers(api::admin_router().with_state(self.app.clone()))
+        // The socket has no base path: its routes are at their full paths, and so are
+        // the pages its error answers point at.
+        self.with_request_layers(
+            api::admin_router()
+                .layer(middleware::from_fn(error::problems_only))
+                .with_state(self.app.clone())
+                .merge(problems::routes()),
+            "",
+        )
     }
 
     /// Wraps `router` in the layers every listener has: outermost the request log, then
     /// the containment of handler panics, so that a contained panic is logged as a 500.
-    fn with_request_layers(&self, router: Router) -> Router {
+    fn with_request_layers(&self, router: Router, base_path: &str) -> Router {
         // The configuration was checked when the application was put together.
         let proxies = TrustedProxies::parse(&self.app.config().trusted_proxies).unwrap_or_default();
         router
             .layer(middleware::from_fn(send_no_referrer))
             .layer(middleware::from_fn(request_log::contain_panics))
             .layer(middleware::from_fn_with_state(
-                Arc::new(proxies),
+                Arc::new(request_log::Served {
+                    proxies,
+                    base_path: base_path.to_owned(),
+                }),
                 request_log::log_request,
             ))
     }
@@ -243,18 +260,20 @@ impl Server {
         let purge = start_trash_purge(&self.app);
         let uploads = start_upload_clean_up(&self.app);
 
-        let service = self.router().into_make_service_with_connect_info::<Peer>();
+        let service = self
+            .router()
+            .into_make_service_with_connect_info::<Connection>();
         let stop = CancellationToken::new();
         let stopped = stop.clone().cancelled_owned();
         let serving = async move {
             if let Some(tls) = tls {
                 tracing::info!(%address, "https server started");
-                axum::serve(TlsListener::new(listener, tls), service)
+                axum::serve(BreakableListener(TlsListener::new(listener, tls)), service)
                     .with_graceful_shutdown(stopped)
                     .await
             } else {
                 tracing::info!(%address, "http server started");
-                axum::serve(listener, service)
+                axum::serve(BreakableListener(listener), service)
                     .with_graceful_shutdown(stopped)
                     .await
             }
@@ -733,6 +752,7 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
     })
 }
 
+pub mod connection;
 mod request_log;
 
 mod tls;

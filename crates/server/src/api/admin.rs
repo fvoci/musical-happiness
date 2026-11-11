@@ -8,7 +8,7 @@
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, Path, Request, State};
+use axum::extract::{Path, Request, State};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
@@ -47,11 +47,7 @@ struct AdminSetPasswordData {
 /// `adminRequired` (`server/api/auth.go:399-410`). The routes are not mounted anywhere
 /// else; this keeps them closed should they ever be.
 async fn require_unix_connection(request: Request, next: Next) -> Response {
-    let peer = request
-        .extensions()
-        .get::<ConnectInfo<Peer>>()
-        .map(|ConnectInfo(peer)| *peer);
-    if peer == Some(Peer::Unix) {
+    if Peer::of(&request) == Some(Peer::Unix) {
         next.run(request).await
     } else {
         // For anyone who does not come through the socket these routes do not exist.
@@ -89,6 +85,9 @@ async fn handle_admin_make_admin(
 
 #[cfg(test)]
 mod tests {
+    use axum::extract::ConnectInfo;
+
+    use crate::connection::Connection;
     use std::net::SocketAddr;
 
     use axum::body::Body;
@@ -108,7 +107,10 @@ mod tests {
             .body(Body::empty())
             .expect("a valid request");
         if let Some(peer) = peer {
-            request.extensions_mut().insert(ConnectInfo(peer));
+            request.extensions_mut().insert(ConnectInfo(Connection {
+                peer,
+                breaker: None,
+            }));
         }
         let response = guarded()
             .oneshot(request)
@@ -133,7 +135,8 @@ mod tests {
             let (status, body) = status_for(peer).await;
             assert_eq!(status, StatusCode::NOT_FOUND, "{peer:?}: {body}");
             assert_eq!(
-                body, r#"{"error":"not_found","message":"route not found"}"#,
+                body,
+                r#"{"type":"/problems/not-found","title":"Not found","status":404,"detail":"route not found"}"#,
                 "{peer:?}"
             );
         }

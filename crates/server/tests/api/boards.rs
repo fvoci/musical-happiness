@@ -586,8 +586,8 @@ async fn create_board_create_invalid_board_no_team_id() {
         let response = th.client.post("/boards", &body).await;
         response.check_error(StatusCode::BAD_REQUEST, "no such team");
         assert_eq!(
-            response.value()["field"],
-            json!("teamId"),
+            response.refused_at(),
+            "/teamId",
             "the member at fault: {body}"
         );
     }
@@ -615,7 +615,7 @@ async fn create_board_validates_the_body_like_the_original() {
     ] {
         let response = th.client.send_raw_body(Method::POST, "/boards", body).await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{body}");
+        assert_eq!(response.problem_type(), "/problems/bad-request", "{body}");
     }
 
     for role in ["boss", "", "admin"] {
@@ -654,11 +654,7 @@ async fn create_board_validates_the_body_like_the_original() {
         )
         .await;
     response.check_error(StatusCode::BAD_REQUEST, "new board cannot have an ID");
-    assert_eq!(
-        response.value()["field"],
-        json!("id"),
-        "the member at fault"
-    );
+    assert_eq!(response.refused_at(), "/id", "the member at fault");
 
     assert_no_boards(&th, &user1.id).await;
     th.teardown().await;
@@ -953,9 +949,44 @@ async fn get_board_valid_read_token_should_be_enough_to_get_the_board() {
         Board {
             created_by: String::new(),
             modified_by: String::new(),
-            ..board
+            ..board.clone()
         },
         "the shared board, without its creator and modifier"
+    );
+
+    // A signed-in user who is no member reads it as the token's reader; a member as a
+    // member.
+    let private = board_with_admin(
+        &th,
+        new_board(TEST_TEAM_ID, BoardType::Private, "private shared board"),
+        &user1.id,
+    )
+    .await;
+    let token = th.share(&private.id).await;
+    let path = format!("/boards/{}?readToken={token}", private.id);
+    let read: Board = th.client2.get(&path).await.ok_json();
+    assert_eq!(
+        (read.created_by.as_str(), read.modified_by.as_str()),
+        ("", ""),
+        "a signed-in user who is no member reads as the token's reader"
+    );
+    let read: Board = th.client.get(&path).await.ok_json();
+    assert_eq!(read.created_by, user1.id, "a member reads as a member");
+    // So on an open board, which a user of its team sees without the token as it is.
+    let read: Board = th
+        .client2
+        .get(&format!("/boards/{}?readToken={sharing_token}", board.id))
+        .await
+        .ok_json();
+    assert_eq!(read.created_by, "", "with the token, as its reader");
+    let read: Board = th
+        .client2
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .ok_json();
+    assert_eq!(
+        read.created_by, user1.id,
+        "without it, as a user of the team"
     );
 
     th.teardown().await;
@@ -1895,8 +1926,8 @@ async fn add_member_validates_the_body_like_the_original() {
             .await;
         response.check_error(StatusCode::BAD_REQUEST, "no such user");
         assert_eq!(
-            response.value()["field"],
-            json!("userId"),
+            response.refused_at(),
+            "/userId",
             "the member at fault: {no_user}"
         );
     }
@@ -3367,7 +3398,7 @@ async fn join_board_create_and_join_private_board_should_not_succeed() {
         // A private board does not exist for who is no member, so there is nothing
         // to join.
         response.check_error(StatusCode::NOT_FOUND, "board not found");
-        assert_eq!(response.error_code(), "not_found", "{query}");
+        assert_eq!(response.problem_type(), "/problems/not-found", "{query}");
     }
     assert_eq!(members_of(&th, &board.id).await.len(), 1, "nobody joined");
     th.teardown().await;
@@ -3837,4 +3868,96 @@ async fn duplicate_board_is_broadcast() {
         .await;
     assert_eq!(message["member"]["userId"], json!(user1.id), "{message}");
     th.teardown().await;
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The deleted boards of a team
+/// are listed for whoever was an admin of each when it was deleted, who may bring it back;
+/// a member who was no admin does not see it. The last deleted first.
+#[tokio::test]
+async fn the_deleted_boards_are_listed_for_their_former_admins() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user2 = th.client2.me().await;
+    let titled = |title: &str| Board {
+        team_id: TEST_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        title: title.to_owned(),
+        ..Board::default()
+    };
+    let mine: Board = th.client.create_board(&titled("mine")).await.created_json();
+    let theirs: Board = th
+        .client2
+        .create_board(&titled("theirs"))
+        .await
+        .created_json();
+    let also_mine: Board = th
+        .client
+        .create_board(&titled("also mine"))
+        .await
+        .created_json();
+    th.app
+        .add_member_to_board(&fvoci_model::BoardMember {
+            board_id: theirs.id.clone(),
+            user_id: th.client.me().await.id,
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
+        .await
+        .expect("user1 edits their board");
+    for (client, board) in [
+        (&th.client, &mine),
+        (&th.client2, &theirs),
+        (&th.client, &also_mine),
+    ] {
+        client
+            .delete(&format!("/boards/{}", board.id))
+            .await
+            .check_no_content();
+        // A millisecond apart at least, so that their order is that of time.
+        tokio::time::sleep(Duration::from_millis(3)).await;
+    }
+    let trash = format!("/teams/{TEST_TEAM_ID}/trash/boards");
+    let names_of = |listed: &[Value]| -> Vec<Value> {
+        listed.iter().map(|entry| entry["title"].clone()).collect()
+    };
+
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(
+        names_of(&listed),
+        [json!("also mine"), json!("mine")],
+        "where user1 was an admin, the last deleted first"
+    );
+    assert_eq!(listed[1]["id"], json!(mine.id));
+    assert_eq!(listed[1]["deletedBy"], json!(th.client.me().await.id));
+    let members: Vec<&String> = listed[1].as_object().expect("an entry").keys().collect();
+    assert_eq!(members, ["deletedAt", "deletedBy", "id", "title"]);
+    assert!(
+        listed[1]["deletedAt"].as_i64().unwrap_or(0) > 0
+            && listed[0]["deletedAt"].as_i64() > listed[1]["deletedAt"].as_i64(),
+        "{listed:?}"
+    );
+    let listed: Vec<Value> = th.client2.get(&trash).await.ok_json();
+    assert_eq!(names_of(&listed), [json!("theirs")]);
+    assert_eq!(listed[0]["deletedBy"], json!(user2.id));
+
+    let page: Vec<Value> = th
+        .client
+        .get(&format!("{trash}?page=1&perPage=1"))
+        .await
+        .ok_json();
+    assert_eq!(names_of(&page), [json!("mine")], "the pages cut that order");
+    let every: Vec<Value> = th.client.get(&format!("{trash}?perPage=0")).await.ok_json();
+    assert_eq!(names_of(&every), [json!("also mine"), json!("mine")]);
+    th.client
+        .get(&format!("{trash}?page=x"))
+        .await
+        .check_bad_request();
+    th.anonymous().get(&trash).await.check_unauthorized();
+
+    // Brought back, a board is no longer listed.
+    th.client
+        .post_empty(&format!("/boards/{}/undelete", mine.id))
+        .await
+        .check_ok();
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(names_of(&listed), [json!("also mine")]);
 }

@@ -197,9 +197,9 @@ async fn handle_create_board(
 /// A board
 ///
 /// For a user who may see the board: a member of it, or for an open board anyone in
-/// its team. With the board's read token no session is needed; who reads that way is
-/// not told who made the board or changed it last (`createdBy` and `modifiedBy` are
-/// empty).
+/// its team. With the board's read token no session is needed. Who reads with the token
+/// and is no member of the board, without a session or signed in, is not told who made
+/// the board or changed it last (`createdBy` and `modifiedBy` are empty).
 #[utoipa::path(
     get,
     path = "/boards/{boardId}",
@@ -221,34 +221,31 @@ async fn handle_get_board(
         return Err(AppError::unauthorized("access denied to board"));
     }
 
-    let board = app.board(&board_id).await?;
-
-    if !has_valid_read_token {
-        // An open board is for every user of its team; a private one for its members,
-        // and for nobody else it exists.
-        let sees = match board.board_type {
-            BoardType::Private => false,
-            BoardType::Open => {
-                !user_is_guest(&app, user_id).await?
-                    && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
-            }
-        };
-        if !sees
-            && !app
-                .has_permission_to_board(user_id, &board_id, BoardPermission::ViewBoard)
-                .await?
-        {
-            return Err(AppError::not_found("board"));
+    let mut board = app.board(&board_id).await?;
+    if has_valid_read_token {
+        if !app.is_board_reader(user_id, &board_id).await? {
+            board.hide_people();
         }
-    }
-    let mut board = board;
-    if user_id.is_empty() {
-        // Whoever reads through a read token alone is nobody the server knows. An
-        // identifier tells when it was made: a user's would tell when they signed up.
-        board.created_by.clear();
-        board.modified_by.clear();
+    } else if !sees_board_without_token(&app, user_id, &board).await? {
+        return Err(AppError::not_found("board"));
     }
     Ok(json_response(&board))
+}
+
+/// Whether a signed-in user sees the board without its read token: an open board is
+/// for every user of its team, a private one for its members.
+async fn sees_board_without_token(
+    app: &App,
+    user_id: &str,
+    board: &Board,
+) -> Result<bool, AppError> {
+    let open_to_the_team = board.board_type == BoardType::Open
+        && !user_is_guest(app, user_id).await?
+        && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam);
+    Ok(open_to_the_team
+        || app
+            .has_permission_to_board(user_id, &board.id, BoardPermission::ViewBoard)
+            .await?)
 }
 
 /// Change a board
@@ -291,7 +288,16 @@ async fn handle_patch_board(
         .await?;
     }
 
-    let board = app.patch_board(&patch, &board_id, user_id).await?;
+    // The store names what it refuses as a board has it; the patch has two of those
+    // members under other names.
+    let board = app
+        .patch_board(&patch, &board_id, user_id)
+        .await
+        .map_err(|error| {
+            error
+                .moved("/properties", "/updatedProperties")
+                .moved("/cardProperties", "/updatedCardProperties")
+        })?;
     Ok(json_response(&board))
 }
 
@@ -390,9 +396,12 @@ async fn handle_duplicate_board(
 
 /// Bring a deleted board back
 ///
-/// Restores a board from the trash with its blocks and its members. Its sharing, its
-/// places in the sidebars and the subscriptions to its blocks ended with the deletion
-/// and stay ended. For who was an admin of the board when it was deleted; to anybody
+/// Restores a board from the trash with its blocks and its members. Each user who had
+/// filed it, and can see it again, finds it where it was in the sidebar (the same
+/// category and place, hidden or not) or in the default category if that one was
+/// deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
+/// `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
+/// the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody
 /// who was no member there is no such board.
 #[utoipa::path(
     post,

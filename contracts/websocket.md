@@ -8,7 +8,7 @@
 
 ## 1. 핸드셰이크와 인증
 
-주소는 `{base}/ws`이고 `GET`의 WebSocket 업그레이드만 받는다. 그 밖의 메서드는 405(`Allow`에 `GET`이 있다. `HEAD`가 함께 있을 수 있다), 업그레이드가 아닌 `GET`은 400이다. 둘 다 API의 오류 본문(`ErrorBody`)이다.
+주소는 `{base}/ws`이고 `GET`의 WebSocket 업그레이드만 받는다. 그 밖의 메서드는 405(`Allow`에 `GET`이 있다. `HEAD`가 함께 있을 수 있다), 업그레이드가 아닌 `GET`은 400이다. 둘 다 API의 오류 본문(`application/problem+json`의 `Problem`)이다.
 
 누구의 연결인지는 **핸드셰이크에서 한 번** 정해진다. 연결한 뒤에 로그인하는 메시지는 없다(옛 `AUTH`는 모르는 명령으로 무시된다).
 
@@ -52,7 +52,7 @@
 | `UPDATE_MEMBER` | `teamId`, `member`(`BoardMember`) | 그 팀을 구독한 연결 가운데 사용자가 보드의 멤버인 것 |
 | `DELETE_MEMBER` | `teamId`, `member`(`boardId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
 | `UPDATE_CATEGORY` | `teamId`, `category`(`Category`) | 카테고리 주인의, 그 팀을 구독한 연결 모두(아래) |
-| `UPDATE_BOARD_CATEGORY` | `teamId`, `boardCategories`(`{boardId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setBoardCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideBoard`·`unhideBoard`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
+| `UPDATE_BOARD_CATEGORY` | `teamId`, `boardCategories`(`{boardId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setBoardCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideBoard`·`unhideBoard`·`undeleteBoard`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORIES` | `teamId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `REORDER_CATEGORY_BOARDS` | `teamId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
@@ -62,7 +62,7 @@
 - "보드의 멤버"는 메시지를 보낼 때 저장소에서 읽은 멤버 목록이다. 팀을 구독하지 않은 연결은 멤버여도 받지 않는다.
 - 공개 보드라도 멤버가 아닌 사용자는 보드와 블록의 변경을 받지 않는다.
 - **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 팀을 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다(원본은 먼저 구독한 하나에만 보냈다).
-- 세션이 없는(익명) 연결이 받는 `UPDATE_BLOCK`에서는 `createdBy`, `modifiedBy`와 본문의 모든 멘션의 `userId`가 빈 문자열이다(HTTP의 익명 공유 응답과 같은 까닭: 사용자 ID가 가입 시각을 드러낸다). 로그인한 연결은 읽기 토큰으로 따라가도 그대로 받는다.
+- `SUBSCRIBE_BLOCKS`로 따라가는 연결 가운데 세션이 없거나 사용자가 보드의 멤버(보기 역할부터)가 아닌 것이 받는 `UPDATE_BLOCK`은 HTTP의 `getBlocks`가 그 독자에게 주는 모양이다(`docs/contract-pending.md` 1절): `createdBy`, `modifiedBy`, 본문의 모든 멘션의 `userId`, 사람 속성이 가리키는 사람이 비어 있다. 사용자 ID가 가입 시각을 드러낸다. 멤버의 연결은 읽기 토큰으로 따라가도 그대로 받는다.
 - 한 연결이 팀 구독과 블록 구독을 함께 해서 두 길로 다 해당하면 같은 메시지를 두 번 받는다.
 - 쓴 사람 자신의 연결도 받는다. 서버는 보낸 사람을 빼지 않는다.
 
@@ -75,7 +75,7 @@
 | `patchBoard` | `UPDATE_BOARD`. **템플릿**의 패치에 `type`이 있으면(바뀌지 않았어도) 멤버가 아닌 팀 사용자마다: 비공개면 `DELETE_MEMBER`, 공개면 보기 역할의 `UPDATE_MEMBER`. 템플릿이 아닌 보드는 종류가 바뀌어도 `UPDATE_BOARD`뿐이다 |
 | `patchBoardsAndBlocks` | 바뀐 블록마다 `UPDATE_BLOCK`, 바뀐 보드마다 `UPDATE_BOARD` |
 | `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `teamId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 연결을 닫는다 |
-| `undeleteBoard` | 돌아온 보드의 `UPDATE_BOARD` 하나. **함께 돌아온 블록과 멤버의 메시지는 없다** |
+| `undeleteBoard` | 돌아온 보드의 `UPDATE_BOARD` 하나, 그리고 보드를 사이드바에 다시 둔 사용자마다 그 사람의 연결에 `UPDATE_BOARD_CATEGORY`(그 보드의 항목 하나: 원래 카테고리, 그사이 지워졌으면 기본 카테고리)와 그 카테고리의 `REORDER_CATEGORY_BOARDS`(원래 자리로 들어가며 뒤의 보드가 밀린 순서). 비공개 보드는 다시 구성원이 된 사람에게만. **함께 돌아온 블록과 멤버의 메시지는 없다** |
 | `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
 | `addMember`, `joinBoard`, `updateMember` | `UPDATE_MEMBER`. 이미 멤버인 사용자의 `addMember`·`joinBoard`, 멤버가 아닌 사용자의 `updateMember`는 아무것도 내지 않는다. 템플릿이 아닌 보드에 새로 든 멤버는 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`도 받는다 |

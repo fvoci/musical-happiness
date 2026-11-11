@@ -2,7 +2,7 @@
 //! client keeps with the account.
 //!
 //! The settings are a closed set: the server knows every one, its values and its
-//! default, and refuses anything else. They belong to the account and not to a device,
+//! default, and refuses anything else; of a language it knows only the shape of a tag. They belong to the account and not to a device,
 //! so that the same person sees the same times on every device.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,6 +12,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 use crate::JsonMap;
+use crate::refusal::{RefusalReason, Refusals, shown_name};
 
 /// The text is no value of the setting it was read as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -178,6 +179,110 @@ impl FromStr for TimeZone {
     }
 }
 
+/// The language of the interface: that of the browser, or one by its language tag.
+///
+/// The server keeps no list of languages; it checks that a tag has the shape the
+/// browsers' `Intl` reads (a Unicode BCP 47 locale identifier, `-` between subtags):
+/// a language of 2–3 or 5–8 letters, then an optional script of 4 letters, an optional
+/// region of 2 letters or 3 digits, variants of 5–8 letters and digits or a digit and 3
+/// (none twice), extensions (a letter or digit other than `x`, then subtags of 2–8) and
+/// private use (`x`, then subtags of 1–8) last. At most [`Language::MAX_LENGTH`]
+/// characters. A tag is kept as given, case and all (`en-us` stays `en-us`; tags do not
+/// differ by case).
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct Language(Option<String>);
+
+impl Language {
+    /// The word for "the language of the browser".
+    pub const AUTO: &'static str = "auto";
+    /// The longest tag the server takes: room for a tag with a `-u-` extension, such as
+    /// what `Intl.Locale` writes.
+    pub const MAX_LENGTH: usize = 64;
+
+    /// The setting as it is written: `auto` or the tag.
+    pub fn as_str(&self) -> &str {
+        self.0.as_deref().unwrap_or(Self::AUTO)
+    }
+}
+
+/// Whether `tag` has the shape of a Unicode BCP 47 locale identifier.
+fn is_locale_tag(tag: &str) -> bool {
+    let letters = |s: &str, lengths: std::ops::RangeInclusive<usize>| {
+        lengths.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphabetic())
+    };
+    let alphanumerics = |s: &str, lengths: std::ops::RangeInclusive<usize>| {
+        lengths.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphanumeric())
+    };
+    let mut subtags = tag.split('-').peekable();
+    let language = subtags.next().unwrap_or_default();
+    if !(letters(language, 2..=3) || letters(language, 5..=8)) {
+        return false;
+    }
+    let _script = subtags.next_if(|s| letters(s, 4..=4));
+    let is_region =
+        |s: &&str| letters(s, 2..=2) || (s.len() == 3 && s.bytes().all(|b| b.is_ascii_digit()));
+    let _region = subtags.next_if(is_region);
+    let is_variant = |s: &&str| {
+        alphanumerics(s, 5..=8)
+            || (s.len() == 4 && s.as_bytes()[0].is_ascii_digit() && alphanumerics(s, 4..=4))
+    };
+    let mut variants = BTreeSet::new();
+    while let Some(variant) = subtags.next_if(is_variant) {
+        if !variants.insert(variant.to_ascii_lowercase()) {
+            return false;
+        }
+    }
+    let mut singletons = BTreeSet::new();
+    while let Some(singleton) = subtags.next() {
+        if !alphanumerics(singleton, 1..=1) || !singletons.insert(singleton.to_ascii_lowercase()) {
+            return false;
+        }
+        let private = singleton.eq_ignore_ascii_case("x");
+        let lengths = if private { 1..=8 } else { 2..=8 };
+        let mut any = false;
+        while subtags
+            .next_if(|s| alphanumerics(s, lengths.clone()))
+            .is_some()
+        {
+            any = true;
+        }
+        if !any {
+            return false;
+        }
+        // Private use is last: whatever follows it is part of it.
+        if private {
+            return subtags.next().is_none();
+        }
+    }
+    true
+}
+
+impl FromStr for Language {
+    type Err = ParseSettingError;
+
+    fn from_str(text: &str) -> Result<Self, ParseSettingError> {
+        if text == Self::AUTO {
+            Ok(Self(None))
+        } else if text.len() <= Self::MAX_LENGTH && is_locale_tag(text) {
+            Ok(Self(Some(text.to_owned())))
+        } else {
+            Err(ParseSettingError)
+        }
+    }
+}
+
+impl fmt::Debug for Language {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Language({})", self.as_str())
+    }
+}
+
+impl Serialize for Language {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 impl fmt::Debug for TimeZone {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TimeZone({})", self.as_str())
@@ -210,6 +315,12 @@ pub struct UserSettings {
     pub density: Density,
     /// Whether a device that can do so answers touches with a vibration.
     pub haptics: bool,
+    /// The language of the interface: `auto` for the browser's, or a language tag such
+    /// as `ko` or `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at
+    /// most 64 characters. The server keeps no list of languages, and answers a tag as
+    /// it was given, case and all: compare tags without regard to case.
+    #[schema(value_type = String)]
+    pub language: Language,
 }
 
 impl Default for UserSettings {
@@ -222,6 +333,7 @@ impl Default for UserSettings {
             card_open: CardOpen::default(),
             density: Density::default(),
             haptics: true,
+            language: Language::default(),
         }
     }
 }
@@ -243,11 +355,13 @@ pub enum SettingName {
     Density,
     /// `haptics`
     Haptics,
+    /// `language`
+    Language,
 }
 
 impl SettingName {
     /// Every setting there is.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::TimeZone,
         Self::WeekStart,
         Self::HourCycle,
@@ -255,6 +369,7 @@ impl SettingName {
         Self::CardOpen,
         Self::Density,
         Self::Haptics,
+        Self::Language,
     ];
 
     /// The name as it is written.
@@ -267,6 +382,7 @@ impl SettingName {
             Self::CardOpen => "cardOpen",
             Self::Density => "density",
             Self::Haptics => "haptics",
+            Self::Language => "language",
         }
     }
 
@@ -288,6 +404,7 @@ impl SettingName {
             Self::CardOpen => words(CardOpen::WORDS),
             Self::Density => words(Density::WORDS),
             Self::Haptics => "true or false".to_owned(),
+            Self::Language => "\"auto\" or a language tag such as \"ko\" or \"en-US\"".to_owned(),
         }
     }
 }
@@ -320,6 +437,7 @@ impl UserSettings {
             SettingName::Haptics => {
                 self.haptics = value.parse().map_err(|_| ParseSettingError)?;
             }
+            SettingName::Language => self.language = value.parse()?,
         }
         Ok(())
     }
@@ -360,6 +478,48 @@ impl SettingsError {
             Self::InvalidValue { name, .. } => name,
         }
     }
+
+    /// Why a client is told the member was refused.
+    fn reason(&self) -> RefusalReason {
+        match self {
+            Self::UnknownSetting { .. } => RefusalReason::Unknown,
+            Self::InvalidValue { .. } => RefusalReason::Invalid,
+        }
+    }
+}
+
+/// What a member of a change to the settings asks for.
+enum SettingChange {
+    /// The setting gets this value, as it is stored.
+    Set(SettingName, String),
+    /// The setting goes back to its default.
+    Reset(SettingName),
+}
+
+impl SettingChange {
+    /// Reads one member of a request.
+    fn read(name: &str, value: &serde_json::Value) -> Result<Self, SettingsError> {
+        let setting =
+            SettingName::from_name(name).ok_or_else(|| SettingsError::UnknownSetting {
+                name: shown_name(name),
+            })?;
+        let invalid = || SettingsError::InvalidValue {
+            name: setting.as_str(),
+            expected: setting.expectation(),
+        };
+        let stored = match (setting, value) {
+            (_, serde_json::Value::Null) => return Ok(Self::Reset(setting)),
+            (SettingName::Haptics, serde_json::Value::Bool(flag)) => flag.to_string(),
+            (SettingName::Haptics, _) => return Err(invalid()),
+            (_, serde_json::Value::String(text)) => text.clone(),
+            _ => return Err(invalid()),
+        };
+        // Whatever is stored must read back: checked with the reader itself.
+        UserSettings::default()
+            .set(setting, &stored)
+            .map_err(|ParseSettingError| invalid())?;
+        Ok(Self::Set(setting, stored))
+    }
 }
 
 impl UserSettingsPatch {
@@ -369,34 +529,24 @@ impl UserSettingsPatch {
     ///
     /// # Errors
     ///
-    /// Returns the first member, in the order of the names, that is no setting or whose
-    /// value the setting cannot have.
-    pub fn from_members(members: &JsonMap) -> Result<Self, SettingsError> {
+    /// Returns every member, in the order of the names, that is no setting (the reason
+    /// `unknown`) or whose value the setting cannot have (`invalid`), each with the
+    /// words of its [`SettingsError`].
+    pub fn from_members(members: &JsonMap) -> Result<Self, Refusals> {
         let mut patch = Self::default();
+        let mut refused = Refusals::new();
         for (name, value) in members {
-            let setting = SettingName::from_name(name)
-                .ok_or_else(|| SettingsError::UnknownSetting { name: name.clone() })?;
-            let invalid = || SettingsError::InvalidValue {
-                name: setting.as_str(),
-                expected: setting.expectation(),
-            };
-            let stored = match (setting, value) {
-                (_, serde_json::Value::Null) => {
-                    patch.reset.insert(setting);
-                    continue;
+            match SettingChange::read(name, value) {
+                Ok(SettingChange::Set(setting, stored)) => {
+                    patch.set.insert(setting, stored);
                 }
-                (SettingName::Haptics, serde_json::Value::Bool(flag)) => flag.to_string(),
-                (SettingName::Haptics, _) => return Err(invalid()),
-                (_, serde_json::Value::String(text)) => text.clone(),
-                _ => return Err(invalid()),
-            };
-            // Whatever is stored must read back: checked with the reader itself.
-            UserSettings::default()
-                .set(setting, &stored)
-                .map_err(|ParseSettingError| invalid())?;
-            patch.set.insert(setting, stored);
+                Ok(SettingChange::Reset(setting)) => {
+                    patch.reset.insert(setting);
+                }
+                Err(error) => refused.refuse(name, error.reason(), error.to_string()),
+            }
         }
-        Ok(patch)
+        refused.into_result().map(|()| patch)
     }
 
     /// Whether the change changes nothing.
@@ -492,6 +642,7 @@ mod tests {
             json!({
                 "timeZone": "auto", "weekStart": "auto", "hourCycle": "auto",
                 "theme": "auto", "cardOpen": "center", "density": "auto", "haptics": true,
+                "language": "auto",
             })
         );
     }
@@ -524,6 +675,13 @@ mod tests {
         for flag in [true, false] {
             assert_eq!(patched(json!({"haptics": flag})).haptics, flag, "haptics");
         }
+        for tag in ["auto", "ko", "en-US", "zh-Hant-TW"] {
+            assert_eq!(
+                patched(json!({"language": tag})).language.as_str(),
+                tag,
+                "language"
+            );
+        }
     }
 
     #[test]
@@ -555,13 +713,16 @@ mod tests {
         ];
         for case in cases {
             let name = case.as_object().expect("an object").keys().next().cloned();
-            let error = UserSettingsPatch::from_members(&members(case.clone()))
+            let refused = UserSettingsPatch::from_members(&members(case.clone()))
                 .expect_err("no value of the setting");
-            assert!(
-                matches!(error, SettingsError::InvalidValue { .. }),
-                "{case}: {error:?}"
+            let refused: Vec<_> = refused.into_iter().collect();
+            assert_eq!(refused.len(), 1, "{case}: {refused:?}");
+            assert_eq!(refused[0].reason, RefusalReason::Invalid, "{case}");
+            assert_eq!(
+                Some(refused[0].pointer.trim_start_matches('/')),
+                name.as_deref(),
+                "{case}"
             );
-            assert_eq!(Some(error.field()), name.as_deref(), "{case}");
         }
         let message = UserSettingsPatch::from_members(&members(json!({"cardOpen": "auto"})))
             .expect_err("no value")
@@ -575,16 +736,39 @@ mod tests {
     #[test]
     fn a_name_that_is_no_setting_is_refused() {
         for name in ["timezone", "locale", "", "TimeZone"] {
-            let error = UserSettingsPatch::from_members(&members(json!({name: "auto"})))
+            let refused = UserSettingsPatch::from_members(&members(json!({name: "auto"})))
                 .expect_err("no such setting");
-            assert_eq!(
-                error,
-                SettingsError::UnknownSetting {
-                    name: name.to_owned()
-                }
-            );
-            assert_eq!(error.field(), name);
+            let wanted = SettingsError::UnknownSetting {
+                name: name.to_owned(),
+            };
+            assert_eq!(wanted.field(), name);
+            let refused: Vec<_> = refused.into_iter().collect();
+            assert_eq!(refused.len(), 1, "{refused:?}");
+            assert_eq!(refused[0].pointer, format!("/{name}"));
+            assert_eq!(refused[0].reason, RefusalReason::Unknown);
+            assert_eq!(refused[0].detail, wanted.to_string());
         }
+    }
+
+    #[test]
+    fn every_member_that_is_wrong_is_refused_and_nothing_is_changed() {
+        let refused = UserSettingsPatch::from_members(&members(json!({
+            "theme": "sepia", "locale": "ko", "density": "compact", "haptics": 1,
+        })))
+        .expect_err("three members are wrong");
+        let refused: Vec<(String, RefusalReason)> = refused
+            .into_iter()
+            .map(|refusal| (refusal.pointer, refusal.reason))
+            .collect();
+        assert_eq!(
+            refused,
+            [
+                ("/haptics".to_owned(), RefusalReason::Invalid),
+                ("/locale".to_owned(), RefusalReason::Unknown),
+                ("/theme".to_owned(), RefusalReason::Invalid),
+            ],
+            "in the order of the names; the one that is fine is not among them"
+        );
     }
 
     #[test]
@@ -640,5 +824,57 @@ mod tests {
             check_client_state_value(&"v".repeat(4097)),
             Err(ClientStateError::ValueTooLong)
         );
+    }
+
+    #[test]
+    fn a_language_is_auto_or_has_the_shape_of_a_tag() {
+        for tag in [
+            "auto",
+            "ko",
+            "en-US",
+            "en-us",
+            "zh-Hant-TW",
+            "es-419",
+            "sr-Latn",
+            "de-CH-1901",
+            "sl-rozaj-biske",
+            "en-US-u-ca-gregory-hc-h23",
+            "en-x-private",
+            "haw",
+        ] {
+            let read: Language = tag.parse().expect(tag);
+            assert_eq!(read.as_str(), tag, "kept as given");
+        }
+        for tag in [
+            "",
+            "k",
+            "-",
+            "ko-",
+            "-ko",
+            "ko--KR",
+            "ko_KR",
+            "한국어",
+            "ko KR",
+            "toolongtag",
+            "en-toolongsub",
+            "1a",
+            &format!("en-u{}", "-abcdefgh".repeat(7)),
+            "Auto",
+            "AUTO",
+            "abcd",
+            "en-a",
+            "en-x",
+            "en-1",
+            "en-US-US",
+            "de-1901-1901",
+            "en-a-bc-a-de",
+            "en-x-ninechars",
+            "zh-yue-HK",
+            "sgn-BE-FR",
+            "i-klingon",
+            "x-private",
+        ] {
+            assert!(tag.parse::<Language>().is_err(), "{tag:?} is no tag");
+        }
     }
 }

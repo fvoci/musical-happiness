@@ -285,7 +285,7 @@ async fn a_part_that_fails_a_check_is_not_kept() {
         .body(last.to_vec());
     let response = Client::send(request).await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], "Content-Digest");
+    assert_eq!(response.refused_at(), "header Content-Digest");
 
     // Completing with a part missing names it, and the upload stays open for it.
     put_part(&ts.client, &upload_id, 2, last)
@@ -394,7 +394,7 @@ async fn opening_an_upload_is_checked() {
             .await;
         response.check_bad_request();
         if !field.is_empty() {
-            assert_eq!(response.value()["field"], field, "{body}");
+            assert_eq!(response.refused_at(), format!("/{field}"), "{body}");
         }
     }
 

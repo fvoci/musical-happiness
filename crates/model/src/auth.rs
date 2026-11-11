@@ -2,6 +2,9 @@
 
 use std::fmt;
 
+use crate::allowlist::utf16_len;
+use crate::problem::json_pointer;
+use crate::refusal::{Refusal, RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -13,22 +16,77 @@ pub const MINIMUM_PASSWORD_LENGTH: usize = 8;
 /// request from making the server hash megabytes.
 pub const MAXIMUM_PASSWORD_BYTES: usize = 1024;
 
+/// The longest email address, in bytes (RFC 5321).
+const MAXIMUM_EMAIL_BYTES: usize = 254;
+
+/// The longest display name, in UTF-16 code units as the web app counts text.
+pub const DISPLAY_NAME_MAX_LENGTH: usize = 64;
+
+/// Characters that a display name refuses beside the control characters: those that
+/// show nothing, break a line or turn the direction of the text around, with which a
+/// name could look empty, or like another.
+const INVISIBLE: [std::ops::RangeInclusive<char>; 6] = [
+    '\u{00AD}'..='\u{00AD}',
+    '\u{200B}'..='\u{200F}',
+    '\u{2028}'..='\u{202E}',
+    '\u{2060}'..='\u{206F}',
+    '\u{FEFF}'..='\u{FEFF}',
+    '\u{FFF9}'..='\u{FFFB}',
+];
+
+/// Reads a display name a user chooses: without the white space around it, empty for
+/// none; else at most [`DISPLAY_NAME_MAX_LENGTH`] UTF-16 code units without control
+/// characters (PostgreSQL stores no U+0000) and without characters that show nothing,
+/// break a line or turn the text around. Returns the name to store.
+///
+/// # Errors
+///
+/// Returns an [`AuthParamError`] for `displayName` if the name is too long or holds a
+/// character it may not.
+pub fn display_name(raw: &str) -> Result<String, AuthParamError> {
+    let name = raw.trim();
+    if utf16_len(name) > DISPLAY_NAME_MAX_LENGTH {
+        return Err(AuthParamError::new(
+            "displayName",
+            RefusalReason::TooLong,
+            format!("a display name has at most {DISPLAY_NAME_MAX_LENGTH} characters"),
+        ));
+    }
+    let refused = |c: char| c.is_control() || INVISIBLE.iter().any(|range| range.contains(&c));
+    if name.chars().any(refused) {
+        return Err(AuthParamError::new(
+            "displayName",
+            RefusalReason::InvalidCharacters,
+            "a display name has no control characters, and none that show nothing or turn \
+             the text around",
+        ));
+    }
+    Ok(name.to_owned())
+}
+
 /// A request parameter of an authentication request is missing or malformed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{message}")]
 pub struct AuthParamError {
     field: &'static str,
+    reason: RefusalReason,
     message: String,
 }
 
 impl AuthParamError {
-    /// Creates an error about the request member `field`, with a message that is sent to
-    /// the client as is.
-    pub fn new(field: &'static str, message: impl Into<String>) -> Self {
+    /// Creates an error about the request member `field`, with the cause a client
+    /// chooses its words by and a message that is sent to the client as is.
+    pub fn new(field: &'static str, reason: RefusalReason, message: impl Into<String>) -> Self {
         Self {
             field,
+            reason,
             message: message.into(),
         }
+    }
+
+    /// Why the member was refused.
+    pub fn reason(&self) -> RefusalReason {
+        self.reason
     }
 
     /// The name of the request member the error is about, as it is spelled on the wire.
@@ -42,6 +100,16 @@ impl AuthParamError {
     pub fn about(mut self, field: &'static str) -> Self {
         self.field = field;
         self
+    }
+}
+
+impl From<AuthParamError> for Refusal {
+    fn from(error: AuthParamError) -> Self {
+        Self {
+            pointer: json_pointer(error.field),
+            reason: error.reason,
+            detail: error.message,
+        }
     }
 }
 
@@ -86,27 +154,49 @@ pub struct RegisterRequest {
     /// The team's signup token; may be empty while no user exists yet.
     #[serde(deserialize_with = "null_as_default")]
     pub token: String,
+    /// The name to be shown by; may be left out, `null` or empty for none. Read as
+    /// `patchMe` reads it.
+    #[serde(rename = "displayName", deserialize_with = "null_as_default")]
+    pub display_name: String,
 }
 
 impl RegisterRequest {
-    /// Checks the request's parameters.
+    /// Checks the request's parameters, all of them.
     ///
     /// # Errors
     ///
-    /// Returns an [`AuthParamError`] if the user name or email is blank, the email is not
-    /// well formed, or the password is empty or shorter than
-    /// [`MINIMUM_PASSWORD_LENGTH`].
-    pub fn validate(&self) -> Result<(), AuthParamError> {
+    /// Returns every member that is refused, in the order of the members: the user name
+    /// if it is blank, the email address if it is blank or not well formed, the display
+    /// name if it is not one ([`display_name`]), and the password if it is empty,
+    /// shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
+    /// [`MAXIMUM_PASSWORD_BYTES`].
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
         if self.username.trim().is_empty() {
-            return Err(AuthParamError::new("username", "username is required"));
+            refused.refuse("username", RefusalReason::Required, "username is required");
         }
         if self.email.trim().is_empty() {
-            return Err(AuthParamError::new("email", "email is required"));
+            refused.refuse("email", RefusalReason::Required, "email is required");
+        } else if self.email.len() > MAXIMUM_EMAIL_BYTES {
+            refused.refuse(
+                "email",
+                RefusalReason::TooLong,
+                format!("email must be at most {MAXIMUM_EMAIL_BYTES} bytes"),
+            );
+        } else if !is_email_valid(&self.email) {
+            refused.refuse(
+                "email",
+                RefusalReason::InvalidFormat,
+                "invalid email format",
+            );
         }
-        if !is_email_valid(&self.email) {
-            return Err(AuthParamError::new("email", "invalid email format"));
+        if let Err(error) = display_name(&self.display_name) {
+            refused.push(error.into());
         }
-        check_new_password(&self.password)
+        if let Err(error) = check_new_password(&self.password) {
+            refused.push(error.into());
+        }
+        refused.into_result()
     }
 }
 
@@ -116,6 +206,7 @@ impl fmt::Debug for RegisterRequest {
         f.debug_struct("RegisterRequest")
             .field("username", &self.username)
             .field("email", &self.email)
+            .field("display_name", &self.display_name)
             .finish_non_exhaustive()
     }
 }
@@ -133,26 +224,32 @@ pub struct ChangePasswordRequest {
 }
 
 impl ChangePasswordRequest {
-    /// Checks the request's parameters.
+    /// Checks the request's parameters, both of them.
     ///
     /// # Errors
     ///
-    /// Returns an [`AuthParamError`] if either password is empty or the new one is shorter
-    /// than [`MINIMUM_PASSWORD_LENGTH`].
-    pub fn validate(&self) -> Result<(), AuthParamError> {
+    /// Returns every member that is refused: the old password if it is empty, and the
+    /// new one if it is empty, shorter than [`MINIMUM_PASSWORD_LENGTH`] or longer than
+    /// [`MAXIMUM_PASSWORD_BYTES`].
+    pub fn validate(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
         if self.old_password.is_empty() {
-            return Err(AuthParamError::new(
+            refused.refuse(
                 "oldPassword",
+                RefusalReason::Required,
                 "old password is required",
-            ));
+            );
         }
         if self.new_password.is_empty() {
-            return Err(AuthParamError::new(
+            refused.refuse(
                 "newPassword",
+                RefusalReason::Required,
                 "new password is required",
-            ));
+            );
+        } else if let Err(error) = check_new_password(&self.new_password) {
+            refused.push(error.about("newPassword").into());
         }
-        check_new_password(&self.new_password).map_err(|error| error.about("newPassword"))
+        refused.into_result()
     }
 }
 
@@ -174,17 +271,23 @@ impl fmt::Debug for ChangePasswordRequest {
 /// bytes.
 pub fn check_new_password(password: &str) -> Result<(), AuthParamError> {
     if password.is_empty() {
-        return Err(AuthParamError::new("password", "password is required"));
+        return Err(AuthParamError::new(
+            "password",
+            RefusalReason::Required,
+            "password is required",
+        ));
     }
     if password.chars().count() < MINIMUM_PASSWORD_LENGTH {
         return Err(AuthParamError::new(
             "password",
+            RefusalReason::TooShort,
             format!("password must be at least {MINIMUM_PASSWORD_LENGTH} characters"),
         ));
     }
     if password.len() > MAXIMUM_PASSWORD_BYTES {
         return Err(AuthParamError::new(
             "password",
+            RefusalReason::TooLong,
             format!("password must be at most {MAXIMUM_PASSWORD_BYTES} bytes"),
         ));
     }
@@ -197,7 +300,7 @@ pub fn check_new_password(password: &str) -> Result<(), AuthParamError> {
 /// ``.!#$%&'*+/=?^_`{|}~-``, an `@`, and a domain of dot-separated labels. Each label is
 /// 1 to 63 ASCII letters, digits and hyphens, and neither starts nor ends with a hyphen.
 pub fn is_email_valid(email: &str) -> bool {
-    if !(3..=254).contains(&email.len()) {
+    if !(3..=MAXIMUM_EMAIL_BYTES).contains(&email.len()) {
         return false;
     }
     let Some((local, domain)) = email.split_once('@') else {

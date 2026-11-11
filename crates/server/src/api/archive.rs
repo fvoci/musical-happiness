@@ -3,13 +3,15 @@
 //! Ports `server/api/archive.go`. The team-export route is registered twice in the
 //! original (the standalone server answers it); the import field is `file`.
 
+use std::time::Duration;
+
+use axum::Extension;
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::response::{IntoResponse, Response};
 use fvoci_model::UploadPurpose;
 use fvoci_store::PublicBoards;
 use serde::Deserialize;
-use tokio_util::io::ReaderStream;
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -20,12 +22,10 @@ use super::contract::params::{BoardId, TeamId};
 use super::contract::tag;
 use super::{ApiResult, RequiredSession, no_content};
 use super::{require_board_permission, require_team_access, user_is_guest};
-use crate::app::{App, ExportedArchive};
+use crate::app::{App, ExportedArchive, Slot, download};
+use crate::connection::{Breaker, Connection};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
-
-/// How much of an archive is read from its file at a time to be sent.
-const SEND_CHUNK_BYTES: usize = 256 * 1024;
 
 /// What is refused to a user who may not import into the team.
 const IMPORT_DENIAL: &str = "access denied to create board";
@@ -71,6 +71,13 @@ pub(super) async fn require_import_access(
 /// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
 /// `block` or `boardMember` per line, in the shapes of this contract, bodies included)
 /// and the files the blocks show, the images of bodies among them.
+///
+/// A user runs one export at a time, and the server as many as its setting
+/// `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
+/// `export_running` or `server_exports_busy`, and is to be asked for again later. An
+/// export runs until its archive is sent or the client goes away; a download that takes
+/// nothing for `export_stall_seconds` (60 unless set) is given up, and its connection
+/// broken before the archive's end.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/archive/export",
@@ -91,6 +98,7 @@ pub(super) async fn require_import_access(
 async fn handle_export_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
+    connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(board_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
@@ -105,17 +113,23 @@ async fn handle_export_board(
     )
     .await?;
     let board = app.board(&board_id).await?;
+    let slot = app.start_export(user_id)?;
     let archive = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
         .await?;
-    Ok(archive_response(archive))
+    Ok(archive_response(
+        &app,
+        archive,
+        slot,
+        breaker_of(connection),
+    ))
 }
 
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download with its length, in the format of `exportBoardArchive`. A team that
-/// is not there is not refused: its archive has no boards.
+/// as a download with its length, in the format of `exportBoardArchive`, and under its
+/// limits. A team that is not there is not refused: its archive has no boards.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/archive/export",
@@ -136,6 +150,7 @@ async fn handle_export_board(
 async fn handle_export_team(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
+    connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(team_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
@@ -148,8 +163,14 @@ async fn handle_export_team(
         .boards_for_user_and_team(user_id, &team_id, public)
         .await?;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
+    let slot = app.start_export(user_id)?;
     let archive = app.export_archive(&team_id, &ids).await?;
-    Ok(archive_response(archive))
+    Ok(archive_response(
+        &app,
+        archive,
+        slot,
+        breaker_of(connection),
+    ))
 }
 
 /// Import an archive
@@ -176,6 +197,10 @@ async fn handle_export_team(
 ///
 /// The boards are made one after the other, not all or none: when one of them fails,
 /// those before it stay.
+///
+/// A user runs one import at a time, and the server as many as its setting
+/// `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
+/// `import_running` or `server_imports_busy`; the upload stays open, to be named again.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/archive/import",
@@ -213,13 +238,27 @@ async fn handle_import(
         }
         return Err(refusal);
     }
-    app.import_upload(&upload).await?;
+    // Refused, the upload stays: the import can be asked for again.
+    let _slot = app.start_import(user_id)?;
+    // What is refused of the archive's boards and blocks is in the archive, not in the
+    // request, which names the upload alone.
+    app.import_upload(&upload)
+        .await
+        .map_err(AppError::outside_the_request)?;
     Ok(no_content())
 }
 
 /// Sends an archive, written whole before, as the download the original sends, with its
-/// length.
-fn archive_response(archive: ExportedArchive) -> Response {
+/// length. The export's `slot` and its file are held until the archive is sent, the
+/// client goes away, or the download stalls (`app::download`).
+fn archive_response(
+    app: &App,
+    archive: ExportedArchive,
+    slot: Slot,
+    breaker: Option<Breaker>,
+) -> Response {
+    let stall = Duration::from_secs(app.config().export_stall_seconds);
+    let size = archive.size;
     let filename = export_filename(crate::auth::now_millis());
     (
         [
@@ -229,12 +268,16 @@ fn archive_response(archive: ExportedArchive) -> Response {
                 format!("attachment; filename={filename}"),
             ),
             ("content-transfer-encoding", "binary".to_owned()),
-            ("content-length", archive.size.to_string()),
+            ("content-length", size.to_string()),
         ],
-        // Read in large pieces: each read of the file is a task of its own.
-        Body::from_stream(ReaderStream::with_capacity(archive.file, SEND_CHUNK_BYTES)),
+        Body::from_stream(download(archive, slot, stall, breaker)),
     )
         .into_response()
+}
+
+/// The breaker of the connection a request came on, if it has one.
+fn breaker_of(connection: Option<Extension<ConnectInfo<Connection>>>) -> Option<Breaker> {
+    connection.and_then(|Extension(ConnectInfo(connection))| connection.breaker)
 }
 
 /// The file name an export is offered under: `archive-YYYY-MM-DD.boardarchive` for today

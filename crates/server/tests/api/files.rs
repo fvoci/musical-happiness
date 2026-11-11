@@ -350,8 +350,8 @@ async fn download_with_a_range_is_partial_content() {
     ts.teardown().await;
 }
 
-/// A range past the end is a 416 with a `Content-Range` of `bytes */size` and a body
-/// shorter than its `Content-Length` (verified on the oracle).
+/// A range past the end is a 416 with a `Content-Range` of `bytes */size`, and a
+/// problem that names the header.
 #[tokio::test]
 async fn download_with_a_range_past_the_end_is_416() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -370,16 +370,38 @@ async fn download_with_a_range_past_the_end_is_416() {
         "bytes */20",
         "the content range"
     );
+    assert_eq!(response.problem_type(), "/problems/range-not-satisfiable");
+    assert_eq!(response.refused_at(), "header Range");
     assert_eq!(
-        response.header("content-type"),
-        "text/plain; charset=utf-8",
-        "the 416 content type"
+        response.header("content-disposition"),
+        "",
+        "an error is no download"
     );
-    assert_eq!(
-        response.text(),
-        "invalid range: failed to overlap\n",
-        "the message"
-    );
+
+    // What is no range of bytes at all is the same problem, without a length.
+    let request = ts
+        .client
+        .request(
+            Method::GET,
+            &format!("/boards/{}/files/{file_id}", board.id),
+        )
+        .header("Range", "lines=1-2");
+    let response = Client::send(request).await;
+    response.check_status(reqwest::StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(response.header("content-range"), "");
+
+    // A condition that does not hold: the file is as new as the answer.
+    let request = ts
+        .client
+        .request(
+            Method::GET,
+            &format!("/boards/{}/files/{file_id}", board.id),
+        )
+        .header("If-Unmodified-Since", "Sat, 01 Jan 2000 00:00:00 GMT");
+    let response = Client::send(request).await;
+    response.check_status(reqwest::StatusCode::PRECONDITION_FAILED);
+    assert_eq!(response.problem_type(), "/problems/precondition-failed");
+    assert_eq!(response.refused_at(), "header If-Unmodified-Since");
     ts.teardown().await;
 }
 

@@ -18,28 +18,29 @@
 
   function text(problem: Problem): string {
     const error = problem.error;
-    if (error?.kind === 'network') return m.app_problem_network();
-    if (problem.action === 'import' && error?.kind === 'forbidden') {
+    // No answer at all.
+    if (error?.status === 0) return m.app_problem_network();
+    if (problem.action === 'import' && error?.status === 403) {
       return m.app_problem_import_forbidden();
     }
-    if (error?.kind === 'forbidden') return m.app_problem_forbidden();
+    if (error?.status === 403) return m.app_problem_forbidden();
     // What the server does not take yet (`docs/decisions.md`, 연결 3): said as that, not as a refusal.
     if (error?.reason === 'not_wired') return m.app_problem_not_wired();
-    if (problem.action === 'upload' && error?.kind === 'rate_limited') {
+    if (problem.action === 'upload' && error?.status === 429) {
       return m.app_problem_upload_busy();
     }
-    if (problem.action === 'upload' && error?.kind === 'payload_too_large' && error.limit) {
+    if (problem.action === 'upload' && error?.status === 413 && error.limit) {
       return m.app_problem_upload_too_large({ limit: humanFileSize(error.limit) });
     }
-    if (problem.action === 'import' && error?.kind === 'payload_too_large') {
+    if (problem.action === 'import' && error?.status === 413) {
       return error.reason === 'over_import_limit' && error.limit
         ? m.app_problem_import_too_large({ limit: humanFileSize(error.limit) })
         : m.app_problem_import_too_big();
     }
-    if (problem.action === 'import' && error?.kind === 'bad_request') {
+    if (problem.action === 'import' && error?.status === 400) {
       return m.app_problem_import_invalid();
     }
-    if (problem.action === 'import' && error?.kind === 'rate_limited') {
+    if (problem.action === 'import' && error?.status === 429) {
       return m.app_problem_upload_busy();
     }
     switch (problem.action) {

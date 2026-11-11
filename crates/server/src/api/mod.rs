@@ -26,6 +26,7 @@ mod subscriptions;
 mod system;
 mod teams;
 mod templates;
+mod trash;
 mod uploads;
 mod users;
 
@@ -40,12 +41,14 @@ use serde::Serialize;
 use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
-    board_refusal, require_admin, require_board_permission, require_board_visible,
+    board_refusal, require_admin, require_block_change_permission,
+    require_block_type_change_permission, require_board_permission, require_board_visible,
     require_permission_through, require_team_access, require_team_in_body, user_is_guest,
 };
 pub(crate) use body::{
     decode_json, decode_object, decode_object_members, decode_object_with, decode_with_document,
-    json_object, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+    element_pointer, json_object, objects_mut, put_patch_bodies, take_block_bodies,
+    take_patch_bodies,
 };
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};
@@ -92,6 +95,7 @@ fn routes() -> Routes {
         .merge(boards::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
+        .merge(trash::routes())
         .merge(categories::routes())
         .merge(config::routes())
         .merge(files::routes())

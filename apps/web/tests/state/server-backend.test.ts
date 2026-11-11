@@ -29,7 +29,10 @@ function serve(answer: unknown, status = 200): Sent[] {
     return Promise.resolve(
       new Response(status === 204 ? null : JSON.stringify(answer), {
         status,
-        headers: { 'Content-Type': 'application/json' },
+        // An error is the server's problem details (RFC 9457).
+        headers: {
+          'Content-Type': status >= 400 ? 'application/problem+json' : 'application/json',
+        },
       }),
     );
   });
@@ -374,12 +377,72 @@ describe('writing a card’s body on the server', () => {
   });
 
   it('sends no body as null, and lets a refusal for a stale version through as 409', async () => {
-    const sent = serve({ error: 'conflict', message: 'stale' }, 409);
+    const sent = serve(
+      { type: '/problems/conflict', title: 'Conflict', status: 409, detail: 'stale' },
+      409,
+    );
     const refused = await new ServerBackend('')
       .writeCardBody('b', 'c1', { body: null, readAt: 5 })
       .catch((error: unknown) => error);
     expect(sent[0]?.body).toEqual({ body: null, readAt: 5 });
     expect(isBackendError(refused) && refused.status).toBe(409);
+  });
+
+  it('reads a refusal as the problem details the server sends', async () => {
+    serve(
+      {
+        type: '/problems/username-taken',
+        title: 'User name taken',
+        status: 409,
+        detail: 'the user name is taken',
+        instance: 'urn:uuid:r1',
+        reason: 'username_taken',
+        errors: [
+          { pointer: '/username', detail: 'the user name is taken', reason: 'username_taken' },
+          { parameter: 'page', detail: 'no number', reason: 'invalid' },
+          { pointer: '/x' },
+          'nothing',
+        ],
+        limit: 7,
+        retryAfter: 3,
+        requestId: 'r1',
+      },
+      409,
+    );
+    const refused = await new ServerBackend('').me().catch((error: unknown) => error);
+    if (!isBackendError(refused)) throw new Error('not refused');
+    expect(refused).toMatchObject({
+      status: 409,
+      type: '/problems/username-taken',
+      reason: 'username_taken',
+      message: 'the user name is taken',
+      limit: 7,
+      retryAfter: 3,
+      requestId: 'r1',
+    });
+    // An entry that does not say why is no entry.
+    expect(refused.errors).toEqual([
+      { pointer: '/username', detail: 'the user name is taken', reason: 'username_taken' },
+      { parameter: 'page', detail: 'no number', reason: 'invalid' },
+    ]);
+    expect(refused.refusalAt('/username')?.reason).toBe('username_taken');
+    expect(refused.refusalAt('/email')).toBeUndefined();
+  });
+
+  it("goes by the status alone when an error answer is not the server's", async () => {
+    // A proxy's page, or the old shape: nothing of it is read.
+    vi.stubGlobal('fetch', () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: 'conflict', message: 'x', reason: 'r', field: 'f' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+    const refused = await new ServerBackend('').me().catch((error: unknown) => error);
+    if (!isBackendError(refused)) throw new Error('not refused');
+    expect(refused).toMatchObject({ status: 500, type: 'about:blank', reason: undefined });
+    expect(refused.errors).toEqual([]);
   });
 });
 
