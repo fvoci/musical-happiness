@@ -95,6 +95,25 @@ describe('who changes and deletes a comment', () => {
   });
 });
 
+describe('a comment with a reply of somebody else', () => {
+  it('is deleted and brought back by an admin only, as the reply goes with it', async () => {
+    const { world, backend, other, boardId, cardId } = await onAlpha();
+    const mine = await backend.createComment(boardId, cardId, text('mine'));
+    // A reply: somebody else's comment under it (the server takes one; this app makes none).
+    const reply = await other.createComment(boardId, cardId, text('theirs'));
+    const stored = world.blocks.get(reply.id);
+    if (stored) stored.parentId = mine.id;
+    setRole(world, boardId, backend, 'commenter');
+    expect(await statusOf(backend.deleteBlock(boardId, mine.id))).toBe(403);
+    setRole(world, boardId, backend, 'admin');
+    expect(await statusOf(backend.deleteBlock(boardId, mine.id))).toBe('ok');
+    setRole(world, boardId, backend, 'commenter');
+    expect(await statusOf(backend.restoreBlock(boardId, mine.id))).toBe(403);
+    setRole(world, boardId, backend, 'admin');
+    expect(await statusOf(backend.restoreBlock(boardId, mine.id))).toBe('ok');
+  });
+});
+
 describe('a comment brought back', () => {
   it('names whoever brought it back as the last to change it, as the server does', async () => {
     const { world, backend, other, boardId, cardId } = await onAlpha();

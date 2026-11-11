@@ -42,6 +42,20 @@ export function lastCommentAt(blocks: readonly StoredBlock[]): number {
   return Math.max(0, ...blocks.filter((block) => block.type === 'comment').map((c) => c.createAt));
 }
 
+/**
+ * Whether the user may delete a comment with what goes with it, or bring that
+ * back: every comment of it, its replies too, theirs to delete.
+ */
+export function mayRemoveComments(
+  role: Role,
+  userId: string,
+  blocks: readonly Pick<StoredBlock, 'type' | 'createdBy'>[],
+): boolean {
+  return blocks.every(
+    (block) => block.type !== 'comment' || mayDeleteComment(role, block.createdBy === userId),
+  );
+}
+
 /** How many texts before the one it has now a comment keeps: the server's default. */
 export const COMMENT_VERSIONS_KEPT = 50;
 

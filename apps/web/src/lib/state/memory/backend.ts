@@ -65,7 +65,7 @@ import {
   versionsOf,
   lastCommentAt,
   mayChangeComment,
-  mayDeleteComment,
+  mayRemoveComments,
   roleOn,
   type Role,
 } from './comments.ts';
@@ -1067,10 +1067,6 @@ export class MemoryBackend implements Backend {
   async deleteBlock(boardId: string, blockId: string): Promise<void> {
     await this.#enter('deleteBlock');
     const block = this.#block(boardId, blockId);
-    const role = this.#roleOn(boardId);
-    if (block.type === 'comment' && !mayDeleteComment(role, block.createdBy === this.userId)) {
-      fail(403, "access denied to delete other users' comments");
-    }
     // Everything under it goes along, at every depth.
     const gone: StoredBlock[] = [];
     const collect = (parent: StoredBlock): void => {
@@ -1078,6 +1074,9 @@ export class MemoryBackend implements Backend {
       for (const child of this.world.childrenOf(parent.id)) collect(child);
     };
     collect(block);
+    if (block.type === 'comment' && !mayRemoveComments(this.#roleOn(boardId), this.userId, gone)) {
+      fail(403, "access denied to delete other users' comments");
+    }
     for (const each of gone) this.world.blocks.delete(each.id);
     this.world.deletedBlocks.set(blockId, { boardId, blocks: gone, ...deletion(this) });
     this.world.tellBoard(boardId, {
@@ -1094,7 +1093,7 @@ export class MemoryBackend implements Backend {
     // A comment at the top of the deletion comes back by the comment's rule, anything else by an editor's.
     const top = deleted.blocks[0];
     if (top?.type === 'comment') {
-      if (!mayDeleteComment(this.#memberRole(boardId), top.createdBy === this.userId)) {
+      if (!mayRemoveComments(this.#memberRole(boardId), this.userId, deleted.blocks)) {
         fail(403, "access denied to undelete other users' comments");
       }
     } else mayManageCards(this.world, this.userId, boardId, 'access denied to undelete block');

@@ -268,3 +268,68 @@ test('a comment changed elsewhere while its field is open is not written over un
   await api.dispose();
   expect(errors).toEqual([]);
 });
+
+test('a commenter deletes their own comment and brings it back with undo; somebody else’s has no delete button', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('keeper');
+  const guest = person('remover');
+  await register(base, owner);
+  await register(base, guest);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Second thoughts',
+    cards: [{ title: 'Plan', status: 'To do' }],
+    members: [{ who: guest, role: 'commenter' }],
+  });
+  const cardId = board.cards.Plan ?? '';
+  const path = `/board/${board.boardId}/${board.viewId}/${cardId}`;
+  const stored = async () =>
+    (await commentsOn(api, board.boardId, cardId)).map((one) => lines(one.body)).sort();
+
+  const page = await (await browser.newContext({ locale: 'en-US' })).newPage();
+  const errors = watchErrors(page);
+  await openCard(page, path, guest);
+  // The owner's comment first, then the guest's own.
+  await api.post(`/api/v1/boards/${board.boardId}/blocks`, {
+    data: [
+      {
+        boardId: board.boardId,
+        parentId: cardId,
+        type: 'comment',
+        title: '',
+        fields: {},
+        createAt: 1,
+        updateAt: 1,
+        body: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The owner says' }] }],
+        },
+      },
+    ],
+  });
+  const comments = page.getByTestId('card-comments').locator('[data-comment]');
+  await expect(comments).toHaveCount(1);
+  await send(page, 'I take it back');
+  await expect(comments).toHaveCount(2);
+
+  const theirs = comments.filter({ hasText: 'The owner says' });
+  const mine = comments.filter({ hasText: 'I take it back' });
+  await expect(theirs.getByRole('button', { name: /^Delete the comment from/ })).toHaveCount(0);
+  await mine.getByRole('button', { name: /^Delete the comment from/ }).click();
+  await expect(comments).toHaveCount(1);
+  await expect.poll(stored).toEqual([['The owner says']]);
+
+  // Undo, from the card's menu, brings it back on the server.
+  await page.getByTestId('card-menu').click();
+  await page.locator('[data-action="undo"]').click();
+  await expect(comments).toHaveCount(2);
+  await expect.poll(stored).toEqual([['I take it back'], ['The owner says']]);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+
+  await page.context().close();
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
