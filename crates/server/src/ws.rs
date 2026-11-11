@@ -356,12 +356,15 @@ impl Hub {
         });
 
         let reason = tokio::select! {
-            reason = self.read_commands(id, &mut stream) => reason,
+            // First: when the hub gave the connection up, its reason is the one counted,
+            // also if the client closed it at the same moment.
+            biased;
             // The hub gave the connection up: it does not keep up, or its session or its
             // read token ended.
             () = closed.cancelled() => {
                 closed_because.get().copied().unwrap_or(Disconnect::Shutdown)
             }
+            reason = self.read_commands(id, &mut stream) => reason,
             // The session ended by its idle or absolute limit, which nobody announces:
             // the sessions that ended so are deleted only by the hourly clean-up.
             () = self.session_ends(token.as_deref(), session_check) => Disconnect::SessionEnded,
@@ -889,7 +892,9 @@ impl Hub {
             }
         }
         drop(listeners);
-        self.inner.metrics.websocket_sent(message.action(), queued);
+        self.inner
+            .metrics
+            .websocket_queued(message.action(), queued);
     }
 }
 

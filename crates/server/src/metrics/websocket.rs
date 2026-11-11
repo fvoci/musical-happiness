@@ -1,5 +1,5 @@
 //! The metrics of the websocket connections: how many are open, the messages the hub
-//! sends them by kind, and why they ended.
+//! queues for them by kind, and why they ended.
 
 use prometheus::{IntCounterVec, IntGauge, Opts, Registry};
 
@@ -8,23 +8,35 @@ use super::{Metrics, PREFIX};
 /// Why a websocket connection ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Disconnect {
-    /// The client closed it, or went away.
+    /// The client sent a close frame.
     ClientClosed,
-    /// What the client sent could not be read as websocket frames: a message over the
-    /// limit, a broken frame.
+    /// The connection broke, or what came was no websocket frame: a client gone
+    /// without closing (a closed tab, a proxy that dropped an idle connection, a lost
+    /// network), a message over the limit, a broken frame.
     ReadError,
     /// Its session ended: logout, a changed password, the idle or absolute limit, or
-    /// the user went.
+    /// the user went. Also when the session could not be read back right after the
+    /// handshake, which is logged.
     SessionEnded,
     /// The read token it followed a shared board with stopped opening the board.
     ShareEnded,
     /// It did not read its messages as fast as they came.
     SlowConsumer,
-    /// The server stopped.
+    /// The server stopped. Counted as it stops, after the metrics listener closed, so a
+    /// scrape does not see it.
     Shutdown,
 }
 
 impl Disconnect {
+    const ALL: [Self; 6] = [
+        Self::ClientClosed,
+        Self::ReadError,
+        Self::SessionEnded,
+        Self::ShareEnded,
+        Self::SlowConsumer,
+        Self::Shutdown,
+    ];
+
     /// The value of the `reason` label.
     fn as_str(self) -> &'static str {
         match self {
@@ -42,7 +54,7 @@ impl Disconnect {
 #[derive(Debug)]
 pub(super) struct WebsocketMetrics {
     connections: IntGauge,
-    sent: IntCounterVec,
+    queued: IntCounterVec,
     disconnections: IntCounterVec,
 }
 
@@ -52,15 +64,17 @@ impl WebsocketMetrics {
         let connections = IntGauge::with_opts(
             Opts::new(
                 "websocket_connections",
-                "How many websocket connections are open.",
+                "How many websocket connections are open; one that ended is counted until \
+                 what was queued for it is sent, for five seconds at most.",
             )
             .namespace(PREFIX),
         )?;
-        let sent = IntCounterVec::new(
+        let queued = IntCounterVec::new(
             Opts::new(
-                "websocket_messages_sent_total",
+                "websocket_messages_queued_total",
                 "How many messages the server queued for websocket connections, one per \
-                 connection, by the message's action.",
+                 connection, by the message's action. A connection that ends may not get \
+                 what was queued for it.",
             )
             .namespace(PREFIX),
             &["action"],
@@ -68,18 +82,25 @@ impl WebsocketMetrics {
         let disconnections = IntCounterVec::new(
             Opts::new(
                 "websocket_disconnections_total",
-                "How many websocket connections ended, by reason: client_closed, \
-                 read_error, session_ended, share_ended, slow_consumer, shutdown.",
+                "How many websocket connections ended, by reason: client_closed (a close \
+                 frame), read_error (broken off, or no websocket frame), session_ended, \
+                 share_ended, slow_consumer, shutdown (not seen: counted as the server \
+                 stops).",
             )
             .namespace(PREFIX),
             &["reason"],
         )?;
         registry.register(Box::new(connections.clone()))?;
-        registry.register(Box::new(sent.clone()))?;
+        registry.register(Box::new(queued.clone()))?;
         registry.register(Box::new(disconnections.clone()))?;
+        // Every reason is there from the start, at zero, so that the first of each is
+        // an increase.
+        for reason in Disconnect::ALL {
+            disconnections.with_label_values(&[reason.as_str()]).reset();
+        }
         Ok(Self {
             connections,
-            sent,
+            queued,
             disconnections,
         })
     }
@@ -107,14 +128,14 @@ impl Metrics {
         }))
     }
 
-    /// Counts `count` messages of the action `action` as sent. The action is one of the
-    /// hub's own, never one a client named.
-    pub(crate) fn websocket_sent(&self, action: &'static str, count: usize) {
+    /// Counts `count` messages of the action `action` as queued. The action is one of
+    /// the hub's own, never one a client named.
+    pub(crate) fn websocket_queued(&self, action: &'static str, count: usize) {
         if let Some(kept) = &self.kept
             && count > 0
         {
             kept.websocket
-                .sent
+                .queued
                 .with_label_values(&[action])
                 .inc_by(u64::try_from(count).unwrap_or(u64::MAX));
         }

@@ -122,7 +122,7 @@ async fn a_metrics_address_that_is_taken_keeps_the_server_from_starting() {
 
 /// The value of the sample of `name` whose labels are exactly `labels`, given in the
 /// order of their names, as the text format writes them.
-fn sample(body: &str, name: &str, labels: &[(&str, &str)]) -> Option<f64> {
+pub(crate) fn sample(body: &str, name: &str, labels: &[(&str, &str)]) -> Option<f64> {
     let labels: Vec<String> = labels
         .iter()
         .map(|(label, value)| format!("{label}=\"{value}\""))
@@ -272,7 +272,7 @@ async fn the_base_path_is_not_part_of_the_route() {
 
 /// Scrapes until `holds` is true of the metrics, for ten seconds at most; returns the
 /// last scrape.
-async fn scrape_until(server: &TestServer, holds: impl Fn(&str) -> bool) -> String {
+pub(crate) async fn scrape_until(server: &TestServer, holds: impl Fn(&str) -> bool) -> String {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     loop {
         let body = scrape(server).await;
@@ -352,7 +352,7 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
     let sent = |body: &str| {
         sample(
             body,
-            "fvoci_websocket_messages_sent_total",
+            "fvoci_websocket_messages_queued_total",
             &[("action", "UPDATE_CATEGORY")],
         )
     };
