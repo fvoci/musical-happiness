@@ -300,3 +300,58 @@ test('"display by" chosen for a view that named no date can be taken back on the
   expect(errors).toEqual([]);
   await api.dispose();
 });
+
+test('a bar dragged on the page, and an end of it, change the card on the server; one undo takes the last back', async ({
+  page,
+  baseURL,
+}) => {
+  const { owner, api, board } = await start(baseURL, 'gantt-drag', 'Moving plan');
+  const cider = await card(api, board.boardId, 'Press cider', {
+    due: { from: '2026-11-12', to: '2026-11-17' },
+  });
+  // 08:00 on the 10th in Seoul.
+  const call = await card(api, board.boardId, 'Morning call', {
+    due: { from: Date.parse('2026-11-09T23:00:00Z') },
+  });
+  const dueOf = async (cardId: string): Promise<unknown> =>
+    ((await (await api.get(`/api/v1/cards/${cardId}`)).json()) as Schemas['Card']).properties.due;
+  const errors = watchErrors(page);
+  await addGantt(page, owner, api, board);
+  const gantt = page.getByTestId('gantt');
+  await expect(gantt.locator('[data-bar]')).toHaveCount(2);
+  const week = await gantt.locator('[data-tick]').nth(1).boundingBox();
+  if (!week) throw new Error('no marks on the axis');
+  const day = week.width / 7;
+  /** Presses on `target`, moves `days` days across, and lets go. */
+  const dragBy = async (target: Locator, days: number): Promise<void> => {
+    const box = await target.boundingBox();
+    if (!box) throw new Error('nothing to drag');
+    const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x + days * day, from.y, { steps: 10 });
+    await page.mouse.up();
+  };
+
+  // Moved whole: six days still, from the 15th.
+  await dragBy(bar(page, 'Press cider'), 3);
+  await expect.poll(() => dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
+  // A moment keeps 08:00 on the reader's clock.
+  await dragBy(bar(page, 'Morning call'), 2);
+  await expect.poll(() => dueOf(call)).toEqual({ from: Date.parse('2026-11-11T23:00:00Z') });
+  // The last day by its grip.
+  const row = gantt.locator('[data-row]').filter({ hasText: 'Press cider' });
+  await row.hover();
+  await dragBy(row.locator('[data-grip="end"]'), 2);
+  await expect.poll(() => dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-22' });
+
+  // One undo takes the last drag back, on the server too.
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
+  await page.reload();
+  await expect(bar(page, 'Press cider')).toHaveAccessibleName(
+    'Press cider, November 15 – November 20',
+  );
+  expect(errors).toEqual([]);
+  await api.dispose();
+});

@@ -5,7 +5,7 @@
  * how a drag begins. A tablet is wide and is touched; a small window on a
  * desktop is narrow and has a mouse.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 import { DRAG_SETTINGS } from '../../src/lib/drag/settings.ts';
 
@@ -147,6 +147,45 @@ test.describe('the window changes size during a drag', () => {
   });
 });
 
+interface Timed {
+  /** When the pointer had gone far enough to drag, and when the dragged card showed, in the page's time. */
+  dragTiming: { crossed?: number; shown?: number; shownByNextTask?: boolean };
+}
+
+/** Notes in the page when the pressed pointer has gone the few pixels, and when the drag shows. */
+async function recordDragStart(page: Page): Promise<void> {
+  await page.evaluate((distance) => {
+    const timing: Timed['dragTiming'] = {};
+    (window as unknown as Timed).dragTiming = timing;
+    let origin: { x: number; y: number } | undefined;
+    const options = { capture: true };
+    window.addEventListener(
+      'pointerdown',
+      (event) => (origin = { x: event.clientX, y: event.clientY }),
+      options,
+    );
+    window.addEventListener(
+      'pointermove',
+      (event) => {
+        if (!origin || timing.crossed !== undefined) return;
+        const travelled = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
+        if (travelled < distance) return;
+        timing.crossed = performance.now();
+        // After this move's own work and what it queued, before any timer of the page.
+        setTimeout(() => {
+          timing.shownByNextTask = document.querySelector('[data-drag-overlay]') !== null;
+        }, 0);
+      },
+      options,
+    );
+    new MutationObserver((_, observer) => {
+      if (!document.querySelector('[data-drag-overlay]')) return;
+      timing.shown = performance.now();
+      observer.disconnect();
+    }).observe(document.body, { childList: true, subtree: true, attributes: true });
+  }, DRAG_SETTINGS.mouseDistance);
+}
+
 test.describe('how a drag begins follows the pointer, not the width of the window', () => {
   test.describe('a mouse in a window as narrow as a phone', () => {
     test.skip(({ hasTouch }) => hasTouch, 'the mouse is tested in the desktop project');
@@ -156,12 +195,20 @@ test.describe('how a drag begins follows the pointer, not the width of the windo
       await open(page);
       const from = await pointOn(card(page, 'backlog-2'));
       await page.mouse.move(from.x, from.y);
+      await recordDragStart(page);
       await page.mouse.down();
-      const started = Date.now();
       await page.mouse.move(from.x + 6, from.y + 6, { steps: 3 });
       await expect(overlay(page)).toBeVisible();
-      // No long press: the drag is there well before a finger's wait would be over.
-      expect(Date.now() - started).toBeLessThan(DRAG_SETTINGS.touchDelay);
+      // No long press: the drag is there as soon as the pointer has gone the few
+      // pixels, well before a finger's wait would be over. Timed in the page, so
+      // that how long the test runner takes between two steps does not count.
+      const timing = await page.evaluate(() => (window as unknown as Timed).dragTiming);
+      expect(timing.crossed).toBeDefined();
+      // Begun by that move itself, not by a timer: the card shows before the page does anything else.
+      expect(timing.shownByNextTask).toBe(true);
+      expect((timing.shown ?? Infinity) - (timing.crossed ?? 0)).toBeLessThan(
+        DRAG_SETTINGS.touchDelay,
+      );
       await page.keyboard.press('Escape');
       await page.mouse.up();
       await expectNothingMoved(page);

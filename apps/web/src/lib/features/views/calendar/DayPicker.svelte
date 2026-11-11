@@ -11,6 +11,11 @@
   The calendar names the card (`cardId`) from its menu, once the list the
   menu was in has closed, and then opens it: a popover next to the picked
   day (or "No date", for a card without one), or a sheet on a compact page.
+  Beside a day of the grid it opens at the side, where it can slide up or
+  down into the window (below a day of the last weeks, at a window 720
+  pixels high, it went off the bottom: there was room neither below nor
+  above); below a line of a list. It is never higher than the window, and
+  scrolls inside where it would be.
   In the popover the focus goes to the card's day (the picked day, for a
   card without one), where the arrow keys walk the month; a sheet takes it
   itself, as every sheet does. Once closed, the calendar puts the focus on
@@ -195,11 +200,11 @@
       <Popover.Content
         bind:ref={box}
         customAnchor={anchor}
-        side="bottom"
+        side={line ? 'bottom' : 'right'}
         align="start"
         collisionPadding={insets.collisionPadding}
         aria-label={title}
-        class="w-auto max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))] p-0"
+        class="max-h-[calc(100dvh-1rem)] w-auto max-w-[calc(100vw-1rem-var(--safe-left)-var(--safe-right))] overflow-y-auto p-0"
         onOpenAutoFocus={focusDay}
         onCloseAutoFocus={(event: Event) => {
           event.preventDefault();

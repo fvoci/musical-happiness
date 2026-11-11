@@ -287,6 +287,26 @@ export function dependencyProperty(
   return named?.type === 'relation' ? named : undefined;
 }
 
+/**
+ * The card relations of a board that some Gantt view reads as what comes
+ * before what. Where a card names others in one of them, a card that would
+ * close a loop is not offered (the editor's `preventLoops`): a loop made on
+ * the screen is kept out; one made elsewhere is only shown.
+ */
+export function orderingRelations(
+  /** The fields of the board's views. */
+  views: readonly { viewType: string; dependencyPropertyId?: string }[],
+  templates: readonly PropertyTemplate[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const view of views) {
+    if (view.viewType !== 'gantt') continue;
+    const relation = dependencyProperty(view.dependencyPropertyId, templates);
+    if (relation) ids.add(relation.id);
+  }
+  return ids;
+}
+
 /** Names an edge in a set. */
 export function edgeKey(edge: RelationEdge): string {
   return `${edge.from}\u0000${edge.to}`;
@@ -327,6 +347,24 @@ export function relationsOf(
     loops: new Set(edges.map(edgeKey).filter((key) => onLoops.has(key))),
     loopCards: new Set(looping.flatMap(({ from, to }) => [from, to])),
   };
+}
+
+/** Of `cardIds`, those on a loop. */
+export function onLoops(cardIds: Iterable<string>, loopCards: ReadonlySet<string>): Set<string> {
+  return new Set([...cardIds].filter((id) => loopCards.has(id)));
+}
+
+/** The name of the group each card is in, from groups as the view has them. */
+export function groupOfCards<G extends { cards: readonly { id: string }[] }>(
+  groups: readonly G[],
+  nameOf: (group: G) => string,
+): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const group of groups) {
+    const name = nameOf(group);
+    for (const card of group.cards) names.set(card.id, name);
+  }
+  return names;
 }
 
 /** For each card that comes after others, those others, in the order of the edges. */

@@ -26,6 +26,9 @@
 
   The days are one stop of the Tab key: the picked day takes the focus, and
   the arrow keys move it a day or a week (`onmove`).
+
+  While a card is dragged (card-drag.svelte.ts) the days it would go to are
+  marked (`drop`), and its bars are faint where they were.
 -->
 <script lang="ts">
   import PlusIcon from '@lucide/svelte/icons/plus';
@@ -33,6 +36,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { foldWeek, inMonth, layWeek, type Month } from '$lib/logic/calendar.ts';
   import type { CalendarDate } from '$lib/logic/dates.ts';
+  import type { Days } from '$lib/logic/dependencies.ts';
   import type { Card, PropertyTemplate } from '$lib/logic/wire.ts';
   import {
     displayDay,
@@ -67,6 +71,10 @@
     onmove: (by: number) => void;
     /** Makes a card on a day; none where no card can be made here. */
     oncreate?: (date: CalendarDate) => void;
+    /** The bars can be dragged: those that can be pressed have grips. */
+    draggable?: boolean;
+    /** The card being dragged, and the days it would go to. */
+    dragging?: { id: string; days: Days | undefined };
   }
 
   let {
@@ -83,7 +91,11 @@
     onpick,
     onmove,
     oncreate,
+    draggable = false,
+    dragging,
   }: Props = $props();
+
+  const drop = $derived(dragging?.days);
 
   const locale = $derived(placed.locale);
 
@@ -138,9 +150,11 @@
           {@const isToday = date === today}
           {@const picked = date === selected}
           {@const label = placed.dayName(date, displayDayLong(date, locale))}
+          {@const dropped = drop !== undefined && date >= drop.first && date <= drop.last}
           {@const cell = [
             'relative row-span-full row-start-1 flex min-w-0 items-start border-r text-left last:border-r-0',
             !week && !inMonth(date, month) && 'bg-muted/50 text-muted-foreground',
+            dropped && 'bg-primary/10 ring-2 ring-primary/60 ring-inset',
           ]}
           {#snippet number()}
             <span
@@ -159,6 +173,7 @@
               type="button"
               data-day={date}
               data-day-button
+              data-drop={dropped ? '' : undefined}
               aria-label={label}
               aria-current={isToday ? 'date' : undefined}
               aria-haspopup="dialog"
@@ -178,7 +193,12 @@
               {@render number()}
             </button>
           {:else}
-            <div data-day={date} class={[cell, 'group/day p-0.5']} style:grid-column={column + 1}>
+            <div
+              data-day={date}
+              data-drop={dropped ? '' : undefined}
+              class={[cell, 'group/day p-0.5']}
+              style:grid-column={column + 1}
+            >
               <button
                 type="button"
                 data-day-button
@@ -275,6 +295,8 @@
                 detail={week ? placed.detail(card, shownOf(card)) : undefined}
                 href={cardHref(card.id)}
                 onopen={onOpenCard}
+                grips={draggable && (!finger || week)}
+                dragged={dragging?.id === card.id}
               />
             </div>
           {/if}

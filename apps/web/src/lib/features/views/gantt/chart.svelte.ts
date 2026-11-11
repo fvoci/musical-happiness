@@ -6,6 +6,7 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { displayProperty } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
+import type { Days } from '$lib/logic/dependencies.ts';
 import type { BoardGroup } from '$lib/logic/group.ts';
 import {
   arrowHead,
@@ -16,6 +17,8 @@ import {
   cardsBefore,
   dependencyProperty,
   edgeKey,
+  groupOfCards,
+  onLoops,
   relationsOf,
   rowsOf,
   scaleOf,
@@ -45,6 +48,8 @@ export interface ChartSource {
   zoom: () => GanttZoom;
   /** How many days the page has room for. */
   minDays: () => number;
+  /** Days the axis shows besides the cards': where a bar is being dragged. */
+  reach?: () => Days | undefined;
 }
 
 /** The row of a card as it is drawn. */
@@ -60,7 +65,8 @@ export interface CardLine {
   title: string;
   /**
    * What a screen reader hears for the bar: the title, the days, the cards
-   * it comes after, and what is wrong with that (out of order, on a loop).
+   * it comes after, what is wrong with that (out of order, on a loop), and
+   * the group it is in.
    */
   name: string;
   /** The card starts before the day a card it comes after ends. */
@@ -130,15 +136,30 @@ export class GanttChart {
       ),
   );
 
-  readonly axis = $derived.by<Axis>(() =>
-    axisOf({
+  /** The axis last worked out. Not reactive. */
+  #lastAxis: Axis | undefined;
+
+  /**
+   * The days of the chart. The same object while they are the same days: a
+   * new axis draws every bar again, and the days a drag asks for (`reach`)
+   * often change nothing (the axis is as long as it may be).
+   */
+  readonly axis = $derived.by<Axis>(() => {
+    const reach = this.#source.reach?.();
+    const next = axisOf({
       zoom: this.#source.zoom(),
       weekStart: this.#regional.weekStart,
       today: this.#source.today(),
-      spans: this.placed.spans,
+      spans: reach ? [...this.placed.spans, reach] : this.placed.spans,
       minDays: this.#source.minDays(),
-    }),
-  );
+    });
+    const last = this.#lastAxis;
+    if (last?.first === next.first && last.last === next.last && last.zoom === next.zoom) {
+      return last;
+    }
+    this.#lastAxis = next;
+    return next;
+  });
 
   readonly scale = $derived.by<Scale>(() => scaleOf(this.axis, this.#regional.weekStart));
 
@@ -171,20 +192,34 @@ export class GanttChart {
       : [{ cardIds: this.placed.spans.map((span) => span.id) }],
   );
 
+  /** Whether the options of the group by are people, named by the workspace. */
+  #person(optionId: string): boolean {
+    return optionId !== '' && PERSON_KINDS.includes(this.groupBy?.type ?? '');
+  }
+
+  /** The name of a group as the table says it: the option, the person, or "No Status". */
+  #groupName(option: BoardGroup['option']): string {
+    return this.#person(option.id)
+      ? (this.#board.workspace.userName(option.id) ?? m['centerPanel.unknown-user']())
+      : option.value;
+  }
+
+  /** The name of the group each card is in; none where the view is not grouped. */
+  readonly #groupOf = $derived.by(() =>
+    groupOfCards(this.#groups ?? [], (group) => this.#groupName(group.option)),
+  );
+
   /** The heading of a group as drawn: named and coloured as the table does. */
   #groupLine(row: Extract<ChartRow, { kind: 'group' }>): GroupLine[] {
     const option = this.#groups?.find((group) => group.option.id === row.id)?.option;
     if (!option || !this.groupBy) return [];
-    const person = option.id !== '' && PERSON_KINDS.includes(this.groupBy.type);
     return [
       {
         kind: 'group',
         id: row.id,
         count: row.count,
-        name: person
-          ? (this.#board.workspace.userName(option.id) ?? m['centerPanel.unknown-user']())
-          : option.value,
-        color: person || option.id === '' ? undefined : option.color,
+        name: this.#groupName(option),
+        color: this.#person(option.id) || option.id === '' ? undefined : option.color,
       },
     ];
   }
@@ -291,15 +326,18 @@ export class GanttChart {
 
   /**
    * What a screen reader hears for a bar: its title and days, the cards it
-   * comes after, and in words what the dashes and the marks say to the eye.
+   * comes after, in words what the dashes and the marks say to the eye, and
+   * the group it is in, which the heading says to the eye.
    */
   #name(card: Card): string {
     const before = this.#before.get(card.id);
     const late = this.#lateBefore(card.id);
     const name = this.#titleAndDays(card);
+    const group = this.#groupOf.get(card.id);
     const more = [
       late.length > 0 ? m.gantt_bar_late({ cards: this.#listed(late) }) : undefined,
       this.relations.loopCards.has(card.id) ? m.gantt_bar_loop() : undefined,
+      group === undefined ? undefined : m.gantt_bar_group({ group }),
     ].filter((part) => part !== undefined);
     // The title and the days are a sentence of their own once another follows.
     const first = before
@@ -351,4 +389,12 @@ export class GanttChart {
 
   /** How many cards with a bar are on a loop. */
   readonly loopCount = $derived.by(() => this.cardLines.filter((line) => line.loop).length);
+
+  /** The cards of the view without a date that are on a loop: they have no bar to mark. */
+  readonly undatedLoops = $derived.by(() =>
+    onLoops(
+      this.placed.undated.map((card) => card.id),
+      this.relations.loopCards,
+    ),
+  );
 }

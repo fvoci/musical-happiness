@@ -18,7 +18,7 @@
   import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
-  import type { Workspace } from '$lib/state/index.ts';
+  import { newCardMaker, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   import type { Router } from './router.svelte.ts';
@@ -73,9 +73,18 @@
     router.openCard(cardId);
   };
 
-  /** A new card that the view will show: it gets the values the view's filter asks for. */
+  /**
+   * A new card that the view will show: made the view's way where it has one
+   * (a day on a calendar or a Gantt chart), else with the values the view's
+   * filter asks for.
+   */
   async function addCard(): Promise<void> {
     if (!board?.board || !view) return;
+    const maker = newCardMaker(view.id);
+    if (maker) {
+      await maker();
+      return;
+    }
     const properties = propertiesThatMeetFilterGroup(
       view.fields.filter,
       board.board.cardProperties,

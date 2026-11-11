@@ -290,6 +290,32 @@ describe('a view without a property', () => {
   });
 });
 
+describe('a Gantt view, when the relation it draws arrows by goes', () => {
+  const gantt = (): ReturnType<typeof createBoardView> => {
+    const made = createBoardView();
+    made.fields.viewType = 'gantt';
+    made.fields.dependencyPropertyId = 'after';
+    return made;
+  };
+
+  it('forgets it when it is deleted', () => {
+    const { fields } = viewWithoutProperty(gantt(), 'after');
+    expect('dependencyPropertyId' in fields).toBe(false);
+  });
+
+  it('forgets it when it becomes another kind', () => {
+    const { fields } = viewWithoutProperty(gantt(), 'after', 'text');
+    expect('dependencyPropertyId' in fields).toBe(false);
+  });
+
+  it('keeps it while it stays a card relation, and keeps another', () => {
+    expect(viewWithoutProperty(gantt(), 'after', 'relation').fields.dependencyPropertyId).toBe(
+      'after',
+    );
+    expect(viewWithoutProperty(gantt(), 'other').fields.dependencyPropertyId).toBe('after');
+  });
+});
+
 describe('a view, when a property becomes a card relation', () => {
   it('takes a view off grouping and calculating by it', () => {
     const view = createBoardView();

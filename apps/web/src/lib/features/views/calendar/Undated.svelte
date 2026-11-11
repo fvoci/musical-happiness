@@ -3,6 +3,9 @@
   so no place on the grid (question C16, answer A: a drawer opened from the
   calendar's row). The same list on a sheet of a compact page and in the
   column at the right of the calendar; the column has a button that closes it.
+  A Gantt chart has the same list, with its own words (`hint`), and marks
+  the cards on a loop of the relation it draws (`loops`): they have no bar
+  to carry the mark.
 -->
 <script lang="ts">
   import XIcon from '@lucide/svelte/icons/x';
@@ -28,6 +31,10 @@
     onChangeDate?: (cardId: string, line: HTMLElement | undefined) => void;
     /** Given where the list has its own heading: the column. A sheet has its title. */
     onclose?: () => void;
+    /** What the list says it is, for the property the view is placed by. */
+    hint?: (property: string) => string;
+    /** The cards on a loop. */
+    loops?: ReadonlySet<string>;
   }
 
   let {
@@ -40,6 +47,8 @@
     board,
     onChangeDate,
     onclose,
+    hint = (property: string) => m.calendar_undated_hint({ property }),
+    loops,
   }: Props = $props();
 
   const uid = $props.id();
@@ -71,12 +80,12 @@
   {/if}
   {#if placed.template && placed.undated.length > 0}
     <p class="px-4 pb-1 text-xs text-muted-foreground">
-      {m.calendar_undated_hint({ property: placed.template.name })}
+      {hint(placed.template.name)}
     </p>
   {/if}
   <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
     {#each placed.undated as card (card.id)}
-      <CardRow {card} {...rows} />
+      <CardRow {card} {...rows} loop={loops?.has(card.id) ?? false} />
     {:else}
       <li class="px-3 py-2 text-muted-foreground">{m.calendar_no_undated()}</li>
     {/each}

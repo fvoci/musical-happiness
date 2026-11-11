@@ -258,6 +258,7 @@
           users={reader.people}
           presentation={reader.presentation}
           cards={host.cards}
+          preventLoops={host.ordering(column.id)}
           onOpenCard={host.open}
           onChange={(value: StoredValue | undefined) => {
             host.setValue(card.id, column.id, value);

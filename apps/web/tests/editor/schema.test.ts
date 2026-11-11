@@ -234,13 +234,25 @@ describe('the stored form', () => {
         { type: 'image', attrs: { fileId: 'f1' } },
         {
           type: 'orderedList',
-          attrs: { start: 1 },
           content: [{ type: 'listItem', content: [paragraph()] }],
         },
       ),
     );
     expect(validateDoc(fromEditor)).not.toEqual([]);
     expect(validateDoc(toStoredDoc(fromEditor))).toEqual([]);
+  });
+
+  it('leaves out the start of an ordered list at 1, which a list without one starts at, and keeps any other', () => {
+    const list = (attrs?: DocNode['attrs']): DocNode => ({
+      type: 'orderedList',
+      ...(attrs ? { attrs } : {}),
+      content: [{ type: 'listItem', content: [paragraph()] }],
+    });
+    expect(toStoredDoc(doc(list({ start: 1 })))).toEqual(doc(list()));
+    expect(toStoredDoc(doc(list({ start: 0 })))).toEqual(doc(list({ start: 0 })));
+    expect(toStoredDoc(doc(list({ start: 3 })))).toEqual(doc(list({ start: 3 })));
+    // Stored twice, the same.
+    expect(toStoredDoc(toStoredDoc(doc(list({ start: 1 }))))).toEqual(doc(list()));
   });
 
   it('measures a document in bytes of UTF-8', () => {

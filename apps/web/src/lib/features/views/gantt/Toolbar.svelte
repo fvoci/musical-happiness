@@ -5,9 +5,14 @@
 
   At the far end, how many relations are out of order (a card starts before
   a card it comes after has ended) and how many cards are on a loop, each
-  only where there are any, and the cards without a date, as the calendar
-  has them: the word where the pane has room, the mark and the count always.
-  The first two are buttons that go to the next such card. One that has the
+  only where there are any, with their mark, word and count (the word is
+  not left to the colour and the mark on a narrow page: the row scrolls),
+  and the cards without a date, as the calendar has them: the word where
+  the pane has room, the mark and the count always. The first two are
+  buttons that go to the next such card. Where no card with a bar is on a
+  loop, the cards on one without a date are counted instead (a loop of
+  them alone was shown nowhere): the button opens their list, which marks
+  them. One that has the
   focus when its count comes to nothing stays until the focus leaves it, and
   a change of the counts is said to a screen reader.
 
@@ -35,8 +40,10 @@
     /** How many relations are out of order, and what goes to the next card of one. */
     late: number;
     onlate: () => void;
-    /** How many cards with a bar are on a loop, and what goes to the next. */
+    /** How many cards with a bar are on a loop (else without a date), and what goes to the next. */
     loops: number;
+    /** The loops counted are of cards without a date: the button shows their list. */
+    loopsUndated?: boolean;
     onloop: () => void;
     zoom: GanttZoom;
     onzoom: (zoom: GanttZoom) => void;
@@ -56,6 +63,7 @@
     late,
     onlate,
     loops,
+    loopsUndated = false,
     onloop,
     zoom,
     onzoom,
@@ -102,7 +110,7 @@
     }}
   >
     <Mark />
-    <span class="hidden @columns/pane:inline">{word}</span>
+    <span>{word}</span>
     <span
       data-count
       class="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full px-1 text-[0.6875rem] leading-none font-semibold ring-1 ring-current"
@@ -175,7 +183,9 @@
       'gantt-loops',
       RepeatIcon,
       m.gantt_loop(),
-      m.gantt_loop_next({ count: loops }),
+      loopsUndated
+        ? m.gantt_loop_undated_next({ count: loops })
+        : m.gantt_loop_next({ count: loops }),
       loops,
       onloop,
     )}

@@ -1,12 +1,14 @@
 /** The rows of a view as CSV. */
+import { displayProperty } from './calendar.ts';
 import type { DisplayContext } from './format.ts';
 import { encodeCsvText, propertyBehavior } from './properties.ts';
 import { cardProperty, type Card, type PropertyTemplate, type ViewQuery } from './wire.ts';
 
 /**
  * A header row and one row per card: the title, then the visible properties
- * in the order of the board. A calendar view also exports the property it
- * places its cards by. `nameHeader` is the translated heading of the title
+ * in the order of the board. A calendar or a Gantt view also exports the
+ * property it places its cards by (the one it names, or the one it falls
+ * back to: `displayProperty`), shown on it or not. `nameHeader` is the translated heading of the title
  * column. Every text cell is quoted, the headings included.
  */
 export function tableRows(
@@ -17,13 +19,9 @@ export function tableRows(
   context: DisplayContext,
 ): string[][] {
   const visible = templates.filter((template) => view.visiblePropertyIds.includes(template.id));
-  if (
-    view.viewType === 'calendar' &&
-    view.dateDisplayPropertyId &&
-    !view.visiblePropertyIds.includes(view.dateDisplayPropertyId)
-  ) {
-    const dateDisplay = templates.find((template) => template.id === view.dateDisplayPropertyId);
-    if (dateDisplay) visible.push(dateDisplay);
+  if (view.viewType === 'calendar' || view.viewType === 'gantt') {
+    const dateDisplay = displayProperty(view.dateDisplayPropertyId, templates);
+    if (dateDisplay && !visible.includes(dateDisplay)) visible.push(dateDisplay);
   }
 
   const quoted = (text: string): string => `"${encodeCsvText(text)}"`;

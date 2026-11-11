@@ -369,6 +369,9 @@ export function isEmptyDoc(doc: DocNode): boolean {
  * A document in the form that is stored: attributes without a value are left
  * out, and so is an attribute list that became empty. The editor gives every
  * attribute it knows a slot, `null` when unset; the stored form has no nulls.
+ * The start of an ordered list at 1 is left out too: a list without a start
+ * starts at 1, and the server stores a body that way (its projection of a
+ * document edited together leaves it out), so a body has one form.
  * Marks stay on text alone: the editor lets a line break or a mention inside
  * bold text carry the mark too (`<strong>a<br>b</strong>`), which means
  * nothing for a node without text and is not on the list.
@@ -376,7 +379,10 @@ export function isEmptyDoc(doc: DocNode): boolean {
 export function toStoredDoc(node: DocNode): DocNode {
   const stored: DocNode = { type: node.type };
   const attrs = Object.entries(node.attrs ?? {}).filter(
-    ([, value]) => value !== null && value !== undefined,
+    ([name, value]) =>
+      value !== null &&
+      value !== undefined &&
+      !(node.type === 'orderedList' && name === 'start' && value === 1),
   );
   if (attrs.length > 0) stored.attrs = Object.fromEntries(attrs);
   if (node.content) stored.content = node.content.map(toStoredDoc);

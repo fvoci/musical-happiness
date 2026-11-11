@@ -10,6 +10,13 @@
   bar says so in words, and the row above the chart counts them.
   Cards on a loop are marked and counted the same way.
 
+  Where the reader may change the dates (a date property they may edit), a
+  bar is dragged to other days and its ends to make it longer or shorter
+  (bar-drag.svelte.ts); a press without a drag opens the card. With the
+  keys, "Change date" in the card's "…" at the end of its title moves it
+  (a picker of days, as on the calendar: DayPicker). The header's "New"
+  makes a card of one day on today, or on the first day in sight.
+
   One box scrolls both ways. The titles of the cards are a column at its
   left that stays while the days scroll; the marks of the days are two rows
   at its top that stay while the cards scroll. A narrow pane has the same
@@ -36,20 +43,31 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { page, Room } from '$lib/layout/room.svelte.ts';
+  import { datesWritable } from '$lib/logic/calendar.ts';
   import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
-  import { DAY_WIDTH, xOfDay, zoomOf } from '$lib/logic/gantt.ts';
+  import { barBox, DAY_WIDTH, xOfDay, zoomOf, type Axis } from '$lib/logic/gantt.ts';
+  import type { Days } from '$lib/logic/dependencies.ts';
   import type { GanttZoom } from '$lib/logic/view-members.ts';
+  import { registerNewCard } from '$lib/state/index.ts';
 
   import { MinuteClock } from '../calendar/clock.svelte.ts';
+  import CardMenu from '../calendar/CardMenu.svelte';
+  import DayPicker from '../calendar/DayPicker.svelte';
   import Undated from '../calendar/Undated.svelte';
+  import { writeDays } from '../calendar/write.ts';
+  import { UndatedColumn } from '../calendar/undated-column.svelte.ts';
   import type { ViewProps } from '../props.ts';
 
   import Arrows from './Arrows.svelte';
   import AxisHeader from './AxisHeader.svelte';
+  import { BarDrag, type BarGrip } from './bar-drag.svelte.ts';
+  import { BarFocus } from './bar-focus.svelte.ts';
   import BarRow from './BarRow.svelte';
   import { GanttChart } from './chart.svelte.ts';
   import { DaysHold } from './days-hold.svelte.ts';
   import GroupRow from './GroupRow.svelte';
+  import { ganttCardMaker } from './making.ts';
+  import { daysLabel } from './names.ts';
   import Toolbar from './Toolbar.svelte';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
@@ -76,13 +94,46 @@
    */
   const minDays = $derived(Math.ceil(box.width / (DAY_WIDTH[zoom] * rem()) / 28) * 28);
 
-  const chart = new GanttChart({
+  const drag: BarDrag = new BarDrag({
+    axis: (): Axis => chart.axis,
+    days: (cardId: string) => chart.placed.span(cardId),
+    enabled: () => writable,
+    scroller: () => scroller,
+    titles,
+    room: daysRoom,
+    rem,
+    ondrop: dropBar,
+  });
+
+  const chart: GanttChart = new GanttChart({
     board: () => board,
     view: () => view,
     cards: () => cards,
     today: () => today,
     zoom: () => zoom,
     minDays: () => minDays,
+    reach: (): Days | undefined => drag.reach,
+  });
+
+  /** Bars can be dragged: by someone who may edit, where they are placed by a date to set. */
+  const writable = $derived(board.canEdit && datesWritable(chart.template));
+
+  /** A bar let go on other days: its card's date is written, and the board shows it at once. */
+  function dropBar(cardId: string, grip: BarGrip, days: Days): void {
+    const card = chart.placed.card(cardId);
+    const template = chart.template;
+    if (!card || !template || !datesWritable(template)) return;
+    void writeDays(board, card, template, grip, days, board.workspace.regional.timeZone);
+  }
+
+  /** The bar being dragged as it is drawn meanwhile. */
+  const dragged = $derived.by(() => {
+    const preview = drag.preview;
+    if (!preview) return undefined;
+    const days = daysLabel(preview.days, locale, Number(today.slice(0, 4)), (first, last) =>
+      m.gantt_days_range({ first, last }),
+    );
+    return { id: preview.id, box: barBox(axis, preview.days), days, label: () => drag.label };
   });
 
   const axis = $derived(chart.axis);
@@ -92,11 +143,14 @@
   /** The box that scrolls. Not reactive: read when something is brought into view. */
   let scroller: HTMLElement | undefined;
 
+  /** How wide the column of titles is, in pixels. */
+  function titles(): number {
+    return scroller?.querySelector<HTMLElement>('[data-gantt-corner]')?.offsetWidth ?? 0;
+  }
+
   /** How wide the days in sight are, in pixels: the box less the column of titles. */
   function daysRoom(): number {
-    if (!scroller) return 0;
-    const titles = scroller.querySelector<HTMLElement>('[data-gantt-corner]')?.offsetWidth ?? 0;
-    return scroller.clientWidth - titles;
+    return scroller ? scroller.clientWidth - titles() : 0;
   }
 
   /** Scrolls the days so that the middle of `date` is `part` of the way into what is in sight. */
@@ -123,39 +177,6 @@
     rem,
   });
 
-  /*
-   * The focus is not lost when the rows are laid out again. The rows stand
-   * in blocks (below), and a card added or taken away above moves rows from
-   * one block to the next: such a row is made again, and the focus that was
-   * on its bar or its title would fall to the page. So would the focus on
-   * the bar of a card that leaves the chart (deleted, or its date cleared,
-   * by someone else). Before the rows are drawn what has the focus is noted;
-   * afterwards, if the page has it, it goes back to the same bar or title,
-   * else to the bar that now stands in that place, else to "No date".
-   */
-  /** The cards of the rows as they were drawn last, from the top. Not reactive. */
-  let shown: string[] = [];
-  $effect.pre(() => {
-    // Read, so that this runs again whenever the rows are laid out anew.
-    const lines = chart.cardLines;
-    const before = shown;
-    shown = lines.map((line) => line.id);
-    const active = document.activeElement;
-    const row = active instanceof HTMLElement ? active.closest<HTMLElement>('[data-row]') : null;
-    const cardId = row?.dataset.row;
-    if (!row || cardId === undefined || !scroller?.contains(row)) return;
-    const part = active?.hasAttribute('data-row-title') ? '[data-row-title]' : '[data-bar]';
-    const at = Math.max(0, before.indexOf(cardId));
-    void tick().then(() => {
-      if (document.activeElement !== document.body) return;
-      const same = scroller?.querySelector<HTMLElement>(
-        `[data-row="${CSS.escape(cardId)}"] ${part}`,
-      );
-      if (same) same.focus({ preventScroll: true });
-      else if (lines.length > 0) focusBar(lines[Math.min(at, lines.length - 1)]?.id);
-      else undatedButton?.focus();
-    });
-  });
   /**
    * The box, once it is drawn: it starts with today in sight. The column of
    * cards without a date lies over it: the focus going into the box means
@@ -168,10 +189,12 @@
       showDay(today);
     });
     const left = (): void => {
-      if (!sheet) undatedOpen = false;
+      undated.left();
     };
     element.addEventListener('focusin', left);
+    const detach = drag.attach(element);
     return () => {
+      detach();
       element.removeEventListener('focusin', left);
       scroller = undefined;
     };
@@ -179,110 +202,102 @@
 
   // ------------------------------------------------------------- focus
 
-  /** The bar the Tab key stops on: the one last focused, the first until then. */
-  let focused = $state<string | undefined>(undefined);
-  const stop = $derived(
-    focused !== undefined && chart.bars.has(focused) ? focused : chart.cardLines[0]?.id,
-  );
+  const focus = new BarFocus({
+    chart: () => chart,
+    scroller: () => scroller,
+    undatedButton: () => undated.button,
+    onOpenCard: (cardId: string) => {
+      onOpenCard(cardId);
+    },
+    rem,
+  });
 
   /**
-   * The card whose title opened it. The card gives the focus back to what
-   * opened it, and CardDialog would hand it on to the card's bar (`data-card`)
-   * and so scroll the days to wherever that bar is: for this card the bar
-   * does not say it is the card's, and the focus stays on the title.
+   * "On a loop": the next bar on a loop; where none is, the cards without a
+   * date, whose list marks those on a loop, and the focus on the first.
    */
-  let viaTitle = $state<string | undefined>(undefined);
-
-  /** The title of a row was pressed: the Tab key goes on from this row, and its card opens. */
-  function openFromTitle(cardId: string): void {
-    focused = cardId;
-    viaTitle = cardId;
-    openCard(cardId);
+  async function showLoop(): Promise<void> {
+    if (chart.loopCount > 0) {
+      focus.focusNext('loop');
+      return;
+    }
+    if (!undated.open) await undated.toggle();
+    await tick();
+    document
+      .querySelector<HTMLElement>('[data-testid="undated-list"] [data-mark="loop"]')
+      ?.closest('[data-card]')
+      ?.querySelector<HTMLElement>('a')
+      ?.focus();
   }
 
-  /**
-   * The card opened last from the chart. Should it lose its bar while it is
-   * open (its date cleared in the card), "No date" says it is the card's
-   * (`data-card`), and the card gives the focus back to it when it closes:
-   * that is where the card is listed now.
-   */
-  let opened = $state<string | undefined>(undefined);
-  const openedUndated = $derived(
-    opened !== undefined && !chart.bars.has(opened) ? opened : undefined,
-  );
+  // ------------------------------------------------------- making a card
 
-  function openCard(cardId: string): void {
-    opened = cardId;
-    onOpenCard(cardId);
+  const makeCard = ganttCardMaker({
+    board: () => board,
+    view: () => view,
+    template: () => chart.template,
+    axis: () => axis,
+    today: () => today,
+    scroller: () => scroller,
+    room: daysRoom,
+    rem,
+    onOpenCard: focus.openCard,
+  });
+
+  $effect(() => {
+    if (!writable) return;
+    return registerNewCard(view.id, makeCard);
+  });
+
+  // ------------------------------------------------------ changing a date
+
+  /** The card whose date the picker of days changes, the picker, and the row it hangs by. */
+  let changing = $state<string | undefined>(undefined);
+  let pickerOpen = $state(false);
+  let changingRow = $state<HTMLElement | null>(null);
+  /** The card last named to the picker: the picker forgets it as it closes. Not reactive. */
+  let changed: string | undefined;
+
+  /** "Change date" in a card's "…": the picker opens by the card's row. */
+  async function changeDate(cardId: string): Promise<void> {
+    changingRow =
+      scroller?.querySelector<HTMLElement>(`[data-row="${CSS.escape(cardId)}"]`) ?? null;
+    undated.open = false;
+    changing = cardId;
+    changed = cardId;
+    await tick();
+    pickerOpen = true;
   }
 
-  /**
-   * A bar took the focus: the stop of the Tab key is on it from now on. The
-   * page brings a focused bar into the box by itself, but knows nothing of
-   * the column of titles that lies over the box's left: a bar that begins
-   * under it is scrolled out from under it. (Room kept at the left by the
-   * style sheet, `scroll-padding`, would do it too, and would scroll the
-   * days away whenever a title took the focus: the titles lie in that room.)
-   */
-  function barFocused(cardId: string, bar: HTMLElement): void {
-    focused = cardId;
-    viaTitle = undefined;
-    if (pointed !== cardId) pointed = undefined;
+  /** The picker has closed: the focus goes back to the card's bar, or to "No date". */
+  async function pickerClosed(): Promise<void> {
+    await tick();
+    const cardId = changed;
+    const row = cardId
+      ? scroller?.querySelector<HTMLElement>(`[data-row="${CSS.escape(cardId)}"]`)
+      : null;
+    changingRow = null;
+    const back = row?.querySelector<HTMLElement>('[data-bar]');
+    if (back) back.focus();
+    else undated.button?.focus();
+  }
+
+  /** The board kept a move to `date`: the day comes into sight, if it is not. */
+  function moved(date: CalendarDate): void {
     if (!scroller) return;
-    const titles = scroller.querySelector('[data-gantt-corner]')?.getBoundingClientRect().right;
-    const hidden = (titles ?? 0) - bar.getBoundingClientRect().left;
-    if (hidden > 0) scroller.scrollLeft -= hidden + rem() / 2;
-  }
-
-  function focusBar(cardId: string | undefined): void {
-    if (cardId === undefined) return;
-    focused = cardId;
-    scroller?.querySelector<HTMLElement>(`[data-bar="${CSS.escape(cardId)}"]`)?.focus();
-  }
-
-  /**
-   * The bar the reader was sent to from a count above the chart. It shows
-   * its ring also where the focus came by a press of a pointer, which draws
-   * none by itself: the reader has to see which bar is meant.
-   */
-  let pointed = $state<string | undefined>(undefined);
-
-  /**
-   * Goes to the next card with a mark below the bar last focused, whether
-   * that bar has the mark or not, and from the last on to the first.
-   */
-  function focusNext(mark: 'late' | 'loop'): void {
-    const lines = chart.cardLines;
-    const from = lines.findIndex((line) => line.id === focused);
-    const next =
-      lines.slice(from + 1).find((line) => line[mark]) ?? lines.find((line) => line[mark]);
-    pointed = next?.id;
-    focusBar(next?.id);
-  }
-
-  /** The arrow keys walk the bars: up and down a row, Home and End to the first and last. */
-  function barKeys(event: KeyboardEvent, cardId: string): void {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const lines = chart.cardLines;
-    const at = lines.findIndex((line) => line.id === cardId);
-    const to = { ArrowUp: at - 1, ArrowDown: at + 1, Home: 0, End: lines.length - 1 }[event.key];
-    if (to === undefined) return;
-    event.preventDefault();
-    focusBar(lines[Math.min(lines.length - 1, Math.max(0, to))]?.id);
+    const x = (xOfDay(axis, date) + axis.dayWidth / 2) * rem() - scroller.scrollLeft;
+    if (x < 0 || x > daysRoom()) showDay(date);
   }
 
   // ------------------------------------------------ cards without a date
 
   const sheet = $derived(overlayPresentation(page.stage) === 'sheet');
-  /**
-   * The cards without a date are open: a column at the right, or a sheet on
-   * a compact page. Closed when the page changes between the two, so that a
-   * device turned on its side does not raise a sheet unasked.
-   */
-  let undatedOpen = $derived<boolean>(sheet && false);
-  /** "No date" in the row above, and the column it opens: where the focus goes and comes back. */
-  let undatedButton = $state<HTMLElement | null>(null);
-  let undatedPanel: HTMLElement | undefined;
+  const undated = new UndatedColumn({
+    sheet: () => sheet,
+    onOpenCard: (cardId: string) => {
+      onOpenCard(cardId);
+    },
+  });
 
   const undatedRows = $derived({
     placed: chart.placed,
@@ -291,48 +306,9 @@
     users: board.workspace.users,
     board,
     cardHref,
+    hint: (property: string) => m.gantt_undated_hint({ property }),
+    loops: chart.undatedLoops,
   });
-
-  async function toggleUndated(): Promise<void> {
-    undatedOpen = !undatedOpen;
-    if (!undatedOpen) return;
-    await tick();
-    undatedPanel?.querySelector<HTMLElement>('[data-testid="undated-close"]')?.focus();
-  }
-
-  /** Closes the column of cards without a date, the focus back on its button. */
-  function closeUndated(): void {
-    undatedOpen = false;
-    undatedButton?.focus();
-  }
-
-  /** The column: kept for the focus, and Escape in it closes it. For `{@attach}`. */
-  function attachUndated(element: HTMLElement): () => void {
-    undatedPanel = element;
-    const keys = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeUndated();
-    };
-    element.addEventListener('keydown', keys);
-    return () => {
-      element.removeEventListener('keydown', keys);
-      undatedPanel = undefined;
-    };
-  }
-
-  /**
-   * A card opened from the cards without a date. Given a date, it leaves the
-   * list: the focus is put on "No date" first, which is where the card gives
-   * it back then (CardDialog gives it to the card's bar where there is one).
-   * On a sheet, the sheet closes first.
-   */
-  async function openUndated(cardId: string): Promise<void> {
-    if (sheet) {
-      undatedOpen = false;
-      await tick();
-    }
-    undatedButton?.focus();
-    onOpenCard(cardId);
-  }
 </script>
 
 <div
@@ -352,19 +328,18 @@
     related={chart.dependency !== undefined}
     late={chart.relations.late.size}
     onlate={() => {
-      focusNext('late');
+      focus.focusNext('late');
     }}
-    loops={chart.loopCount}
-    onloop={() => {
-      focusNext('loop');
-    }}
+    loops={chart.loopCount > 0 ? chart.loopCount : chart.undatedLoops.size}
+    loopsUndated={chart.loopCount === 0}
+    onloop={() => void showLoop()}
     {zoom}
     onzoom={setZoom}
     undated={chart.placed.undated.length}
-    undatedCard={openedUndated}
-    {undatedOpen}
-    bind:undatedButton
-    onundated={() => void toggleUndated()}
+    undatedCard={focus.openedUndated}
+    undatedOpen={undated.open}
+    bind:undatedButton={undated.button}
+    onundated={() => void undated.toggle()}
   />
 
   <!-- Measured here, outside the scrollbars of the box inside: the width does not depend on them. -->
@@ -424,14 +399,17 @@
                     {:else}
                       <BarRow
                         {line}
-                        current={line.id === stop}
+                        current={line.id === focus.stop}
                         href={cardHref(line.id)}
-                        viaTitle={line.id === viaTitle}
-                        pointed={line.id === pointed}
-                        onopen={openCard}
-                        onopentitle={openFromTitle}
-                        onkeys={barKeys}
-                        onfocused={barFocused}
+                        viaTitle={line.id === focus.viaTitle}
+                        pointed={line.id === focus.pointed}
+                        onopen={focus.openCard}
+                        onopentitle={focus.openFromTitle}
+                        onkeys={focus.barKeys}
+                        onfocused={focus.barFocused}
+                        draggable={writable}
+                        menu={board.canEdit ? rowMenu : undefined}
+                        dragged={dragged?.id === line.id ? dragged : undefined}
                       />
                     {/if}
                   {/each}
@@ -451,27 +429,55 @@
       </div>
     {/if}
 
-    {#if undatedOpen && !sheet}
+    {#if undated.open && !sheet}
       <div
         data-testid="undated-panel"
         class="absolute inset-y-0 right-0 z-40 flex w-80 max-w-full flex-col border-l bg-background pb-(--safe-bottom) shadow-lg"
-        {@attach attachUndated}
+        {@attach undated.attach}
       >
         <Undated
           {...undatedRows}
-          onOpenCard={(cardId: string) => void openUndated(cardId)}
-          onclose={closeUndated}
+          onOpenCard={(cardId: string) => void undated.openCard(cardId)}
+          onclose={undated.close}
         />
       </div>
     {/if}
   </div>
 </div>
 
+{#snippet rowMenu(cardId: string)}
+  {@const card = chart.placed.card(cardId)}
+  {#if card}
+    <CardMenu
+      {board}
+      {card}
+      title={chart.placed.title(card)}
+      dated
+      quiet
+      onChangeDate={writable ? (id: string) => void changeDate(id) : undefined}
+    />
+  {/if}
+{/snippet}
+
+<DayPicker
+  bind:cardId={changing}
+  bind:open={pickerOpen}
+  line={changingRow}
+  {board}
+  placed={chart.placed}
+  template={chart.template}
+  selected={changing ? (chart.placed.span(changing)?.first ?? today) : today}
+  {today}
+  {sheet}
+  onmoved={moved}
+  onclosed={() => void pickerClosed()}
+/>
+
 {#if sheet}
   <BottomSheet
-    bind:open={undatedOpen}
+    bind:open={undated.open}
     title={m.calendar_undated_count({ count: chart.placed.undated.length })}
   >
-    <Undated {...undatedRows} onOpenCard={(cardId: string) => void openUndated(cardId)} />
+    <Undated {...undatedRows} onOpenCard={(cardId: string) => void undated.openCard(cardId)} />
   </BottomSheet>
 {/if}

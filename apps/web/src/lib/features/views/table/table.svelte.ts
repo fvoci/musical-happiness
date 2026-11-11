@@ -41,7 +41,7 @@ import {
 } from './columns.ts';
 import { COLUMN_DRAG_MESSAGES, rowDragMessages } from './drag-messages.ts';
 import { GridFocus } from './grid-focus.ts';
-import { isEditableKind, type RowHost, type TableReader } from './host.ts';
+import { isEditableKind, readAsOrder, type RowHost, type TableReader } from './host.ts';
 import { headerMenu, rowMenu } from './menus.ts';
 import { ScrollKeeper } from './scroll-keeper.ts';
 
@@ -459,6 +459,7 @@ export class TableController {
     get cards() {
       return table.#board.cardsById;
     },
+    ordering: (id) => readAsOrder(table.#board, id),
     cardHref: (cardId) => table.#source.cardHref(cardId),
     open: (cardId) => {
       table.#source.openCard(cardId);

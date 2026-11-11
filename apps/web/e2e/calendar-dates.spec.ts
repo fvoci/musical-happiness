@@ -16,6 +16,7 @@ import {
   focused,
   listOf,
   openCalendar,
+  setDates,
   tabTo,
   wide,
 } from './calendar.support.ts';
@@ -167,4 +168,25 @@ test('a calendar placed by when cards were changed offers no change, and says wh
   await menu.click();
   await expect(page.locator('[data-action="duplicate"]')).toBeVisible();
   await expect(page.locator('[data-action="change-date"]')).toHaveCount(0);
+});
+
+test('the picker of days is wholly in the window, beside a day of the last week of a month', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'desktop', 'a window 720 pixels high, with a mouse');
+  await openCalendar(page, info);
+  await setDates(page, { 'Drag cards': { from: '2026-11-26' } });
+  await dayButton(page, '2026-11-26').click();
+  const list = listOf(page, info);
+  await list.getByRole('button', { name: 'Card menu: Drag cards' }).click();
+  await page.locator('[data-action="change-date"]').click();
+  const picker = page.getByTestId('day-picker');
+  await expect(picker).toBeVisible();
+  const box = await picker.boundingBox();
+  const window = page.viewportSize();
+  if (!box || !window) throw new Error('nothing to measure');
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(window.height);
+  // The last week of the month is there to pick from.
+  await expect(picker.locator('[data-bits-day][data-value="2026-11-30"]')).toBeInViewport();
 });

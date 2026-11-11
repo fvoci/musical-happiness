@@ -342,6 +342,78 @@ export function movedValue(value: DateValue, first: CalendarDate, timeZone: stri
   return { from, to };
 }
 
+/** Which end of a date value a drag takes: the first day, or the last. */
+export type ValueEnd = 'start' | 'end';
+
+/**
+ * A date value with one end moved to `day`, for a reader in `timeZone`: the
+ * first day (`start`) or the last (`end`); the other end stays as it is. A
+ * moment keeps its time of day on the reader's clock (`withDay`). An end
+ * never passes the other: one moved beyond it stops on the other's day, and
+ * on a time before the other's it takes the other's time. A value of one
+ * day becomes a range when an end is moved off its day; a range whose ends
+ * come to the same day without a time, or to the same moment, becomes one
+ * day. A range stored backwards comes out in order. An empty value becomes
+ * that day.
+ */
+export function resizedValue(
+  value: DateValue,
+  end: ValueEnd,
+  day: CalendarDate,
+  timeZone: string,
+): DateValue {
+  if (!value.from) return { from: { date: day } };
+  const backwards = value.to !== undefined && comparePoints(value.from, value.to, timeZone) > 0;
+  let start = backwards && value.to ? value.to : value.from;
+  let finish = (backwards ? value.from : value.to) ?? value.from;
+  if (end === 'start') {
+    const last = dateOfPoint(finish, timeZone);
+    start = withDay(start, day < last ? day : last, timeZone);
+    if (comparePoints(start, finish, timeZone) > 0) start = finish;
+  } else {
+    const first = dateOfPoint(start, timeZone);
+    finish = withDay(finish, day > first ? day : first, timeZone);
+    if (comparePoints(start, finish, timeZone) > 0) finish = start;
+  }
+  const one =
+    start.instant === undefined
+      ? finish.instant === undefined && start.date === finish.date
+      : start.instant === finish.instant;
+  return one ? { from: start } : { from: start, to: finish };
+}
+
+/** What of a card's days a drag takes: all of them, or one end. */
+export type BarGrip = 'move' | ValueEnd;
+
+const FIRST_DAY = calendarDate(1, 1, 1);
+const LAST_DAY = calendarDate(9999, 12, 31);
+
+/**
+ * The days of a card dragged `by` days at `grip`: all of them moved, or the
+ * first or the last day moved and stopped at the other. Kept among the days
+ * that can be written (the years 1 to 9999).
+ */
+export function draggedDays(
+  days: { first: CalendarDate; last: CalendarDate },
+  grip: BarGrip,
+  by: number,
+): { first: CalendarDate; last: CalendarDate } {
+  if (grip === 'start') {
+    const most = daysBetween(days.first, days.last);
+    const least = -daysBetween(FIRST_DAY, days.first);
+    return { first: addDays(days.first, Math.min(most, Math.max(least, by))), last: days.last };
+  }
+  if (grip === 'end') {
+    const least = -daysBetween(days.first, days.last);
+    const most = daysBetween(days.last, LAST_DAY);
+    return { first: days.first, last: addDays(days.last, Math.min(most, Math.max(least, by))) };
+  }
+  const least = -daysBetween(FIRST_DAY, days.first);
+  const most = daysBetween(days.last, LAST_DAY);
+  const shift = Math.min(most, Math.max(least, by));
+  return { first: addDays(days.first, shift), last: addDays(days.last, shift) };
+}
+
 /**
  * The values of a card made on a day of the calendar (question C11): the
  * values the view's filter asks for, as a new card on a board or in a table
