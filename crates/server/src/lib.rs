@@ -163,8 +163,10 @@ impl Server {
 
     /// The router that serves the API, the websocket and the web app.
     ///
-    /// Every request is logged, and a handler that panics answers with a 500.
+    /// Every request is logged, and a handler that panics answers with a 500. If the
+    /// metrics are kept, every request is measured.
     pub fn router(&self) -> Router {
+        let measured = self.app.metrics().is_kept();
         let api = api::router(&self.app)
             .route_layer(middleware::from_fn_with_state(
                 self.app.clone(),
@@ -173,6 +175,11 @@ impl Server {
             // Under the API prefix nothing is ever answered with the web app's page.
             .fallback(api_not_found)
             .method_not_allowed_fallback(method_not_allowed);
+        let api = if measured {
+            api.route_layer(middleware::from_fn(metrics::note_route))
+        } else {
+            api
+        };
         let api = if self.app.config().compress_responses {
             api.layer(compression())
                 .layer(middleware::from_fn(identity_is_always_acceptable))
@@ -186,6 +193,11 @@ impl Server {
             .fallback(handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
             .with_state(self.app.clone());
+        let routes = if measured {
+            routes.route_layer(middleware::from_fn(metrics::note_route))
+        } else {
+            routes
+        };
         let routes = if self.base_path.is_empty() {
             routes
         } else {
@@ -195,12 +207,28 @@ impl Server {
                 .route(&format!("{}/", self.base_path), get(handle_root))
                 .method_not_allowed_fallback(method_not_allowed)
                 .with_state(self.app.clone());
+            let root = if measured {
+                root.route_layer(middleware::from_fn(metrics::note_route))
+            } else {
+                root
+            };
             Router::new()
                 .nest(&self.base_path, routes)
                 .merge(root)
                 .fallback(|| async { web::not_found() })
         };
-        self.with_request_layers(routes)
+        let routes = self.with_request_layers(routes);
+        if measured {
+            routes.layer(middleware::from_fn_with_state(
+                metrics::Measured {
+                    metrics: self.app.metrics().clone(),
+                    base_path: self.base_path.as_str().into(),
+                },
+                metrics::measure_requests,
+            ))
+        } else {
+            routes
+        }
     }
 
     /// The router of the administration socket. It must never be served on a TCP

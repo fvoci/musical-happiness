@@ -21,6 +21,10 @@ use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
 
 use crate::config::MetricsAddress;
 
+mod http;
+
+pub(crate) use http::{Measured, measure_requests, note_route};
+
 /// The prefix of the name of every metric of this server's own.
 pub const PREFIX: &str = "fvoci";
 
@@ -39,6 +43,7 @@ pub struct Metrics {
 #[derive(Debug)]
 struct Kept {
     registry: Registry,
+    http: http::HttpMetrics,
 }
 
 impl Metrics {
@@ -72,8 +77,9 @@ impl Metrics {
         registry.register(Box::new(
             prometheus::process_collector::ProcessCollector::for_self(),
         ))?;
+        let http = http::HttpMetrics::register(&registry)?;
         Ok(Self {
-            kept: Some(Arc::new(Kept { registry })),
+            kept: Some(Arc::new(Kept { registry, http })),
         })
     }
 
