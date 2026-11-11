@@ -493,16 +493,12 @@ fn value_of<'a>(keys: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
     }
 }
 
-/// Sets a key in the file's keys, a key of `filess3config` named `filess3config.<key>`;
-/// a `filess3config` that is missing or `null` becomes an object first.
+/// Sets a key in the file's keys, a key of `filess3config` named `filess3config.<key>`
+/// (which [`Configuration::parse`] has made an object).
 fn set_value(keys: &mut Map<String, Value>, key: &str, value: Value) {
     match key.split_once('.') {
         Some((outer, inner)) => {
-            let outer = keys.entry(outer).or_insert(Value::Null);
-            if !outer.is_object() {
-                *outer = Value::Object(Map::new());
-            }
-            if let Value::Object(outer) = outer {
+            if let Some(Value::Object(outer)) = keys.get_mut(outer) {
                 outer.insert(inner.to_owned(), value);
             }
         }
@@ -558,7 +554,9 @@ impl Configuration {
                     Value::Object(lower_case_keys(s3)),
                 );
             }
-            None | Some(Value::Null) => {}
+            None | Some(Value::Null) => {
+                keys.insert("filess3config".to_owned(), Value::Object(Map::new()));
+            }
             Some(_) => bail!("filess3config must be a JSON object"),
         }
 
@@ -573,6 +571,17 @@ impl Configuration {
             let from_env = env(&env_name(key)).is_some_and(|text| !text.trim().is_empty());
             if from_env || value_of(&keys, key).is_some_and(|value| !is_unset(value)) {
                 bail!("{key} is no longer a setting: {instead}");
+            }
+        }
+        // The S3 credentials come from the AWS_* variables only; a variable named like
+        // the other S3 settings would otherwise be passed over without a word.
+        for key in ["filess3config.accesskeyid", "filess3config.secretaccesskey"] {
+            let name = env_name(key);
+            if env(&name).is_some() {
+                bail!(
+                    "{name} is not read: leave filess3config.accesskeyid empty and give the \
+                     credentials as AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+                );
             }
         }
 
@@ -957,9 +966,7 @@ mod tests {
             "FVOCI_FILESS3CONFIG_BUCKET" => Some("from-env".to_owned()),
             "FVOCI_FILESS3CONFIG_SSL" => Some("on".to_owned()),
             "FVOCI_FILESS3CONFIG_TIMEOUT" => Some("5000".to_owned()),
-            "FVOCI_FILESS3CONFIG_ACCESSKEYID" | "FVOCI_FILESS3CONFIG_SECRETACCESSKEY" => {
-                Some("not-read".to_owned())
-            }
+            "FVOCI_FILESS3CONFIG_SIGNV2" => Some("true".to_owned()),
             _ => None,
         };
         let file = r#"{"FilesS3Config": {"Bucket": "from-file", "Region": "eu-west-1"}}"#;
@@ -970,8 +977,6 @@ mod tests {
             assert_eq!(s3.bucket, "from-env", "{text}");
             assert!(s3.ssl, "{text}");
             assert_eq!(s3.timeout, 5000, "{text}");
-            assert!(s3.access_key_id.is_empty(), "{text}");
-            assert!(s3.secret_access_key.is_empty(), "{text}");
         }
         let s3 = Configuration::parse(file, env)
             .expect("valid")
@@ -985,6 +990,19 @@ mod tests {
             Configuration::parse("{}", bad).is_err(),
             "an unreadable flag"
         );
+        let amazon = Configuration::parse(r#"{"filesdriver": "amazons3"}"#, env).expect("valid");
+        assert!(
+            amazon.check().is_err(),
+            "the signing scheme from the environment is checked"
+        );
+        for name in [
+            "FVOCI_FILESS3CONFIG_ACCESSKEYID",
+            "FVOCI_FILESS3CONFIG_SECRETACCESSKEY",
+        ] {
+            let credentials = |asked: &str| (asked == name).then(|| "key".to_owned());
+            let error = Configuration::parse("{}", credentials).expect_err("not read, refused");
+            assert!(error.to_string().contains("AWS_ACCESS_KEY_ID"), "{name}");
+        }
     }
 
     #[test]
@@ -1024,11 +1042,9 @@ mod tests {
         assert!(error(r#"{"logging_cfg_json": "{}"}"#).contains("FVOCI_LOG_LEVEL"));
         assert!(error(r#"{"audit_cfg_file": "a.json"}"#).contains("audit"));
         assert!(error(r#"{"FilesS3Config": {"Trace": true}}"#).contains("filess3config.trace"));
-        let env = |name: &str| (name == "FVOCI_FILESS3CONFIG_TRACE").then(|| "true".to_owned());
-        assert!(
-            Configuration::parse("{}", env).is_err(),
-            "a key of filess3config has its variable too"
-        );
+        let env = |name: &str| (name == "FVOCI_FILESS3CONFIG_TRACE").then(|| "false".to_owned());
+        let error = Configuration::parse("{}", env).expect_err("its variable, even false");
+        assert!(error.to_string().contains("filess3config.trace"));
         // A file written for the original server usually carries the key, empty.
         Configuration::parse(
             r#"{"dbtableprefix": "", "logging_cfg_file": "", "audit_cfg_json": "",

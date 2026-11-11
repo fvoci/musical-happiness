@@ -60,7 +60,6 @@
 
   - 웹앱의 질문 가운데 계약의 모양이나 권한에 걸린 것(`docs/contract-pending.md` 9절의 "사용자 결정 필요" 줄).
   - 공유 링크의 익명 독자에게 사람 속성(`person`, `multiPerson`)의 값인 사용자 ID가 그대로 나간다. 결정 7과 멘션은 `createdBy`, `modifiedBy`, 멘션만 비운다. 로그인했지만 보드의 멤버가 아닌 사용자(다른 조직)는 읽기 토큰으로 읽어도 ID를 모두 받는다. 권고: 사람 속성도 비운다(보드의 `cardProperties`로 사람 속성을 가린다). 다른 조직의 사용자는 익명 독자와 같이 다룬다.
-  - 받지만 아무 일도 하지 않는 설정 키(`logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`)를 지울지, S3의 키를 `FVOCI_*` 환경 변수로 받을지(`docs/configuration.md`. 권고는 아래 "설정"). 결정됨(11:05 KST), tracer-bullet 18과 19에서 구현했다. `authmode`와 `prometheusaddress`는 지우지 않는다(사용자 결정, 05:04 KST. 6절의 후속 후보).
 
 - **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
 
