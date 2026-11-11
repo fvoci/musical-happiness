@@ -924,8 +924,9 @@ export interface paths {
         };
         /**
          * The teams
-         * @description The teams of the server, oldest first. A server has one, and nothing in the API
-         *     makes another. The signup token is there for administrators only.
+         * @description The teams the user works in, oldest first: a team the user is no member of is not
+         *     listed. Nothing in the API makes a team. The signup token is there for
+         *     administrators only.
          */
         get: operations["getTeams"];
         put?: never;
@@ -967,7 +968,8 @@ export interface paths {
          * Export the boards of a team
          * @description An archive of all boards of the team that `getBoards` lists for the user, offered
          *     as a download with its length, in the format of `exportBoardArchive`, and under its
-         *     limits. A team that is not there is not refused: its archive has no boards.
+         *     limits. A team that is not there, or that the user is not in, is not refused: its
+         *     archive has no boards.
          */
         get: operations["exportTeamArchive"];
         put?: never;
@@ -991,7 +993,7 @@ export interface paths {
          * Import an archive
          * @description Makes the boards of an archive in the team, with the user as their admin. The
          *     members the archive names for a board become members of it with the roles they had,
-         *     where they are users of this server. The archive is sent before in parts: open an
+         *     where they are in the team. The archive is sent before in parts: open an
          *     upload with `createImportUpload`, send its parts with `putUploadPart`, then name
          *     the upload here, in place of `completeUpload`. A part missing is 400 and the upload
          *     stays open for it; otherwise the upload ends with the import, whether it succeeds or

@@ -3,8 +3,10 @@
 -- An organization is who a workspace (the table `teams`, until it is renamed) and
 -- everything in it belongs to. An SQLite database holds one organization, besides the
 -- system's. PostgreSQL holds several and keeps their rows apart with a column and a
--- policy on every table of theirs (schema/postgres/0014_organizations.sql); SQLite
--- has neither, so the two files part ways after the tables they share.
+-- policy on every table of theirs, and with keys that hold a row to the organization
+-- of what it hangs on (schema/postgres/0014_organizations.sql); SQLite has none of
+-- the three and needs none, having no second organization for a row to be taken for:
+-- the two files part ways after the tables they share.
 
 CREATE TABLE organizations (
     id TEXT NOT NULL PRIMARY KEY,

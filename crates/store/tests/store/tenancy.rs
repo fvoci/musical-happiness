@@ -89,15 +89,15 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     }
     let test = common::setup().await;
     let unset = test.scoped(Tenant::Unset);
-    let (other_org, _) = common::organization(&unset, "the other").await;
+    let (other_org, their_team) = common::organization(&unset, "the other").await;
     let ours = &test.store;
     let theirs = test.for_org(&other_org).expect("an identifier");
 
     let user_id = common::user(ours, "anybody").await;
     let team_id = common::team(ours).await;
     let our_board = board(ours, &team_id, &user_id, "ours").await;
-    let their_board = board(&theirs, &team_id, &user_id, "theirs").await;
-    board(&theirs, &team_id, &user_id, "theirs too").await;
+    let their_board = board(&theirs, &their_team, &user_id, "theirs").await;
+    board(&theirs, &their_team, &user_id, "theirs too").await;
 
     let count = async |store: &Store| {
         store
@@ -136,11 +136,13 @@ async fn the_boards_of_two_organizations_are_out_of_each_others_reach() {
     assert_eq!(count(&theirs).await, 2, "and leaves theirs");
 
     // A row is stored as the organization's own or not at all.
+    // In their team: a board is of its team's organization, which the schema holds it
+    // to apart from the wall.
     let insert = |org: &str| {
         format!(
             "INSERT INTO boards (id, org_id, team_id, type, title, description, icon, \
              show_description, is_template, properties, card_properties, create_at, update_at) \
-             VALUES ('{}', {org}, '{team_id}', 'O', '', '', '', false, false, '{{}}', '[]', 0, 0)",
+             VALUES ('{}', {org}, '{their_team}', 'O', '', '', '', false, false, '{{}}', '[]', 0, 0)",
             new_id()
         )
     };
@@ -187,13 +189,13 @@ async fn nothing_of_an_organization_stays_on_a_pooled_connection() {
     }
     let test = common::setup().await;
     let unset = test.scoped(Tenant::Unset);
-    let (other_org, _) = common::organization(&unset, "the other").await;
+    let (other_org, their_team) = common::organization(&unset, "the other").await;
     let theirs = test.for_org(&other_org).expect("an identifier");
     let user_id = common::user(&test, "anybody").await;
     let team_id = common::team(&test).await;
     board(&test, &team_id, &user_id, "ours").await;
-    board(&theirs, &team_id, &user_id, "theirs").await;
-    board(&theirs, &team_id, &user_id, "theirs too").await;
+    board(&theirs, &their_team, &user_id, "theirs").await;
+    board(&theirs, &their_team, &user_id, "theirs too").await;
 
     // Many more operations than the pool has connections, of every handle at once:
     // every connection serves each of them in turn.
@@ -1546,6 +1548,7 @@ fn few_tests_connect_as_a_superuser() {
             let text = std::fs::read_to_string(file).expect("a source file");
             [
                 "create_as_superuser",
+                "create_as_role_with_bypassrls",
                 "connecting_as_superuser",
                 "SUPERUSER_CONN_STRING_ENV",
             ]
@@ -1656,4 +1659,215 @@ async fn a_database_with_one_team_becomes_one_organization_with_one_workspace() 
 
     unset.close().await;
     database.remove().await;
+}
+
+/// The foreign keys of the test's schema: the table, the table it refers to, and the
+/// columns of the key in the table, in the key's order.
+async fn foreign_keys(conn: &mut sqlx::PgConnection) -> Vec<(String, String, Vec<String>)> {
+    sqlx::query_as(
+        "SELECT c.conrelid::regclass::text, c.confrelid::regclass::text, \
+         (SELECT array_agg(a.attname::text ORDER BY k.position) \
+          FROM unnest(c.conkey) WITH ORDINALITY AS k (number, position) \
+          JOIN pg_attribute AS a ON a.attrelid = c.conrelid AND a.attnum = k.number) \
+         FROM pg_constraint AS c \
+         WHERE c.contype = 'f' AND c.connamespace = current_schema()::regnamespace \
+         ORDER BY 1, 2, 3",
+    )
+    .fetch_all(conn)
+    .await
+    .expect("the keys are in the catalog")
+}
+
+/// The wall looks at a row's own organization. That the row and what it hangs on are
+/// one organization's is held by keys: wherever a table of an organization refers to
+/// another by a key of one column, a key of that column and the organization refers to
+/// the same row. A table that a later migration adds with the one and without the
+/// other fails this test.
+#[tokio::test]
+async fn a_row_is_held_to_the_organization_of_what_it_hangs_on() {
+    // A category takes a built-in template, which is the system organization's.
+    const NOT_HELD: [(&str, &str); 1] = [("category_boards", "board_id")];
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    let keys = foreign_keys(&mut conn).await;
+    conn.close().await.expect("the connection closes");
+    test.teardown().await;
+
+    let mut held = Vec::new();
+    for (table, parent, columns) in &keys {
+        let [column] = columns.as_slice() else {
+            continue;
+        };
+        let of_organizations = |name: &String| ORG_TABLES.contains(&name.as_str());
+        // A member of an organization hangs on the organization by its own org_id.
+        if !of_organizations(table) || !of_organizations(parent) || parent == "organizations" {
+            continue;
+        }
+        if NOT_HELD.contains(&(table.as_str(), column.as_str())) {
+            continue;
+        }
+        // An organization is itself the organization of its default workspace.
+        let organization = if table == "organizations" {
+            "id"
+        } else {
+            "org_id"
+        };
+        let with_the_organization = vec![column.clone(), organization.to_owned()];
+        assert!(
+            keys.contains(&(table.clone(), parent.clone(), with_the_organization)),
+            "{table}.{column} refers to {parent} without the organization: {keys:?}"
+        );
+        held.push(format!("{table}.{column}"));
+    }
+    assert_eq!(
+        held,
+        [
+            "blocks.board_id",
+            "board_members.board_id",
+            "boards.team_id",
+            "categories.team_id",
+            "category_boards.category_id",
+            "file_info.board_id",
+            "organizations.default_workspace_id",
+            "sharing.board_id",
+            "subscriptions.block_id",
+            "upload_parts.upload_id",
+            "workspace_members.workspace_id",
+        ],
+        "the keys that are held to the organization"
+    );
+}
+
+/// The lookups that reach across every organization do not take the keys on trust:
+/// with the keys gone, a member's row that one organization stored under another's
+/// workspace lets nobody into it, and a sharing that one stored under another's board
+/// opens nothing.
+#[tokio::test]
+async fn a_row_of_one_organization_under_anothers_parent_counts_for_nothing() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let user_id = common::user(&test, "anybody").await;
+    let (other_org, their_workspace) = common::organization(&test, "the other").await;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    let their_board = board(&theirs, &their_workspace, &user_id, "theirs").await;
+
+    // Each row is the first organization's: stored by its handle, with its org_id.
+    let forgeries = [
+        format!(
+            "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) \
+             VALUES ('{their_workspace}', '{user_id}', 'admin', 0)"
+        ),
+        format!(
+            "INSERT INTO sharing (board_id, enabled, token, update_at) \
+             VALUES ('{their_board}', true, 'a-forged-token', 0)"
+        ),
+    ];
+    for forged in &forgeries {
+        let refused = test
+            .execute_unchecked(forged)
+            .await
+            .expect_err("the key holds the row to its parent's organization");
+        assert!(refused.to_string().contains("foreign key"), "{refused}");
+    }
+
+    let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
+    sqlx::raw_sql(
+        "ALTER TABLE workspace_members DROP CONSTRAINT workspace_members_workspace_org_fkey; \
+         ALTER TABLE sharing DROP CONSTRAINT sharing_board_org_fkey",
+    )
+    .execute(&mut conn)
+    .await
+    .expect("the keys are dropped in the test's own schema");
+    conn.close().await.expect("the connection closes");
+
+    for forged in &forgeries {
+        assert_eq!(
+            test.execute_unchecked(forged)
+                .await
+                .expect("without the key the row is stored"),
+            1
+        );
+    }
+    assert_eq!(
+        test.resolve_workspace(&user_id, &their_workspace)
+            .await
+            .expect("the membership is looked up"),
+        None,
+        "the row lets nobody into their workspace"
+    );
+    let listed = test
+        .workspaces_of_user(&user_id)
+        .await
+        .expect("the workspaces are listed");
+    assert!(
+        listed
+            .iter()
+            .all(|workspace| workspace.id != their_workspace),
+        "and their workspace is not among the user's: {listed:?}"
+    );
+    assert_eq!(
+        test.org_of_shared_board(&their_board, "a-forged-token")
+            .await
+            .expect("the sharing is looked up"),
+        None,
+        "the sharing opens nothing"
+    );
+    test.teardown().await;
+}
+
+/// An open board is open to who works in its workspace: a member of it who is no
+/// guest. To a guest of the workspace and to somebody who is not in it, the board is
+/// found neither among the boards of its team nor by a search, until they are on it.
+#[tokio::test]
+async fn an_open_board_is_found_by_who_works_in_its_workspace() {
+    use fvoci_model::BoardSearchField::Title;
+    use fvoci_store::PublicBoards;
+
+    let test = common::setup().await;
+    let (member, guest, outsider) = (
+        common::user(&test, "member").await,
+        common::user(&test, "guest").await,
+        common::user(&test, "outsider").await,
+    );
+    let team_id = common::team_of(&test, &[&member]).await;
+    test.add_workspace_member(&team_id, &guest, WorkspaceRole::Guest)
+        .await
+        .expect("the guest is let into the team");
+    let board_id = board(&test, &team_id, &member, "open to the team").await;
+
+    let found_by = async |user_id: &str| {
+        let of_the_team = test
+            .get_boards_for_user_and_team(user_id, &team_id, PublicBoards::Include)
+            .await
+            .expect("the boards of the team are read");
+        let searched = test
+            .search_boards_for_user("open", Title, user_id, PublicBoards::Include)
+            .await
+            .expect("the boards are searched");
+        (of_the_team.len(), searched.len())
+    };
+    assert_eq!(found_by(&member).await, (1, 1), "who works in the team");
+    assert_eq!(found_by(&guest).await, (0, 0), "a guest of the team");
+    assert_eq!(found_by(&outsider).await, (0, 0), "somebody not in it");
+
+    // On the board, a guest finds it as any member of a board does.
+    test.save_member(&BoardMember {
+        board_id,
+        user_id: guest.clone(),
+        scheme_viewer: true,
+        ..BoardMember::default()
+    })
+    .await
+    .expect("the guest is put on the board");
+    assert_eq!(
+        found_by(&guest).await,
+        (1, 1),
+        "a guest who is on the board"
+    );
+    test.teardown().await;
 }

@@ -81,6 +81,60 @@ async fn a_start_refused_over_the_role_makes_nothing_in_the_database() {
     database.remove().await;
 }
 
+/// A role that is no superuser and has `BYPASSRLS` is past the wall like a superuser:
+/// with `org_creation` set to `open` the server does not start as one either, and
+/// makes nothing in the database.
+#[tokio::test]
+async fn a_server_for_several_organizations_does_not_start_as_a_role_with_bypassrls() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let directory = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("api-tests")
+        .join(fvoci_model::new_id());
+    // The database is made for a role that is no superuser and has BYPASSRLS, which
+    // the making of it checks.
+    let database = TestDatabase::create_as_role_with_bypassrls(&directory).await;
+    let config = |org_creation: &str| Configuration {
+        db_type: database.db_type().as_str().to_owned(),
+        db_config: database.dbconfig().to_owned(),
+        org_creation: org_creation.to_owned(),
+        files_path: directory.join("uploads").display().to_string(),
+        skip_template_init: true,
+        ..Configuration::default()
+    };
+    let refused = Server::new(config("open"), "")
+        .await
+        .expect_err("the server does not start as a role with BYPASSRLS");
+    let refusal = format!("{refused:#}");
+    assert!(
+        refusal.contains("BYPASSRLS") && refusal.contains("org_creation"),
+        "the refusal says why: {refusal}"
+    );
+
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .expect("the database is reached");
+    let no_table = store
+        .count_rows("_sqlx_migrations")
+        .await
+        .expect_err("no migration ran");
+    assert!(
+        no_table.to_string().contains("_sqlx_migrations"),
+        "the table is not there: {no_table}"
+    );
+    assert!(
+        store
+            .role_past_the_wall()
+            .await
+            .expect("the role is read")
+            .is_some(),
+        "the store names the role as one past the wall"
+    );
+    store.close().await;
+    database.remove().await;
+}
+
 /// With the one organization of the default setting the server starts as a superuser
 /// too, as a database container sets it up, and works: the wall is not there, the
 /// server's own checks are.

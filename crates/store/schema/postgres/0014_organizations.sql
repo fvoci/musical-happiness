@@ -172,6 +172,53 @@ BEGIN
     END LOOP;
 END $$;
 
+-- A row and what it hangs on are one organization's. The wall looks at a row's own
+-- org_id and nothing else: without these keys a transaction of one organization could
+-- store, as its own row, a member of another's workspace or a board in it, and whoever
+-- reads the row by its parent would take it for the other's. So a parent is unique by
+-- (id, org_id) and its child refers to both; the action of each key is that of the key
+-- the table already has to the same parent.
+--
+-- Left without such a key, as they are without any: the trash (deleted_boards,
+-- deleted_blocks), file_refs, comment_versions and uploads.board_id, whose rows outlive
+-- what they name; and the board of a category_boards row, which may be a built-in
+-- template of the system organization in a user's own category.
+--
+-- The wall is up by now, and holds the owner of the tables too: without the system's
+-- reach the check of a new key against the rows that are there would find no row and
+-- pass whatever they are.
+SELECT set_config('fvoci.system', 'on', true);
+
+ALTER TABLE teams ADD CONSTRAINT teams_id_org_id_key UNIQUE (id, org_id);
+ALTER TABLE boards ADD CONSTRAINT boards_id_org_id_key UNIQUE (id, org_id);
+ALTER TABLE blocks ADD CONSTRAINT blocks_id_org_id_key UNIQUE (id, org_id);
+ALTER TABLE categories ADD CONSTRAINT categories_id_org_id_key UNIQUE (id, org_id);
+ALTER TABLE uploads ADD CONSTRAINT uploads_id_org_id_key UNIQUE (id, org_id);
+
+-- The workspace somebody who joins an organization gets into is one of its own.
+ALTER TABLE organizations ADD CONSTRAINT organizations_default_workspace_org_fkey
+    FOREIGN KEY (default_workspace_id, id) REFERENCES teams (id, org_id);
+ALTER TABLE workspace_members ADD CONSTRAINT workspace_members_workspace_org_fkey
+    FOREIGN KEY (workspace_id, org_id) REFERENCES teams (id, org_id) ON DELETE CASCADE;
+ALTER TABLE boards ADD CONSTRAINT boards_team_org_fkey
+    FOREIGN KEY (team_id, org_id) REFERENCES teams (id, org_id);
+ALTER TABLE categories ADD CONSTRAINT categories_team_org_fkey
+    FOREIGN KEY (team_id, org_id) REFERENCES teams (id, org_id);
+ALTER TABLE board_members ADD CONSTRAINT board_members_board_org_fkey
+    FOREIGN KEY (board_id, org_id) REFERENCES boards (id, org_id) ON DELETE CASCADE;
+ALTER TABLE blocks ADD CONSTRAINT blocks_board_org_fkey
+    FOREIGN KEY (board_id, org_id) REFERENCES boards (id, org_id);
+ALTER TABLE file_info ADD CONSTRAINT file_info_board_org_fkey
+    FOREIGN KEY (board_id, org_id) REFERENCES boards (id, org_id) ON DELETE CASCADE;
+ALTER TABLE sharing ADD CONSTRAINT sharing_board_org_fkey
+    FOREIGN KEY (board_id, org_id) REFERENCES boards (id, org_id) ON DELETE CASCADE;
+ALTER TABLE category_boards ADD CONSTRAINT category_boards_category_org_fkey
+    FOREIGN KEY (category_id, org_id) REFERENCES categories (id, org_id) ON DELETE CASCADE;
+ALTER TABLE subscriptions ADD CONSTRAINT subscriptions_block_org_fkey
+    FOREIGN KEY (block_id, org_id) REFERENCES blocks (id, org_id) ON DELETE CASCADE;
+ALTER TABLE upload_parts ADD CONSTRAINT upload_parts_upload_org_fkey
+    FOREIGN KEY (upload_id, org_id) REFERENCES uploads (id, org_id) ON DELETE CASCADE;
+
 -- An organization itself is behind the same wall: a transaction reaches the row of
 -- the organization it names (its name, its settings) and of no other. Which
 -- organization there is to name is found out with the system's reach

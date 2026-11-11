@@ -58,7 +58,7 @@ async fn boards_come_oldest_first() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let team_id = common::team_of(store, &[&user_id]).await;
     let open = |title: &str| Board {
         board_type: BoardType::Open,
         title: title.to_owned(),

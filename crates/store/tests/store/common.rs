@@ -196,6 +196,19 @@ pub(crate) async fn team(store: &Store) -> String {
     team.id
 }
 
+/// Stores a team that the users work in, as members of the workspace: its open boards
+/// are theirs to find. Returns its identifier.
+pub(crate) async fn team_of(store: &Store, users: &[&str]) -> String {
+    let team_id = team(store).await;
+    for user_id in users {
+        store
+            .add_workspace_member(&team_id, user_id, fvoci_model::WorkspaceRole::Member)
+            .await
+            .expect("the user is let into the team");
+    }
+    team_id
+}
+
 /// `storetests.InsertBlocks`: inserts each block on its own.
 pub(crate) async fn insert_blocks(store: &Store, blocks: &mut [Block], user_id: &str) {
     for block in blocks {

@@ -301,7 +301,7 @@ impl App {
     }
 
     /// Stores one board of an archive as [`parse_board_jsonl`] read it, with its
-    /// members who are users of this server and the importing user as an admin, and
+    /// members who are in the team and the importing user as an admin, and
     /// returns the stored board.
     ///
     /// # Errors
@@ -317,10 +317,10 @@ impl App {
             boards_and_blocks,
             members,
         } = board;
-        // Keep only members who are users of this server.
+        // Keep only members who are in the team: a board takes no others (`is_in_team`).
         let mut kept_members = Vec::with_capacity(members.len());
         for member in members {
-            if self.store().get_user_by_id(&member.user_id).await.is_ok() {
+            if self.is_in_team(&member.user_id, &options.team_id).await? {
                 kept_members.push(member);
             }
         }

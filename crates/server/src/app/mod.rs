@@ -321,14 +321,20 @@ impl App {
         finished
     }
 
-    /// Returns whether a user has a permission in a team.
-    pub fn has_permission_to_team(
+    /// Returns whether a user has a permission in a team: the user works in the team
+    /// ([`App::works_in_team`]), and the permission is one a member of a team has.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the membership cannot be read.
+    pub async fn has_permission_to_team(
         &self,
         user_id: &str,
         team_id: &str,
         permission: TeamPermission,
-    ) -> bool {
-        has_permission_to_team(user_id, team_id, permission)
+    ) -> Result<bool, AppError> {
+        Ok(has_permission_to_team(user_id, team_id, permission)
+            && self.works_in_team(user_id, team_id).await?)
     }
 
     /// Returns whether a user has a permission on a board, which follows from their

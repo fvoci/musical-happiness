@@ -30,7 +30,7 @@ use super::contract::params::{BoardId, FileId, ReadToken};
 use super::contract::tag;
 
 use super::{
-    ApiResult, OptionalSession, RequiredSession, board_refusal, created, has_valid_read_token,
+    ApiResult, OptionalSession, RequiredSession, board_refusal, by_read_token, created,
     json_response, require_board_permission,
 };
 use crate::app::App;
@@ -94,25 +94,27 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 }
 
 /// Checks that the requester may read the board's files: a member with the view
-/// permission, or the holder of a valid read token.
+/// permission, or the holder of a valid read token. Returns the application to read
+/// them with: for the holder of a token, the one of the board's own organization.
 async fn check_read_access(
-    app: &App,
+    app: App,
     user_id: &str,
     board_id: &str,
     query: Option<&str>,
-) -> Result<(), AppError> {
-    let has_read_token = has_valid_read_token(app, query, board_id).await?;
-    if user_id.is_empty() && !has_read_token {
+) -> Result<App, AppError> {
+    if let Some(shared) = by_read_token(&app, query, board_id).await? {
+        return Ok(shared);
+    }
+    if user_id.is_empty() {
         return Err(AppError::unauthorized("access denied to board"));
     }
-    if !has_read_token
-        && !app
-            .has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
-            .await?
+    if !app
+        .has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
+        .await?
     {
-        return Err(board_refusal(app, user_id, board_id, "access denied to board").await);
+        return Err(board_refusal(&app, user_id, board_id, "access denied to board").await);
     }
-    Ok(())
+    Ok(app)
 }
 
 /// A file
@@ -150,7 +152,7 @@ async fn handle_serve_file(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> ApiResult {
-    check_read_access(&app, session.user_id(), &board_id, query.as_deref()).await?;
+    let app = check_read_access(app, session.user_id(), &board_id, query.as_deref()).await?;
 
     // A file is its board's. Through another board it is as missing as a file that
     // does not exist: the answers must not tell the two apart.
@@ -184,7 +186,7 @@ async fn handle_get_file_info(
     Path((board_id, filename)): Path<(String, String)>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
-    check_read_access(&app, session.user_id(), &board_id, query.as_deref()).await?;
+    let app = check_read_access(app, session.user_id(), &board_id, query.as_deref()).await?;
     match app.file_info(&board_id, &filename).await? {
         Some(info) => Ok(json_response(&info)),
         // No record, or the record of another board's file.

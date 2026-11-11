@@ -3,12 +3,24 @@
 //! Every statement here names the organization itself: the handle's
 //! ([`Tenant::Org`](crate::Tenant::Org)).
 
-use fvoci_model::{OrgRole, WorkspaceRole};
+use fvoci_model::{BoardType, OrgRole, WorkspaceRole};
 
 use crate::Store;
-use crate::db::{Id, Scope, now_millis};
+use crate::db::{Id, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::users::InstanceRole;
+
+/// Opens the condition on a board `b` that it is an open board of a workspace the user
+/// works in (a member who is no guest: `WorkspaceAccess::works_there`), "or": the
+/// caller appends the other way to the board and closes the parenthesis. An open
+/// board is no secret to who works in its workspace, and to nobody else.
+pub(crate) fn push_open_boards_at_work<'sql>(sql: &'sql mut Sql, user_id: &str) -> &'sql mut Sql {
+    sql.push_bind(" AND ((b.type = ", BoardType::Open.as_str())
+        .push(" AND b.team_id IN (SELECT wm.workspace_id FROM workspace_members AS wm")
+        .push_bind(" WHERE wm.user_id = ", Id(user_id))
+        .push_bind(" AND wm.role <> ", WorkspaceRole::Guest.as_str())
+        .push(")) OR ")
+}
 
 impl Store {
     /// Makes a user a member of the handle's organization.

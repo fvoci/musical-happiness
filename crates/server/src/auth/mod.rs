@@ -151,21 +151,33 @@ impl Authenticator {
         board_id: &str,
         read_token: &str,
     ) -> Result<bool, AppError> {
+        Ok(self
+            .org_of_read_token(board_id, read_token)
+            .await?
+            .is_some())
+    }
+
+    /// The organization of the shared board that `read_token` grants read access to:
+    /// the board is read there, whichever organization the request came in for.
+    /// `None` if the token opens nothing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the lookup fails.
+    pub async fn org_of_read_token(
+        &self,
+        board_id: &str,
+        read_token: &str,
+    ) -> Result<Option<String>, AppError> {
         // With sharing turned off in the configuration no read token opens anything,
         // whatever is stored: an everyday "no", and nothing for the log.
         if !self.public_shared_boards {
-            return Ok(false);
+            return Ok(None);
         }
         // Whose board it is, is not known here, and need not be: the store hands the
         // organization of a shared board to whoever holds its token, and to nobody
-        // else. TEMPORARY, with `only_organization_scope`: the organization is dropped
-        // here, and the handler reads the board in the server's one organization; the
-        // route of shared boards will work in the organization this answers.
-        Ok(self
-            .store
-            .org_of_shared_board(board_id, read_token)
-            .await?
-            .is_some())
+        // else.
+        Ok(self.store.org_of_shared_board(board_id, read_token).await?)
     }
 }
 

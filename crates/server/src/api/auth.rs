@@ -241,7 +241,7 @@ async fn handle_regenerate_signup_token(
     RequiredSession(session): RequiredSession,
     Path(team_id): Path<String>,
 ) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id, "access denied to team").await?;
+    require_team_access(&app, &session.user_id, &team_id).await?;
     require_admin(&app, &session.user_id).await?;
     let team = app
         .regenerate_signup_token(&team_id, &session.user_id)

@@ -4903,7 +4903,7 @@
     },
     "/api/v1/teams": {
       "get": {
-        "description": "The teams of the server, oldest first. A server has one, and nothing in the API\nmakes another. The signup token is there for administrators only.",
+        "description": "The teams the user works in, oldest first: a team the user is no member of is not\nlisted. Nothing in the API makes a team. The signup token is there for\nadministrators only.",
         "operationId": "getTeams",
         "responses": {
           "200": {
@@ -4981,7 +4981,7 @@
     },
     "/api/v1/teams/{teamId}/archive/export": {
       "get": {
-        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download with its length, in the format of `exportBoardArchive`, and under its\nlimits. A team that is not there is not refused: its archive has no boards.",
+        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download with its length, in the format of `exportBoardArchive`, and under its\nlimits. A team that is not there, or that the user is not in, is not refused: its\narchive has no boards.",
         "operationId": "exportTeamArchive",
         "parameters": [
           {
@@ -5042,7 +5042,7 @@
     },
     "/api/v1/teams/{teamId}/archive/import": {
       "post": {
-        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are users of this server. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another team, is 400. For users of the team who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
+        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are in the team. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another team, is 400. For users of the team who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
         "operationId": "importArchive",
         "parameters": [
           {

@@ -13,7 +13,7 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{Client, ROOT_TEAM_ID, Setup, TestServer};
+use crate::common::{Client, HIDDEN_TEAM_ID, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
 
 /// How long to wait for a message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -140,6 +140,56 @@ async fn category_messages_reach_every_tab_of_the_user() {
     th.teardown().await;
 }
 
+/// A connection follows the teams its user works in. The subscription to a team the
+/// user is not in is ignored, as is that of a guest of the workspace: neither is told
+/// what goes to who follows the team.
+#[tokio::test]
+async fn a_team_is_followed_by_who_works_in_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    th.app
+        .store()
+        .execute_unchecked(&format!(
+            "UPDATE workspace_members SET role = 'guest' \
+             WHERE user_id = '{}' AND workspace_id = '{ROOT_TEAM_ID}'",
+            user2.id
+        ))
+        .await
+        .expect("the second user becomes a guest of the root team");
+
+    // The subscription that works comes last on each connection: once it is seen to
+    // work, the server has gone through the one before it.
+    let mut outsider = Socket::connect_as(&th.client).await;
+    outsider
+        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": HIDDEN_TEAM_ID}))
+        .await;
+    subscribe_to_team(&th, &mut outsider, ROOT_TEAM_ID, &user1.id).await;
+    let mut guest = Socket::connect_as(&th.client2).await;
+    guest
+        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
+        .await;
+    subscribe_to_team(&th, &mut guest, TEST_TEAM_ID, &user2.id).await;
+
+    th.app
+        .ws()
+        .broadcast_category_change(&category(HIDDEN_TEAM_ID, &user1.id, "hidden"));
+    th.app
+        .ws()
+        .broadcast_category_change(&category(ROOT_TEAM_ID, &user2.id, "a guest's"));
+    assert_eq!(
+        outsider.next(QUIET).await,
+        Event::Nothing,
+        "not in the team"
+    );
+    assert_eq!(
+        guest.next(QUIET).await,
+        Event::Nothing,
+        "a guest of the team"
+    );
+    th.teardown().await;
+}
+
 /// A connection of a session subscribes to a team and is told about the user's category
 /// changes; on a connection without a session the subscription is ignored.
 #[tokio::test]
@@ -181,7 +231,7 @@ async fn team_subscription_needs_authentication() {
     socket
         .send(json!({"action": "UNSUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
         .await;
-    subscribe_to_team(&th, &mut socket, "other-team", &user1.id).await;
+    subscribe_to_team(&th, &mut socket, TEST_TEAM_ID, &user1.id).await;
     th.app.ws().broadcast_category_change(&change);
     assert_eq!(
         socket.next(QUIET).await,

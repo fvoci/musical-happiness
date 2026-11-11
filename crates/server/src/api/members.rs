@@ -11,9 +11,7 @@ use super::contract::params::{BoardId, UserId};
 use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response, no_content};
-use super::{
-    board_refusal, decode_object, require_board_permission, require_team_access, user_is_guest,
-};
+use super::{board_refusal, decode_object, require_board_permission, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
@@ -140,13 +138,12 @@ async fn handle_add_member(
         // A lookup that failed is no answer to whether the user exists.
         Err(error) => return Err(error),
     }
-    require_team_access(
-        &app,
-        &request.user_id,
-        &board.team_id,
-        "access denied to team",
-    )
-    .await?;
+    // A board takes the people of its team, its guests too. Anybody else is, to who
+    // adds members, a user who does not exist: the answer is the same, so that it
+    // tells nothing of who has an account elsewhere on the server.
+    if !app.is_in_team(&request.user_id, &board.team_id).await? {
+        return Err(AppError::bad_request("no such user").with_field("userId"));
+    }
 
     // Not in the original, which lets an editor of an open board add members with any
     // role (`server/api/members.go:164-168`). Anyone can join an open board as an editor
@@ -207,13 +204,18 @@ async fn handle_join_board(
         // A private board exists only for its members, who have nothing to join.
         return Err(board_refusal(&app, user_id, &board_id, "cannot join a non Open board").await);
     }
+    // An open board is there for who works in its team, and a built-in template for
+    // everybody. To anybody else, a guest of the workspace among them, it answers as
+    // a board that does not exist: joining is no way into a team.
+    if !board.is_builtin && !app.works_in_team(user_id, &board.team_id).await? {
+        return Err(AppError::not_found("board"));
+    }
     // An open template is for everybody to copy, and for its members to change. Joining
     // made anyone an editor of it, of the built-in templates too: of the board every new
     // user's first board is copied from.
     if board.is_template {
         return Err(AppError::forbidden("a template cannot be joined"));
     }
-    require_team_access(&app, user_id, &board.team_id, "access denied to team").await?;
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("guests not allowed to join boards"));
     }

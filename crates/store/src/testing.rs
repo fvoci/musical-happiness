@@ -61,12 +61,20 @@ enum Role {
     HeldByTheWall,
     /// The role of [`SUPERUSER_CONN_STRING_ENV`], which they do not.
     Superuser,
+    /// A role made for the one test database, that is no superuser and has
+    /// `BYPASSRLS`: the policies do not hold it either.
+    BypassRls,
 }
 
 #[derive(Debug)]
 enum Cleanup {
     SqliteFile(PathBuf),
-    PostgresSchema { url: String, schema: String },
+    PostgresSchema {
+        url: String,
+        schema: String,
+        /// The role that was made with the schema and goes with it.
+        role: Option<String>,
+    },
 }
 
 impl TestDatabase {
@@ -95,6 +103,18 @@ impl TestDatabase {
         Self::create_as(directory, Role::Superuser).await
     }
 
+    /// Creates an empty database as [`TestDatabase::create`] does, but on PostgreSQL as
+    /// a role of its own that is no superuser and has `BYPASSRLS`, the other kind of
+    /// role that no policy holds. The role is made by the superuser of
+    /// [`SUPERUSER_CONN_STRING_ENV`] and removed with the database.
+    ///
+    /// # Panics
+    ///
+    /// Panics as [`TestDatabase::create_as_superuser`] does.
+    pub async fn create_as_role_with_bypassrls(directory: &Path) -> Self {
+        Self::create_as(directory, Role::BypassRls).await
+    }
+
     async fn create_as(directory: &Path, role: Role) -> Self {
         // An identifier has hyphens; a file name takes them, a schema name does not.
         let name = new_id().replace('-', "_");
@@ -113,7 +133,7 @@ impl TestDatabase {
             DbType::Postgres => {
                 let variable = match role {
                     Role::HeldByTheWall => CONN_STRING_ENV,
-                    Role::Superuser => SUPERUSER_CONN_STRING_ENV,
+                    Role::Superuser | Role::BypassRls => SUPERUSER_CONN_STRING_ENV,
                 };
                 let url = std::env::var(variable).unwrap_or_else(|_| {
                     panic!("{variable} must hold a PostgreSQL URL for PostgreSQL test runs")
@@ -128,18 +148,52 @@ impl TestDatabase {
                          tests need a role that is no superuser, has NOBYPASSRLS and has \
                          CREATE on the database; `cargo xtask test` makes one in its container"
                     ),
-                    Role::Superuser => assert!(
+                    Role::Superuser | Role::BypassRls => assert!(
                         past_the_wall,
                         "{SUPERUSER_CONN_STRING_ENV} names a role the policies hold; the \
                          tests that use it need a superuser"
                     ),
                 }
-                run(&mut connection, format!("CREATE SCHEMA {schema}")).await;
-                let separator = if url.contains('?') { '&' } else { '?' };
+                let (own_role, connect_as) = if role == Role::BypassRls {
+                    // The role passes every policy of the cluster: its password is its
+                    // own, made here and kept nowhere but in the test's `dbconfig`.
+                    let own_role = format!("r_{name}");
+                    let password = new_id();
+                    run(
+                        &mut connection,
+                        format!(
+                            "CREATE ROLE {own_role} LOGIN PASSWORD '{password}' \
+                             NOSUPERUSER BYPASSRLS; \
+                             CREATE SCHEMA {schema} AUTHORIZATION {own_role}"
+                        ),
+                    )
+                    .await;
+                    let connect_as = url_as_role(&url, &own_role, &password);
+                    let mut as_the_role = connect(&connect_as).await;
+                    let (superuser, bypasses): (bool, bool) = sqlx::query_as(
+                        "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user",
+                    )
+                    .fetch_one(&mut as_the_role)
+                    .await
+                    .unwrap_or_else(|error| panic!("reading the role that was made: {error}"));
+                    assert!(
+                        !superuser && bypasses,
+                        "the role that was made is no superuser and has BYPASSRLS"
+                    );
+                    (Some(own_role), connect_as)
+                } else {
+                    run(&mut connection, format!("CREATE SCHEMA {schema}")).await;
+                    (None, url.clone())
+                };
+                let separator = if connect_as.contains('?') { '&' } else { '?' };
                 Self {
                     db_type,
-                    dbconfig: format!("{url}{separator}search_path={schema}"),
-                    cleanup: Cleanup::PostgresSchema { url, schema },
+                    dbconfig: format!("{connect_as}{separator}search_path={schema}"),
+                    cleanup: Cleanup::PostgresSchema {
+                        url,
+                        schema,
+                        role: own_role,
+                    },
                 }
             }
         }
@@ -174,12 +228,33 @@ impl TestDatabase {
                 // Journal files may or may not exist; a leftover file is harmless.
                 let _ = std::fs::remove_file(path);
             }
-            Cleanup::PostgresSchema { url, schema } => {
+            Cleanup::PostgresSchema { url, schema, role } => {
                 let mut connection = connect(&url).await;
                 run(&mut connection, format!("DROP SCHEMA {schema} CASCADE")).await;
+                if let Some(role) = role {
+                    run(&mut connection, format!("DROP ROLE {role}")).await;
+                }
             }
         }
     }
+}
+
+/// The URL with a role that a test database made for itself and the role's password,
+/// in place of those it names.
+///
+/// # Panics
+///
+/// Panics if the URL names no role: one of a superuser does.
+fn url_as_role(url: &str, role: &str, password: &str) -> String {
+    let (scheme, rest) = url
+        .split_once("://")
+        .unwrap_or_else(|| panic!("{SUPERUSER_CONN_STRING_ENV} is no URL"));
+    // The role and its password end at the last `@` before the path or the query.
+    let authority_end = rest.find(['/', '?']).unwrap_or(rest.len());
+    let at = rest[..authority_end]
+        .rfind('@')
+        .unwrap_or_else(|| panic!("{SUPERUSER_CONN_STRING_ENV} names no role"));
+    format!("{scheme}://{role}:{password}@{}", &rest[at + 1..])
 }
 
 async fn connect(url: &str) -> PgConnection {

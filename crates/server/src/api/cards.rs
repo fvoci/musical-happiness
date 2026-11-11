@@ -15,8 +15,8 @@ use super::contract::tag;
 
 use super::change_notification;
 use super::{
-    ApiResult, OptionalSession, RequiredSession, TRUE, created, has_valid_read_token,
-    json_response, query_param,
+    ApiResult, OptionalSession, RequiredSession, TRUE, by_read_token, created, json_response,
+    query_param,
 };
 use super::{decode_with_document, require_board_permission, require_permission_through};
 use crate::app::{App, CardPreviews};
@@ -177,10 +177,12 @@ async fn handle_get_cards(
 ) -> ApiResult {
     let query = query.as_deref();
     let user_id = session.user_id();
-    let has_read_token = has_valid_read_token(&app, query, &board_id).await?;
+    let shared = by_read_token(&app, query, &board_id).await?;
+    let has_read_token = shared.is_some();
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to fetch cards"));
     }
+    let app = shared.unwrap_or(app);
     // The board's person properties, for a reader with the token alone.
     let hidden_people = if has_read_token {
         // A board that is shared exists; one that went since is not there.

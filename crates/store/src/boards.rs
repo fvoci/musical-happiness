@@ -17,7 +17,7 @@ use serde_json::Value;
 use crate::Store;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
-use crate::subscriptions;
+use crate::{members, subscriptions};
 
 /// The order of a list of boards read through the alias `b`: by when they were made,
 /// and by identifier where that is the same.
@@ -610,7 +610,7 @@ pub(crate) async fn get_board(scope: &mut Scope<'_>, board_id: &str) -> Result<B
 
 /// Starts the query for the boards a user can reach: `SELECT DISTINCT` over boards joined
 /// with their memberships, without templates, narrowed to the user's boards and, if
-/// asked for, the open ones. More `AND` conditions on `b` may follow.
+/// asked for, the open ones where the user works. More `AND` conditions on `b` may follow.
 fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: PublicBoards) -> Sql {
     let mut sql = scope.sql(&format!(
         "SELECT DISTINCT {} FROM boards AS b LEFT JOIN board_members AS bm ON b.id = bm.board_id \
@@ -619,12 +619,10 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
     ));
     sql.bind(false);
     match public_boards {
-        PublicBoards::Include => sql
-            .push_bind(" AND (b.type = ", BoardType::Open.as_str())
-            .push_bind(" OR bm.user_id = ", Id(user_id))
-            .push(")"),
-        PublicBoards::Exclude => sql.push_bind(" AND bm.user_id = ", Id(user_id)),
+        PublicBoards::Include => members::push_open_boards_at_work(&mut sql, user_id),
+        PublicBoards::Exclude => sql.push(" AND ("),
     };
+    sql.push_bind("bm.user_id = ", Id(user_id)).push(")");
     sql
 }
 

@@ -37,6 +37,9 @@ pub(crate) const PASSWORD: &str = "Pa$$word";
 pub(crate) const ROOT_TEAM_ID: &str = "00000000-0000-7000-8000-000000000000";
 /// A second team, the one most tests make their boards in.
 pub(crate) const TEST_TEAM_ID: &str = "00000000-0000-7000-8000-000000000001";
+/// A third team of the organization, which nobody is let into: a workspace that is
+/// there and hidden from every user of a test.
+pub(crate) const HIDDEN_TEAM_ID: &str = "00000000-0000-7000-8000-000000000002";
 /// The identifier of nothing: well-formed, and never given to anything.
 pub(crate) const UNKNOWN_ID: &str = "00000000-0000-7000-8000-00000000dead";
 
@@ -295,12 +298,12 @@ async fn seed_teams(config: &Configuration) {
         .create_organization("", &team(ROOT_TEAM_ID))
         .await
         .expect("the organization of the test server is stored");
-    store
-        .for_org(&org_id)
-        .expect("an identifier")
-        .create_team(&team(TEST_TEAM_ID))
-        .await
-        .expect("the second team of the test server is stored");
+    let ours = store.for_org(&org_id).expect("an identifier");
+    for team_id in [TEST_TEAM_ID, HIDDEN_TEAM_ID] {
+        ours.create_team(&team(team_id))
+            .await
+            .expect("a further team of the test server is stored");
+    }
     store.close().await;
 }
 
@@ -385,11 +388,30 @@ impl TestServer {
             token: signup_token.to_owned(),
             display_name: String::new(),
         };
-        self.anonymous()
+        let user: User = self
+            .anonymous()
             .post("/register", &request)
             .await
-            .check_created();
+            .created_json();
+        self.let_into_the_second_team(&user.id).await;
         self.login(username, password).await
+    }
+
+    /// Lets a user into the second team of the test server, [`TEST_TEAM_ID`], where
+    /// most tests make their boards. Whoever registers is in the root team, the
+    /// organization's default workspace; the users of a test work in both. A server
+    /// started on an empty database has no second team to be let into.
+    pub(crate) async fn let_into_the_second_team(&self, user_id: &str) {
+        match self
+            .app
+            .store()
+            .add_workspace_member(TEST_TEAM_ID, user_id, fvoci_model::WorkspaceRole::Member)
+            .await
+        {
+            Ok(()) => {}
+            Err(error) if error.is_not_found() => {}
+            Err(error) => panic!("the user is let into the second team: {error}"),
+        }
     }
 
     /// `Login`: returns a client signed in as an existing user.

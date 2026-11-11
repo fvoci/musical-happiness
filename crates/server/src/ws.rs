@@ -24,9 +24,7 @@ use crate::app::Audience;
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::{
-    BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
-};
+use crate::permissions::{BoardPermission, member_has_permission};
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -528,7 +526,8 @@ impl Hub {
 
         match command.action.as_str() {
             "SUBSCRIBE_TEAM" => {
-                if has_permission_to_team(&user_id, &command.team_id, TeamPermission::ViewTeam) {
+                let team = &command.team_id;
+                if self.audience.works_in_team(&user_id, team).await {
                     subscribe_to_team(&mut self.listeners(), id, &command.team_id);
                 } else {
                     tracing::error!(team_id = %command.team_id, user_id, "websocket: no team access");

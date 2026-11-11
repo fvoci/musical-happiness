@@ -1,6 +1,6 @@
 //! Checks that many handlers share: who may do what on a board or in a team.
 
-use fvoci_model::{Block, BlockPatch, BlockType, BoardType};
+use fvoci_model::{Block, BlockPatch, BlockType, BoardType, Team};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
@@ -219,53 +219,58 @@ async fn reads_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, A
         .await
 }
 
-/// Whether the board is an open board of a team the user may see. Such a board is no
-/// secret to the user, though its contents are until they join. A board that is not
-/// there is seen by nobody; a store that fails is an error, not a "no".
+/// Whether the board is an open board of a team the user works in, or a built-in
+/// template, which is every user's to copy. Such a board is no secret to the user,
+/// though its contents are until they join. A board that is not there is seen by
+/// nobody; a store that fails is an error, not a "no".
 async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
     if user_id.is_empty() {
         return Ok(false);
     }
     match app.board(board_id).await {
         Ok(board) => Ok(board.board_type == BoardType::Open
-            && app.has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)),
+            && (board.is_builtin
+                || app
+                    .has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
+                    .await?)),
         Err(error) if error.is_not_found() => Ok(false),
         Err(error) => Err(error),
     }
 }
 
-/// Fails with a 404 if there is no such team, and with a 403 that says `denial` unless
-/// the user may see it.
+/// The team, or a 404 unless the user works in it (`App::works_in_team`): a team
+/// the user is no member of, and a team of another organization, answer as one that
+/// does not exist.
 ///
-/// Every user may see every team of the server's one organization. TEMPORARY, with
-/// `only_organization_scope`: a route that is moved under a workspace asks who is a
-/// member of it (`api/workspace.rs`), and this check goes with the last that is not.
+/// The routes that name a team work in the server's one organization (TEMPORARY, with
+/// `only_organization_scope`), and ask the same fact the routes under a workspace ask
+/// (`api/workspace.rs`); this check goes with the last route that is not moved.
 pub(crate) async fn require_team_access(
     app: &App,
     user_id: &str,
     team_id: &str,
-    denial: &str,
-) -> Result<(), AppError> {
-    app.team(team_id).await?;
-    if app.has_permission_to_team(user_id, team_id, TeamPermission::ViewTeam) {
-        Ok(())
-    } else {
-        Err(AppError::forbidden(denial))
+) -> Result<Team, AppError> {
+    if !app.works_in_team(user_id, team_id).await? {
+        return Err(AppError::not_found("team"));
     }
+    app.team(team_id).await
 }
 
 /// Fails with a 400 that names the member `field` if the team a request body names
-/// does not exist.
+/// does not exist, or is one the user does not work in: the two answer alike.
 pub(crate) async fn require_team_in_body(
     app: &App,
+    user_id: &str,
     team_id: &str,
     field: &'static str,
 ) -> Result<(), AppError> {
+    let no_such_team = || AppError::bad_request("no such team").with_field(field);
+    if !app.works_in_team(user_id, team_id).await? {
+        return Err(no_such_team());
+    }
     match app.team(team_id).await {
         Ok(_) => Ok(()),
-        Err(error) if error.is_not_found() => {
-            Err(AppError::bad_request("no such team").with_field(field))
-        }
+        Err(error) if error.is_not_found() => Err(no_such_team()),
         Err(error) => Err(error),
     }
 }
