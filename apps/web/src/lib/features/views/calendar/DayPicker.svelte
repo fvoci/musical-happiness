@@ -11,8 +11,8 @@
   The calendar names the card (`cardId`) from its menu, once the list the
   menu was in has closed, and then opens it: a popover next to the picked
   day (or "No date", for a card without one), or a sheet on a compact page.
-  In the popover the focus goes to the card's day, where the arrow keys walk
-  the month; a sheet takes it itself, as every sheet does. Once closed, the
+  In the popover the focus goes to the card's day (the picked day, for a
+  card without one), where the arrow keys walk the month; a sheet takes it itself, as every sheet does. Once closed, the
   calendar puts the focus on the card's day, or on "No date" (`onclosed`).
   Once the board has kept the change, the calendar goes to the new day
   (`onmoved`) and a screen reader hears where the card went; a change the
@@ -99,6 +99,8 @@
    */
   function pick(picked: PickedDay | undefined): void {
     const date = picked?.toString() as CalendarDate | undefined;
+    // For a card without a date the calendar also says "none" as it starts: nothing was pressed.
+    if (date === undefined && !span) return;
     open = false;
     if (card && date !== undefined && date !== span?.first && template?.type === 'date') {
       void move(card, template, date);
@@ -125,10 +127,14 @@
     onclosed(id !== undefined && placed.span(id) !== undefined);
   }
 
-  /** The focus goes to the day that can take it: the card's, or the first of the month. */
+  /** The focus goes to the card's day, or for a card without one to the calendar's picked day. */
   function focusDay(event: Event): void {
     event.preventDefault();
-    box?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]')?.focus();
+    const day = span?.first ?? selected;
+    (
+      box?.querySelector<HTMLElement>(`[data-bits-day][data-value="${day}"]`) ??
+      box?.querySelector<HTMLElement>('[data-bits-day][tabindex="0"]')
+    )?.focus();
   }
 
   // The calendar marks the device's today; the reader's is marked instead.
