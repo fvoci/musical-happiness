@@ -6,7 +6,9 @@
     reason = "each test binary uses the part of this module it needs"
 )]
 
+pub(crate) mod explore;
 pub(crate) mod random;
+pub(crate) mod wire;
 
 use std::path::{Path, PathBuf};
 
