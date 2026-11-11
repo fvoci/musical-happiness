@@ -6,6 +6,7 @@
  * Where the two differ the screens' shape stays and the difference is
  * settled here; each place is listed in `docs/contract-assumptions.md`.
  */
+import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
 import { readRegionalSettings } from '../logic/regional.ts';
 import {
@@ -89,9 +90,15 @@ export function memberOf(member: Schemas['BoardMember']): BoardMember {
   return { ...member, minimumRole: '', synthetic: false };
 }
 
-/** A block of the API as the screens' block. */
+/** A block of the API as the screens' block. Its body, if any, is the card's or comment's to carry. */
 export function blockOf(block: Schemas['Block']): Block {
-  return { ...block, type: block.type as BlockType, fields: { ...block.fields } };
+  const { body: _body, ...rest } = block;
+  return { ...rest, type: block.type as BlockType, fields: { ...block.fields } };
+}
+
+/** The body of a block or a card, as the screens' document. */
+export function bodyOf(body: Schemas['Block']['body']): DocNode | null {
+  return (body ?? null) as DocNode | null;
 }
 
 export function viewOf(block: Schemas['Block']): BoardView {
@@ -99,52 +106,62 @@ export function viewOf(block: Schemas['Block']): BoardView {
 }
 
 /**
- * The card summary of a card block, as a change message brings it. The API
- * has no body yet (`docs/contract-pending.md`, 1), so a card has none and no
- * tasks.
+ * The card summary of a card block, as a change message brings it. The
+ * block carries the whole body and no counts (`contracts/websocket.md`, G5):
+ * whether there is a body and how its tasks stand are worked out from it.
  */
 export function cardOfBlock(block: Schemas['Block']): CardSummary {
-  return { ...createCard(blockOf(block)), hasBody: false, tasksTotal: 0, tasksDone: 0 };
+  const body = bodyOf(block.body);
+  const tasks = body ? countTasks(body) : { total: 0, checked: 0 };
+  return {
+    ...createCard(blockOf(block)),
+    hasBody: body !== null,
+    tasksTotal: tasks.total,
+    tasksDone: tasks.checked,
+  };
 }
 
 /** A card of the cards API: its members are where a card block has its `fields`. */
 export function cardOf(card: Schemas['Card']): CardSummary {
-  return cardOfBlock({
-    id: card.id,
-    boardId: card.boardId,
-    parentId: '',
-    createdBy: card.createdBy,
-    modifiedBy: card.modifiedBy,
-    schema: 1,
-    type: 'card',
-    title: card.title,
-    fields: {
-      icon: card.icon,
-      isTemplate: card.isTemplate,
-      properties: card.properties,
-      contentOrder: card.contentOrder,
-    },
-    createAt: card.createAt,
-    updateAt: card.updateAt,
-    deleteAt: card.deleteAt,
-  });
+  return {
+    ...createCard({
+      id: card.id,
+      boardId: card.boardId,
+      parentId: '',
+      createdBy: card.createdBy,
+      modifiedBy: card.modifiedBy,
+      schema: 1,
+      type: 'card',
+      title: card.title,
+      fields: { icon: card.icon, isTemplate: card.isTemplate, properties: card.properties },
+      createAt: card.createAt,
+      updateAt: card.updateAt,
+      deleteAt: card.deleteAt,
+    }),
+    hasBody: card.hasBody,
+    tasksTotal: card.tasksTotal,
+    tasksDone: card.tasksDone,
+  };
 }
 
+/** A card read alone, with its body (a list of cards carries none). */
 export function cardDetailOf(card: Schemas['Card']): CardDetail {
-  return { ...cardOf(card), body: null };
+  return { ...cardOf(card), body: bodyOf(card.body) };
 }
 
-/**
- * A card to make. A body cannot go along: the server keeps none yet
- * (`docs/contract-pending.md`, 1), so a draft with one is refused before it
- * is sent rather than made without it.
- */
+/** A document as the contract's body: the contract leaves its members open. */
+export function wireBody(doc: DocNode): Schemas['Body'] {
+  return doc as unknown as Schemas['Body'];
+}
+
+/** A card to make. */
 export function newCardOf(draft: CardDraft): Schemas['NewCard'] {
   return {
     title: draft.title ?? '',
     icon: draft.icon ?? '',
     isTemplate: draft.isTemplate ?? false,
     properties: draft.properties ?? {},
+    ...(draft.body ? { body: wireBody(draft.body) } : {}),
   };
 }
 

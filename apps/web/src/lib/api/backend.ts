@@ -9,7 +9,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../logic/wire.ts';
-import { applyCardPatch, applyViewPatch } from '../state/patches.ts';
+import { applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
   type Account,
@@ -338,16 +338,15 @@ export class ServerBackend implements Backend, Account {
   }
 
   /**
-   * Changes a card. The screens' patch names the values to set and to
-   * clear; the server's `updatedProperties` replaces every value of the card
-   * and cannot take away the last one (`contract-assumptions.md`, H6). So a
-   * patch that touches values reads the card, works out all its values, and
-   * sends them all; with none left it clears them through the card's block.
-   * The changes of one card go one after another, so that two quick ones do
-   * not both start from the same reading.
+   * Changes a card: the title, the icon, and the values the patch names,
+   * set or cleared. The server merges them into what it keeps
+   * (`updatedProperties`, `deletedProperties`), so somebody else's change
+   * of another value at about the same time stays. The changes of one card
+   * still go one after another, so that two quick ones of the same value
+   * arrive in the order they were made.
    */
-  patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
-    return this.#inTurn(cardId, () => this.#patchCard(boardId, cardId, patch));
+  patchCard(_boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+    return this.#inTurn(cardId, () => this.#patchCard(cardId, patch));
   }
 
   /**
@@ -369,43 +368,14 @@ export class ServerBackend implements Backend, Account {
     return running;
   }
 
-  async #patchCard(boardId: string, cardId: string, patch: CardPatch): Promise<CardSummary> {
+  async #patchCard(cardId: string, patch: CardPatch): Promise<CardSummary> {
     const request: Schemas['CardPatch'] = {};
     if (patch.title !== undefined) request.title = patch.title;
     if (patch.icon !== undefined) request.icon = patch.icon;
-    const touchesValues =
-      Object.keys(patch.updatedProperties ?? {}).length > 0 ||
-      (patch.deletedProperties ?? []).length > 0;
-    if (!touchesValues) return this.#sendCardPatch(cardId, request);
-
-    const current = cardOf(await this.#card(boardId, cardId));
-    const changed = applyCardPatch(current, patch);
-    const properties = changed.fields.properties;
-    const same = JSON.stringify(properties) === JSON.stringify(current.fields.properties);
-    if (Object.keys(properties).length > 0 || same) {
-      // Values that stay as they are need not be sent (an empty list would not clear them anyway).
-      if (!same) request.updatedProperties = properties;
-      return Object.keys(request).length === 0 ? current : this.#sendCardPatch(cardId, request);
-    }
-
-    // No value left: the card patch cannot clear the last one (H6), the
-    // card's block can. Title and icon still go by the card patch, which
-    // checks them.
-    if (Object.keys(request).length > 0) await this.#sendCardPatch(cardId, request);
-    await this.#http.request(
-      '/api/v1/boards/{boardId}/blocks/{blockId}',
-      { boardId, blockId: cardId },
-      { method: 'PATCH', json: { updatedFields: { properties: {} } } },
-    );
-    try {
-      return cardOf(await this.#card(boardId, cardId));
-    } catch {
-      // Saved; only reading it back failed. What was sent is what it is.
-      return changed;
-    }
-  }
-
-  async #sendCardPatch(cardId: string, request: Schemas['CardPatch']): Promise<CardSummary> {
+    const updated = patch.updatedProperties ?? {};
+    if (Object.keys(updated).length > 0) request.updatedProperties = updated;
+    const deleted = patch.deletedProperties ?? [];
+    if (deleted.length > 0) request.deletedProperties = deleted;
     const card = await this.#http.request<Schemas['Card']>(
       '/api/v1/cards/{cardId}',
       { cardId },

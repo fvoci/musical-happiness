@@ -108,7 +108,7 @@ test('a card’s title and values are changed on the server, the last value take
     .poll(async () => (await stored()).properties)
     .toEqual({ status: board.options.Done });
 
-  // The last value of the card: the server's card patch cannot take it away.
+  // The last value of the card goes too: the patch names it to clear.
   await status.locator('[data-slot="property-select"]').click();
   await page.getByRole('button', { name: 'Clear' }).click();
   await expect.poll(async () => (await stored()).properties).toEqual({});

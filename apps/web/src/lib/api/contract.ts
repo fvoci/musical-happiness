@@ -76,8 +76,8 @@ export interface paths {
          * Search the boards
          * @description The boards the user may find, as `getBoards` lists them, whose title matches the
          *     term: a title matches if every word of the term, as spaces divide it, is somewhere
-         *     in it, whatever the case of the letters. Templates are never found. In a word `%`
-         *     stands for any text and `_` for any one character. Oldest first.
+         *     in it, whatever the case of the letters (of every letter, not only ASCII). Templates
+         *     are never found. `%` and `_` are characters like any other. Oldest first.
          */
         get: operations["searchBoards"];
         put?: never;
@@ -133,7 +133,10 @@ export interface paths {
         /**
          * Export a board
          * @description An archive of the board with its blocks, its files and its members, offered as a
-         *     download. For the board's members.
+         *     download with its length. For the board's members. The archive is a ZIP of version
+         *     3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
+         *     `block` or `boardMember` per line, in the shapes of this contract, bodies included)
+         *     and the files the blocks show, the images of bodies among them.
          */
         get: operations["exportBoardArchive"];
         put?: never;
@@ -155,7 +158,8 @@ export interface paths {
          * The blocks of a board
          * @description For the board's members, and for an open template everyone in its team. With the
          *     board's read token no session is needed; who reads that way is not told who made a
-         *     block or changed it last (`createdBy` and `modifiedBy` are empty).
+         *     block or changed it last (`createdBy` and `modifiedBy` are empty), nor who is
+         *     mentioned in a body (the `userId` of every mention is empty).
          *
          *     `all` asks for every block and `blockId` for one, which is 404 if the board has no
          *     such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -316,9 +320,12 @@ export interface paths {
         /**
          * Upload a file
          * @description Stores a file with the board. The request is a `multipart/form-data` form whose
-         *     part `file` carries the file and a file name. The file is limited to the
-         *     `maxFileSize` of `getClientConfig`, where that is more than zero; a larger one is
-         *     413. The `fileId` of the answer ends in the extension of the file name, in lower
+         *     part `file` carries the file and a file name. The file is limited to one part of an
+         *     upload in parts (8 MiB unless the server is configured otherwise), and to the
+         *     `maxFileSize` of `getClientConfig` where that is less; a larger one is 413. Where
+         *     the limit is the part, the refusal has the reason `upload_in_parts`: a file within
+         *     `maxFileSize` can be sent with `createUpload`. A file that is refused or cut off is
+         *     not kept. The `fileId` of the answer ends in the extension of the file name, in lower
          *     case, with `.jpeg` written `.jpg`; an extension of more than 17 bytes, or with
          *     anything but letters and digits in it, is left off. For editors.
          */
@@ -535,6 +542,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/boards/{boardId}/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open an upload
+         * @description Opens an upload of a file to the board in parts. The answer says how large the
+         *     parts are and how many; send each with `putUploadPart`, in any order and again
+         *     after a failure, then `completeUpload`. A file larger than `maxFileSize` of
+         *     `getClientConfig` is 413. A user has at most 8
+         *     uploads open, holding back at most twice `maxFileSize` together, and the server's
+         *     open uploads hold back at most what it is configured for: an upload over one of
+         *     these is 429, with the reason `too_many_uploads`, `uploads_pending` or
+         *     `server_uploads_pending`. An upload is open until it is completed, abandoned or
+         *     ends; one that ends is thrown away with its parts within the hour. For editors, as
+         *     `uploadFile`.
+         */
+        post: operations["createUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{cardId}": {
         parameters: {
             query?: never;
@@ -575,28 +611,6 @@ export interface paths {
         get: operations["getClientConfig"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/content-blocks/{blockId}/moveto/{where}/{dstBlockId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Move a content block within its card
-         * @description Moves a content block right before or after another one in the content order of
-         *     their card. For editors of the board. A block on a board the user may not see is
-         *     not there, whichever of the two it is.
-         */
-        post: operations["moveContentBlock"];
         delete?: never;
         options?: never;
         head?: never;
@@ -838,7 +852,8 @@ export interface paths {
         /**
          * Export the boards of a team
          * @description An archive of all boards of the team that `getBoards` lists for the user, offered
-         *     as a download. A team that is not there is not refused: its archive has no boards.
+         *     as a download with its length, in the format of `exportBoardArchive`. A team that
+         *     is not there is not refused: its archive has no boards.
          */
         get: operations["exportTeamArchive"];
         put?: never;
@@ -862,14 +877,53 @@ export interface paths {
          * Import an archive
          * @description Makes the boards of an archive in the team, with the user as their admin. The
          *     members the archive names for a board become members of it with the roles they had,
-         *     where they are users of this server. The request is a `multipart/form-data` form
-         *     whose part `file` carries the archive; the part needs no file name. A request
-         *     without that part, or with what is no archive, is 400.
+         *     where they are users of this server. The archive is sent before in parts: open an
+         *     upload with `createImportUpload`, send its parts with `putUploadPart`, then name
+         *     the upload here, in place of `completeUpload`. A part missing is 400 and the upload
+         *     stays open for it; otherwise the upload ends with the import, whether it succeeds or
+         *     not. Another user's upload, or one that has ended, is 404; an upload of a file, or
+         *     one for another team, is 400. For users of the team who are not guests, at the
+         *     import as when the upload was opened: a user who may not import any more is
+         *     refused, and the upload is thrown away.
+         *
+         *     The archive is of version 3, as the export routes write it. The formats of the
+         *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without
+         *     `version.json` are 400, and nothing of them is stored. An archive of more than
+         *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
+         *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with
+         *     the `limit` passed, and nothing of it is stored. The blocks that show files are
+         *     pointed at the board's new copies of them, the images of bodies included; a card
+         *     value that does not fit its property's kind is cleared, as a copy does.
          *
          *     The boards are made one after the other, not all or none: when one of them fails,
          *     those before it stay.
          */
         post: operations["importArchive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{teamId}/archive/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open an upload of an archive
+         * @description Opens an upload of an archive to import into the team, sent in parts as a file is
+         *     with `createUpload`, and imported with `importArchive` once every part is received.
+         *     An archive larger than `maxImportSize` of `getClientConfig` is 413. It counts
+         *     toward the same limits as the uploads of files, which hold back at most twice the
+         *     larger of `maxFileSize` and `maxImportSize` for a user. For users of the team who
+         *     are not guests, as `importArchive`.
+         */
+        post: operations["createImportUpload"];
         delete?: never;
         options?: never;
         head?: never;
@@ -908,7 +962,7 @@ export interface paths {
          * Search the boards, asked through a team
          * @description The boards the user may find, as `getBoards` lists them, whose title matches the
          *     term as `searchBoards` matches it, or with `field=property_name` those whose own
-         *     `properties` have a member of exactly that name. The team of the path is not part of
+         *     `properties` have a member of exactly that name, whatever its value (`null` too). The team of the path is not part of
          *     the search: the boards of every team are searched. A `field` that is neither is 400.
          *     Oldest first.
          */
@@ -1164,8 +1218,8 @@ export interface paths {
         };
         /**
          * The users of a team
-         * @description Up to ten users: with `search` those whose name has that text in it, without it
-         *     the ten oldest accounts. Oldest account first.
+         * @description Up to ten users: with `search` those whose name has that text in it, whatever the
+         *     case of the letters, without it the ten oldest accounts. Oldest account first.
          */
         get: operations["getTeamUsers"];
         put?: never;
@@ -1176,6 +1230,85 @@ export interface paths {
          *     otherwise the request is 404. Oldest account first, not in the order of the request.
          */
         post: operations["getTeamUsersById"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{uploadId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an upload
+         * @description The upload and the parts it has received: what a client that lost its place sends
+         *     next. Another user's upload, and one that has ended, is 404.
+         */
+        get: operations["getUpload"];
+        put?: never;
+        post?: never;
+        /**
+         * Abandon an upload
+         * @description Ends the upload and throws its parts away. An upload that is being completed is
+         *     409.
+         */
+        delete: operations["deleteUpload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{uploadId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete an upload
+         * @description Makes the file of the upload from its parts and ends the upload. Every part must
+         *     have been received; a part missing is 400, and the upload stays open for it. The
+         *     answer is the one of `uploadFile`. For editors of the board, at completion as when
+         *     the upload was opened: a user who may not upload to the board any more is refused,
+         *     and the upload is thrown away. An upload that is being completed is 409; an upload
+         *     of an archive is 400, and is imported with `importArchive`.
+         */
+        post: operations["completeUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{uploadId}/parts/{partNumber}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Send a part
+         * @description Sends part `partNumber` of the upload as the body, `application/octet-stream`.
+         *     `Content-Length` is required and must be the part's size: `partSize`, or the rest
+         *     for the last part; another length is refused with 400 before the body is looked at.
+         *     What is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5
+         *     seconds, so that the client reads the answer; a larger or slower body is cut off.
+         *     (A browser sets `Content-Length` itself.)
+         *     `Content-Digest` carries the part's SHA-256. A part whose length or digest differs
+         *     is 400 and is not kept; a part sent again replaces the one received. An upload that
+         *     is being completed or abandoned is 409.
+         */
+        put: operations["putUploadPart"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1375,6 +1508,7 @@ export interface components {
         Block: {
             /** @description The identifier of the board the block belongs to. */
             boardId: string;
+            body: components["schemas"]["Body"] | null;
             /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
@@ -1387,7 +1521,12 @@ export interface components {
              * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
              */
             deleteAt: number;
-            /** @description Type-specific data, free-form. */
+            /**
+             * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
+             *     comment or an attachment and 800,000 for a view or a block of another type. The
+             *     `icon` of a card is a string and its `isTemplate` a boolean, or either `null`
+             *     (400 naming `fields` otherwise).
+             */
             fields: {
                 [key: string]: unknown;
             };
@@ -1402,9 +1541,12 @@ export interface components {
              * @description The schema version of the block.
              */
             schema: number;
-            /** @description The display title. */
+            /** @description The display title. A title with U+0000 is refused (400 naming `title`). */
             title: string;
-            /** @description The block type. */
+            /**
+             * @description The block type: `card`, `view`, `comment` or `attachment`. No request makes a
+             *     block of another type or patches one into it (400 naming `type`).
+             */
             type: string;
             /**
              * Format: int64
@@ -1414,10 +1556,17 @@ export interface components {
         };
         /** @description A partial update of a `Block`. Absent members leave the block unchanged. */
         BlockPatch: {
+            body?: components["schemas"]["Body"] | null;
             /** @description Keys of fields to remove. */
             deletedFields?: string[];
             /** @description The new parent identifier. */
             parentId?: string | null;
+            /**
+             * Format: int64
+             * @description The `updateAt` of the block as the client read it. If the block has changed
+             *     since, the patch is refused.
+             */
+            readAt?: number | null;
             /**
              * Format: int64
              * @description The new schema version.
@@ -1425,7 +1574,10 @@ export interface components {
             schema?: number | null;
             /** @description The new title. */
             title?: string | null;
-            /** @description The new block type. */
+            /**
+             * @description The new block type: `card`, `view`, `comment` or `attachment`. Any other is
+             *     refused (400 naming `type`).
+             */
             type?: string | null;
             /** @description Fields to set, replacing any existing value under the same key. */
             updatedFields?: {
@@ -1494,7 +1646,11 @@ export interface components {
              * @description The version of the built-in template this board came from.
              */
             templateVersion: number;
-            /** @description The board's title. */
+            /**
+             * @description The board's title. No text of a board (this, `description`, `icon`, and the
+             *     strings and member names of `properties` and `cardProperties`) holds U+0000:
+             *     400 naming the member.
+             */
             title: string;
             /** @description Whether the board is open or private. */
             type: components["schemas"]["BoardType"];
@@ -1556,12 +1712,15 @@ export interface components {
             /** @description The boards. */
             boards: components["schemas"]["Board"][];
         };
-        /** @description A card: a titled group of properties and content blocks on a board. */
+        /** @description A document of the editor: a node of type `doc` whose `content` is its blocks. Which nodes, marks and attributes it may have, and how they nest, is the allowlist of `docs/s6-design.md` 5.7. At most 1 MiB as JSON, 32 levels deep and 20,000 nodes. */
+        Body: {
+            [key: string]: unknown;
+        };
+        /** @description A card: a titled group of properties with a body on a board. */
         Card: {
             /** @description The identifier of the board the card belongs to. */
             boardId: string;
-            /** @description The identifiers of the card's content blocks, in display order. */
-            contentOrder: string[];
+            body: components["schemas"]["Body"] | null;
             /**
              * Format: int64
              * @description Creation time in milliseconds since the Unix epoch.
@@ -1574,6 +1733,8 @@ export interface components {
              * @description Deletion time in milliseconds since the Unix epoch; zero if not deleted.
              */
             deleteAt: number;
+            /** @description Whether the card has a body. */
+            hasBody: boolean;
             /** @description The card's icon; at most one grapheme. */
             icon: string;
             /** @description The card's identifier. */
@@ -1582,10 +1743,25 @@ export interface components {
             isTemplate: boolean;
             /** @description The identifier of the user who last modified the card. */
             modifiedBy: string;
-            /** @description Property values keyed by property identifier. */
+            /**
+             * @description Property values keyed by property identifier: a string, a list of strings, or
+             *     `null`, and for a property of the type `date` a date value (`{"from":
+             *     "2026-03-05"}`, `{"from": "2026-03-05", "to": "2026-03-09"}` or `{"from":
+             *     1772703000000}`) or `null`.
+             */
             properties: {
                 [key: string]: unknown;
             };
+            /**
+             * Format: int32
+             * @description How many task items of the body are checked.
+             */
+            tasksDone: number;
+            /**
+             * Format: int32
+             * @description How many task items the body has.
+             */
+            tasksTotal: number;
             /** @description The display title. */
             title: string;
             /**
@@ -1601,17 +1777,28 @@ export interface components {
         CardOpen: "center" | "side" | "full";
         /** @description What a card is changed to. A member that is left out stays as it is. */
         CardPatch: {
-            /** @description The new content order. */
-            contentOrder?: string[] | null;
+            body?: components["schemas"]["Body"] | null;
+            /**
+             * @description Identifiers of properties whose value the card is to lose. A property named here
+             *     and in `updatedProperties` loses its value.
+             */
+            deletedProperties?: string[];
             /** @description The new icon; at most one grapheme. */
             icon?: string | null;
+            /**
+             * Format: int64
+             * @description The `updateAt` of the card as the client read it: if the card has changed since,
+             *     the patch is refused with 409 and changes nothing. Needed with `body`, and
+             *     checked whenever it is sent.
+             */
+            readAt?: number | null;
             /** @description The new title. */
             title?: string | null;
             /**
-             * @description The property values the card is to have, by property identifier. With any
-             *     member, this replaces every value of the card: a property that is not named
-             *     loses its value. Left out or empty, the values stay, so the last value of a card
-             *     cannot be taken away this way.
+             * @description Property values to set, by property identifier, each replacing the card's value
+             *     for that property. The card's other values stay as they are: two patches that
+             *     set different properties of a card at about the same time both keep theirs, and
+             *     of two that set the same property the later one wins.
              */
             updatedProperties?: {
                 [key: string]: unknown;
@@ -1702,9 +1889,16 @@ export interface components {
             };
             /**
              * Format: int64
-             * @description The largest upload the server accepts, in bytes. Zero, the default, is no limit.
+             * @description The largest upload the server accepts, in bytes; always more than zero (100 MiB
+             *     unless the server is configured otherwise).
              */
             maxFileSize: number;
+            /**
+             * Format: int64
+             * @description The largest archive an import takes, in bytes; always more than zero (256 MiB
+             *     unless the server is configured otherwise).
+             */
+            maxImportSize: number;
             /** @description How other users' names are displayed. */
             teammateNameDisplay: string;
         };
@@ -1791,6 +1985,14 @@ export interface components {
          * @enum {string}
          */
         HourCycle: "auto" | "h12" | "h23";
+        /** @description An archive to import: one sent in parts with `createImportUpload`. */
+        ImportRequest: {
+            /**
+             * @description The upload of the archive, every part of it received. It is thrown away by the
+             *     import, whether the import succeeds or not.
+             */
+            uploadId: string;
+        };
         /** @description A login request. */
         LoginRequest: {
             /** @description The email address to log in with, used when no user has the given name. */
@@ -1837,8 +2039,10 @@ export interface components {
              */
             createAt: number;
             /**
-             * @description Type-specific data, free-form. The `properties` of a card among them are values
-             *     by property identifier: a string, a list of strings, or `null`.
+             * @description Type-specific data, free-form: serialized, at most 64,000 characters for a card,
+             *     a comment or an attachment and 800,000 for a view. The `properties` of a card
+             *     among them are values by property identifier: a string, a list of strings, or
+             *     `null`.
              */
             fields?: {
                 [key: string]: unknown;
@@ -1863,7 +2067,10 @@ export interface components {
             schema?: number | null;
             /** @description The display title. */
             title?: string | null;
-            /** @description The block type, such as `card`, `view`, `comment` or `text`. */
+            /**
+             * @description The block type: `card`, `view`, `comment` or `attachment`. Any other type is
+             *     refused (400 naming `type`): a card's content is its body.
+             */
             type: string;
             /**
              * Format: int64
@@ -1923,8 +2130,7 @@ export interface components {
         NewCard: {
             /** @description The board of the path, if it is there at all. */
             boardId?: string | null;
-            /** @description The identifiers of the card's content blocks, in display order. */
-            contentOrder?: string[] | null;
+            body?: components["schemas"]["Body"] | null;
             /** @description The card's icon; at most one grapheme. */
             icon?: string | null;
             /** @description Whether the card is a template. */
@@ -1984,6 +2190,25 @@ export interface components {
             /** @description Always `user`. */
             subscriberType: string;
         };
+        /** @description A file to send in parts. */
+        NewUpload: {
+            /**
+             * @description The content type of the file, at most 255 characters. The server does not go by
+             *     it: what a file is served as follows from its name.
+             */
+            contentType?: string;
+            /**
+             * @description The name of the file, 1 to 255 characters. The stored file keeps its extension,
+             *     as `uploadFile` keeps it.
+             */
+            name: string;
+            /**
+             * Format: int64
+             * @description The size of the file in bytes. More than `maxFileSize` of `getClientConfig` is
+             *     413.
+             */
+            size: number;
+        };
         /** @description What starting the tour answers: where the tour's board is. */
         OnboardingStart: {
             /** @description The identifier of the board the tour goes through. */
@@ -2005,6 +2230,19 @@ export interface components {
             boardIds: string[];
             /** @description The board patches, one per board identifier. */
             boardPatches: components["schemas"]["BoardPatch"][];
+        };
+        /** @description A part that was received. */
+        ReceivedPart: {
+            /**
+             * Format: int64
+             * @description The number of the part, from 1.
+             */
+            number: number;
+            /**
+             * Format: int64
+             * @description Its size in bytes.
+             */
+            size: number;
         };
         /** @description A request to register a new user. */
         RegisterRequest: {
@@ -2153,11 +2391,71 @@ export interface components {
          * @enum {string}
          */
         Theme: "auto" | "light" | "dark";
+        /** @description An upload that is open. */
+        UploadOpened: {
+            /**
+             * Format: int64
+             * @description When the upload ends, in milliseconds since the Unix epoch: 24 hours after it was
+             *     opened. An upload that has ended is 404, and is thrown away with its parts.
+             */
+            expiresAt: number;
+            /**
+             * Format: int64
+             * @description How many parts the file comes in, numbered from 1: none for an empty file.
+             */
+            partCount: number;
+            /**
+             * Format: int64
+             * @description The size of every part but the last, which has the rest.
+             */
+            partSize: number;
+            /**
+             * @description What the other operations of the upload take. Only the user who opened it may
+             *     use it.
+             */
+            uploadId: string;
+        };
+        /** @description An upload that is open, with what it has received. */
+        UploadState: {
+            /** @description The board the file is for; empty for an archive. */
+            boardId: string;
+            /**
+             * Format: int64
+             * @description When the upload ends, in milliseconds since the Unix epoch.
+             */
+            expiresAt: number;
+            /** @description The name of the file. */
+            name: string;
+            /**
+             * Format: int64
+             * @description How many parts the file comes in.
+             */
+            partCount: number;
+            /**
+             * Format: int64
+             * @description The size of every part but the last.
+             */
+            partSize: number;
+            /** @description The parts received, by number. A part sent again replaces the one received. */
+            parts: components["schemas"]["ReceivedPart"][];
+            purpose: ("file" | "import") & {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int64
+             * @description The size of the file in bytes.
+             */
+            size: number;
+            /** @description The team the archive is for; empty for a file. */
+            teamId: string;
+            /** @description The identifier of the upload. */
+            uploadId: string;
+        };
         /** @description What an upload answers: the name the file is asked for by. */
         UploadedFile: {
             /**
              * @description The identifier of the file: what `getFile` and `getFileInfo` take, and what an
-             *     image or attachment block names in its `fileId` field.
+             *     attachment block or an image of a body names in its `fileId`.
              */
             fileId: string;
         };
@@ -2517,6 +2815,10 @@ export interface operations {
             /** @description The archive. */
             200: {
                 headers: {
+                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
+                    "Content-Disposition"?: string;
+                    /** @description The size of the archive in bytes. */
+                    "Content-Length"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -3355,6 +3657,42 @@ export interface operations {
             };
         };
     };
+    createUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewUpload"];
+            };
+        };
+        responses: {
+            /** @description The upload is open. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOpened"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getCard: {
         parameters: {
             query?: never;
@@ -3443,40 +3781,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ClientConfig"];
                 };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    moveContentBlock: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the block. */
-                blockId: string;
-                /** @description Where the block goes: `before` or `after` the other one. */
-                where: string;
-                /** @description The identifier of the block the moved one is put next to. */
-                dstBlockId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The block is moved. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
             default: {
@@ -3837,6 +4141,10 @@ export interface operations {
             /** @description The archive. */
             200: {
                 headers: {
+                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
+                    "Content-Disposition"?: string;
+                    /** @description The size of the archive in bytes. */
+                    "Content-Length"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -3866,7 +4174,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["FileForm"];
+                "application/json": components["schemas"]["ImportRequest"];
             };
         };
         responses: {
@@ -3876,6 +4184,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createImportUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the team. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewUpload"];
+            };
+        };
+        responses: {
+            /** @description The upload is open. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOpened"];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
             default: {
@@ -4426,6 +4770,139 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"][];
                 };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadState"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upload is gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    completeUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file is stored. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadedFile"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    putUploadPart: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The SHA-256 digest of the part, as RFC 9530 writes it: `sha-256=:<base64 of the 32 bytes>:`. Other algorithms in the header are not looked at. */
+                "Content-Digest": string;
+            };
+            path: {
+                /** @description The identifier of the upload, as opening it answered. Only the user who opened it may use it. */
+                uploadId: string;
+                /** @description The number of the part, from 1 to the `partCount` of the upload. */
+                partNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The part is received. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
             default: {

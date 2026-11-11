@@ -107,7 +107,7 @@ export function watchErrors(page: Page): string[] {
 
 /**
  * What a test board is made of: a select property "Status", a text property
- * "Note", and one kanban view grouped by "Status".
+ * "Note", a date property "Due", and one kanban view grouped by "Status".
  */
 export interface BoardPlan {
   title: string;
@@ -157,6 +157,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
             })),
           },
           { id: 'note', name: 'Note', type: 'text', options: [] },
+          { id: 'due', name: 'Due', type: 'date', options: [] },
         ],
       },
     }),
