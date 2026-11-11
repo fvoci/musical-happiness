@@ -8,7 +8,8 @@ use reqwest::{Method, StatusCode};
 use serde_json::json;
 
 use crate::common::{
-    ApiResponse, Client, PASSWORD, ROOT_TEAM_ID, SESSION_COOKIE, Setup, TestServer, USER1_USERNAME,
+    ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, SESSION_COOKIE, Setup, TestServer,
+    USER1_USERNAME,
 };
 
 /// The origin the test servers take for their own: the default `serverRoot`.
@@ -22,7 +23,7 @@ fn login_body() -> serde_json::Value {
 }
 
 fn board_body() -> serde_json::Value {
-    json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": "made"})
+    json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "made"})
 }
 
 #[track_caller]
@@ -185,7 +186,7 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
     browser.get("/users/me").await.check_ok();
 
     // Reading with the cookie alone: as a link or an image tag does.
-    for path in ["/users/me", "/teams", "/users/me/settings"] {
+    for path in ["/users/me", "/users/me/workspaces", "/users/me/settings"] {
         Client::send(browser.bare_request(Method::GET, path))
             .await
             .check_ok();
@@ -370,7 +371,7 @@ async fn the_cookie_is_renewed_when_the_use_of_the_session_is_recorded() {
         .post(
             "/boards",
             &json!({
-                "teamId": ROOT_TEAM_ID, "type": "P",
+                "workspaceId": ROOT_WORKSPACE_ID, "type": "P",
                 "description": "d".repeat(70 * 1024),
             }),
         )
@@ -433,7 +434,7 @@ async fn a_changed_password_puts_a_new_token_in_the_cookie() {
 #[tokio::test]
 async fn a_file_is_read_with_the_cookie_alone_and_served_sandboxed() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(ROOT_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
     let uploaded = th
         .client
         .request(Method::POST, &format!("/boards/{}/files", board.id))

@@ -6,11 +6,12 @@ use fvoci_store::PublicBoards;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::{SearchField, SearchTerm, TeamId};
+use super::contract::params::{SearchField, SearchTerm, WorkspaceId};
 use super::contract::tag;
 
+use super::user_is_guest;
+use super::workspace::Ws;
 use super::{ApiResult, RequiredSession, json_response, query_param};
-use super::{require_team_access, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -20,25 +21,25 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(handle_search_all_boards))
 }
 
-/// Search the boards, asked through a team
+/// Search the boards, asked through a workspace
 ///
-/// The boards the user may find, as `getBoards` lists them, whose title matches the
-/// term as `searchBoards` matches it, or with `field=property_name` those whose own
-/// `properties` have a member of exactly that name, whatever its value (`null` too). The team of the path is not part of
-/// the search: the boards of every team are searched. A `field` that is neither is 400.
-/// Oldest first.
+/// The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+/// the term as `searchBoards` matches it, or with `field=property_name` those whose own
+/// `properties` have a member of exactly that name, whatever its value (`null` too). The
+/// workspace of the path is not part of the search: the boards of every workspace are
+/// searched. A `field` that is neither is 400. Oldest first.
 #[utoipa::path(
     get,
-    path = "/teams/{teamId}/boards/search",
-    operation_id = "searchTeamBoards",
+    path = "/w/{workspaceId}/boards/search",
+    operation_id = "searchWorkspaceBoards",
     tag = tag::BOARDS,
-    params(TeamId, SearchTerm, SearchField),
+    params(WorkspaceId, SearchTerm, SearchField),
     responses((status = 200, description = "The boards that match.", body = Vec<Board>)),
 )]
 async fn handle_search_boards(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
+    Path(workspace_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let term = query_param(query.as_deref(), "q");
@@ -50,19 +51,23 @@ async fn handle_search_boards(
             .parse::<BoardSearchField>()
             .map_err(AppError::bad_request)?
     };
-    require_team_access(&app, &session.user_id, &team_id).await?;
+    // The query is read before the workspace is asked for, as it always was.
+    let ws = Ws::enter(&app, session, workspace_id)
+        .await?
+        .require_works_there()?;
+    let workspace_id = &ws.workspace_id;
 
-    // Preserved quirk: the team of the path is not part of the search. The boards found
-    // are those of every team (server/api/search.go:171).
-    let boards = search_boards(&app, &session.user_id, &term, search_field).await?;
-    tracing::debug!(team_id, boards_count = boards.len(), "SearchBoards");
+    // Preserved quirk: the workspace of the path is not part of the search. The boards found
+    // are those of every workspace (server/api/search.go:171).
+    let boards = search_boards(&ws.app, &ws.session.user_id, &term, search_field).await?;
+    tracing::debug!(workspace_id, boards_count = boards.len(), "SearchBoards");
     Ok(json_response(&boards))
 }
 
 /// Search the boards
 ///
-/// The boards the user may find, as `getBoards` lists them, whose title matches the
-/// term: a title matches if every word of the term, as spaces divide it, is somewhere
+/// The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+/// the term: a title matches if every word of the term, as spaces divide it, is somewhere
 /// in it, whatever the case of the letters (of every letter, not only ASCII). Templates
 /// are never found. `%` and `_` are characters like any other. Oldest first.
 #[utoipa::path(

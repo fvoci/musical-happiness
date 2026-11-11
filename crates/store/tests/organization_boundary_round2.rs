@@ -190,7 +190,7 @@ async fn one_orgs_trash_row_cannot_prevent_another_orgs_deletion() {
             new_id()
         ),
         format!(
-            "INSERT INTO deleted_boards (id, team_id, deleted_at, deletion_id, board, members, \
+            "INSERT INTO deleted_boards (id, workspace_id, deleted_at, deletion_id, board, members, \
              files) VALUES ('{}', '{}', 0, '{}', '{{}}', '[]', '[]')",
             b.board_id,
             test.workspace_id,
@@ -220,7 +220,7 @@ async fn one_orgs_trash_row_cannot_prevent_another_orgs_deletion() {
 }
 
 /// A row of A's trash that names B's board or workspace (`deleted_blocks.board_id`,
-/// `deleted_boards.team_id`, which have no key: what they name may be in the trash
+/// `deleted_boards.workspace_id`, which have no key: what they name may be in the trash
 /// too) is not among what B finds in its trash, and does not come back into B's board
 /// or workspace: the keys of the live tables refuse it.
 #[tokio::test]
@@ -247,8 +247,8 @@ async fn a_trash_row_under_another_orgs_parent_is_neither_listed_nor_restored() 
             b.board_id, card.id
         ),
         format!(
-            "UPDATE deleted_boards SET team_id = '{0}', \
-             board = jsonb_set(board::jsonb, '{{teamId}}', '\"{0}\"')::json WHERE id = '{1}'",
+            "UPDATE deleted_boards SET workspace_id = '{0}', \
+             board = jsonb_set(board::jsonb, '{{workspaceId}}', '\"{0}\"')::json WHERE id = '{1}'",
             b.workspace_id, ours[1].id
         ),
     ];
@@ -471,7 +471,7 @@ async fn an_upload_names_a_board_or_a_workspace_of_its_own_organization() {
         user_id: user_id.clone(),
         purpose,
         board_id: target.to_owned(),
-        team_id: target.to_owned(),
+        workspace_id: target.to_owned(),
         name: "upload.bin".to_owned(),
         size: 1,
         part_size: 1,
@@ -526,7 +526,7 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
         .expect("the system organization");
     let mut template = Board {
         id: new_id(),
-        team_id: SYSTEM_WORKSPACE_ID.to_owned(),
+        workspace_id: SYSTEM_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Open,
         is_template: true,
         ..Board::default()
@@ -535,12 +535,12 @@ async fn a_category_takes_a_board_of_its_organization_or_a_template() {
         .insert_board(&mut template, &user_id)
         .await
         .expect("the template is stored");
-    let category = |store: &Store, team_id: &str| {
+    let category = |store: &Store, workspace_id: &str| {
         let category = Category {
             id: new_id(),
             name: "Boards".to_owned(),
             user_id: user_id.clone(),
-            team_id: team_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
             ..Category::default()
         };
         let store = store.clone();
@@ -655,10 +655,10 @@ async fn every_key_without_the_organization_is_one_of_the_few_that_need_none() {
             // A secret the server makes.
             ("sharing", "(token)"),
             ("subscriptions", "(block_id, subscriber_id)"),
-            ("teams", "(id)"),
             ("upload_parts", "(upload_id, number)"),
             ("uploads", "(id)"),
             ("workspace_members", "(workspace_id, user_id)"),
+            ("workspaces", "(id)"),
         ],
         "the keys of the organizations' tables that do not name the organization"
     );

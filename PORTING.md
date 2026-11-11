@@ -322,8 +322,8 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | 엔티티의 식별자(팀, 보드, 블록, 사용자, 카테고리, 카테고리-보드 행, 세션, 파일 기록)가 UUIDv7이다. 표기는 하이픈이 든 소문자 36자. PostgreSQL은 `uuid` 열, SQLite는 `TEXT`. 종류 접두사(`b…`, `c…`)는 없다 | 설계 3.2. 색인의 삽입 지역성. 순서의 뜻은 없다(정렬은 만든 시각으로 한다) | `fvoci_model::{new_id, is_id}`, `crates/store/src/db.rs`의 `Id`·`OptId`·`Row::id` |
 | **식별자가 아닌 글은 아무것도 가리키지 않는다.** 조회는 아무 줄도 찾지 못하고(그 라우트의 404), 그것을 저장하려는 쓰기는 400 `bad_request`다. 다른 표기의 UUID(대문자, 중괄호, 하이픈 없음)와 nil UUID(전부 0)도 식별자가 아니다 | 설계 2.3의 마지막 행. PostgreSQL의 `uuid` 열에 잘못된 값이 가지 않고, 두 DB의 답이 같다. 경로를 미리 거르는 미들웨어는 두지 않았다: 세션(401)보다 먼저 404가 나가면 검사 순서가 어긋난다. 대신 저장소가 막고, 테스트가 "없는 것"과 답이 같은지 라우트마다 비교한다 | `StoreError::InvalidId`, 테스트 `visibility::text_that_is_no_identifier_answers_as_an_identifier_of_nothing`(33개 요청 × 5가지 글), `visibility::what_a_user_cannot_see_…`(42개 요청에 세 번째 경우) |
 | 세션 토큰, 가입 토큰, 저장 파일 이름은 식별자 생성기를 쓰지 않는다. 운영체제 난수 256비트, base64url 43자 | 설계 3.3. UUIDv7은 앞이 시각이고 한 밀리초 안에서는 카운터가 이어진다 | `fvoci_server::auth::secret::new_secret` |
-| **팀.** 루트 팀은 처음 시작할 때 UUIDv7으로 만들어진다(가장 오래된 팀이 루트다). 팀 `0`은 없다. `GET /teams/{id}`는 그 팀만 답하고 다른 ID는 404다. 경로가 가리키는 팀이 없으면 팀 라우트 전부가 404 `team not found`, 본문이 가리키면 400 `no such team`이다 | 설계의 결정 6(팀은 유지, 루트 팀도 UUIDv7). 보존한 quirk "`GET /teams/{아무 ID}`는 루트 팀을 답한다"가 닫혔다. 가입 토큰은 관리자만 본다(아래 "관리자에서 바뀐 것") | `App::{root_team, team}`, `api::access::{require_team_access, require_team_in_body}` |
-| **내장 템플릿은 표식 열로 구분한다.** `boards.is_builtin`(와이어 `isBuiltin`). 만든 사용자가 없는(`createdBy`가 빈) 템플릿이다. 시스템 조직의 워크스페이스에 속하고(`crates/store/src/directory.rs`의 고정 ID) 모든 팀에 제공된다: `GET /teams/{team}/templates`가 그 팀의 템플릿과 내장 템플릿을 함께 답한다. `system`이라는 사용자와 내장 템플릿의 관리자 멤버십은 없다. 클라이언트가 보낸 `isBuiltin`은 무시한다. 사용자가 루트 팀에 만든 템플릿은 `trackingTemplateId`를 받지 않는다(전에는 팀 `0`의 템플릿이면 받았다) | 설계의 결정 6. 온보딩(S18)이 "시스템이 만든 보드"를 `createdBy`의 글자가 아니라 이 열로 본다 | `Store::{get_builtin_templates, remove_builtin_templates}`, `app/templates.rs` |
+| **워크스페이스(원본의 팀).** 루트 워크스페이스는 처음 시작할 때 UUIDv7으로 만들어진다(가장 오래된 워크스페이스가 루트다). 워크스페이스 `0`은 없다. `GET /w/{workspaceId}`는 그 워크스페이스만 답하고 다른 ID는 404다. 경로가 가리키는 워크스페이스에 사용자가 없으면 `/w/` 아래 라우트 전부가 404 `workspace not found`, 본문이 가리키면 400 `no such workspace`이다 | 설계의 결정 6(팀은 유지, 루트 팀도 UUIDv7). 보존한 quirk "`GET /teams/{아무 ID}`는 루트 팀을 답한다"가 닫혔다. 가입 토큰은 관리자만 본다(아래 "관리자에서 바뀐 것") | `App::{root_workspace, workspace}`, `api::workspace::{Ws, WorksIn}` |
+| **내장 템플릿은 표식 열로 구분한다.** `boards.is_builtin`(와이어 `isBuiltin`). 만든 사용자가 없는(`createdBy`가 빈) 템플릿이다. 시스템 조직의 워크스페이스에 속하고(`crates/store/src/directory.rs`의 고정 ID) 모든 워크스페이스에 제공된다: `GET /w/{workspaceId}/templates`가 그 워크스페이스의 템플릿과 내장 템플릿을 함께 답한다. `system`이라는 사용자와 내장 템플릿의 관리자 멤버십은 없다. 클라이언트가 보낸 `isBuiltin`은 무시한다. 사용자가 루트 워크스페이스에 만든 템플릿은 `trackingTemplateId`를 받지 않는다(전에는 팀 `0`의 템플릿이면 받았다) | 설계의 결정 6. 온보딩(S18)이 "시스템이 만든 보드"를 `createdBy`의 글자가 아니라 이 열로 본다 | `Store::{get_builtin_templates, remove_builtin_templates}`, `app/templates.rs` |
 | **채널이 없다.** 보드와 패치의 `channelId` 멤버, 채널 열, 채널 권한 검사가 없다. 패치에 `channelId`가 와도 무시한다 | 설계의 결정 4에서 이 단계로 미뤄 둔 것 | 모델 `Board`, `BoardPatch` |
 | **파일.** 저장 이름은 비밀 값 + 확장자다(템플릿 보드에 올려도 같다. 전에는 클라이언트의 이름을 그대로 썼다). 파일 기록(`file_info`)에 기본 키, `board_id`, 저장 이름(`name`), 올린 이름(`original_name`)이 있고, 파일은 `(보드, 저장 이름)`으로 찾는다. 기록이 없는 파일은 어느 보드로도 나가지 않는다. 정보 JSON은 `id`, `createAt`, `name`, `extension`, `size`다. 쓰이지 않던 채움 멤버 여섯과 삭제 표시(`delete_at`, `archived`)는 없다 | 설계 3.2·3.9. S16의 "파일은 한 보드의 것"이 경로 문자열이 아니라 열이 됐다. 이름의 첫 글자를 떼어 기록을 찾던 규칙이 없어졌다 | `app/files.rs`, `store/file_info.rs` |
 | 읽기 토큰만으로(세션 없이, 또는 토큰 없이는 읽지 못하는 사용자가) 읽은 보드와 블록에는 사용자 ID가 없다(`createdBy`·`modifiedBy`, 멘션, 사람 속성과 뷰 필터의 값) | 설계의 결정 7. UUIDv7이 그 사용자의 가입 시각을 드러낸다 | `Board::hide_people`, `Block::hide_people` |
@@ -363,7 +363,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 |---|---|---|
 | **history 테이블이 없다.** `blocks_history`, `boards_history`와 그 위의 함수(`get_block_history`, `get_board_history`, `get_subtree`, `get_block_history_descendants`), 수정마다 한 줄씩 쌓던 기록, 같은 밀리초의 충돌을 피하던 장치를 모두 지웠다 | 설계 5.3의 C. 수정 이력을 쓰는 기능이 없다 | `crates/store/src/{blocks,boards,db}.rs` |
 | **휴지통.** 보드와 블록의 테이블에는 살아 있는 것만 있다. 지우면 `deleted_boards`·`deleted_blocks`로 통째(JSON) 옮기고, 복원하면 되옮긴다. 한 번의 삭제로 함께 지워진 블록은 같은 `deletion_id`를 갖고 함께 돌아온다. 블록을 지우면 **아래의 모든 깊이**가 함께 간다(전에는 바로 아래 한 단계만) | 설계 5.3. 외래 키가 예외 없이 선다 | `crates/store/src/trash.rs` |
-| 보드를 지우면 블록 전부, 멤버십, 파일 기록이 휴지통으로 가고, 공유, 사용자가 넣어 둔 카테고리 자리, 블록의 구독은 끝난다. 복원하면 보드, 그때 함께 지워진 블록, 파일 기록, 멤버십이 돌아온다. 공유, 카테고리 자리, 구독은 돌아오지 않는다. 사용자 행이 그사이 없어진 멤버십은 돌아오지 않고(비활성화된 사용자의 것은 돌아온다), 만든 사람의 행이 없어진 보드·블록은 만든 사람이 빈 채로 돌아온다 | 설계 5.3. **설계와 다른 점:** `deleted_boards`에 `files`(파일 기록)와 `deletion_id`, `team_id` 열을 더 뒀다. 파일 기록이 보드를 따라 지워지므로(CASCADE) 복원하려면 담아 둬야 한다 | `Store::{delete_board, undelete_board, get_deleted_board}` |
+| 보드를 지우면 블록 전부, 멤버십, 파일 기록이 휴지통으로 가고, 공유, 사용자가 넣어 둔 카테고리 자리, 블록의 구독은 끝난다. 복원하면 보드, 그때 함께 지워진 블록, 파일 기록, 멤버십이 돌아온다. 공유, 카테고리 자리, 구독은 돌아오지 않는다. 사용자 행이 그사이 없어진 멤버십은 돌아오지 않고(비활성화된 사용자의 것은 돌아온다), 만든 사람의 행이 없어진 보드·블록은 만든 사람이 빈 채로 돌아온다 | 설계 5.3. **설계와 다른 점:** `deleted_boards`에 `files`(파일 기록)와 `deletion_id`, `workspace_id` 열을 더 뒀다. 파일 기록이 보드를 따라 지워지므로(CASCADE) 복원하려면 담아 둬야 한다 | `Store::{delete_board, undelete_board, get_deleted_board}` |
 | **휴지통에 없는 것의 복원은 404다.** 삭제되지 않은 블록·보드의 undelete(전에는 200), 있었던 적 없는 것, 보드가 휴지통에 있는 블록, 놓여 있던 블록이 없는 블록 | 설계 5.3의 "없어지는 지금의 동작" | `App::{undelete_block, undelete_board}` |
 | 보드 복원의 권한은 휴지통에 담긴 그때의 멤버십으로 본다. 삭제 권한이 있던 멤버만 되살린다. 다른 멤버는 403, 멤버가 아니던 사람과 휴지통에 없는 보드는 404 | 멤버십이 보드와 함께 휴지통에 간다. 전에는 지워진 보드의 멤버십이 남아 있었다(보존한 quirk가 닫혔다) | `api/boards.rs`의 `handle_undelete_board` |
 | **보존 기간.** 휴지통의 것은 `trash_retention_days`(기본 30, 1 이상) 뒤에 영구히 지운다. 한 시간마다 돈다. 보드가 영구히 없어진 블록도 그때 지운다 | 설계 5.10의 결정 | `Store::purge_trash`, `lib.rs`의 `start_trash_purge` |
@@ -408,7 +408,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | "처음"은 저장과 같은 트랜잭션에서 정한다. 한 줄짜리 테이블 `instance`의 `bootstrapped`를 켠 쪽이 첫 사용자다. 빈 인스턴스에 동시에 온 가입 가운데 하나만 관리자가 된다 | 사용자 수를 세어 정하면 둘이 함께 0을 본다 | `Store::{create_user, create_first_user, is_bootstrapped}` |
 | **토큰 없는 가입은 첫 사용자만 된다.** 그 판정도 같은 트랜잭션이다. 전에는 "사용자가 0명인가"를 먼저 읽어서, 동시에 온 토큰 없는 가입이 모두 들어갈 수 있었다 | 가입 토큰의 뜻 | `Admission`, `StoreError::NotFirstUser` → 403 `signup_token_required` |
 | `PUT /users/{id}/admin` `{"isAdmin": bool}`: 관리자만(아니면 403 `admin_required`). 없는 사용자는 404. 마지막 관리자는 해제할 수 없다(409 `last_admin`). 확인과 쓰기가 한 트랜잭션이라 둘이 동시에 물러나면 하나는 거절된다. 비활성화된 관리자는 세지 않는다. 응답은 바뀐 사용자다 | 설계 3.6. 양도는 "상대를 지정하고 나를 해제"의 두 번이다 | `Store::set_user_admin`, `AdminChange`, `api/users.rs` |
-| **가입 토큰은 관리자의 것이다.** `GET /teams`, `GET /teams/{team}`의 `signupToken`은 관리자에게만 들어 있고 다른 사용자에게는 멤버 자체가 없다(전에는 로그인한 누구에게나 나갔다). 가입 토큰의 재발급은 관리자만 하고(전에는 누구나) 응답이 새 토큰이 든 팀이다(전에는 빈 객체). 경로는 `POST /teams/{team}/signup-token`이다(L절에서 `POST /teams/{team}/regenerate_signup_token`을 바꿨다) | 설계 3.6. 토큰을 가진 사람은 누구든 가입한다 | `api/teams.rs`, `api/auth.rs`, `api::access::require_admin` |
+| **가입 토큰은 관리자의 것이다.** `GET /w/{workspaceId}`의 `signupToken`은 관리자에게만 들어 있고 다른 사용자에게는 멤버 자체가 없다(전에는 로그인한 누구에게나 나갔다). 가입 토큰의 재발급은 관리자만 하고(전에는 누구나) 응답이 새 토큰이 든 워크스페이스다(전에는 빈 객체). 경로는 `POST /w/{workspaceId}/signup-token`이다(원본은 `POST /teams/{team}/regenerate_signup_token`) | 설계 3.6. 토큰을 가진 사람은 누구든 가입한다 | `api/workspace.rs`, `api/auth.rs`, `api::access::require_admin` |
 | 관리자 소켓에 `POST /api/v1/admin/users/{username}/admin`: 그 사용자를 관리자로 만든다. 관리자가 아무도 로그인할 수 없을 때의 복구 수단이다 | 설계 3.6 | `api/admin.rs` |
 
 **고정하는 것.** 회귀 시나리오 `admins`가 첫 사용자, 가입 토큰의 조회와 재발급(역할별), 관리자 지정·해제의 거절과 순서를 고정한다. 테스트는 API `admins::*`와 소켓 하나, 스토어 `users::`의 다섯이다. 스토어의 것에는 경합 둘이 있다: 동시에 저장한 사용자 가운데 관리자는 하나, 동시에 물러난 관리자 둘 가운데 하나는 남는다.
@@ -627,13 +627,13 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 | 전 | 지금 | 비고 |
 |---|---|---|
 | `GET /clientConfig` | `GET /client-config` | |
-| `POST /teams/{team}/regenerate_signup_token` | `POST /teams/{team}/signup-token` | |
+| `POST /teams/{team}/regenerate_signup_token` | `POST /w/{workspaceId}/signup-token` | |
 | `POST /users/{user}/changepassword` | `POST /users/me/password` | 남의 비밀번호는 경로로 가리킬 수도 없다. 전의 "남의 ID면 403" 분기가 없어졌다 |
 | `GET /users/me/config`, `PUT /users/{user}/config` | `GET`·`PATCH /users/me/client-state` | 본문이 고치는 것만 담으므로 `PATCH`다. 답은 `{이름: 값}` 객체다(전에는 `{user_id, category, name, value}`의 목록) |
 | `POST /teams/{team}/{board}/files` | `POST /boards/{board}/files` | 파일은 보드의 것이다(G절). 팀은 경로에서 아무 일도 하지 않았다 |
 | `GET /files/teams/{team}/{board}/{file}`, `.../info` | `GET /boards/{board}/files/{file}`, `.../info` | |
-| `PUT /teams/{team}/categories/reorder` | `PUT /teams/{team}/category-order` | `reorder`가 카테고리 ID 자리의 예약어가 아니게 됐다 |
-| `PUT /teams/{team}/categories/{category}/boards/reorder` | `PUT /teams/{team}/categories/{category}/board-order` | |
+| `PUT /teams/{team}/categories/reorder` | `PUT /w/{workspaceId}/category-order` | `reorder`가 카테고리 ID 자리의 예약어가 아니게 됐다 |
+| `PUT /teams/{team}/categories/{category}/boards/reorder` | `PUT /w/{workspaceId}/categories/{category}/board-order` | |
 
 **질의 매개변수.** 모두 camelCase다: `blockId`, `parentId`, `perPage`, `disableNotify`, `readToken`, `sourceBoardId`(전: `block_id`, `parent_id`, `per_page`, `disable_notify`, `read_token`, `sourceBoardID`). 옛 표기는 모르는 매개변수라 무시된다(회귀 `blocks`의 `list: the old name of the parameter is no filter`, `sharing`의 `board with the token under the old name of the parameter`가 401).
 
@@ -643,16 +643,16 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 |---|---|---|
 | 블록 일괄 수정 | `block_ids`, `block_patches` | `blockIds`, `blockPatches` |
 | 보드·블록 묶음 수정/삭제 | `boardIDs`, `blockIDs` | `boardIds`, `blockIds` |
-| 카테고리 | `userID`, `teamID`, 보드 항목의 `boardID` | `userId`, `teamId`, `boardId` |
+| 카테고리 | `userID`, `teamID`, 보드 항목의 `boardID` | `userId`, `workspaceId`, `boardId` |
 | 사용자 | `create_at`, `update_at`, `delete_at` | `createAt`, `updateAt`, `deleteAt` |
 | 파일 정보 | `create_at` | `createAt` |
 | 구독 | `notifiedAt`이 0이면 생략 | 늘 보낸다 |
-| 온보딩 답 | `teamID`, `boardID` | `teamId`, `boardId` |
+| 온보딩 답 | `teamID`, `boardID` | `workspaceId`, `boardId` |
 | 웹소켓 `UPDATE_BOARD_CATEGORY` | `blockCategories`, 항목 `boardID`·`categoryID` | `boardCategories`, 항목 `boardId`·`categoryId` |
 | 웹소켓 카테고리 보드 순서 | `CategoryId`, `BoardOrder` | `categoryId`, `boardOrder` |
 | 웹소켓 클라이언트 설정 | `clientconfig` | `clientConfig` |
 
-오류 본문의 `errors`도 새 표기를 가리킨다(`userId`, `teamId`, `blockIds`, `perPage`). 오류 본문 자체의 `retryAfter`, `requestId`도 camelCase다(2026-11-11에 `retry_after`, `request_id`에서 바꿨다).
+오류 본문의 `errors`도 새 표기를 가리킨다(`userId`, `workspaceId`, `blockIds`, `perPage`). 오류 본문 자체의 `retryAfter`, `requestId`도 camelCase다(2026-11-11에 `retry_after`, `request_id`에서 바꿨다).
 
 **내 판단으로 한 것.** 설계가 하나씩 정하지 않은 것이다. 모두 serde 속성 한 줄이나 라우트 한 줄로 되돌릴 수 있다.
 
@@ -704,15 +704,15 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 
 | 라우트 | 순서 |
 |---|---|
-| `GET /teams` | 만든 시각, ID |
-| `GET /teams/{team}/boards` | 만든 시각, ID |
-| `GET /teams/{team}/boards/search`, `GET /boards/search` | 만든 시각, ID |
-| `GET /teams/{team}/templates` | 팀의 템플릿(만든 시각, ID) 다음에 내장 템플릿(만든 시각, ID) |
+| `GET /users/me/workspaces` | 만든 시각, ID |
+| `GET /w/{workspaceId}/boards` | 만든 시각, ID |
+| `GET /w/{workspaceId}/boards/search`, `GET /boards/search` | 만든 시각, ID |
+| `GET /w/{workspaceId}/templates` | 워크스페이스의 템플릿(만든 시각, ID) 다음에 내장 템플릿(만든 시각, ID) |
 | `GET /boards/{board}/members` | 사용자 ID. ID가 UUIDv7이라 계정을 만든 순서다 |
 | `GET /users/me/memberships` | 보드 ID. 보드를 만든 순서다 |
 | `GET /boards/{board}/blocks`, `GET /boards/{board}/cards` | `createAt`, ID. 카드의 쪽은 이 순서를 자른다 |
-| `GET /teams/{team}/users`, `POST /teams/{team}/users`, `POST /users` | 만든 시각, ID. ID 목록으로 물어도 물은 순서가 아니라 이 순서다. 검색은 맞는 사용자 가운데 가장 오래된 열 명이다 |
-| `GET /teams/{team}/categories` | 카테고리는 `sortOrder`, 같으면 만든 시각, ID. 카테고리 안의 보드는 사용자가 정한 순서, 같으면 보드 ID |
+| `GET /w/{workspaceId}/users`, `POST /w/{workspaceId}/users`, `POST /users` | 만든 시각, ID. ID 목록으로 물어도 물은 순서가 아니라 이 순서다. 검색은 맞는 사용자 가운데 가장 오래된 열 명이다 |
+| `GET /w/{workspaceId}/categories` | 카테고리는 `sortOrder`, 같으면 만든 시각, ID. 카테고리 안의 보드는 사용자가 정한 순서, 같으면 보드 ID |
 | `GET /subscriptions/{subscriber}` | 만든 시각, 블록 ID |
 
 - **멤버십에는 시각이 없다.** `board_members`에 참여한 시각의 열이 없어 "참여한 순서"로는 줄 수 없다. 그래서 ID 순서다. 참여 순서가 필요해지면 열을 더하는 마이그레이션이 든다(남은 문제).
@@ -737,8 +737,8 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 
 | 답 | 라우트 |
 |---|---|
-| 201과 만든 것 | `POST /boards`, `POST /boards/{board}/duplicate`, `POST /boards/{board}/blocks`, `POST /boards/{board}/blocks/{block}/duplicate`, `POST /boards/{board}/cards`, `POST /teams/{team}/categories`, `POST /subscriptions`, `POST /boards/{board}/files`, `POST /boards-and-blocks`, `POST /register` |
-| 204 | `POST /login`, `POST /logout`, `POST /users/me/password`(셋 다 `Set-Cookie`는 그대로), `DELETE /boards/{board}`, 블록의 `DELETE`·`PATCH`(하나, 여럿), `DELETE /teams/{team}/categories/{category}`, 카테고리에 보드 넣기와 `hide`·`unhide`, `POST /boards/{board}/leave`, `DELETE /boards/{board}/members/{user}`, `DELETE /subscriptions/...`, `DELETE /boards-and-blocks`, 콘텐츠 블록 옮기기, `POST /teams/{team}/archive/import`, 관리자 소켓의 두 라우트 |
+| 201과 만든 것 | `POST /boards`, `POST /boards/{board}/duplicate`, `POST /boards/{board}/blocks`, `POST /boards/{board}/blocks/{block}/duplicate`, `POST /boards/{board}/cards`, `POST /w/{workspaceId}/categories`, `POST /subscriptions`, `POST /boards/{board}/files`, `POST /boards-and-blocks`, `POST /register` |
+| 204 | `POST /login`, `POST /logout`, `POST /users/me/password`(셋 다 `Set-Cookie`는 그대로), `DELETE /boards/{board}`, 블록의 `DELETE`·`PATCH`(하나, 여럿), `DELETE /w/{workspaceId}/categories/{category}`, 카테고리에 보드 넣기와 `hide`·`unhide`, `POST /boards/{board}/leave`, `DELETE /boards/{board}/members/{user}`, `DELETE /subscriptions/...`, `DELETE /boards-and-blocks`, 콘텐츠 블록 옮기기, `POST /w/{workspaceId}/archive/import`, 관리자 소켓의 두 라우트 |
 | 200(그대로) | 모든 `GET`, 고친 것을 돌려주는 수정(`PATCH /boards/{board}`, `PATCH /cards/{card}`, 카테고리 수정과 순서, 멤버 수정, 설정), 이미 있을 수 있는 것을 정하는 요청(`POST /boards/{board}/members`, `join`, `sharing`), 복원(`undelete`), 온보딩, 가입 토큰 갱신 |
 
 전에 다른 본문을 답하던 곳:
@@ -747,7 +747,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 |---|---|---|---|
 | `POST /register` | 200 `{}` | 201과 만든 사용자 | 만든 것을 돌려준다는 규칙. 가입은 로그인시키지 않는다(쿠키 없음, 회귀 `auth`의 `register`가 고정) |
 | `POST /boards/{board}/undelete` | 200 `{}` | 200과 되살린 보드 | 블록 복원이 블록을 돌려주는 것과 같게. 값이 손에 있었다 |
-| `DELETE /teams/{team}/categories/{category}` | 200과 지운 카테고리 | 204 | 다른 `DELETE`와 같게 |
+| `DELETE /w/{workspaceId}/categories/{category}` | 200과 지운 카테고리 | 204 | 다른 `DELETE`와 같게 |
 
 **판단이 갈릴 수 있는 곳.** 빈 목록을 넣는 `POST /boards/{board}/blocks`는 201과 `[]`다. 이미 있는 구독을 다시 만드는 `POST /subscriptions`도 201이다. 라우트마다 성공 코드를 하나로 뒀다. `docs/contract-pending.md` 7절에도 적었다.
 
@@ -772,7 +772,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 
 - 핸들러마다 `#[utoipa::path(...)]`가 경로, 이름(`operationId`), 매개변수, 본문, 답을 적는다. 핸들러의 문서 주석 첫 줄이 요약이고 나머지가 설명이다. `routes()`는 `routes!(...)`로 핸들러를 넣으므로 **실제 라우터와 계약이 같은 정의에서 나온다**(`api/mod.rs`의 `routes()` 하나를 `router()`와 `contract::document()`가 함께 쓴다). 주석을 달지 않은 핸들러는 라우터에 들어갈 길이 없다. 계약 밖에 남긴 것은 `/ws`, 정적 파일, 관리자 소켓의 두 라우트다.
 - 경로 매개변수의 이름을 계약의 표기(`{boardId}`)로 맞췄다. axum의 경로 문자열에서 이름만 바뀐 것이라 바깥에서는 보이지 않는다. 구독의 두 경로는 라우터에서 첫 자리의 이름이 하나(`{blockOrSubscriberId}`)여야 해서 문서를 만든 뒤 `{blockId}`, `{subscriberId}`로 고쳐 적는다(`contract::RENAMED_PATHS`).
-- 스키마는 와이어 타입(`fvoci-model`)의 `ToSchema`에서 나온다. 이 타입들은 너그럽게 읽으려고 멤버마다 기본값을 두는데, 그대로 내면 모든 멤버가 "없을 수 있음"이 된다. 그래서 문서를 만든 뒤 JSON 단계에서 고친다(`api/contract.rs`): 기본값을 지우고, 표 `SCHEMAS`가 스키마마다 늘 있는 멤버를 정한다(답으로 나가는 엔티티는 전부, 패치는 없음, `Sharing`의 `token`·`updateAt`과 `Team`의 `signupToken`은 빠질 수 있음). 표에 없는 스키마가 생기거나 표에만 있는 이름이 남으면 문서를 만드는 일이 실패한다.
+- 스키마는 와이어 타입(`fvoci-model`)의 `ToSchema`에서 나온다. 이 타입들은 너그럽게 읽으려고 멤버마다 기본값을 두는데, 그대로 내면 모든 멤버가 "없을 수 있음"이 된다. 그래서 문서를 만든 뒤 JSON 단계에서 고친다(`api/contract.rs`): 기본값을 지우고, 표 `SCHEMAS`가 스키마마다 늘 있는 멤버를 정한다(답으로 나가는 엔티티는 전부, 패치는 없음, `Sharing`의 `token`·`updateAt`과 `Workspace`의 `signupToken`은 빠질 수 있음). 표에 없는 스키마가 생기거나 표에만 있는 이름이 남으면 문서를 만드는 일이 실패한다.
 - 만들기와 고치기의 요청은 답과 모양이 달라 문서 전용 타입으로 따로 적었다(`api/contract/bodies.rs`의 `NewBoard`, `NewBlock`, `NewBoardsAndBlocks`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`, `FileForm`). 서버는 이 타입으로 해석하지 않는다. **손으로 쓴 것이라 해석하는 쪽과 어긋날 수 있다**(남은 문제).
 - 멤버를 정하지 않은 객체(`fields`, `properties`, `cardProperties`의 항목, 팀의 `settings`)는 `additionalProperties: true`로 적는다. 아무 말도 없으면 타입 생성기가 "늘 빈 객체"로 읽는다.
 - 인증은 문서 전체의 기본이 `sessionCookie` 또는 `bearerToken`이다. 세션이 필요 없는 다섯(`login`, `register`, `getClientConfig`, `hello`, `ping`)은 `security: [{}]`, 읽기 토큰으로도 되는 넷(`getBoard`, `getBlocks`, `getFile`, `getFileInfo`)은 셋 가운데 하나다. CSRF 헤더와 `Origin` 규칙은 머리말에 글로 적었다.
@@ -902,7 +902,7 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 | 8b 반영분의 재검토 | `a9905ed..59ab1a6` | Must 2, Should 3, Consider 3 | 반영: 느린 본문이 부분의 메모리를 끝없이 쥐던 것(부분은 S3에서도 디스크의 파일로 받고, 메모리는 버킷에 보내는 동안만 쥔다), 기록 없는 객체가 남던 것(세션을 버릴 때 그 자리를 이름 짓는 파일 기록이 없으면 객체를 지운다. 정리도 같은 길. 핸들러는 이미 끊기지 않는 작업으로 돌아 클라이언트의 끊김으로는 멈추지 않는다), 차례의 맵이 자라던 것(차례를 쥐거나 기다리는 이가 없으면 놓을 때 지운다), 버킷에 보내다 실패한 번호의 기록을 지움, 낡은 핸들러 주석, 메모리 크기의 변환을 `expect`로. 받지 않음: 완료 중에 권한을 잃은 경우를 사용자 결정으로 올리기(완료는 시작할 때 권한을 봤고, 그 뒤에 끝나는 것은 다른 요청과 같은 순서의 문제다). 테스트를 더함: 완료의 답을 잃은 경우와 서버가 기록 전에 멈춘 경우(버킷에서 직접 완료한 뒤 API의 완료와 정리). 테스트하지 않은 것: 메모리 한도의 기다림 |
 | 8b 반영분의 세 번째 검토 | `59ab1a6..68b8611` | Must 1, Should 3, Consider 5 | 반영: S3 세션의 디렉터리를 부분마다 지워 동시에 오는 부분이 열린 세션에서 409를 받던 것(디렉터리는 세션과 함께 간다), 완료 중에 오는 부분이 500이던 것(파일이 사라졌으면 409), 차례를 기다리는 부분이 메모리를 쥐던 것(차례 다음에 메모리), 기록의 답을 잃었을 때 기록된 객체를 지울 수 있던 것(기록이 없을 때만 지운다), `Turn`의 `Option` 주석, 기록을 읽지 못하면 세션을 남겨 정리가 다시 보게, 동시에 보내는 S3 부분의 테스트, `tmp_path`에 S3의 부분도 받는다는 설정 문서. 받지 않음: 기다리다 취소된 차례의 맵 항목(핸들러는 끝까지 돌고 종료 때만 생긴다), 이미 완료된 업로드를 중단할 때의 경고(닫힘 CAS로는 사라진 세션과 닫힌 세션을 가를 수 없다. 소음일 뿐이다). 동시 테스트는 디렉터리를 지우는 경쟁을 다섯 번 돌려도 잡지 못했다(창이 좁다) |
 | 9a 내보내기의 임시 파일 | `b2762d9..99183f3` | Must 0, Should 4, Consider 3 | 반영: 응답을 4 KiB마다 블로킹 작업 하나로 읽던 것(256 KiB씩), 실패한 ZIP 쓰기를 런타임의 일꾼에서 버리던 것(버리는 일도 블로킹 작업에서. `Drop`), 1 MiB를 넘는 파일 항목의 테스트, 낡은 문서(설계 4.3의 "지금은", `tmp_path`의 자리, 계약에 `Content-Length`와 `Content-Disposition` 헤더), 계약 설명의 줄 길이. 받지 않음: 내보내기가 쓰는 디스크의 한도(설계에 없다. 보고에 "사용자 결정 필요"로), 임시 파일의 권한 0600(`tmp_path`는 서버의 디렉터리이고 업로드의 부분과 같다. 운영자의 umask를 따른다). 9의 압축(10단계)에서 내보내기 응답은 압축하지 않는다(길이를 지키게)는 메모로. 테스트하지 않은 것: 파일을 읽다 실패한 내보내기가 임시 파일을 남기지 않는 것(저장소의 읽기 실패를 HTTP로 만들 수 없다) |
-| 9b 가져오기의 올리기 세션 | `ff414be..f9161c9` | Must 0, Should 5, Consider 4 | 반영: 파일 항목을 메모리에 모으던 것(임시 파일로 풀어 저장소에 흘려 쓴다), 항목 수를 디렉터리를 다 읽은 뒤에야 세던 것(끝 레코드와 ZIP64 레코드의 수로 먼저 거절), 가져오는 동안 부분과 아카이브를 함께 두던 것(붙인 부분은 바로 지운다), 테스트(S3에서도 부분이 디스크로, 사용자 몫이 두 한도 가운데 큰 것의 2배), `version.json`의 64 KiB를 넘는 것은 413 대신 400(설계에 없는 한도라 다른 판과 같은 거절로), 앱 쪽 용도 검사에 `field`, unix·windows 밖의 대상에 `compile_error!`, 문서의 어긋남(`max_request_bytes`, `tmp_path`, 계약 5절의 앞 글머리, 설계 5.6의 8·9번과 4절 머리). 받지 않음: 가져오는 중에 패닉하면 작업 디렉터리가 다시 시작할 때까지 남는 것(`Drop`에서 디렉터리를 지우면 런타임의 일꾼을 막는다. 시작할 때 쓸어 낸다), 가져오는 중의 권한 상실과 게스트의 테스트(독립 서버에는 게스트가 없고 모든 사용자가 모든 팀에 닿는다, `permissions.rs`의 `has_permission_to_team`. 거절의 길은 완료와 같은 코드다), 풀린 합계 1 GiB의 테스트(1 GiB를 풀어야 해서 디버그 빌드의 테스트로는 무겁다. 셈은 항목 하나마다 더하고 견준다). 사용자 결정 필요로: 가져오는 중인 아카이브를 열린 업로드의 한도에 셀지와 동시에 가져오는 수의 한도 |
+| 9b 가져오기의 올리기 세션 | `ff414be..f9161c9` | Must 0, Should 5, Consider 4 | 반영: 파일 항목을 메모리에 모으던 것(임시 파일로 풀어 저장소에 흘려 쓴다), 항목 수를 디렉터리를 다 읽은 뒤에야 세던 것(끝 레코드와 ZIP64 레코드의 수로 먼저 거절), 가져오는 동안 부분과 아카이브를 함께 두던 것(붙인 부분은 바로 지운다), 테스트(S3에서도 부분이 디스크로, 사용자 몫이 두 한도 가운데 큰 것의 2배), `version.json`의 64 KiB를 넘는 것은 413 대신 400(설계에 없는 한도라 다른 판과 같은 거절로), 앱 쪽 용도 검사에 `field`, unix·windows 밖의 대상에 `compile_error!`, 문서의 어긋남(`max_request_bytes`, `tmp_path`, 계약 5절의 앞 글머리, 설계 5.6의 8·9번과 4절 머리). 받지 않음: 가져오는 중에 패닉하면 작업 디렉터리가 다시 시작할 때까지 남는 것(`Drop`에서 디렉터리를 지우면 런타임의 일꾼을 막는다. 시작할 때 쓸어 낸다), 가져오는 중의 권한 상실과 게스트의 테스트(독립 서버에는 게스트가 없고 모든 사용자가 모든 워크스페이스에 닿는다, `permissions.rs`의 `has_permission_to_workspace`. 거절의 길은 완료와 같은 코드다), 풀린 합계 1 GiB의 테스트(1 GiB를 풀어야 해서 디버그 빌드의 테스트로는 무겁다. 셈은 항목 하나마다 더하고 견준다). 사용자 결정 필요로: 가져오는 중인 아카이브를 열린 업로드의 한도에 셀지와 동시에 가져오는 수의 한도 |
 | 9b 반영분의 재검토 | `f9161c9..a03a723` | Must 1, Should 1, Consider 4 | 반영: 끝 레코드(와 ZIP64 레코드)로 항목 수를 미리 세던 것을 꾸민 끝 레코드로 넘을 수 있었던 것(리뷰어가 2만 항목짜리 넷으로 보였다. zip 크레이트가 고르는 레코드를 흉내 내지 않고, 디렉터리를 읽기 전에 파일 전체에서 중앙 헤더의 서명 `PK\x01\x02`를 센다. 크레이트가 읽는 항목은 모두 그 서명으로 시작하므로 위쪽 한도다. 끝 레코드를 5로 고친 아카이브가 413인 테스트를 더했고, 세기를 끄면 그 아카이브가 204로 5개만 가져와지는 것을 확인했다), 테스트(청크 경계의 서명, 맨 위의 큰 `version.json`이 400), 보드 디렉터리 안의 `version.json`이 64 KiB 한도로 413이던 것(맨 위의 것만), 풀기가 실패해도 풀던 파일을 지운다, 항목 수 상수 하나로. 받지 않음: `remove_unpacked`와 `remove_quietly`를 하나로(모듈이 다르고 남기는 말이 다르다. 여섯 줄이다) |
 | 9b 반영분의 세 번째 검토 | `a03a723..d1079a5` | Must 0, Should 1, Consider 5 | 반영: 헤더를 세는 것이 묶는 것을 주석과 문서에 바르게(읽는 항목의 수이고, 크레이트가 선언된 수로 미리 잡는 가상 메모리는 아니다), 디렉터리 안의 `version.json`의 문서, 압축하지 않은 안쪽 ZIP의 헤더도 세어진다는 문서, 짧게 읽히는 경우의 테스트, 테스트 모듈의 `use`, 닿지 않는 413 검사의 주석. 사용자 결정 필요로: 꾸민 끝 레코드가 일으키는 미리 잡기(과할당을 막은 기기에서 멈춤. 권고는 그대로 두고 ZIP 크레이트에 알리는 것. 끝 레코드를 미리 읽는 검사를 덧붙이면 단순한 꾸밈은 막지만 앞 검토가 보인 대로 넘을 수 있다) |
 | 10 응답 압축 | `e4f68ba..60cdc97` | Must 1, Should 2, Consider 4 | 반영: 오류 응답이 `Content-Encoding`을 단 채 압축하지 않은 본문으로 나가던 것(요청 로그가 요청 ID를 넣으며 본문을 다시 쓴다. 오류는 압축하지 않고, 본문을 다시 쓸 때 `Content-Encoding`도 뗀다. 브라우저에서는 모든 오류가 풀기 실패였다), `identity;q=0`이나 `*;q=0`이면 tower-http가 처리기가 일한 뒤 상태를 406으로 바꾸던 것(그 항목을 요청에서 뗀다. 보드를 만들고 406이던 것을 테스트로), 테스트(오류, 거절), 32바이트 경계의 문서, `zstd-sys`가 넣는 C 라이브러리의 BSD 고지(`about.hbs`, `NOTICE`를 다시 만들었다). 받지 않음: HEAD의 응답에 `Content-Encoding`이 붙는 것(본문이 없어 해가 없다), 압축이 런타임의 일꾼에서 도는 것(목록 응답 크기에서 가볍다. 무거우면 `compress_responses`를 끈다) |

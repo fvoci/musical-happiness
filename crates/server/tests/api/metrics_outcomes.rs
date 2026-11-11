@@ -6,7 +6,7 @@ use fvoci_model::BoardType;
 use reqwest::{Method, StatusCode};
 use sha2::Digest as _;
 
-use crate::common::{Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{Client, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::metrics::{sample, scrape};
 
 /// A server that keeps metrics and serves them at a free local port.
@@ -210,7 +210,9 @@ async fn the_operations_on_the_local_disk_are_measured() {
         .await
         .init_basic()
         .await;
-    let board = server.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = server
+        .create_board(TEST_WORKSPACE_ID, BoardType::Open)
+        .await;
     let response = crate::files::upload(&server.client, &board.id, "a.txt", b"abc").await;
     let file_id = crate::files::uploaded_id(&response);
     let download = server
@@ -255,7 +257,9 @@ async fn an_upload_past_its_limit_is_no_failure_of_the_storage() {
         .await
         .init_basic()
         .await;
-    let board = server.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = server
+        .create_board(TEST_WORKSPACE_ID, BoardType::Open)
+        .await;
     let response = crate::files::upload(&server.client, &board.id, "a.txt", b"test").await;
     response.check_request_entity_too_large();
     let body = scrape(&server).await;
@@ -284,7 +288,9 @@ async fn with_s3_the_steps_of_an_upload_in_parts_are_measured() {
         .await
         .init_basic()
         .await;
-    let board = server.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = server
+        .create_board(TEST_WORKSPACE_ID, BoardType::Open)
+        .await;
     let open = |name: &'static str| {
         let client = &server.client;
         let board_id = board.id.clone();

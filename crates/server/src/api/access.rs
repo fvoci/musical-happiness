@@ -1,16 +1,16 @@
-//! Checks that many handlers share: who may do what on a board or in a team.
+//! Checks that many handlers share: who may do what on a board or in a workspace.
 
-use fvoci_model::{Block, BlockPatch, BlockType, BoardType, Team};
+use fvoci_model::{Block, BlockPatch, BlockType, BoardType, Workspace};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::{BoardPermission, TeamPermission};
+use crate::permissions::{BoardPermission, WorkspacePermission};
 
 /// Checks that the user is an administrator of the instance.
 ///
 /// Who is one is no secret, and neither is that these routes exist: anybody else is
-/// refused (403, reason `admin_required`). A route under a team checks first that the
-/// team exists, as every team route does, so there the refusal is of a real team.
+/// refused (403, reason `admin_required`). A route under a workspace checks first that the
+/// workspace exists, as every workspace route does, so there the refusal is of a real workspace.
 pub(crate) async fn require_admin(app: &App, user_id: &str) -> Result<(), AppError> {
     if app.user(user_id).await?.is_admin {
         Ok(())
@@ -26,8 +26,8 @@ pub(crate) async fn require_admin(app: &App, user_id: &str) -> Result<(), AppErr
 /// path.
 ///
 /// What a user without the permission is told depends on what they may know. A member
-/// of the board is refused (403, `denial`). So is a user of the team on an open board,
-/// which every user of its team can see. For anybody else the board does not exist
+/// of the board is refused (403, `denial`). So is a user of the workspace on an open board,
+/// which every user of its workspace can see. For anybody else the board does not exist
 /// (404), whether it does or not.
 pub(crate) async fn require_board_permission(
     app: &App,
@@ -251,7 +251,7 @@ pub(crate) async fn require_permission_through(
 }
 
 /// Checks that the user can see the board at all: as a member, or because it is an open
-/// board of their team. For anybody else it does not exist (404).
+/// board of their workspace. For anybody else it does not exist (404).
 pub(crate) async fn require_board_visible(
     app: &App,
     user_id: &str,
@@ -265,7 +265,7 @@ pub(crate) async fn require_board_visible(
 }
 
 /// Whether the user can see the board at all: as a member, or because it is an open
-/// board of their team.
+/// board of their workspace.
 async fn sees_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
     Ok(reads_board(app, user_id, board_id).await?
         || sees_open_board(app, user_id, board_id).await?)
@@ -277,7 +277,7 @@ async fn reads_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, A
         .await
 }
 
-/// Whether the board is an open board of a team the user works in, or a built-in
+/// Whether the board is an open board of a workspace the user works in, or a built-in
 /// template, which is every user's to copy. Such a board is no secret to the user,
 /// though its contents are until they join. A board that is not there is seen by
 /// nobody; a store that fails is an error, not a "no".
@@ -289,46 +289,51 @@ async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> Result<boo
         Ok(board) => Ok(board.board_type == BoardType::Open
             && (board.is_builtin
                 || app
-                    .has_permission_to_team(user_id, &board.team_id, TeamPermission::ViewTeam)
+                    .has_permission_to_workspace(
+                        user_id,
+                        &board.workspace_id,
+                        WorkspacePermission::ViewWorkspace,
+                    )
                     .await?)),
         Err(error) if error.is_not_found() => Ok(false),
         Err(error) => Err(error),
     }
 }
 
-/// The team, or a 404 unless the user works in it (`App::works_in_team`): a team
-/// the user is no member of, and a team of another organization, answer as one that
+/// The workspace, or a 404 unless the user works in it (`App::works_in_workspace`): a workspace
+/// the user is no member of, and a workspace of another organization, answer as one that
 /// does not exist.
 ///
-/// The routes that name a team work in the server's one organization (TEMPORARY, with
+/// For the copy of a board, whose query names the workspace it goes to: the routes that name
+/// no workspace in their path work in the server's one organization (TEMPORARY, with
 /// `only_organization_scope`), and ask the same fact the routes under a workspace ask
-/// (`api/workspace.rs`); this check goes with the last route that is not moved.
-pub(crate) async fn require_team_access(
+/// (`api/workspace.rs`, `WorksIn`).
+pub(crate) async fn require_workspace_access(
     app: &App,
     user_id: &str,
-    team_id: &str,
-) -> Result<Team, AppError> {
-    if !app.works_in_team(user_id, team_id).await? {
-        return Err(AppError::not_found("team"));
+    workspace_id: &str,
+) -> Result<Workspace, AppError> {
+    if !app.works_in_workspace(user_id, workspace_id).await? {
+        return Err(AppError::not_found("workspace"));
     }
-    app.team(team_id).await
+    app.workspace(workspace_id).await
 }
 
-/// Fails with a 400 that names the member `field` if the team a request body names
+/// Fails with a 400 that names the member `field` if the workspace a request body names
 /// does not exist, or is one the user does not work in: the two answer alike.
-pub(crate) async fn require_team_in_body(
+pub(crate) async fn require_workspace_in_body(
     app: &App,
     user_id: &str,
-    team_id: &str,
+    workspace_id: &str,
     field: &'static str,
 ) -> Result<(), AppError> {
-    let no_such_team = || AppError::bad_request("no such team").with_field(field);
-    if !app.works_in_team(user_id, team_id).await? {
-        return Err(no_such_team());
+    let no_such_workspace = || AppError::bad_request("no such workspace").with_field(field);
+    if !app.works_in_workspace(user_id, workspace_id).await? {
+        return Err(no_such_workspace());
     }
-    match app.team(team_id).await {
+    match app.workspace(workspace_id).await {
         Ok(_) => Ok(()),
-        Err(error) if error.is_not_found() => Err(no_such_team()),
+        Err(error) if error.is_not_found() => Err(no_such_workspace()),
         Err(error) => Err(error),
     }
 }

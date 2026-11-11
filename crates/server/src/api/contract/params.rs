@@ -32,8 +32,9 @@ macro_rules! parameter {
 
 // -- in the path -----------------------------------------------------------------------
 
-parameter!(TeamId: Path "teamId", String, True, "The identifier of the team.");
-parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it.");
+parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.");
+parameter!(MemberWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.");
+parameter!(ExportedWorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. A workspace that is not there, that the user is not in, or that is of another organization than the server's, is not refused: its archive has no boards.");
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");
@@ -54,7 +55,7 @@ parameter!(ReadToken: Query "readToken", String, False, "The read token of the b
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.");
 parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");
-parameter!(ToTeam: Query "toTeam", String, False, "The team the copy goes to. Left out, it stays in the team of the board.");
+parameter!(ToWorkspace: Query "toWorkspace", String, False, "The workspace the copy goes to. Left out, it stays in the workspace of the board.");
 parameter!(SourceBoardId: Query "sourceBoardId", String, False, "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies.");
 parameter!(AllBlocks: Query "all", String, False, "Any value that is not empty asks for every block of the board, and the other parameters are not looked at.");
 parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block with this identifier, in a list of one. 404 if the board has no such block.");

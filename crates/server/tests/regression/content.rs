@@ -12,7 +12,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::common::ROOT_TEAM_ID;
+use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board};
 use crate::harness::{API, OCTET_STREAM, Payload, Session, multipart, string_member};
 
@@ -21,7 +21,7 @@ pub(crate) async fn templates(s: &mut Session) {
     let listing = s
         .get(
             "templates",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
+            &format!("{API}/w/{ROOT_WORKSPACE_ID}/templates"),
         )
         .user(&alice)
         .unrecorded()
@@ -67,13 +67,13 @@ pub(crate) async fn templates(s: &mut Session) {
     s.note("welcome template block counts", &json!(counts));
     s.get(
         "templates: anonymous",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/templates"),
     )
     .await;
     let custom = new_board(s, &alice, "My template", "P", json!({"isTemplate": true})).await;
     s.get(
         "templates include mine",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/templates"),
     )
     .user(&alice)
     .unrecorded()
@@ -82,7 +82,7 @@ pub(crate) async fn templates(s: &mut Session) {
         .user(&alice)
         .await;
     let onboard = s
-        .post("onboard", &format!("{API}/teams/{ROOT_TEAM_ID}/onboard"))
+        .post("onboard", &format!("{API}/w/{ROOT_WORKSPACE_ID}/onboard"))
         .user(&alice)
         .await;
     let tour_board = onboard.string("boardId");
@@ -101,14 +101,14 @@ pub(crate) async fn templates(s: &mut Session) {
     s.note("onboarding board block count", &json!(tour_blocks));
     s.post(
         "onboard again",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/onboard"),
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/onboard"),
     )
     .user(&alice)
     .unrecorded()
     .await;
     s.get(
         "categories after onboarding",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/categories"),
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/categories"),
     )
     .user(&alice)
     .await;
@@ -175,11 +175,11 @@ pub(crate) async fn files(s: &mut Session) {
 
     let files = format!("{API}/boards/{board}/files");
     let download = format!("{files}/{file_id}");
-    // The paths that named the team with the board are gone.
-    let old_files = format!("{API}/files/teams/{ROOT_TEAM_ID}/{board}/{file_id}");
+    // The paths that named the workspace with the board are gone.
+    let old_files = format!("{API}/files/teams/{ROOT_WORKSPACE_ID}/{board}/{file_id}");
     s.post(
         "old path: upload",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/{board}/files"),
+        &format!("{API}/teams/{ROOT_WORKSPACE_ID}/{board}/files"),
     )
     .payload(png())
     .user(&alice)
@@ -422,26 +422,29 @@ pub(crate) async fn archive(s: &mut Session) {
     )
     .user(&alice)
     .await;
-    let team_export = s
+    let workspace_export = s
         .get(
-            "team export",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/archive/export"),
+            "workspace export",
+            &format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/export"),
         )
         .user(&alice)
         .unrecorded()
         .await;
     s.note(
-        "team export status and type",
-        &json!([team_export.status, team_export.header("Content-Type")]),
+        "workspace export status and type",
+        &json!([
+            workspace_export.status,
+            workspace_export.header("Content-Type")
+        ]),
     );
-    if team_export.status == 200 {
-        let entries = archive_summary(team_export.bytes())["names"]
+    if workspace_export.status == 200 {
+        let entries = archive_summary(workspace_export.bytes())["names"]
             .as_array()
             .map_or(0, Vec::len);
-        s.note("team export entries", &json!(entries));
+        s.note("workspace export entries", &json!(entries));
     }
 
-    let import = format!("{API}/teams/{ROOT_TEAM_ID}/archive/import");
+    let import = format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/import");
     let upload = upload_archive(s, &bob, &exported).await;
     s.post("import", &import)
         .json(json!({"uploadId": upload}))
@@ -449,7 +452,7 @@ pub(crate) async fn archive(s: &mut Session) {
         .await;
     s.post(
         "import: anonymous",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/uploads"),
     )
     .json(json!({"name": "export.boardarchive", "size": exported.len()}))
     .await;
@@ -465,7 +468,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let imported = s
         .get(
             "boards after import",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+            &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
         )
         .user(&bob)
         .await;
@@ -526,7 +529,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let boards = s
         .get(
             "boards after legacy import",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+            &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
         )
         .user(&bob)
         .unrecorded()
@@ -541,14 +544,14 @@ pub(crate) async fn archive(s: &mut Session) {
     s.note("board titles after legacy import", &json!(titles));
 }
 
-/// Opens an upload of an archive into the root team as `user`, sends its parts, and
+/// Opens an upload of an archive into the root workspace as `user`, sends its parts, and
 /// returns its identifier. Nothing of it is recorded: the upload's identifier and end
 /// differ from run to run.
 async fn upload_archive(s: &mut Session, user: &str, bytes: &[u8]) -> String {
     let opened = s
         .post(
             "open an upload of an archive",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+            &format!("{API}/w/{ROOT_WORKSPACE_ID}/archive/uploads"),
         )
         .json(json!({"name": "export.boardarchive", "size": bytes.len()}))
         .user(user)

@@ -655,7 +655,7 @@ describe('the sidebar on the server', () => {
     id: 'k1',
     name: 'Work',
     userId: 'me',
-    teamId: 't',
+    workspaceId: 't',
     type: 'custom',
     collapsed: true,
     sortOrder: 10,
@@ -673,28 +673,28 @@ describe('the sidebar on the server', () => {
   it('makes a category of the reader, under their identifier', async () => {
     const sent = serveRoutes([
       ['GET /api/v1/users/me', { id: 'me', username: 'me', createAt: 1, updateAt: 1, deleteAt: 0 }],
-      ['POST /api/v1/teams/t/categories', CATEGORY, 201],
+      ['POST /api/v1/w/t/categories', CATEGORY, 201],
     ]);
     const made = await new ServerBackend('').createCategory('t', { name: 'Work' });
-    expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/teams/t/categories']);
-    expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', teamId: 't' });
+    expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/w/t/categories']);
+    expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', workspaceId: 't' });
     expect(made).toMatchObject({ id: 'k1', boardIds: [], hiddenBoardIds: [] });
   });
 
   it('renames a category with its folding as it is, and keeps its boards', async () => {
     const sent = serveRoutes([
-      ['GET /api/v1/teams/t/categories', CATEGORIES],
-      ['PUT /api/v1/teams/t/categories/k1', { ...CATEGORY, name: 'Home' }],
+      ['GET /api/v1/w/t/categories', CATEGORIES],
+      ['PUT /api/v1/w/t/categories/k1', { ...CATEGORY, name: 'Home' }],
     ]);
     const renamed = await new ServerBackend('').patchCategory('t', 'k1', { name: 'Home' });
     expect(sentLines(sent)).toEqual([
-      'GET /api/v1/teams/t/categories',
-      'PUT /api/v1/teams/t/categories/k1',
+      'GET /api/v1/w/t/categories',
+      'PUT /api/v1/w/t/categories/k1',
     ]);
     expect(sent[1]?.body).toEqual({
       id: 'k1',
       userId: 'me',
-      teamId: 't',
+      workspaceId: 't',
       name: 'Home',
       collapsed: true,
     });
@@ -704,60 +704,60 @@ describe('the sidebar on the server', () => {
 
   it('folds a category with its name as it is', async () => {
     const sent = serveRoutes([
-      ['GET /api/v1/teams/t/categories', CATEGORIES],
-      ['PUT /api/v1/teams/t/categories/k1', { ...CATEGORY, collapsed: false }],
+      ['GET /api/v1/w/t/categories', CATEGORIES],
+      ['PUT /api/v1/w/t/categories/k1', { ...CATEGORY, collapsed: false }],
     ]);
     await new ServerBackend('').patchCategory('t', 'k1', { collapsed: false });
     expect(sent[1]?.body).toMatchObject({ name: 'Work', collapsed: false });
   });
 
   it('says 404 for a category the reader does not have, and sends no change', async () => {
-    const sent = serveRoutes([['GET /api/v1/teams/t/categories', CATEGORIES]]);
+    const sent = serveRoutes([['GET /api/v1/w/t/categories', CATEGORIES]]);
     const refused = await new ServerBackend('')
       .patchCategory('t', 'k9', { name: 'X' })
       .catch((error: unknown) => error);
     expect(isBackendError(refused) && refused.status).toBe(404);
-    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/categories']);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/categories']);
   });
 
   it('deletes a category and orders the categories by their routes', async () => {
     const sent = serveRoutes([
-      ['DELETE /api/v1/teams/t/categories/k1', undefined, 204],
-      ['PUT /api/v1/teams/t/category-order', ['k2', 'k1']],
+      ['DELETE /api/v1/w/t/categories/k1', undefined, 204],
+      ['PUT /api/v1/w/t/category-order', ['k2', 'k1']],
     ]);
     const backend = new ServerBackend('');
     await backend.deleteCategory('t', 'k1');
     await backend.reorderCategories('t', ['k2', 'k1']);
     expect(sentLines(sent)).toEqual([
-      'DELETE /api/v1/teams/t/categories/k1',
-      'PUT /api/v1/teams/t/category-order',
+      'DELETE /api/v1/w/t/categories/k1',
+      'PUT /api/v1/w/t/category-order',
     ]);
     expect(sent[1]?.body).toEqual(['k2', 'k1']);
   });
 
   it('files a board under a category, then puts it at its place among the category’s boards', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/teams/t/categories/k1/boards/b9', undefined, 204],
+      ['POST /api/v1/w/t/categories/k1/boards/b9', undefined, 204],
       [
-        'GET /api/v1/teams/t/categories',
+        'GET /api/v1/w/t/categories',
         [{ ...CATEGORY, boardMetadata: [...FILED, { boardId: 'b9', hidden: false }] }],
       ],
-      ['PUT /api/v1/teams/t/categories/k1/board-order', ['b1', 'b9', 'b2', 'b3']],
+      ['PUT /api/v1/w/t/categories/k1/board-order', ['b1', 'b9', 'b2', 'b3']],
     ]);
     await new ServerBackend('').moveBoardToCategory('t', 'b9', 'k1', 1);
     expect(sentLines(sent)).toEqual([
-      'POST /api/v1/teams/t/categories/k1/boards/b9',
-      'GET /api/v1/teams/t/categories',
-      'PUT /api/v1/teams/t/categories/k1/board-order',
+      'POST /api/v1/w/t/categories/k1/boards/b9',
+      'GET /api/v1/w/t/categories',
+      'PUT /api/v1/w/t/categories/k1/board-order',
     ]);
     expect(sent[2]?.body).toEqual(['b1', 'b9', 'b2', 'b3']);
   });
 
-  it('sends the sidebar’s writes of a team one after another, each reading after the last', async () => {
+  it('sends the sidebar’s writes of a workspace one after another, each reading after the last', async () => {
     const sent = serveRoutes([
-      ['POST /api/v1/teams/t/categories/k1/boards/', undefined, 204],
-      ['GET /api/v1/teams/t/categories', CATEGORIES],
-      ['PUT /api/v1/teams/t/categories/k1', CATEGORY],
+      ['POST /api/v1/w/t/categories/k1/boards/', undefined, 204],
+      ['GET /api/v1/w/t/categories', CATEGORIES],
+      ['PUT /api/v1/w/t/categories/k1', CATEGORY],
     ]);
     const backend = new ServerBackend('');
     await Promise.all([
@@ -766,25 +766,25 @@ describe('the sidebar on the server', () => {
       backend.moveBoardToCategory('t', 'b2', 'k1', 0),
     ]);
     expect(sentLines(sent)).toEqual([
-      'POST /api/v1/teams/t/categories/k1/boards/b3',
-      'GET /api/v1/teams/t/categories',
-      'PUT /api/v1/teams/t/categories/k1/board-order',
-      'GET /api/v1/teams/t/categories',
-      'PUT /api/v1/teams/t/categories/k1',
-      'POST /api/v1/teams/t/categories/k1/boards/b2',
-      'GET /api/v1/teams/t/categories',
-      'PUT /api/v1/teams/t/categories/k1/board-order',
+      'POST /api/v1/w/t/categories/k1/boards/b3',
+      'GET /api/v1/w/t/categories',
+      'PUT /api/v1/w/t/categories/k1/board-order',
+      'GET /api/v1/w/t/categories',
+      'PUT /api/v1/w/t/categories/k1',
+      'POST /api/v1/w/t/categories/k1/boards/b2',
+      'GET /api/v1/w/t/categories',
+      'PUT /api/v1/w/t/categories/k1/board-order',
     ]);
   });
 
   it('hides a board and shows it again by its routes', async () => {
-    const sent = serveRoutes([['PUT /api/v1/teams/t/categories/k1/boards/b1/', undefined, 204]]);
+    const sent = serveRoutes([['PUT /api/v1/w/t/categories/k1/boards/b1/', undefined, 204]]);
     const backend = new ServerBackend('');
     await backend.setBoardHidden('t', 'k1', 'b1', true);
     await backend.setBoardHidden('t', 'k1', 'b1', false);
     expect(sentLines(sent)).toEqual([
-      'PUT /api/v1/teams/t/categories/k1/boards/b1/hide',
-      'PUT /api/v1/teams/t/categories/k1/boards/b1/unhide',
+      'PUT /api/v1/w/t/categories/k1/boards/b1/hide',
+      'PUT /api/v1/w/t/categories/k1/boards/b1/unhide',
     ]);
   });
 });
@@ -792,7 +792,7 @@ describe('the sidebar on the server', () => {
 describe('boards on the server', () => {
   const BOARD = {
     id: 'b1',
-    teamId: 't',
+    workspaceId: 't',
     createdBy: 'me',
     modifiedBy: 'me',
     type: 'P',
@@ -832,7 +832,7 @@ describe('boards on the server', () => {
     expect(body.boards).toEqual([
       {
         id: body.blocks[0]?.boardId,
-        teamId: 't',
+        workspaceId: 't',
         type: 'P',
         title: 'Plan',
         description: '',
@@ -987,17 +987,32 @@ describe('sharing a board on the server', () => {
     ]);
   });
 
-  it('finds people of the team by the search of their list', async () => {
-    const sent = serveRoutes([['GET /api/v1/teams/t/users', []]]);
+  it('finds people of the workspace by the search of their list', async () => {
+    const sent = serveRoutes([['GET /api/v1/w/t/users', []]]);
     await new ServerBackend('').searchUsers('t', 'ann lee');
-    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/users?search=ann+lee']);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/users?search=ann+lee']);
+  });
+
+  it("takes the reader's workspaces from their workspaces, leaving out those they are a guest of", async () => {
+    const workspace = (id: string, role: string) => ({ id, orgId: 'o', name: `n-${id}`, role });
+    const sent = serveRoutes([
+      [
+        'GET /api/v1/users/me/workspaces',
+        [workspace('w1', 'guest'), workspace('w2', 'member'), workspace('w3', 'admin')],
+      ],
+    ]);
+    expect(await new ServerBackend('').workspaces()).toEqual([
+      { id: 'w2', title: 'n-w2' },
+      { id: 'w3', title: 'n-w3' },
+    ]);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/users/me/workspaces']);
   });
 });
 
 describe('templates on the server', () => {
   const BOARD = {
     id: 'b2',
-    teamId: 't',
+    workspaceId: 't',
     createdBy: 'me',
     modifiedBy: 'me',
     type: 'P',
@@ -1018,12 +1033,9 @@ describe('templates on the server', () => {
 
   it('reads the templates, copies a board either way, and starts the welcome board', async () => {
     const sent = serveRoutes([
-      [
-        'GET /api/v1/teams/t/templates',
-        [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }],
-      ],
+      ['GET /api/v1/w/t/templates', [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }]],
       ['POST /api/v1/boards/', { boards: [BOARD], blocks: [] }, 201],
-      ['POST /api/v1/teams/t/onboard', { teamId: 't', boardId: 'w1' }],
+      ['POST /api/v1/w/t/onboard', { workspaceId: 't', boardId: 'w1' }],
     ]);
     const backend = new ServerBackend('');
     const [template] = await backend.templates('t');
@@ -1032,18 +1044,18 @@ describe('templates on the server', () => {
     await backend.duplicateBoard('b2', true, 't');
     expect(await backend.onboard('t')).toBe('w1');
     expect(sentLines(sent)).toEqual([
-      'GET /api/v1/teams/t/templates',
-      'POST /api/v1/boards/tp/duplicate?asTemplate=false&toTeam=t',
-      'POST /api/v1/boards/b2/duplicate?asTemplate=true&toTeam=t',
-      'POST /api/v1/teams/t/onboard',
+      'GET /api/v1/w/t/templates',
+      'POST /api/v1/boards/tp/duplicate?asTemplate=false&toWorkspace=t',
+      'POST /api/v1/boards/b2/duplicate?asTemplate=true&toWorkspace=t',
+      'POST /api/v1/w/t/onboard',
     ]);
   });
 });
 
 describe('searching boards on the server', () => {
-  it('asks the team’s search by title', async () => {
-    const sent = serveRoutes([['GET /api/v1/teams/t/boards/search', []]]);
+  it('asks the workspace’s search by title', async () => {
+    const sent = serveRoutes([['GET /api/v1/w/t/boards/search', []]]);
     expect(await new ServerBackend('').searchBoards('t', 'garden plan')).toEqual([]);
-    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/boards/search?q=garden+plan']);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/w/t/boards/search?q=garden+plan']);
   });
 });

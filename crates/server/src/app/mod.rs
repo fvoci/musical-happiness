@@ -32,7 +32,6 @@ mod sharing;
 mod startup;
 mod store_metrics;
 mod subscriptions;
-mod teams;
 mod templates;
 mod trash;
 mod uploads;
@@ -72,7 +71,7 @@ use crate::config::Configuration;
 use crate::error::{AppError, Reason};
 use crate::metrics::{Metrics, OpenUploads, Pool};
 use crate::permissions::{
-    BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
+    BoardPermission, WorkspacePermission, has_permission_to_workspace, member_has_permission,
 };
 use crate::storage::FileBackend;
 use crate::web::WebRoot;
@@ -338,20 +337,22 @@ impl App {
         finished
     }
 
-    /// Returns whether a user has a permission in a team: the user works in the team
-    /// ([`App::works_in_team`]), and the permission is one a member of a team has.
+    /// Returns whether a user has a permission in a workspace: the user works in the workspace
+    /// ([`App::works_in_workspace`]), and the permission is one a member of a workspace has.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the membership cannot be read.
-    pub async fn has_permission_to_team(
+    pub async fn has_permission_to_workspace(
         &self,
         user_id: &str,
-        team_id: &str,
-        permission: TeamPermission,
+        workspace_id: &str,
+        permission: WorkspacePermission,
     ) -> Result<bool, AppError> {
-        Ok(has_permission_to_team(user_id, team_id, permission)
-            && self.works_in_team(user_id, team_id).await?)
+        Ok(
+            has_permission_to_workspace(user_id, workspace_id, permission)
+                && self.works_in_workspace(user_id, workspace_id).await?,
+        )
     }
 
     /// Returns whether a user has a permission on a board, which follows from their

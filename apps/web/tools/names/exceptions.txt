@@ -1,0 +1,41 @@
+# Where the name the original gives the workspace stays in the web app, and why
+# (tools/names/workspace.ts). `node tools/names/check.ts` fails on the name anywhere
+# else, in any case, and on an entry here that nothing needs any more. Every entry
+# stands under its reason. Of a file of messages only the ids are checked.
+#
+# <path>             the whole file, its name too
+# <path> | <text>    the lines of the file, where the name is within the text (any case)
+#
+# `*` stands for any part of a name, `**` for any number of folders.
+
+# A person one works with: the server's setting of how people's names are shown keeps
+# the original's name (teammateNameDisplay), and a template's card says "@mention
+# teammates".
+** | teammate
+
+# The names and keywords of the emoji, as CLDR gives them: steam.
+src/lib/editor/emoji/en.json
+
+# The built-in template "Team Retrospective", by its title and its key.
+** | Team Retrospective
+src/lib/state/memory/seed.ts | team-retrospective
+tests/tools/builtin-templates.test.ts | team-retrospective
+
+# The demonstration's boards are those of a small team of people, filed in a category
+# called "Team"; the tests find them there.
+src/lib/state/memory/seed.ts | a small team
+src/lib/state/memory/seed.ts | 'Team'
+tests/state/stores.test.ts | 'Team'
+tests/ui/shell/components.test.ts | 'Team'
+e2e/shell.spec.ts | 'Move to Team'
+e2e/sidebar.spec.ts | 'Team'
+e2e/sidebar.spec.ts | in Team.
+
+# The documents of how the original's messages were taken over name them by their ids
+# and their English texts; the others name what the original had: its addresses, a
+# function of its utilities.
+docs/i18n-conversion.md
+docs/ko-review.md
+docs/decisions.md | `/team/<팀>/…`
+PORTING.md | `/team/t`
+PORTING.md | `isTeamAdmin`

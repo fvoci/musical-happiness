@@ -18,7 +18,7 @@ use super::contract::tag;
 use super::boards::{InvalidBoardMember, take_invalid_board_members, take_invalid_patch_members};
 use super::decode_object_with;
 use super::{ApiResult, RequiredSession, json_response, no_content};
-use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
+use super::{decode_object, require_board_permission, require_workspace_in_body, user_is_guest};
 use super::{element_pointer, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
 
 /// The JSON Pointers to the blocks of a `BoardsAndBlocks` and to the block patches of a
@@ -29,7 +29,7 @@ use super::require_delete_permission;
 use super::{BlockAction, require_block_patch_permission, require_block_permission};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::{BoardPermission, TeamPermission};
+use crate::permissions::{BoardPermission, WorkspacePermission};
 
 /// The refusal of a change to a block of a board the user may not change cards on.
 const MODIFYING_CARDS_DENIED: &str = "access denied to modifying cards";
@@ -47,7 +47,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// Makes boards and their blocks together, all or none, under identifiers the server
 /// makes; the identifiers of the request only say which block belongs to which board
 /// and to which other block. The request needs at least one board and one block; every
-/// board needs an `id`, and all boards are of one team. The user becomes the admin of
+/// board needs an `id`, and all boards are of one workspace. The user becomes the admin of
 /// each board, and each board that is no template is filed under the user's default
 /// category.
 #[utoipa::path(
@@ -104,13 +104,13 @@ async fn handle_create_boards_and_blocks(
         return Err(AppError::bad_request("at least one board is required"));
     }
 
-    let team_id = request.boards[0].team_id.as_str();
+    let workspace_id = request.boards[0].workspace_id.as_str();
     let mut board_ids = HashSet::new();
     for board in &request.boards {
         board_ids.insert(board.id.as_str());
-        if team_id != board.team_id {
+        if workspace_id != board.workspace_id {
             return Err(AppError::bad_request(
-                "cannot create boards for multiple teams",
+                "cannot create boards for multiple workspaces",
             ));
         }
         if board.id.is_empty() {
@@ -120,9 +120,9 @@ async fn handle_create_boards_and_blocks(
         }
     }
 
-    require_team_in_body(&app, user_id, team_id, "boards").await?;
+    require_workspace_in_body(&app, user_id, workspace_id, "boards").await?;
     if !app
-        .has_permission_to_team(user_id, team_id, TeamPermission::ViewTeam)
+        .has_permission_to_workspace(user_id, workspace_id, WorkspacePermission::ViewWorkspace)
         .await?
     {
         return Err(AppError::forbidden("access denied to board template"));
@@ -194,7 +194,7 @@ fn new_block_problem(block: &Block, board_ids: &HashSet<&str>) -> Option<(&'stat
 
 /// Change boards and blocks together
 ///
-/// Applies a patch to each of several boards of one team and to blocks of those
+/// Applies a patch to each of several boards of one workspace and to blocks of those
 /// boards, all or none. The request names at least one board, and every block it names
 /// is on one of its boards: blocks alone are not changed this way. Each board needs
 /// what `patchBoard` needs, each block what `patchBlock` needs.
@@ -231,7 +231,7 @@ async fn handle_patch_boards_and_blocks(
     patches.validate().map_err(AppError::bad_request)?;
     put_patch_bodies(&mut patches.block_patches, changes?, Some(PATCHES))?;
 
-    let mut team_id = String::new();
+    let mut workspace_id = String::new();
     let mut board_ids = HashSet::new();
     for (index, (board_id, patch)) in patches
         .board_ids
@@ -264,11 +264,11 @@ async fn handle_patch_boards_and_blocks(
         }
 
         let board = app.board(board_id).await?;
-        if team_id.is_empty() {
-            team_id.clone_from(&board.team_id);
+        if workspace_id.is_empty() {
+            workspace_id.clone_from(&board.workspace_id);
         }
-        if team_id != board.team_id {
-            return Err(AppError::bad_request("mismatched team ID"));
+        if workspace_id != board.workspace_id {
+            return Err(AppError::bad_request("mismatched workspace ID"));
         }
     }
 
@@ -357,7 +357,7 @@ async fn block_of_boards(
 
 /// Delete boards and blocks together
 ///
-/// Deletes several boards of one team, all or none. The request names at least one
+/// Deletes several boards of one workspace, all or none. The request names at least one
 /// board, and every block it names must be on one of its boards and be the user's to
 /// delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
 /// board takes all of its blocks along. The boards go to the trash as `deleteBoard`
@@ -380,7 +380,7 @@ async fn handle_delete_boards_and_blocks(
     let request: DeleteBoardsAndBlocks = decode_object(&body)?;
     request.validate().map_err(AppError::bad_request)?;
 
-    let mut team_id = String::new();
+    let mut workspace_id = String::new();
     let mut board_ids = HashSet::new();
     for board_id in &request.boards {
         board_ids.insert(board_id.as_str());
@@ -393,12 +393,12 @@ async fn handle_delete_boards_and_blocks(
         )
         .await?;
         let board = app.board(board_id).await?;
-        if team_id.is_empty() {
-            team_id.clone_from(&board.team_id);
+        if workspace_id.is_empty() {
+            workspace_id.clone_from(&board.workspace_id);
         }
-        if team_id != board.team_id {
+        if workspace_id != board.workspace_id {
             return Err(AppError::bad_request(
-                "all boards should belong to the same team",
+                "all boards should belong to the same workspace",
             ));
         }
     }

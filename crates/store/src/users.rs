@@ -1,10 +1,10 @@
 //! Users and their preferences.
 //!
-//! The operations that the original addresses to "the users of a team" take no team
+//! The operations that the original addresses to "the users of a team" take no workspace
 //! here, and answer the users of the whole instance: users are no organization's, so
 //! no wall narrows them. TEMPORARY, with [`Store::only_organization`]: who is in a
 //! workspace is in `workspace_members`, and these will ask that. The original's
-//! standalone store ignores the team, the guest and the visibility flags it is given
+//! standalone store ignores the workspace, the guest and the visibility flags it is given
 //! (`server/services/store/sqlstore/user.go:105`, `:217` and `:226`).
 
 use fvoci_model::{
@@ -379,10 +379,10 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_users_by_team(&self) -> Result<Vec<User>, StoreError> {
+    pub async fn get_users_by_workspace(&self) -> Result<Vec<User>, StoreError> {
         self.with_conn(async |scope| {
-            // Preserved quirk: asked for the users of a team, the original returns all
-            // users whatever the team (`server/services/store/sqlstore/user.go:217-218`).
+            // Preserved quirk: asked for the users of a workspace, the original returns all
+            // users whatever the workspace (`server/services/store/sqlstore/user.go:217-218`).
             let mut sql = select_users(scope);
             sql.push(OLDEST_FIRST);
             fetch_users(scope, sql).await
@@ -425,7 +425,10 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_users_by_team(&self, search_query: &str) -> Result<Vec<User>, StoreError> {
+    pub async fn search_users_by_workspace(
+        &self,
+        search_query: &str,
+    ) -> Result<Vec<User>, StoreError> {
         self.with_conn(async |scope| {
             let limit = i64::try_from(SEARCH_LIMIT).unwrap_or(i64::MAX);
             if search_query.is_empty() {

@@ -7,9 +7,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::cards::page_params;
-use super::contract::params::{BoardId, Page, PerPage, TeamId};
+use super::contract::params::{BoardId, Page, PerPage, WorkspaceId};
 use super::contract::tag;
-use super::require_team_access;
+use super::workspace::WorksIn;
 use super::{ApiResult, RequiredSession, json_response, require_board_permission};
 use crate::app::App;
 use crate::permissions::BoardPermission;
@@ -57,33 +57,26 @@ async fn handle_get_deleted_cards(
     ))
 }
 
-/// The deleted boards of a team
+/// The deleted boards of a workspace
 ///
-/// One page of the team's boards that are in the trash and that the user was an admin
+/// One page of the workspace's boards that are in the trash and that the user was an admin
 /// of when they were deleted, which is who `undeleteBoard` lets bring them back: each
 /// with its identifier, its title, when it was deleted and by whom. The last deleted
 /// first; the pages cut that order. A `page` or `perPage` that is no whole number is
-/// 400. For users of the team.
+/// 400. For users of the workspace.
 #[utoipa::path(
     get,
-    path = "/teams/{teamId}/trash/boards",
+    path = "/w/{workspaceId}/trash/boards",
     operation_id = "getDeletedBoards",
     tag = tag::BOARDS,
-    params(TeamId, Page, PerPage),
+    params(WorkspaceId, Page, PerPage),
     responses((status = 200, description = "The deleted boards of the page.", body = Vec<DeletedItem>)),
 )]
-async fn handle_get_deleted_boards(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
-    RawQuery(query): RawQuery,
-) -> ApiResult {
-    let query = query.as_deref();
-    let user_id = session.user_id.as_str();
-    require_team_access(&app, user_id, &team_id).await?;
-    let (page, per_page) = page_params(query)?;
+async fn handle_get_deleted_boards(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) -> ApiResult {
+    let (page, per_page) = page_params(query.as_deref())?;
     Ok(json_response(
-        &app.deleted_boards(&team_id, user_id, page, per_page)
+        &ws.app
+            .deleted_boards(&ws.workspace_id, &ws.session.user_id, page, per_page)
             .await?,
     ))
 }

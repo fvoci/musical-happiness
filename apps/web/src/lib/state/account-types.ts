@@ -8,7 +8,7 @@ export interface Registration {
   password: string;
   /** The name to be shown by; empty or left out for none. */
   displayName?: string;
-  /** The team's invitation; the first account of a server needs none. */
+  /** The workspace's invitation; the first account of a server needs none. */
   token?: string;
 }
 

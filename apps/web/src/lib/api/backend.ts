@@ -36,7 +36,6 @@ import {
   type DownloadOptions,
   type Sharing,
   type SharingChange,
-  type Team,
   type UploadedFile,
   type UploadOptions,
   type User,
@@ -60,7 +59,6 @@ import {
   rolesOf,
   settingsOf,
   sharingOf,
-  teamOf,
   userOf,
   viewOf,
   wireBody,
@@ -103,10 +101,10 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const socket = new URL(`${basePath}/ws`, location.href);
     socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
     this.#live = new LiveChanges(socket.href, {
-      teamId: async () => {
-        const [team] = await this.teams();
-        if (!team) throw new Error('the reader belongs to no team');
-        return team.id;
+      workspaceId: async () => {
+        const [workspace] = await this.workspaces();
+        if (!workspace) throw new Error('the reader belongs to no workspace');
+        return workspace.id;
       },
       members: (boardId) => this.members(boardId),
     });
@@ -135,33 +133,29 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     await this.#http.request('/api/v1/users/me/password', {}, { method: 'POST', json: request });
   }
 
-  // ------------------------------------------- the reader and their team
+  // ------------------------------------------- the reader and their workspace
 
   async me(): Promise<User> {
     return userOf(await this.#http.request<Schemas['User']>('/api/v1/users/me'));
   }
 
-  async teams(): Promise<Team[]> {
-    return (await this.#http.request<Schemas['Team'][]>('/api/v1/teams')).map(teamOf);
-  }
-
   /**
-   * The people of the team. The server answers at most ten of them
-   * (`getTeamUsers` without a search; `docs/contract-assumptions.md`, D2).
+   * The people of the workspace. The server answers at most ten of them
+   * (`getWorkspaceUsers` without a search; `docs/contract-assumptions.md`, D2).
    */
-  async users(teamId: string): Promise<User[]> {
-    const users = await this.#http.request<Schemas['User'][]>('/api/v1/teams/{teamId}/users', {
-      teamId,
+  async users(workspaceId: string): Promise<User[]> {
+    const users = await this.#http.request<Schemas['User'][]>('/api/v1/w/{workspaceId}/users', {
+      workspaceId,
     });
     return users.map(userOf);
   }
 
-  async usersById(teamId: string, userIds: string[]): Promise<User[]> {
+  async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
     const ids = [...new Set(userIds)];
     if (ids.length === 0) return [];
     const users = await this.#http.request<Schemas['User'][]>(
-      '/api/v1/teams/{teamId}/users',
-      { teamId },
+      '/api/v1/w/{workspaceId}/users',
+      { workspaceId },
       { method: 'POST', json: ids },
     );
     return users.map(userOf);
@@ -196,9 +190,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   // ------------------------------------------------------------- boards
 
-  async boards(teamId: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>('/api/v1/teams/{teamId}/boards', {
-      teamId,
+  async boards(workspaceId: string): Promise<Board[]> {
+    const boards = await this.#http.request<Schemas['Board'][]>('/api/v1/w/{workspaceId}/boards', {
+      workspaceId,
     });
     return boards.map(boardOf);
   }
@@ -215,11 +209,11 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * the view to the board; the server makes the real ones.
    */
   async createBoard(
-    teamId: string,
+    workspaceId: string,
     draft: BoardDraft,
     firstView: ViewDraft,
   ): Promise<{ board: Board; view: BoardView }> {
-    const request = newBoardAndViewOf(teamId, draft, firstView);
+    const request = newBoardAndViewOf(workspaceId, draft, firstView);
     const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
       '/api/v1/boards-and-blocks',
       {},
@@ -255,40 +249,40 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
   }
 
-  /** `searchTeamBoards` by title (the server searches every team of the reader). */
-  async searchBoards(teamId: string, query: string): Promise<Board[]> {
+  /** `searchWorkspaceBoards` by title (the server searches every workspace of the reader). */
+  async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
     const boards = await this.#http.request<Schemas['Board'][]>(
-      '/api/v1/teams/{teamId}/boards/search',
-      { teamId },
+      '/api/v1/w/{workspaceId}/boards/search',
+      { workspaceId },
       { query: { q: query } },
     );
     return boards.map(boardOf);
   }
 
-  async templates(teamId: string): Promise<Board[]> {
+  async templates(workspaceId: string): Promise<Board[]> {
     const boards = await this.#http.request<Schemas['Board'][]>(
-      '/api/v1/teams/{teamId}/templates',
-      { teamId },
+      '/api/v1/w/{workspaceId}/templates',
+      { workspaceId },
     );
     return boards.map(boardOf);
   }
 
-  /** `duplicateBoard` into the team (`toTeam`). The copy is the first board of the answer. */
-  async duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board> {
+  /** `duplicateBoard` into the workspace (`toWorkspace`). The copy is the first board of the answer. */
+  async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
     const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
       '/api/v1/boards/{boardId}/duplicate',
       { boardId },
-      { method: 'POST', query: { asTemplate: String(asTemplate), toTeam: teamId } },
+      { method: 'POST', query: { asTemplate: String(asTemplate), toWorkspace: workspaceId } },
     );
     const [board] = made.boards;
     if (!board) throw new BackendError(500, { detail: 'the server made no copy' });
     return boardOf(board);
   }
 
-  async onboard(teamId: string): Promise<string> {
+  async onboard(workspaceId: string): Promise<string> {
     const started = await this.#http.request<Schemas['OnboardingStart']>(
-      '/api/v1/teams/{teamId}/onboard',
-      { teamId },
+      '/api/v1/w/{workspaceId}/onboard',
+      { workspaceId },
       { method: 'POST' },
     );
     return started.boardId;
@@ -370,11 +364,11 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
   }
 
-  /** `getTeamUsers` with a search: ten at most, whatever the case (D2). */
-  async searchUsers(teamId: string, query: string): Promise<User[]> {
+  /** `getWorkspaceUsers` with a search: ten at most, whatever the case (D2). */
+  async searchUsers(workspaceId: string, query: string): Promise<User[]> {
     const users = await this.#http.request<Schemas['User'][]>(
-      '/api/v1/teams/{teamId}/users',
-      { teamId },
+      '/api/v1/w/{workspaceId}/users',
+      { workspaceId },
       { query: { search: query } },
     );
     return users.map(userOf);
@@ -393,35 +387,35 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   // ------------------------------------------------------------ sidebar
 
-  async categories(teamId: string): Promise<Category[]> {
+  async categories(workspaceId: string): Promise<Category[]> {
     const categories = await this.#http.request<Schemas['CategoryBoards'][]>(
-      '/api/v1/teams/{teamId}/categories',
-      { teamId },
+      '/api/v1/w/{workspaceId}/categories',
+      { workspaceId },
     );
     return categories.map(categoryOf);
   }
 
   /**
-   * The sidebar's writes of a team go one after another: a rename or a
+   * The sidebar's writes of a workspace go one after another: a rename or a
    * filing reads the category first and sends what it read, so a write
    * begun before the last one ended would send what that one changed back.
    */
-  #sidebarTurn<T>(teamId: string, write: () => Promise<T>): Promise<T> {
-    return this.#inTurn(`sidebar ${teamId}`, write);
+  #sidebarTurn<T>(workspaceId: string, write: () => Promise<T>): Promise<T> {
+    return this.#inTurn(`sidebar ${workspaceId}`, write);
   }
 
   /** A new category of the reader, first among theirs (the server puts it there). */
-  createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
-    return this.#sidebarTurn(teamId, () => this.#createCategory(teamId, draft));
+  createCategory(workspaceId: string, draft: CategoryDraft): Promise<Category> {
+    return this.#sidebarTurn(workspaceId, () => this.#createCategory(workspaceId, draft));
   }
 
-  async #createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
+  async #createCategory(workspaceId: string, draft: CategoryDraft): Promise<Category> {
     // Read each time: another tab may have signed in as somebody else.
     const { id: userId } = await this.me();
-    const request: Schemas['NewCategory'] = { name: draft.name, userId, teamId };
+    const request: Schemas['NewCategory'] = { name: draft.name, userId, workspaceId };
     const made = await this.#http.request<Schemas['Category']>(
-      '/api/v1/teams/{teamId}/categories',
-      { teamId },
+      '/api/v1/w/{workspaceId}/categories',
+      { workspaceId },
       { method: 'POST', json: request },
     );
     return categoryOf({ ...made, boardMetadata: [] });
@@ -432,26 +426,26 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * folding together: the one the patch leaves is read first. A default
    * category keeps its name (the server answers 200 and leaves it).
    */
-  patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
-    return this.#sidebarTurn(teamId, () => this.#patchCategory(teamId, categoryId, patch));
+  patchCategory(workspaceId: string, id: string, patch: CategoryPatch): Promise<Category> {
+    return this.#sidebarTurn(workspaceId, () => this.#patchCategory(workspaceId, id, patch));
   }
 
   async #patchCategory(
-    teamId: string,
+    workspaceId: string,
     categoryId: string,
     patch: CategoryPatch,
   ): Promise<Category> {
-    const before = await this.#category(teamId, categoryId);
+    const before = await this.#category(workspaceId, categoryId);
     const request: Schemas['CategoryUpdate'] = {
       id: categoryId,
       userId: before.userId,
-      teamId,
+      workspaceId,
       name: patch.name ?? before.name,
       collapsed: patch.collapsed ?? before.collapsed,
     };
     const updated = await this.#http.request<Schemas['Category']>(
-      '/api/v1/teams/{teamId}/categories/{categoryId}',
-      { teamId, categoryId },
+      '/api/v1/w/{workspaceId}/categories/{categoryId}',
+      { workspaceId, categoryId },
       { method: 'PUT', json: request },
     );
     // The answer is the category alone; its boards are as they were read.
@@ -462,21 +456,21 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     };
   }
 
-  deleteCategory(teamId: string, categoryId: string): Promise<void> {
-    return this.#sidebarTurn(teamId, async () => {
+  deleteCategory(workspaceId: string, categoryId: string): Promise<void> {
+    return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
-        '/api/v1/teams/{teamId}/categories/{categoryId}',
-        { teamId, categoryId },
+        '/api/v1/w/{workspaceId}/categories/{categoryId}',
+        { workspaceId, categoryId },
         { method: 'DELETE' },
       );
     });
   }
 
-  reorderCategories(teamId: string, categoryIds: string[]): Promise<void> {
-    return this.#sidebarTurn(teamId, async () => {
+  reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void> {
+    return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
-        '/api/v1/teams/{teamId}/category-order',
-        { teamId },
+        '/api/v1/w/{workspaceId}/category-order',
+        { workspaceId },
         { method: 'PUT', json: categoryIds },
       );
     });
@@ -489,58 +483,58 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * made from the category as it is after the filing, read again.
    */
   moveBoardToCategory(
-    teamId: string,
+    workspaceId: string,
     boardId: string,
     categoryId: string,
     index: number,
   ): Promise<void> {
-    return this.#sidebarTurn(teamId, () =>
-      this.#moveBoardToCategory(teamId, boardId, categoryId, index),
+    return this.#sidebarTurn(workspaceId, () =>
+      this.#moveBoardToCategory(workspaceId, boardId, categoryId, index),
     );
   }
 
   async #moveBoardToCategory(
-    teamId: string,
+    workspaceId: string,
     boardId: string,
     categoryId: string,
     index: number,
   ): Promise<void> {
     await this.#http.request(
-      '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}',
-      { teamId, categoryId, boardId },
+      '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}',
+      { workspaceId, categoryId, boardId },
       { method: 'POST' },
     );
-    const filed = (await this.#category(teamId, categoryId)).boardIds.filter(
+    const filed = (await this.#category(workspaceId, categoryId)).boardIds.filter(
       (id) => id !== boardId,
     );
     filed.splice(Math.max(0, Math.min(index, filed.length)), 0, boardId);
     await this.#http.request(
-      '/api/v1/teams/{teamId}/categories/{categoryId}/board-order',
-      { teamId, categoryId },
+      '/api/v1/w/{workspaceId}/categories/{categoryId}/board-order',
+      { workspaceId, categoryId },
       { method: 'PUT', json: filed },
     );
   }
 
   setBoardHidden(
-    teamId: string,
+    workspaceId: string,
     categoryId: string,
     boardId: string,
     hidden: boolean,
   ): Promise<void> {
-    return this.#sidebarTurn(teamId, async () => {
+    return this.#sidebarTurn(workspaceId, async () => {
       await this.#http.request(
         hidden
-          ? '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide'
-          : '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide',
-        { teamId, categoryId, boardId },
+          ? '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/hide'
+          : '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/unhide',
+        { workspaceId, categoryId, boardId },
         { method: 'PUT' },
       );
     });
   }
 
   /** One of the reader's categories as the server has it now: 404 for none. */
-  async #category(teamId: string, categoryId: string): Promise<Category> {
-    const found = (await this.categories(teamId)).find((category) => category.id === categoryId);
+  async #category(workspaceId: string, categoryId: string): Promise<Category> {
+    const found = (await this.categories(workspaceId)).find((one) => one.id === categoryId);
     if (!found) {
       throw new BackendError(404, { detail: 'no such category' });
     }
@@ -941,12 +935,12 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
   }
 
-  /** `exportTeamArchive`, read with its progress. */
-  exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+  /** `exportWorkspaceArchive`, read with its progress. */
+  exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     return downloadWithProgress(
       this.#http,
-      '/api/v1/teams/{teamId}/archive/export',
-      { teamId },
+      '/api/v1/w/{workspaceId}/archive/export',
+      { workspaceId },
       'archive.boardarchive',
       options,
     );
@@ -958,7 +952,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
    * limit, as the server would (413). It takes a turn among the uploads: it
    * counts toward the same open uploads of the reader.
    */
-  async importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void> {
+  async importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<void> {
     const limit = (await this.#clientConfig()).maxImportSize;
     if (file.size > limit) {
       // The reason is this app's: the server's 413 may count entries, this one counts bytes.
@@ -970,7 +964,7 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     }
     await this.#uploadTurn(options?.signal);
     try {
-      await importInParts(this.#http, teamId, file, options);
+      await importInParts(this.#http, workspaceId, file, options);
     } finally {
       this.#uploading -= 1;
       this.#uploadWaiting.shift()?.();

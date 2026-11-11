@@ -1,11 +1,13 @@
 //! Administrators of the instance: who becomes one, who may make others one, and what
 //! is theirs alone (the signup token).
 
-use fvoci_model::{RegisterRequest, Team, User};
+use fvoci_model::{RegisterRequest, User, Workspace};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, PASSWORD, ROOT_TEAM_ID, Setup, TestServer, UNKNOWN_ID};
+use crate::common::{
+    ApiResponse, Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID,
+};
 
 const ADMINS_ONLY: &str = "only an administrator of the instance may do this";
 
@@ -44,9 +46,9 @@ fn check_admins_only(response: &ApiResponse) {
     assert_eq!(response.error_reason(), "admin_required", "the reason");
 }
 
-async fn team_as(client: &Client) -> Value {
+async fn workspace_as(client: &Client) -> Value {
     client
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
         .await
         .ok_json()
 }
@@ -182,13 +184,13 @@ async fn an_administrator_makes_and_unmakes_administrators() {
 }
 
 /// The signup token lets in whoever has it. It is answered to administrators and left
-/// out for everybody else, in the team and in the list of teams.
+/// out for everybody else, in the workspace and in the list of workspaces.
 #[tokio::test]
 async fn the_signup_token_is_for_administrators() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let for_admin = team_as(&th.client).await;
-    let for_other = team_as(&th.client2).await;
+    let for_admin = workspace_as(&th.client).await;
+    let for_other = workspace_as(&th.client2).await;
     let token = for_admin["signupToken"]
         .as_str()
         .expect("the administrator gets the token");
@@ -198,59 +200,58 @@ async fn the_signup_token_is_for_administrators() {
         None,
         "nobody else does: {for_other}"
     );
-    assert_eq!(for_other["id"], for_admin["id"], "the same team otherwise");
+    assert_eq!(
+        for_other["id"], for_admin["id"],
+        "the same workspace otherwise"
+    );
 
-    let listed_for_admin: Vec<Team> = th.client.get("/teams").await.ok_json();
-    let listed_for_other: Vec<Value> = th.client2.get("/teams").await.ok_json();
-    assert!(
-        listed_for_admin
-            .iter()
-            .all(|team| !team.signup_token.is_empty()),
-        "the list has the tokens for the administrator"
-    );
-    assert!(
-        listed_for_other
-            .iter()
-            .all(|team| team.get("signupToken").is_none()),
-        "and not for anybody else: {listed_for_other:?}"
-    );
+    // The list of a user's workspaces carries no token, for anybody.
+    for client in [&th.client, &th.client2] {
+        let listed: Vec<Value> = client.get("/users/me/workspaces").await.ok_json();
+        assert!(
+            listed
+                .iter()
+                .all(|workspace| workspace.get("signupToken").is_none()),
+            "{listed:?}"
+        );
+    }
 
     th.teardown().await;
 }
 
-/// Renewing the signup token is for administrators. The answer is the team with the new
+/// Renewing the signup token is for administrators. The answer is the workspace with the new
 /// token; the old token lets nobody in any more.
 #[tokio::test]
 async fn an_administrator_renews_the_signup_token() {
     let th = Setup::native().start().await.init_basic().await;
-    let path = format!("/teams/{ROOT_TEAM_ID}/signup-token");
-    let old = team_as(&th.client).await["signupToken"]
+    let path = format!("/w/{ROOT_WORKSPACE_ID}/signup-token");
+    let old = workspace_as(&th.client).await["signupToken"]
         .as_str()
         .expect("the token")
         .to_owned();
 
     check_admins_only(&th.client2.post_empty(&path).await);
-    // A team that does not exist is not found, whoever asks.
+    // A workspace that does not exist is not found, whoever asks.
     for client in [&th.client, &th.client2] {
         client
-            .post_empty(&format!("/teams/{UNKNOWN_ID}/signup-token"))
+            .post_empty(&format!("/w/{UNKNOWN_ID}/signup-token"))
             .await
-            .check_error(StatusCode::NOT_FOUND, "team not found");
+            .check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
     assert_eq!(
-        team_as(&th.client).await["signupToken"],
+        workspace_as(&th.client).await["signupToken"],
         json!(old),
         "nothing was renewed so far"
     );
 
-    let renewed: Team = th.client.post_empty(&path).await.ok_json();
-    assert_eq!(renewed.id, ROOT_TEAM_ID, "the team is answered");
+    let renewed: Workspace = th.client.post_empty(&path).await.ok_json();
+    assert_eq!(renewed.id, ROOT_WORKSPACE_ID, "the workspace is answered");
     assert_eq!(renewed.signup_token.len(), 43, "with a token");
     assert_ne!(renewed.signup_token, old, "a new one");
     assert_eq!(
-        team_as(&th.client).await["signupToken"],
+        workspace_as(&th.client).await["signupToken"],
         json!(renewed.signup_token),
-        "which is the team's token from now on"
+        "which is the workspace's token from now on"
     );
 
     let with_old = th

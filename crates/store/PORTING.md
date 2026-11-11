@@ -67,35 +67,35 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 | `DuplicateBlock` | `duplicate_block(board_id, block_id, user_id, DuplicateAs)` |
 | `InsertBoard`, `InsertBoardWithAdmin` | `insert_board(&mut Board, user_id)`, `insert_board_with_admin(&mut Board, user_id) -> BoardMember` |
 | `PatchBoard`, `GetBoard` | `patch_board(board_id, &BoardPatch, user_id) -> Board`, `get_board(board_id)` |
-| `GetBoardsForUserAndTeam` | `get_boards_for_user_and_team(user_id, team_id, PublicBoards)` |
-| `GetBoardsInTeamByIds` | `get_boards_in_team_by_ids(&[String], team_id)` |
+| `GetBoardsForUserAndTeam` | `get_boards_for_user_and_workspace(user_id, workspace_id, PublicBoards)` |
+| `GetBoardsInTeamByIds` | `get_boards_in_workspace_by_ids(&[String], workspace_id)` |
 | `DeleteBoard`, `UndeleteBoard` | `delete_board(board_id, user_id)`, `undelete_board(board_id, modified_by)` |
 | `GetBoardCount`, `GetBoardHistory` | `get_board_count()`, `get_board_history(board_id, &HistoryQuery)` |
 | `SaveMember`, `DeleteMember` | `save_member(&BoardMember)`, `delete_member(board_id, user_id)` |
 | `GetMemberForBoard`, `GetMembersForBoard`, `GetMembersForUser` | `get_member_for_board(board_id, user_id)`, `get_members_for_board(board_id)`, `get_members_for_user(user_id)` |
 | `GetBoardMemberHistory` | `get_board_member_history(board_id, user_id, Option<u32>) -> Vec<BoardMemberHistoryEntry>` |
-| `SearchBoardsForUser`, `SearchBoardsForUserInTeam` | `search_boards_for_user(term, BoardSearchField, user_id, PublicBoards)`, `search_boards_for_user_in_team(team_id, term, user_id)` |
-| `GetTemplateBoards`, `RemoveDefaultTemplates` | `get_template_boards(team_id, user_id)`, `remove_default_templates(&[Board])` |
+| `SearchBoardsForUser`, `SearchBoardsForUserInTeam` | `search_boards_for_user(term, BoardSearchField, user_id, PublicBoards)`, `search_boards_for_user_in_workspace(workspace_id, term, user_id)` |
+| `GetTemplateBoards`, `RemoveDefaultTemplates` | `get_template_boards(workspace_id, user_id)`, `remove_default_templates(&[Board])` |
 | `CreateBoardsAndBlocks`, `CreateBoardsAndBlocksWithAdmin` | `create_boards_and_blocks(&mut BoardsAndBlocks, user_id)`, `create_boards_and_blocks_with_admin(..) -> Vec<BoardMember>` |
 | `PatchBoardsAndBlocks`, `DeleteBoardsAndBlocks` | `patch_boards_and_blocks(&PatchBoardsAndBlocks, user_id) -> BoardsAndBlocks`, `delete_boards_and_blocks(&DeleteBoardsAndBlocks, user_id)` |
-| `DuplicateBoard` | `duplicate_board(board_id, user_id, Option<&str> /* to_team */, DuplicateAs) -> (BoardsAndBlocks, Vec<BoardMember>)` |
+| `DuplicateBoard` | `duplicate_board(board_id, user_id, Option<&str> /* to_workspace */, DuplicateAs) -> (BoardsAndBlocks, Vec<BoardMember>)` |
 | `GetRegisteredUserCount` | `get_registered_user_count()` |
 | `GetUserByID`, `GetUserByEmail`, `GetUserByUsername` | `get_user_by_id`, `get_user_by_email`, `get_user_by_username` |
-| `GetUsersList`, `GetUsersByTeam`, `SearchUsersByTeam` | `get_users_list(&[String])`, `get_users_by_team()`, `search_users_by_team(query)` |
+| `GetUsersList`, `GetUsersByTeam`, `SearchUsersByTeam` | `get_users_list(&[String])`, `get_users_by_workspace()`, `search_users_by_workspace(query)` |
 | `CreateUser`, `UpdateUser` | `create_user(&mut User)`, `update_user(&mut User)` |
 | `UpdateUserPassword`, `UpdateUserPasswordByID` | `reset_user_password(username, hash) -> Vec<String>`(S6: 그 사용자들의 세션도 같은 트랜잭션에서 지우고 사용자 ID를 돌려준다), `update_user_password_by_id(user_id, hash)` |
 | `PatchUserPreferences`, `GetUserPreferences` | `patch_user_preferences(user_id, &UserPreferencesPatch) -> Vec<Preference>`, `get_user_preferences(user_id)` |
 | `GetActiveUserCount` | `get_active_user_count(updated_seconds_ago)` |
 | `GetSession`, `CreateSession`, `RefreshSession`, `UpdateSession`, `DeleteSession`, `CleanUpSessions` | `get_session(token, expire_seconds)`, `create_session(&Session)`, `refresh_session(&Session)`, `update_session(&Session)`, `delete_session(id)`, `clean_up_sessions(expire_seconds)` |
 | `GetSystemSetting`, `GetSystemSettings`, `SetSystemSetting` | `get_system_setting(key) -> Option<String>`, `get_system_settings()`, `set_system_setting(key, value)` |
-| `UpsertTeamSignupToken`, `UpsertTeamSettings`, `GetTeam`, `GetTeamCount` | `upsert_team_signup_token(&Team)`, `upsert_team_settings(&Team)`, `get_team(id)`, `get_team_count()` |
-| `GetTeamsForUser`, `GetAllTeams` | `get_all_teams()` (standalone에서는 둘이 같은 질의다) |
+| `UpsertTeamSignupToken`, `UpsertTeamSettings`, `GetTeam`, `GetTeamCount` | `create_workspace(&Workspace)`, `set_workspace_signup_token(id, token, modified_by)`, `get_workspace(id)`. 설정만 고치는 것과 수는 없다 |
+| `GetTeamsForUser`, `GetAllTeams` | `get_workspaces()` (standalone에서는 둘이 같은 질의다) |
 | `UpsertSharing`, `GetSharing` | `upsert_sharing(&Sharing)`, `get_sharing(board_id)` |
 | `CreateSubscription`, `DeleteSubscription`, `GetSubscription`, `GetSubscriptions` | `create_subscription(Subscription)`, `delete_subscription(block_id, subscriber_id)`, `get_subscription(..)`, `get_subscriptions(subscriber_id)` |
 | `GetSubscribersForBlock`, `GetSubscribersCountForBlock` | `get_subscribers_for_block(block_id)`, `get_subscribers_count_for_block(block_id)` |
 | `GetFileInfo`, `SaveFileInfo` | `get_file_info(id) -> FileInfo`, `save_file_info(&FileInfo)` |
-| `GetCategory`, `GetUserCategories`, `CreateCategory`, `UpdateCategory`, `DeleteCategory`, `ReorderCategories` | `get_category(id)`, `get_user_categories(user_id, team_id)`, `create_category(&Category)`, `update_category(&Category)`, `delete_category(id, user_id, team_id)`, `reorder_categories(user_id, team_id, Vec<String>)` |
-| `GetUserCategoryBoards`, `AddUpdateCategoryBoard`, `ReorderCategoryBoards`, `SetBoardVisibility` | `get_user_category_boards(user_id, team_id)`, `add_update_category_board(user_id, category_id, &[String])`, `reorder_category_boards(category_id, Vec<String>)`, `set_board_visibility(user_id, category_id, board_id, BoardVisibility)` |
+| `GetCategory`, `GetUserCategories`, `CreateCategory`, `UpdateCategory`, `DeleteCategory`, `ReorderCategories` | `get_category(id)`, `get_user_categories(user_id, workspace_id)`, `create_category(&Category)`, `update_category(&Category)`, `delete_category(id, user_id, workspace_id)`, `reorder_categories(user_id, workspace_id, Vec<String>)` |
+| `GetUserCategoryBoards`, `AddUpdateCategoryBoard`, `ReorderCategoryBoards`, `SetBoardVisibility` | `get_user_category_boards(user_id, workspace_id)`, `add_update_category_board(user_id, category_id, &[String])`, `reorder_category_boards(category_id, Vec<String>)`, `set_board_visibility(user_id, category_id, board_id, BoardVisibility)` |
 | `DBType`, `DBVersion`, `Shutdown` | `db_type()`, `db_version()`, `close()` |
 | `sqlstore.New` + `server.NewStore` | `Store::connect(DbType, dbconfig, table_prefix)` |
 
@@ -113,14 +113,14 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 | 원본 파일 | 원본 테스트 함수 → Rust 테스트 |
 |---|---|
 | `blocks.go` | `testInsertBlock` → `blocks::insert_block`, `testInsertBlocks` → `insert_blocks`, `testPatchBlock` → `patch_block`, `testPatchBlocks` → `patch_blocks`, `testDeleteBlock` → `delete_block`, `testUndeleteBlock` → `undelete_block`, `testGetSubTree2` → `get_sub_tree2`, `testGetBlocks` → `get_blocks`, `testGetBlock` → `get_block`, `testDuplicateBlock` → `duplicate_block`, `testGetBlockMetadata` → `get_block_metadata`, `testUndeleteBlockChildren` → `undelete_block_children` |
-| `boards.go` | `testGetBoard` → `boards::get_board`, `testGetBoardsForUserAndTeam` → `get_boards_for_user_and_team`, `testGetBoardsInTeamByIds` → `get_boards_in_team_by_ids`, `testInsertBoard` → `insert_board`, `testPatchBoard` → `patch_board`, `testDeleteBoard` → `delete_board`, `testUndeleteBoard` → `undelete_board`, `testInsertBoardWithAdmin` → `insert_board_with_admin`, `testSaveMember` → `save_member`, `testGetMemberForBoard` → `get_member_for_board`, `testGetMembersForBoard` → `get_members_for_board`, `testGetMembersForUser` → `get_members_for_user`, `testDeleteMember` → `delete_member`, `testSearchBoardsForUser` → `search_boards_for_user`, `testSearchBoardsForUserInTeam` → `search_boards_for_user_in_team`, `testGetBoardHistory` → `get_board_history`, `testGetBoardCount` → `get_board_count` |
+| `boards.go` | `testGetBoard` → `boards::get_board`, `testGetBoardsForUserAndTeam` → `get_boards_for_user_and_workspace`, `testGetBoardsInTeamByIds` → `get_boards_in_workspace_by_ids`, `testInsertBoard` → `insert_board`, `testPatchBoard` → `patch_board`, `testDeleteBoard` → `delete_board`, `testUndeleteBoard` → `undelete_board`, `testInsertBoardWithAdmin` → `insert_board_with_admin`, `testSaveMember` → `save_member`, `testGetMemberForBoard` → `get_member_for_board`, `testGetMembersForBoard` → `get_members_for_board`, `testGetMembersForUser` → `get_members_for_user`, `testDeleteMember` → `delete_member`, `testSearchBoardsForUser` → `search_boards_for_user`, `testSearchBoardsForUserInTeam` → `search_boards_for_user_in_workspace`, `testGetBoardHistory` → `get_board_history`, `testGetBoardCount` → `get_board_count` |
 | `boards_and_blocks.go` | `testCreateBoardsAndBlocks` → `boards_and_blocks::create_boards_and_blocks`, `testPatchBoardsAndBlocks` → `patch_boards_and_blocks`, `testDeleteBoardsAndBlocks` → `delete_boards_and_blocks`, `testDuplicateBoard` → `duplicate_board` |
 | `category.go` | `testGetCreateCategory` → `categories::get_create_category`, `testUpdateCategory` → `update_category`, `testDeleteCategory` → `delete_category`, `testGetUserCategories` → `get_user_categories`, `testReorderCategories` → `reorder_categories`, `testReorderCategoryBoards` → `reorder_category_boards` |
 | `categoryBoards.go` | `testGetUserCategoryBoards` → `category_boards::get_user_category_boards`, `testAddUpdateCategoryBoard` → `add_update_category_board`, `testSetBoardVisibility` → `set_board_visibility` |
-| `users.go` | `testGetUsersByTeam` → `users::get_users_by_team`, `testCreateAndGetUser` → `create_and_get_user`, `testGetUsersList` → `get_users_list`, `testCreateAndUpdateUser` → `create_and_update_user`, `testCreateAndGetRegisteredUserCount` → `create_and_get_registered_user_count`, `testPatchUserProps` → `patch_user_props` |
+| `users.go` | `testGetUsersByTeam` → `users::get_users_by_workspace`, `testCreateAndGetUser` → `create_and_get_user`, `testGetUsersList` → `get_users_list`, `testCreateAndUpdateUser` → `create_and_update_user`, `testCreateAndGetRegisteredUserCount` → `create_and_get_registered_user_count`, `testPatchUserProps` → `patch_user_props` |
 | `session.go` | `testCreateAndGetAndDeleteSession` → `sessions::create_and_get_and_delete_session`, `testGetActiveUserCount` → `get_active_user_count`, `testUpdateSession` → `update_session` |
 | `system.go` | `testSetGetSystemSettings` → `system_settings::set_get_system_settings` |
-| `teams.go` | `testGetTeam` → `teams::get_team`, `testUpsertTeamSignupToken` → `upsert_team_signup_token`, `testUpsertTeamSettings` → `upsert_team_settings`, `testGetAllTeams` → `get_all_teams` |
+| `teams.go` | `testGetTeam` → `workspaces::get_workspace`, `testUpsertTeamSignupToken` → `upsert_workspace_signup_token`, `testUpsertTeamSettings`는 옮기지 않았다(워크스페이스는 통째로 만든다), `testGetAllTeams` → `get_all_workspaces` |
 | `sharing.go` | `testUpsertSharingAndGetSharing` → `sharing::upsert_sharing_and_get_sharing` |
 | `subscriptions.go` | `testCreateSubscription` → `subscriptions::create_subscription`, `testDeleteSubscription` → `delete_subscription`, `testUndeleteSubscription` → `undelete_subscription`, `testGetSubscription` → `get_subscription`, `testGetSubscriptions` → `get_subscriptions`, `testGetSubscribersForBlock` → `get_subscribers_for_block` |
 | `files.go` | `StoreTestFileStore` → `file_info::file_store` |
@@ -130,7 +130,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 그대로 옮기지 못한 단언:
 
 - **직렬화할 수 없는 값**(`"invalid fields data"`, `"invalid properties field board"`): 원본은 JSON 필드에 Go 함수 값을 넣어 직렬화를 실패시킨다. `serde_json` 맵은 그런 값을 담을 수 없어 케이스 자체가 성립하지 않는다(3곳, 테스트 주석에 표시).
-- **부분 결과 + 오류**(의도적 차이 9): `get_blocks_by_ids`, `get_boards_in_team_by_ids`, `get_users_list`에서 원본이 오류와 함께 받은 목록의 길이를 검사하는 단언은 다른 조회로 같은 기대값을 확인한다.
+- **부분 결과 + 오류**(의도적 차이 9): `get_blocks_by_ids`, `get_boards_in_workspace_by_ids`, `get_users_list`에서 원본이 오류와 함께 받은 목록의 길이를 검사하는 단언은 다른 조회로 같은 기대값을 확인한다.
 - **`assert.Nil(결과)`와 오류를 함께 보는 단언**: `Result`는 둘을 함께 담지 않는다. 오류 쪽 단언은 유지했다.
 - **`testSaveMember`**: 원본은 반환된 멤버를 검사한다. `save_member`는 값을 돌려주지 않아 같은 멤버를 `get_member_for_board`로 읽어 검사한다.
 - **`testCreateSubscription/"invalid subscription"`**: 원본은 빈 구독자 타입에서 시작한다. enum에는 빈 값이 없어 3단계와 4단계가 같은 호출이다.
@@ -180,7 +180,7 @@ SQLite와 PostgreSQL을 지원하는 SQL 스토어다. 테이블·컬럼·부기
 - `get_session`은 `create_at`/`update_at`을 읽지 않아 항상 0이다. 그래서 인증 계층이 요청마다 세션을 갱신한다(`session.go:30-34`, `server/auth/auth.go:41`).
 - 세션 만료·정리 인자는 초 단위이고, 정확히 경계에 있는 세션은 조회도 정리도 되지 않는다(`session.go:105-111`).
 - 없는 세션·팀·공유의 오류 문구는 `sql: no rows in result set`다(`StoreError::NoRows`). 이 문구가 응답에 그대로 나간다.
-- `upsert_team_settings`는 넘겨받은 가입 토큰을 무시하고, 새 팀이면 토큰을 새로 만든다(`team.go:58`).
+- 원본의 `UpsertTeamSettings`는 넘겨받은 가입 토큰을 무시하고 새 팀이면 토큰을 새로 만든다(`team.go:58`). 포트는 워크스페이스를 통째로 만들고(`create_workspace`) 가입 토큰만 따로 바꾼다.
 - 이미 삭제된 구독을 지워도 성공한다. 다시 구독하면 저장된 `create_at`과 타입은 그대로인데 반환 값은 새 값이다(`subscriptions.go:82-104`).
 - `save_file_info`는 항상 `archived = false`를 쓰고, 테이블에 키가 없어 중복 행이 생길 수 있다(`file.go:36`).
 

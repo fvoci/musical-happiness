@@ -258,7 +258,7 @@ fn required_of(schemas: &Value, schema: &Value) -> Vec<String> {
 fn what_is_always_there_is_what_the_server_writes() {
     use fvoci_model::{
         Block, Board, BoardMember, BoardsAndBlocks, Card, Category, CategoryBoardMetadata,
-        CategoryBoards, ClientConfig, FileInfo, Sharing, Team, User,
+        CategoryBoards, ClientConfig, FileInfo, Sharing, User, Workspace,
     };
 
     let text = document().expect("the document");
@@ -279,7 +279,7 @@ fn what_is_always_there_is_what_the_server_writes() {
         ("ClientConfig", sent(&ClientConfig::default())),
         ("FileInfo", sent(&FileInfo::default())),
         ("Sharing", sent(&Sharing::default())),
-        ("Team", sent(&Team::default())),
+        ("Workspace", sent(&Workspace::default())),
         ("User", sent(&User::default())),
     ];
     for (name, mut members) in written {
@@ -482,7 +482,6 @@ const ORDERS: &[(&str, &str)] = &[
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
-    ("getBoards", "Oldest first"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),
@@ -501,24 +500,23 @@ const ORDERS: &[(&str, &str)] = &[
         "getSubscriptions",
         "Oldest first, and by the identifier of the block",
     ),
-    ("getTeamUsers", "Oldest account first"),
-    (
-        "getTeamUsersById",
-        "Oldest account first, not in the order of the request",
-    ),
-    ("getTeams", "oldest first"),
     ("getTemplates", "Each of the two oldest first"),
     (
         "getUsers",
         "Oldest account first, not in the order of the request",
     ),
     ("getWorkspaceBoards", "Oldest first"),
+    ("getWorkspaceUsers", "Oldest account first"),
+    (
+        "getWorkspaceUsersById",
+        "Oldest account first, not in the order of the request",
+    ),
     ("patchBoardsAndBlocks", "each in the order of the request"),
     ("reorderCardProperties", "in their new order"),
     ("reorderCategories", "in their new order"),
     ("reorderCategoryBoards", "in their new order"),
     ("searchBoards", "Oldest first"),
-    ("searchTeamBoards", "Oldest first"),
+    ("searchWorkspaceBoards", "Oldest first"),
 ];
 
 /// Whether what an operation answers is a list, or boards with their blocks.

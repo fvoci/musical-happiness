@@ -1,7 +1,7 @@
 <!--
   "Add board": an empty board, or a board made from a template. The
-  templates are read each time the dialog opens: the team's (which can be
-  opened to be changed) and then the built-in ones every team is offered.
+  templates are read each time the dialog opens: the workspace's (which can be
+  opened to be changed) and then the built-in ones every workspace is offered.
   A template is changed where any board is: on its own page.
 -->
 <script lang="ts">
@@ -27,7 +27,7 @@
     workspace: Workspace;
     onEmptyBoard: () => void;
     onFromTemplate: (template: Board) => void;
-    /** Opens a template of the team on its page, to be changed. */
+    /** Opens a template of the workspace on its page, to be changed. */
     onEditTemplate: (template: Board) => void;
   }
 

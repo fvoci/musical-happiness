@@ -68,7 +68,12 @@ pub(crate) fn run(root: &Path, licenses: Licenses) -> Result<()> {
                 &[("RUSTDOCFLAGS", "-D warnings")],
             )
         }),
-        Step::new("names", || former_names_are_absent(root)),
+        Step::new("names", || {
+            // Both run, so that one's failure does not hide the other's.
+            let products = former_names_are_absent(root);
+            let workspaces = crate::names::run(root);
+            products.and(workspaces)
+        }),
         Step::new("layers", || crate::layers::run(root)),
         Step::new("lengths", || crate::lengths::run(root)),
         Step::new("contract", || {

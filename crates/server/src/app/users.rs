@@ -109,14 +109,14 @@ impl App {
         Ok(true)
     }
 
-    /// Returns the team's users whose login name or display name matches
+    /// Returns the workspace's users whose login name or display name matches
     /// `search_query`, at most ten.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
-    pub async fn search_team_users(&self, search_query: &str) -> Result<Vec<User>, AppError> {
-        Ok(self.store().search_users_by_team(search_query).await?)
+    pub async fn search_workspace_users(&self, search_query: &str) -> Result<Vec<User>, AppError> {
+        Ok(self.store().search_users_by_workspace(search_query).await?)
     }
 
     /// Returns what a user has set about how things are shown to them; what was never

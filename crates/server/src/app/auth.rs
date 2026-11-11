@@ -18,7 +18,7 @@ use crate::metrics::{LoginOutcome, Metrics};
 /// What a registration came with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admission {
-    /// The team's signup token, which the caller has checked.
+    /// The workspace's signup token, which the caller has checked.
     WithToken,
     /// Nothing: only the first user of the instance gets in so.
     FirstUserOnly,

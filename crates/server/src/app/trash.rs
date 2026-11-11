@@ -36,7 +36,7 @@ impl App {
             .collect())
     }
 
-    /// Returns one page of the boards of a team that are in the trash and that the user
+    /// Returns one page of the boards of a workspace that are in the trash and that the user
     /// was an admin of when they were deleted: whom `undeleteBoard` lets bring them
     /// back. The last deleted first; `page` and `per_page` are read as for cards.
     ///
@@ -45,7 +45,7 @@ impl App {
     /// Returns the store's error if the trash cannot be read.
     pub async fn deleted_boards(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
         page: i64,
         per_page: i64,
@@ -57,7 +57,7 @@ impl App {
         };
         let deleted = self
             .store()
-            .get_deleted_boards(team_id, user_id, paging)
+            .get_deleted_boards(workspace_id, user_id, paging)
             .await?;
         Ok(deleted
             .into_iter()

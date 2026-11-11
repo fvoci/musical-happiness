@@ -31,9 +31,9 @@
 | `User`, `UserPreferencesPatch`, `Session` | 같은 이름 | `Session`은 와이어에 나가지 않아 serde 구현 없음 |
 | `LoginRequest`, `LoginResponse`, `RegisterRequest`, `ChangePasswordRequest` | 같은 이름, `validate` → `AuthParamError` | |
 | `auth.IsEmailValid` | `is_email_valid` | 정규식 대신 같은 규칙을 직접 검사 |
-| `Team`, `Sharing`, `Subscription`, `Subscriber`, `ClientConfig`, `ArchiveHeader`, `ArchiveLine`, `ErrorResponse` | 같은 이름 | |
+| `Team`, `Sharing`, `Subscription`, `Subscriber`, `ClientConfig`, `ArchiveHeader`, `ArchiveLine`, `ErrorResponse` | `Workspace`, 나머지는 같은 이름 | |
 | 호스트 애플리케이션의 파일 정보 구조체 (`GetFileInfo`가 돌려주는 값) | `FileInfo` | 원본 SQL이 읽고 쓰는 멤버와 `model.NewFileInfo`가 채우는 멤버만: `id`, `user_id`, `create_at`, `update_at`, `delete_at`, `name`, `extension`, `size`, `mime_type`, `archived`. `path`는 직렬화하지 않는다 |
-| `SingleUser`, `GlobalTeamID`, `SystemUserID` | `SINGLE_USER_ID`, `GLOBAL_TEAM_ID`, `SYSTEM_USER_ID` | |
+| `SingleUser`, `GlobalTeamID`, `SystemUserID` | 없다 | 단일 사용자 모드와 시스템 사용자가 없다. 내장 템플릿의 워크스페이스는 `fvoci-store`의 `SYSTEM_WORKSPACE_ID`다 |
 
 옮기지 않은 것:
 
@@ -83,7 +83,7 @@
 - **`generate_block_ids`:** `contentOrder`가 배열이 아닌 블록은 그 블록의 `defaultTemplateId`가 참조로 수집되지 않는다(`server/model/blockid.go:33-41`의 `continue`).
 - **`DeleteBoardsAndBlocks::validate`는 보드만 요구한다.** 블록 목록은 비어도 된다.
 - **비밀번호 최소 길이 8은 바이트 수다**(`server/model/auth.go:128`).
-- **오류 메시지 문구는 원본 그대로다**(`"Board IDs do not match"`, `"invalid card, ID is missing"`, `"category team id ID cannot be empty"` 등). 응답의 `detail` 멤버로 나가므로 Rust 관례(소문자, 마침표 없음)에 맞추지 않았다.
+- **오류 메시지 문구는 원본 그대로다**(`"Board IDs do not match"`, `"invalid card, ID is missing"` 등. 원본의 팀은 워크스페이스로 바꿔 말한다). 응답의 `detail` 멤버로 나가므로 Rust 관례(소문자, 마침표 없음)에 맞추지 않았다.
 
 ## S3–S5에서 바뀐 것
 

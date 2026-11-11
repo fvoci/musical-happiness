@@ -12,7 +12,7 @@
     loads again in the chosen one. The list and the function that changes it
     come from the app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
-  - Archives: every board of the team exported, an archive imported; the
+  - Archives: every board of the workspace exported, an archive imported; the
     progress shows at the foot of the page (`Transfers.svelte`).
   - The display name (`DisplayNameField.svelte`).
   - Who is signed in, signing out and changing the password: only where the
@@ -103,9 +103,9 @@
   const uid = $props.id();
   let importField = $state<HTMLInputElement | null>(null);
 
-  /** Saves an archive of every board of the team, once it has all arrived. */
-  async function exportTeam(): Promise<void> {
-    const archive = await workspace.exportTeam();
+  /** Saves an archive of every board of the workspace, once it has all arrived. */
+  async function exportWorkspace(): Promise<void> {
+    const archive = await workspace.exportWorkspace();
     if (archive) saveBlob(archive.bytes, archive.name);
   }
 
@@ -304,11 +304,11 @@
           <Button
             variant="outline"
             class="roomy:min-h-touch"
-            data-testid="export-team"
-            onclick={() => void exportTeam()}
+            data-testid="export-workspace"
+            onclick={() => void exportWorkspace()}
           >
             <DownloadIcon aria-hidden="true" />
-            {m.shell_export_team()}
+            {m.shell_export_workspace()}
           </Button>
           <Button
             variant="outline"

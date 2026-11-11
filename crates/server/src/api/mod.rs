@@ -24,7 +24,6 @@ mod session;
 mod sharing;
 mod subscriptions;
 mod system;
-mod teams;
 mod templates;
 mod trash;
 mod uploads;
@@ -45,7 +44,7 @@ pub(crate) use access::{
     BlockAction, board_refusal, require_admin, require_block_patch_permission,
     require_block_permission, require_board_permission, require_board_visible,
     require_delete_permission, require_deletion_permission, require_permission_through,
-    require_team_access, require_team_in_body, user_is_guest,
+    require_workspace_access, require_workspace_in_body, user_is_guest,
 };
 pub(crate) use body::{
     decode_json, decode_object, decode_object_members, decode_object_with, decode_with_document,
@@ -106,7 +105,6 @@ fn routes() -> Routes {
         .merge(search::routes())
         .merge(sharing::routes())
         .merge(subscriptions::routes())
-        .merge(teams::routes())
         .merge(templates::routes())
         .merge(uploads::routes())
         .merge(users::routes())

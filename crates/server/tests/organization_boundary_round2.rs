@@ -15,13 +15,13 @@ mod transfers;
 #[path = "organization_boundary_round2/webhooks.rs"]
 mod webhooks;
 
-use fvoci_model::{Board, OrgRole, Team, WorkspaceRole, new_id};
+use fvoci_model::{Board, OrgRole, Workspace, WorkspaceRole, new_id};
 use fvoci_store::DbType;
 use fvoci_store::testing::db_type_of_the_tests;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use common::{ApiResponse, Client, ROOT_TEAM_ID, Setup, TestServer, UNKNOWN_ID};
+use common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID};
 
 fn open(config: &mut fvoci_server::config::Configuration) {
     "open".clone_into(&mut config.org_creation);
@@ -77,7 +77,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
         .post(
             "/boards",
             &json!({
-                "teamId": ROOT_TEAM_ID, "type": "P", "title": "Workspace secret"
+                "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Workspace secret"
             }),
         )
         .await
@@ -121,9 +121,9 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
             .expect("admission is removed without changing board roles");
     }
     if destination == AfterRemoval::OtherOrganization {
-        let workspace = Team {
+        let workspace = Workspace {
             id: new_id(),
-            ..Team::default()
+            ..Workspace::default()
         };
         let org_id = ts
             .app
@@ -142,7 +142,7 @@ async fn former_member(destination: AfterRemoval) -> FormerMember {
             .expect("its workspace membership");
     }
     ts.client2
-        .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/boards"))
         .await
         .check_not_found();
     FormerMember {
@@ -310,7 +310,7 @@ async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
         .post(
             "/boards",
             &json!({
-                "teamId": ROOT_TEAM_ID, "type": "P", "title": "Deleted workspace secret"
+                "workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "Deleted workspace secret"
             }),
         )
         .await

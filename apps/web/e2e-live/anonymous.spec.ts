@@ -50,7 +50,7 @@ test('a body read with a read token alone names nobody in its mentions, is drawn
               { type: 'text', text: 'ask ' },
               { type: 'mention', attrs: { userId: me.id } },
               { type: 'text', text: ' and ' },
-              // A user's identifier the server takes, of nobody the team has.
+              // A user's identifier the server takes, of nobody the workspace has.
               { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-0000000000ff' } },
             ],
           },

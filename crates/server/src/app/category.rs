@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use fvoci_model::{Category, CategoryType};
 
 use super::App;
-use super::category_boards::{DEFAULT_CATEGORY_BOARDS, category_of_team_takes};
+use super::category_boards::{DEFAULT_CATEGORY_BOARDS, category_of_workspace_takes};
 use crate::auth::now_millis;
 use crate::error::AppError;
 
@@ -46,7 +46,7 @@ impl App {
     /// # Errors
     ///
     /// Returns a bad request if `category` is not valid, a not-found error if the user
-    /// and team `category` names have no such category (also if it is deleted), or the
+    /// and workspace `category` names have no such category (also if it is deleted), or the
     /// store's error if it cannot be written or read back.
     pub async fn update_category(&self, mut category: Category) -> Result<Category, AppError> {
         let now = now_millis();
@@ -54,7 +54,7 @@ impl App {
         category.validate()?;
 
         let existing = self
-            .user_category(&category.team_id, &category.user_id, &category.id)
+            .user_category(&category.workspace_id, &category.user_id, &category.id)
             .await?;
         if existing.category_type == CategoryType::System {
             category.name = existing.name;
@@ -67,29 +67,31 @@ impl App {
         Ok(updated)
     }
 
-    /// Deletes one of a user's categories in a team, after moving its boards to the
+    /// Deletes one of a user's categories in a workspace, after moving its boards to the
     /// user's default category, and tells the owner's connection about it.
     ///
     /// # Errors
     ///
-    /// Returns a not-found error if the user has no such category in the team (also if
+    /// Returns a not-found error if the user has no such category in the workspace (also if
     /// it is deleted already), a permission error if it is a system category, or the
     /// store's error if a read or write fails.
     pub async fn delete_category(
         &self,
         category_id: &str,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<Category, AppError> {
-        let existing = self.user_category(team_id, user_id, category_id).await?;
+        let existing = self
+            .user_category(workspace_id, user_id, category_id)
+            .await?;
         if existing.category_type == CategoryType::System {
             return Err(AppError::forbidden("a system category cannot be deleted"));
         }
 
-        self.move_boards_to_default_category(user_id, team_id, category_id)
+        self.move_boards_to_default_category(user_id, workspace_id, category_id)
             .await?;
         self.store()
-            .delete_category(category_id, user_id, team_id)
+            .delete_category(category_id, user_id, workspace_id)
             .await?;
 
         // The category is gone from the store. What is sent to the user's connections is
@@ -102,16 +104,16 @@ impl App {
         Ok(deleted)
     }
 
-    /// Returns one of a user's categories in a team.
+    /// Returns one of a user's categories in a workspace.
     ///
     /// # Errors
     ///
     /// Returns a not-found error if there is no such category, or it is another user's or
-    /// in another team: the categories of a user are nobody else's
+    /// in another workspace: the categories of a user are nobody else's
     /// business, so for everyone else they do not exist.
     pub(crate) async fn user_category(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
         category_id: &str,
     ) -> Result<Category, AppError> {
@@ -120,24 +122,24 @@ impl App {
             Err(error) if error.is_not_found() => return Err(AppError::not_found(CATEGORY)),
             Err(error) => return Err(error.into()),
         };
-        if category.user_id != user_id || category.team_id != team_id {
+        if category.user_id != user_id || category.workspace_id != workspace_id {
             return Err(AppError::not_found(CATEGORY));
         }
         Ok(category)
     }
 
     /// Moves the boards of a category to the user's default category, which is created
-    /// if the user does not have it yet. A board of another team, filed here before the
-    /// categories took the boards of their own team only, goes to the user's default
-    /// category of its own team if the user works there, and is filed nowhere if not. A
+    /// if the user does not have it yet. A board of another workspace, filed here before the
+    /// categories took the boards of their own workspace only, goes to the user's default
+    /// category of its own workspace if the user works there, and is filed nowhere if not. A
     /// board that is gone meanwhile is left out.
     async fn move_boards_to_default_category(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         source_category_id: &str,
     ) -> Result<(), AppError> {
-        let category_boards = self.user_category_boards(user_id, team_id).await?;
+        let category_boards = self.user_category_boards(user_id, workspace_id).await?;
         let Some(source) = category_boards
             .iter()
             .find(|entry| entry.category.id == source_category_id)
@@ -161,18 +163,26 @@ impl App {
                 Err(error) if error.is_not_found() => continue,
                 Err(error) => return Err(error),
             };
-            if category_of_team_takes(&board, team_id) {
+            if category_of_workspace_takes(&board, workspace_id) {
                 board_ids.push(board.id);
             } else {
                 elsewhere.push(board);
             }
         }
-        self.add_update_user_category_board(team_id, user_id, &default.category.id, &board_ids)
-            .await
-            .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
+        self.add_update_user_category_board(
+            workspace_id,
+            user_id,
+            &default.category.id,
+            &board_ids,
+        )
+        .await
+        .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
         for board in elsewhere {
-            if self.works_in_team(user_id, &board.team_id).await? {
-                self.add_boards_to_default_category(user_id, &board.team_id, &[board.id])
+            if self
+                .works_in_workspace(user_id, &board.workspace_id)
+                .await?
+            {
+                self.add_boards_to_default_category(user_id, &board.workspace_id, &[board.id])
                     .await
                     .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
             }
@@ -180,7 +190,7 @@ impl App {
         Ok(())
     }
 
-    /// Puts a user's categories in a team into the given order and tells the user's
+    /// Puts a user's categories in a workspace into the given order and tells the user's
     /// connection about it. Returns the order.
     ///
     /// # Errors
@@ -191,17 +201,17 @@ impl App {
     pub async fn reorder_categories(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         new_order: Vec<String>,
     ) -> Result<Vec<String>, AppError> {
-        self.verify_new_categories_match_existing(user_id, team_id, &new_order)
+        self.verify_new_categories_match_existing(user_id, workspace_id, &new_order)
             .await?;
         let new_order = self
             .store()
-            .reorder_categories(user_id, team_id, new_order)
+            .reorder_categories(user_id, workspace_id, new_order)
             .await?;
         self.ws()
-            .broadcast_category_reorder(team_id, user_id, &new_order);
+            .broadcast_category_reorder(workspace_id, user_id, &new_order);
         Ok(new_order)
     }
 
@@ -213,10 +223,13 @@ impl App {
     async fn verify_new_categories_match_existing(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         new_order: &[String],
     ) -> Result<(), AppError> {
-        let existing = self.store().get_user_categories(user_id, team_id).await?;
+        let existing = self
+            .store()
+            .get_user_categories(user_id, workspace_id)
+            .await?;
         if new_order.len() != existing.len() {
             return Err(AppError::bad_request(format_args!(
                 "the new order must list every category once: it has {}, the user has {}",

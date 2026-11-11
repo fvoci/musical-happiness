@@ -1,6 +1,6 @@
 [
   {
-    "name": "create board Team board",
+    "name": "create board Workspace board",
     "request": "POST /api/v1/boards as members-alice",
     "status": 201,
     "content_type": "application/json",
@@ -18,11 +18,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
-      "title": "Team board",
+      "title": "Workspace board",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -44,11 +44,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -473,11 +473,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Role board",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -541,11 +541,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Role board",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {

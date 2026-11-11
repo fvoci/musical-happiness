@@ -94,7 +94,7 @@
   /**
    * Found by the backend and not in the list as it is narrowed: hidden, or
    * the words in another order. Only boards the workspace has, as it has them:
-   * the server searches every team of the reader, and a board may have been
+   * the server searches every workspace of the reader, and a board may have been
    * deleted or renamed since it answered.
    */
   const more = $derived(

@@ -285,8 +285,8 @@ test('a reader who may not change the view zooms for the visit, and the view sta
     const dev = (
       window as unknown as { fvociDev: { backend: Backend; someoneElse?: () => Backend } }
     ).fvociDev;
-    const teams = await dev.backend.teams();
-    const boards = await dev.backend.boards(teams[0]?.id ?? '');
+    const workspaces = await dev.backend.workspaces();
+    const boards = await dev.backend.boards(workspaces[0]?.id ?? '');
     const boardId = boards.find((board) => board.title === 'Company Goals & OKRs')?.id ?? '';
     const fields = {
       viewType: 'gantt',

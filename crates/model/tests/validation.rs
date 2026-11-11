@@ -134,11 +134,17 @@ fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
 }
 
 #[test]
-fn board_validate_requires_a_team() {
-    assert_eq!(Board::default().validate(), Err(BoardError::EmptyTeamId));
-    assert_eq!(BoardError::EmptyTeamId.to_string(), "empty-team-id");
+fn board_validate_requires_a_workspace() {
+    assert_eq!(
+        Board::default().validate(),
+        Err(BoardError::EmptyWorkspaceId)
+    );
+    assert_eq!(
+        BoardError::EmptyWorkspaceId.to_string(),
+        "empty-workspace-id"
+    );
     let board = Board {
-        team_id: "0".to_owned(),
+        workspace_id: "0".to_owned(),
         ..Board::default()
     };
     assert_eq!(board.validate(), Ok(()));

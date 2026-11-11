@@ -224,8 +224,8 @@ export async function arrowEnds(
 /** What the tests ask of the backend in memory, beside the page. */
 export interface Backend {
   latency: number;
-  teams(): Promise<{ id: string }[]>;
-  boards(teamId: string): Promise<{ id: string; title: string }[]>;
+  workspaces(): Promise<{ id: string }[]>;
+  boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   board(boardId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
   patchBoard(boardId: string, patch: Record<string, unknown>): Promise<unknown>;
   createCard(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;

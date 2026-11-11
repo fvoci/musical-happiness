@@ -7,6 +7,7 @@
 //! test then works in a schema of its own. The role of the URL and the third variable
 //! one test needs are described in `fvoci_store::testing`.
 
+mod block_reads_and_patches;
 mod blocks;
 mod boards;
 mod boards_and_blocks;
@@ -17,11 +18,14 @@ mod file_info;
 mod loose_objects;
 mod observe;
 mod order;
+mod restored_boards;
 mod sessions;
 mod setup;
 mod sharing;
 mod subscriptions;
-mod teams;
 mod tenancy;
 mod trash;
 mod users;
+mod users_at_once;
+mod workspace_rename;
+mod workspaces;

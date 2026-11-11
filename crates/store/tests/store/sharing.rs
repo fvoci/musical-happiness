@@ -15,8 +15,8 @@ async fn set_sharing_and_get_sharing() {
     let store = &test.store;
     let user_id = common::user(store, "user-id").await;
     let user_id2 = common::user(store, "user-id2").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
     // "Insert first sharing and get it"
@@ -64,8 +64,8 @@ async fn a_token_is_kept_while_shared_and_forgotten_when_not() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "sharer").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 2).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 2).await;
     let (board_id, other_board_id) = (&boards[0].id, &boards[1].id);
     let token_after = async |change: SharingChange, offered: &str| {
         store
@@ -140,8 +140,8 @@ async fn sharing_needs_a_board_and_a_user_that_exist() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "sharer").await;
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
     for nothing in [new_id(), "not-a-board".to_owned()] {
@@ -175,8 +175,8 @@ async fn requests_that_share_a_board_at_once_agree_on_its_token() {
     const RACERS: usize = 6;
     let test = common::setup().await;
     let user_id = common::user(&test, "sharer").await;
-    let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, ROUNDS).await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, ROUNDS).await;
 
     for (round, board) in boards.iter().enumerate() {
         let mut racers = tokio::task::JoinSet::new();

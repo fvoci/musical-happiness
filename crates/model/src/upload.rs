@@ -10,7 +10,7 @@ pub enum UploadPurpose {
     /// A file of a board.
     #[default]
     File,
-    /// An archive to import into a team.
+    /// An archive to import into a workspace.
     Import,
 }
 
@@ -46,8 +46,8 @@ pub struct Upload {
     pub purpose: UploadPurpose,
     /// The board the file is for; empty for an import.
     pub board_id: String,
-    /// The team an archive is imported into; empty for a file.
-    pub team_id: String,
+    /// The workspace an archive is imported into; empty for a file.
+    pub workspace_id: String,
     /// The name of the file as the client gave it.
     pub name: String,
     /// The size of the file in bytes.

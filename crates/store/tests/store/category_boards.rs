@@ -4,9 +4,9 @@
 //! The tests after [`set_board_visibility`] are not in the original: they pin behavior
 //! the original's tests leave open.
 //!
-//! The original names its categories, users, teams and boards with fixed strings, and
+//! The original names its categories, users, workspaces and boards with fixed strings, and
 //! puts boards into categories that were never created. Here every identifier is
-//! generated, and what a row refers to is stored first: the user and the team of a
+//! generated, and what a row refers to is stored first: the user and the workspace of a
 //! category, and the category, the user and the board of a board's place in one.
 
 use fvoci_model::{Category, CategoryBoardMetadata, CategoryBoards, new_id};
@@ -15,30 +15,30 @@ use fvoci_store::{BoardVisibility, Store, StoreError};
 use crate::categories::{create_boards, ids, now_millis, visible};
 use crate::common;
 
-/// The user and the team whose sidebar a test looks at.
+/// The user and the workspace whose sidebar a test looks at.
 struct Sidebar {
     user_id: String,
-    team_id: String,
+    workspace_id: String,
 }
 
 impl Sidebar {
-    /// Stores a user and a team.
+    /// Stores a user and a workspace.
     async fn create(store: &Store) -> Self {
         Self {
             user_id: common::user(store, "user").await,
-            team_id: common::team(store).await,
+            workspace_id: common::workspace(store).await,
         }
     }
 
-    /// Creates a category of the user in the team and returns its identifier.
+    /// Creates a category of the user in the workspace and returns its identifier.
     async fn create_category(&self, store: &Store, name: &str) -> String {
-        create_category(store, &self.user_id, &self.team_id, name).await
+        create_category(store, &self.user_id, &self.workspace_id, name).await
     }
 
-    /// The categories of the user in the team, each with its boards.
+    /// The categories of the user in the workspace, each with its boards.
     async fn category_boards(&self, store: &Store) -> Vec<CategoryBoards> {
         store
-            .get_user_category_boards(&self.user_id, &self.team_id)
+            .get_user_category_boards(&self.user_id, &self.workspace_id)
             .await
             .expect("the categories are listed")
     }
@@ -54,13 +54,13 @@ impl Sidebar {
     }
 }
 
-/// Creates a category of a user in a team and returns its identifier.
-async fn create_category(store: &Store, user_id: &str, team_id: &str, name: &str) -> String {
+/// Creates a category of a user in a workspace and returns its identifier.
+async fn create_category(store: &Store, user_id: &str, workspace_id: &str, name: &str) -> String {
     let category = Category {
         id: new_id(),
         name: name.to_owned(),
         user_id: user_id.to_owned(),
-        team_id: team_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
         ..Category::default()
     };
     store
@@ -84,14 +84,14 @@ async fn get_user_category_boards() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     let now = now_millis();
     let category1 = Category {
         id: new_id(),
         name: "Category 1".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -107,7 +107,7 @@ async fn get_user_category_boards() {
         id: new_id(),
         name: "Category 2".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -123,7 +123,7 @@ async fn get_user_category_boards() {
         id: new_id(),
         name: "Category 3".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -138,7 +138,7 @@ async fn get_user_category_boards() {
     // Adding Board 1 and Board 2 to Category 1
     // The original leaves the boards out of the database for this test; a board in a
     // category exists here.
-    let [board1, board2, board3] = create_boards(store, &team_id, &user_id).await;
+    let [board1, board2, board3] = create_boards(store, &workspace_id, &user_id).await;
     store
         .add_update_category_board(&user_id, &category1.id, std::slice::from_ref(&board1))
         .await
@@ -158,7 +158,7 @@ async fn get_user_category_boards() {
     // we'll leave category 3 empty
 
     let user_category_boards = store
-        .get_user_category_boards(&user_id, &team_id)
+        .get_user_category_boards(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
 
@@ -209,7 +209,7 @@ async fn add_update_category_board() {
     // The original creates the boards "board_id_1" and "board_id_2" in team "team_id" and
     // later adds three more that it never created. A board in a category exists here.
     let [board1, board2, board3, board4, board5] =
-        create_boards(store, &sidebar.team_id, user_id).await;
+        create_boards(store, &sidebar.workspace_id, user_id).await;
 
     let category_id = sidebar.create_category(store, "Category").await;
 
@@ -308,7 +308,7 @@ async fn set_board_visibility() {
     let user_id = &sidebar.user_id;
 
     // As the original does, create the board the category is to hold.
-    let [board1] = create_boards(store, &sidebar.team_id, user_id).await;
+    let [board1] = create_boards(store, &sidebar.workspace_id, user_id).await;
 
     let category_id = sidebar.create_category(store, "Category").await;
 
@@ -359,8 +359,9 @@ async fn sort_orders_of_added_reordered_and_moved_boards() {
     let someone_else = common::user(store, "someone-else").await;
     let a = sidebar.create_category(store, "a").await;
     let b = sidebar.create_category(store, "b").await;
-    let elsewhere = create_category(store, &someone_else, &sidebar.team_id, "elsewhere").await;
-    let [one, two, three, four, theirs] = create_boards(store, &sidebar.team_id, user_id).await;
+    let elsewhere = create_category(store, &someone_else, &sidebar.workspace_id, "elsewhere").await;
+    let [one, two, three, four, theirs] =
+        create_boards(store, &sidebar.workspace_id, user_id).await;
 
     // An identifier that names no board of the category is ignored and comes back with
     // the rest; the place it would have taken stays empty.
@@ -498,7 +499,7 @@ async fn reorder_category_boards_keeps_the_sort_order_of_unlisted_boards() {
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;
     let category_id = sidebar.create_category(store, "Category").await;
-    let [x, y, z] = create_boards(store, &sidebar.team_id, &sidebar.user_id).await;
+    let [x, y, z] = create_boards(store, &sidebar.workspace_id, &sidebar.user_id).await;
 
     store
         .add_update_category_board(&sidebar.user_id, &category_id, &ids(&[&x, &y, &z]))
@@ -555,7 +556,7 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
     let user_id = &sidebar.user_id;
     let doomed = sidebar.create_category(store, "doomed").await;
     let kept = sidebar.create_category(store, "kept").await;
-    let [one, two, three] = create_boards(store, &sidebar.team_id, user_id).await;
+    let [one, two, three] = create_boards(store, &sidebar.workspace_id, user_id).await;
 
     store
         .add_update_category_board(user_id, &doomed, &ids(&[&one, &two]))
@@ -571,7 +572,7 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
         .expect("the board is hidden");
 
     store
-        .delete_category(&doomed, user_id, &sidebar.team_id)
+        .delete_category(&doomed, user_id, &sidebar.workspace_id)
         .await
         .expect("the category is deleted");
 
@@ -614,19 +615,19 @@ async fn deleting_a_category_files_its_boards_under_nothing() {
     test.teardown().await;
 }
 
-/// Not in the original. Deleting a category that is another user's, or in another team,
+/// Not in the original. Deleting a category that is another user's, or in another workspace,
 /// or that does not exist succeeds and changes nothing: the category stays, with its
 /// boards filed as they were.
 #[tokio::test]
-async fn deleting_a_category_of_another_user_or_team_changes_nothing() {
+async fn deleting_a_category_of_another_user_or_workspace_changes_nothing() {
     let test = common::setup().await;
     let store = &test.store;
     let sidebar = Sidebar::create(store).await;
     let user_id = &sidebar.user_id;
     let someone_else = common::user(store, "someone-else").await;
-    let another_team = common::team(store).await;
+    let another_workspace = common::workspace(store).await;
     let category_id = sidebar.create_category(store, "Category").await;
-    let [one, two] = create_boards(store, &sidebar.team_id, user_id).await;
+    let [one, two] = create_boards(store, &sidebar.workspace_id, user_id).await;
 
     store
         .add_update_category_board(user_id, &category_id, &ids(&[&one, &two]))
@@ -654,18 +655,28 @@ async fn deleting_a_category_of_another_user_or_team_changes_nothing() {
         "the boards as they were filed"
     );
 
-    for (id, deleter, team, what) in [
+    for (id, deleter, workspace, what) in [
         (
             &category_id,
             &someone_else,
-            &sidebar.team_id,
+            &sidebar.workspace_id,
             "another user",
         ),
-        (&category_id, user_id, &another_team, "another team"),
-        (&new_id(), user_id, &sidebar.team_id, "no such category"),
+        (
+            &category_id,
+            user_id,
+            &another_workspace,
+            "another workspace",
+        ),
+        (
+            &new_id(),
+            user_id,
+            &sidebar.workspace_id,
+            "no such category",
+        ),
     ] {
         store
-            .delete_category(id, deleter, team)
+            .delete_category(id, deleter, workspace)
             .await
             .expect("deleting nothing succeeds");
         assert_eq!(
@@ -688,7 +699,7 @@ async fn a_filing_needs_its_user_its_category_and_its_board() {
     let sidebar = Sidebar::create(store).await;
     let user_id = &sidebar.user_id;
     let category_id = sidebar.create_category(store, "Category").await;
-    let [filed, board] = create_boards(store, &sidebar.team_id, user_id).await;
+    let [filed, board] = create_boards(store, &sidebar.workspace_id, user_id).await;
     store
         .add_update_category_board(user_id, &category_id, std::slice::from_ref(&filed))
         .await

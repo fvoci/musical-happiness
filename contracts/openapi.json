@@ -245,7 +245,7 @@
             "type": "string"
           },
           "isBuiltin": {
-            "description": "Whether the board is one of the templates the server ships with. They are\noffered to every team and nobody can change them. The server decides this:\nwhat a client sends here is ignored.",
+            "description": "Whether the board is one of the templates the server ships with. They are\noffered to every workspace and nobody can change them. The server decides this:\nwhat a client sends here is ignored.",
             "type": "boolean"
           },
           "isTemplate": {
@@ -269,10 +269,6 @@
             "description": "Whether the description is shown in the interface.",
             "type": "boolean"
           },
-          "teamId": {
-            "description": "The identifier of the team the board belongs to.",
-            "type": "string"
-          },
           "templateVersion": {
             "description": "The version of the built-in template this board came from.",
             "format": "int64",
@@ -290,6 +286,10 @@
             "description": "Last modification time in milliseconds since the Unix epoch.",
             "format": "int64",
             "type": "integer"
+          },
+          "workspaceId": {
+            "description": "The identifier of the workspace the board belongs to.",
+            "type": "string"
           }
         },
         "required": [
@@ -306,11 +306,11 @@
           "modifiedBy",
           "properties",
           "showDescription",
-          "teamId",
           "templateVersion",
           "title",
           "type",
-          "updateAt"
+          "updateAt",
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -666,7 +666,7 @@
         "type": "object"
       },
       "Category": {
-        "description": "A sidebar category of one user in one team.",
+        "description": "A sidebar category of one user in one workspace.",
         "properties": {
           "collapsed": {
             "description": "Whether the category is collapsed in the sidebar.",
@@ -695,10 +695,6 @@
             "format": "int64",
             "type": "integer"
           },
-          "teamId": {
-            "description": "The identifier of the team the category belongs to.",
-            "type": "string"
-          },
           "type": {
             "$ref": "#/components/schemas/CategoryType",
             "description": "Whether this is a system or a custom category."
@@ -711,6 +707,10 @@
           "userId": {
             "description": "The identifier of the user the category belongs to.",
             "type": "string"
+          },
+          "workspaceId": {
+            "description": "The identifier of the workspace the category belongs to.",
+            "type": "string"
           }
         },
         "required": [
@@ -720,10 +720,10 @@
           "id",
           "name",
           "sortOrder",
-          "teamId",
           "type",
           "updateAt",
-          "userId"
+          "userId",
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -795,12 +795,12 @@
             "description": "The display name; not blank.",
             "type": "string"
           },
-          "teamId": {
-            "description": "The team of the path.",
-            "type": "string"
-          },
           "userId": {
             "description": "The user of the session.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace of the path.",
             "type": "string"
           }
         },
@@ -808,7 +808,7 @@
           "id",
           "name",
           "userId",
-          "teamId"
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -1270,10 +1270,6 @@
               "null"
             ]
           },
-          "teamId": {
-            "description": "The identifier of the team the board is made in.",
-            "type": "string"
-          },
           "templateVersion": {
             "description": "The version of the built-in template the board came from.",
             "format": "int64",
@@ -1292,10 +1288,14 @@
           "type": {
             "$ref": "#/components/schemas/BoardType",
             "description": "Whether the board is open or private."
+          },
+          "workspaceId": {
+            "description": "The identifier of the workspace the board is made in.",
+            "type": "string"
           }
         },
         "required": [
-          "teamId",
+          "workspaceId",
           "type"
         ],
         "type": "object"
@@ -1311,7 +1311,7 @@
             "type": "array"
           },
           "boards": {
-            "description": "The boards, at least one, all of one team. Each needs an `id`.",
+            "description": "The boards, at least one, all of one workspace. Each needs an `id`.",
             "items": {
               "$ref": "#/components/schemas/NewBoard"
             },
@@ -1399,10 +1399,6 @@
               "null"
             ]
           },
-          "teamId": {
-            "description": "The team of the path.",
-            "type": "string"
-          },
           "type": {
             "oneOf": [
               {
@@ -1417,12 +1413,16 @@
           "userId": {
             "description": "The user of the session: a user makes categories for themselves only.",
             "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace of the path.",
+            "type": "string"
           }
         },
         "required": [
           "name",
           "userId",
-          "teamId"
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -1458,7 +1458,7 @@
             ]
           },
           "userId": {
-            "description": "The identifier of the user, who must be able to see the board's team.",
+            "description": "The identifier of the user, who must be able to see the board's workspace.",
             "type": "string"
           }
         },
@@ -1526,14 +1526,14 @@
             "description": "The identifier of the board the tour goes through.",
             "type": "string"
           },
-          "teamId": {
-            "description": "The identifier of the team.",
+          "workspaceId": {
+            "description": "The identifier of the workspace.",
             "type": "string"
           }
         },
         "required": [
           "boardId",
-          "teamId"
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -1850,7 +1850,7 @@
             "type": "string"
           },
           "token": {
-            "description": "The team's signup token; may be empty while no user exists yet.",
+            "description": "The workspace's signup token; may be empty while no user exists yet.",
             "type": "string"
           },
           "username": {
@@ -2102,45 +2102,6 @@
         ],
         "type": "object"
       },
-      "Team": {
-        "description": "A team: a workspace of an organization, as the routes that name a team call it.",
-        "properties": {
-          "id": {
-            "description": "The team's identifier.",
-            "type": "string"
-          },
-          "modifiedBy": {
-            "description": "The identifier of the user who last modified the team.",
-            "type": "string"
-          },
-          "settings": {
-            "additionalProperties": true,
-            "description": "Free-form team settings.",
-            "type": "object"
-          },
-          "signupToken": {
-            "description": "The token new users must present to register. Empty, and left out of the JSON\nform, in what is answered to anyone but an administrator of the instance.",
-            "type": "string"
-          },
-          "title": {
-            "description": "The team's title.",
-            "type": "string"
-          },
-          "updateAt": {
-            "description": "Last modification time in milliseconds since the Unix epoch.",
-            "format": "int64",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "modifiedBy",
-          "settings",
-          "title",
-          "updateAt"
-        ],
-        "type": "object"
-      },
       "Theme": {
         "description": "The colors of the interface.",
         "enum": [
@@ -2226,7 +2187,7 @@
               },
               {
                 "additionalProperties": true,
-                "description": "What the upload is for: `file`, a file of a board (`completeUpload`), or\n`import`, an archive to import into a team (`importArchive`).",
+                "description": "What the upload is for: `file`, a file of a board (`completeUpload`), or\n`import`, an archive to import into a workspace (`importArchive`).",
                 "type": "object"
               }
             ]
@@ -2236,12 +2197,12 @@
             "format": "int64",
             "type": "integer"
           },
-          "teamId": {
-            "description": "The team the archive is for; empty for a file.",
-            "type": "string"
-          },
           "uploadId": {
             "description": "The identifier of the upload.",
+            "type": "string"
+          },
+          "workspaceId": {
+            "description": "The workspace the archive is for; empty for a file.",
             "type": "string"
           }
         },
@@ -2254,8 +2215,8 @@
           "parts",
           "purpose",
           "size",
-          "teamId",
-          "uploadId"
+          "uploadId",
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -2427,6 +2388,45 @@
         ],
         "type": "string"
       },
+      "Workspace": {
+        "description": "A workspace of an organization.",
+        "properties": {
+          "id": {
+            "description": "The workspace's identifier.",
+            "type": "string"
+          },
+          "modifiedBy": {
+            "description": "The identifier of the user who last modified the workspace.",
+            "type": "string"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "description": "Free-form workspace settings.",
+            "type": "object"
+          },
+          "signupToken": {
+            "description": "The token new users must present to register. Empty, and left out of the JSON\nform, in what is answered to anyone but an administrator of the instance.",
+            "type": "string"
+          },
+          "title": {
+            "description": "The workspace's title.",
+            "type": "string"
+          },
+          "updateAt": {
+            "description": "Last modification time in milliseconds since the Unix epoch.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "modifiedBy",
+          "settings",
+          "title",
+          "updateAt"
+        ],
+        "type": "object"
+      },
       "WorkspaceRole": {
         "description": "What a member of a workspace is in it.",
         "enum": [
@@ -2452,7 +2452,7 @@
     }
   },
   "info": {
-    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. A few operations that read a shared board need no session when the request has the board's `readToken`.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401.\n\nThe identifiers of users, teams, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## Request bodies\n\nA request schema lists the members a request is for. An optional member may be left out or be `null`. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
+    "description": "The API of an fvoci server.\n\n## Signing in\n\n`login` answers with a `Set-Cookie` header that carries the session: the cookie `__Host-fvoci_session` where the server is reached over HTTPS, `fvoci_session` over plain HTTP. It is `HttpOnly`, so a page's scripts never see it, and a browser sends it by itself. A client that is no browser may send the cookie's value as `Authorization: Bearer <value>` instead. A few operations that read a shared board need no session when the request has the board's `readToken`.\n\n## Requests that change something\n\nEvery request whose method is not `GET`, `HEAD` or `OPTIONS` needs the header `X-Requested-With: XMLHttpRequest`, unless it has a bearer token, and is refused with 403 and the reason `csrf` without it. If it has an `Origin` header, the origin must be the server's own (or one the server was configured to accept); otherwise it is refused with 403 and the reason `foreign_origin`.\n\nA page should make these requests with `fetch` in its default mode, `cors`. The server sends its pages with `Referrer-Policy: no-referrer`, and under that policy a browser writes `Origin: null` on a changing request of any other mode (`same-origin`, `no-cors`, or a form the browser posts itself), which is refused as a foreign origin.\n\n## Answers\n\nAn operation answers 200 with a body, 201 with what it made, or 204 with no body. Every other status comes with a `Problem`, the problem details of RFC 9457, as `application/problem+json`: `type` names the kind of the problem and is the same for every problem of the kind, `title` is its name, `status` repeats the status and `detail` says what went wrong this time. `type` is `/problems/<name>` under the path the server is served at, the address of a page of text about the kind; `/problems` lists them, and so does `x-problem-types` of the schema `Problem`, as they are on a server at the root of its host (a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a problem with a `reason` has the `type` of that name, written with hyphens, and any other the `type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that is missing or over is 401. What the user may not see is 404, as if it were not there; what they may see but not do is 403. A path that is no operation is 404 too, and a method an operation's path does not have is 405.\n\nA request without a session whose JSON body has more than 64 KiB is 413 before it is 401.\n\nThe identifiers of users, workspaces, boards, blocks and categories are UUIDs, written lower-case with hyphens; a client takes every identifier as an opaque string. A `fileId` is no UUID: it is an unguessable name that ends in the file's extension. Times are milliseconds since the Unix epoch.\n\n## Lists\n\nEvery list comes in an order, and the description of each operation says which. Where it says nothing else, the order is that of creation, oldest first, and by identifier among what was created in the same millisecond.\n\n## Request bodies\n\nA request schema lists the members a request is for. An optional member may be left out or be `null`. A member the schema marks as required is one the request cannot do without; where the server takes a missing one as empty instead of refusing the request, the result is that of the empty value (a login without a password is a failed login). A body with members the schema does not list is mostly not refused for them. The exceptions: `patchUserSettings` and `patchMe` refuse every member they do not know, `createBoard` and `createCategory` refuse an `id`, and `setSharing` refuses a `token`.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -2506,7 +2506,7 @@
     },
     "/api/v1/boards-and-blocks": {
       "delete": {
-        "description": "Deletes several boards of one team, all or none. The request names at least one\nboard, and every block it names must be on one of its boards and be the user's to\ndelete as `deleteBlock` has it; the blocks are checked and nothing more, since a\nboard takes all of its blocks along. The boards go to the trash as `deleteBoard`\nputs them there, and `undeleteBoard` brings each back with its blocks. For the\nadmins of every board named.",
+        "description": "Deletes several boards of one workspace, all or none. The request names at least one\nboard, and every block it names must be on one of its boards and be the user's to\ndelete as `deleteBlock` has it; the blocks are checked and nothing more, since a\nboard takes all of its blocks along. The boards go to the trash as `deleteBoard`\nputs them there, and `undeleteBoard` brings each back with its blocks. For the\nadmins of every board named.",
         "operationId": "deleteBoardsAndBlocks",
         "requestBody": {
           "content": {
@@ -2539,7 +2539,7 @@
         ]
       },
       "patch": {
-        "description": "Applies a patch to each of several boards of one team and to blocks of those\nboards, all or none. The request names at least one board, and every block it names\nis on one of its boards: blocks alone are not changed this way. Each board needs\nwhat `patchBoard` needs, each block what `patchBlock` needs.",
+        "description": "Applies a patch to each of several boards of one workspace and to blocks of those\nboards, all or none. The request names at least one board, and every block it names\nis on one of its boards: blocks alone are not changed this way. Each board needs\nwhat `patchBoard` needs, each block what `patchBlock` needs.",
         "operationId": "patchBoardsAndBlocks",
         "requestBody": {
           "content": {
@@ -2579,7 +2579,7 @@
         ]
       },
       "post": {
-        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one team. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory.",
+        "description": "Makes boards and their blocks together, all or none, under identifiers the server\nmakes; the identifiers of the request only say which block belongs to which board\nand to which other block. The request needs at least one board and one block; every\nboard needs an `id`, and all boards are of one workspace. The user becomes the admin of\neach board, and each board that is no template is filed under the user's default\ncategory.",
         "operationId": "createBoardsAndBlocks",
         "requestBody": {
           "content": {
@@ -2621,7 +2621,7 @@
     },
     "/api/v1/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
+        "description": "The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches\nthe term: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
         "operationId": "searchBoards",
         "parameters": [
           {
@@ -2701,7 +2701,7 @@
         ]
       },
       "get": {
-        "description": "For a user who may see the board: a member of it, or for an open board anyone in\nits team. With the board's read token no session is needed. Who reads with the token\nand is no member of the board, without a session or signed in, is not told who made\nthe board or changed it last (`createdBy` and `modifiedBy` are empty).",
+        "description": "For a user who may see the board: a member of it, or for an open board anyone in\nits workspace. With the board's read token no session is needed. Who reads with the token\nand is no member of the board, without a session or signed in, is not told who made\nthe board or changed it last (`createdBy` and `modifiedBy` are empty).",
         "operationId": "getBoard",
         "parameters": [
           {
@@ -2874,7 +2874,7 @@
     },
     "/api/v1/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed. Who reads with the token and is no member\nof the board, without a session or signed in, is told no user's identifier:\n`createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a\nbody, and so is each user that the board's person properties (`person`,\n`multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in\nthe clauses of a view's `fields.filter`; a list keeps its length, so how many people\na card has still shows. A card's values of properties the board does not define are\nleft out, and a view grouped by a person property keeps of `visibleOptionIds`,\n`hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of\nthe cards without a value (`\"\"`).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open template everyone in its workspace. With the\nboard's read token no session is needed. Who reads with the token and is no member\nof the board, without a session or signed in, is told no user's identifier:\n`createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a\nbody, and so is each user that the board's person properties (`person`,\n`multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in\nthe clauses of a view's `fields.filter`; a list keeps its length, so how many people\na card has still shows. A card's values of properties the board does not define are\nleft out, and a view grouped by a person property keeps of `visibleOptionIds`,\n`hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of\nthe cards without a value (`\"\"`).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {
@@ -3542,7 +3542,7 @@
     },
     "/api/v1/boards/{boardId}/duplicate": {
       "post": {
-        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template`, and a board made from a template keeps the title. The\nboard's members may copy it; an open template is for everyone in its team, and a\nbuilt-in template for everyone.",
+        "description": "Copies a board with its blocks, except comments, as a board or as a template. The\nuser becomes the admin of the copy, which is always private. A copy of the same kind\nhas the title of the original with ` copy` after it; a template made from a board is\ntitled `New board template`, and a board made from a template keeps the title. The\nboard's members may copy it; an open template is for everyone in its workspace, and a\nbuilt-in template for everyone.",
         "operationId": "duplicateBoard",
         "parameters": [
           {
@@ -3564,9 +3564,9 @@
             }
           },
           {
-            "description": "The team the copy goes to. Left out, it stays in the team of the board.",
+            "description": "The workspace the copy goes to. Left out, it stays in the workspace of the board.",
             "in": "query",
-            "name": "toTeam",
+            "name": "toWorkspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4781,7 +4781,7 @@
     },
     "/api/v1/register": {
       "post": {
-        "description": "Makes an account. The first user of a server needs no signup token and becomes its\nadministrator; everyone after needs the team's token, and is refused with 403 and\nthe reason `signup_token_required` without it. A token that is not the team's is 403\nwith the reason `signup_token_invalid`, for the first user too. A name or an email\naddress that is taken is 409 with the reason `username_taken` or `email_taken`.\nRegistering does not sign in.\n\nThe name and the email address must not be blank, the email address must look like\none, the display name (`displayName`, may be left out) is read as `patchMe` reads it,\nand the password must have at least 8 characters and at most 1024 bytes; otherwise\nthe request is 400, and `errors` names every member that is refused, each with\nits `reason`: `required`, `invalid_format`, `too_short`, `too_long` or\n`invalid_characters`.",
+        "description": "Makes an account. The first user of a server needs no signup token and becomes its\nadministrator; everyone after needs the workspace's token, and is refused with 403 and\nthe reason `signup_token_required` without it. A token that is not the workspace's is 403\nwith the reason `signup_token_invalid`, for the first user too. A name or an email\naddress that is taken is 409 with the reason `username_taken` or `email_taken`.\nRegistering does not sign in.\n\nThe name and the email address must not be blank, the email address must look like\none, the display name (`displayName`, may be left out) is read as `patchMe` reads it,\nand the password must have at least 8 characters and at most 1024 bytes; otherwise\nthe request is 400, and `errors` names every member that is refused, each with\nits `reason`: `required`, `invalid_format`, `too_short`, `too_long` or\n`invalid_characters`.",
         "operationId": "register",
         "requestBody": {
           "content": {
@@ -4974,1155 +4974,6 @@
         "summary": "The subscriptions of the user",
         "tags": [
           "subscriptions"
-        ]
-      }
-    },
-    "/api/v1/teams": {
-      "get": {
-        "description": "The teams the user works in, oldest first: a team the user is no member of is not\nlisted. Nothing in the API makes a team. The signup token is there for\nadministrators only.",
-        "operationId": "getTeams",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Team"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The teams."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "The teams",
-        "tags": [
-          "teams"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}": {
-      "get": {
-        "description": "The signup token, which lets in whoever has it, is there for administrators only.",
-        "operationId": "getTeam",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Team"
-                }
-              }
-            },
-            "description": "The team."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "A team",
-        "tags": [
-          "teams"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/archive/export": {
-      "get": {
-        "description": "An archive of all boards of the team that `getBoards` lists for the user, offered\nas a download with its length, in the format of `exportBoardArchive`, and under its\nlimits. A team that is not there, or that the user is not in, is not refused: its\narchive has no boards.",
-        "operationId": "exportTeamArchive",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/octet-stream": {
-                "schema": {
-                  "description": "The bytes of a file, as the body of an answer.",
-                  "format": "binary",
-                  "type": "string"
-                }
-              }
-            },
-            "description": "The archive.",
-            "headers": {
-              "Content-Disposition": {
-                "description": "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC).",
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "Content-Length": {
-                "description": "The size of the archive in bytes.",
-                "schema": {
-                  "format": "int64",
-                  "minimum": 0,
-                  "type": "integer"
-                }
-              }
-            }
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Export the boards of a team",
-        "tags": [
-          "archives"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/archive/import": {
-      "post": {
-        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are in the team. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another team, is 400. For users of the team who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
-        "operationId": "importArchive",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ImportRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "The boards of the archive are made."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Import an archive",
-        "tags": [
-          "archives"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/archive/uploads": {
-      "post": {
-        "description": "Opens an upload of an archive to import into the team, sent in parts as a file is\nwith `createUpload`, and imported with `importArchive` once every part is received.\nAn archive larger than `maxImportSize` of `getClientConfig` is 413. It counts\ntoward the same limits as the uploads of files, which hold back at most twice the\nlarger of `maxFileSize` and `maxImportSize` for a user. For users of the team who\nare not guests, as `importArchive`.",
-        "operationId": "createImportUpload",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewUpload"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UploadOpened"
-                }
-              }
-            },
-            "description": "The upload is open."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Open an upload of an archive",
-        "tags": [
-          "archives"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/boards": {
-      "get": {
-        "description": "The boards of the team that the user is a member of, and the team's open boards.\nTemplates are not among them. Oldest first.",
-        "operationId": "getBoards",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Board"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The boards."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "The boards of a team",
-        "tags": [
-          "boards"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/boards/search": {
-      "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The team of the path is not part of\nthe search: the boards of every team are searched. A `field` that is neither is 400.\nOldest first.",
-        "operationId": "searchTeamBoards",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "What to look for. Without it nothing is found.",
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.",
-            "in": "query",
-            "name": "field",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Board"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The boards that match."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Search the boards, asked through a team",
-        "tags": [
-          "boards"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/categories": {
-      "get": {
-        "description": "The user's categories in the team, each with the boards filed under it. A user who\nhas none yet gets the default category made.\n\nThe categories come by `sortOrder`, lowest first, and among those with the same one\nthe oldest first. The boards of a category come in the order the user gave them,\nand by identifier among those with the same place.",
-        "operationId": "getCategories",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/CategoryBoards"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The categories with their boards."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "The user's sidebar",
-        "tags": [
-          "sidebar"
-        ]
-      },
-      "post": {
-        "description": "Makes a category of the user's sidebar in the team. The server makes its\nidentifier, and a request that names one is 400. A `userId` that is not the user of\nthe session is 403. The category is stored with its `sortOrder` raised by 10, and\nevery other category of the user in the team moves by 10 as well, so that it keeps\nits place among them.",
-        "operationId": "createCategory",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NewCategory"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Category"
-                }
-              }
-            },
-            "description": "The category that was made."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Make a category",
-        "tags": [
-          "sidebar"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/categories/{categoryId}": {
-      "delete": {
-        "description": "Deletes one of the user's categories; its boards go to the user's default\ncategory. A system category cannot be deleted. A deleted category does not come\nback.",
-        "operationId": "deleteCategory",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the category, one of the user's own.",
-            "in": "path",
-            "name": "categoryId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The category is deleted."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Delete a category",
-        "tags": [
-          "sidebar"
-        ]
-      },
-      "put": {
-        "description": "Changes the name of one of the user's categories and whether it is collapsed.\nNothing else changes, and a system category keeps its name. A `userId` that is not\nthe user of the session is 400.",
-        "operationId": "updateCategory",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the category, one of the user's own.",
-            "in": "path",
-            "name": "categoryId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CategoryUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Category"
-                }
-              }
-            },
-            "description": "The category as it is now."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Change a category",
-        "tags": [
-          "sidebar"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/categories/{categoryId}/board-order": {
-      "put": {
-        "description": "The body lists the identifiers of all boards of the category, in the order they\nare to have. A list that is not as long as the category has boards, or that names\none that is not in the category, is refused.",
-        "operationId": "reorderCategoryBoards",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the category, one of the user's own.",
-            "in": "path",
-            "name": "categoryId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The identifiers of the boards in their new order."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Put the boards of a category in an order",
-        "tags": [
-          "sidebar"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}": {
-      "post": {
-        "description": "Puts a board the user may see under one of the user's categories; it leaves the\ncategory it was under. A category takes the boards of its own workspace and the\nbuilt-in templates: a board of another workspace answers as one that is not there.",
-        "operationId": "setBoardCategory",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the category, one of the user's own.",
-            "in": "path",
-            "name": "categoryId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The board is under the category."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "File a board under a category",
-        "tags": [
-          "sidebar"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide": {
-      "put": {
-        "description": "Hides a board of one of the user's categories from the user's sidebar. The board\nstays where it is filed, and nothing changes for anybody else. For a board that is\nnot filed under the category nothing changes, and the answer is 204 all the same; a\nboard of another workspace than the category's answers as one that is not there.",
-        "operationId": "hideBoard",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the category, one of the user's own.",
-            "in": "path",
-            "name": "categoryId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The board is hidden."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Hide a board in the sidebar",
-        "tags": [
-          "sidebar"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide": {
-      "put": {
-        "description": "Ends the hiding of a board of one of the user's categories. For a board that is not\nfiled under the category nothing changes, and the answer is 204 all the same; a\nboard of another workspace than the category's answers as one that is not there.",
-        "operationId": "unhideBoard",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the category, one of the user's own.",
-            "in": "path",
-            "name": "categoryId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The identifier of the board.",
-            "in": "path",
-            "name": "boardId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "The board is shown."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Show a hidden board again",
-        "tags": [
-          "sidebar"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/category-order": {
-      "put": {
-        "description": "The body lists the identifiers of all of the user's categories in the team, in the\norder they are to have. A list that is not as long as the user has categories, or\nthat names one that is not the user's, is refused.",
-        "operationId": "reorderCategories",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The identifiers of the categories in their new order."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Put the categories in an order",
-        "tags": [
-          "sidebar"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/onboard": {
-      "post": {
-        "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes in the client's state (`getClientState`) that the tour has begun:\n`onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is\n`onboarding`. Every request makes another copy.",
-        "operationId": "onboard",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OnboardingStart"
-                }
-              }
-            },
-            "description": "Where the tour's board is."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Start the tour",
-        "tags": [
-          "teams"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/signup-token": {
-      "post": {
-        "description": "Makes a new signup token for the team; the old one stops working. For\nadministrators.",
-        "operationId": "regenerateSignupToken",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Team"
-                }
-              }
-            },
-            "description": "The team, with its new token."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Make a new signup token",
-        "tags": [
-          "teams"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/templates": {
-      "get": {
-        "description": "The team's template boards the user may see, then the built-in templates, which\nevery team is offered. Each of the two oldest first.",
-        "operationId": "getTemplates",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/Board"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The templates."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "The templates of a team",
-        "tags": [
-          "boards"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/trash/boards": {
-      "get": {
-        "description": "One page of the team's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the team.",
-        "operationId": "getDeletedBoards",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The page, counted from 0. Left out, the first one.",
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
-            "in": "query",
-            "name": "perPage",
-            "required": false,
-            "schema": {
-              "format": "int64",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/DeletedItem"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The deleted boards of the page."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "The deleted boards of a team",
-        "tags": [
-          "boards"
-        ]
-      }
-    },
-    "/api/v1/teams/{teamId}/users": {
-      "get": {
-        "description": "Up to ten users: with `search` those whose login name or display name has that text\nin it, whatever the case of the letters, without it the ten oldest accounts. Oldest\naccount first.",
-        "operationId": "getTeamUsers",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.",
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/User"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The users."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "The users of a team",
-        "tags": [
-          "teams"
-        ]
-      },
-      "post": {
-        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
-        "operationId": "getTeamUsersById",
-        "parameters": [
-          {
-            "description": "The identifier of the team.",
-            "in": "path",
-            "name": "teamId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/User"
-                  },
-                  "type": "array"
-                }
-              }
-            },
-            "description": "The users."
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
-          }
-        },
-        "summary": "Users of a team by their identifiers",
-        "tags": [
-          "teams"
         ]
       }
     },
@@ -6816,13 +5667,216 @@
         ]
       }
     },
+    "/api/v1/w/{workspaceId}": {
+      "get": {
+        "description": "The signup token, which lets in whoever has it, is there for administrators only.",
+        "operationId": "getWorkspace",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            },
+            "description": "The workspace."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "A workspace",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/archive/export": {
+      "get": {
+        "description": "An archive of all boards of the workspace that `getWorkspaceBoards` lists for the\nuser, offered as a download with its length, in the format of `exportBoardArchive`,\nand under its limits. A workspace that is not there, that the user is not in, or that\nis of another organization than the server's, is not refused: its archive has no\nboards.",
+        "operationId": "exportWorkspaceArchive",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. A workspace that is not there, that the user is not in, or that is of another organization than the server's, is not refused: its archive has no boards.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "description": "The bytes of a file, as the body of an answer.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The archive.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Length": {
+                "description": "The size of the archive in bytes.",
+                "schema": {
+                  "format": "int64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Export the boards of a workspace",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/archive/import": {
+      "post": {
+        "description": "Makes the boards of an archive in the workspace, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are in the workspace. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another workspace, is 400. For users of the workspace who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.\n\nA user runs one import at a time, and the server as many as its setting\n`max_concurrent_imports` (2 unless set). Over either it is 429 with the reason\n`import_running` or `server_imports_busy`; the upload stays open, to be named again.",
+        "operationId": "importArchive",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The boards of the archive are made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Import an archive",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/archive/uploads": {
+      "post": {
+        "description": "Opens an upload of an archive to import into the workspace, sent in parts as a file is\nwith `createUpload`, and imported with `importArchive` once every part is received.\nAn archive larger than `maxImportSize` of `getClientConfig` is 413. It counts\ntoward the same limits as the uploads of files, which hold back at most twice the\nlarger of `maxFileSize` and `maxImportSize` for a user. For users of the workspace who\nare not guests, as `importArchive`.",
+        "operationId": "createImportUpload",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOpened"
+                }
+              }
+            },
+            "description": "The upload is open."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Open an upload of an archive",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
     "/api/v1/w/{workspaceId}/boards": {
       "get": {
         "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former. Templates are not among\nthem. Oldest first. 404 unless the user is a member of the workspace.",
         "operationId": "getWorkspaceBoards",
         "parameters": [
           {
-            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it.",
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too.",
             "in": "path",
             "name": "workspaceId",
             "required": true,
@@ -6861,6 +5915,871 @@
           "workspaces"
         ]
       }
+    },
+    "/api/v1/w/{workspaceId}/boards/search": {
+      "get": {
+        "description": "The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches\nthe term as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The\nworkspace of the path is not part of the search: the boards of every workspace are\nsearched. A `field` that is neither is 400. Oldest first.",
+        "operationId": "searchWorkspaceBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "What to look for. Without it nothing is found.",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.",
+            "in": "query",
+            "name": "field",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The boards that match."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Search the boards, asked through a workspace",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/categories": {
+      "get": {
+        "description": "The user's categories in the workspace, each with the boards filed under it. A user who\nhas none yet gets the default category made.\n\nThe categories come by `sortOrder`, lowest first, and among those with the same one\nthe oldest first. The boards of a category come in the order the user gave them,\nand by identifier among those with the same place.",
+        "operationId": "getCategories",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryBoards"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The categories with their boards."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The user's sidebar",
+        "tags": [
+          "sidebar"
+        ]
+      },
+      "post": {
+        "description": "Makes a category of the user's sidebar in the workspace. The server makes its\nidentifier, and a request that names one is 400. A `userId` that is not the user of\nthe session is 403. The category is stored with its `sortOrder` raised by 10, and\nevery other category of the user in the workspace moves by 10 as well, so that it keeps\nits place among them.",
+        "operationId": "createCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": "The category that was made."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a category",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/categories/{categoryId}": {
+      "delete": {
+        "description": "Deletes one of the user's categories; its boards go to the user's default\ncategory. A system category cannot be deleted. A deleted category does not come\nback.",
+        "operationId": "deleteCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The category is deleted."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Delete a category",
+        "tags": [
+          "sidebar"
+        ]
+      },
+      "put": {
+        "description": "Changes the name of one of the user's categories and whether it is collapsed.\nNothing else changes, and a system category keeps its name. A `userId` that is not\nthe user of the session is 400.",
+        "operationId": "updateCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategoryUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "description": "The category as it is now."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Change a category",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/board-order": {
+      "put": {
+        "description": "The body lists the identifiers of all boards of the category, in the order they\nare to have. A list that is not as long as the category has boards, or that names\none that is not in the category, is refused.",
+        "operationId": "reorderCategoryBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The identifiers of the boards in their new order."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put the boards of a category in an order",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}": {
+      "post": {
+        "description": "Puts a board the user may see under one of the user's categories; it leaves the\ncategory it was under. A category takes the boards of its own workspace and the\nbuilt-in templates: a board of another workspace answers as one that is not there.",
+        "operationId": "setBoardCategory",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The board is under the category."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "File a board under a category",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/hide": {
+      "put": {
+        "description": "Hides a board of one of the user's categories from the user's sidebar. The board\nstays where it is filed, and nothing changes for anybody else. For a board that is\nnot filed under the category nothing changes, and the answer is 204 all the same; a\nboard of another workspace than the category's answers as one that is not there.",
+        "operationId": "hideBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The board is hidden."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Hide a board in the sidebar",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/unhide": {
+      "put": {
+        "description": "Ends the hiding of a board of one of the user's categories. For a board that is not\nfiled under the category nothing changes, and the answer is 204 all the same; a\nboard of another workspace than the category's answers as one that is not there.",
+        "operationId": "unhideBoard",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the category, one of the user's own.",
+            "in": "path",
+            "name": "categoryId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The board is shown."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Show a hidden board again",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/category-order": {
+      "put": {
+        "description": "The body lists the identifiers of all of the user's categories in the workspace, in the\norder they are to have. A list that is not as long as the user has categories, or\nthat names one that is not the user's, is refused.",
+        "operationId": "reorderCategories",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The identifiers of the categories in their new order."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Put the categories in an order",
+        "tags": [
+          "sidebar"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/onboard": {
+      "post": {
+        "description": "Copies the built-in welcome board for the user, as a private board of their own,\nand notes in the client's state (`getClientState`) that the tour has begun:\n`onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is\n`onboarding`. Every request makes another copy.",
+        "operationId": "onboard",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingStart"
+                }
+              }
+            },
+            "description": "Where the tour's board is."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Start the tour",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/signup-token": {
+      "post": {
+        "description": "Makes a new signup token for the workspace; the old one stops working. For\nadministrators.",
+        "operationId": "regenerateSignupToken",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            },
+            "description": "The workspace, with its new token."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Make a new signup token",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/templates": {
+      "get": {
+        "description": "The workspace's template boards the user may see, then the built-in templates, which\nevery workspace is offered. Each of the two oldest first.",
+        "operationId": "getTemplates",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The templates."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The templates of a workspace",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/trash/boards": {
+      "get": {
+        "description": "One page of the workspace's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the workspace.",
+        "operationId": "getDeletedBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The page, counted from 0. Left out, the first one.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many a page has. Left out, 100. Zero or less asks for all of them.",
+            "in": "query",
+            "name": "perPage",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeletedItem"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The deleted boards of the page."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The deleted boards of a workspace",
+        "tags": [
+          "boards"
+        ]
+      }
+    },
+    "/api/v1/w/{workspaceId}/users": {
+      "get": {
+        "description": "Up to ten users: with `search` those whose login name or display name has that text\nin it, whatever the case of the letters, without it the ten oldest accounts. Oldest\naccount first.",
+        "operationId": "getWorkspaceUsers",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The users."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "The users of a workspace",
+        "tags": [
+          "workspaces"
+        ]
+      },
+      "post": {
+        "description": "The users with the identifiers of the body, which must name at least one: an empty\nlist is 400. Every identifier must be a user's and none may be there twice;\notherwise the request is 404. Oldest account first, not in the order of the request.",
+        "operationId": "getWorkspaceUsersById",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The users."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now."
+          }
+        },
+        "summary": "Users of a workspace by their identifiers",
+        "tags": [
+          "workspaces"
+        ]
+      }
     }
   },
   "security": [
@@ -6891,11 +6810,7 @@
       "name": "users"
     },
     {
-      "description": "The team and its users.",
-      "name": "teams"
-    },
-    {
-      "description": "The workspaces a user is a member of, and what is in a workspace.",
+      "description": "The workspaces a user is a member of, what is in a workspace, and its users.",
       "name": "workspaces"
     },
     {

@@ -201,7 +201,7 @@ pub struct Configuration {
     /// How many earlier versions of a comment's body the server keeps: the first one,
     /// with which the comment was posted, and the newest. At least 1.
     pub max_comment_versions: u32,
-    /// How many exports (`exportBoardArchive`, `exportTeamArchive`) the server runs at
+    /// How many exports (`exportBoardArchive`, `exportWorkspaceArchive`) the server runs at
     /// once; a user runs one at a time. An export runs until its archive is sent. At
     /// least 1.
     pub max_concurrent_exports: u32,

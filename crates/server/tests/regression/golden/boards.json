@@ -28,16 +28,16 @@
     }
   },
   {
-    "name": "create: no team",
+    "name": "create: no workspace",
     "request": "POST /api/v1/boards as boards-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "no such team",
+      "detail": "no such workspace",
       "errors": [
         {
-          "detail": "no such team",
-          "pointer": "/teamId",
+          "detail": "no such workspace",
+          "pointer": "/workspaceId",
           "reason": "invalid"
         }
       ],
@@ -104,11 +104,11 @@
         "color": "blue"
       },
       "showDescription": true,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -130,11 +130,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -165,11 +165,11 @@
         "color": "blue"
       },
       "showDescription": true,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -205,11 +205,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -242,7 +242,7 @@
   },
   {
     "name": "list: member",
-    "request": "GET /api/v1/teams/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/w/<id:3>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -269,11 +269,11 @@
           "color": "blue"
         },
         "showDescription": true,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Roadmap",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [],
@@ -289,17 +289,17 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open board",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
   {
     "name": "list: other user",
-    "request": "GET /api/v1/teams/<id:3>/boards as boards-bob",
+    "request": "GET /api/v1/w/<id:3>/boards as boards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -317,11 +317,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open board",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -374,11 +374,11 @@
         "size": 3
       },
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap 2",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -409,11 +409,11 @@
         "color": "red"
       },
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap 2",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -472,11 +472,11 @@
         "color": "red"
       },
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap 2",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -507,11 +507,11 @@
         "color": "red"
       },
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap 2",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -533,11 +533,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Open board",
       "type": "O",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -596,11 +596,11 @@
         "color": "red"
       },
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap 2",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -677,11 +677,11 @@
             "color": "red"
           },
           "showDescription": false,
-          "teamId": "<id:3>",
           "templateVersion": 0,
           "title": "Roadmap 2 copy",
           "type": "P",
-          "updateAt": "<ts>"
+          "updateAt": "<ts>",
+          "workspaceId": "<id:3>"
         }
       ]
     }
@@ -735,11 +735,11 @@
             "color": "red"
           },
           "showDescription": false,
-          "teamId": "<id:3>",
           "templateVersion": 0,
           "title": "New board template",
           "type": "P",
-          "updateAt": "<ts>"
+          "updateAt": "<ts>",
+          "workspaceId": "<id:3>"
         }
       ]
     }
@@ -887,11 +887,11 @@
         "color": "red"
       },
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap 2",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -922,11 +922,11 @@
         "color": "red"
       },
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Roadmap 2",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -956,7 +956,7 @@
   },
   {
     "name": "list at the end",
-    "request": "GET /api/v1/teams/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/w/<id:3>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -983,11 +983,11 @@
           "color": "red"
         },
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Roadmap 2",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [],
@@ -1003,11 +1003,11 @@
         "modifiedBy": "<id:1>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Open board",
         "type": "O",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       },
       {
         "cardProperties": [
@@ -1032,11 +1032,11 @@
           "color": "red"
         },
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Roadmap 2 copy",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   }

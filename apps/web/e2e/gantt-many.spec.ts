@@ -31,8 +31,8 @@ async function openMany(page: Page, info: TestInfo): Promise<number> {
   const path = await page.evaluate(async (count) => {
     const backend = (window as unknown as { fvociDev: { backend: Backend } }).fvociDev.backend;
     backend.latency = 0;
-    const teams = await backend.teams();
-    const boards = await backend.boards(teams[0]?.id ?? '');
+    const workspaces = await backend.workspaces();
+    const boards = await backend.boards(workspaces[0]?.id ?? '');
     const boardId = boards.find((board) => board.title === 'Sprint Planner')?.id ?? '';
     const due = (await backend.board(boardId)).cardProperties.find(
       (property) => property.name === 'Due Date',

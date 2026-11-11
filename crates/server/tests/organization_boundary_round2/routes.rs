@@ -1,26 +1,29 @@
-//! Inventory of every legacy team route, including body and query targets.
+//! Inventory of every legacy workspace route, including body and query targets.
 
 use std::collections::BTreeSet;
 use std::io::{Cursor, Read as _};
 
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, CategoryBoards, Team, WorkspaceRole, new_id,
+    Block, BlockType, Board, BoardMember, BoardType, CategoryBoards, UserWorkspace, Workspace,
+    WorkspaceRole, new_id,
 };
 use fvoci_store::DbType;
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use super::common::{Client, HIDDEN_TEAM_ID, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, UNKNOWN_ID};
+use super::common::{
+    Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, UNKNOWN_ID,
+};
 use super::{answer, db_type_of_the_tests};
 
 // Method, path suffix, operation ID: also compared against the published contract.
-const TEAM_ROUTES: &[(&str, &str, &str)] = &[
-    ("GET", "", "getTeam"),
-    ("GET", "/archive/export", "exportTeamArchive"),
+const WORKSPACE_ROUTES: &[(&str, &str, &str)] = &[
+    ("GET", "", "getWorkspace"),
+    ("GET", "/archive/export", "exportWorkspaceArchive"),
     ("POST", "/archive/import", "importArchive"),
     ("POST", "/archive/uploads", "createImportUpload"),
-    ("GET", "/boards", "getBoards"),
-    ("GET", "/boards/search?q=secret", "searchTeamBoards"),
+    ("GET", "/boards", "getWorkspaceBoards"),
+    ("GET", "/boards/search?q=secret", "searchWorkspaceBoards"),
     ("GET", "/categories", "getCategories"),
     ("POST", "/categories", "createCategory"),
     ("DELETE", "/categories/{category}", "deleteCategory"),
@@ -50,12 +53,12 @@ const TEAM_ROUTES: &[(&str, &str, &str)] = &[
     ("POST", "/signup-token", "regenerateSignupToken"),
     ("GET", "/templates", "getTemplates"),
     ("GET", "/trash/boards", "getDeletedBoards"),
-    ("GET", "/users", "getTeamUsers"),
-    ("POST", "/users", "getTeamUsersById"),
+    ("GET", "/users", "getWorkspaceUsers"),
+    ("POST", "/users", "getWorkspaceUsersById"),
 ];
 
 #[test]
-fn the_team_route_inventory_covers_every_operation_in_the_contract() {
+fn the_workspace_route_inventory_covers_every_operation_in_the_contract() {
     let contract: Value = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/openapi.json"
@@ -65,17 +68,17 @@ fn the_team_route_inventory_covers_every_operation_in_the_contract() {
         .as_object()
         .expect("paths")
         .iter()
-        .filter(|(path, _)| path.starts_with("/api/v1/teams/{teamId}"))
+        .filter(|(path, _)| path.starts_with("/api/v1/w/{workspaceId}"))
         .flat_map(|(_, methods)| methods.as_object().expect("operations").values())
         .filter_map(|operation| operation["operationId"].as_str())
         .collect();
     assert_eq!(
         operations,
-        TEAM_ROUTES
+        WORKSPACE_ROUTES
             .iter()
             .map(|(_, _, operation)| *operation)
             .collect(),
-        "every team route is exercised, not only its read routes"
+        "every workspace route is exercised, not only its read routes"
     );
 }
 
@@ -101,33 +104,48 @@ fn archive_entries(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
     entries
 }
 
-async fn compare_team_routes(client: &Client, user_id: &str) -> Vec<String> {
+/// Who asks: somebody who is no member of the hidden workspace, or a guest of it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Asker {
+    Outsider,
+    Guest,
+}
+
+async fn compare_workspace_routes(client: &Client, user_id: &str, asker: Asker) -> Vec<String> {
     let mut violations = Vec::new();
-    for (method, suffix, operation) in TEAM_ROUTES {
+    for (method, suffix, operation) in WORKSPACE_ROUTES {
         let suffix = suffix
             .replace("{category}", UNKNOWN_ID)
             .replace("{board}", UNKNOWN_ID);
-        let body = |team: &str| match *operation {
-            "createCategory" => json!({"name": "mine", "userId": user_id, "teamId": team}),
-            "reorderCategories" | "reorderCategoryBoards" | "getTeamUsersById" => json!([]),
+        let body = |workspace: &str| match *operation {
+            "createCategory" => {
+                json!({"name": "mine", "userId": user_id, "workspaceId": workspace})
+            }
+            "reorderCategories" | "reorderCategoryBoards" | "getWorkspaceUsersById" => json!([]),
             "importArchive" => json!({"uploadId": "missing-upload"}),
             "createImportUpload" => json!({"name": "archive.zip", "size": 0}),
             _ => json!({}),
         };
-        let send = async |team: &str| {
+        let send = async |workspace: &str| {
             Client::send(
                 client
                     .request(
                         method.parse().expect("an HTTP method"),
-                        &format!("/teams/{team}{suffix}"),
+                        &format!("/w/{workspace}{suffix}"),
                     )
-                    .json(&body(team)),
+                    .json(&body(workspace)),
             )
             .await
         };
-        let hidden = send(HIDDEN_TEAM_ID).await;
+        let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
-        let equal = if *operation == "exportTeamArchive" {
+        let equal = if *operation == "getWorkspaceBoards" && asker == Asker::Guest {
+            // A guest of the workspace is a member of it: the boards are those the
+            // guest is on, none here (the route of `api/workspaces.rs`).
+            hidden.status == StatusCode::OK
+                && answer(&hidden).1 == json!([])
+                && absent.status == StatusCode::NOT_FOUND
+        } else if *operation == "exportWorkspaceArchive" {
             hidden.status == absent.status
                 && hidden.status == StatusCode::OK
                 && archive_entries(&hidden.body) == archive_entries(&absent.body)
@@ -142,10 +160,11 @@ async fn compare_team_routes(client: &Client, user_id: &str) -> Vec<String> {
             ));
         }
     }
-    // Team IDs supplied in a JSON body, rather than in the path.
+    // Workspace IDs supplied in a JSON body, rather than in the path.
     for bulk in [false, true] {
-        let send = async |team: &str| {
-            let board = json!({"id": "board-ref", "teamId": team, "type": "P", "title": "new"});
+        let send = async |workspace: &str| {
+            let board =
+                json!({"id": "board-ref", "workspaceId": workspace, "type": "P", "title": "new"});
             let (path, body) = if bulk {
                 (
                     "/boards-and-blocks",
@@ -156,35 +175,53 @@ async fn compare_team_routes(client: &Client, user_id: &str) -> Vec<String> {
             };
             client.post(path, &body).await
         };
-        let hidden = send(HIDDEN_TEAM_ID).await;
+        let hidden = send(HIDDEN_WORKSPACE_ID).await;
         let absent = send(UNKNOWN_ID).await;
         if hidden.status != StatusCode::BAD_REQUEST || answer(&hidden) != answer(&absent) {
             violations.push(format!(
-                "team in body (bulk={bulk}): {:?} versus {:?}",
+                "workspace in body (bulk={bulk}): {:?} versus {:?}",
                 answer(&hidden),
                 answer(&absent)
             ));
         }
     }
-    let listed: Vec<Team> = client.get("/teams").await.ok_json();
-    if listed.iter().any(|team| team.id == HIDDEN_TEAM_ID) {
-        violations.push("GET /teams disclosed the hidden workspace".to_owned());
+    let listed: Vec<UserWorkspace> = client.get("/users/me/workspaces").await.ok_json();
+    // A guest is a member, listed with the role; anybody else does not see it.
+    let hidden: Vec<WorkspaceRole> = listed
+        .iter()
+        .filter(|workspace| workspace.id == HIDDEN_WORKSPACE_ID)
+        .map(|workspace| workspace.role)
+        .collect();
+    let expected = match asker {
+        Asker::Outsider => vec![],
+        Asker::Guest => vec![WorkspaceRole::Guest],
+    };
+    if hidden != expected {
+        violations.push(format!(
+            "getMyWorkspaces listed the hidden workspace as {hidden:?}"
+        ));
     }
     violations
 }
 
+/// Every route under `/w/{workspaceId}` answers for a workspace the asker is not in, a
+/// workspace of another organization, and a workspace the asker is a guest of as for one
+/// that does not exist; but `getWorkspaceBoards`, which lets a guest see the boards the
+/// guest is on, and `exportWorkspaceArchive`, whose archive of such a workspace has no
+/// boards.
 #[tokio::test]
-async fn every_team_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
+async fn every_workspace_route_hides_the_workspace_from_nonmembers_guests_and_other_org_users() {
     let ts = Setup::native().start().await.init_basic().await;
     let guest = ts.add_user("workspace-guest").await;
     let guest_id = guest.me().await.id;
     ts.app
         .store()
-        .add_workspace_member(HIDDEN_TEAM_ID, &guest_id, WorkspaceRole::Guest)
+        .add_workspace_member(HIDDEN_WORKSPACE_ID, &guest_id, WorkspaceRole::Guest)
         .await
         .expect("a workspace guest");
-    let mut violations = compare_team_routes(&ts.client, &ts.client.me().await.id).await;
-    violations.extend(compare_team_routes(&guest, &guest_id).await);
+    let mut violations =
+        compare_workspace_routes(&ts.client, &ts.client.me().await.id, Asker::Outsider).await;
+    violations.extend(compare_workspace_routes(&guest, &guest_id, Asker::Guest).await);
     if db_type_of_the_tests() == DbType::Postgres {
         let user_id = ts.client2.me().await.id;
         for table in ["workspace_members", "organization_members"] {
@@ -194,9 +231,9 @@ async fn every_team_route_hides_the_workspace_from_nonmembers_guests_and_other_o
                 .await
                 .expect("the other user leaves the first org");
         }
-        let workspace = Team {
+        let workspace = Workspace {
             id: new_id(),
-            ..Team::default()
+            ..Workspace::default()
         };
         let org = ts
             .app
@@ -211,7 +248,7 @@ async fn every_team_route_hides_the_workspace_from_nonmembers_guests_and_other_o
             .add_workspace_member(&workspace.id, &user_id, WorkspaceRole::Member)
             .await
             .expect("the user works elsewhere");
-        violations.extend(compare_team_routes(&ts.client2, &user_id).await);
+        violations.extend(compare_workspace_routes(&ts.client2, &user_id, Asker::Outsider).await);
     }
     ts.teardown().await;
     assert!(
@@ -224,10 +261,10 @@ async fn every_team_route_hides_the_workspace_from_nonmembers_guests_and_other_o
 #[tokio::test]
 async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let categories: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
         .await
         .ok_json();
     let category = &categories[0].category;
@@ -235,7 +272,7 @@ async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
         .client
         .post(
             &format!(
-                "/teams/{ROOT_TEAM_ID}/categories/{}/boards/{}",
+                "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards/{}",
                 category.id, board.id
             ),
             &json!({}),
@@ -245,7 +282,7 @@ async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
         .client
         .post(
             &format!(
-                "/teams/{ROOT_TEAM_ID}/categories/{}/boards/{UNKNOWN_ID}",
+                "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards/{UNKNOWN_ID}",
                 category.id
             ),
             &json!({}),
@@ -253,7 +290,7 @@ async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
         .await;
     let after: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
         .await
         .ok_json();
     let filed = after
@@ -286,14 +323,14 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
         .await
         .expect("the built-in templates")
         .remove(0);
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let categories: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
         .await
         .ok_json();
     let category = format!(
-        "/teams/{ROOT_TEAM_ID}/categories/{}/boards",
+        "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards",
         categories[0].category.id
     );
     let mut answers = Vec::new();
@@ -320,7 +357,7 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
         .status;
     let after: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
         .await
         .ok_json();
     let template_hidden = after
@@ -353,7 +390,7 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
     let user_id = ts.client.me().await.id;
     let mut board = Board {
         id: new_id(),
-        team_id: HIDDEN_TEAM_ID.to_owned(),
+        workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Private,
         ..Board::default()
     };
@@ -364,11 +401,11 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
         .expect("the user is on a board of a workspace they are not in");
     let categories: Vec<CategoryBoards> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/categories"))
         .await
         .ok_json();
     let category = format!(
-        "/teams/{ROOT_TEAM_ID}/categories/{}/boards",
+        "/w/{ROOT_WORKSPACE_ID}/categories/{}/boards",
         categories[0].category.id
     );
     let seen = ts.client.get(&format!("/boards/{}", board.id)).await.status;
@@ -397,14 +434,14 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
 async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client.me().await.id;
-    let ours = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
-    let theirs = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let ours = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Open).await;
+    let theirs = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let category = ts
         .app
         .create_category(fvoci_model::Category {
             name: "Earlier".to_owned(),
             user_id: user_id.clone(),
-            team_id: ROOT_TEAM_ID.to_owned(),
+            workspace_id: ROOT_WORKSPACE_ID.to_owned(),
             ..fvoci_model::Category::default()
         })
         .await
@@ -420,14 +457,17 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
         .expect("both boards are filed as they could be before");
     let deleted = ts
         .client
-        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", category.id))
+        .delete(&format!(
+            "/w/{ROOT_WORKSPACE_ID}/categories/{}",
+            category.id
+        ))
         .await
         .status;
     let mut filed = Vec::new();
-    for team_id in [ROOT_TEAM_ID, TEST_TEAM_ID] {
+    for workspace_id in [ROOT_WORKSPACE_ID, TEST_WORKSPACE_ID] {
         let sidebar: Vec<CategoryBoards> = ts
             .client
-            .get(&format!("/teams/{team_id}/categories"))
+            .get(&format!("/w/{workspace_id}/categories"))
             .await
             .ok_json();
         let boards: Vec<String> = sidebar
@@ -450,8 +490,8 @@ async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
 }
 
 /// The ID-only inventory comes from the contract, so adding a resource operation
-/// automatically includes it in the comparisons. The team inventory above spells out
-/// the complete team list separately, and body/query targets are checked below.
+/// automatically includes it in the comparisons. The workspace inventory above spells out
+/// the complete workspace list separately, and body/query targets are checked below.
 async fn compare_resource_routes(
     client: &Client,
     board: &Board,
@@ -541,12 +581,12 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let owner = ts.stranger().await;
     ts.app
         .store()
-        .add_workspace_member(HIDDEN_TEAM_ID, &owner, WorkspaceRole::Member)
+        .add_workspace_member(HIDDEN_WORKSPACE_ID, &owner, WorkspaceRole::Member)
         .await
         .expect("the resource owner works in the hidden workspace");
     let mut board = Board {
         id: new_id(),
-        team_id: HIDDEN_TEAM_ID.to_owned(),
+        workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Open,
         title: "Hidden board".to_owned(),
         ..Board::default()
@@ -591,7 +631,7 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
     let guest_id = guest.me().await.id;
     ts.app
         .store()
-        .add_workspace_member(HIDDEN_TEAM_ID, &guest_id, WorkspaceRole::Guest)
+        .add_workspace_member(HIDDEN_WORKSPACE_ID, &guest_id, WorkspaceRole::Guest)
         .await
         .expect("a guest who has no board invitation");
     let mut violations =
@@ -608,9 +648,9 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
                 .await
                 .expect("remove first-org admission");
         }
-        let workspace = Team {
+        let workspace = Workspace {
             id: new_id(),
-            ..Team::default()
+            ..Workspace::default()
         };
         let org = ts
             .app
@@ -640,8 +680,11 @@ async fn identifier_only_inventory_hides_resources_of_an_unjoined_workspace() {
 async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
     for (path, absent) in [
         (
-            format!("/boards/{}/duplicate?toTeam={HIDDEN_TEAM_ID}", own.id),
-            format!("/boards/{}/duplicate?toTeam={UNKNOWN_ID}", own.id),
+            format!(
+                "/boards/{}/duplicate?toWorkspace={HIDDEN_WORKSPACE_ID}",
+                own.id
+            ),
+            format!("/boards/{}/duplicate?toWorkspace={UNKNOWN_ID}", own.id),
         ),
         (
             format!("/boards/{}/blocks?sourceBoardId={}", own.id, hidden.id),
@@ -698,11 +741,11 @@ async fn compare_query_targets(client: &Client, own: &Board, hidden: &Board) {
 #[tokio::test]
 async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
     let ts = Setup::native().start().await.init_basic().await;
-    let own = ts.create_board(ROOT_TEAM_ID, BoardType::Private).await;
+    let own = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
     let owner = ts.stranger().await;
     let mut hidden = Board {
         id: new_id(),
-        team_id: HIDDEN_TEAM_ID.to_owned(),
+        workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Open,
         title: "Hidden query board".to_owned(),
         ..Board::default()
@@ -715,7 +758,11 @@ async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
     let guest = ts.add_user("query-guest").await;
     ts.app
         .store()
-        .add_workspace_member(HIDDEN_TEAM_ID, &guest.me().await.id, WorkspaceRole::Guest)
+        .add_workspace_member(
+            HIDDEN_WORKSPACE_ID,
+            &guest.me().await.id,
+            WorkspaceRole::Guest,
+        )
         .await
         .expect("a guest actor");
     let mut actors = vec![ts.client.clone(), guest];
@@ -728,9 +775,9 @@ async fn query_targets_and_bulk_id_bodies_hide_unjoined_workspaces() {
                 .await
                 .expect("the actor leaves A");
         }
-        let workspace = Team {
+        let workspace = Workspace {
             id: new_id(),
-            ..Team::default()
+            ..Workspace::default()
         };
         let org = ts
             .app
@@ -759,12 +806,12 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
     let user = ts.client2.me().await.id;
     ts.app
         .store()
-        .add_workspace_member(HIDDEN_TEAM_ID, &user, WorkspaceRole::Guest)
+        .add_workspace_member(HIDDEN_WORKSPACE_ID, &user, WorkspaceRole::Guest)
         .await
         .expect("workspace guest");
     let mut board = Board {
         id: new_id(),
-        team_id: HIDDEN_TEAM_ID.to_owned(),
+        workspace_id: HIDDEN_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Open,
         ..Board::default()
     };
@@ -795,7 +842,7 @@ async fn an_invited_workspace_guest_reads_its_board_without_gaining_editor_right
     }
     let boards: Vec<Board> = ts
         .client2
-        .get(&format!("/w/{HIDDEN_TEAM_ID}/boards"))
+        .get(&format!("/w/{HIDDEN_WORKSPACE_ID}/boards"))
         .await
         .ok_json();
     assert_eq!(

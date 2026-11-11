@@ -31,9 +31,9 @@ mod serde_util;
 mod settings;
 mod sharing;
 mod subscription;
-mod team;
 mod upload;
 mod user;
+mod workspace;
 
 pub use archive::{ArchiveHeader, ArchiveLine};
 pub use auth::{
@@ -88,9 +88,9 @@ pub use settings::{
 };
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
-pub use team::Team;
 pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart, UploadPurpose};
 pub use user::{Session, User, UserPreferencesPatch};
+pub use workspace::Workspace;
 
 /// A JSON object with free-form keys, as used for block fields and board properties.
 pub type JsonMap = serde_json::Map<String, serde_json::Value>;

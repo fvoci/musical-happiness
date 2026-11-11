@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use fvoci_model::{
-    Block, Board, BoardMember, BoardType, LoginRequest, RegisterRequest, Team, User, new_id,
+    Block, Board, BoardMember, BoardType, LoginRequest, RegisterRequest, User, Workspace, new_id,
 };
 use fvoci_server::app::App;
 use fvoci_server::auth::secret::new_secret;
@@ -31,15 +31,15 @@ pub(crate) type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 pub(crate) const USER1_USERNAME: &str = "user1";
 pub(crate) const USER2_USERNAME: &str = "user2";
 pub(crate) const PASSWORD: &str = "Pa$$word";
-/// The root team of every test server: the oldest team, the one the server would have
+/// The root workspace of every test server: the oldest workspace, the one the server would have
 /// made at its first start. The harness makes it before the server starts, so that
 /// tests can name it.
-pub(crate) const ROOT_TEAM_ID: &str = "00000000-0000-7000-8000-000000000000";
-/// A second team, the one most tests make their boards in.
-pub(crate) const TEST_TEAM_ID: &str = "00000000-0000-7000-8000-000000000001";
-/// A third team of the organization, which nobody is let into: a workspace that is
+pub(crate) const ROOT_WORKSPACE_ID: &str = "00000000-0000-7000-8000-000000000000";
+/// A second workspace, the one most tests make their boards in.
+pub(crate) const TEST_WORKSPACE_ID: &str = "00000000-0000-7000-8000-000000000001";
+/// A third workspace of the organization, which nobody is let into: a workspace that is
 /// there and hidden from every user of a test.
-pub(crate) const HIDDEN_TEAM_ID: &str = "00000000-0000-7000-8000-000000000002";
+pub(crate) const HIDDEN_WORKSPACE_ID: &str = "00000000-0000-7000-8000-000000000002";
 /// The identifier of nothing: well-formed, and never given to anything.
 pub(crate) const UNKNOWN_ID: &str = "00000000-0000-7000-8000-00000000dead";
 
@@ -75,7 +75,7 @@ enum DatabaseRole {
 /// What is in the database of a test server when it starts.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum Database {
-    /// The organization of the tests with its two teams, under the identifiers the
+    /// The organization of the tests with its two workspaces, under the identifiers the
     /// tests name them by.
     #[default]
     Seeded,
@@ -133,8 +133,8 @@ impl Setup {
     }
 
     /// Starts on an empty database, as a server does the first time: the organization
-    /// and its first workspace are the server's to make, and [`ROOT_TEAM_ID`] and
-    /// [`TEST_TEAM_ID`] name nothing.
+    /// and its first workspace are the server's to make, and [`ROOT_WORKSPACE_ID`] and
+    /// [`TEST_WORKSPACE_ID`] name nothing.
     pub(crate) fn on_an_empty_database(mut self) -> Self {
         self.database = Database::Empty;
         self
@@ -233,7 +233,7 @@ impl Setup {
         }
 
         if self.database == Database::Seeded {
-            seed_teams(&config).await;
+            seed_workspaces(&config).await;
         }
         let mut server = match Server::new(config, &self.base_path).await {
             Ok(server) => server,
@@ -280,8 +280,8 @@ impl Setup {
     }
 }
 
-/// Stores the organization of a test server and its two teams, the root team first.
-async fn seed_teams(config: &Configuration) {
+/// Stores the organization of a test server and its two workspaces, the root workspace first.
+async fn seed_workspaces(config: &Configuration) {
     let db_type = config
         .db_type
         .parse()
@@ -289,43 +289,46 @@ async fn seed_teams(config: &Configuration) {
     let store = Store::connect(db_type, &config.db_config)
         .await
         .expect("the test database takes the schema");
-    let team = |team_id: &str| Team {
-        id: team_id.to_owned(),
+    let workspace = |workspace_id: &str| Workspace {
+        id: workspace_id.to_owned(),
         signup_token: new_secret(),
-        ..Team::default()
+        ..Workspace::default()
     };
     let org_id = store
-        .create_organization("", &team(ROOT_TEAM_ID))
+        .create_organization("", &workspace(ROOT_WORKSPACE_ID))
         .await
         .expect("the organization of the test server is stored");
     let ours = store.for_org(&org_id).expect("an identifier");
-    for team_id in [TEST_TEAM_ID, HIDDEN_TEAM_ID] {
-        ours.create_team(&team(team_id))
+    for workspace_id in [TEST_WORKSPACE_ID, HIDDEN_WORKSPACE_ID] {
+        ours.create_workspace(&workspace(workspace_id))
             .await
-            .expect("a further team of the test server is stored");
+            .expect("a further workspace of the test server is stored");
     }
     store.close().await;
 }
 
 impl TestServer {
     /// `InitBasic`: registers and signs in `user1` on the first client and `user2`, with
-    /// the team's signup token, on the second.
+    /// the workspace's signup token, on the second.
     pub(crate) async fn init_basic(mut self) -> Self {
         self.client = self
             .register_and_login(USER1_USERNAME, "user1@sample.com", PASSWORD, "")
             .await;
-        let team: Team = self
+        let workspace: Workspace = self
             .client
-            .get(&format!("/teams/{ROOT_TEAM_ID}"))
+            .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
             .await
             .ok_json();
-        assert!(!team.signup_token.is_empty(), "the team has a signup token");
+        assert!(
+            !workspace.signup_token.is_empty(),
+            "the workspace has a signup token"
+        );
         self.client2 = self
             .register_and_login(
                 USER2_USERNAME,
                 "user2@sample.com",
                 PASSWORD,
-                &team.signup_token,
+                &workspace.signup_token,
             )
             .await;
         self
@@ -393,24 +396,28 @@ impl TestServer {
             .post("/register", &request)
             .await
             .created_json();
-        self.let_into_the_second_team(&user.id).await;
+        self.let_into_the_second_workspace(&user.id).await;
         self.login(username, password).await
     }
 
-    /// Lets a user into the second team of the test server, [`TEST_TEAM_ID`], where
-    /// most tests make their boards. Whoever registers is in the root team, the
+    /// Lets a user into the second workspace of the test server, [`TEST_WORKSPACE_ID`], where
+    /// most tests make their boards. Whoever registers is in the root workspace, the
     /// organization's default workspace; the users of a test work in both. A server
-    /// started on an empty database has no second team to be let into.
-    pub(crate) async fn let_into_the_second_team(&self, user_id: &str) {
+    /// started on an empty database has no second workspace to be let into.
+    pub(crate) async fn let_into_the_second_workspace(&self, user_id: &str) {
         match self
             .app
             .store()
-            .add_workspace_member(TEST_TEAM_ID, user_id, fvoci_model::WorkspaceRole::Member)
+            .add_workspace_member(
+                TEST_WORKSPACE_ID,
+                user_id,
+                fvoci_model::WorkspaceRole::Member,
+            )
             .await
         {
             Ok(()) => {}
             Err(error) if error.is_not_found() => {}
-            Err(error) => panic!("the user is let into the second team: {error}"),
+            Err(error) => panic!("the user is let into the second workspace: {error}"),
         }
     }
 
@@ -421,14 +428,18 @@ impl TestServer {
         client
     }
 
-    /// Registers one more user with the team's signup token and signs them in.
+    /// Registers one more user with the workspace's signup token and signs them in.
     pub(crate) async fn add_user(&self, username: &str) -> Client {
-        let team = self.app.root_team().await.expect("the root team exists");
+        let workspace = self
+            .app
+            .root_workspace()
+            .await
+            .expect("the root workspace exists");
         self.register_and_login(
             username,
             &format!("{username}@sample.com"),
             PASSWORD,
-            &team.signup_token,
+            &workspace.signup_token,
         )
         .await
     }
@@ -444,9 +455,9 @@ impl TestServer {
     }
 
     /// `CreateBoard`: creates an empty board as the first client's user.
-    pub(crate) async fn create_board(&self, team_id: &str, board_type: BoardType) -> Board {
+    pub(crate) async fn create_board(&self, workspace_id: &str, board_type: BoardType) -> Board {
         let board = Board {
-            team_id: team_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
             board_type,
             ..Board::default()
         };

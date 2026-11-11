@@ -206,10 +206,10 @@ impl App {
             .await
     }
 
-    /// Opens a session for `user_id` to upload an archive to import into `team_id`
+    /// Opens a session for `user_id` to upload an archive to import into `workspace_id`
     /// (`docs/s6-design.md` 5.6, 9). Its parts are kept on the local disk whatever the
     /// file storage: the import reads the archive at random. The caller has checked that
-    /// the user may import into the team.
+    /// the user may import into the workspace.
     ///
     /// # Errors
     ///
@@ -218,14 +218,14 @@ impl App {
     pub async fn create_import_upload(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         new: FileToUpload,
     ) -> Result<Upload, AppError> {
-        self.open_upload(user_id, UploadPurpose::Import, team_id, new)
+        self.open_upload(user_id, UploadPurpose::Import, workspace_id, new)
             .await
     }
 
-    /// Opens a session for a purpose, to a board (a file) or a team (an import).
+    /// Opens a session for a purpose, to a board (a file) or a workspace (an import).
     async fn open_upload(
         &self,
         user_id: &str,
@@ -286,7 +286,7 @@ impl App {
         let path = multipart
             .map(|_| FilePlace::new(target, &new.name).path)
             .unwrap_or_default();
-        let (board_id, team_id) = match purpose {
+        let (board_id, workspace_id) = match purpose {
             UploadPurpose::File => (target.to_owned(), String::new()),
             UploadPurpose::Import => (String::new(), target.to_owned()),
         };
@@ -295,7 +295,7 @@ impl App {
             user_id: user_id.to_owned(),
             purpose,
             board_id,
-            team_id,
+            workspace_id,
             name: new.name,
             size: new.size,
             content_type: new.content_type,
@@ -692,10 +692,10 @@ impl App {
             .await
     }
 
-    /// Imports the archive of an upload into its team, as its user, and throws the
+    /// Imports the archive of an upload into its workspace, as its user, and throws the
     /// upload away: checks that every part is there, joins them into one file on the
     /// local disk, and imports from that. The caller has checked again that the user may
-    /// import into the team.
+    /// import into the workspace.
     ///
     /// # Errors
     ///
@@ -742,7 +742,7 @@ impl App {
         drop(turn);
         let imported = match joined {
             Ok(()) => {
-                self.import_team_archive(&archive, &upload.team_id, &upload.user_id)
+                self.import_workspace_archive(&archive, &upload.workspace_id, &upload.user_id)
                     .await
             }
             Err(error) => Err(error),

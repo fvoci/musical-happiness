@@ -1,5 +1,5 @@
 /**
- * An open board on the real server, opened by somebody of the team who is
+ * An open board on the real server, opened by somebody of the workspace who is
  * no member of it: its title and description are shown with a way to join,
  * and joining opens it (the user's decision, H5). Nobody is made a member by
  * opening it.
@@ -28,7 +28,7 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
   const board = await makeBoard(api, {
     title: 'Commons',
     type: 'O',
-    description: 'For the whole team',
+    description: 'For the whole workspace',
     cards: [{ title: 'Water the plants', status: 'To do' }],
   });
   const memberNames = async (): Promise<string[]> => {
@@ -36,7 +36,7 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
       await api.get(`/api/v1/boards/${board.boardId}/members`)
     ).json()) as Schemas['BoardMember'][];
     const users = (await (
-      await api.post(`/api/v1/teams/${board.teamId}/users`, {
+      await api.post(`/api/v1/w/${board.workspaceId}/users`, {
         data: members.map((member) => member.userId),
       })
     ).json()) as Schemas['User'][];
@@ -49,7 +49,7 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
   const join = page.getByTestId('board-join');
   await expect(join).toBeVisible();
   await expect(join.getByRole('heading')).toHaveText('Commons');
-  await expect(join).toContainText('For the whole team');
+  await expect(join).toContainText('For the whole workspace');
   await expect(page.getByTestId('board-page')).toHaveCount(0);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   // Opening it made nobody a member.

@@ -19,10 +19,10 @@ export interface Paging {
 /** What the backend lists of the trash, for whoever may bring it back. */
 export interface TrashReads {
   /**
-   * The team's boards in the trash that the reader was an admin of (who may
+   * The workspace's boards in the trash that the reader was an admin of (who may
    * bring them back): a page, the last deleted first.
    */
-  deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]>;
+  deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]>;
   /**
    * The board's cards in the trash, for its editors: a page, the last deleted
    * first. A card that went with the block it was on is not listed; it comes

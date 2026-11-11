@@ -1,6 +1,6 @@
 //! Identifiers.
 //!
-//! Every entity (team, board, block, user, category, session, file record) is named by a
+//! Every entity (workspace, board, block, user, category, session, file record) is named by a
 //! version 7 UUID in its canonical text form: 36 characters, lower-case hexadecimal
 //! digits with hyphens. The first 48 bits are the time the identifier was made, so new
 //! identifiers land next to each other in an index.

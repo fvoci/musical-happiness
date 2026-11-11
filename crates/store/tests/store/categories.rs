@@ -1,8 +1,8 @@
 //! Port of `server/services/store/storetests/category.go`.
 //!
 //! One test per test function of the original; its subtests are the commented sections.
-//! The original names its categories, users, teams and boards with fixed strings. Here
-//! every identifier is generated, and the user and team of a category and the boards
+//! The original names its categories, users, workspaces and boards with fixed strings. Here
+//! every identifier is generated, and the user and workspace of a category and the boards
 //! put into one are stored first.
 //!
 //! The tests after [`reorder_category_boards`] are not in the original: they pin behavior
@@ -28,14 +28,14 @@ pub(crate) fn new_ids<const N: usize>() -> [String; N] {
     std::array::from_fn(|_| new_id())
 }
 
-/// Stores `N` open boards of the team on behalf of the user and returns their
+/// Stores `N` open boards of the workspace on behalf of the user and returns their
 /// identifiers.
 pub(crate) async fn create_boards<const N: usize>(
     store: &Store,
-    team_id: &str,
+    workspace_id: &str,
     user_id: &str,
 ) -> [String; N] {
-    let boards = common::create_test_boards(store, team_id, user_id, N).await;
+    let boards = common::create_test_boards(store, workspace_id, user_id, N).await;
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
     ids.try_into()
         .expect("as many boards are stored as were asked for")
@@ -82,7 +82,7 @@ async fn get_create_category() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     // "save uncollapsed category"
     {
@@ -91,7 +91,7 @@ async fn get_create_category() {
             id: new_id(),
             name: "Category".to_owned(),
             user_id: user_id.clone(),
-            team_id: team_id.clone(),
+            workspace_id: workspace_id.clone(),
             create_at: now,
             update_at: now,
             delete_at: 0,
@@ -110,7 +110,7 @@ async fn get_create_category() {
             .expect("the category is found");
         assert_eq!(created_category.name, "Category", "the name");
         assert_eq!(created_category.user_id, user_id, "the user");
-        assert_eq!(created_category.team_id, team_id, "the team");
+        assert_eq!(created_category.workspace_id, workspace_id, "the workspace");
         assert!(!created_category.collapsed, "got {created_category:?}");
     }
 
@@ -121,7 +121,7 @@ async fn get_create_category() {
             id: new_id(),
             name: "Category".to_owned(),
             user_id: user_id.clone(),
-            team_id: team_id.clone(),
+            workspace_id: workspace_id.clone(),
             create_at: now,
             update_at: now,
             delete_at: 0,
@@ -140,7 +140,7 @@ async fn get_create_category() {
             .expect("the category is found");
         assert_eq!(created_category.name, "Category", "the name");
         assert_eq!(created_category.user_id, user_id, "the user");
-        assert_eq!(created_category.team_id, team_id, "the team");
+        assert_eq!(created_category.workspace_id, workspace_id, "the workspace");
         assert!(created_category.collapsed, "got {created_category:?}");
     }
 
@@ -184,14 +184,14 @@ async fn update_category() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     let now = now_millis();
     let category = Category {
         id: new_id(),
         name: "Category 1".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -209,7 +209,7 @@ async fn update_category() {
         id: category.id.clone(),
         name: "Category 1 New".to_owned(),
         user_id,
-        team_id,
+        workspace_id,
         create_at: now,
         update_at: update_now,
         delete_at: 0,
@@ -254,14 +254,14 @@ async fn delete_category() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     let now = now_millis();
     let category = Category {
         id: new_id(),
         name: "Category 1".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -275,7 +275,7 @@ async fn delete_category() {
         .expect("the category is created");
 
     store
-        .delete_category(&category.id, &user_id, &team_id)
+        .delete_category(&category.id, &user_id, &workspace_id)
         .await
         .expect("the category is deleted");
 
@@ -296,14 +296,14 @@ async fn get_user_categories() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     let now = now_millis();
     let category1 = Category {
         id: new_id(),
         name: "Category 1".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -319,7 +319,7 @@ async fn get_user_categories() {
         id: new_id(),
         name: "Category 2".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -336,7 +336,7 @@ async fn get_user_categories() {
         id: new_id(),
         name: "Category 2".to_owned(),
         user_id: user_id.clone(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         create_at: now,
         update_at: now,
         delete_at: 0,
@@ -349,7 +349,7 @@ async fn get_user_categories() {
         .expect("category 3 is created");
 
     let user_categories = store
-        .get_user_category_boards(&user_id, &team_id)
+        .get_user_category_boards(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(user_categories.len(), 3, "got {user_categories:?}");
@@ -363,7 +363,7 @@ async fn reorder_categories() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     // setup
     let [category1, category2, category3] = new_ids();
@@ -378,7 +378,7 @@ async fn reorder_categories() {
                 name: name.to_owned(),
                 category_type: CategoryType::Custom,
                 user_id: user_id.clone(),
-                team_id: team_id.clone(),
+                workspace_id: workspace_id.clone(),
                 ..Category::default()
             })
             .await
@@ -387,7 +387,7 @@ async fn reorder_categories() {
 
     // verify the current order
     let categories = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
 
@@ -402,7 +402,7 @@ async fn reorder_categories() {
     store
         .reorder_categories(
             &user_id,
-            &team_id,
+            &workspace_id,
             ids(&[&category2, &category3, &category1]),
         )
         .await
@@ -410,7 +410,7 @@ async fn reorder_categories() {
 
     // verify the board order
     let categories = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -424,14 +424,14 @@ async fn reorder_categories() {
     store
         .reorder_categories(
             &user_id,
-            &team_id,
+            &workspace_id,
             ids(&[&category1, &category2, &category3, &new_id()]),
         )
         .await
         .expect("an unknown identifier is ignored");
 
     let categories = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -449,7 +449,7 @@ async fn reorder_category_boards() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     // setup
     //
@@ -462,13 +462,13 @@ async fn reorder_category_boards() {
             name: "Category 1".to_owned(),
             category_type: CategoryType::Custom,
             user_id: user_id.clone(),
-            team_id: team_id.clone(),
+            workspace_id: workspace_id.clone(),
             ..Category::default()
         })
         .await
         .expect("the category is created");
 
-    let [board1, board2, board3, board4] = create_boards(store, &team_id, &user_id).await;
+    let [board1, board2, board3, board4] = create_boards(store, &workspace_id, &user_id).await;
 
     store
         .add_update_category_board(
@@ -481,7 +481,7 @@ async fn reorder_category_boards() {
 
     // verify current order
     let category_boards = store
-        .get_user_category_boards(&user_id, &team_id)
+        .get_user_category_boards(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
@@ -504,7 +504,7 @@ async fn reorder_category_boards() {
 
     // verify new order
     let category_boards = store
-        .get_user_category_boards(&user_id, &team_id)
+        .get_user_category_boards(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(category_boards.len(), 1, "got {category_boards:?}");
@@ -527,14 +527,14 @@ async fn sort_orders_of_created_and_reordered_categories() {
     let store = &test.store;
     let user_id = common::user(store, "user").await;
     let other_user_id = common::user(store, "other").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
     let [a, b, c, other] = new_ids();
 
     let category = |id: &str, user_id: &str, sort_order: i64| Category {
         id: id.to_owned(),
         name: format!("Category {id}"),
         user_id: user_id.to_owned(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         sort_order,
         ..Category::default()
     };
@@ -570,7 +570,7 @@ async fn sort_orders_of_created_and_reordered_categories() {
 
     // A deleted category is gone. An order that still names it leaves its place empty.
     store
-        .delete_category(&a, &user_id, &team_id)
+        .delete_category(&a, &user_id, &workspace_id)
         .await
         .expect("a is deleted");
     store
@@ -582,7 +582,7 @@ async fn sort_orders_of_created_and_reordered_categories() {
 
     let order = ids(&[&b, &a, &c, &other]);
     let echoed = store
-        .reorder_categories(&user_id, &team_id, order.clone())
+        .reorder_categories(&user_id, &workspace_id, order.clone())
         .await
         .expect("the categories are reordered");
     assert_eq!(echoed, order, "the order comes back as it was given");
@@ -605,7 +605,7 @@ async fn sort_orders_of_created_and_reordered_categories() {
 
     // An empty order changes nothing.
     let echoed = store
-        .reorder_categories(&user_id, &team_id, Vec::new())
+        .reorder_categories(&user_id, &workspace_id, Vec::new())
         .await
         .expect("an empty order is accepted");
     assert!(echoed.is_empty(), "got {echoed:?}");
@@ -622,7 +622,7 @@ async fn reorder_categories_treats_identifiers_as_data() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
     let [first, second] = new_ids();
     for id in [&first, &second] {
@@ -631,7 +631,7 @@ async fn reorder_categories_treats_identifiers_as_data() {
                 id: id.clone(),
                 name: id.clone(),
                 user_id: user_id.clone(),
-                team_id: team_id.clone(),
+                workspace_id: workspace_id.clone(),
                 ..Category::default()
             })
             .await
@@ -642,7 +642,7 @@ async fn reorder_categories_treats_identifiers_as_data() {
     // category of the user to position 5.
     let spliced = "x' THEN 5 ELSE 5 END --";
     let error = store
-        .reorder_categories(&user_id, &team_id, ids(&[spliced, &first, &second]))
+        .reorder_categories(&user_id, &workspace_id, ids(&[spliced, &first, &second]))
         .await
         .expect_err("text that is not an identifier is refused");
     assert!(
@@ -652,7 +652,7 @@ async fn reorder_categories_treats_identifiers_as_data() {
 
     // Nothing moved, the categories the order names after the refused entry included.
     let categories = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -664,11 +664,11 @@ async fn reorder_categories_treats_identifiers_as_data() {
 
     // An identifier with nothing behind it is ignored, wherever the order names it.
     store
-        .reorder_categories(&user_id, &team_id, ids(&[&new_id(), &first, &second]))
+        .reorder_categories(&user_id, &workspace_id, ids(&[&new_id(), &first, &second]))
         .await
         .expect("an identifier that names no category is accepted");
     let categories = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(
@@ -685,13 +685,13 @@ async fn reorder_categories_treats_identifiers_as_data() {
     test.teardown().await;
 }
 
-/// A system category of the user in the team, for the tests below.
-fn boards_category(user_id: &str, team_id: &str) -> Category {
+/// A system category of the user in the workspace, for the tests below.
+fn boards_category(user_id: &str, workspace_id: &str) -> Category {
     Category {
         id: new_id(),
         name: "Boards".to_owned(),
         user_id: user_id.to_owned(),
-        team_id: team_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
         create_at: 1000,
         update_at: 1000,
         category_type: CategoryType::System,
@@ -707,10 +707,10 @@ async fn update_category_leaves_other_members_and_rows_alone() {
     let store = &test.store;
     let user_id = common::user(store, "user").await;
     let someone_else = common::user(store, "someone-else").await;
-    let team_id = common::team(store).await;
-    let another_team = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
+    let another_workspace = common::workspace(store).await;
 
-    let category = boards_category(&user_id, &team_id);
+    let category = boards_category(&user_id, &workspace_id);
     store
         .create_category(&category)
         .await
@@ -720,7 +720,7 @@ async fn update_category_leaves_other_members_and_rows_alone() {
         .update_category(&Category {
             name: "Renamed".to_owned(),
             user_id: someone_else,
-            team_id: another_team,
+            workspace_id: another_workspace,
             create_at: 5,
             update_at: 2000,
             delete_at: 3000,
@@ -765,19 +765,19 @@ async fn update_category_leaves_other_members_and_rows_alone() {
     test.teardown().await;
 }
 
-/// Not in the original. A deletion needs the owner and the team to match. A deleted
+/// Not in the original. A deletion needs the owner and the workspace to match. A deleted
 /// category is gone: it is not found and not listed, and updating or deleting it again
 /// succeeds and brings nothing back.
 #[tokio::test]
-async fn delete_category_matches_owner_and_team_and_happens_once() {
+async fn delete_category_matches_owner_and_workspace_and_happens_once() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
     let someone_else = common::user(store, "someone-else").await;
-    let team_id = common::team(store).await;
-    let another_team = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
+    let another_workspace = common::workspace(store).await;
 
-    let category = boards_category(&user_id, &team_id);
+    let category = boards_category(&user_id, &workspace_id);
     store
         .create_category(&category)
         .await
@@ -788,11 +788,11 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .expect("the category is found");
 
     store
-        .delete_category(&category.id, &someone_else, &team_id)
+        .delete_category(&category.id, &someone_else, &workspace_id)
         .await
         .expect("deleting nothing succeeds");
     store
-        .delete_category(&category.id, &user_id, &another_team)
+        .delete_category(&category.id, &user_id, &another_workspace)
         .await
         .expect("deleting nothing succeeds");
     let stored = store
@@ -801,16 +801,16 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .expect("the category is found");
     assert_eq!(
         stored, created,
-        "neither another user nor another team deletes the category"
+        "neither another user nor another workspace deletes the category"
     );
     let listed = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(category_ids(&listed), [&category.id], "still listed");
 
     store
-        .delete_category(&category.id, &user_id, &team_id)
+        .delete_category(&category.id, &user_id, &workspace_id)
         .await
         .expect("the category is deleted");
     let error = store
@@ -819,7 +819,7 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .expect_err("a deleted category is not found");
     assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
     let listed = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert!(
@@ -835,7 +835,7 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .await
         .expect("updating a deleted category succeeds");
     store
-        .delete_category(&category.id, &user_id, &team_id)
+        .delete_category(&category.id, &user_id, &workspace_id)
         .await
         .expect("deleting a deleted category succeeds");
     let error = store
@@ -844,7 +844,7 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
         .expect_err("neither brings the deleted category back");
     assert!(matches!(error, StoreError::NotFound(_)), "got {error:?}");
     let listed = store
-        .get_user_category_boards(&user_id, &team_id)
+        .get_user_category_boards(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert!(listed.is_empty(), "still not listed: {listed:?}");
@@ -852,28 +852,31 @@ async fn delete_category_matches_owner_and_team_and_happens_once() {
     test.teardown().await;
 }
 
-/// Not in the original, whose categories name users and teams that need not exist. A
-/// category is its user's in its team: without either, it is not stored.
+/// Not in the original, whose categories name users and workspaces that need not exist. A
+/// category is its user's in its workspace: without either, it is not stored.
 #[tokio::test]
-async fn a_category_of_a_user_or_a_team_that_does_not_exist_is_refused() {
+async fn a_category_of_a_user_or_a_workspace_that_does_not_exist_is_refused() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
+    let workspace_id = common::workspace(store).await;
 
-    let existing = boards_category(&user_id, &team_id);
+    let existing = boards_category(&user_id, &workspace_id);
     store
         .create_category(&existing)
         .await
-        .expect("a category of a user in a team is created");
+        .expect("a category of a user in a workspace is created");
     let before = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
 
-    let of_nobody = boards_category(&new_id(), &team_id);
-    let in_no_team = boards_category(&user_id, &new_id());
-    for (category, what) in [(&of_nobody, "no such user"), (&in_no_team, "no such team")] {
+    let of_nobody = boards_category(&new_id(), &workspace_id);
+    let in_no_workspace = boards_category(&user_id, &new_id());
+    for (category, what) in [
+        (&of_nobody, "no such user"),
+        (&in_no_workspace, "no such workspace"),
+    ] {
         let error = store
             .create_category(category)
             .await
@@ -890,7 +893,7 @@ async fn a_category_of_a_user_or_a_team_that_does_not_exist_is_refused() {
     }
 
     let after = store
-        .get_user_categories(&user_id, &team_id)
+        .get_user_categories(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(after, before, "the refused categories changed nothing");
@@ -907,17 +910,17 @@ async fn categories_written_by_others() {
     let test = common::setup().await;
     let store = &test.store;
     let user_id = common::user(store, "user").await;
-    let team_id = common::team(store).await;
-    let [board_id] = create_boards(store, &team_id, &user_id).await;
+    let workspace_id = common::workspace(store).await;
+    let [board_id] = create_boards(store, &workspace_id, &user_id).await;
     let [custom_type, system_type] = new_ids();
 
     execute_raw(
         &test,
         &format!(
-            "INSERT INTO categories (id, name, user_id, team_id, create_at, update_at, type) \
+            "INSERT INTO categories (id, name, user_id, workspace_id, create_at, update_at, type) \
              VALUES \
-             ('{custom_type}', 'A', '{user_id}', '{team_id}', 1, 1, 'custom'), \
-             ('{system_type}', 'B', '{user_id}', '{team_id}', 1, 1, 'system')"
+             ('{custom_type}', 'A', '{user_id}', '{workspace_id}', 1, 1, 'custom'), \
+             ('{system_type}', 'B', '{user_id}', '{workspace_id}', 1, 1, 'system')"
         ),
     )
     .await;
@@ -932,7 +935,7 @@ async fn categories_written_by_others() {
     .await;
 
     let listed = store
-        .get_user_category_boards(&user_id, &team_id)
+        .get_user_category_boards(&user_id, &workspace_id)
         .await
         .expect("the categories are listed");
     assert_eq!(listed.len(), 2, "got {listed:?}");

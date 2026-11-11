@@ -1341,7 +1341,7 @@
   - 데이터 폴더는 지우지 않는다. 실패한 뒤에 들여다볼 수 있게.
   - 다른 안: Playwright의 전역 준비에서 서버를 띄우기 / 테스트 파일마다 서버.
   - 바꾸려면: `playwright.live.config.ts`, `tools/live-server.ts`.
-- **연결 9.** 보드를 열 때 구성원 가운데 이름을 모르는 사람은 식별자로 따로 읽는다. 경계에 `usersById(teamId, userIds)`를 더했고(서버는 `POST /teams/{teamId}/users`), 보드를 다 읽은 뒤 `Workspace.learnUsers`가 부른다. 실패하면 이름이 "알 수 없는 사용자"로 남을 뿐이라 보드는 연다.
+- **연결 9.** 보드를 열 때 구성원 가운데 이름을 모르는 사람은 식별자로 따로 읽는다. 경계에 `usersById(workspaceId, userIds)`를 더했고(서버는 `POST /w/{workspaceId}/users`), 보드를 다 읽은 뒤 `Workspace.learnUsers`가 부른다. 실패하면 이름이 "알 수 없는 사용자"로 남을 뿐이라 보드는 연다.
   - 왜: 서버의 팀 목록은 열 명만 준다(`contract-assumptions.md`의 H1). 열한 번째 사람부터 보드의 얼굴과 이름이 비었다.
   - 다른 안: 팀 목록을 검색어로 여러 번 읽기 / 사람 고르기 칸처럼 칸마다 따로 읽기.
   - 다시 읽는 때: 보드를 열 때, 구성원이 바뀐 소식이 왔을 때, 작업 공간을 다시 읽었을 때(다시 로그인) 열린 보드의 구성원.

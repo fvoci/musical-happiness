@@ -52,11 +52,11 @@
           "modifiedBy": "<id:2>",
           "properties": {},
           "showDescription": false,
-          "teamId": "<id:6>",
           "templateVersion": 0,
           "title": "Board A",
           "type": "P",
-          "updateAt": "<ts>"
+          "updateAt": "<ts>",
+          "workspaceId": "<id:6>"
         },
         {
           "cardProperties": [],
@@ -72,11 +72,11 @@
           "modifiedBy": "<id:2>",
           "properties": {},
           "showDescription": false,
-          "teamId": "<id:6>",
           "templateVersion": 0,
           "title": "Board B",
           "type": "O",
-          "updateAt": "<ts>"
+          "updateAt": "<ts>",
+          "workspaceId": "<id:6>"
         }
       ]
     }
@@ -117,12 +117,12 @@
     }
   },
   {
-    "name": "create: boards of two teams",
+    "name": "create: boards of two workspaces",
     "request": "POST /api/v1/boards-and-blocks as bab-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "cannot create boards for multiple teams",
+      "detail": "cannot create boards for multiple workspaces",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 400,
@@ -227,11 +227,11 @@
           "modifiedBy": "<id:2>",
           "properties": {},
           "showDescription": false,
-          "teamId": "<id:6>",
           "templateVersion": 0,
           "title": "Board A2",
           "type": "P",
-          "updateAt": "<ts>"
+          "updateAt": "<ts>",
+          "workspaceId": "<id:6>"
         },
         {
           "cardProperties": [],
@@ -247,11 +247,11 @@
           "modifiedBy": "<id:2>",
           "properties": {},
           "showDescription": false,
-          "teamId": "<id:6>",
           "templateVersion": 0,
           "title": "Board B",
           "type": "O",
-          "updateAt": "<ts>"
+          "updateAt": "<ts>",
+          "workspaceId": "<id:6>"
         }
       ]
     }
@@ -345,11 +345,11 @@
       "modifiedBy": "<id:2>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:6>",
       "templateVersion": 0,
       "title": "Board A2",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:6>"
     }
   },
   {

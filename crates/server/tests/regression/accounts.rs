@@ -1,4 +1,4 @@
-//! Scenarios: system routes, registration and sessions, teams and users.
+//! Scenarios: system routes, registration and sessions, workspaces and users.
 #![expect(
     clippy::too_many_lines,
     reason = "a scenario is one request sequence; cutting it up would hide the order it pins"
@@ -6,7 +6,7 @@
 
 use serde_json::{Value, json};
 
-use crate::common::{ROOT_TEAM_ID, UNKNOWN_ID};
+use crate::common::{ROOT_WORKSPACE_ID, UNKNOWN_ID};
 use crate::harness::{API, Session};
 
 pub(crate) async fn system(s: &mut Session) {
@@ -292,55 +292,60 @@ pub(crate) async fn auth(s: &mut Session) {
         .await;
 }
 
-pub(crate) async fn teams(s: &mut Session) {
-    let [alice] = s.users("teams", ["alice"]).await;
-    s.get("teams", &format!("{API}/teams")).user(&alice).await;
-    s.get("team 0", &format!("{API}/teams/{ROOT_TEAM_ID}"))
+pub(crate) async fn workspaces(s: &mut Session) {
+    let [alice] = s.users("workspaces", ["alice"]).await;
+    s.get("workspaces", &format!("{API}/users/me/workspaces"))
         .user(&alice)
         .await;
-    s.get("some other team id", &format!("{API}/teams/anything"))
+    s.get("workspace 0", &format!("{API}/w/{ROOT_WORKSPACE_ID}"))
+        .user(&alice)
+        .await;
+    s.get("some other workspace id", &format!("{API}/w/anything"))
         .user(&alice)
         .await;
     s.get(
-        "team without session",
-        &format!("{API}/teams/{ROOT_TEAM_ID}"),
+        "workspace without session",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}"),
     )
     .await;
     let users = s
-        .get("team users", &format!("{API}/teams/{ROOT_TEAM_ID}/users"))
+        .get(
+            "workspace users",
+            &format!("{API}/w/{ROOT_WORKSPACE_ID}/users"),
+        )
         .user(&alice)
         .unrecorded()
         .await;
     let includes_me = users
         .json()
         .as_array()
-        .expect("the team users are a list")
+        .expect("the workspace users are a list")
         .iter()
         .any(|user| user["username"] == alice.as_str());
-    s.note("team users include me", &json!(includes_me));
+    s.note("workspace users include me", &json!(includes_me));
     s.get(
-        "team users search",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users?search=teams-ali"),
+        "workspace users search",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users?search=workspaces-ali"),
     )
     .user(&alice)
     .await;
     s.get(
-        "team users search without match",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users?search=zzzz-no-such"),
+        "workspace users search without match",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users?search=zzzz-no-such"),
     )
     .user(&alice)
     .await;
     let alice_id = s.user_id(&alice).await;
     s.post(
-        "team users by id",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users"),
+        "workspace users by id",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users"),
     )
     .json(json!([alice_id]))
     .user(&alice)
     .await;
     s.post(
-        "team users by id: empty",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users"),
+        "workspace users by id: empty",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/users"),
     )
     .json(json!([]))
     .user(&alice)
@@ -355,8 +360,8 @@ pub(crate) async fn admins(s: &mut Session) {
     let bob_id = s.user_id(&bob).await;
     let root_id = s.user_id("root").await;
     let old_token = s.signup_token("root").await;
-    let team = format!("{API}/teams/{ROOT_TEAM_ID}");
-    let regenerate = format!("{team}/signup-token");
+    let workspace = format!("{API}/w/{ROOT_WORKSPACE_ID}");
+    let regenerate = format!("{workspace}/signup-token");
     let admin_of = |user_id: &str| format!("{API}/users/{user_id}/admin");
 
     s.get("me: the first user", &format!("{API}/users/me"))
@@ -373,27 +378,37 @@ pub(crate) async fn admins(s: &mut Session) {
     .await;
 
     // -- the signup token is for administrators --------------------------------------
-    s.get("team: administrator", &team).user("root").await;
-    s.get("team: anybody else", &team).user(&alice).await;
-    s.get("teams: administrator", &format!("{API}/teams"))
+    s.get("workspace: administrator", &workspace)
         .user("root")
         .await;
-    s.get("teams: anybody else", &format!("{API}/teams"))
+    s.get("workspace: anybody else", &workspace)
         .user(&alice)
         .await;
+    s.get(
+        "workspaces: administrator",
+        &format!("{API}/users/me/workspaces"),
+    )
+    .user("root")
+    .await;
+    s.get(
+        "workspaces: anybody else",
+        &format!("{API}/users/me/workspaces"),
+    )
+    .user(&alice)
+    .await;
     s.post("renew the token: not an administrator", &regenerate)
         .user(&alice)
         .await;
     s.post("renew the token: no session", &regenerate).await;
     s.post(
-        "renew the token: unknown team",
-        &format!("{API}/teams/{UNKNOWN_ID}/signup-token"),
+        "renew the token: unknown workspace",
+        &format!("{API}/w/{UNKNOWN_ID}/signup-token"),
     )
     .user("root")
     .await;
     s.post(
         "old path: renew the token",
-        &format!("{team}/regenerate_signup_token"),
+        &format!("{workspace}/regenerate_signup_token"),
     )
     .user("root")
     .await;
@@ -451,7 +466,9 @@ pub(crate) async fn admins(s: &mut Session) {
         .json(json!({"isAdmin": true}))
         .user("root")
         .await;
-    s.get("team: the new administrator", &team).user(&bob).await;
+    s.get("workspace: the new administrator", &workspace)
+        .user(&bob)
+        .await;
     s.put("step down", &admin_of(&root_id))
         .json(json!({"isAdmin": false}))
         .user("root")
@@ -460,7 +477,9 @@ pub(crate) async fn admins(s: &mut Session) {
         .json(json!({"isAdmin": true}))
         .user("root")
         .await;
-    s.get("team: after stepping down", &team).user("root").await;
+    s.get("workspace: after stepping down", &workspace)
+        .user("root")
+        .await;
     s.put("unmake: the new only administrator", &admin_of(&bob_id))
         .json(json!({"isAdmin": false}))
         .user(&bob)
@@ -582,7 +601,7 @@ pub(crate) async fn cookies(s: &mut Session) {
     let me = format!("{API}/users/me");
     let boards = format!("{API}/boards");
     let credentials = json!({"username": alice, "password": "test-password"});
-    let board = json!({"teamId": ROOT_TEAM_ID, "type": "P", "title": "made"});
+    let board = json!({"workspaceId": ROOT_WORKSPACE_ID, "type": "P", "title": "made"});
     // The address the test servers take for their own: the default `serverRoot`.
     let own_origin = "http://localhost:8000";
     let foreign_origin = "https://evil.example";

@@ -117,7 +117,7 @@ impl App {
         let block = block.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_change(&board.team_id, &block)
+                .broadcast_block_change(&board.workspace_id, &block)
                 .await;
             app.webhook().notify_update(&block).await;
         });
@@ -158,7 +158,7 @@ impl App {
         self.store().insert_blocks(blocks, modified_by).await?;
         for block in blocks.iter() {
             self.ws()
-                .broadcast_block_change(&board.team_id, block)
+                .broadcast_block_change(&board.workspace_id, block)
                 .await;
         }
         for block in blocks.iter() {
@@ -194,7 +194,7 @@ impl App {
         let changed = block.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_change(&board.team_id, &changed)
+                .broadcast_block_change(&board.workspace_id, &changed)
                 .await;
             app.webhook().notify_update(&changed).await;
         });
@@ -202,10 +202,10 @@ impl App {
     }
 
     /// Applies each patch of a batch to the block at the same position, all or none;
-    /// websocket listeners in `team_id` and webhooks are told in the background.
+    /// websocket listeners in `workspace_id` and webhooks are told in the background.
     ///
     /// The blocks may belong to different boards. The members of each block's board who
-    /// listen to `team_id` are told, so a team other than the boards' own reaches only
+    /// listen to `workspace_id` are told, so a workspace other than the boards' own reaches only
     /// the listeners of the blocks themselves.
     ///
     /// # Errors
@@ -216,7 +216,7 @@ impl App {
     /// there are fewer patches than identifiers.
     pub async fn patch_blocks(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         batch: &BlockPatchBatch,
         modified_by: &str,
         notification: ChangeNotification,
@@ -230,7 +230,7 @@ impl App {
         }
 
         let app = self.clone();
-        let team_id = team_id.to_owned();
+        let workspace_id = workspace_id.to_owned();
         let block_ids = batch.block_ids.clone();
         self.spawn_background(async move {
             for block_id in &block_ids {
@@ -241,7 +241,7 @@ impl App {
                         return;
                     }
                 };
-                app.ws().broadcast_block_change(&team_id, &block).await;
+                app.ws().broadcast_block_change(&workspace_id, &block).await;
                 app.webhook().notify_update(&block).await;
             }
         });
@@ -268,7 +268,7 @@ impl App {
         let app = self.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_delete(&board.team_id, &block.id, &block.board_id)
+                .broadcast_block_delete(&board.workspace_id, &block.id, &block.board_id)
                 .await;
         });
         Ok(())
@@ -347,7 +347,7 @@ impl App {
         let restored = block.clone();
         self.spawn_background(async move {
             app.ws()
-                .broadcast_block_change(&board.team_id, &restored)
+                .broadcast_block_change(&board.workspace_id, &restored)
                 .await;
             app.webhook().notify_update(&restored).await;
         });
@@ -385,7 +385,9 @@ impl App {
         let copies = blocks.clone();
         self.spawn_background(async move {
             for block in &copies {
-                app.ws().broadcast_block_change(&board.team_id, block).await;
+                app.ws()
+                    .broadcast_block_change(&board.workspace_id, block)
+                    .await;
             }
         });
         files?;

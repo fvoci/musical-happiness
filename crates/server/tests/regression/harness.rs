@@ -29,7 +29,7 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::common::{ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::golden;
 
 /// The prefix of every API route.
@@ -221,7 +221,7 @@ pub(crate) struct Http {
     client: reqwest::Client,
     base_url: String,
     /// The server's store, past its routes: whoever registers is let into the second
-    /// team of the test server, which no route does.
+    /// workspace of the test server, which no route does.
     store: Store,
 }
 
@@ -330,8 +330,8 @@ impl Http {
             .await
     }
 
-    /// Registers `user`, lets them into the second team of the test server, where
-    /// the users of the scenarios work as in the root team, and signs in. Returns the
+    /// Registers `user`, lets them into the second workspace of the test server, where
+    /// the users of the scenarios work as in the root workspace, and signs in. Returns the
     /// session token.
     pub(crate) async fn register(&self, user: &str, signup_token: &str) -> String {
         let mut body = json!({
@@ -352,9 +352,13 @@ impl Http {
             .await;
         assert_eq!(reply.status, 201, "register {user}: {:?}", reply.body);
         self.store
-            .add_workspace_member(TEST_TEAM_ID, &reply.string("id"), WorkspaceRole::Member)
+            .add_workspace_member(
+                TEST_WORKSPACE_ID,
+                &reply.string("id"),
+                WorkspaceRole::Member,
+            )
             .await
-            .expect("the user is let into the second team");
+            .expect("the user is let into the second workspace");
         self.login(user).await
     }
 
@@ -373,11 +377,11 @@ impl Http {
         reply.session_token()
     }
 
-    /// The team's signup token, read as the holder of `token`.
+    /// The workspace's signup token, read as the holder of `token`.
     pub(crate) async fn signup_token(&self, token: &str) -> String {
         self.api(
             Method::GET,
-            &format!("{API}/teams/{ROOT_TEAM_ID}"),
+            &format!("{API}/w/{ROOT_WORKSPACE_ID}"),
             Payload::None,
             &Caller::Token(token.to_owned()),
         )
@@ -494,7 +498,7 @@ impl Session {
         });
     }
 
-    /// Registers one user per name, unique to the scenario, with the team's signup
+    /// Registers one user per name, unique to the scenario, with the workspace's signup
     /// token, and returns the user names.
     pub(crate) async fn users<const N: usize>(
         &mut self,
@@ -514,7 +518,7 @@ impl Session {
             .unwrap_or_else(|_| unreachable!("one user is created per name"))
     }
 
-    /// The team's signup token, read as `user`. Not recorded.
+    /// The workspace's signup token, read as `user`. Not recorded.
     pub(crate) async fn signup_token(&self, user: &str) -> String {
         self.http.signup_token(self.token_of(user)).await
     }

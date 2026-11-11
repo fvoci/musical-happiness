@@ -10,7 +10,7 @@ use reqwest::StatusCode;
 use serde_json::{Value, json};
 
 use crate::common::{
-    PASSWORD, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID, USER1_USERNAME,
+    PASSWORD, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer, UNKNOWN_ID, USER1_USERNAME,
 };
 
 const FAKE_USERNAME: &str = "fakeUsername";
@@ -49,7 +49,12 @@ async fn user_register() {
 
     // With the token, the name is found to be taken.
     let mut with_token = register_request(&new_id());
-    with_token.token = th.app.root_team().await.expect("root team").signup_token;
+    with_token.token = th
+        .app
+        .root_workspace()
+        .await
+        .expect("root workspace")
+        .signup_token;
     let taken = th.client.post("/register", &with_token).await;
     taken.check_status(StatusCode::CONFLICT);
     assert_eq!(taken.error_reason(), "username_taken", "the name is taken");
@@ -327,7 +332,12 @@ async fn a_registration_answers_the_user_that_was_made() {
     };
 
     let first = register("first", "").await;
-    let signup_token = th.app.root_team().await.expect("root team").signup_token;
+    let signup_token = th
+        .app
+        .root_workspace()
+        .await
+        .expect("root workspace")
+        .signup_token;
     let second = register("second", &signup_token).await;
 
     for (response, username, is_admin) in [(&first, "first", true), (&second, "second", false)] {
@@ -500,15 +510,15 @@ async fn users_list_and_profiles() {
         .await
         .check_not_found();
 
-    let team_users: Vec<User> = th
+    let workspace_users: Vec<User> = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/users"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/users"))
         .await
         .ok_json();
-    assert_eq!(team_users.len(), 2, "the team has both users");
+    assert_eq!(workspace_users.len(), 2, "the workspace has both users");
     let found: Vec<User> = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/users?search=user2"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}/users?search=user2"))
         .await
         .ok_json();
     assert_eq!(found.len(), 1, "the search narrows the list");
@@ -516,7 +526,7 @@ async fn users_list_and_profiles() {
 
     let by_id: Vec<User> = th
         .client
-        .post(&format!("/teams/{ROOT_TEAM_ID}/users"), &[&user2.id])
+        .post(&format!("/w/{ROOT_WORKSPACE_ID}/users"), &[&user2.id])
         .await
         .ok_json();
     assert_eq!(by_id.len(), 1, "one user was asked for");
@@ -1017,49 +1027,52 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
     th.teardown().await;
 }
 
-/// The team routes.
+/// The workspace routes.
 #[tokio::test]
-async fn teams() {
+async fn workspaces() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let teams = th.client.get("/teams").await.value();
+    let workspaces = th.client.get("/users/me/workspaces").await.value();
     assert_eq!(
-        teams.as_array().map(Vec::len),
+        workspaces.as_array().map(Vec::len),
         Some(2),
-        "the two teams of the test server: {teams}"
+        "the two workspaces of the test server: {workspaces}"
     );
     assert_eq!(
-        teams[0]["id"],
-        json!(ROOT_TEAM_ID),
-        "the oldest team, the root team, comes first: {teams}"
+        workspaces[0]["id"],
+        json!(ROOT_WORKSPACE_ID),
+        "the oldest workspace, the root workspace, comes first: {workspaces}"
     );
 
-    // A team is asked for by its identifier. Any other identifier, well-formed or
-    // not, names no team; the original answered the root team to whatever was asked.
-    for no_team in [UNKNOWN_ID, "some-other-team", "0"] {
-        let response = th.client.get(&format!("/teams/{no_team}")).await;
-        response.check_error(StatusCode::NOT_FOUND, "team not found");
+    // A workspace is asked for by its identifier. Any other identifier, well-formed or
+    // not, names no workspace; the original answered the root workspace to whatever was asked.
+    for no_workspace in [UNKNOWN_ID, "some-other-workspace", "0"] {
+        let response = th.client.get(&format!("/w/{no_workspace}")).await;
+        response.check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
-    let team = th
+    let workspace = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
         .await
         .value();
-    assert_eq!(team["id"], json!(ROOT_TEAM_ID), "{team}");
-    let signup_token = team["signupToken"].as_str().unwrap_or_default().to_owned();
+    assert_eq!(workspace["id"], json!(ROOT_WORKSPACE_ID), "{workspace}");
+    let signup_token = workspace["signupToken"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     assert_eq!(
         signup_token.len(),
         fvoci_server::auth::secret::SECRET_LENGTH,
-        "the signup token is a secret and part of the team: {team}"
+        "the signup token is a secret and part of the workspace: {workspace}"
     );
 
     th.client
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/signup-token"))
+        .post_empty(&format!("/w/{ROOT_WORKSPACE_ID}/signup-token"))
         .await
         .check_ok();
     let regenerated = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
         .await
         .value();
     assert_ne!(
@@ -1069,41 +1082,45 @@ async fn teams() {
     );
     let other = th
         .client
-        .get(&format!("/teams/{TEST_TEAM_ID}"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}"))
         .await
         .value();
     assert_ne!(
         other["signupToken"], regenerated["signupToken"],
-        "each team has a token of its own"
+        "each workspace has a token of its own"
     );
     th.client
-        .post_empty(&format!("/teams/{UNKNOWN_ID}/signup-token"))
+        .post_empty(&format!("/w/{UNKNOWN_ID}/signup-token"))
         .await
-        .check_error(StatusCode::NOT_FOUND, "team not found");
+        .check_error(StatusCode::NOT_FOUND, "workspace not found");
 
     th.anonymous()
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .get(&format!("/w/{ROOT_WORKSPACE_ID}"))
         .await
         .check_unauthorized();
     th.teardown().await;
 }
 
-/// `TestGetRootTeam` in `server/app/teams_test.go`: the root team is created once and
+/// `TestGetRootTeam` in `server/app/teams_test.go`: the root workspace is created once and
 /// then returned as it is.
 #[tokio::test]
-async fn app_get_root_team() {
+async fn app_get_root_workspace() {
     let th = Setup::native().start().await;
 
     let first = th
         .app
-        .root_team()
+        .root_workspace()
         .await
-        .expect("the root team exists after startup");
-    let second = th.app.root_team().await.expect("and is returned again");
+        .expect("the root workspace exists after startup");
+    let second = th
+        .app
+        .root_workspace()
+        .await
+        .expect("and is returned again");
 
     assert_eq!(
-        first.id, ROOT_TEAM_ID,
-        "the root team has the global identifier"
+        first.id, ROOT_WORKSPACE_ID,
+        "the root workspace has the global identifier"
     );
     assert!(!first.signup_token.is_empty(), "it has a signup token");
     assert_eq!(first.modified_by, "", "nobody modified it");
@@ -1434,13 +1451,13 @@ async fn changing_the_password_ends_the_other_sessions_of_the_user() {
 #[tokio::test]
 async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
     let th = Setup::native().start().await.init_basic().await;
-    let team = th.app.root_team().await.expect("the root team");
+    let workspace = th.app.root_workspace().await.expect("the root workspace");
     let register = |username: &str, password: &str| {
         let body = json!({
             "username": username,
             "email": format!("{username}@sample.com"),
             "password": password,
-            "token": team.signup_token,
+            "token": workspace.signup_token,
         });
         let anonymous = th.anonymous();
         async move { anonymous.post("/register", &body).await }
@@ -1493,13 +1510,13 @@ async fn passwords_are_bounded_by_characters_below_and_by_bytes_above() {
 #[tokio::test]
 async fn a_user_has_a_display_name_of_their_choosing() {
     let th = Setup::native().start().await.init_basic().await;
-    let team = th.app.root_team().await.expect("the root team");
+    let workspace = th.app.root_workspace().await.expect("the root workspace");
     let registered = th
         .anonymous()
         .post(
             "/register",
             &json!({"username": "jim", "email": "jim@sample.com", "password": PASSWORD,
-                    "token": team.signup_token, "displayName": "Jim Halpert"}),
+                    "token": workspace.signup_token, "displayName": "Jim Halpert"}),
         )
         .await;
     registered.check_created();
@@ -1517,7 +1534,7 @@ async fn a_user_has_a_display_name_of_their_choosing() {
     assert_eq!(th.client.me().await.display_name, "Michael Scott 🎉");
 
     // Found by either name, whatever the case.
-    let search = |query: &str| format!("/teams/{ROOT_TEAM_ID}/users?search={query}");
+    let search = |query: &str| format!("/w/{ROOT_WORKSPACE_ID}/users?search={query}");
     let found: Vec<User> = jim.get(&search("scott")).await.ok_json();
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].id, me.id);
@@ -1563,7 +1580,7 @@ async fn a_user_has_a_display_name_of_their_choosing() {
         .post(
             "/register",
             &json!({"username": "pam", "email": "pam@sample.com", "password": PASSWORD,
-                    "token": team.signup_token, "displayName": "x".repeat(65)}),
+                    "token": workspace.signup_token, "displayName": "x".repeat(65)}),
         )
         .await;
     response.check_bad_request();
@@ -1571,7 +1588,7 @@ async fn a_user_has_a_display_name_of_their_choosing() {
     // Left out or null at registration: none.
     for (username, extra) in [("dwight", None), ("angela", Some(Value::Null))] {
         let mut body = json!({"username": username, "email": format!("{username}@sample.com"),
-                              "password": PASSWORD, "token": team.signup_token});
+                              "password": PASSWORD, "token": workspace.signup_token});
         if let Some(value) = extra {
             body["displayName"] = value;
         }

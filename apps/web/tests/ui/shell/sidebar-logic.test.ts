@@ -23,7 +23,7 @@ function entry(id: string, boards: Board[], overrides: Partial<Category> = {}): 
       id,
       name: id,
       userId: 'reader',
-      teamId: 'team',
+      workspaceId: 'workspace',
       type: 'custom',
       collapsed: false,
       sortOrder: 0,
@@ -43,7 +43,7 @@ const goals = board('goals', 'Personal Goals');
 const untitled = board('untitled', '');
 
 const SIDEBAR: SidebarCategory[] = [
-  entry('team', [plan, notes]),
+  entry('workspace', [plan, notes]),
   entry('personal', [goals], { collapsed: true }),
   entry('boards', [untitled], { type: 'system' }),
 ];
@@ -56,7 +56,7 @@ describe('the search of the sidebar', () => {
 
   it('keeps the boards whose title has the text, whatever the case', () => {
     const found = filterSidebar(SIDEBAR, 'PLAN');
-    expect(found.map((one) => one.category.id)).toEqual(['team']);
+    expect(found.map((one) => one.category.id)).toEqual(['workspace']);
     expect(found[0]?.boards).toEqual([plan]);
   });
 
@@ -103,7 +103,7 @@ describe('moving a category a step', () => {
 describe('what a board can be dragged over', () => {
   it('open categories are lists with their boards in order', () => {
     expect(dragOrder(SIDEBAR)).toEqual([
-      { id: 'team', items: ['plan', 'notes'] },
+      { id: 'workspace', items: ['plan', 'notes'] },
       { id: 'boards', items: ['untitled'] },
     ]);
   });
@@ -145,11 +145,13 @@ describe('where a dropped board is filed', () => {
   });
 
   it('a drop at a place in an open category', () => {
-    expect(boardMoveOf({ kind: 'index', listId: 'team', index: 1 }, 'goals', SIDEBAR)).toEqual({
-      boardId: 'goals',
-      categoryId: 'team',
-      index: 1,
-    });
+    expect(boardMoveOf({ kind: 'index', listId: 'workspace', index: 1 }, 'goals', SIDEBAR)).toEqual(
+      {
+        boardId: 'goals',
+        categoryId: 'workspace',
+        index: 1,
+      },
+    );
   });
 
   it('a drop on a folded category files the board last there', () => {
@@ -161,12 +163,12 @@ describe('where a dropped board is filed', () => {
   });
 
   it('"Move to" files the board last, and does not count the board itself', () => {
-    expect(moveToEnd('team', 'goals', SIDEBAR)).toEqual({
+    expect(moveToEnd('workspace', 'goals', SIDEBAR)).toEqual({
       boardId: 'goals',
-      categoryId: 'team',
+      categoryId: 'workspace',
       index: 2,
     });
-    expect(moveToEnd('team', 'plan', SIDEBAR)?.index).toBe(1);
+    expect(moveToEnd('workspace', 'plan', SIDEBAR)?.index).toBe(1);
   });
 
   it('has no answer for a category that is gone', () => {

@@ -14,8 +14,8 @@ interface StoredCard {
 
 interface Dev {
   backend: {
-    teams(): Promise<{ id: string }[]>;
-    boards(teamId: string): Promise<{ id: string; title: string }[]>;
+    workspaces(): Promise<{ id: string }[]>;
+    boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
     views(boardId: string): Promise<{ id: string; title: string }[]>;
     cards(boardId: string): Promise<StoredCard[]>;
     board(boardId: string): Promise<{ cardProperties: { id: string; name: string }[] }>;
@@ -35,8 +35,8 @@ async function openTable(page: Page): Promise<Place> {
   await expect(page.getByTestId('app-shell')).toBeVisible();
   const place = await page.evaluate(async () => {
     const { backend } = (window as unknown as { fvociDev: Dev }).fvociDev;
-    const [team] = await backend.teams();
-    const boards = await backend.boards(team?.id ?? '');
+    const [workspace] = await backend.workspaces();
+    const boards = await backend.boards(workspace?.id ?? '');
     const boardId = boards.find((each) => each.title === 'Project Tasks')?.id ?? '';
     const views = await backend.views(boardId);
     const cards = (await backend.cards(boardId)).filter((card) => !card.fields.isTemplate);

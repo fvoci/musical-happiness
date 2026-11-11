@@ -162,11 +162,11 @@ describe('utils', () => {
         boardId: 'board_id_1',
         viewId: 'view_id_1',
         cardId: 'card_id_1',
-        teamId: 'team_id_1',
+        workspaceId: 'workspace_id_1',
       };
-      const pattern = '/team/:teamId/:boardId?/:viewId?/:cardId?';
+      const pattern = '/workspace/:workspaceId/:boardId?/:viewId?/:cardId?';
 
-      expect(boardPath(pattern, params, 'board_id_2')).toBe('/team/team_id_1/board_id_2');
+      expect(boardPath(pattern, params, 'board_id_2')).toBe('/workspace/workspace_id_1/board_id_2');
     });
   });
 });

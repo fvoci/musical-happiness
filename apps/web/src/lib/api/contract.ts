@@ -39,14 +39,14 @@ export interface paths {
          * @description Makes boards and their blocks together, all or none, under identifiers the server
          *     makes; the identifiers of the request only say which block belongs to which board
          *     and to which other block. The request needs at least one board and one block; every
-         *     board needs an `id`, and all boards are of one team. The user becomes the admin of
+         *     board needs an `id`, and all boards are of one workspace. The user becomes the admin of
          *     each board, and each board that is no template is filed under the user's default
          *     category.
          */
         post: operations["createBoardsAndBlocks"];
         /**
          * Delete boards and blocks together
-         * @description Deletes several boards of one team, all or none. The request names at least one
+         * @description Deletes several boards of one workspace, all or none. The request names at least one
          *     board, and every block it names must be on one of its boards and be the user's to
          *     delete as `deleteBlock` has it; the blocks are checked and nothing more, since a
          *     board takes all of its blocks along. The boards go to the trash as `deleteBoard`
@@ -58,7 +58,7 @@ export interface paths {
         head?: never;
         /**
          * Change boards and blocks together
-         * @description Applies a patch to each of several boards of one team and to blocks of those
+         * @description Applies a patch to each of several boards of one workspace and to blocks of those
          *     boards, all or none. The request names at least one board, and every block it names
          *     is on one of its boards: blocks alone are not changed this way. Each board needs
          *     what `patchBoard` needs, each block what `patchBlock` needs.
@@ -75,8 +75,8 @@ export interface paths {
         };
         /**
          * Search the boards
-         * @description The boards the user may find, as `getBoards` lists them, whose title matches the
-         *     term: a title matches if every word of the term, as spaces divide it, is somewhere
+         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         *     the term: a title matches if every word of the term, as spaces divide it, is somewhere
          *     in it, whatever the case of the letters (of every letter, not only ASCII). Templates
          *     are never found. `%` and `_` are characters like any other. Oldest first.
          */
@@ -99,7 +99,7 @@ export interface paths {
         /**
          * A board
          * @description For a user who may see the board: a member of it, or for an open board anyone in
-         *     its team. With the board's read token no session is needed. Who reads with the token
+         *     its workspace. With the board's read token no session is needed. Who reads with the token
          *     and is no member of the board, without a session or signed in, is not told who made
          *     the board or changed it last (`createdBy` and `modifiedBy` are empty).
          */
@@ -164,7 +164,7 @@ export interface paths {
         };
         /**
          * The blocks of a board
-         * @description For the board's members, and for an open template everyone in its team. With the
+         * @description For the board's members, and for an open template everyone in its workspace. With the
          *     board's read token no session is needed. Who reads with the token and is no member
          *     of the board, without a session or signed in, is told no user's identifier:
          *     `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a
@@ -367,7 +367,7 @@ export interface paths {
          *     user becomes the admin of the copy, which is always private. A copy of the same kind
          *     has the title of the original with ` copy` after it; a template made from a board is
          *     titled `New board template`, and a board made from a template keeps the title. The
-         *     board's members may copy it; an open template is for everyone in its team, and a
+         *     board's members may copy it; an open template is for everyone in its workspace, and a
          *     built-in template for everyone.
          */
         post: operations["duplicateBoard"];
@@ -861,8 +861,8 @@ export interface paths {
         /**
          * Register a user
          * @description Makes an account. The first user of a server needs no signup token and becomes its
-         *     administrator; everyone after needs the team's token, and is refused with 403 and
-         *     the reason `signup_token_required` without it. A token that is not the team's is 403
+         *     administrator; everyone after needs the workspace's token, and is refused with 403 and
+         *     the reason `signup_token_required` without it. A token that is not the workspace's is 403
          *     with the reason `signup_token_invalid`, for the first user too. A name or an email
          *     address that is taken is 409 with the reason `username_taken` or `email_taken`.
          *     Registering does not sign in.
@@ -943,475 +943,6 @@ export interface paths {
         get: operations["getSubscriptions"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The teams
-         * @description The teams the user works in, oldest first: a team the user is no member of is not
-         *     listed. Nothing in the API makes a team. The signup token is there for
-         *     administrators only.
-         */
-        get: operations["getTeams"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A team
-         * @description The signup token, which lets in whoever has it, is there for administrators only.
-         */
-        get: operations["getTeam"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/archive/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Export the boards of a team
-         * @description An archive of all boards of the team that `getBoards` lists for the user, offered
-         *     as a download with its length, in the format of `exportBoardArchive`, and under its
-         *     limits. A team that is not there, or that the user is not in, is not refused: its
-         *     archive has no boards.
-         */
-        get: operations["exportTeamArchive"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/archive/import": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Import an archive
-         * @description Makes the boards of an archive in the team, with the user as their admin. The
-         *     members the archive names for a board become members of it with the roles they had,
-         *     where they are in the team. The archive is sent before in parts: open an
-         *     upload with `createImportUpload`, send its parts with `putUploadPart`, then name
-         *     the upload here, in place of `completeUpload`. A part missing is 400 and the upload
-         *     stays open for it; otherwise the upload ends with the import, whether it succeeds or
-         *     not. Another user's upload, or one that has ended, is 404; an upload of a file, or
-         *     one for another team, is 400. For users of the team who are not guests, at the
-         *     import as when the upload was opened: a user who may not import any more is
-         *     refused, and the upload is thrown away.
-         *
-         *     The archive is of version 3, as the export routes write it. The formats of the
-         *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without
-         *     `version.json` are 400, and nothing of them is stored. An archive of more than
-         *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
-         *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with
-         *     the `limit` passed, and nothing of it is stored. The blocks that show files are
-         *     pointed at the board's new copies of them, the images of bodies included; a card
-         *     value that does not fit its property's kind is cleared, as a copy does.
-         *
-         *     The boards are made one after the other, not all or none: when one of them fails,
-         *     those before it stay.
-         *
-         *     A user runs one import at a time, and the server as many as its setting
-         *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
-         *     `import_running` or `server_imports_busy`; the upload stays open, to be named again.
-         */
-        post: operations["importArchive"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/archive/uploads": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Open an upload of an archive
-         * @description Opens an upload of an archive to import into the team, sent in parts as a file is
-         *     with `createUpload`, and imported with `importArchive` once every part is received.
-         *     An archive larger than `maxImportSize` of `getClientConfig` is 413. It counts
-         *     toward the same limits as the uploads of files, which hold back at most twice the
-         *     larger of `maxFileSize` and `maxImportSize` for a user. For users of the team who
-         *     are not guests, as `importArchive`.
-         */
-        post: operations["createImportUpload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/boards": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The boards of a team
-         * @description The boards of the team that the user is a member of, and the team's open boards.
-         *     Templates are not among them. Oldest first.
-         */
-        get: operations["getBoards"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/boards/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search the boards, asked through a team
-         * @description The boards the user may find, as `getBoards` lists them, whose title matches the
-         *     term as `searchBoards` matches it, or with `field=property_name` those whose own
-         *     `properties` have a member of exactly that name, whatever its value (`null` too). The team of the path is not part of
-         *     the search: the boards of every team are searched. A `field` that is neither is 400.
-         *     Oldest first.
-         */
-        get: operations["searchTeamBoards"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/categories": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The user's sidebar
-         * @description The user's categories in the team, each with the boards filed under it. A user who
-         *     has none yet gets the default category made.
-         *
-         *     The categories come by `sortOrder`, lowest first, and among those with the same one
-         *     the oldest first. The boards of a category come in the order the user gave them,
-         *     and by identifier among those with the same place.
-         */
-        get: operations["getCategories"];
-        put?: never;
-        /**
-         * Make a category
-         * @description Makes a category of the user's sidebar in the team. The server makes its
-         *     identifier, and a request that names one is 400. A `userId` that is not the user of
-         *     the session is 403. The category is stored with its `sortOrder` raised by 10, and
-         *     every other category of the user in the team moves by 10 as well, so that it keeps
-         *     its place among them.
-         */
-        post: operations["createCategory"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/categories/{categoryId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Change a category
-         * @description Changes the name of one of the user's categories and whether it is collapsed.
-         *     Nothing else changes, and a system category keeps its name. A `userId` that is not
-         *     the user of the session is 400.
-         */
-        put: operations["updateCategory"];
-        post?: never;
-        /**
-         * Delete a category
-         * @description Deletes one of the user's categories; its boards go to the user's default
-         *     category. A system category cannot be deleted. A deleted category does not come
-         *     back.
-         */
-        delete: operations["deleteCategory"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/categories/{categoryId}/board-order": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Put the boards of a category in an order
-         * @description The body lists the identifiers of all boards of the category, in the order they
-         *     are to have. A list that is not as long as the category has boards, or that names
-         *     one that is not in the category, is refused.
-         */
-        put: operations["reorderCategoryBoards"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * File a board under a category
-         * @description Puts a board the user may see under one of the user's categories; it leaves the
-         *     category it was under. A category takes the boards of its own workspace and the
-         *     built-in templates: a board of another workspace answers as one that is not there.
-         */
-        post: operations["setBoardCategory"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Hide a board in the sidebar
-         * @description Hides a board of one of the user's categories from the user's sidebar. The board
-         *     stays where it is filed, and nothing changes for anybody else. For a board that is
-         *     not filed under the category nothing changes, and the answer is 204 all the same; a
-         *     board of another workspace than the category's answers as one that is not there.
-         */
-        put: operations["hideBoard"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Show a hidden board again
-         * @description Ends the hiding of a board of one of the user's categories. For a board that is not
-         *     filed under the category nothing changes, and the answer is 204 all the same; a
-         *     board of another workspace than the category's answers as one that is not there.
-         */
-        put: operations["unhideBoard"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/category-order": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Put the categories in an order
-         * @description The body lists the identifiers of all of the user's categories in the team, in the
-         *     order they are to have. A list that is not as long as the user has categories, or
-         *     that names one that is not the user's, is refused.
-         */
-        put: operations["reorderCategories"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/onboard": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start the tour
-         * @description Copies the built-in welcome board for the user, as a private board of their own,
-         *     and notes in the client's state (`getClientState`) that the tour has begun:
-         *     `onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is
-         *     `onboarding`. Every request makes another copy.
-         */
-        post: operations["onboard"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/signup-token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make a new signup token
-         * @description Makes a new signup token for the team; the old one stops working. For
-         *     administrators.
-         */
-        post: operations["regenerateSignupToken"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The templates of a team
-         * @description The team's template boards the user may see, then the built-in templates, which
-         *     every team is offered. Each of the two oldest first.
-         */
-        get: operations["getTemplates"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/trash/boards": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The deleted boards of a team
-         * @description One page of the team's boards that are in the trash and that the user was an admin
-         *     of when they were deleted, which is who `undeleteBoard` lets bring them back: each
-         *     with its identifier, its title, when it was deleted and by whom. The last deleted
-         *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
-         *     400. For users of the team.
-         */
-        get: operations["getDeletedBoards"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/teams/{teamId}/users": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The users of a team
-         * @description Up to ten users: with `search` those whose login name or display name has that text
-         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
-         *     account first.
-         */
-        get: operations["getTeamUsers"];
-        put?: never;
-        /**
-         * Users of a team by their identifiers
-         * @description The users with the identifiers of the body, which must name at least one: an empty
-         *     list is 400. Every identifier must be a user's and none may be there twice;
-         *     otherwise the request is 404. Oldest account first, not in the order of the request.
-         */
-        post: operations["getTeamUsersById"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1710,6 +1241,120 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/w/{workspaceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A workspace
+         * @description The signup token, which lets in whoever has it, is there for administrators only.
+         */
+        get: operations["getWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/archive/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the boards of a workspace
+         * @description An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
+         *     user, offered as a download with its length, in the format of `exportBoardArchive`,
+         *     and under its limits. A workspace that is not there, that the user is not in, or that
+         *     is of another organization than the server's, is not refused: its archive has no
+         *     boards.
+         */
+        get: operations["exportWorkspaceArchive"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/archive/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import an archive
+         * @description Makes the boards of an archive in the workspace, with the user as their admin. The
+         *     members the archive names for a board become members of it with the roles they had,
+         *     where they are in the workspace. The archive is sent before in parts: open an
+         *     upload with `createImportUpload`, send its parts with `putUploadPart`, then name
+         *     the upload here, in place of `completeUpload`. A part missing is 400 and the upload
+         *     stays open for it; otherwise the upload ends with the import, whether it succeeds or
+         *     not. Another user's upload, or one that has ended, is 404; an upload of a file, or
+         *     one for another workspace, is 400. For users of the workspace who are not guests, at the
+         *     import as when the upload was opened: a user who may not import any more is
+         *     refused, and the upload is thrown away.
+         *
+         *     The archive is of version 3, as the export routes write it. The formats of the
+         *     original (the line-based version 1 and the ZIP of version 2) and a ZIP without
+         *     `version.json` are 400, and nothing of them is stored. An archive of more than
+         *     10,000 entries, whose entries unpack to more than 1 GiB together, or with a
+         *     `board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with
+         *     the `limit` passed, and nothing of it is stored. The blocks that show files are
+         *     pointed at the board's new copies of them, the images of bodies included; a card
+         *     value that does not fit its property's kind is cleared, as a copy does.
+         *
+         *     The boards are made one after the other, not all or none: when one of them fails,
+         *     those before it stay.
+         *
+         *     A user runs one import at a time, and the server as many as its setting
+         *     `max_concurrent_imports` (2 unless set). Over either it is 429 with the reason
+         *     `import_running` or `server_imports_busy`; the upload stays open, to be named again.
+         */
+        post: operations["importArchive"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/archive/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open an upload of an archive
+         * @description Opens an upload of an archive to import into the workspace, sent in parts as a file is
+         *     with `createUpload`, and imported with `importArchive` once every part is received.
+         *     An archive larger than `maxImportSize` of `getClientConfig` is 413. It counts
+         *     toward the same limits as the uploads of files, which hold back at most twice the
+         *     larger of `maxFileSize` and `maxImportSize` for a user. For users of the workspace who
+         *     are not guests, as `importArchive`.
+         */
+        post: operations["createImportUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/w/{workspaceId}/boards": {
         parameters: {
             query?: never;
@@ -1726,6 +1371,319 @@ export interface paths {
         get: operations["getWorkspaceBoards"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/boards/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the boards, asked through a workspace
+         * @description The boards the user may find, as `getWorkspaceBoards` lists them, whose title matches
+         *     the term as `searchBoards` matches it, or with `field=property_name` those whose own
+         *     `properties` have a member of exactly that name, whatever its value (`null` too). The
+         *     workspace of the path is not part of the search: the boards of every workspace are
+         *     searched. A `field` that is neither is 400. Oldest first.
+         */
+        get: operations["searchWorkspaceBoards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The user's sidebar
+         * @description The user's categories in the workspace, each with the boards filed under it. A user who
+         *     has none yet gets the default category made.
+         *
+         *     The categories come by `sortOrder`, lowest first, and among those with the same one
+         *     the oldest first. The boards of a category come in the order the user gave them,
+         *     and by identifier among those with the same place.
+         */
+        get: operations["getCategories"];
+        put?: never;
+        /**
+         * Make a category
+         * @description Makes a category of the user's sidebar in the workspace. The server makes its
+         *     identifier, and a request that names one is 400. A `userId` that is not the user of
+         *     the session is 403. The category is stored with its `sortOrder` raised by 10, and
+         *     every other category of the user in the workspace moves by 10 as well, so that it keeps
+         *     its place among them.
+         */
+        post: operations["createCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/categories/{categoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change a category
+         * @description Changes the name of one of the user's categories and whether it is collapsed.
+         *     Nothing else changes, and a system category keeps its name. A `userId` that is not
+         *     the user of the session is 400.
+         */
+        put: operations["updateCategory"];
+        post?: never;
+        /**
+         * Delete a category
+         * @description Deletes one of the user's categories; its boards go to the user's default
+         *     category. A system category cannot be deleted. A deleted category does not come
+         *     back.
+         */
+        delete: operations["deleteCategory"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/board-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put the boards of a category in an order
+         * @description The body lists the identifiers of all boards of the category, in the order they
+         *     are to have. A list that is not as long as the category has boards, or that names
+         *     one that is not in the category, is refused.
+         */
+        put: operations["reorderCategoryBoards"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * File a board under a category
+         * @description Puts a board the user may see under one of the user's categories; it leaves the
+         *     category it was under. A category takes the boards of its own workspace and the
+         *     built-in templates: a board of another workspace answers as one that is not there.
+         */
+        post: operations["setBoardCategory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/hide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Hide a board in the sidebar
+         * @description Hides a board of one of the user's categories from the user's sidebar. The board
+         *     stays where it is filed, and nothing changes for anybody else. For a board that is
+         *     not filed under the category nothing changes, and the answer is 204 all the same; a
+         *     board of another workspace than the category's answers as one that is not there.
+         */
+        put: operations["hideBoard"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/unhide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Show a hidden board again
+         * @description Ends the hiding of a board of one of the user's categories. For a board that is not
+         *     filed under the category nothing changes, and the answer is 204 all the same; a
+         *     board of another workspace than the category's answers as one that is not there.
+         */
+        put: operations["unhideBoard"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/category-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put the categories in an order
+         * @description The body lists the identifiers of all of the user's categories in the workspace, in the
+         *     order they are to have. A list that is not as long as the user has categories, or
+         *     that names one that is not the user's, is refused.
+         */
+        put: operations["reorderCategories"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/onboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the tour
+         * @description Copies the built-in welcome board for the user, as a private board of their own,
+         *     and notes in the client's state (`getClientState`) that the tour has begun:
+         *     `onboardingTourStarted` is `1`, `onboardingTourStep` is `0` and `tourCategory` is
+         *     `onboarding`. Every request makes another copy.
+         */
+        post: operations["onboard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/signup-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a new signup token
+         * @description Makes a new signup token for the workspace; the old one stops working. For
+         *     administrators.
+         */
+        post: operations["regenerateSignupToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The templates of a workspace
+         * @description The workspace's template boards the user may see, then the built-in templates, which
+         *     every workspace is offered. Each of the two oldest first.
+         */
+        get: operations["getTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/trash/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted boards of a workspace
+         * @description One page of the workspace's boards that are in the trash and that the user was an admin
+         *     of when they were deleted, which is who `undeleteBoard` lets bring them back: each
+         *     with its identifier, its title, when it was deleted and by whom. The last deleted
+         *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
+         *     400. For users of the workspace.
+         */
+        get: operations["getDeletedBoards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/w/{workspaceId}/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The users of a workspace
+         * @description Up to ten users: with `search` those whose login name or display name has that text
+         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
+         *     account first.
+         */
+        get: operations["getWorkspaceUsers"];
+        put?: never;
+        /**
+         * Users of a workspace by their identifiers
+         * @description The users with the identifiers of the body, which must name at least one: an empty
+         *     list is 400. Every identifier must be a user's and none may be there twice;
+         *     otherwise the request is 404. Oldest account first, not in the order of the request.
+         */
+        post: operations["getWorkspaceUsersById"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1873,7 +1831,7 @@ export interface components {
             id: string;
             /**
              * @description Whether the board is one of the templates the server ships with. They are
-             *     offered to every team and nobody can change them. The server decides this:
+             *     offered to every workspace and nobody can change them. The server decides this:
              *     what a client sends here is ignored.
              */
             isBuiltin: boolean;
@@ -1892,8 +1850,6 @@ export interface components {
             };
             /** @description Whether the description is shown in the interface. */
             showDescription: boolean;
-            /** @description The identifier of the team the board belongs to. */
-            teamId: string;
             /**
              * Format: int64
              * @description The version of the built-in template this board came from.
@@ -1912,6 +1868,8 @@ export interface components {
              * @description Last modification time in milliseconds since the Unix epoch.
              */
             updateAt: number;
+            /** @description The identifier of the workspace the board belongs to. */
+            workspaceId: string;
         };
         /** @description A user's membership of a board. */
         BoardMember: {
@@ -2086,7 +2044,7 @@ export interface components {
              */
             text: string;
         };
-        /** @description A sidebar category of one user in one team. */
+        /** @description A sidebar category of one user in one workspace. */
         Category: {
             /** @description Whether the category is collapsed in the sidebar. */
             collapsed: boolean;
@@ -2109,8 +2067,6 @@ export interface components {
              * @description The position of the category among the user's categories.
              */
             sortOrder: number;
-            /** @description The identifier of the team the category belongs to. */
-            teamId: string;
             /** @description Whether this is a system or a custom category. */
             type: components["schemas"]["CategoryType"];
             /**
@@ -2120,6 +2076,8 @@ export interface components {
             updateAt: number;
             /** @description The identifier of the user the category belongs to. */
             userId: string;
+            /** @description The identifier of the workspace the category belongs to. */
+            workspaceId: string;
         };
         /** @description A board's place in a category. */
         CategoryBoardMetadata: {
@@ -2149,10 +2107,10 @@ export interface components {
             id: string;
             /** @description The display name; not blank. */
             name: string;
-            /** @description The team of the path. */
-            teamId: string;
             /** @description The user of the session. */
             userId: string;
+            /** @description The workspace of the path. */
+            workspaceId: string;
         };
         /** @description A request to change a user's password. */
         ChangePasswordRequest: {
@@ -2418,8 +2376,6 @@ export interface components {
             } | null;
             /** @description Whether the description is shown in the interface. */
             showDescription?: boolean | null;
-            /** @description The identifier of the team the board is made in. */
-            teamId: string;
             /**
              * Format: int64
              * @description The version of the built-in template the board came from.
@@ -2429,12 +2385,14 @@ export interface components {
             title?: string | null;
             /** @description Whether the board is open or private. */
             type: components["schemas"]["BoardType"];
+            /** @description The identifier of the workspace the board is made in. */
+            workspaceId: string;
         };
         /** @description Boards and their blocks, to make together. */
         NewBoardsAndBlocks: {
             /** @description The blocks, at least one. The `boardId` of each is the `id` of one of `boards`. */
             blocks: components["schemas"]["NewBlock"][];
-            /** @description The boards, at least one, all of one team. Each needs an `id`. */
+            /** @description The boards, at least one, all of one workspace. Each needs an `id`. */
             boards: components["schemas"]["NewBoard"][];
         };
         /** @description A card to make. */
@@ -2465,11 +2423,11 @@ export interface components {
              *     higher: see `createCategory`.
              */
             sortOrder?: number | null;
-            /** @description The team of the path. */
-            teamId: string;
             type?: components["schemas"]["CategoryType"] | null;
             /** @description The user of the session: a user makes categories for themselves only. */
             userId: string;
+            /** @description The workspace of the path. */
+            workspaceId: string;
         };
         /**
          * @description A user to make a member of a board, and the roles to give them. A member with no
@@ -2487,7 +2445,7 @@ export interface components {
             schemeEditor?: boolean | null;
             /** @description The user may view the board. */
             schemeViewer?: boolean | null;
-            /** @description The identifier of the user, who must be able to see the board's team. */
+            /** @description The identifier of the user, who must be able to see the board's workspace. */
             userId: string;
         };
         /** @description A subscription to make. */
@@ -2524,8 +2482,8 @@ export interface components {
         OnboardingStart: {
             /** @description The identifier of the board the tour goes through. */
             boardId: string;
-            /** @description The identifier of the team. */
-            teamId: string;
+            /** @description The identifier of the workspace. */
+            workspaceId: string;
         };
         /**
          * @description Patches for several boards and blocks, applied together.
@@ -2644,7 +2602,7 @@ export interface components {
             email: string;
             /** @description The password. */
             password: string;
-            /** @description The team's signup token; may be empty while no user exists yet. */
+            /** @description The workspace's signup token; may be empty while no user exists yet. */
             token?: string;
             /** @description The login name. */
             username: string;
@@ -2763,29 +2721,6 @@ export interface components {
             /** @description The kind of entity that subscribes. */
             subscriberType: components["schemas"]["SubscriberType"];
         };
-        /** @description A team: a workspace of an organization, as the routes that name a team call it. */
-        Team: {
-            /** @description The team's identifier. */
-            id: string;
-            /** @description The identifier of the user who last modified the team. */
-            modifiedBy: string;
-            /** @description Free-form team settings. */
-            settings: {
-                [key: string]: unknown;
-            };
-            /**
-             * @description The token new users must present to register. Empty, and left out of the JSON
-             *     form, in what is answered to anyone but an administrator of the instance.
-             */
-            signupToken?: string;
-            /** @description The team's title. */
-            title: string;
-            /**
-             * Format: int64
-             * @description Last modification time in milliseconds since the Unix epoch.
-             */
-            updateAt: number;
-        };
         /**
          * @description The colors of the interface.
          * @enum {string}
@@ -2846,10 +2781,10 @@ export interface components {
              * @description The size of the file in bytes.
              */
             size: number;
-            /** @description The team the archive is for; empty for a file. */
-            teamId: string;
             /** @description The identifier of the upload. */
             uploadId: string;
+            /** @description The workspace the archive is for; empty for a file. */
+            workspaceId: string;
         };
         /** @description What an upload answers: the name the file is asked for by. */
         UploadedFile: {
@@ -2951,6 +2886,29 @@ export interface components {
          * @enum {string}
          */
         WeekStart: "auto" | "sunday" | "monday" | "saturday";
+        /** @description A workspace of an organization. */
+        Workspace: {
+            /** @description The workspace's identifier. */
+            id: string;
+            /** @description The identifier of the user who last modified the workspace. */
+            modifiedBy: string;
+            /** @description Free-form workspace settings. */
+            settings: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description The token new users must present to register. Empty, and left out of the JSON
+             *     form, in what is answered to anyone but an administrator of the instance.
+             */
+            signupToken?: string;
+            /** @description The workspace's title. */
+            title: string;
+            /**
+             * Format: int64
+             * @description Last modification time in milliseconds since the Unix epoch.
+             */
+            updateAt: number;
+        };
         /**
          * @description What a member of a workspace is in it.
          * @enum {string}
@@ -3649,8 +3607,8 @@ export interface operations {
             query?: {
                 /** @description `true` makes the copy a template. Any other value does not. */
                 asTemplate?: boolean;
-                /** @description The team the copy goes to. Left out, it stays in the team of the board. */
-                toTeam?: string;
+                /** @description The workspace the copy goes to. Left out, it stays in the workspace of the board. */
+                toWorkspace?: string;
             };
             header?: never;
             path: {
@@ -4644,760 +4602,6 @@ export interface operations {
             };
         };
     };
-    getTeams: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The teams. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Team"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getTeam: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The team. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Team"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    exportTeamArchive: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The archive. */
-            200: {
-                headers: {
-                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
-                    "Content-Disposition"?: string;
-                    /** @description The size of the archive in bytes. */
-                    "Content-Length"?: number;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    importArchive: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImportRequest"];
-            };
-        };
-        responses: {
-            /** @description The boards of the archive are made. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createImportUpload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewUpload"];
-            };
-        };
-        responses: {
-            /** @description The upload is open. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadOpened"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getBoards: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The boards. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    searchTeamBoards: {
-        parameters: {
-            query?: {
-                /** @description What to look for. Without it nothing is found. */
-                q?: string;
-                /** @description What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400. */
-                field?: string;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The boards that match. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getCategories: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The categories with their boards. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CategoryBoards"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    createCategory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NewCategory"];
-            };
-        };
-        responses: {
-            /** @description The category that was made. */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Category"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    updateCategory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-                /** @description The identifier of the category, one of the user's own. */
-                categoryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CategoryUpdate"];
-            };
-        };
-        responses: {
-            /** @description The category as it is now. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Category"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    deleteCategory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-                /** @description The identifier of the category, one of the user's own. */
-                categoryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The category is deleted. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    reorderCategoryBoards: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-                /** @description The identifier of the category, one of the user's own. */
-                categoryId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description The identifiers of the boards in their new order. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    setBoardCategory: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-                /** @description The identifier of the category, one of the user's own. */
-                categoryId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The board is under the category. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    hideBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-                /** @description The identifier of the category, one of the user's own. */
-                categoryId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The board is hidden. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    unhideBoard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-                /** @description The identifier of the category, one of the user's own. */
-                categoryId: string;
-                /** @description The identifier of the board. */
-                boardId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The board is shown. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    reorderCategories: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description The identifiers of the categories in their new order. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    onboard: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Where the tour's board is. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["OnboardingStart"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    regenerateSignupToken: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The team, with its new token. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Team"];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getTemplates: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The templates. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Board"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getDeletedBoards: {
-        parameters: {
-            query?: {
-                /** @description The page, counted from 0. Left out, the first one. */
-                page?: number;
-                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
-                perPage?: number;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The deleted boards of the page. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeletedItem"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getTeamUsers: {
-        parameters: {
-            query?: {
-                /** @description Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on. */
-                search?: string;
-            };
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The users. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["User"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
-    getTeamUsersById: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The identifier of the team. */
-                teamId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": string[];
-            };
-        };
-        responses: {
-            /** @description The users. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["User"][];
-                };
-            };
-            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-        };
-    };
     getUpload: {
         parameters: {
             query?: never;
@@ -5924,12 +5128,150 @@ export interface operations {
             };
         };
     };
+    getWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    exportWorkspaceArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. A workspace that is not there, that the user is not in, or that is of another organization than the server's, is not refused: its archive has no boards. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archive. */
+            200: {
+                headers: {
+                    /** @description `attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC). */
+                    "Content-Disposition"?: string;
+                    /** @description The size of the archive in bytes. */
+                    "Content-Length"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    importArchive: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportRequest"];
+            };
+        };
+        responses: {
+            /** @description The boards of the archive are made. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createImportUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewUpload"];
+            };
+        };
+        responses: {
+            /** @description The upload is open. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOpened"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getWorkspaceBoards: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it. */
+                /** @description The identifier of the workspace. 404 unless the user of the session is a member of it, a guest too. */
                 workspaceId: string;
             };
             cookie?: never;
@@ -5943,6 +5285,561 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Board"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    searchWorkspaceBoards: {
+        parameters: {
+            query?: {
+                /** @description What to look for. Without it nothing is found. */
+                q?: string;
+                /** @description What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400. */
+                field?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The boards that match. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The categories with their boards. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryBoards"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewCategory"];
+            };
+        };
+        responses: {
+            /** @description The category that was made. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryUpdate"];
+            };
+        };
+        responses: {
+            /** @description The category as it is now. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Category"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The category is deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reorderCategoryBoards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description The identifiers of the boards in their new order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    setBoardCategory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board is under the category. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    hideBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board is hidden. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    unhideBoard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+                /** @description The identifier of the category, one of the user's own. */
+                categoryId: string;
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The board is shown. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reorderCategories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description The identifiers of the categories in their new order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    onboard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Where the tour's board is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingStart"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    regenerateSignupToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The workspace, with its new token. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workspace"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getTemplates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The templates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Board"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDeletedBoards: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted boards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedItem"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceUsers: {
+        parameters: {
+            query?: {
+                /** @description Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on. */
+                search?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getWorkspaceUsersById: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the workspace. 404 unless the user of the session works in it, a member who is no guest, and it is of the server's organization. */
+                workspaceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description The users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server, 503 for a server that cannot serve for now. */

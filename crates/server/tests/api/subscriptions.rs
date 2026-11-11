@@ -13,9 +13,9 @@ use fvoci_model::{Block, BlockType, Board, BoardMember, BoardType, SubscriberTyp
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::boards::TeamSocket;
+use crate::board_broadcasts::WorkspaceSocket;
 use crate::cards::{Roles, board_with_roles, check_error, insert_block, new_block};
-use crate::common::{ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, UNKNOWN_ID};
+use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, UNKNOWN_ID};
 
 /// How long background notifications may take to finish.
 const BACKGROUND: Duration = Duration::from_secs(10);
@@ -88,7 +88,7 @@ async fn insert_card(client: &Client, board_id: &str) -> Block {
 async fn create_test_subscriptions(client: &Client, count: usize) -> (Vec<Subscription>, String) {
     let user = client.me().await;
     let board = Board {
-        team_id: ROOT_TEAM_ID.to_owned(),
+        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Open,
         create_at: 1,
         update_at: 1,
@@ -258,7 +258,7 @@ async fn create_subscription_validation() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
     let other = th.client2.me().await.id;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
     let without = |member: &str| {
         let mut body = request(&card.id, &me);
@@ -362,7 +362,7 @@ async fn create_subscription_validation() {
 async fn create_subscription_answer_and_subscribing_again() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
     let before = fvoci_server::auth::now_millis();
 
@@ -449,7 +449,7 @@ async fn subscriptions_of_another_user_are_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await.id;
     let user2 = th.client2.me().await.id;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
     let subscription = subscribe(&th.client, &card.id, &user1).await;
 
@@ -485,7 +485,7 @@ async fn subscriptions_of_another_user_are_refused() {
 async fn delete_subscription_twice() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
     let response = unsubscribe(&th.client, &card.id, &me).await;
     check_error(&response, StatusCode::NOT_FOUND, NO_SUBSCRIPTION);
@@ -506,7 +506,7 @@ async fn delete_subscription_twice() {
 async fn a_subscription_ends_with_its_block() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
     subscribe(&th.client, &card.id, &me).await;
     let block_path = format!("/boards/{}/blocks/{}", board.id, card.id);
@@ -542,13 +542,13 @@ async fn a_subscription_ends_with_its_block() {
 async fn subscription_changes_are_not_broadcast() {
     let th = Setup::native().start().await.init_basic().await;
     let me = th.client.me().await.id;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let card = insert_card(&th.client, &board.id).await;
     assert!(
         th.app.finish_background(BACKGROUND).await,
         "the card's broadcast is out before anyone listens"
     );
-    let mut socket = TeamSocket::subscribe(&th, &th.client, TEST_TEAM_ID, &me).await;
+    let mut socket = WorkspaceSocket::subscribe(&th, &th.client, TEST_WORKSPACE_ID, &me).await;
 
     subscribe(&th.client, &card.id, &me).await;
     subscribe(&th.client, &card.id, &me).await;
@@ -573,8 +573,8 @@ async fn subscription_changes_are_not_broadcast() {
 async fn subscription_to_a_block_of_a_board_the_user_cannot_view_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let outsider = th.client2.me().await.id;
-    let private_board = th.create_board(TEST_TEAM_ID, BoardType::Private).await;
-    let open_board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let private_board = th.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
+    let open_board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     // The request names a block and no board, so a block the user cannot read answers
     // as one that does not exist: nothing is said about the blocks of other boards.
@@ -670,7 +670,7 @@ async fn leaving_or_being_removed_from_a_board_ends_the_subscriptions_to_its_blo
     let mut cards = Vec::new();
     let mut boards = Vec::new();
     for _ in 0..2 {
-        let board = th.create_board(ROOT_TEAM_ID, BoardType::Private).await;
+        let board = th.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
         let member = BoardMember {
             board_id: board.id.clone(),
             user_id: user2_id.clone(),

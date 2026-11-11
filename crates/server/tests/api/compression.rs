@@ -7,7 +7,7 @@ use fvoci_model::BoardType;
 use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, VARY};
 use reqwest::{Method, StatusCode};
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID};
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID};
 
 /// `GET path` asking for `encoding`.
 async fn get_encoded(client: &Client, path: &str, encoding: &str) -> ApiResponse {
@@ -54,9 +54,9 @@ fn decoded(response: &ApiResponse) -> Vec<u8> {
 async fn json_answers_are_compressed_as_the_client_asks() {
     let ts = Setup::native().start().await.init_basic().await;
     for _ in 0..3 {
-        ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+        ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     }
-    let path = format!("/teams/{TEST_TEAM_ID}/boards");
+    let path = format!("/w/{TEST_WORKSPACE_ID}/boards");
     let plain = ts.client.get(&path).await;
     plain.check_ok();
     assert_eq!(encoding(&plain), "", "nothing asked, nothing compressed");
@@ -87,7 +87,7 @@ async fn json_answers_are_compressed_as_the_client_asks() {
 #[tokio::test]
 async fn an_export_is_not_compressed() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = get_encoded(
         &ts.client,
         &format!("/boards/{}/archive/export", board.id),
@@ -113,10 +113,10 @@ async fn compression_can_be_turned_off() {
         .await
         .init_basic()
         .await;
-    ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = get_encoded(
         &ts.client,
-        &format!("/teams/{TEST_TEAM_ID}/boards"),
+        &format!("/w/{TEST_WORKSPACE_ID}/boards"),
         "gzip, zstd",
     )
     .await;
@@ -152,7 +152,7 @@ async fn refusing_identity_changes_no_status() {
             .client
             .request(Method::POST, "/boards")
             .header(ACCEPT_ENCODING, refusal)
-            .json(&serde_json::json!({"teamId": TEST_TEAM_ID, "type": "O", "title": "made"}));
+            .json(&serde_json::json!({"workspaceId": TEST_WORKSPACE_ID, "type": "O", "title": "made"}));
         let response = Client::send(request).await;
         assert_eq!(response.status, StatusCode::CREATED, "{refusal}");
         assert_eq!(
@@ -162,7 +162,7 @@ async fn refusing_identity_changes_no_status() {
         );
         let listed = get_encoded(
             &ts.client,
-            &format!("/teams/{TEST_TEAM_ID}/boards"),
+            &format!("/w/{TEST_WORKSPACE_ID}/boards"),
             refusal,
         )
         .await;

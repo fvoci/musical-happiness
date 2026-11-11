@@ -13,8 +13,8 @@ import { setup, text } from './support.ts';
 
 async function onAlpha() {
   const made = setup();
-  const [team] = await made.backend.teams();
-  const [board] = await made.backend.boards(team?.id ?? '');
+  const [workspace] = await made.backend.workspaces();
+  const [board] = await made.backend.boards(workspace?.id ?? '');
   const cards = await made.backend.cards(board?.id ?? '');
   const alpha = cards.find((card) => card.title === 'Alpha');
   if (!board || !alpha) throw new Error('no card');
@@ -211,7 +211,7 @@ describe('a changed comment', () => {
       boardId,
       (world.members.get(boardId) ?? []).filter((member) => member.userId !== other.userId),
     );
-    // Not there for who is no member; refused on a board open to the team.
+    // Not there for who is no member; refused on a board open to the workspace.
     expect(await statusOf(other.commentVersions(boardId, posted.id))).toBe(404);
     const board = world.boards.get(boardId);
     if (board) world.boards.set(boardId, { ...board, type: 'O' });

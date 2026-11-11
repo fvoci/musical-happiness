@@ -3,7 +3,7 @@
 
 use serde_json::json;
 
-use crate::common::{ROOT_TEAM_ID, UNKNOWN_ID};
+use crate::common::{ROOT_WORKSPACE_ID, UNKNOWN_ID};
 use crate::fixtures::{add_member, block, id_of, new_blocks, new_board};
 use crate::harness::{API, Session};
 
@@ -181,8 +181,8 @@ pub(crate) async fn trash(s: &mut Session) {
     .user(&bob)
     .await;
     s.get(
-        "boards of the team: not listed",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+        "boards of the workspace: not listed",
+        &format!("{API}/w/{ROOT_WORKSPACE_ID}/boards"),
     )
     .user(&alice)
     .await;

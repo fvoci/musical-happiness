@@ -1,10 +1,11 @@
-//! Workspaces: which a user is a member of, and the way into one. A workspace is the
-//! team of the routes that are not moved under a workspace yet.
+//! Workspaces: which a user is a member of, the way into one, and the workspaces of the
+//! organization the routes that name no workspace in their path work in.
 
-use fvoci_model::{Board, OrgRole, Team, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Board, OrgRole, UserWorkspace, Workspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
 use super::App;
+use crate::auth::secret::new_secret;
 use crate::error::AppError;
 
 /// A workspace as a member of it enters it: the application behind the wall between
@@ -20,11 +21,15 @@ pub struct Entered {
     /// What the user is in the workspace's organization; `None` for somebody who is in
     /// the workspace without belonging to the organization.
     pub org_role: Option<OrgRole>,
+    /// Whether the workspace is in the organization this application stood in, the
+    /// one of the routes that name no workspace.
+    pub home: bool,
 }
 
 impl App {
     /// Lets a member into a workspace; `None` unless the user is a member of it,
-    /// whether it exists or not.
+    /// whether it exists or not. [`Entered::home`] is told against the organization
+    /// this application stands in: the server's, for the one the routes are given.
     ///
     /// # Errors
     ///
@@ -42,10 +47,13 @@ impl App {
         else {
             return Ok(None);
         };
+        let app = self.in_organization(&access.org_id)?;
+        let home = app.store().tenant() == self.store().tenant();
         Ok(Some(Entered {
-            app: self.in_organization(&access.org_id)?,
+            app,
             role: access.workspace_role,
             org_role: access.org_role,
+            home,
         }))
     }
 
@@ -86,58 +94,53 @@ impl App {
         Ok(self.scoped(tenant))
     }
 
-    /// Whether the user works in the team: a member of the workspace who is no guest.
-    /// This is what the routes that name a team, and are not moved under a workspace
-    /// yet, ask before anything else; for anybody else the team is not there.
+    /// Whether the user works in the workspace: a member of the workspace who is no guest.
+    /// This is what the routes that name a workspace in their body or query, and not under
+    /// `/w/{workspaceId}`, ask before anything else; for anybody else the workspace is not
+    /// there. The routes under a workspace ask it of their path (`WorksIn`).
     ///
     /// A guest of a workspace is on the boards they were invited to and reaches those
-    /// by their board; what a member of the team may do (see its boards, make one,
+    /// by their board; what a member of the workspace may do (see its boards, make one,
     /// join an open one) a guest may not, until the roles of a workspace say more
     /// (`WorkspaceAccess::works_there`).
     ///
     /// # Errors
     ///
     /// Returns the store's error if the membership cannot be read: that is no "no".
-    pub async fn works_in_team(&self, user_id: &str, team_id: &str) -> Result<bool, AppError> {
-        if user_id.is_empty() || team_id.is_empty() {
+    pub async fn works_in_workspace(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<bool, AppError> {
+        if user_id.is_empty() || workspace_id.is_empty() {
             return Ok(false);
         }
-        let access = self.store().resolve_workspace(user_id, team_id).await?;
+        let access = self
+            .store()
+            .resolve_workspace(user_id, workspace_id)
+            .await?;
         Ok(access.is_some_and(|access| access.works_there()))
     }
 
-    /// Whether the user is in the team at all, as a guest too: who may be put on a
-    /// board of the team. Anybody else is, for the team, a user who does not exist.
+    /// Whether the user is in the workspace at all, as a guest too: who may be put on a
+    /// board of the workspace. Anybody else is, for the workspace, a user who does not exist.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the membership cannot be read: that is no "no".
-    pub async fn is_in_team(&self, user_id: &str, team_id: &str) -> Result<bool, AppError> {
-        if user_id.is_empty() || team_id.is_empty() {
+    pub async fn is_in_workspace(
+        &self,
+        user_id: &str,
+        workspace_id: &str,
+    ) -> Result<bool, AppError> {
+        if user_id.is_empty() || workspace_id.is_empty() {
             return Ok(false);
         }
-        let access = self.store().resolve_workspace(user_id, team_id).await?;
+        let access = self
+            .store()
+            .resolve_workspace(user_id, workspace_id)
+            .await?;
         Ok(access.is_some())
-    }
-
-    /// The teams of the organization that the user works in, oldest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if a query fails.
-    pub async fn teams_of_user(&self, user_id: &str) -> Result<Vec<Team>, AppError> {
-        // The user's workspaces are of every organization; the teams are those of the
-        // organization the routes that name a team work in.
-        let works_in: Vec<String> = self
-            .workspaces_of_user(user_id)
-            .await?
-            .into_iter()
-            .filter(|workspace| workspace.role != WorkspaceRole::Guest)
-            .map(|workspace| workspace.id)
-            .collect();
-        let mut teams = self.teams().await?;
-        teams.retain(|team| works_in.contains(&team.id));
-        Ok(teams)
     }
 
     /// The workspaces the user is a member of, in every organization: by organization,
@@ -169,7 +172,67 @@ impl App {
             WorkspaceRole::Guest => PublicBoards::Exclude,
             WorkspaceRole::Admin | WorkspaceRole::Member => PublicBoards::Include,
         };
-        self.boards_for_user_and_team(user_id, workspace_id, public_boards)
+        self.boards_for_user_and_workspace(user_id, workspace_id, public_boards)
             .await
+    }
+
+    /// Returns the root workspace: the oldest workspace of the organization, made with
+    /// the organization.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the workspaces cannot be read, and a server error if the
+    /// organization has none.
+    pub async fn root_workspace(&self) -> Result<Workspace, AppError> {
+        self.store()
+            .get_workspaces()
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| AppError::internal("the organization has no workspace"))
+    }
+
+    /// Returns the workspace with the given identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 404 if there is no such workspace, and the store's error if the query fails.
+    pub async fn workspace(&self, workspace_id: &str) -> Result<Workspace, AppError> {
+        match self.store().get_workspace(workspace_id).await {
+            Ok(workspace) => Ok(workspace),
+            Err(error) if error.is_not_found() => Err(AppError::not_found("workspace")),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Returns every workspace, oldest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the query fails.
+    pub async fn workspaces(&self) -> Result<Vec<Workspace>, AppError> {
+        Ok(self.store().get_workspaces().await?)
+    }
+
+    /// Replaces a workspace's signup token with a fresh one, on behalf of a user, and
+    /// returns the workspace with it. The old token lets nobody in any more.
+    ///
+    /// # Errors
+    ///
+    /// Returns a 404 if there is no such workspace, and the store's error if the write fails.
+    pub async fn regenerate_signup_token(
+        &self,
+        workspace_id: &str,
+        user_id: &str,
+    ) -> Result<Workspace, AppError> {
+        match self
+            .store()
+            .set_workspace_signup_token(workspace_id, &new_secret(), user_id)
+            .await
+        {
+            Ok(()) => self.workspace(workspace_id).await,
+            Err(error) if error.is_not_found() => Err(AppError::not_found("workspace")),
+            Err(error) => Err(error.into()),
+        }
     }
 }

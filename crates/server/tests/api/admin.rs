@@ -14,7 +14,7 @@ use fvoci_server::TlsFiles;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::common::{Client, PASSWORD, ROOT_TEAM_ID, Setup, TestServer};
+use crate::common::{Client, PASSWORD, ROOT_WORKSPACE_ID, Setup, TestServer};
 
 /// The administration socket. Unix sockets are what it is made of.
 #[cfg(unix)]
@@ -778,10 +778,10 @@ async fn without_use_ssl_missing_certificate_files_do_not_matter() {
 #[tokio::test]
 async fn routes_of_the_host_application_do_not_exist() {
     let paths = [
-        &format!("/teams/{ROOT_TEAM_ID}/channels/some-channel"),
+        &format!("/teams/{ROOT_WORKSPACE_ID}/channels/some-channel"),
         "/statistics",
         "/admin/boards",
-        "/admin/boards?team_id=nope&page=x",
+        "/admin/boards?workspace_id=nope&page=x",
         "/admin/boards_history?modified_since=1",
         "/admin/blocks_history?modified_since=1&board_id=nope",
         "/boards/some-board/metadata",

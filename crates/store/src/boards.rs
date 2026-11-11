@@ -24,7 +24,7 @@ use crate::{members, subscriptions};
 const OLDEST_BOARD_FIRST: &str = " ORDER BY b.create_at, b.id";
 
 /// The name of every board column, in the order rows are written.
-const BOARD_COLUMNS: &str = "id, team_id, created_by, modified_by, type, minimum_role, title, \
+const BOARD_COLUMNS: &str = "id, workspace_id, created_by, modified_by, type, minimum_role, title, \
                              description, icon, show_description, is_template, is_builtin, \
                              template_version, properties, card_properties, create_at, \
                              update_at";
@@ -90,7 +90,7 @@ impl Store {
     ///
     /// `board` is updated to what was stored: `user_id` as modifier and the current time
     /// as modification time and, for a new board, `user_id` as creator and the current
-    /// time as creation time. An update leaves the stored team, creator and creation time
+    /// time as creation time. An update leaves the stored workspace, creator and creation time
     /// alone, and `board` comes back with those.
     ///
     /// A template stored on behalf of no user (the empty `user_id`) is a built-in
@@ -173,37 +173,37 @@ impl Store {
             .await
     }
 
-    /// Returns the boards of a team that a user is a member of and, with
-    /// [`PublicBoards::Include`], the open boards of the team, oldest first. Templates
+    /// Returns the boards of a workspace that a user is a member of and, with
+    /// [`PublicBoards::Include`], the open boards of the workspace, oldest first. Templates
     /// are left out.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn get_boards_for_user_and_team(
+    pub async fn get_boards_for_user_and_workspace(
         &self,
         user_id: &str,
-        team_id: &str,
+        workspace_id: &str,
         public_boards: PublicBoards,
     ) -> Result<Vec<Board>, StoreError> {
         self.with_conn(async |scope| {
-            get_boards_for_user_and_team(scope, user_id, team_id, public_boards).await
+            get_boards_for_user_and_workspace(scope, user_id, workspace_id, public_boards).await
         })
         .await
     }
 
-    /// Returns the boards of a team with the given identifiers, oldest first.
+    /// Returns the boards of a workspace with the given identifiers, oldest first.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotAllFound`] unless exactly one board is found per
-    /// identifier.
-    pub async fn get_boards_in_team_by_ids(
+    /// Returns [`StoreError::NotAllFound`] unless exactly one board is found per identifier.
+    pub async fn get_boards_in_workspace_by_ids(
         &self,
         board_ids: &[String],
-        team_id: &str,
+        workspace_id: &str,
     ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| get_boards_in_team_by_ids(scope, board_ids, team_id).await)
+        let ids = board_ids;
+        self.with_conn(async |scope| get_boards_in_workspace_by_ids(scope, ids, workspace_id).await)
             .await
     }
 
@@ -423,7 +423,7 @@ impl Store {
             .await
     }
 
-    /// Returns the boards, of any team, that match a search term and that a user is a
+    /// Returns the boards, of any workspace, that match a search term and that a user is a
     /// member of or, with [`PublicBoards::Include`], that are open, oldest first.
     /// Templates are left out.
     ///
@@ -447,7 +447,7 @@ impl Store {
         .await
     }
 
-    /// Returns the boards of a team whose title matches a search term and that are open
+    /// Returns the boards of a workspace whose title matches a search term and that are open
     /// or private with the user as a member, oldest first. Templates are left out.
     ///
     /// An empty `term` matches every board; otherwise the title must contain every
@@ -456,19 +456,19 @@ impl Store {
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn search_boards_for_user_in_team(
+    pub async fn search_boards_for_user_in_workspace(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         term: &str,
         user_id: &str,
     ) -> Result<Vec<Board>, StoreError> {
         self.with_conn(async |scope| {
-            search_boards_for_user_in_team(scope, team_id, term, user_id).await
+            search_boards_for_user_in_workspace(scope, workspace_id, term, user_id).await
         })
         .await
     }
 
-    /// Returns the templates of a team that are open or that the user is a member of,
+    /// Returns the templates of a workspace that are open or that the user is a member of,
     /// oldest first. The built-in templates are not among them.
     ///
     /// # Errors
@@ -476,10 +476,10 @@ impl Store {
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn get_template_boards(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
     ) -> Result<Vec<Board>, StoreError> {
-        self.with_conn(async |scope| get_template_boards(scope, team_id, user_id).await)
+        self.with_conn(async |scope| get_template_boards(scope, workspace_id, user_id).await)
             .await
     }
 
@@ -510,7 +510,7 @@ impl Store {
 /// empty or a table alias followed by a dot.
 fn board_select_list(alias: &str) -> String {
     format!(
-        "{alias}id, {alias}team_id, {alias}created_by, {alias}modified_by, {alias}type, \
+        "{alias}id, {alias}workspace_id, {alias}created_by, {alias}modified_by, {alias}type, \
          {alias}minimum_role, {alias}title, {alias}description, {alias}icon, \
          {alias}show_description, {alias}is_template, {alias}is_builtin, \
          {alias}template_version, {alias}properties, {alias}card_properties, \
@@ -535,7 +535,7 @@ async fn fetch_boards(scope: &mut Scope<'_>, sql: Sql) -> Result<Vec<Board>, Sto
 fn board_from_row(row: &Row) -> Result<Board, StoreError> {
     Ok(Board {
         id: row.id(0)?,
-        team_id: row.id(1)?,
+        workspace_id: row.id(1)?,
         created_by: row.id(2)?,
         modified_by: row.id(3)?,
         board_type: board_type_from_text(&row.text(4)?)?,
@@ -626,25 +626,25 @@ fn select_boards_of_user(scope: &Scope<'_>, user_id: &str, public_boards: Public
     sql
 }
 
-pub(crate) async fn get_boards_for_user_and_team(
+pub(crate) async fn get_boards_for_user_and_workspace(
     scope: &mut Scope<'_>,
     user_id: &str,
-    team_id: &str,
+    workspace_id: &str,
     public_boards: PublicBoards,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards_of_user(scope, user_id, public_boards);
-    sql.push_bind(" AND b.team_id = ", Id(team_id))
+    sql.push_bind(" AND b.workspace_id = ", Id(workspace_id))
         .push(OLDEST_BOARD_FIRST);
     fetch_boards(scope, sql).await
 }
 
-pub(crate) async fn get_boards_in_team_by_ids(
+pub(crate) async fn get_boards_in_workspace_by_ids(
     scope: &mut Scope<'_>,
     board_ids: &[String],
-    team_id: &str,
+    workspace_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards(scope);
-    sql.push_bind(" WHERE team_id = ", Id(team_id))
+    sql.push_bind(" WHERE workspace_id = ", Id(workspace_id))
         .push(" AND id IN (")
         .bind_list(board_ids.iter().map(|id| Id(id)))
         .push(") ORDER BY create_at, id");
@@ -655,7 +655,7 @@ pub(crate) async fn get_boards_in_team_by_ids(
         tracing::warn!(
             found = boards.len(),
             asked = board_ids.len(),
-            "get_boards_in_team_by_ids: mismatched number of boards found"
+            "get_boards_in_workspace_by_ids: mismatched number of boards found"
         );
         Err(StoreError::NotAllFound {
             entity: "board",
@@ -694,9 +694,9 @@ pub(crate) async fn insert_board(
     board.delete_at = 0;
 
     if let Some(existing) = existing {
-        // A board stays in its team, and who made it and when does not change: `board`
+        // A board stays in its workspace, and who made it and when does not change: `board`
         // comes back with what is stored, whatever the caller put there.
-        board.team_id = existing.team_id;
+        board.workspace_id = existing.workspace_id;
         board.created_by = existing.created_by;
         board.create_at = existing.create_at;
         let mut sql = scope.sql("UPDATE boards SET ");
@@ -746,7 +746,7 @@ pub(crate) async fn insert_board_row(
 ) -> Result<(), StoreError> {
     let mut sql = scope.sql(&format!("INSERT INTO boards ({BOARD_COLUMNS}) VALUES ("));
     sql.bind(Id(&board.id))
-        .push_bind(", ", Id(&board.team_id))
+        .push_bind(", ", Id(&board.workspace_id))
         .push_bind(", ", OptId(&board.created_by))
         .push_bind(", ", OptId(&board.modified_by))
         .push_bind(", ", board.board_type.as_str())
@@ -1052,9 +1052,9 @@ pub(crate) async fn search_boards_for_user(
     })
 }
 
-pub(crate) async fn search_boards_for_user_in_team(
+pub(crate) async fn search_boards_for_user_in_workspace(
     scope: &mut Scope<'_>,
-    team_id: &str,
+    workspace_id: &str,
     term: &str,
     user_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
@@ -1064,7 +1064,7 @@ pub(crate) async fn search_boards_for_user_in_team(
         board_select_list("b.")
     ));
     sql.bind(false)
-        .push_bind(" AND b.team_id = ", Id(team_id))
+        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
         .push_bind(" AND (b.type = ", BoardType::Open.as_str())
         .push_bind(" OR (b.type = ", BoardType::Private.as_str())
         .push_bind(" AND bm.user_id = ", Id(user_id))
@@ -1075,7 +1075,7 @@ pub(crate) async fn search_boards_for_user_in_team(
 
 pub(crate) async fn get_template_boards(
     scope: &mut Scope<'_>,
-    team_id: &str,
+    workspace_id: &str,
     user_id: &str,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = scope.sql(&format!(
@@ -1087,7 +1087,7 @@ pub(crate) async fn get_template_boards(
     sql.bind(Id(user_id))
         .push_bind(" WHERE b.is_template = ", true)
         .push_bind(" AND b.is_builtin = ", false)
-        .push_bind(" AND b.team_id = ", Id(team_id))
+        .push_bind(" AND b.workspace_id = ", Id(workspace_id))
         .push_bind(
             " AND ((bm.board_id IS NULL AND b.type = ",
             BoardType::Open.as_str(),

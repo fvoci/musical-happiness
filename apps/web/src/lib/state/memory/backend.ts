@@ -51,7 +51,7 @@ import {
   type Paging,
   type Sharing,
   type SharingChange,
-  type Team,
+  type WorkspaceInfo,
   type UploadedFile,
   type UploadOptions,
   type User,
@@ -123,6 +123,12 @@ export class MemoryBackend implements Backend {
   /** Makes the next call of `method` reject with `error`, once. */
   failNext(method: MethodName, error: BackendError): void {
     this.#failures.set(method, error);
+  }
+
+  /** `#enter`, then 404 unless `workspaceId` names the reader's workspace. */
+  async #enterWorkspace(method: MethodName, workspaceId: string): Promise<void> {
+    await this.#enter(method);
+    if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
   }
 
   /**
@@ -245,14 +251,13 @@ export class MemoryBackend implements Backend {
     return copy(changeDisplayName(this.world, this.userId, patch.displayName));
   }
 
-  async teams(): Promise<Team[]> {
-    await this.#enter('teams');
-    return [copy(this.world.team)];
+  async workspaces(): Promise<WorkspaceInfo[]> {
+    await this.#enter('workspaces');
+    return [copy(this.world.workspace)];
   }
 
-  async users(teamId: string): Promise<User[]> {
-    await this.#enter('users');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async users(workspaceId: string): Promise<User[]> {
+    await this.#enterWorkspace('users', workspaceId);
     return scramble([...this.world.users.values()]).map((user) => {
       const { isAdmin: _isAdmin, ...rest } = copy(user);
       return rest;
@@ -260,8 +265,8 @@ export class MemoryBackend implements Backend {
   }
 
   /** As strict as the server: no empty list, no identifier twice, every one a user's. */
-  async usersById(teamId: string, userIds: string[]): Promise<User[]> {
-    const users = await this.users(teamId);
+  async usersById(workspaceId: string, userIds: string[]): Promise<User[]> {
+    const users = await this.users(workspaceId);
     if (userIds.length === 0) fail(400, 'no users asked for');
     if (new Set(userIds).size !== userIds.length) fail(404, 'a user asked for twice');
     if (userIds.some((id) => !this.world.users.has(id))) fail(404, 'no such user');
@@ -343,9 +348,8 @@ export class MemoryBackend implements Backend {
 
   // ------------------------------------------------------------- boards
 
-  async boards(teamId: string): Promise<Board[]> {
-    await this.#enter('boards');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async boards(workspaceId: string): Promise<Board[]> {
+    await this.#enterWorkspace('boards', workspaceId);
     const mine = [...this.world.boards.values()].filter((board) =>
       this.#memberIds(board.id).includes(this.userId),
     );
@@ -358,17 +362,16 @@ export class MemoryBackend implements Backend {
   }
 
   async createBoard(
-    teamId: string,
+    workspaceId: string,
     draft: BoardDraft,
     firstView: ViewDraft,
   ): Promise<{ board: Board; view: BoardView }> {
-    await this.#enter('createBoard');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    await this.#enterWorkspace('createBoard', workspaceId);
     const now = this.world.now();
     const board: Board = {
       ...createBoard(),
       id: this.world.newId(),
-      teamId,
+      workspaceId,
       createdBy: this.userId,
       modifiedBy: this.userId,
       type: draft.type ?? 'P',
@@ -445,20 +448,18 @@ export class MemoryBackend implements Backend {
     return copy(board);
   }
 
-  async deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]> {
-    await this.#enter('deletedBoards');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
-    return deletedBoardsOf(this.world, this.userId, teamId, paging);
+  async deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enterWorkspace('deletedBoards', workspaceId);
+    return deletedBoardsOf(this.world, this.userId, workspaceId, paging);
   }
 
   /**
    * As the server matches: every word of the term in the title, whatever the
    * case; oldest first. Among the boards this backend lists (`boards`: the
-   * reader's), not the team's open ones the server adds.
+   * reader's), not the workspace's open ones the server adds.
    */
-  async searchBoards(teamId: string, query: string): Promise<Board[]> {
-    await this.#enter('searchBoards');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async searchBoards(workspaceId: string, query: string): Promise<Board[]> {
+    await this.#enterWorkspace('searchBoards', workspaceId);
     const words = query
       .toLowerCase()
       .split(' ')
@@ -475,10 +476,9 @@ export class MemoryBackend implements Backend {
       .map(copy);
   }
 
-  /** As the server: the team's templates, then the built-in ones, each the oldest first. */
-  async templates(teamId: string): Promise<Board[]> {
-    await this.#enter('templates');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  /** As the server: the workspace's templates, then the built-in ones, each the oldest first. */
+  async templates(workspaceId: string): Promise<Board[]> {
+    await this.#enterWorkspace('templates', workspaceId);
     const all = [...this.world.boards.values()]
       .filter((board) => board.isTemplate)
       .sort((first, second) => first.createAt - second.createAt);
@@ -488,16 +488,14 @@ export class MemoryBackend implements Backend {
     ].map(copy);
   }
 
-  async duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board> {
-    await this.#enter('duplicateBoard');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async duplicateBoard(boardId: string, asTemplate: boolean, workspaceId: string): Promise<Board> {
+    await this.#enterWorkspace('duplicateBoard', workspaceId);
     return this.#copyBoard(this.#board(boardId), asTemplate);
   }
 
   /** As the server: a copy of the built-in welcome template, without its mark. */
-  async onboard(teamId: string): Promise<string> {
-    await this.#enter('onboard');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async onboard(workspaceId: string): Promise<string> {
+    await this.#enterWorkspace('onboard', workspaceId);
     const welcome =
       [...this.world.boards.values()].find(
         (board) =>
@@ -547,7 +545,7 @@ export class MemoryBackend implements Backend {
     const board: Board = {
       ...copy(source),
       id: renamed(source.id),
-      teamId: this.world.team.id,
+      workspaceId: this.world.workspace.id,
       createdBy: this.userId,
       modifiedBy: this.userId,
       type: 'P',
@@ -594,10 +592,10 @@ export class MemoryBackend implements Backend {
     return this.#archiveOf([board], options);
   }
 
-  async exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
-    await this.#enter('exportTeam', options?.signal);
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
-    // As the server: the reader's boards and the team's open ones.
+  async exportWorkspace(workspaceId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    await this.#enter('exportWorkspace', options?.signal);
+    if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
+    // As the server: the reader's boards and the workspace's open ones.
     const boards = [...this.world.boards.values()].filter(
       (board) =>
         !board.isTemplate &&
@@ -620,9 +618,9 @@ export class MemoryBackend implements Backend {
     return { bytes, name: `archive-${day}.boardarchive` };
   }
 
-  async importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void> {
+  async importArchive(workspaceId: string, file: File, options?: UploadOptions): Promise<void> {
     await this.#enter('importArchive', options?.signal);
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
     let lines: { type?: string; version?: string; data?: unknown }[];
     try {
       lines = (await file.text())
@@ -741,10 +739,10 @@ export class MemoryBackend implements Backend {
   }
 
   /** As the server: in either name, whatever the case, the oldest first, ten at most. */
-  async searchUsers(teamId: string, query: string): Promise<User[]> {
+  async searchUsers(workspaceId: string, query: string): Promise<User[]> {
     await this.#enter('searchUsers');
     const wanted = query.trim().toLowerCase();
-    return (await this.users(teamId))
+    return (await this.users(workspaceId))
       .filter((user) =>
         [user.username, user.displayName].some((name) => name.toLowerCase().includes(wanted)),
       )
@@ -790,15 +788,13 @@ export class MemoryBackend implements Backend {
     });
   }
 
-  async categories(teamId: string): Promise<Category[]> {
-    await this.#enter('categories');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async categories(workspaceId: string): Promise<Category[]> {
+    await this.#enterWorkspace('categories', workspaceId);
     return scramble(this.#categories()).map(copy);
   }
 
-  async createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
-    await this.#enter('createCategory');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async createCategory(workspaceId: string, draft: CategoryDraft): Promise<Category> {
+    await this.#enterWorkspace('createCategory', workspaceId);
     if (draft.name.trim() === '') fail(400, 'a category needs a name', { field: 'name' });
     const now = this.world.now();
     const mine = this.#categories();
@@ -808,7 +804,7 @@ export class MemoryBackend implements Backend {
       id: this.world.newId(),
       name: draft.name,
       userId: this.userId,
-      teamId,
+      workspaceId,
       type: 'custom',
       collapsed: false,
       sortOrder: 0,
@@ -822,9 +818,12 @@ export class MemoryBackend implements Backend {
     return copy(category);
   }
 
-  async patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
-    await this.#enter('patchCategory');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async patchCategory(
+    workspaceId: string,
+    categoryId: string,
+    patch: CategoryPatch,
+  ): Promise<Category> {
+    await this.#enterWorkspace('patchCategory', workspaceId);
     const category = this.#category(categoryId);
     if (patch.name !== undefined) {
       if (patch.name.trim() === '') fail(400, 'a category needs a name', { field: 'name' });
@@ -837,9 +836,8 @@ export class MemoryBackend implements Backend {
     return copy(category);
   }
 
-  async deleteCategory(teamId: string, categoryId: string): Promise<void> {
-    await this.#enter('deleteCategory');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+  async deleteCategory(workspaceId: string, categoryId: string): Promise<void> {
+    await this.#enterWorkspace('deleteCategory', workspaceId);
     const category = this.#category(categoryId);
     if (category.type === 'system') fail(403, 'the default category cannot be deleted');
     const mine = this.#categories();
@@ -851,7 +849,7 @@ export class MemoryBackend implements Backend {
     this.#tellCategories();
   }
 
-  async reorderCategories(teamId: string, categoryIds: string[]): Promise<void> {
+  async reorderCategories(workspaceId: string, categoryIds: string[]): Promise<void> {
     await this.#enter('reorderCategories');
     const mine = this.#categories();
     const known = new Set(mine.map((category) => category.id));
@@ -863,13 +861,12 @@ export class MemoryBackend implements Backend {
   }
 
   async moveBoardToCategory(
-    teamId: string,
+    workspaceId: string,
     boardId: string,
     categoryId: string,
     index: number,
   ): Promise<void> {
-    await this.#enter('moveBoardToCategory');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    await this.#enterWorkspace('moveBoardToCategory', workspaceId);
     this.#board(boardId);
     const target = this.#category(categoryId);
     for (const category of this.#categories()) {
@@ -881,13 +878,12 @@ export class MemoryBackend implements Backend {
   }
 
   async setBoardHidden(
-    teamId: string,
+    workspaceId: string,
     categoryId: string,
     boardId: string,
     hidden: boolean,
   ): Promise<void> {
-    await this.#enter('setBoardHidden');
-    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    await this.#enterWorkspace('setBoardHidden', workspaceId);
     const category = this.#category(categoryId);
     const others = category.hiddenBoardIds.filter((id) => id !== boardId);
     // As the server: a board the category does not hold is no error.

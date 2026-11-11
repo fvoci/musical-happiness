@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use fvoci_model::{Block, Board, BoardType, Team, User, new_id};
+use fvoci_model::{Block, Board, BoardType, User, Workspace, new_id};
 use fvoci_store::testing::TestDatabase;
 use fvoci_store::{DbType, Purged, Store};
 use sqlx::postgres::PgConnection;
@@ -52,10 +52,10 @@ pub(crate) async fn setup() -> TestStore {
 
 /// Makes an organization with its first workspace and returns the identifiers of both.
 pub(crate) async fn organization(store: &Store, name: &str) -> (String, String) {
-    let workspace = Team {
+    let workspace = Workspace {
         id: new_id(),
         signup_token: "signup-token".to_owned(),
-        ..Team::default()
+        ..Workspace::default()
     };
     let org_id = store
         .create_organization(name, &workspace)
@@ -185,28 +185,31 @@ pub(crate) async fn user(store: &Store, username: &str) -> String {
     user.id
 }
 
-/// Stores a team and returns its identifier.
-pub(crate) async fn team(store: &Store) -> String {
-    let team = Team {
+/// Stores a workspace and returns its identifier.
+pub(crate) async fn workspace(store: &Store) -> String {
+    let workspace = Workspace {
         id: new_id(),
         signup_token: "signup-token".to_owned(),
-        ..Team::default()
+        ..Workspace::default()
     };
-    store.create_team(&team).await.expect("the team is stored");
-    team.id
+    store
+        .create_workspace(&workspace)
+        .await
+        .expect("the workspace is stored");
+    workspace.id
 }
 
-/// Stores a team that the users work in, as members of the workspace: its open boards
+/// Stores a workspace that the users work in, as members of the workspace: its open boards
 /// are theirs to find. Returns its identifier.
-pub(crate) async fn team_of(store: &Store, users: &[&str]) -> String {
-    let team_id = team(store).await;
+pub(crate) async fn workspace_of(store: &Store, users: &[&str]) -> String {
+    let workspace_id = workspace(store).await;
     for user_id in users {
         store
-            .add_workspace_member(&team_id, user_id, fvoci_model::WorkspaceRole::Member)
+            .add_workspace_member(&workspace_id, user_id, fvoci_model::WorkspaceRole::Member)
             .await
-            .expect("the user is let into the team");
+            .expect("the user is let into the workspace");
     }
-    team_id
+    workspace_id
 }
 
 /// `storetests.InsertBlocks`: inserts each block on its own.
@@ -241,10 +244,10 @@ pub(crate) fn sorted_ids(blocks: &[Block]) -> Vec<String> {
     ids
 }
 
-/// `storetests.createTestBoards`: inserts `count` open boards of a team.
+/// `storetests.createTestBoards`: inserts `count` open boards of a workspace.
 pub(crate) async fn create_test_boards(
     store: &Store,
-    team_id: &str,
+    workspace_id: &str,
     user_id: &str,
     count: usize,
 ) -> Vec<Board> {
@@ -252,7 +255,7 @@ pub(crate) async fn create_test_boards(
     for index in 0..count {
         let mut board = Board {
             id: new_id(),
-            team_id: team_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
             board_type: BoardType::Open,
             created_by: user_id.to_owned(),
             title: format!("board {index}"),

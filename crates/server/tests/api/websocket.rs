@@ -13,7 +13,9 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::common::{Client, HIDDEN_TEAM_ID, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{
+    Client, HIDDEN_WORKSPACE_ID, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer,
+};
 
 /// How long to wait for a message that should arrive.
 const PATIENCE: Duration = Duration::from_secs(5);
@@ -80,23 +82,28 @@ impl Socket {
     }
 }
 
-fn category(team_id: &str, user_id: &str, name: &str) -> Category {
+fn category(workspace_id: &str, user_id: &str, name: &str) -> Category {
     Category {
         id: new_id(),
         name: name.to_owned(),
         user_id: user_id.to_owned(),
-        team_id: team_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
         ..Category::default()
     }
 }
 
-/// Subscribes an authenticated socket to a team and waits until the server has done it.
+/// Subscribes an authenticated socket to a workspace and waits until the server has done it.
 /// Commands have no acknowledgement, so the wait is for a broadcast to come through.
-async fn subscribe_to_team(th: &TestServer, socket: &mut Socket, team_id: &str, user_id: &str) {
+async fn subscribe_to_workspace(
+    th: &TestServer,
+    socket: &mut Socket,
+    workspace_id: &str,
+    user_id: &str,
+) {
     socket
-        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": team_id}))
+        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": workspace_id}))
         .await;
-    let probe = category(team_id, user_id, "subscription probe");
+    let probe = category(workspace_id, user_id, "subscription probe");
     for _ in 0..50 {
         th.app.ws().broadcast_category_change(&probe);
         if let Some(message) = socket.next_json(Duration::from_millis(100)).await {
@@ -106,28 +113,28 @@ async fn subscribe_to_team(th: &TestServer, socket: &mut Socket, team_id: &str, 
             return;
         }
     }
-    panic!("the socket was never subscribed to team {team_id}");
+    panic!("the socket was never subscribed to workspace {workspace_id}");
 }
 
-/// The category messages go to every connection of the user that follows the team:
+/// The category messages go to every connection of the user that follows the workspace:
 /// another tab of the user hears them too, another user does not.
 #[tokio::test]
 async fn category_messages_reach_every_tab_of_the_user() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let mut first = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut first, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut first, ROOT_WORKSPACE_ID, &user1.id).await;
     let mut second = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut second, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut second, ROOT_WORKSPACE_ID, &user1.id).await;
     while first.next_json(Duration::from_millis(150)).await.is_some() {}
     let user2 = th.client2.me().await;
     let mut other = Socket::connect_as(&th.client2).await;
-    subscribe_to_team(&th, &mut other, ROOT_TEAM_ID, &user2.id).await;
+    subscribe_to_workspace(&th, &mut other, ROOT_WORKSPACE_ID, &user2.id).await;
 
     th.client
         .post(
-            &format!("/teams/{ROOT_TEAM_ID}/categories"),
-            &json!({"name": "both tabs", "userId": user1.id, "teamId": ROOT_TEAM_ID}),
+            &format!("/w/{ROOT_WORKSPACE_ID}/categories"),
+            &json!({"name": "both tabs", "userId": user1.id, "workspaceId": ROOT_WORKSPACE_ID}),
         )
         .await
         .check_created();
@@ -140,11 +147,11 @@ async fn category_messages_reach_every_tab_of_the_user() {
     th.teardown().await;
 }
 
-/// A connection follows the teams its user works in. The subscription to a team the
+/// A connection follows the workspaces its user works in. The subscription to a workspace the
 /// user is not in is ignored, as is that of a guest of the workspace: neither is told
-/// what goes to who follows the team.
+/// what goes to who follows the workspace.
 #[tokio::test]
-async fn a_team_is_followed_by_who_works_in_it() {
+async fn a_workspace_is_followed_by_who_works_in_it() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
@@ -152,70 +159,74 @@ async fn a_team_is_followed_by_who_works_in_it() {
         .store()
         .execute_unchecked(&format!(
             "UPDATE workspace_members SET role = 'guest' \
-             WHERE user_id = '{}' AND workspace_id = '{ROOT_TEAM_ID}'",
+             WHERE user_id = '{}' AND workspace_id = '{ROOT_WORKSPACE_ID}'",
             user2.id
         ))
         .await
-        .expect("the second user becomes a guest of the root team");
+        .expect("the second user becomes a guest of the root workspace");
 
     // The subscription that works comes last on each connection: once it is seen to
     // work, the server has gone through the one before it.
     let mut outsider = Socket::connect_as(&th.client).await;
     outsider
-        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": HIDDEN_TEAM_ID}))
+        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": HIDDEN_WORKSPACE_ID}))
         .await;
-    subscribe_to_team(&th, &mut outsider, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut outsider, ROOT_WORKSPACE_ID, &user1.id).await;
     let mut guest = Socket::connect_as(&th.client2).await;
     guest
-        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
+        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
-    subscribe_to_team(&th, &mut guest, TEST_TEAM_ID, &user2.id).await;
+    subscribe_to_workspace(&th, &mut guest, TEST_WORKSPACE_ID, &user2.id).await;
 
     th.app
         .ws()
-        .broadcast_category_change(&category(HIDDEN_TEAM_ID, &user1.id, "hidden"));
+        .broadcast_category_change(&category(HIDDEN_WORKSPACE_ID, &user1.id, "hidden"));
     th.app
         .ws()
-        .broadcast_category_change(&category(ROOT_TEAM_ID, &user2.id, "a guest's"));
+        .broadcast_category_change(&category(ROOT_WORKSPACE_ID, &user2.id, "a guest's"));
     assert_eq!(
         outsider.next(QUIET).await,
         Event::Nothing,
-        "not in the team"
+        "not in the workspace"
     );
     assert_eq!(
         guest.next(QUIET).await,
         Event::Nothing,
-        "a guest of the team"
+        "a guest of the workspace"
     );
     th.teardown().await;
 }
 
-/// A connection of a session subscribes to a team and is told about the user's category
+/// A connection of a session subscribes to a workspace and is told about the user's category
 /// changes; on a connection without a session the subscription is ignored.
 #[tokio::test]
-async fn team_subscription_needs_authentication() {
+async fn workspace_subscription_needs_authentication() {
     let th = Setup::native().start().await.init_basic().await;
     let user1 = th.client.me().await;
 
     // No session: the subscription is ignored, and so is an unknown action.
     let mut anonymous = Socket::connect(&th).await;
     anonymous
-        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
+        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     anonymous.send(json!({"action": "NO_SUCH_ACTION"})).await;
     anonymous.send(json!("not a command")).await;
 
     let mut socket = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut socket, ROOT_WORKSPACE_ID, &user1.id).await;
 
-    let change = category(ROOT_TEAM_ID, &user1.id, "Projects");
+    let change = category(ROOT_WORKSPACE_ID, &user1.id, "Projects");
     th.app.ws().broadcast_category_change(&change);
     let message = socket
         .next_json(PATIENCE)
         .await
         .expect("the change arrives");
     assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
-    assert_eq!(message["teamId"], json!(ROOT_TEAM_ID), "{message}");
+    assert_eq!(
+        message["workspaceId"],
+        json!(ROOT_WORKSPACE_ID),
+        "{message}"
+    );
     assert_eq!(message["category"]["name"], json!("Projects"), "{message}");
     assert_eq!(message["category"]["userId"], json!(user1.id), "{message}");
     assert!(message.get("boardCategories").is_none(), "{message}");
@@ -227,16 +238,16 @@ async fn team_subscription_needs_authentication() {
     );
 
     // After unsubscribing, nothing arrives any more. The second subscription to another
-    // team shows that the server has processed the commands before it.
+    // workspace shows that the server has processed the commands before it.
     socket
-        .send(json!({"action": "UNSUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
+        .send(json!({"action": "UNSUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
-    subscribe_to_team(&th, &mut socket, TEST_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut socket, TEST_WORKSPACE_ID, &user1.id).await;
     th.app.ws().broadcast_category_change(&change);
     assert_eq!(
         socket.next(QUIET).await,
         Event::Nothing,
-        "unsubscribed from the team"
+        "unsubscribed from the workspace"
     );
 
     th.teardown().await;
@@ -254,15 +265,15 @@ async fn a_message_does_not_sign_a_connection_in() {
         .send(json!({"action": "AUTH", "token": th.client.token}))
         .await;
     socket
-        .send(json!({"action": "SUBSCRIBE_TEAM", "teamId": ROOT_TEAM_ID}))
+        .send(json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": ROOT_WORKSPACE_ID}))
         .await;
     // The server reads the two messages in its own time, and a change that is sent
     // before it has read them would be missed by any connection. So the change is sent
     // again and again, and a connection of the user, which subscribes after the other
     // one sent its messages, shows that the changes do arrive where they belong.
     let mut signed_in = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut signed_in, ROOT_TEAM_ID, &user1.id).await;
-    let change = category(ROOT_TEAM_ID, &user1.id, "Projects");
+    subscribe_to_workspace(&th, &mut signed_in, ROOT_WORKSPACE_ID, &user1.id).await;
+    let change = category(ROOT_WORKSPACE_ID, &user1.id, "Projects");
     for round in 0..5 {
         th.app.ws().broadcast_category_change(&change);
         let heard = signed_in.next_json(Duration::from_secs(5)).await;
@@ -282,7 +293,7 @@ async fn a_message_does_not_sign_a_connection_in() {
     th.teardown().await;
 }
 
-/// Board and block changes go to the team's subscribers who are members of the board.
+/// Board and block changes go to the workspace's subscribers who are members of the board.
 #[tokio::test]
 async fn board_changes_go_to_subscribed_members() {
     let th = Setup::native().start().await.init_basic().await;
@@ -291,7 +302,7 @@ async fn board_changes_go_to_subscribed_members() {
 
     let mut board = Board {
         id: new_id(),
-        team_id: ROOT_TEAM_ID.to_owned(),
+        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Private,
         title: "Roadmap".to_owned(),
         ..Board::default()
@@ -303,20 +314,24 @@ async fn board_changes_go_to_subscribed_members() {
         .expect("the board is stored with user1 as admin");
 
     let mut member = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut member, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut member, ROOT_WORKSPACE_ID, &user1.id).await;
     let mut outsider = Socket::connect_as(&th.client2).await;
-    subscribe_to_team(&th, &mut outsider, ROOT_TEAM_ID, &user2.id).await;
+    subscribe_to_workspace(&th, &mut outsider, ROOT_WORKSPACE_ID, &user2.id).await;
 
     th.app
         .ws()
-        .broadcast_board_change(ROOT_TEAM_ID, &board)
+        .broadcast_board_change(ROOT_WORKSPACE_ID, &board)
         .await;
     let message = member
         .next_json(PATIENCE)
         .await
         .expect("the member is told");
     assert_eq!(message["action"], json!("UPDATE_BOARD"), "{message}");
-    assert_eq!(message["teamId"], json!(ROOT_TEAM_ID), "{message}");
+    assert_eq!(
+        message["workspaceId"],
+        json!(ROOT_WORKSPACE_ID),
+        "{message}"
+    );
     assert_eq!(message["board"]["id"], json!(board.id), "{message}");
     assert_eq!(message["board"]["title"], json!("Roadmap"), "{message}");
 
@@ -334,7 +349,7 @@ async fn board_changes_go_to_subscribed_members() {
         .expect("the block is stored");
     th.app
         .ws()
-        .broadcast_block_change(ROOT_TEAM_ID, &block)
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
         .await;
     let message = member
         .next_json(PATIENCE)
@@ -346,7 +361,7 @@ async fn board_changes_go_to_subscribed_members() {
 
     th.app
         .ws()
-        .broadcast_block_delete(ROOT_TEAM_ID, &block.id, &board.id)
+        .broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id)
         .await;
     let message = member
         .next_json(PATIENCE)
@@ -363,7 +378,7 @@ async fn board_changes_go_to_subscribed_members() {
     // Removing a member tells the members and the removed user.
     th.app
         .ws()
-        .broadcast_member_delete(ROOT_TEAM_ID, &board.id, &user2.id)
+        .broadcast_member_delete(ROOT_WORKSPACE_ID, &board.id, &user2.id)
         .await;
     let message = member
         .next_json(PATIENCE)
@@ -395,7 +410,7 @@ async fn block_subscription_needs_the_read_token() {
 
     let mut board = Board {
         id: new_id(),
-        team_id: ROOT_TEAM_ID.to_owned(),
+        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Private,
         ..Board::default()
     };
@@ -420,7 +435,7 @@ async fn block_subscription_needs_the_read_token() {
     let subscribe = |read_token: &str| {
         json!({
             "action": "SUBSCRIBE_BLOCKS",
-            "teamId": ROOT_TEAM_ID,
+            "workspaceId": ROOT_WORKSPACE_ID,
             "readToken": read_token,
             "blockIds": [block.id],
         })
@@ -436,7 +451,7 @@ async fn block_subscription_needs_the_read_token() {
     for _ in 0..50 {
         th.app
             .ws()
-            .broadcast_block_change(ROOT_TEAM_ID, &block)
+            .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
             .await;
         if let Some(message) = reader.next_json(Duration::from_millis(100)).await {
             received = Some(message);
@@ -508,10 +523,10 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
     let mut socket = Socket::connect_as(&th.client).await;
 
     let malformed = [
-        json!({"action": "SUBSCRIBE_TEAM", "teamId": 5}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "blockIds": "not-a-list"}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "blockIds": [1, 2, 3]}),
-        json!({"action": "SUBSCRIBE_BLOCKS", "teamId": ROOT_TEAM_ID, "readToken": {"a": 1}, "blockIds": []}),
+        json!({"action": "SUBSCRIBE_WORKSPACE", "workspaceId": 5}),
+        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": "not-a-list"}),
+        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "blockIds": [1, 2, 3]}),
+        json!({"action": "SUBSCRIBE_BLOCKS", "workspaceId": ROOT_WORKSPACE_ID, "readToken": {"a": 1}, "blockIds": []}),
         json!({"action": 7}),
         json!([1, 2, 3]),
         json!(null),
@@ -521,8 +536,8 @@ async fn commands_with_members_of_the_wrong_type_are_ignored() {
     }
 
     // The same connection still subscribes and is told about changes.
-    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
-    let change = category(ROOT_TEAM_ID, &user1.id, "After the noise");
+    subscribe_to_workspace(&th, &mut socket, ROOT_WORKSPACE_ID, &user1.id).await;
+    let change = category(ROOT_WORKSPACE_ID, &user1.id, "After the noise");
     th.app.ws().broadcast_category_change(&change);
     let message = socket
         .next_json(PATIENCE)
@@ -546,9 +561,9 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
     let user1 = th.client.me().await;
     let user2 = th.client2.me().await;
     let mut socket1 = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut socket1, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut socket1, ROOT_WORKSPACE_ID, &user1.id).await;
     let mut socket2 = Socket::connect_as(&th.client2).await;
-    subscribe_to_team(&th, &mut socket2, ROOT_TEAM_ID, &user2.id).await;
+    subscribe_to_workspace(&th, &mut socket2, ROOT_WORKSPACE_ID, &user2.id).await;
 
     th.app
         .reset_user_password(&user1.username, "another-Pa$$word")
@@ -560,9 +575,11 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
         Event::Closed,
         "the connection of the user whose password was set"
     );
-    th.app
-        .ws()
-        .broadcast_category_change(&category(ROOT_TEAM_ID, &user2.id, "still listening"));
+    th.app.ws().broadcast_category_change(&category(
+        ROOT_WORKSPACE_ID,
+        &user2.id,
+        "still listening",
+    ));
     let message = socket2
         .next_json(PATIENCE)
         .await
@@ -575,7 +592,7 @@ async fn resetting_a_password_closes_the_websocket_connections_of_that_user() {
 async fn shared_board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block, String) {
     let mut board = Board {
         id: new_id(),
-        team_id: ROOT_TEAM_ID.to_owned(),
+        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Private,
         ..Board::default()
     };
@@ -615,7 +632,7 @@ async fn follow_block_on(
     reader
         .send(json!({
             "action": "SUBSCRIBE_BLOCKS",
-            "teamId": ROOT_TEAM_ID,
+            "workspaceId": ROOT_WORKSPACE_ID,
             "readToken": read_token,
             "blockIds": [block.id],
         }))
@@ -623,7 +640,7 @@ async fn follow_block_on(
     for _ in 0..50 {
         th.app
             .ws()
-            .broadcast_block_change(ROOT_TEAM_ID, block)
+            .broadcast_block_change(ROOT_WORKSPACE_ID, block)
             .await;
         if let Some(message) = reader.next_json(Duration::from_millis(100)).await {
             // Later broadcasts may still be queued; let them drain.
@@ -710,10 +727,10 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     );
 
     let mut member = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut member, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut member, ROOT_WORKSPACE_ID, &user1.id).await;
     th.app
         .ws()
-        .broadcast_block_change(ROOT_TEAM_ID, &block)
+        .broadcast_block_change(ROOT_WORKSPACE_ID, &block)
         .await;
     let message = member
         .next_json(PATIENCE)
@@ -738,7 +755,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     // nor are they told who the values of the board's person properties name.
     let definitions = json!([
         {"id": "owner", "name": "Owner", "type": "person"},
-        {"id": "team", "name": "Team", "type": "multiPerson"},
+        {"id": "workspace", "name": "Workspace", "type": "multiPerson"},
     ]);
     let patch: BoardPatch = serde_json::from_value(json!({"updatedCardProperties": definitions}))
         .expect("a board patch");
@@ -749,7 +766,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         .expect("the board is stored");
     block.fields.insert(
         "properties".to_owned(),
-        json!({"owner": user1.id, "team": [user1.id, user1.id]}),
+        json!({"owner": user1.id, "workspace": [user1.id, user1.id]}),
     );
     let stranger = Socket::connect_as(&th.client2).await;
     let (_stranger, message) = follow_block_on(&th, stranger, &block, &token).await;
@@ -757,11 +774,11 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
     assert_eq!(
         message["block"]["fields"]["properties"],
-        json!({"owner": "", "team": ["", ""]}),
+        json!({"owner": "", "workspace": ["", ""]}),
         "{message}"
     );
 
-    // A member who follows the block by the token, with no team subscription, is told
+    // A member who follows the block by the token, with no workspace subscription, is told
     // all of it.
     let member = Socket::connect_as(&th.client).await;
     let (_member, message) = follow_block_on(&th, member, &block, &token).await;
@@ -773,7 +790,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     );
     assert_eq!(
         message["block"]["fields"]["properties"],
-        json!({"owner": user1.id, "team": [user1.id, user1.id]}),
+        json!({"owner": user1.id, "workspace": [user1.id, user1.id]}),
         "{message}"
     );
 
@@ -870,7 +887,7 @@ async fn a_session_that_runs_out_closes_its_websocket_connection() {
         .login(crate::common::USER1_USERNAME, crate::common::PASSWORD)
         .await;
     let mut here = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut here, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut here, ROOT_WORKSPACE_ID, &user1.id).await;
     let mut there = Socket::connect_as(&elsewhere).await;
     let session = th
         .app
@@ -922,7 +939,7 @@ async fn logging_out_closes_the_websocket_connections_of_that_session() {
         .login(crate::common::USER1_USERNAME, crate::common::PASSWORD)
         .await;
     let mut here = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut here, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut here, ROOT_WORKSPACE_ID, &user1.id).await;
     let mut there = Socket::connect_as(&elsewhere).await;
 
     th.client.post_empty("/logout").await.check_no_content();
@@ -1043,7 +1060,7 @@ impl ContractCheck<'_> {
 async fn board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Block) {
     let mut board = Board {
         id: new_id(),
-        team_id: ROOT_TEAM_ID.to_owned(),
+        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Private,
         title: "Roadmap".to_owned(),
         ..Board::default()
@@ -1088,36 +1105,36 @@ async fn messages_match_the_websocket_contract() {
         .expect("the members are read");
 
     let mut socket = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut socket, ROOT_WORKSPACE_ID, &user1.id).await;
 
     let ws = th.app.ws();
-    let category = category(ROOT_TEAM_ID, &user1.id, "Work");
+    let category = category(ROOT_WORKSPACE_ID, &user1.id, "Work");
     let mut contract_check = ContractCheck {
         contract: &contract,
         openapi: &openapi,
         heard: BTreeSet::new(),
     };
 
-    ws.broadcast_board_change(ROOT_TEAM_ID, &board).await;
+    ws.broadcast_board_change(ROOT_WORKSPACE_ID, &board).await;
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
-    ws.broadcast_block_change(ROOT_TEAM_ID, &block).await;
+    ws.broadcast_block_change(ROOT_WORKSPACE_ID, &block).await;
     contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
-    ws.broadcast_block_delete(ROOT_TEAM_ID, &block.id, &board.id)
+    ws.broadcast_block_delete(ROOT_WORKSPACE_ID, &block.id, &board.id)
         .await;
     contract_check.hear(&mut socket, "UPDATE_BLOCK").await;
     let admin = members
         .first()
         .expect("the board has its admin as a member");
-    ws.broadcast_member_change(ROOT_TEAM_ID, &board.id, admin)
+    ws.broadcast_member_change(ROOT_WORKSPACE_ID, &board.id, admin)
         .await;
     contract_check.hear(&mut socket, "UPDATE_MEMBER").await;
-    ws.broadcast_member_delete(ROOT_TEAM_ID, &board.id, &user1.id)
+    ws.broadcast_member_delete(ROOT_WORKSPACE_ID, &board.id, &user1.id)
         .await;
     contract_check.hear(&mut socket, "DELETE_MEMBER").await;
     ws.broadcast_category_change(&category);
     contract_check.hear(&mut socket, "UPDATE_CATEGORY").await;
     ws.broadcast_category_board_change(
-        ROOT_TEAM_ID,
+        ROOT_WORKSPACE_ID,
         &user1.id,
         &[fvoci_model::BoardCategoryWebsocketData {
             board_id: board.id.clone(),
@@ -1128,10 +1145,14 @@ async fn messages_match_the_websocket_contract() {
     contract_check
         .hear(&mut socket, "UPDATE_BOARD_CATEGORY")
         .await;
-    ws.broadcast_category_reorder(ROOT_TEAM_ID, &user1.id, std::slice::from_ref(&category.id));
+    ws.broadcast_category_reorder(
+        ROOT_WORKSPACE_ID,
+        &user1.id,
+        std::slice::from_ref(&category.id),
+    );
     contract_check.hear(&mut socket, "REORDER_CATEGORIES").await;
     ws.broadcast_category_boards_reorder(
-        ROOT_TEAM_ID,
+        ROOT_WORKSPACE_ID,
         &user1.id,
         &category.id,
         std::slice::from_ref(&board.id),
@@ -1144,7 +1165,7 @@ async fn messages_match_the_websocket_contract() {
         .hear(&mut socket, "UPDATE_CLIENT_CONFIG")
         .await;
     // The board deletion goes to the former members, with the board's identifiers only.
-    ws.broadcast_board_delete(ROOT_TEAM_ID, &board.id, &members);
+    ws.broadcast_board_delete(ROOT_WORKSPACE_ID, &board.id, &members);
     contract_check.hear(&mut socket, "UPDATE_BOARD").await;
 
     // Every message of the contract was heard.
@@ -1162,7 +1183,7 @@ async fn messages_match_the_websocket_contract() {
     th.teardown().await;
 }
 
-/// A private board of the root team with the text properties `a`, `b` and `c`, in that
+/// A private board of the root workspace with the text properties `a`, `b` and `c`, in that
 /// order, and `admin` as its admin.
 async fn board_with_three_properties(th: &TestServer, admin: &str) -> Board {
     let property = |id: &str| {
@@ -1173,7 +1194,7 @@ async fn board_with_three_properties(th: &TestServer, admin: &str) -> Board {
     };
     let mut board = Board {
         id: new_id(),
-        team_id: ROOT_TEAM_ID.to_owned(),
+        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
         board_type: BoardType::Private,
         card_properties: vec![property("a"), property("b"), property("c")],
         ..Board::default()
@@ -1221,7 +1242,7 @@ async fn card_properties_are_put_in_order_and_the_board_is_told() {
             .collect()
     };
     let mut socket = Socket::connect_as(&th.client).await;
-    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+    subscribe_to_workspace(&th, &mut socket, ROOT_WORKSPACE_ID, &user1.id).await;
 
     let answered: Vec<String> = th.client.put(&path, &["c", "a", "b"]).await.ok_json();
     assert_eq!(answered, ["c", "a", "b"]);

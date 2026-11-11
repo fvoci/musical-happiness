@@ -3,12 +3,12 @@
 //! One test per test function of the original; its subtests are the commented sections,
 //! in the original order, on one store.
 //!
-//! The original names users, teams and boards by whatever text is at hand. Here each of
+//! The original names users, workspaces and boards by whatever text is at hand. Here each of
 //! them is a stored row with an identifier of its own, and text that is no identifier
 //! names nothing. The original's tests of the board history, the membership history and
 //! the board count went with those functions.
 //!
-//! The tests after [`search_boards_for_user_in_team`] have no counterpart in the
+//! The tests after [`search_boards_for_user_in_workspace`] have no counterpart in the
 //! original, which does not test templates, the template tracking identifier, the trash
 //! or the membership changes that keep a board its administrator.
 
@@ -34,18 +34,18 @@ use crate::common;
 const NOT_AN_ID: &str = "nonexistent-id";
 
 /// A board with the three members nearly every test sets.
-fn new_board(id: &str, team_id: &str, board_type: BoardType) -> Board {
+pub(crate) fn new_board(id: &str, workspace_id: &str, board_type: BoardType) -> Board {
     Board {
         id: id.to_owned(),
-        team_id: team_id.to_owned(),
+        workspace_id: workspace_id.to_owned(),
         board_type,
         ..Board::default()
     }
 }
 
-/// Stores an open board of a team, without members, and returns its identifier.
-async fn stored_board(store: &Store, team_id: &str, user_id: &str) -> String {
-    let mut board = new_board(&new_id(), team_id, BoardType::Open);
+/// Stores an open board of a workspace, without members, and returns its identifier.
+async fn stored_board(store: &Store, workspace_id: &str, user_id: &str) -> String {
+    let mut board = new_board(&new_id(), workspace_id, BoardType::Open);
     store
         .insert_board(&mut board, user_id)
         .await
@@ -87,18 +87,18 @@ fn sorted_user_ids(members: &[BoardMember]) -> Vec<String> {
 async fn get_board() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     // "existing board"
     {
-        let mut board = new_board(&new_id(), &team_id, BoardType::Open);
+        let mut board = new_board(&new_id(), &workspace_id, BoardType::Open);
         test.insert_board(&mut board, &user_id)
             .await
             .expect("the board is inserted");
 
         let r_board = test.get_board(&board.id).await.expect("the board exists");
         assert_eq!(board.id, r_board.id, "the identifier");
-        assert_eq!(board.team_id, r_board.team_id, "the team");
+        assert_eq!(board.workspace_id, r_board.workspace_id, "the workspace");
         assert_eq!(user_id, r_board.created_by, "the creator");
         assert_eq!(user_id, r_board.modified_by, "the modifier");
         assert_eq!(board.board_type, r_board.board_type, "the type");
@@ -124,17 +124,17 @@ async fn get_board() {
 }
 
 #[tokio::test]
-async fn get_boards_for_user_and_team() {
+async fn get_boards_for_user_and_workspace() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let team_id_1 = common::team_of(&test, &[&user_id, &other_user_id]).await;
-    let team_id_2 = common::team_of(&test, &[&user_id, &other_user_id]).await;
+    let workspace_id_1 = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
+    let workspace_id_2 = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
 
     // "should return empty list if no results are found"
     {
         let boards = test
-            .get_boards_for_user_and_team(&user_id, &team_id_1, PublicBoards::Include)
+            .get_boards_for_user_and_workspace(&user_id, &workspace_id_1, PublicBoards::Include)
             .await
             .expect("the query succeeds");
         assert!(boards.is_empty(), "got {boards:?}");
@@ -142,73 +142,73 @@ async fn get_boards_for_user_and_team() {
 
     // "should return only the boards of the team that the user is a member of"
     {
-        // team 1 boards
-        let mut board1 = new_board(&new_id(), &team_id_1, BoardType::Open);
+        // workspace 1 boards
+        let mut board1 = new_board(&new_id(), &workspace_id_1, BoardType::Open);
         test.insert_board_with_admin(&mut board1, &user_id)
             .await
             .expect("board 1 is inserted");
 
-        let mut board2 = new_board(&new_id(), &team_id_1, BoardType::Private);
+        let mut board2 = new_board(&new_id(), &workspace_id_1, BoardType::Private);
         test.insert_board_with_admin(&mut board2, &user_id)
             .await
             .expect("board 2 is inserted");
 
-        let mut board3 = new_board(&new_id(), &team_id_1, BoardType::Open);
+        let mut board3 = new_board(&new_id(), &workspace_id_1, BoardType::Open);
         test.insert_board(&mut board3, &other_user_id)
             .await
             .expect("board 3 is inserted");
 
-        let mut board4 = new_board(&new_id(), &team_id_1, BoardType::Private);
+        let mut board4 = new_board(&new_id(), &workspace_id_1, BoardType::Private);
         test.insert_board(&mut board4, &other_user_id)
             .await
             .expect("board 4 is inserted");
 
-        // team 2 boards
-        let mut board5 = new_board(&new_id(), &team_id_2, BoardType::Open);
+        // workspace 2 boards
+        let mut board5 = new_board(&new_id(), &workspace_id_2, BoardType::Open);
         test.insert_board_with_admin(&mut board5, &user_id)
             .await
             .expect("board 5 is inserted");
 
-        let mut board6 = new_board(&new_id(), &team_id_1, BoardType::Private);
+        let mut board6 = new_board(&new_id(), &workspace_id_1, BoardType::Private);
         test.insert_board(&mut board6, &other_user_id)
             .await
             .expect("board 6 is inserted");
 
-        // "should only find the two boards that the user is a member of for team 1 plus
+        // "should only find the two boards that the user is a member of for workspace 1 plus
         // the one open board"
         {
             let found = test
-                .get_boards_for_user_and_team(&user_id, &team_id_1, PublicBoards::Include)
+                .get_boards_for_user_and_workspace(&user_id, &workspace_id_1, PublicBoards::Include)
                 .await
                 .expect("the query succeeds");
             assert_eq!(
                 sorted_by_id(found),
                 sorted_by_id(vec![board1.clone(), board2.clone(), board3]),
-                "the user's boards of team 1 and its open board"
+                "the user's boards of workspace 1 and its open board"
             );
         }
 
         // "should only find the two boards that the user is a member of for team 1"
         {
             let found = test
-                .get_boards_for_user_and_team(&user_id, &team_id_1, PublicBoards::Exclude)
+                .get_boards_for_user_and_workspace(&user_id, &workspace_id_1, PublicBoards::Exclude)
                 .await
                 .expect("the query succeeds");
             assert_eq!(
                 sorted_by_id(found),
                 sorted_by_id(vec![board1, board2]),
-                "the user's boards of team 1"
+                "the user's boards of workspace 1"
             );
         }
 
         // "should only find the board that the user is a member of for team 2"
         {
             let found = test
-                .get_boards_for_user_and_team(&user_id, &team_id_2, PublicBoards::Include)
+                .get_boards_for_user_and_workspace(&user_id, &workspace_id_2, PublicBoards::Include)
                 .await
                 .expect("the query succeeds");
             assert_eq!(found.len(), 1, "got {found:?}");
-            assert_eq!(board5.id, found[0].id, "the user's board of team 2");
+            assert_eq!(board5.id, found[0].id, "the user's board of workspace 2");
         }
     }
 
@@ -224,17 +224,17 @@ struct BoardsByIdsCase {
 }
 
 #[tokio::test]
-async fn get_boards_in_team_by_ids() {
+async fn get_boards_in_workspace_by_ids() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     // "should return err not all found if one or more of the ids are not found"
     {
         let board_id_1 = new_id();
         let board_id_2 = new_id();
         for board_id in [&board_id_1, &board_id_2] {
-            let mut board = new_board(board_id, &team_id, BoardType::Open);
+            let mut board = new_board(board_id, &workspace_id, BoardType::Open);
             test.insert_board_with_admin(&mut board, &user_id)
                 .await
                 .expect("the board is inserted");
@@ -264,7 +264,9 @@ async fn get_boards_in_team_by_ids() {
 
         for case in cases {
             let board_ids = case.board_ids;
-            let result = test.get_boards_in_team_by_ids(&board_ids, &team_id).await;
+            let result = test
+                .get_boards_in_workspace_by_ids(&board_ids, &workspace_id)
+                .await;
             if case.expected_error {
                 let error = result.expect_err(case.name);
                 // The original returns the boards it did find next to the error and the
@@ -282,7 +284,11 @@ async fn get_boards_in_team_by_ids() {
                     "Should be ErrNotFound compatible error"
                 );
                 let found = test
-                    .get_boards_for_user_and_team(&user_id, &team_id, PublicBoards::Include)
+                    .get_boards_for_user_and_workspace(
+                        &user_id,
+                        &workspace_id,
+                        PublicBoards::Include,
+                    )
                     .await
                     .expect("the query succeeds")
                     .iter()
@@ -304,12 +310,12 @@ async fn insert_board() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let user_id_2 = common::user(&test, "user2").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let public_board_id = new_id();
 
     // "valid public board"
     {
-        let mut board = new_board(&public_board_id, &team_id, BoardType::Open);
+        let mut board = new_board(&public_board_id, &workspace_id, BoardType::Open);
         test.insert_board(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -325,7 +331,7 @@ async fn insert_board() {
     // "valid private board"
     {
         let private_board_id = new_id();
-        let mut board = new_board(&private_board_id, &team_id, BoardType::Private);
+        let mut board = new_board(&private_board_id, &workspace_id, BoardType::Private);
         test.insert_board(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -348,7 +354,7 @@ async fn insert_board() {
     {
         let mut board = Board {
             id: public_board_id,
-            team_id: team_id.clone(),
+            workspace_id: workspace_id.clone(),
             title: "New title".to_owned(),
             ..Board::default()
         };
@@ -363,8 +369,8 @@ async fn insert_board() {
     {
         let type_board_id = new_id();
 
-        // The original stores this board without a team. Here a board is some team's:
-        // one without a team is refused, and nothing is stored.
+        // The original stores this board without a workspace. Here a board is some workspace's:
+        // one without a workspace is refused, and nothing is stored.
         let mut board = Board {
             id: type_board_id.clone(),
             title: "Public board".to_owned(),
@@ -374,7 +380,7 @@ async fn insert_board() {
         let error = test
             .insert_board(&mut board, &user_id)
             .await
-            .expect_err("a board needs a team");
+            .expect_err("a board needs a workspace");
         assert!(
             matches!(&error, StoreError::InvalidId(invalid) if invalid.is_empty()),
             "got {error:?}"
@@ -385,7 +391,7 @@ async fn insert_board() {
             .expect_err("nothing was stored");
         assert!(error.is_not_found(), "got {error:?}");
 
-        board.team_id.clone_from(&team_id);
+        board.workspace_id.clone_from(&workspace_id);
         test.insert_board(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -393,7 +399,7 @@ async fn insert_board() {
 
         let mut board_update = Board {
             id: type_board_id,
-            team_id,
+            workspace_id,
             board_type: BoardType::Private,
             ..Board::default()
         };
@@ -418,7 +424,7 @@ async fn insert_board() {
 async fn patch_board() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     // "should return error if the board doesn't exist"
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
@@ -441,7 +447,7 @@ async fn patch_board() {
         let mut board = Board {
             title: "A simple title".to_owned(),
             description: "A simple description".to_owned(),
-            ..new_board(&board_id, &team_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, BoardType::Open)
         };
         test.insert_board(&mut board, &user_id)
             .await
@@ -474,7 +480,7 @@ async fn patch_board() {
 
         let mut board = Board {
             properties: object(json!({ "one": "1", "two": "2" })),
-            ..new_board(&board_id, &team_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, BoardType::Open)
         };
         test.insert_board(&mut board, &user_id)
             .await
@@ -508,7 +514,7 @@ async fn patch_board() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &team_id, BoardType::Open);
+        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
         test.insert_board(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -540,7 +546,7 @@ async fn patch_board() {
         let mut board = Board {
             properties: properties.clone(),
             card_properties: card_properties.clone(),
-            ..new_board(&board_id, &team_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, BoardType::Open)
         };
         test.insert_board(&mut board, &user_id)
             .await
@@ -585,7 +591,7 @@ async fn patch_board() {
 
         let mut board = Board {
             card_properties: card_properties.clone(),
-            ..new_board(&board_id, &team_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, BoardType::Open)
         };
         test.insert_board(&mut board, &user_id)
             .await
@@ -622,7 +628,7 @@ async fn patch_board() {
 async fn delete_board() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     // "should return an error if the board doesn't exist"
     for board_id in [new_id(), NOT_AN_ID.to_owned()] {
@@ -637,7 +643,7 @@ async fn delete_board() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &team_id, BoardType::Open);
+        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
         test.insert_board(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -665,7 +671,7 @@ async fn delete_board() {
 async fn undelete_board() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     // "existing id"
     {
@@ -681,7 +687,7 @@ async fn undelete_board() {
             properties: object(json!({ "prop_1": "value_1" })),
             // The original's test data has no `id`; see `patch_board`.
             card_properties: vec![object(json!({ "id": "prop_1", "name": "value_1" }))],
-            ..new_board(&board_id, &team_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, BoardType::Open)
         };
         test.insert_board(&mut board, &user_id)
             .await
@@ -703,7 +709,7 @@ async fn undelete_board() {
 
         // verifying the data after un-delete
         assert_eq!("Dunder Mifflin Scranton", board.title, "the title");
-        assert_eq!(team_id, board.team_id, "the team");
+        assert_eq!(workspace_id, board.workspace_id, "the workspace");
         assert_eq!(user_id, board.created_by, "the creator");
         assert_eq!(user_id, board.modified_by, "the modifier");
         assert_eq!(
@@ -731,7 +737,7 @@ async fn undelete_board() {
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &team_id, BoardType::Open);
+        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
         test.insert_board(&mut board, &user_id)
             .await
             .expect("the board is inserted");
@@ -783,13 +789,13 @@ async fn undelete_board() {
 async fn insert_board_with_admin() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     // "should correctly create a board and the admin membership with the creator"
     {
         let board_id = new_id();
 
-        let mut board = new_board(&board_id, &team_id, BoardType::Open);
+        let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
         let new_member = test
             .insert_board_with_admin(&mut board, &user_id)
             .await
@@ -816,8 +822,8 @@ async fn insert_board_with_admin() {
 async fn save_member() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     // "should correctly create a member"
     {
@@ -884,8 +890,8 @@ async fn save_member() {
 async fn get_member_for_board() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     // "should return an error not found for nonexisting membership"
     {
@@ -935,9 +941,9 @@ async fn get_members_for_board() {
     let user_id_1 = common::user(&test, "user-11").await;
     let user_id_2 = common::user(&test, "user-12").await;
     let user_id_3 = common::user(&test, "user-13").await;
-    let team_id = common::team(&test).await;
-    let board_id_1 = stored_board(&test, &team_id, &user_id_1).await;
-    let board_id_2 = stored_board(&test, &team_id, &user_id_1).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id_1 = stored_board(&test, &workspace_id, &user_id_1).await;
+    let board_id_2 = stored_board(&test, &workspace_id, &user_id_1).await;
 
     // "should return empty list if there are no members on a board"
     {
@@ -1021,8 +1027,8 @@ async fn get_members_for_user() {
 async fn delete_member() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     // "should return nil if deleting a nonexistent member"
     {
@@ -1061,7 +1067,7 @@ async fn delete_member() {
 }
 
 /// A case of the original's `testSearchBoardsForUser` table; each is a subtest there.
-/// The original's cases also name a team, which the search does not take.
+/// The original's cases also name a workspace, which the search does not take.
 struct SearchCase<'a> {
     name: &'static str,
     term: &'static str,
@@ -1078,11 +1084,11 @@ struct SearchCase<'a> {
 async fn search_boards_for_user() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id_1 = common::team_of(&test, &[&user_id]).await;
-    let team_id_2 = common::team_of(&test, &[&user_id]).await;
+    let workspace_id_1 = common::workspace_of(&test, &[&user_id]).await;
+    let workspace_id_2 = common::workspace_of(&test, &[&user_id]).await;
 
     // "should return empty if user is not a member of any board and there are no public
-    // boards on the team"
+    // boards on the workspace"
     {
         let boards = test
             .search_boards_for_user("", BoardSearchField::Title, &user_id, PublicBoards::Include)
@@ -1094,7 +1100,7 @@ async fn search_boards_for_user() {
     let mut board1 = Board {
         title: "Public Board with admin".to_owned(),
         properties: object(json!({ "foo": "bar1" })),
-        ..new_board(&new_id(), &team_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
     };
     test.insert_board_with_admin(&mut board1, &user_id)
         .await
@@ -1103,7 +1109,7 @@ async fn search_boards_for_user() {
     let mut board2 = Board {
         title: "Public Board".to_owned(),
         properties: object(json!({ "foo": "bar2" })),
-        ..new_board(&new_id(), &team_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
     };
     test.insert_board(&mut board2, &user_id)
         .await
@@ -1111,7 +1117,7 @@ async fn search_boards_for_user() {
 
     let mut board3 = Board {
         title: "Private Board with admin".to_owned(),
-        ..new_board(&new_id(), &team_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
     };
     test.insert_board_with_admin(&mut board3, &user_id)
         .await
@@ -1119,15 +1125,15 @@ async fn search_boards_for_user() {
 
     let mut board4 = Board {
         title: "Private Board".to_owned(),
-        ..new_board(&new_id(), &team_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
     };
     test.insert_board(&mut board4, &user_id)
         .await
         .expect("board 4 is inserted");
 
     let mut board5 = Board {
-        title: "Public Board with admin in team 2".to_owned(),
-        ..new_board(&new_id(), &team_id_2, BoardType::Open)
+        title: "Public Board with admin in workspace 2".to_owned(),
+        ..new_board(&new_id(), &workspace_id_2, BoardType::Open)
     };
     test.insert_board_with_admin(&mut board5, &user_id)
         .await
@@ -1171,7 +1177,7 @@ async fn search_boards_for_user() {
             expected_boards: vec![&board3],
         },
         SearchCase {
-            name: "should find no board in team 2 with a non matching term",
+            name: "should find no board in workspace 2 with a non matching term",
             term: "non-matching-term",
             search_field: BoardSearchField::Title,
             public_boards: PublicBoards::Include,
@@ -1210,18 +1216,21 @@ async fn search_boards_for_user() {
 }
 
 #[tokio::test]
-async fn search_boards_for_user_in_team() {
+async fn search_boards_for_user_in_workspace() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
 
-    // "should return empty list if there are no resutls": for a team that does not
+    // "should return empty list if there are no resutls": for a workspace that does not
     // exist, and for text that is no identifier.
-    for team_id in [new_id(), NOT_AN_ID.to_owned()] {
+    for workspace_id in [new_id(), NOT_AN_ID.to_owned()] {
         let boards = test
-            .search_boards_for_user_in_team(&team_id, "", &user_id)
+            .search_boards_for_user_in_workspace(&workspace_id, "", &user_id)
             .await
             .expect("the search succeeds");
-        assert!(boards.is_empty(), "team {team_id}: got {boards:?}");
+        assert!(
+            boards.is_empty(),
+            "workspace {workspace_id}: got {boards:?}"
+        );
     }
 
     test.teardown().await;
@@ -1230,20 +1239,20 @@ async fn search_boards_for_user_in_team() {
 // Characterization tests: behavior of the original that its test suite does not cover,
 // or what this server does in its place.
 
-/// The original stamps the templates of its global team
-/// (`server/services/store/sqlstore/board.go:299-303`). There is no global team here:
+/// The original stamps the templates of its global workspace
+/// (`server/services/store/sqlstore/board.go:299-303`). There is no global workspace here:
 /// the templates the server ships with are the ones stored on behalf of no user, and
 /// those are stamped.
 #[tokio::test]
-async fn insert_board_stamps_templates_of_the_global_team_with_a_tracking_id() {
+async fn insert_board_stamps_templates_of_the_global_workspace_with_a_tracking_id() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     let mut builtin = Board {
         title: "hello".to_owned(),
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut builtin, "")
         .await
@@ -1270,7 +1279,7 @@ async fn insert_board_stamps_templates_of_the_global_team_with_a_tracking_id() {
         title: "hello".to_owned(),
         is_template: true,
         is_builtin: true,
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut of_user, &user_id)
         .await
@@ -1283,7 +1292,7 @@ async fn insert_board_stamps_templates_of_the_global_team_with_a_tracking_id() {
 
     let mut board = Board {
         title: "hello".to_owned(),
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut board, "")
         .await
@@ -1297,7 +1306,7 @@ async fn insert_board_stamps_templates_of_the_global_team_with_a_tracking_id() {
     let mut renamed = Board {
         title: "world".to_owned(),
         is_template: true,
-        ..new_board(&builtin.id, &team_id, BoardType::Open)
+        ..new_board(&builtin.id, &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut renamed, &user_id)
         .await
@@ -1316,37 +1325,40 @@ async fn insert_board_stamps_templates_of_the_global_team_with_a_tracking_id() {
 /// original leaves the caller's board as the caller filled it in; here it comes back as
 /// it is stored.
 #[tokio::test]
-async fn insert_board_update_keeps_team_creator_and_creation_time() {
+async fn insert_board_update_keeps_workspace_creator_and_creation_time() {
     let test = common::setup().await;
     let creator_id = common::user(&test, "creator").await;
     let editor_id = common::user(&test, "editor").await;
-    let team_id = common::team(&test).await;
-    let another_team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
+    let another_workspace_id = common::workspace(&test).await;
     let board_id = new_id();
 
-    let mut board = new_board(&board_id, &team_id, BoardType::Open);
+    let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
     test.insert_board(&mut board, &creator_id)
         .await
         .expect("the board is inserted");
 
-    // Whatever the caller says about the team, the creator and the creation time: none
+    // Whatever the caller says about the workspace, the creator and the creation time: none
     // of it, another of each, and the same again.
     let claims = [
-        (another_team_id.as_str(), "", 0),
-        (another_team_id.as_str(), editor_id.as_str(), 12_345),
-        (team_id.as_str(), creator_id.as_str(), board.create_at),
+        (another_workspace_id.as_str(), "", 0),
+        (another_workspace_id.as_str(), editor_id.as_str(), 12_345),
+        (workspace_id.as_str(), creator_id.as_str(), board.create_at),
     ];
-    for (claimed_team, claimed_creator, claimed_create_at) in claims {
+    for (claimed_workspace, claimed_creator, claimed_create_at) in claims {
         let mut update = Board {
             title: format!("Updated by a caller who claims {claimed_create_at}"),
             created_by: claimed_creator.to_owned(),
             create_at: claimed_create_at,
-            ..new_board(&board_id, claimed_team, BoardType::Private)
+            ..new_board(&board_id, claimed_workspace, BoardType::Private)
         };
         test.insert_board(&mut update, &editor_id)
             .await
             .expect("the board is updated");
-        assert_eq!(update.team_id, team_id, "the stored team comes back");
+        assert_eq!(
+            update.workspace_id, workspace_id,
+            "the stored workspace comes back"
+        );
         assert_eq!(
             update.created_by, creator_id,
             "the stored creator comes back, not {claimed_creator:?}"
@@ -1358,7 +1370,7 @@ async fn insert_board_update_keeps_team_creator_and_creation_time() {
         assert_eq!(update.modified_by, editor_id, "the modifier");
 
         let stored = test.get_board(&board_id).await.expect("the board exists");
-        assert_eq!(stored.team_id, team_id, "the team stays");
+        assert_eq!(stored.workspace_id, workspace_id, "the workspace stays");
         assert_eq!(stored.created_by, creator_id, "the creator stays");
         assert_eq!(stored.create_at, board.create_at, "the creation time stays");
         assert_eq!(
@@ -1381,12 +1393,12 @@ async fn delete_and_undelete_board_take_the_blocks_along() {
     let user_id = common::user(&test, "user").await;
     let deleter_id = common::user(&test, "deleter").await;
     let restorer_id = common::user(&test, "restorer").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let board_id = new_id();
     let card_id = new_id();
     let text_id = new_id();
 
-    let mut board = new_board(&board_id, &team_id, BoardType::Open);
+    let mut board = new_board(&board_id, &workspace_id, BoardType::Open);
     test.insert_board(&mut board, &user_id)
         .await
         .expect("the board is inserted");
@@ -1482,12 +1494,12 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let member_id = common::user(&test, "member").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let board_id = new_id();
 
     let mut board = Board {
         minimum_role: MinimumRole::Editor,
-        ..new_board(&board_id, &team_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut board, &user_id)
         .await
@@ -1530,45 +1542,45 @@ async fn save_member_stores_the_scheme_flags_and_no_roles() {
 
 /// `server/services/store/sqlstore/board.go:713-753`.
 #[tokio::test]
-async fn search_boards_for_user_in_team_finds_open_boards_and_own_private_boards() {
+async fn search_boards_for_user_in_workspace_finds_open_boards_and_own_private_boards() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let team_id_1 = common::team(&test).await;
-    let team_id_2 = common::team(&test).await;
+    let workspace_id_1 = common::workspace(&test).await;
+    let workspace_id_2 = common::workspace(&test).await;
 
     let mut open = Board {
         title: "Open Roadmap".to_owned(),
-        ..new_board(&new_id(), &team_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
     };
     test.insert_board(&mut open, &other_user_id)
         .await
         .expect("the board is inserted");
     let mut own_private = Board {
         title: "Private Roadmap".to_owned(),
-        ..new_board(&new_id(), &team_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
     };
     test.insert_board_with_admin(&mut own_private, &user_id)
         .await
         .expect("the board is inserted");
     let mut foreign_private = Board {
         title: "Secret Roadmap".to_owned(),
-        ..new_board(&new_id(), &team_id_1, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Private)
     };
     test.insert_board_with_admin(&mut foreign_private, &other_user_id)
         .await
         .expect("the board is inserted");
-    let mut other_team = Board {
+    let mut other_workspace = Board {
         title: "Open Roadmap elsewhere".to_owned(),
-        ..new_board(&new_id(), &team_id_2, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_2, BoardType::Open)
     };
-    test.insert_board(&mut other_team, &user_id)
+    test.insert_board(&mut other_workspace, &user_id)
         .await
         .expect("the board is inserted");
     let mut template = Board {
         title: "Roadmap template".to_owned(),
         is_template: true,
-        ..new_board(&new_id(), &team_id_1, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id_1, BoardType::Open)
     };
     test.insert_board(&mut template, &user_id)
         .await
@@ -1576,7 +1588,7 @@ async fn search_boards_for_user_in_team_finds_open_boards_and_own_private_boards
 
     let search = async |term: &str| {
         let boards = test
-            .search_boards_for_user_in_team(&team_id_1, term, &user_id)
+            .search_boards_for_user_in_workspace(&workspace_id_1, term, &user_id)
             .await
             .expect("the search succeeds");
         sorted_board_ids(&boards)
@@ -1618,63 +1630,63 @@ async fn get_template_boards_returns_open_templates_and_templates_the_user_is_me
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let team_id = common::team(&test).await;
-    let another_team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
+    let another_workspace_id = common::workspace(&test).await;
 
     let mut open_template = Board {
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut open_template, &other_user_id)
         .await
         .expect("the template is inserted");
     let mut own_private_template = Board {
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id, BoardType::Private)
     };
     test.insert_board_with_admin(&mut own_private_template, &user_id)
         .await
         .expect("the template is inserted");
     let mut foreign_private_template = Board {
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Private)
+        ..new_board(&new_id(), &workspace_id, BoardType::Private)
     };
     test.insert_board_with_admin(&mut foreign_private_template, &other_user_id)
         .await
         .expect("the template is inserted");
-    let mut other_team_template = Board {
+    let mut other_workspace_template = Board {
         is_template: true,
-        ..new_board(&new_id(), &another_team_id, BoardType::Open)
+        ..new_board(&new_id(), &another_workspace_id, BoardType::Open)
     };
-    test.insert_board(&mut other_team_template, &user_id)
+    test.insert_board(&mut other_workspace_template, &user_id)
         .await
         .expect("the template is inserted");
     let mut builtin_template = Board {
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut builtin_template, "")
         .await
         .expect("the template is inserted");
-    let mut board = new_board(&new_id(), &team_id, BoardType::Open);
+    let mut board = new_board(&new_id(), &workspace_id, BoardType::Open);
     test.insert_board_with_admin(&mut board, &user_id)
         .await
         .expect("the board is inserted");
 
     let templates = test
-        .get_template_boards(&team_id, &user_id)
+        .get_template_boards(&workspace_id, &user_id)
         .await
         .expect("the templates are read");
     assert_eq!(
         sorted_by_id(templates),
         sorted_by_id(vec![open_template.clone(), own_private_template]),
-        "the open template of the team and the user's private one"
+        "the open template of the workspace and the user's private one"
     );
 
     // No user is a member of nothing: the open templates are left. The built-in one,
-    // open and of this team, is not among them either way.
+    // open and of this workspace, is not among them either way.
     let templates = test
-        .get_template_boards(&team_id, "")
+        .get_template_boards(&workspace_id, "")
         .await
         .expect("the templates are read");
     assert_eq!(templates, vec![open_template], "the open template");
@@ -1697,23 +1709,23 @@ async fn get_template_boards_returns_open_templates_and_templates_the_user_is_me
 async fn remove_default_templates_removes_system_templates_and_their_blocks_past_the_trash() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     let mut builtin_template = Board {
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut builtin_template, "")
         .await
         .expect("the template is inserted");
     let mut user_template = Board {
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut user_template, &user_id)
         .await
         .expect("the template is inserted");
-    let mut plain_board = new_board(&new_id(), &team_id, BoardType::Open);
+    let mut plain_board = new_board(&new_id(), &workspace_id, BoardType::Open);
     test.insert_board(&mut plain_board, "")
         .await
         .expect("the board is inserted");
@@ -1805,7 +1817,7 @@ async fn remove_default_templates_removes_system_templates_and_their_blocks_past
 async fn boards_with_malformed_card_property_definitions_are_not_stored() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let board_id = new_id();
     let well_formed = vec![object(
         json!({ "id": "p1", "name": "Status", "options": [] }),
@@ -1813,7 +1825,7 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
 
     let mut malformed = Board {
         card_properties: vec![object(json!({ "name": "no id" }))],
-        ..new_board(&board_id, &team_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, BoardType::Open)
     };
     let error = test
         .insert_board(&mut malformed, &user_id)
@@ -1831,7 +1843,7 @@ async fn boards_with_malformed_card_property_definitions_are_not_stored() {
 
     let mut board = Board {
         card_properties: well_formed.clone(),
-        ..new_board(&board_id, &team_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut board, &user_id)
         .await
@@ -1958,7 +1970,7 @@ async fn subscribed_block_ids(store: &Store, user_id: &str) -> Vec<String> {
 
 /// A board with everything that hangs on one.
 struct FullBoard {
-    team_id: String,
+    workspace_id: String,
     /// Made the board and administers it.
     admin_id: String,
     /// May edit the board, has it in a sidebar category and subscribes to its card.
@@ -1976,7 +1988,7 @@ struct FullBoard {
 
 impl FullBoard {
     async fn store(store: &Store) -> Self {
-        let team_id = common::team(store).await;
+        let workspace_id = common::workspace(store).await;
         let admin_id = common::user(store, "admin").await;
         let editor_id = common::user(store, "editor").await;
 
@@ -1988,7 +2000,7 @@ impl FullBoard {
             minimum_role: MinimumRole::Commenter,
             properties: object(json!({ "color": "blue" })),
             card_properties: vec![object(json!({ "id": "status", "name": "Status" }))],
-            ..new_board(&new_id(), &team_id, BoardType::Private)
+            ..new_board(&new_id(), &workspace_id, BoardType::Private)
         };
         store
             .insert_board_with_admin(&mut board, &admin_id)
@@ -2035,7 +2047,7 @@ impl FullBoard {
             id: new_id(),
             name: "Plans".to_owned(),
             user_id: editor_id.clone(),
-            team_id: team_id.clone(),
+            workspace_id: workspace_id.clone(),
             create_at: board.create_at,
             update_at: board.create_at,
             ..Category::default()
@@ -2052,7 +2064,7 @@ impl FullBoard {
         subscribe(store, &card_id, &editor_id).await;
 
         Self {
-            team_id,
+            workspace_id,
             admin_id,
             editor_id,
             board,
@@ -2066,7 +2078,7 @@ impl FullBoard {
     /// The boards the editor has filed in their one category.
     async fn filed_by_editor(&self, store: &Store) -> Vec<String> {
         let categories = store
-            .get_user_category_boards(&self.editor_id, &self.team_id)
+            .get_user_category_boards(&self.editor_id, &self.workspace_id)
             .await
             .expect("the categories are read");
         assert_eq!(categories.len(), 1, "the category stays: {categories:?}");
@@ -2194,7 +2206,7 @@ async fn delete_board_ends_sharing_category_filing_and_subscriptions() {
         .await
         .expect("the board is shared");
     let categories = test
-        .get_user_category_boards(&full.editor_id, &full.team_id)
+        .get_user_category_boards(&full.editor_id, &full.workspace_id)
         .await
         .expect("the categories are read");
     assert_eq!(
@@ -2420,9 +2432,9 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
     let test = common::setup().await;
     let creator_id = common::user(&test, "creator").await;
     let editor_id = common::user(&test, "editor").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
-    let mut board = new_board(&new_id(), &team_id, BoardType::Open);
+    let mut board = new_board(&new_id(), &workspace_id, BoardType::Open);
     test.insert_board_with_admin(&mut board, &creator_id)
         .await
         .expect("the board and its administrator are stored");
@@ -2500,8 +2512,8 @@ async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody
     let test = common::setup().await;
     let owner_id = common::user(&test, "owner").await;
     let author_id = common::user(&test, "author").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &owner_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &owner_id).await;
 
     let mut card = new_block(&board_id, "", BlockType::Card);
     test.insert_block(&mut card, &author_id)
@@ -2565,8 +2577,8 @@ async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody
 async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_restored() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     let card = new_block(&board_id, "", BlockType::Card);
     let paragraph = new_block(&board_id, &card.id, BlockType::Attachment);
@@ -2634,8 +2646,8 @@ async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
     let other_user_id = common::user(&test, "other-user").await;
-    let team_id = common::team_of(&test, &[&user_id, &other_user_id]).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace_of(&test, &[&user_id, &other_user_id]).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
     let mut card = new_block(&board_id, "", BlockType::Card);
     test.insert_block(&mut card, &user_id)
         .await
@@ -2676,13 +2688,13 @@ async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
         assert!(error.is_not_found(), "board {unknown_id}: got {error:?}");
     }
     let boards = test
-        .get_boards_for_user_and_team(&user_id, &team_id, PublicBoards::Include)
+        .get_boards_for_user_and_workspace(&user_id, &workspace_id, PublicBoards::Include)
         .await
         .expect("the boards are read");
     assert_eq!(
         sorted_board_ids(&boards),
         [board_id.as_str()],
-        "the one board of the team"
+        "the one board of the workspace"
     );
 
     test.teardown().await;
@@ -2692,10 +2704,10 @@ async fn undelete_board_of_what_is_not_in_the_trash_is_not_found_and_writes_noth
 /// the board, the card and the text.
 async fn board_with_card_and_text(
     store: &Store,
-    team_id: &str,
+    workspace_id: &str,
     user_id: &str,
 ) -> (String, String, String) {
-    let board_id = stored_board(store, team_id, user_id).await;
+    let board_id = stored_board(store, workspace_id, user_id).await;
     let card = new_block(&board_id, "", BlockType::Card);
     let text = new_block(&board_id, &card.id, BlockType::Attachment);
     let (card_id, text_id) = (card.id.clone(), text.id.clone());
@@ -2720,11 +2732,11 @@ async fn deleted_at(store: &Store, board_id: &str) -> i64 {
 async fn purge_trash_removes_an_old_deleted_board_with_its_blocks_and_keeps_newer_trash() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let (old_id, old_card_id, old_text_id) =
-        board_with_card_and_text(&test, &team_id, &user_id).await;
+        board_with_card_and_text(&test, &workspace_id, &user_id).await;
     let (newer_id, newer_card_id, newer_text_id) =
-        board_with_card_and_text(&test, &team_id, &user_id).await;
+        board_with_card_and_text(&test, &workspace_id, &user_id).await;
 
     test.delete_board(&old_id, &user_id)
         .await
@@ -2777,8 +2789,9 @@ async fn purge_trash_removes_an_old_deleted_board_with_its_blocks_and_keeps_newe
 async fn purge_trash_removes_a_block_deleted_on_its_own_with_its_purged_board() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let (board_id, card_id, text_id) = board_with_card_and_text(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let (board_id, card_id, text_id) =
+        board_with_card_and_text(&test, &workspace_id, &user_id).await;
 
     test.delete_block(&text_id, &user_id)
         .await
@@ -2819,10 +2832,11 @@ async fn purge_trash_removes_a_block_deleted_on_its_own_with_its_purged_board() 
 async fn purge_trash_keeps_what_was_deleted_at_the_cutoff_or_later() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let (kept_board_id, kept_card_id, lone_text_id) =
-        board_with_card_and_text(&test, &team_id, &user_id).await;
-    let (board_id, card_id, text_id) = board_with_card_and_text(&test, &team_id, &user_id).await;
+        board_with_card_and_text(&test, &workspace_id, &user_id).await;
+    let (board_id, card_id, text_id) =
+        board_with_card_and_text(&test, &workspace_id, &user_id).await;
 
     // A block deleted on its own on a board that stays, and a board deleted whole.
     test.delete_block(&lone_text_id, &user_id)
@@ -2877,11 +2891,11 @@ async fn purge_trash_keeps_what_was_deleted_at_the_cutoff_or_later() {
 async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     let mut template = Board {
         is_template: true,
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     test.insert_board(&mut template, "")
         .await
@@ -2890,7 +2904,7 @@ async fn purge_trash_removes_deleted_blocks_of_a_board_that_is_gone_for_good() {
     test.insert_block(&mut orphan, "")
         .await
         .expect("the card of the template is stored");
-    let (_, _, kept_text_id) = board_with_card_and_text(&test, &team_id, &user_id).await;
+    let (_, _, kept_text_id) = board_with_card_and_text(&test, &workspace_id, &user_id).await;
 
     test.delete_block(&orphan.id, &user_id)
         .await
@@ -2944,10 +2958,10 @@ fn file_of(board_id: &str, stored_name: &str) -> FileInfo {
 async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let (old_id, ..) = board_with_card_and_text(&test, &team_id, &user_id).await;
-    let (newer_id, ..) = board_with_card_and_text(&test, &team_id, &user_id).await;
-    let (kept_id, ..) = board_with_card_and_text(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let (old_id, ..) = board_with_card_and_text(&test, &workspace_id, &user_id).await;
+    let (newer_id, ..) = board_with_card_and_text(&test, &workspace_id, &user_id).await;
+    let (kept_id, ..) = board_with_card_and_text(&test, &workspace_id, &user_id).await;
 
     let mut of_old = vec![file_of(&old_id, "7a.png"), file_of(&old_id, "7b.png")];
     of_old.sort_by(|a, b| a.id.cmp(&b.id));
@@ -3011,8 +3025,8 @@ async fn purge_trash_returns_the_file_records_of_the_boards_it_removed() {
 async fn add_member_stores_a_new_membership_and_returns_none() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     let member = BoardMember {
         scheme_commenter: true,
@@ -3035,8 +3049,8 @@ async fn add_member_stores_a_new_membership_and_returns_none() {
 async fn add_member_returns_the_existing_membership_and_changes_nothing() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
     let stored = editor_of(&board_id, &user_id);
     test.save_member(&stored)
         .await
@@ -3076,8 +3090,8 @@ async fn add_member_returns_the_existing_membership_and_changes_nothing() {
 async fn add_member_to_a_board_or_of_a_user_that_does_not_exist_is_an_error() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     // An identifier nothing has is not found, and the refusal says what is missing.
     for (member, missing) in [
@@ -3139,10 +3153,10 @@ const RACING_ADDERS: u8 = 8;
 async fn concurrent_add_member_calls_end_in_one_membership_and_one_of_them_added_it() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     for round in 0..RACE_ROUNDS {
-        let board_id = stored_board(&test, &team_id, &user_id).await;
+        let board_id = stored_board(&test, &workspace_id, &user_id).await;
         let mut adders = JoinSet::new();
         for number in 1..=RACING_ADDERS {
             // No two requests offer the same flags.
@@ -3202,8 +3216,8 @@ async fn change_member_replaces_the_flags_of_a_membership_and_of_no_one_else() {
     let admin_id = common::user(&test, "admin").await;
     let member_id = common::user(&test, "member").await;
     let stranger_id = common::user(&test, "stranger").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &admin_id).await;
     for member in [
         admin_of(&board_id, &admin_id),
         editor_of(&board_id, &member_id),
@@ -3268,8 +3282,8 @@ async fn change_member_refuses_to_take_the_role_from_the_only_administrator() {
     let test = common::setup().await;
     let admin_id = common::user(&test, "admin").await;
     let editor_id = common::user(&test, "editor").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &admin_id).await;
     // Other members do not count, only other administrators.
     for member in [
         admin_of(&board_id, &admin_id),
@@ -3315,8 +3329,8 @@ async fn remove_member_removes_a_member_and_refuses_the_only_administrator() {
     let test = common::setup().await;
     let admin_id = common::user(&test, "admin").await;
     let editor_id = common::user(&test, "editor").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &admin_id).await;
     for member in [
         admin_of(&board_id, &admin_id),
         editor_of(&board_id, &editor_id),
@@ -3367,8 +3381,8 @@ async fn an_administrator_may_step_down_or_leave_while_another_one_exists() {
     let first_id = common::user(&test, "first").await;
     let second_id = common::user(&test, "second").await;
     let third_id = common::user(&test, "third").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &first_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &first_id).await;
     for user_id in [&first_id, &second_id, &third_id] {
         test.save_member(&admin_of(&board_id, user_id))
             .await
@@ -3414,11 +3428,11 @@ async fn remove_member_ends_the_subscriptions_of_the_user_to_the_blocks_of_the_b
     let test = common::setup().await;
     let admin_id = common::user(&test, "admin").await;
     let member_id = common::user(&test, "member").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let (left_board_id, left_card_id, _) =
-        board_with_card_and_text(&test, &team_id, &admin_id).await;
+        board_with_card_and_text(&test, &workspace_id, &admin_id).await;
     let (other_board_id, other_card_id, _) =
-        board_with_card_and_text(&test, &team_id, &admin_id).await;
+        board_with_card_and_text(&test, &workspace_id, &admin_id).await;
     for board_id in [&left_board_id, &other_board_id] {
         test.save_member(&admin_of(board_id, &admin_id))
             .await
@@ -3480,7 +3494,7 @@ async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
     let first_id = common::user(&test, "first").await;
     let second_id = common::user(&test, "second").await;
     let editor_id = common::user(&test, "editor").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     let pairs = [
         (GiveUp::StepDown, GiveUp::StepDown),
@@ -3490,7 +3504,7 @@ async fn of_two_administrators_who_give_up_the_role_at_once_one_is_refused() {
     for (round, (first_way, second_way)) in
         pairs.into_iter().cycle().take(3 * RACE_ROUNDS).enumerate()
     {
-        let board_id = stored_board(&test, &team_id, &first_id).await;
+        let board_id = stored_board(&test, &workspace_id, &first_id).await;
         for member in [
             admin_of(&board_id, &first_id),
             admin_of(&board_id, &second_id),
@@ -3566,7 +3580,7 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
     let test = common::setup().await;
     let owner_id = common::user(&test, "owner").await;
     let user_id = common::user(&test, "joiner").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     for (minimum_role, expected) in [
         (MinimumRole::Viewer, VIEWER),
@@ -3576,7 +3590,7 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
         let board_id = new_id();
         let mut board = Board {
             minimum_role,
-            ..new_board(&board_id, &team_id, BoardType::Open)
+            ..new_board(&board_id, &workspace_id, BoardType::Open)
         };
         test.insert_board_with_admin(&mut board, &owner_id)
             .await
@@ -3624,7 +3638,7 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
     let board_id = new_id();
     let mut board = Board {
         minimum_role: MinimumRole::Commenter,
-        ..new_board(&board_id, &team_id, BoardType::Open)
+        ..new_board(&board_id, &workspace_id, BoardType::Open)
     };
     test.insert_board_with_admin(&mut board, &owner_id)
         .await
@@ -3682,8 +3696,8 @@ async fn join_board_gives_the_minimum_role_raises_to_it_and_never_lowers() {
 async fn the_schema_refuses_a_minimum_role_that_is_none() {
     let test = common::setup().await;
     let user_id = common::user(&test, "owner").await;
-    let team_id = common::team(&test).await;
-    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let workspace_id = common::workspace(&test).await;
+    let boards = common::create_test_boards(&test, &workspace_id, &user_id, 1).await;
     let board_id = &boards[0].id;
 
     for role in ["", "admin", "owner"] {
@@ -3714,10 +3728,10 @@ async fn joining_at_once_makes_one_membership() {
     let test = common::setup().await;
     let owner_id = common::user(&test, "owner").await;
     let user_id = common::user(&test, "joiner").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     for round in 0..RACE_ROUNDS {
-        let board_id = stored_board(&test, &team_id, &owner_id).await;
+        let board_id = stored_board(&test, &workspace_id, &owner_id).await;
         let mut racers = JoinSet::new();
         for _ in 0..6 {
             let store = test.store.clone();
@@ -3782,8 +3796,8 @@ fn card_property_ids(board: &Board) -> Vec<&str> {
 async fn two_patches_of_a_board_at_once_both_take_effect() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &user_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &user_id).await;
 
     let mut expected = BTreeSet::new();
     for round in 0..2 * RACE_ROUNDS {
@@ -3842,8 +3856,8 @@ async fn add_member_racing_remove_member_answers_what_is_true() {
     let test = common::setup().await;
     let admin_id = common::user(&test, "admin").await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
-    let board_id = stored_board(&test, &team_id, &admin_id).await;
+    let workspace_id = common::workspace(&test).await;
+    let board_id = stored_board(&test, &workspace_id, &admin_id).await;
     test.save_member(&admin_of(&board_id, &admin_id))
         .await
         .expect("the administrator is stored");
@@ -3928,10 +3942,10 @@ async fn a_member_added_while_the_board_is_deleted_goes_with_the_board_or_is_not
     let test = common::setup().await;
     let admin_id = common::user(&test, "admin").await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     for round in 0..2 * RACE_ROUNDS {
-        let board_id = stored_board(&test, &team_id, &admin_id).await;
+        let board_id = stored_board(&test, &workspace_id, &admin_id).await;
         test.save_member(&admin_of(&board_id, &admin_id))
             .await
             .expect("the administrator is stored");
@@ -4011,10 +4025,10 @@ async fn a_member_added_while_the_board_is_deleted_goes_with_the_board_or_is_not
 async fn a_file_saved_while_the_board_is_deleted_goes_with_the_board_or_is_not_found() {
     let test = common::setup().await;
     let user_id = common::user(&test, "user").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     for round in 0..2 * RACE_ROUNDS {
-        let board_id = stored_board(&test, &team_id, &user_id).await;
+        let board_id = stored_board(&test, &workspace_id, &user_id).await;
         let late = file_of(&board_id, "7late.png");
 
         let start = Arc::new(Barrier::new(2));
@@ -4110,11 +4124,11 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
     let test = common::setup().await;
     let author_id = common::user(&test, "author").await;
     let restorer_id = common::user(&test, "restorer").await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
 
     let mut board = Board {
         id: new_id(),
-        team_id: team_id.clone(),
+        workspace_id: workspace_id.clone(),
         // Stamped by the store when the board is inserted.
         created_by: String::new(),
         modified_by: String::new(),
@@ -4276,11 +4290,11 @@ async fn a_board_comes_back_from_the_trash_with_every_member_it_had() {
 #[tokio::test]
 async fn replacing_the_built_in_templates_hands_back_the_old_files() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let template = |title: &str| Board {
         is_template: true,
         title: title.to_owned(),
-        ..new_board(&new_id(), &team_id, BoardType::Open)
+        ..new_board(&new_id(), &workspace_id, BoardType::Open)
     };
     let mut old = template("old");
     test.insert_board(&mut old, "")
@@ -4348,11 +4362,11 @@ async fn replacing_the_built_in_templates_hands_back_the_old_files() {
 #[tokio::test]
 async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
     let test = common::setup().await;
-    let team_id = common::team(&test).await;
+    let workspace_id = common::workspace(&test).await;
     let templates = || fvoci_model::BoardsAndBlocks {
         boards: vec![Board {
             is_template: true,
-            ..new_board(&new_id(), &team_id, BoardType::Open)
+            ..new_board(&new_id(), &workspace_id, BoardType::Open)
         }],
         blocks: Vec::new(),
     };
@@ -4375,232 +4389,5 @@ async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
         1,
         "and they are there once"
     );
-    test.teardown().await;
-}
-
-/// Stores a category of the user in the team and returns its identifier; a system one is
-/// the default category, by its name.
-async fn stored_category(
-    test: &Store,
-    user_id: &str,
-    team_id: &str,
-    category_type: fvoci_model::CategoryType,
-) -> String {
-    let name = match category_type {
-        fvoci_model::CategoryType::System => fvoci_model::DEFAULT_CATEGORY_NAME,
-        fvoci_model::CategoryType::Custom => "a category",
-    };
-    let category = Category {
-        id: new_id(),
-        name: name.to_owned(),
-        user_id: user_id.to_owned(),
-        team_id: team_id.to_owned(),
-        category_type,
-        ..Category::default()
-    };
-    test.create_category(&category)
-        .await
-        .expect("the category is stored");
-    category.id
-}
-
-/// Files the boards under the category, in this order.
-async fn filed_in_order(test: &Store, user_id: &str, category_id: &str, board_ids: &[String]) {
-    test.add_update_category_board(user_id, category_id, board_ids)
-        .await
-        .expect("the boards are filed");
-    test.reorder_category_boards(category_id, board_ids.to_vec())
-        .await
-        .expect("the boards are ordered");
-}
-
-/// The boards of the user's category, in their order.
-async fn category_order(
-    test: &Store,
-    user_id: &str,
-    team_id: &str,
-    category_id: &str,
-) -> Vec<String> {
-    test.get_user_category_boards(user_id, team_id)
-        .await
-        .expect("the categories")
-        .into_iter()
-        .find(|entry| entry.category.id == category_id)
-        .map(|entry| {
-            entry
-                .board_metadata
-                .into_iter()
-                .map(|board| board.board_id)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Stores a board of the team made by the user and returns its identifier.
-async fn stored_board_of(
-    test: &Store,
-    team_id: &str,
-    user_id: &str,
-    board_type: BoardType,
-) -> String {
-    let board_id = new_id();
-    let mut board = new_board(&board_id, team_id, board_type);
-    test.insert_board(&mut board, user_id)
-        .await
-        .expect("the board is inserted");
-    board_id
-}
-
-/// Not in the original (user decision 2026-11-11 14:25 KST). A deleted board keeps where
-/// each user had filed it, and comes back there: the same category, between the boards
-/// it was between, hidden as it was; under the user's default category, hidden as it
-/// was, if that category went meanwhile; nowhere for a user who has no default category
-/// yet. The places go with the board when the trash is emptied of it.
-#[tokio::test]
-async fn a_restored_board_is_filed_where_it_was() {
-    let test = common::setup().await;
-    let team_id = common::team(&test).await;
-    let [kept, moved, unfiled] = [
-        common::user(&test, "kept").await,
-        common::user(&test, "moved").await,
-        common::user(&test, "unfiled").await,
-    ];
-    // Made last, so that a tie of sort orders would put it after its neighbours.
-    let before = stored_board_of(&test, &team_id, &kept, BoardType::Open).await;
-    let after = stored_board_of(&test, &team_id, &kept, BoardType::Open).await;
-    let board_id = stored_board_of(&test, &team_id, &kept, BoardType::Open).await;
-    let custom = fvoci_model::CategoryType::Custom;
-    let kept_category = stored_category(&test, &kept, &team_id, custom).await;
-    let moved_category = stored_category(&test, &moved, &team_id, custom).await;
-    let moved_default =
-        stored_category(&test, &moved, &team_id, fvoci_model::CategoryType::System).await;
-    let unfiled_category = stored_category(&test, &unfiled, &team_id, custom).await;
-    let three = [before.clone(), board_id.clone(), after.clone()];
-    filed_in_order(&test, &kept, &kept_category, &three).await;
-    filed_in_order(
-        &test,
-        &moved,
-        &moved_category,
-        std::slice::from_ref(&board_id),
-    )
-    .await;
-    filed_in_order(
-        &test,
-        &unfiled,
-        &unfiled_category,
-        std::slice::from_ref(&board_id),
-    )
-    .await;
-    for (user_id, category_id) in [(&kept, &kept_category), (&moved, &moved_category)] {
-        test.set_board_visibility(
-            user_id,
-            category_id,
-            &board_id,
-            fvoci_store::BoardVisibility::Hidden,
-        )
-        .await
-        .expect("the board is hidden");
-    }
-
-    test.delete_board(&board_id, &kept)
-        .await
-        .expect("the board is deleted");
-    let gone = test.get_board_places(&board_id).await.expect("the places");
-    assert_eq!(gone, [], "not in any sidebar while in the trash");
-    // Meanwhile the user orders what is left, and two categories go.
-    filed_in_order(
-        &test,
-        &kept,
-        &kept_category,
-        &[before.clone(), after.clone()],
-    )
-    .await;
-    for (user_id, category_id) in [(&moved, &moved_category), (&unfiled, &unfiled_category)] {
-        test.delete_category(category_id, user_id, &team_id)
-            .await
-            .expect("the category is deleted");
-    }
-    test.undelete_board(&board_id, &kept)
-        .await
-        .expect("the board is restored");
-
-    assert_eq!(
-        category_order(&test, &kept, &team_id, &kept_category).await,
-        three,
-        "between the boards it was between"
-    );
-    let places = test.get_board_places(&board_id).await.expect("the places");
-    let place_of = |user_id: &str| places.iter().find(|place| place.user_id == user_id);
-    assert!(
-        place_of(&kept).is_some_and(|place| place.hidden),
-        "{places:?}"
-    );
-    assert_eq!(
-        place_of(&moved).map(|place| (place.category_id.as_str(), place.sort_order, place.hidden)),
-        Some((moved_default.as_str(), 0, true)),
-        "under the default category, hidden as it was"
-    );
-    assert!(
-        place_of(&unfiled).is_none(),
-        "nowhere without a default category"
-    );
-
-    test.delete_board(&board_id, &kept)
-        .await
-        .expect("deleted again");
-    test.purge_trash(i64::MAX).await.expect("purged");
-    assert!(
-        test.get_deleted_board(&board_id).await.is_err(),
-        "the board and the places kept with it are gone"
-    );
-
-    test.teardown().await;
-}
-
-/// A private board comes back in the sidebar only of those who are its members again: a
-/// user who had filed it and was no member when it went keeps no place to it.
-#[tokio::test]
-async fn a_restored_private_board_is_filed_for_its_members_only() {
-    let test = common::setup().await;
-    let team_id = common::team(&test).await;
-    let admin = common::user(&test, "admin").await;
-    let former = common::user(&test, "former").await;
-    let board_id = stored_board_of(&test, &team_id, &admin, BoardType::Private).await;
-    test.save_member(&BoardMember {
-        board_id: board_id.clone(),
-        user_id: admin.clone(),
-        scheme_admin: true,
-        ..BoardMember::default()
-    })
-    .await
-    .expect("the admin is a member");
-    for user_id in [&admin, &former] {
-        let category_id =
-            stored_category(&test, user_id, &team_id, fvoci_model::CategoryType::Custom).await;
-        filed_in_order(
-            &test,
-            user_id,
-            &category_id,
-            std::slice::from_ref(&board_id),
-        )
-        .await;
-    }
-
-    test.delete_board(&board_id, &admin)
-        .await
-        .expect("the board is deleted");
-    test.undelete_board(&board_id, &admin)
-        .await
-        .expect("the board is restored");
-
-    let filed: Vec<String> = test
-        .get_board_places(&board_id)
-        .await
-        .expect("the places")
-        .into_iter()
-        .map(|place| place.user_id)
-        .collect();
-    assert_eq!(filed, [admin], "only the member");
-
     test.teardown().await;
 }

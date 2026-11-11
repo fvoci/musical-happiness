@@ -71,12 +71,14 @@ describe('an export', () => {
         ),
       );
     });
-    const refused = await new ServerBackend('').exportTeam('t1').catch((error: unknown) => error);
+    const refused = await new ServerBackend('')
+      .exportWorkspace('t1')
+      .catch((error: unknown) => error);
     expect(isBackendError(refused) && [refused.status, refused.reason]).toEqual([
       403,
       'sharing_disabled',
     ]);
-    expect(urls).toEqual(['/api/v1/teams/t1/archive/export']);
+    expect(urls).toEqual(['/api/v1/w/t1/archive/export']);
   });
 
   it('reads the name of a Content-Disposition, plain, quoted or encoded', () => {
@@ -127,10 +129,10 @@ describe('an import', () => {
     );
     expect(calls.map((call) => `${call.method} ${call.url}`)).toEqual([
       'GET /api/v1/client-config',
-      'POST /api/v1/teams/t1/archive/uploads',
+      'POST /api/v1/w/t1/archive/uploads',
       'PUT /api/v1/uploads/up9/parts/1',
       'PUT /api/v1/uploads/up9/parts/2',
-      'POST /api/v1/teams/t1/archive/import',
+      'POST /api/v1/w/t1/archive/import',
     ]);
     expect(calls[1]?.json).toEqual({
       name: 'boards.boardarchive',

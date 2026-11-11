@@ -34,10 +34,10 @@ async fn create_test_users(store: &Store, num: usize) -> Vec<User> {
 
 /// `createTestBlocks` of the original suite's `util.go`: each block is on a board of
 /// its own. The original only makes up the boards' identifiers; here the boards exist,
-/// in a team of this batch.
+/// in a workspace of this batch.
 async fn create_test_blocks(store: &Store, user_id: &str, num: usize) -> Vec<Block> {
-    let team_id = common::team(store).await;
-    let boards = common::create_test_boards(store, &team_id, user_id, num).await;
+    let workspace_id = common::workspace(store).await;
+    let boards = common::create_test_boards(store, &workspace_id, user_id, num).await;
     let mut blocks: Vec<Block> = boards
         .into_iter()
         .map(|board| card_on(&board.id, user_id))

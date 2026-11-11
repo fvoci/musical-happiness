@@ -1,0 +1,107 @@
+# Where the name the original gives the workspace stays, and why (xtask/src/names.rs).
+# `cargo xtask check` fails on the name anywhere else, in any case, and on an entry here
+# that nothing needs any more. Every entry stands under its reason.
+#
+# <path>             the whole file, its name too
+# <path> | <text>    the lines of the file, where the name is within the text (any case)
+#
+# `*` stands for any part of a name, `**` for any number of folders.
+
+# A person one works with: the setting of how people's names are shown, which keeps
+# the original's name (teammatenamedisplay, teammateNameDisplay).
+** | teammate
+
+# The migrations a database has already run are not changed; 17 renames what they made,
+# and the list of migrations names the files.
+crates/store/schema/*/0001_baseline.sql
+crates/store/schema/*/0007_upload_purpose.sql
+crates/store/schema/*/0011_deleted_boards_by_team.sql
+crates/store/schema/*/0014_organizations.sql
+crates/store/schema/*/0015_organization_keys.sql
+crates/store/schema/*/0017_workspaces.sql
+crates/store/src/schema.rs | 0011_deleted_boards_by_team
+crates/store/src/schema.rs | "deleted boards by team"
+crates/store/src/schema.rs | `teams` (the table of the workspaces before migration 17
+
+# The test of migration 17, and tests that fill a database as it was before it.
+crates/store/tests/store/workspace_rename.rs
+crates/store/tests/store/tenancy.rs | INSERT INTO teams
+crates/store/tests/store/tenancy.rs | (id, team_id,
+crates/store/tests/store/tenancy.rs | user_id, team_id,
+crates/store/tests/organization_boundary_round2.rs | (id, team_id,
+
+# An archive written before the rename names a board's workspace teamId; the import
+# reads it as workspaceId.
+crates/server/src/app/import.rs | `teamId`
+crates/server/src/app/import.rs | "teamId"
+crates/server/tests/api/imports.rs | `teamId`
+crates/server/tests/api/imports.rs | "teamId"
+crates/server/tests/api/imports.rs | _teamid_is_imported
+
+# The original's routes, which are not routes here: tests pin that they are not found.
+crates/server/tests/api/admin.rs | /teams/
+crates/server/tests/api/paths.rs | /teams/
+crates/server/tests/api/search.rs | /teams/
+crates/server/tests/api/sidebar.rs | `POST /teams/{team}/
+crates/server/tests/regression/content.rs | /teams/
+crates/server/tests/regression/sidebar.rs | /teams/
+crates/server/tests/regression/harness.rs | /files/teams/
+crates/server/tests/regression/golden/files.json | /teams/
+crates/server/tests/regression/golden/search.json | /teams/
+
+# The original's tests, subtests, files and functions that a port names to say what it
+# ports, and the original's spelling of a member, which tests send as one the port
+# does not know.
+crates/server/tests/api/sidebar.rs | "teamID"
+crates/model/tests/wire_format.rs | "teamID"
+crates/server/src/permissions.rs | `TestHasPermissionToTeam`
+crates/server/src/permissions.rs | "all users have all permissions on teams"
+crates/server/src/permissions.rs | "no users have PermissionManageTeam on teams"
+crates/server/src/permissions.rs | "Manage Team Permission "
+crates/server/src/ws/tests.rs | `TestTeamSubscription
+crates/server/src/ws/tests.rs | "Should correctly subscribe to a team"
+crates/server/src/ws/tests.rs | "Should correctly unsubscribe to a team"
+crates/server/src/ws/tests.rs | "Subscribe users to team retrieve by user"
+crates/server/tests/api/boards.rs | "no team ID"
+crates/server/tests/api/boards.rs | "-team check false"
+crates/server/tests/api/boards_and_blocks.rs | "boards from different teams"
+crates/server/tests/api/boards_and_blocks.rs | "boards belonging to different teams should be rejected"
+crates/server/tests/api/files.rs | `TestTeamUploadFile
+crates/server/tests/api/search.rs | `SearchBoardsForTeam`
+crates/server/tests/api/sidebar.rs | "trying to update some other team's category"
+crates/server/tests/api/users.rs | `TestTeamUploadFile`
+crates/server/tests/api/users.rs | `TestGetRootTeam` in `server/app/teams_test.go`
+crates/store/src/users.rs | "the users of a team"
+crates/store/tests/store/boards.rs | "should return only the boards of the team that the user is a member of"
+crates/store/tests/store/boards.rs | for team 1"
+crates/store/tests/store/boards.rs | for team 2"
+crates/store/tests/store/boards.rs | `testGetBoardsInTeamByIds`
+crates/store/tests/store/category_boards.rs | in team "team_id"
+crates/store/tests/store/users.rs | `testGetUsersByTeam`
+crates/store/tests/store/users.rs | "GetTeamUsers"
+crates/store/tests/store/workspaces.rs | storetests/teams.go
+crates/store/tests/store/workspaces.rs | `testGetTeam`
+crates/store/tests/store/workspaces.rs | `testUpsertTeamSignupToken`
+crates/store/tests/store/workspaces.rs | `testUpsertTeamSettings`
+crates/store/tests/store/workspaces.rs | `testGetAllTeams`
+crates/store/tests/store/workspaces.rs | "Nonexistent team"
+crates/store/tests/store/workspaces.rs | "Valid team"
+crates/store/tests/store/workspaces.rs | "Insert and update team with signup token"
+crates/store/tests/store/workspaces.rs | "No teams response"
+crates/store/tests/store/workspaces.rs | "Insert multiple team and get all teams"
+
+# The built-in templates: their texts speak of teams of people, and one is named after
+# its title, "Team Retrospective".
+crates/server/assets/templates/**
+crates/server/src/app/templates.rs | 11-team-retrospective
+crates/server/tests/api/templates.rs | Team Retrospective
+crates/server/tests/regression/golden/templates.json | "Team Retrospective"
+crates/server/tests/regression/golden/templates.json | across teams
+
+# The documents that set the port beside the original name the original's files,
+# functions, routes and wire names (crates/server/PORTING.md: the original's team is
+# the workspace); the design record of the sixth step says what was decided about the
+# original's teams, with the routes as they were then.
+PORTING.md
+crates/*/PORTING.md
+docs/s6-design.md

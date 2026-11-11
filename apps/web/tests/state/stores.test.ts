@@ -43,7 +43,7 @@ describe('the workspace', () => {
       id,
       name: id,
       userId: 'u',
-      teamId: 't',
+      workspaceId: 't',
       type: system ? ('system' as const) : ('custom' as const),
       collapsed: false,
       sortOrder,
@@ -145,7 +145,7 @@ describe('the workspace', () => {
     expect(watchSelf).toHaveBeenCalledTimes(2);
   });
 
-  it('reads the names of people the list of the team did not bring, once', async () => {
+  it('reads the names of people the list of the workspace did not bring, once', async () => {
     const { workspace } = setup();
     await workspace.load();
     const everyone = workspace.users.map((user) => user.id);
@@ -157,8 +157,8 @@ describe('the workspace', () => {
   it('files a board under another category and keeps the order the reader gave', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
-    const [team, research] = workspace.sidebar;
-    const moved = team?.boards[0];
+    const [first, research] = workspace.sidebar;
+    const moved = first?.boards[0];
     if (!moved || !research) throw new Error('unexpected seed');
     await workspace.moveBoard(moved.id, research.category.id, 1);
     expect(workspace.sidebar[1]?.boards.map((board) => board.title)[1]).toBe('Project Tasks');
@@ -168,16 +168,16 @@ describe('the workspace', () => {
   it('hides a board from the sidebar, and undo shows it again in its place', async () => {
     const { workspace, backend } = setup(await loadTemplates());
     await workspace.load();
-    const [team] = workspace.sidebar;
-    const hidden = team?.boards[1];
-    if (!team || !hidden) throw new Error('unexpected seed');
-    const before = team.boards.map((board) => board.id);
+    const [first] = workspace.sidebar;
+    const hidden = first?.boards[1];
+    if (!first || !hidden) throw new Error('unexpected seed');
+    const before = first.boards.map((board) => board.id);
     await workspace.hideBoard(hidden.id);
     expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(
       before.filter((id) => id !== hidden.id),
     );
-    const stored = await backend.categories(workspace.team?.id ?? '');
-    expect(stored.find((one) => one.id === team.category.id)?.hiddenBoardIds).toEqual([hidden.id]);
+    const stored = await backend.categories(workspace.info?.id ?? '');
+    expect(stored.find((one) => one.id === first.category.id)?.hiddenBoardIds).toEqual([hidden.id]);
     await workspace.undoLast();
     expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(before);
   });
@@ -198,11 +198,11 @@ describe('the workspace', () => {
   it('keeps a board hidden when its category is deleted', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
-    const [team] = workspace.sidebar;
-    const hidden = team?.boards[0];
-    if (!team || !hidden) throw new Error('unexpected seed');
+    const [first] = workspace.sidebar;
+    const hidden = first?.boards[0];
+    if (!first || !hidden) throw new Error('unexpected seed');
     await workspace.hideBoard(hidden.id);
-    await workspace.deleteCategory(team.category.id);
+    await workspace.deleteCategory(first.category.id);
     const shown = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id));
     expect(shown).not.toContain(hidden.id);
     expect(workspace.hiddenBoards.map((board) => board.id)).toEqual([hidden.id]);
@@ -273,10 +273,10 @@ describe('making and deleting boards', () => {
   it('brings a deleted board back to its place in its category, and the open board with it', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
-    const [team] = workspace.sidebar;
-    const gone = team?.boards[1];
-    if (!team || !gone) throw new Error('unexpected seed');
-    const place = team.boards.map((board) => board.id);
+    const [first] = workspace.sidebar;
+    const gone = first?.boards[1];
+    if (!first || !gone) throw new Error('unexpected seed');
+    const place = first.boards.map((board) => board.id);
     const open = await workspace.openBoard(gone.id);
     await workspace.deleteBoard(gone.id);
     await settle();
@@ -702,7 +702,7 @@ describe('an open board the reader is no member of', () => {
       first.id,
       (made.world.members.get(first.id) ?? []).filter((member) => member.userId !== readerId),
     );
-    // As the server answers a team member who is no member of an open board.
+    // As the server answers a workspace member who is no member of an open board.
     made.backend.failNext('views', new BackendError(403));
 
     const board = await made.workspace.openBoard(first.id);
@@ -781,7 +781,7 @@ describe('an open board the reader is no member of', () => {
 describe('sharing a board', () => {
   it('adds a member, changes their role and takes them off, as the backend keeps it', async () => {
     const { board, workspace, backend } = await openFirstBoard();
-    const outsider = [...(await backend.users(workspace.team?.id ?? ''))].find(
+    const outsider = [...(await backend.users(workspace.info?.id ?? ''))].find(
       (user) => !board.members.some((member) => member.userId === user.id),
     );
     if (!outsider) throw new Error('unexpected seed');
@@ -812,7 +812,7 @@ describe('sharing a board', () => {
     });
   });
 
-  it('opens the board to the team with a minimum role', async () => {
+  it('opens the board to the workspace with a minimum role', async () => {
     const { board, backend } = await openFirstBoard();
     await board.setOpen(true);
     await board.setMinimumRole('commenter');
@@ -822,15 +822,15 @@ describe('sharing a board', () => {
     });
   });
 
-  it('finds people of the team by name and learns them', async () => {
+  it('finds people of the workspace by name and learns them', async () => {
     const { workspace } = setup(await loadTemplates());
     await workspace.load();
     const someone = workspace.users.find((user) => user.id !== workspace.me?.id);
     if (!someone) throw new Error('unexpected seed');
     const found = await workspace.searchUsers(someone.username.slice(1, 4).toUpperCase());
     expect(found.map((user) => user.id)).toContain(someone.id);
-    // The team's list without a search stays what it was.
-    expect(workspace.teamUsers).toEqual(workspace.users);
+    // The workspace's list without a search stays what it was.
+    expect(workspace.workspaceUsers).toEqual(workspace.users);
   });
 });
 
@@ -898,8 +898,8 @@ describe('archives', () => {
     const board = workspace.sidebar[0]?.boards[0];
     if (!board) throw new Error('unexpected seed');
     backend.latency = 20;
-    const first = workspace.exportTeam();
-    const again = workspace.exportTeam();
+    const first = workspace.exportWorkspace();
+    const again = workspace.exportWorkspace();
     expect(workspace.transfers).toHaveLength(1);
     expect(await again).toBeUndefined();
     workspace.dismissTransfer(workspace.transfers[0]?.id ?? 0);
@@ -951,7 +951,7 @@ describe('the sidebar across the steps', () => {
     await settle();
     const shown = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id));
     expect(shown).not.toContain(gone.id);
-    const stored = await backend.categories(workspace.team?.id ?? '');
+    const stored = await backend.categories(workspace.info?.id ?? '');
     const home = stored.find((category) => category.id === categoryId);
     expect(home?.boardIds).toContain(gone.id);
     expect(home?.hiddenBoardIds).toContain(gone.id);
@@ -960,8 +960,8 @@ describe('the sidebar across the steps', () => {
   it('does not show a reading of the sidebar over a write under way, and reads again after it', async () => {
     const { workspace, backend } = setup(await loadTemplates());
     await workspace.load();
-    const [team, research] = workspace.sidebar;
-    const moved = team?.boards[0];
+    const [first, research] = workspace.sidebar;
+    const moved = first?.boards[0];
     if (!moved || !research) throw new Error('unexpected seed');
     backend.latency = 30;
     const moving = workspace.moveBoard(moved.id, research.category.id, 0);
@@ -980,7 +980,7 @@ describe('the sidebar across the steps', () => {
     const { workspace, backend } = setup(await loadTemplates());
     await workspace.load();
     const made = await workspace.createBoard({ title: 'Fresh' });
-    const stored = await backend.categories(workspace.team?.id ?? '');
+    const stored = await backend.categories(workspace.info?.id ?? '');
     expect(stored.find((category) => category.type === 'system')?.boardIds).toContain(made?.id);
   });
 });

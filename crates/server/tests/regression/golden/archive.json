@@ -25,11 +25,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Exported board",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -143,11 +143,11 @@
             "modifiedBy": "<id:1>",
             "properties": {},
             "showDescription": false,
-            "teamId": "<id:3>",
             "templateVersion": 0,
             "title": "Exported board",
             "type": "P",
-            "updateAt": "<ts>"
+            "updateAt": "<ts>",
+            "workspaceId": "<id:3>"
           },
           "type": "board"
         },
@@ -295,7 +295,7 @@
     }
   },
   {
-    "name": "team export status and type",
+    "name": "workspace export status and type",
     "request": "(observation)",
     "status": 0,
     "body": [
@@ -304,20 +304,20 @@
     ]
   },
   {
-    "name": "team export entries",
+    "name": "workspace export entries",
     "request": "(observation)",
     "status": 0,
     "body": 3
   },
   {
     "name": "import",
-    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "import: anonymous",
-    "request": "POST /api/v1/teams/<id:3>/archive/uploads as anonymous",
+    "request": "POST /api/v1/w/<id:3>/archive/uploads as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -331,7 +331,7 @@
   },
   {
     "name": "import: not an archive",
-    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -345,7 +345,7 @@
   },
   {
     "name": "import: no such upload",
-    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -359,7 +359,7 @@
   },
   {
     "name": "boards after import",
-    "request": "GET /api/v1/teams/<id:3>/boards as arch-bob",
+    "request": "GET /api/v1/w/<id:3>/boards as arch-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -384,11 +384,11 @@
         "modifiedBy": "<id:8>",
         "properties": {},
         "showDescription": false,
-        "teamId": "<id:3>",
         "templateVersion": 0,
         "title": "Exported board",
         "type": "P",
-        "updateAt": "<ts>"
+        "updateAt": "<ts>",
+        "workspaceId": "<id:3>"
       }
     ]
   },
@@ -499,7 +499,7 @@
   },
   {
     "name": "import: legacy format",
-    "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
+    "request": "POST /api/v1/w/<id:3>/archive/import as arch-bob",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {

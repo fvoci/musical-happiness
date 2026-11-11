@@ -15,9 +15,6 @@ crates/server/src/api/archive.rs     fvoci_store::PublicBoards                  
 crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Exclude                   1
 crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Include                   1
 crates/server/src/api/auth.rs        .store().is_bootstrapped                             1
-crates/server/src/api/boards.rs      fvoci_store::PublicBoards                            1
-crates/server/src/api/boards.rs      fvoci_store::PublicBoards::Exclude                   1
-crates/server/src/api/boards.rs      fvoci_store::PublicBoards::Include                   1
 crates/server/src/api/categories.rs  fvoci_store::BoardVisibility                         2
 crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Hidden                 1
 crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Visible                1

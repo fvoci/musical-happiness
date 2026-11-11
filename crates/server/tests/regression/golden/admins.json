@@ -45,8 +45,8 @@
     }
   },
   {
-    "name": "team: administrator",
-    "request": "GET /api/v1/teams/<id:3> as root",
+    "name": "workspace: administrator",
+    "request": "GET /api/v1/w/<id:3> as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -59,8 +59,8 @@
     }
   },
   {
-    "name": "team: anybody else",
-    "request": "GET /api/v1/teams/<id:3> as admins-alice",
+    "name": "workspace: anybody else",
+    "request": "GET /api/v1/w/<id:3> as admins-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -72,54 +72,48 @@
     }
   },
   {
-    "name": "teams: administrator",
-    "request": "GET /api/v1/teams as root",
+    "name": "workspaces: administrator",
+    "request": "GET /api/v1/users/me/workspaces as root",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "id": "<id:3>",
-        "modifiedBy": "",
-        "settings": {},
-        "signupToken": "<secret>",
-        "title": "",
-        "updateAt": "<ts>"
+        "name": "",
+        "orgId": "<id:4>",
+        "role": "admin"
       },
       {
-        "id": "<id:4>",
-        "modifiedBy": "",
-        "settings": {},
-        "signupToken": "<secret>",
-        "title": "",
-        "updateAt": "<ts>"
+        "id": "<id:5>",
+        "name": "",
+        "orgId": "<id:4>",
+        "role": "member"
       }
     ]
   },
   {
-    "name": "teams: anybody else",
-    "request": "GET /api/v1/teams as admins-alice",
+    "name": "workspaces: anybody else",
+    "request": "GET /api/v1/users/me/workspaces as admins-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "id": "<id:3>",
-        "modifiedBy": "",
-        "settings": {},
-        "title": "",
-        "updateAt": "<ts>"
+        "name": "",
+        "orgId": "<id:4>",
+        "role": "member"
       },
       {
-        "id": "<id:4>",
-        "modifiedBy": "",
-        "settings": {},
-        "title": "",
-        "updateAt": "<ts>"
+        "id": "<id:5>",
+        "name": "",
+        "orgId": "<id:4>",
+        "role": "member"
       }
     ]
   },
   {
     "name": "renew the token: not an administrator",
-    "request": "POST /api/v1/teams/<id:3>/signup-token as admins-alice",
+    "request": "POST /api/v1/w/<id:3>/signup-token as admins-alice",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -134,7 +128,7 @@
   },
   {
     "name": "renew the token: no session",
-    "request": "POST /api/v1/teams/<id:3>/signup-token as anonymous",
+    "request": "POST /api/v1/w/<id:3>/signup-token as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -147,12 +141,12 @@
     }
   },
   {
-    "name": "renew the token: unknown team",
-    "request": "POST /api/v1/teams/<id:5>/signup-token as root",
+    "name": "renew the token: unknown workspace",
+    "request": "POST /api/v1/w/<id:6>/signup-token as root",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "team not found",
+      "detail": "workspace not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 404,
@@ -162,7 +156,7 @@
   },
   {
     "name": "old path: renew the token",
-    "request": "POST /api/v1/teams/<id:3>/regenerate_signup_token as root",
+    "request": "POST /api/v1/w/<id:3>/regenerate_signup_token as root",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -176,7 +170,7 @@
   },
   {
     "name": "renew the token",
-    "request": "POST /api/v1/teams/<id:3>/signup-token as root",
+    "request": "POST /api/v1/w/<id:3>/signup-token as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -234,7 +228,7 @@
   },
   {
     "name": "make: not an administrator",
-    "request": "PUT /api/v1/users/<id:6>/admin as admins-alice",
+    "request": "PUT /api/v1/users/<id:7>/admin as admins-alice",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -264,7 +258,7 @@
   },
   {
     "name": "make: no session",
-    "request": "PUT /api/v1/users/<id:6>/admin as anonymous",
+    "request": "PUT /api/v1/users/<id:7>/admin as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -278,7 +272,7 @@
   },
   {
     "name": "make: no body member",
-    "request": "PUT /api/v1/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:7>/admin as root",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -299,7 +293,7 @@
   },
   {
     "name": "make: not a boolean",
-    "request": "PUT /api/v1/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:7>/admin as root",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -313,7 +307,7 @@
   },
   {
     "name": "make: unknown user",
-    "request": "PUT /api/v1/users/<id:5>/admin as root",
+    "request": "PUT /api/v1/users/<id:6>/admin as root",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -356,14 +350,14 @@
   },
   {
     "name": "make",
-    "request": "PUT /api/v1/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:7>/admin as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
       "displayName": "",
-      "id": "<id:6>",
+      "id": "<id:7>",
       "isAdmin": true,
       "updateAt": "<ts>",
       "username": "admins-bob"
@@ -371,22 +365,22 @@
   },
   {
     "name": "make: again",
-    "request": "PUT /api/v1/users/<id:6>/admin as root",
+    "request": "PUT /api/v1/users/<id:7>/admin as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
       "displayName": "",
-      "id": "<id:6>",
+      "id": "<id:7>",
       "isAdmin": true,
       "updateAt": "<ts>",
       "username": "admins-bob"
     }
   },
   {
-    "name": "team: the new administrator",
-    "request": "GET /api/v1/teams/<id:3> as admins-bob",
+    "name": "workspace: the new administrator",
+    "request": "GET /api/v1/w/<id:3> as admins-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -429,8 +423,8 @@
     }
   },
   {
-    "name": "team: after stepping down",
-    "request": "GET /api/v1/teams/<id:3> as root",
+    "name": "workspace: after stepping down",
+    "request": "GET /api/v1/w/<id:3> as root",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -443,7 +437,7 @@
   },
   {
     "name": "unmake: the new only administrator",
-    "request": "PUT /api/v1/users/<id:6>/admin as admins-bob",
+    "request": "PUT /api/v1/users/<id:7>/admin as admins-bob",
     "status": 409,
     "content_type": "application/problem+json",
     "body": {
@@ -458,12 +452,12 @@
   },
   {
     "name": "renew the token: the new administrator",
-    "request": "POST /api/v1/teams/<id:3>/signup-token as admins-bob",
+    "request": "POST /api/v1/w/<id:3>/signup-token as admins-bob",
     "status": 200,
     "content_type": "application/json",
     "body": {
       "id": "<id:3>",
-      "modifiedBy": "<id:6>",
+      "modifiedBy": "<id:7>",
       "settings": {},
       "signupToken": "<secret>",
       "title": "",

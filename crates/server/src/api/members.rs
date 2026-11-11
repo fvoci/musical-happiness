@@ -138,10 +138,13 @@ async fn handle_add_member(
         // A lookup that failed is no answer to whether the user exists.
         Err(error) => return Err(error),
     }
-    // A board takes the people of its team, its guests too. Anybody else is, to who
+    // A board takes the people of its workspace, its guests too. Anybody else is, to who
     // adds members, a user who does not exist: the answer is the same, so that it
     // tells nothing of who has an account elsewhere on the server.
-    if !app.is_in_team(&request.user_id, &board.team_id).await? {
+    if !app
+        .is_in_workspace(&request.user_id, &board.workspace_id)
+        .await?
+    {
         return Err(AppError::bad_request("no such user").with_field("userId"));
     }
 
@@ -198,16 +201,16 @@ async fn handle_join_board(
     let user_id = &session.user_id;
     let board = app.board(&board_id).await?;
 
-    // The original lets a team administrator join any board as its admin with the
-    // `allow_admin` parameter. Nobody administers the team of a standalone server.
+    // The original lets a workspace administrator join any board as its admin with the
+    // `allow_admin` parameter. Nobody administers the workspace of a standalone server.
     if board.board_type != BoardType::Open {
         // A private board exists only for its members, who have nothing to join.
         return Err(board_refusal(&app, user_id, &board_id, "cannot join a non Open board").await);
     }
-    // An open board is there for who works in its team, and a built-in template for
+    // An open board is there for who works in its workspace, and a built-in template for
     // everybody. To anybody else, a guest of the workspace among them, it answers as
-    // a board that does not exist: joining is no way into a team.
-    if !board.is_builtin && !app.works_in_team(user_id, &board.team_id).await? {
+    // a board that does not exist: joining is no way into a workspace.
+    if !board.is_builtin && !app.works_in_workspace(user_id, &board.workspace_id).await? {
         return Err(AppError::not_found("board"));
     }
     // An open template is for everybody to copy, and for its members to change. Joining

@@ -89,15 +89,15 @@ export async function openView(
         window as unknown as {
           fvociDev: {
             backend: {
-              teams(): Promise<{ id: string }[]>;
-              boards(teamId: string): Promise<{ id: string; title: string }[]>;
+              workspaces(): Promise<{ id: string }[]>;
+              boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
               views(boardId: string): Promise<{ id: string; title: string }[]>;
             };
           };
         }
       ).fvociDev;
-      const teams = await backend.teams();
-      const boards = await backend.boards(teams[0]?.id ?? '');
+      const workspaces = await backend.workspaces();
+      const boards = await backend.boards(workspaces[0]?.id ?? '');
       const found = boards.find((candidate) => candidate.title === board);
       const views = await backend.views(found?.id ?? '');
       const shown = views.find((candidate) => candidate.title === view);

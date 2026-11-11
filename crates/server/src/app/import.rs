@@ -47,27 +47,27 @@ const MAX_VERSION_BYTES: u64 = 64 * 1024;
 /// How an archive is imported.
 #[derive(Debug, Default)]
 pub(crate) struct ImportOptions {
-    /// The team the boards are imported into.
-    pub(crate) team_id: String,
+    /// The workspace the boards are imported into.
+    pub(crate) workspace_id: String,
     /// The user who imports, recorded as the modifier and added as an admin.
     pub(crate) modified_by: String,
 }
 
 impl App {
-    /// Imports the archive in the file at `path` into a team on behalf of a user. The
+    /// Imports the archive in the file at `path` into a workspace on behalf of a user. The
     /// entry point for the import of an upload.
     ///
     /// # Errors
     ///
     /// Returns the errors of [`App::import_archive`].
-    pub(crate) async fn import_team_archive(
+    pub(crate) async fn import_workspace_archive(
         &self,
         path: &Path,
-        team_id: &str,
+        workspace_id: &str,
         modified_by: &str,
     ) -> Result<(), AppError> {
         let options = ImportOptions {
-            team_id: team_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
             modified_by: modified_by.to_owned(),
         };
         self.import_archive(path, &options).await
@@ -284,7 +284,7 @@ impl App {
             };
             if let Err(error) = self
                 .patch_blocks(
-                    &board.team_id,
+                    &board.workspace_id,
                     &batch,
                     user_id,
                     super::ChangeNotification::Send,
@@ -301,7 +301,7 @@ impl App {
     }
 
     /// Stores one board of an archive as [`parse_board_jsonl`] read it, with its
-    /// members who are in the team and the importing user as an admin, and
+    /// members who are in the workspace and the importing user as an admin, and
     /// returns the stored board.
     ///
     /// # Errors
@@ -317,10 +317,13 @@ impl App {
             boards_and_blocks,
             members,
         } = board;
-        // Keep only members who are in the team: a board takes no others (`is_in_team`).
+        // Keep only members who are in the workspace: a board takes no others (`is_in_workspace`).
         let mut kept_members = Vec::with_capacity(members.len());
         for member in members {
-            if self.is_in_team(&member.user_id, &options.team_id).await? {
+            if self
+                .is_in_workspace(&member.user_id, &options.workspace_id)
+                .await?
+            {
                 kept_members.push(member);
             }
         }
@@ -380,11 +383,12 @@ struct ParsedBoard {
 /// together, or a board or block is not one the store takes, with the store's message.
 async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<ParsedBoard, AppError> {
     // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
-    let (team_id, modified_by) = (options.team_id.clone(), options.modified_by.clone());
-    let (mut boards_and_blocks, members) =
-        tokio::task::spawn_blocking(move || parse_archive_lines(&jsonl, &team_id, &modified_by))
-            .await
-            .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
+    let (workspace_id, modified_by) = (options.workspace_id.clone(), options.modified_by.clone());
+    let (mut boards_and_blocks, members) = tokio::task::spawn_blocking(move || {
+        parse_archive_lines(&jsonl, &workspace_id, &modified_by)
+    })
+    .await
+    .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
 
     // An archive exported before a card's content became its body may hold content
     // blocks; none is made again (`docs/contract-pending.md` 1).
@@ -485,7 +489,7 @@ fn drop_orphans(boards_and_blocks: &mut BoardsAndBlocks) -> usize {
 /// Returns a bad request if a line is malformed or of an unknown type.
 fn parse_archive_lines(
     jsonl: &[u8],
-    team_id: &str,
+    workspace_id: &str,
     modified_by: &str,
 ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), AppError> {
     let modifier_user = modified_by;
@@ -507,15 +511,19 @@ fn parse_archive_lines(
         })?;
         match archive_line.line_type.as_str() {
             "board" => {
-                let mut board: Board =
-                    serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::bad_request(format_args!(
-                            "invalid board in archive line {line_number}: {error}"
-                        ))
-                    })?;
+                let mut board: Board = serde_json::from_value(with_workspace_named(
+                    archive_line.data,
+                ))
+                .map_err(|error| {
+                    AppError::bad_request(format_args!(
+                        "invalid board in archive line {line_number}: {error}"
+                    ))
+                })?;
                 modifier_user.clone_into(&mut board.modified_by);
                 board.update_at = now;
-                team_id.clone_into(&mut board.team_id);
+                // The workspace the archive names is not read: the boards go to the
+                // workspace imported into.
+                workspace_id.clone_into(&mut board.workspace_id);
                 board_id.clone_from(&board.id);
                 boards_and_blocks.boards.push(board);
             }
@@ -859,150 +867,17 @@ fn clear_values_of_another_kind(boards_and_blocks: &mut BoardsAndBlocks) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The central headers are counted wherever they are, a chunk's end included, and
-    /// the count stops once it is over the limit.
-    #[test]
-    fn central_headers_are_counted_across_chunks() {
-        let count = |bytes: &[u8], limit: u64| {
-            count_central_headers(&mut &bytes[..], limit).expect("a slice reads")
-        };
-        assert_eq!(count(b"", 10), 0, "nothing");
-        assert_eq!(count(b"PK\x01", 10), 0, "a part of one");
-        assert_eq!(count(b"PK\x01\x02PK\x01\x02xPK\x01\x02", 10), 3, "three");
-        for at in SCAN_CHUNK_BYTES - 3..=SCAN_CHUNK_BYTES {
-            let mut bytes = vec![0; SCAN_CHUNK_BYTES * 2];
-            bytes[at..at + 4].copy_from_slice(CENTRAL_HEADER);
-            assert_eq!(count(&bytes, 10), 1, "one at {at}, on the chunk's edge");
-        }
-        let many = CENTRAL_HEADER.repeat(SCAN_CHUNK_BYTES);
-        let in_a_chunk = u64::try_from(SCAN_CHUNK_BYTES / 4).expect("a small count");
-        assert_eq!(count(&many, 5), in_a_chunk, "stops after the chunk");
+/// A board of an archive with its workspace under the name it has now: an archive written
+/// before the workspaces were named so names it `teamId`.
+fn with_workspace_named(mut data: Value) -> Value {
+    if let Value::Object(board) = &mut data
+        && !board.contains_key("workspaceId")
+        && let Some(workspace) = board.remove("teamId")
+    {
+        board.insert("workspaceId".to_owned(), workspace);
     }
-
-    /// A reader that gives a few bytes at a time, as a file may.
-    struct Trickle<'b>(&'b [u8], usize);
-
-    impl Read for Trickle<'_> {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let n = self.1.min(buf.len()).min(self.0.len());
-            let (head, rest) = self.0.split_at(n);
-            buf.get_mut(..n).unwrap_or_default().copy_from_slice(head);
-            self.0 = rest;
-            Ok(n)
-        }
-    }
-
-    /// Short reads count as whole ones: a signature split between reads is found once.
-    #[test]
-    fn central_headers_are_counted_over_short_reads() {
-        let mut bytes = Vec::new();
-        for gap in 0..200 {
-            bytes.extend_from_slice(CENTRAL_HEADER);
-            bytes.extend(std::iter::repeat_n(b'x', gap % 9));
-        }
-        let expected = u64::try_from(
-            bytes
-                .windows(4)
-                .filter(|window| window == CENTRAL_HEADER)
-                .count(),
-        )
-        .expect("a small count");
-        for step in [1, 2, 3, 5, 7, 4096] {
-            let counted = count_central_headers(&mut Trickle(&bytes, step), u64::MAX)
-                .expect("a reader that does not fail");
-            assert_eq!(counted, expected, "{step} bytes a read");
-        }
-    }
-
-    fn block(id: &str, parent_id: &str) -> Block {
-        Block {
-            id: id.to_owned(),
-            parent_id: parent_id.to_owned(),
-            ..Block::default()
-        }
-    }
-
-    fn ids_after_dropping(blocks: Vec<Block>) -> (Vec<String>, usize) {
-        let mut archive = BoardsAndBlocks {
-            boards: vec![Board {
-                id: "board".to_owned(),
-                ..Board::default()
-            }],
-            blocks,
-        };
-        let dropped = drop_orphans(&mut archive);
-        let ids = archive.blocks.into_iter().map(|block| block.id).collect();
-        (ids, dropped)
-    }
-
-    #[test]
-    fn blocks_that_nothing_leads_to_are_dropped_with_what_is_below_them() {
-        let (kept, dropped) = ids_after_dropping(vec![
-            block("text", "card"),
-            block("card", "board"),
-            block("view", ""),
-            block("lost", "gone"),
-            block("below-lost", "lost"),
-            block("deeper", "below-lost"),
-            block("ring-a", "ring-b"),
-            block("ring-b", "ring-a"),
-            block("own", "own"),
-            block("reply", "text"),
-        ]);
-        assert_eq!(
-            kept,
-            ["text", "card", "view", "reply"],
-            "what a board leads to stays, in the order it came"
-        );
-        assert_eq!(
-            dropped, 6,
-            "the lost ones, and the rings that hang off nothing"
-        );
-    }
-
-    /// A chain as long as an archive may be: the walk is one pass, where taking the
-    /// orphans away level by level took one pass per level.
-    #[test]
-    fn a_long_chain_of_orphans_is_dropped_in_one_walk() {
-        let length = 200_000;
-        let mut blocks = vec![block("0", "missing")];
-        blocks.extend((1..length).map(|index| block(&index.to_string(), &(index - 1).to_string())));
-        blocks.push(block("card", "board"));
-
-        let started = std::time::Instant::now();
-        let (kept, dropped) = ids_after_dropping(blocks);
-
-        assert_eq!(kept, ["card"]);
-        assert_eq!(dropped, length);
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(5),
-            "took {:?}",
-            started.elapsed()
-        );
-    }
-
-    #[test]
-    fn clean_dir_resolves_dot_segments() {
-        assert_eq!(clean_dir("board1"), "board1", "a plain directory");
-        assert_eq!(clean_dir("board1/../.."), "..", "traversal beyond the root");
-        assert_eq!(clean_dir("a/./b"), "a/b", "a current-directory segment");
-    }
-
-    #[test]
-    fn split_entry_name_takes_the_base_name() {
-        assert_eq!(
-            split_entry_name("board1/../../x"),
-            ("..".to_owned(), "x".to_owned()),
-            "the file name is the last segment"
-        );
-        assert_eq!(
-            split_entry_name("version.json"),
-            (".".to_owned(), "version.json".to_owned()),
-            "a bare name is in the current directory"
-        );
-    }
+    data
 }
+
+#[cfg(test)]
+mod tests;

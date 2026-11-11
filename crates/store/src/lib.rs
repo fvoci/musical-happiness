@@ -27,12 +27,12 @@ mod schema;
 mod sessions;
 mod sharing;
 mod subscriptions;
-mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod trash;
 mod uploads;
 mod users;
+mod workspaces;
 
 use std::sync::Arc;
 use std::time::Duration;

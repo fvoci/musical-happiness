@@ -177,11 +177,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "made",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -203,11 +203,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "made",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -229,11 +229,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "made",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {

@@ -11,7 +11,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::common::{ApiResponse, Client, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{ApiResponse, Client, Setup, TEST_WORKSPACE_ID, TestServer};
 
 /// The default of `max_request_bytes`.
 const DEFAULT_JSON_LIMIT: usize = 4 * 1024 * 1024;
@@ -60,11 +60,11 @@ fn check_read_and_refused(response: &ApiResponse) {
     );
 }
 
-/// The boards the first user sees in the test team.
+/// The boards the first user sees in the test workspace.
 async fn board_count(th: &TestServer) -> usize {
     let boards: Vec<Value> = th
         .client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_WORKSPACE_ID}/boards"))
         .await
         .ok_json();
     boards.len()
@@ -75,7 +75,7 @@ async fn board_count(th: &TestServer) -> usize {
 #[tokio::test]
 async fn a_json_body_over_the_default_limit_is_refused_with_413() {
     let th = Setup::native().start().await.init_basic().await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     let at_the_limit = json_of_length(DEFAULT_JSON_LIMIT);
     let response = th
@@ -92,7 +92,7 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
         (Method::POST, format!("/boards/{}/blocks", board.id)),
         (Method::PATCH, format!("/boards/{}/blocks", board.id)),
         (Method::POST, "/boards-and-blocks".to_owned()),
-        (Method::POST, format!("/teams/{TEST_TEAM_ID}/categories")),
+        (Method::POST, format!("/w/{TEST_WORKSPACE_ID}/categories")),
         (Method::POST, "/subscriptions".to_owned()),
         (Method::POST, "/users".to_owned()),
         // A board nobody has: the body is refused before the board is looked for.
@@ -135,7 +135,7 @@ async fn the_json_limit_is_the_configured_one() {
     check_read_and_refused(&response);
 
     // A request that fits goes through as ever.
-    th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     assert_eq!(board_count(&th).await, 1, "the board was created");
     th.teardown().await;
 }
@@ -298,7 +298,7 @@ async fn uploads_are_not_behind_the_json_limit() {
         .await
         .init_basic()
         .await;
-    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = th.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
 
     let part = Part::bytes(vec![b'x'; 8000])
         .file_name("larger.bin")

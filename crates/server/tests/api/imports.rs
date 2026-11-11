@@ -9,7 +9,7 @@ use fvoci_model::{Block, BlockType, BoardType, new_id};
 use reqwest::StatusCode;
 use serde_json::json;
 
-use crate::common::{Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
+use crate::common::{Client, ROOT_WORKSPACE_ID, Setup, TEST_WORKSPACE_ID, TestServer};
 use crate::export::{boards_of, import, import_upload, put_part};
 
 /// The smallest part size, so that an archive of two parts stays small.
@@ -36,11 +36,15 @@ fn entries(directory: &std::path::Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Opens an upload of an archive of `size` bytes into `team_id`.
-async fn open_import(client: &Client, team_id: &str, size: usize) -> crate::common::ApiResponse {
+/// Opens an upload of an archive of `size` bytes into `workspace_id`.
+async fn open_import(
+    client: &Client,
+    workspace_id: &str,
+    size: usize,
+) -> crate::common::ApiResponse {
     client
         .post(
-            &format!("/teams/{team_id}/archive/uploads"),
+            &format!("/w/{workspace_id}/archive/uploads"),
             &json!({"name": "archive.boardarchive", "size": size}),
         )
         .await
@@ -72,8 +76,18 @@ fn incompressible(size: usize) -> Vec<u8> {
 /// `board.jsonl`, each written with `method`.
 fn archive_with(entries: &[(&str, &[u8])], method: zip::CompressionMethod) -> Vec<u8> {
     let board = json!({"type": "board", "data": {
-        "id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Limits", "createAt": 1, "updateAt": 1,
+        "id": "b1", "workspaceId": TEST_WORKSPACE_ID, "type": "P", "title": "Limits", "createAt": 1, "updateAt": 1,
     }});
+    archive_of(&board, entries, method)
+}
+
+/// An archive of version 3 with one board, the line `board` of its `board.jsonl`, and
+/// the given entries beside it.
+fn archive_of(
+    board: &serde_json::Value,
+    entries: &[(&str, &[u8])],
+    method: zip::CompressionMethod,
+) -> Vec<u8> {
     let options = zip::write::SimpleFileOptions::default().compression_method(method);
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file("version.json", options).expect("start");
@@ -101,7 +115,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     // A file is at most a part when sent whole: two of them make an archive of two.
     let data = incompressible(PART);
     let mut attachments = Vec::new();
@@ -135,7 +149,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
     assert!(archive.len() > PART, "the archive comes in two parts");
 
     let before = boards_of(&ts).await.len();
-    import(&ts.client, TEST_TEAM_ID, &archive)
+    import(&ts.client, TEST_WORKSPACE_ID, &archive)
         .await
         .check_no_content();
     assert_eq!(boards_of(&ts).await.len(), before + 1, "the board is made");
@@ -146,7 +160,7 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
     );
 
     // An import that fails leaves nothing either.
-    import(&ts.client, TEST_TEAM_ID, b"not an archive")
+    import(&ts.client, TEST_WORKSPACE_ID, b"not an archive")
         .await
         .check_bad_request();
     assert_eq!(
@@ -157,8 +171,45 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
     ts.teardown().await;
 }
 
+/// An archive written before the workspaces were named so names a board's workspace
+/// `teamId`: it is read as `workspaceId` is, imported into the workspace it is imported
+/// into whatever it names, and refused if it is no identifier.
+#[tokio::test]
+async fn an_archive_that_names_the_workspace_teamid_is_imported() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = json!({"type": "board", "data": {
+        "id": "b1", "teamId": ROOT_WORKSPACE_ID, "type": "P", "title": "From before",
+        "createAt": 1, "updateAt": 1,
+    }});
+    let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
+    import(&ts.client, TEST_WORKSPACE_ID, &archive)
+        .await
+        .check_no_content();
+    let imported: Vec<_> = boards_of(&ts)
+        .await
+        .into_iter()
+        .filter(|board| board.title == "From before")
+        .collect();
+    assert_eq!(imported.len(), 1, "{imported:?}");
+    assert_eq!(imported[0].workspace_id, TEST_WORKSPACE_ID);
+    for workspace in ["teamId", "workspaceId"] {
+        let board = json!({"type": "board", "data": {
+            "id": "b2", workspace: 5, "type": "P", "title": "Numbered", "createAt": 1, "updateAt": 1,
+        }});
+        let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
+        let refused = import(&ts.client, TEST_WORKSPACE_ID, &archive).await;
+        refused.check_bad_request();
+        let detail = refused.value()["detail"].as_str().unwrap_or("").to_owned();
+        assert!(
+            detail.starts_with("invalid board in archive line 1"),
+            "{workspace}: {detail}"
+        );
+    }
+    ts.teardown().await;
+}
+
 /// An upload of an archive is held to what an import takes, and is imported only into
-/// its team, by `importArchive`; one of a file is completed only by `completeUpload`.
+/// its workspace, by `importArchive`; one of a file is completed only by `completeUpload`.
 #[tokio::test]
 async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
     let ts = Setup::native()
@@ -170,19 +221,19 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
     let config = ts.client.get("/client-config").await;
     assert_eq!(config.value()["maxImportSize"], json!(1000));
 
-    let response = open_import(&ts.client, TEST_TEAM_ID, 1001).await;
+    let response = open_import(&ts.client, TEST_WORKSPACE_ID, 1001).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(response.value()["limit"], json!(1000));
 
     let archive = archive_with(&[], zip::CompressionMethod::Stored);
-    let id = upload_id(&open_import(&ts.client, TEST_TEAM_ID, archive.len()).await);
+    let id = upload_id(&open_import(&ts.client, TEST_WORKSPACE_ID, archive.len()).await);
     let state = ts.client.get(&format!("/uploads/{id}")).await;
     assert_eq!(state.value()["purpose"], json!("import"));
-    assert_eq!(state.value()["teamId"], json!(TEST_TEAM_ID));
+    assert_eq!(state.value()["workspaceId"], json!(TEST_WORKSPACE_ID));
     assert_eq!(state.value()["boardId"], json!(""));
 
     // A part missing: refused, and the upload stays open for it.
-    let response = import_upload(&ts.client, TEST_TEAM_ID, &id).await;
+    let response = import_upload(&ts.client, TEST_WORKSPACE_ID, &id).await;
     response.check_bad_request();
     put_part(&ts.client, &id, 1, &archive)
         .await
@@ -193,22 +244,22 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
         .await;
     response.check_bad_request();
     assert_eq!(response.refused_at(), "parameter uploadId", "of the path");
-    let response = import_upload(&ts.client, ROOT_TEAM_ID, &id).await;
+    let response = import_upload(&ts.client, ROOT_WORKSPACE_ID, &id).await;
     response.check_bad_request();
     assert_eq!(response.refused_at(), "/uploadId");
-    import_upload(&ts.client2, TEST_TEAM_ID, &id)
+    import_upload(&ts.client2, TEST_WORKSPACE_ID, &id)
         .await
         .check_status(StatusCode::NOT_FOUND);
 
-    import_upload(&ts.client, TEST_TEAM_ID, &id)
+    import_upload(&ts.client, TEST_WORKSPACE_ID, &id)
         .await
         .check_no_content();
-    import_upload(&ts.client, TEST_TEAM_ID, &id)
+    import_upload(&ts.client, TEST_WORKSPACE_ID, &id)
         .await
         .check_status(StatusCode::NOT_FOUND);
 
     // An upload of a file is not imported.
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = ts
         .client
         .post(
@@ -217,7 +268,7 @@ async fn an_upload_of_an_archive_is_kept_to_its_purpose() {
         )
         .await;
     let file_upload = upload_id(&response);
-    let response = import_upload(&ts.client, TEST_TEAM_ID, &file_upload).await;
+    let response = import_upload(&ts.client, TEST_WORKSPACE_ID, &file_upload).await;
     response.check_bad_request();
     assert_eq!(response.refused_at(), "/uploadId");
     ts.teardown().await;
@@ -237,14 +288,14 @@ async fn an_archive_over_its_limits_stores_nothing() {
 
     let file = vec![7; 1001];
     let too_large_file = archive_with(&[("b1/large.bin", &file)], zip::CompressionMethod::Deflated);
-    let response = import(&ts.client, TEST_TEAM_ID, &too_large_file).await;
+    let response = import(&ts.client, TEST_WORKSPACE_ID, &too_large_file).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(response.value()["limit"], json!(1000));
 
     let names: Vec<String> = (0..10_000).map(|index| format!("b1/{index}.bin")).collect();
     let many: Vec<(&str, &[u8])> = names.iter().map(|name| (name.as_str(), &b""[..])).collect();
     let too_many = archive_with(&many, zip::CompressionMethod::Stored);
-    let response = import(&ts.client, TEST_TEAM_ID, &too_many).await;
+    let response = import(&ts.client, TEST_WORKSPACE_ID, &too_many).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(response.value()["limit"], json!(10_000));
 
@@ -256,7 +307,7 @@ async fn an_archive_over_its_limits_stores_nothing() {
         .rposition(|window| window == b"PK\x05\x06")
         .expect("an end record");
     forged[end + 8..end + 12].copy_from_slice(&[5, 0, 5, 0]);
-    let response = import(&ts.client, TEST_TEAM_ID, &forged).await;
+    let response = import(&ts.client, TEST_WORKSPACE_ID, &forged).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(response.value()["limit"], json!(10_000));
 
@@ -275,7 +326,7 @@ async fn an_archive_over_its_limits_stores_nothing() {
         .write_all(&vec![b' '; 64 * 1024 * 1024 + 1])
         .expect("write");
     let large_jsonl = writer.finish().expect("finish").into_inner();
-    let response = import(&ts.client, TEST_TEAM_ID, &large_jsonl).await;
+    let response = import(&ts.client, TEST_WORKSPACE_ID, &large_jsonl).await;
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(response.value()["limit"], json!(64 * 1024 * 1024));
 
@@ -302,7 +353,7 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
         .await
         .init_basic()
         .await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let open_file = |size: usize| {
         let path = format!("/boards/{}/uploads", board.id);
         let client = &ts.client;
@@ -314,13 +365,13 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
     };
     open_file(1000).await.check_created();
     open_file(1000).await.check_created();
-    open_import(&ts.client, TEST_TEAM_ID, 2000)
+    open_import(&ts.client, TEST_WORKSPACE_ID, 2000)
         .await
         .check_created();
     let response = open_file(1).await;
     response.check_status(StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.error_reason(), "uploads_pending");
-    let response = open_import(&ts.client, TEST_TEAM_ID, 1).await;
+    let response = open_import(&ts.client, TEST_WORKSPACE_ID, 1).await;
     response.check_status(StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.error_reason(), "uploads_pending");
     ts.teardown().await;
@@ -332,7 +383,7 @@ async fn the_share_of_a_user_is_twice_the_larger_limit() {
 #[ignore = "needs an S3-compatible server: set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET"]
 async fn with_s3_an_archive_is_received_on_the_disk() {
     let ts = crate::uploads::s3_server().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Open).await;
     let response = crate::files::upload(&ts.client, &board.id, "a.bin", b"in the bucket").await;
     response.check_created();
     let file_id = crate::files::uploaded_id(&response);
@@ -359,7 +410,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
         .await
         .body;
 
-    let id = upload_id(&open_import(&ts.client, TEST_TEAM_ID, archive.len()).await);
+    let id = upload_id(&open_import(&ts.client, TEST_WORKSPACE_ID, archive.len()).await);
     let opened = ts
         .app
         .store()
@@ -380,7 +431,7 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
     );
 
     let before = boards_of(&ts).await.len();
-    import_upload(&ts.client, TEST_TEAM_ID, &id)
+    import_upload(&ts.client, TEST_WORKSPACE_ID, &id)
         .await
         .check_no_content();
     let boards = boards_of(&ts).await;
@@ -406,14 +457,14 @@ async fn a_large_version_json_is_no_archive() {
     writer.start_file("version.json", options).expect("start");
     writer.write_all(&version).expect("write");
     let large_root = writer.finish().expect("finish").into_inner();
-    let response = import(&ts.client, TEST_TEAM_ID, &large_root).await;
+    let response = import(&ts.client, TEST_WORKSPACE_ID, &large_root).await;
     response.check_bad_request();
 
     let nested = archive_with(
         &[("b1/version.json", &version)],
         zip::CompressionMethod::Deflated,
     );
-    import(&ts.client, TEST_TEAM_ID, &nested)
+    import(&ts.client, TEST_WORKSPACE_ID, &nested)
         .await
         .check_no_content();
     ts.teardown().await;
@@ -425,36 +476,36 @@ async fn a_large_version_json_is_no_archive() {
 #[tokio::test]
 async fn imports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
-    let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let board = ts.create_board(TEST_WORKSPACE_ID, BoardType::Private).await;
     let archive = ts
         .client
         .get(&format!("/boards/{}/archive/export", board.id))
         .await;
     archive.check_ok();
     let me = ts.client.me().await;
-    let opened = upload_id(&open_import(&ts.client, ROOT_TEAM_ID, archive.body.len()).await);
+    let opened = upload_id(&open_import(&ts.client, ROOT_WORKSPACE_ID, archive.body.len()).await);
     put_part(&ts.client, &opened, 1, &archive.body)
         .await
         .check_no_content();
 
     let mine = ts.app.start_import(&me.id).expect("a place for user1");
-    let response = import_upload(&ts.client, ROOT_TEAM_ID, &opened).await;
+    let response = import_upload(&ts.client, ROOT_WORKSPACE_ID, &opened).await;
     response.check_status(StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.error_reason(), "import_running");
     drop(mine);
     let first = ts.app.start_import(&new_id()).expect("a place");
     let second = ts.app.start_import(&new_id()).expect("another place");
-    let response = import_upload(&ts.client, ROOT_TEAM_ID, &opened).await;
+    let response = import_upload(&ts.client, ROOT_WORKSPACE_ID, &opened).await;
     response.check_status(StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(response.error_reason(), "server_imports_busy");
     // Another user's upload is not there for whoever names it, full server or not.
-    import_upload(&ts.client2, ROOT_TEAM_ID, &opened)
+    import_upload(&ts.client2, ROOT_WORKSPACE_ID, &opened)
         .await
         .check_not_found();
 
     drop(first);
     drop(second);
-    import_upload(&ts.client, ROOT_TEAM_ID, &opened)
+    import_upload(&ts.client, ROOT_WORKSPACE_ID, &opened)
         .await
         .check_no_content();
 }

@@ -114,13 +114,13 @@ struct TemplateBoard {
 }
 
 /// The built-in templates as boards and blocks with new identifiers, ready to be
-/// stored for the system in `team_id`.
+/// stored for the system in `workspace_id`.
 ///
 /// # Errors
 ///
 /// Returns a server error if a template file is not of the shape of [`TemplateFile`]:
 /// a mistake in the embedded files, which the tests catch.
-fn builtin_templates(team_id: &str) -> Result<BoardsAndBlocks, AppError> {
+fn builtin_templates(workspace_id: &str) -> Result<BoardsAndBlocks, AppError> {
     let mut boards_and_blocks = BoardsAndBlocks::default();
     for (name, text) in TEMPLATE_FILES {
         let template: TemplateFile = serde_json::from_str(text).map_err(|error| {
@@ -143,7 +143,7 @@ fn builtin_templates(team_id: &str) -> Result<BoardsAndBlocks, AppError> {
         } = template.board;
         let mut board = Board {
             id,
-            team_id: team_id.to_owned(),
+            workspace_id: workspace_id.to_owned(),
             title,
             description,
             icon,
@@ -230,17 +230,20 @@ impl App {
         Ok(true)
     }
 
-    /// Returns the template boards of a team, for the templates route and onboarding.
+    /// Returns the template boards of a workspace, for the templates route and onboarding.
     ///
     /// # Errors
     ///
     /// Returns the store's error if the query fails.
     pub async fn template_boards(
         &self,
-        team_id: &str,
+        workspace_id: &str,
         user_id: &str,
     ) -> Result<Vec<Board>, AppError> {
-        let mut boards = self.store().get_template_boards(team_id, user_id).await?;
+        let mut boards = self
+            .store()
+            .get_template_boards(workspace_id, user_id)
+            .await?;
         boards.extend(self.store().get_builtin_templates().await?);
         Ok(boards)
     }
@@ -283,7 +286,7 @@ mod tests {
     fn unmarked() -> Board {
         Board {
             id: "b-built-in".to_owned(),
-            team_id: "t-root".to_owned(),
+            workspace_id: "t-root".to_owned(),
             is_template: true,
             is_builtin: true,
             template_version: DEFAULT_TEMPLATE_VERSION,

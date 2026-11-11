@@ -68,7 +68,7 @@ impl App {
             if !board.is_template {
                 self.add_boards_to_default_category(
                     user_id,
-                    &board.team_id,
+                    &board.workspace_id,
                     std::slice::from_ref(&board.id),
                 )
                 .await?;
@@ -86,22 +86,22 @@ impl App {
         created: &BoardsAndBlocks,
         members: &[BoardMember],
     ) {
-        // All new boards belong to one team. The original crashes here without boards;
+        // All new boards belong to one workspace. The original crashes here without boards;
         // then there is nobody to tell.
-        let team_id = created
+        let workspace_id = created
             .boards
             .first()
-            .map_or("", |board| board.team_id.as_str());
+            .map_or("", |board| board.workspace_id.as_str());
         for board in &created.boards {
-            self.ws().broadcast_board_change(team_id, board).await;
+            self.ws().broadcast_board_change(workspace_id, board).await;
         }
         for block in &created.blocks {
-            self.ws().broadcast_block_change(team_id, block).await;
+            self.ws().broadcast_block_change(workspace_id, block).await;
             self.webhook().notify_update(block).await;
         }
         for member in members {
             self.ws()
-                .broadcast_member_change(team_id, &member.board_id, member)
+                .broadcast_member_change(workspace_id, &member.board_id, member)
                 .await;
         }
     }
@@ -133,16 +133,18 @@ impl App {
         let app = self.clone();
         let broadcast = result.clone();
         self.spawn_background(async move {
-            let team_id = broadcast
+            let workspace_id = broadcast
                 .boards
                 .first()
-                .map_or("", |board| board.team_id.as_str());
+                .map_or("", |board| board.workspace_id.as_str());
             for block in &broadcast.blocks {
-                app.ws().broadcast_block_change(team_id, block).await;
+                app.ws().broadcast_block_change(workspace_id, block).await;
                 app.webhook().notify_update(block).await;
             }
             for board in &broadcast.boards {
-                app.ws().broadcast_board_change(&board.team_id, board).await;
+                app.ws()
+                    .broadcast_board_change(&board.workspace_id, board)
+                    .await;
             }
         });
 
@@ -166,7 +168,7 @@ impl App {
                 fvoci_model::BoardsAndBlocksError::NoBoards,
             ));
         };
-        let team_id = self.store().get_board(first_board_id).await?.team_id;
+        let workspace_id = self.store().get_board(first_board_id).await?.workspace_id;
 
         // The memberships go with the boards, so who is told is who was a member; and
         // the blocks are gone afterwards, so which board each was on is read first.
@@ -191,14 +193,14 @@ impl App {
                 .get(board_id.as_str())
                 .map_or(&[][..], Vec::as_slice);
             self.ws()
-                .broadcast_block_delete_with_board(&team_id, block_id, board_id, members);
+                .broadcast_block_delete_with_board(&workspace_id, block_id, board_id, members);
         }
         for board_id in &request.boards {
             let members = former_members
                 .get(board_id.as_str())
                 .map_or(&[][..], Vec::as_slice);
             self.ws()
-                .broadcast_board_delete(&team_id, board_id, members);
+                .broadcast_board_delete(&workspace_id, board_id, members);
             // The board's sharing went with it; so does whoever followed it by its link,
             // as with `deleteBoard`.
             self.ws().close_readers_of_board(board_id);

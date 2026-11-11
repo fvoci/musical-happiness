@@ -18,11 +18,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Blocks",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {
@@ -1177,11 +1177,11 @@
       "modifiedBy": "<id:1>",
       "properties": {},
       "showDescription": false,
-      "teamId": "<id:3>",
       "templateVersion": 0,
       "title": "Order of a request",
       "type": "P",
-      "updateAt": "<ts>"
+      "updateAt": "<ts>",
+      "workspaceId": "<id:3>"
     }
   },
   {

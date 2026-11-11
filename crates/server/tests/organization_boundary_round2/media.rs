@@ -1,7 +1,7 @@
 //! Files, read tokens, partial uploads and housekeeping across organizations.
 
 use bytes::Bytes;
-use fvoci_model::{Block, BlockType, Board, BoardType, Team, Upload, WorkspaceRole, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardType, Upload, Workspace, WorkspaceRole, new_id};
 use fvoci_server::app::{App, FileToUpload};
 use fvoci_server::config::{AmazonS3Config, Configuration};
 use fvoci_store::{DbType, SharingChange, Tenant};
@@ -9,7 +9,7 @@ use reqwest::{Method, StatusCode};
 use serde_json::json;
 use sha2::{Digest as _, Sha256};
 
-use super::common::{Client, ROOT_TEAM_ID, Setup};
+use super::common::{Client, ROOT_WORKSPACE_ID, Setup};
 use super::{answer, db_type_of_the_tests, open};
 
 async fn upload(app: &App, user: &str, board: &str, bytes: &[u8]) -> Upload {
@@ -72,10 +72,10 @@ impl Scene {
         });
         let ts = setup.start().await.init_basic().await;
         let user = ts.client.me().await.id;
-        let a = ts.create_board(ROOT_TEAM_ID, BoardType::Private).await;
-        let workspace = Team {
+        let a = ts.create_board(ROOT_WORKSPACE_ID, BoardType::Private).await;
+        let workspace = Workspace {
             id: new_id(),
-            ..Team::default()
+            ..Workspace::default()
         };
         let org = ts
             .app
@@ -93,7 +93,7 @@ impl Scene {
             .expect("the same user is admitted to the other workspace");
         let mut b = Board {
             id: new_id(),
-            team_id: workspace.id.clone(),
+            workspace_id: workspace.id.clone(),
             board_type: BoardType::Private,
             title: "B only".to_owned(),
             ..Board::default()
@@ -105,7 +105,7 @@ impl Scene {
             .expect("the second organization's board");
         let mut other = Board {
             id: new_id(),
-            team_id: workspace.id,
+            workspace_id: workspace.id,
             board_type: BoardType::Private,
             ..Board::default()
         };
@@ -499,8 +499,8 @@ async fn purging_a_trash_row_does_not_delete_another_orgs_file() {
         .app
         .store()
         .execute_unchecked(&format!(
-            "INSERT INTO deleted_boards (id, team_id, deleted_at, deletion_id, board, members, \
-             files) VALUES ('{}', '{ROOT_TEAM_ID}', 0, '{}', '{{}}', '[]', '{files}')",
+            "INSERT INTO deleted_boards (id, workspace_id, deleted_at, deletion_id, board, members, \
+             files) VALUES ('{}', '{ROOT_WORKSPACE_ID}', 0, '{}', '{{}}', '[]', '{files}')",
             new_id(),
             new_id()
         ))

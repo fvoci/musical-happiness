@@ -26,8 +26,8 @@ test.describe.configure({ mode: 'parallel', timeout: 90_000 });
 /** What `window.fvociDev` offers a test (src/app/backend.ts). Only what is used here. */
 interface DevBackend {
   latency: number;
-  teams(): Promise<{ id: string }[]>;
-  boards(teamId: string): Promise<{ id: string; title: string }[]>;
+  workspaces(): Promise<{ id: string }[]>;
+  boards(workspaceId: string): Promise<{ id: string; title: string }[]>;
   views(boardId: string): Promise<{ id: string; title: string }[]>;
   cards(boardId: string): Promise<{ id: string; title: string }[]>;
   card(
@@ -78,8 +78,8 @@ async function find(page: Page, board: string, card: string): Promise<Place> {
   return page.evaluate(
     async ([boardTitle, cardTitle]) => {
       const { backend } = window.fvociDev;
-      const [team] = await backend.teams();
-      const boards = await backend.boards(team?.id ?? '');
+      const [workspace] = await backend.workspaces();
+      const boards = await backend.boards(workspace?.id ?? '');
       const found = boards.find((each) => each.title.startsWith(boardTitle ?? ''));
       if (!found) throw new Error(`no board ${boardTitle}`);
       const views = await backend.views(found.id);

@@ -1,8 +1,8 @@
 //! Organizations and workspaces: who belongs to which, and as what.
 //!
 //! An organization is who everything belongs to; a workspace is where its members
-//! work, and what a user who is no member of it does not know to be there. (The
-//! workspace is the [`Team`](crate::Team) of the routes that are not moved yet.)
+//! work, and what a user who is no member of it does not know to be there
+//! ([`Workspace`](crate::Workspace)).
 
 use std::str::FromStr;
 

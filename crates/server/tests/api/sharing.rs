@@ -12,14 +12,14 @@ use fvoci_store::SharingChange;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::common::{ApiResponse, Client, ROOT_TEAM_ID, Setup, TestServer, UNKNOWN_ID};
+use crate::common::{ApiResponse, Client, ROOT_WORKSPACE_ID, Setup, TestServer, UNKNOWN_ID};
 
 /// Puts a board into the store without going through the board routes, with `user_id` as
 /// its administrator.
 async fn board_with_admin(th: &TestServer, user_id: &str, board_type: BoardType) -> Board {
     let mut board = Board {
         id: new_id(),
-        team_id: ROOT_TEAM_ID.to_owned(),
+        workspace_id: ROOT_WORKSPACE_ID.to_owned(),
         board_type,
         ..Board::default()
     };

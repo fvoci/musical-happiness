@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 use reqwest::Method;
 use serde_json::{Value, json};
 
-use crate::common::ROOT_TEAM_ID;
+use crate::common::ROOT_WORKSPACE_ID;
 use crate::fixtures::{PNG, block, id_of, merged, role_flags};
 use crate::golden;
 use crate::harness::{API, Caller, Http, Payload, id_by_title, multipart, start_server};
@@ -79,12 +79,12 @@ const ROUTES: [&str; 53] = [
     "uploads: open",
     "archive: export board",
     "archive: open an upload",
-    "archive: export team",
+    "archive: export workspace",
     "categories: list",
-    "team: boards",
-    "team: templates",
-    "team: search",
-    "team: users",
+    "workspace: boards",
+    "workspace: templates",
+    "workspace: search",
+    "workspace: users",
 ];
 
 /// The users of a permission run: the board owner, one user per role, and `extra`, whom
@@ -143,7 +143,7 @@ impl<'a> Fixture<'a> {
                 Method::POST,
                 &format!("{API}/boards"),
                 Payload::Json(json!({
-                    "teamId": ROOT_TEAM_ID, "type": board_type, "title": "Matrix",
+                    "workspaceId": ROOT_WORKSPACE_ID, "type": board_type, "title": "Matrix",
                     "properties": {}, "cardProperties": [],
                 })),
                 &owner,
@@ -277,6 +277,7 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
     let blocks = format!("{board_path}/blocks");
     let viewer = &fx.users.ids["viewer"];
     let extra = &fx.users.ids["extra"];
+    let workspace = format!("{API}/w/{ROOT_WORKSPACE_ID}");
     match route {
         "board: get" => Request::new(Method::GET, board_path),
         "board: patch title" => {
@@ -478,26 +479,19 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         }
         "archive: open an upload" => Request::json(
             Method::POST,
-            format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+            format!("{workspace}/archive/uploads"),
             json!({"name": "a.boardarchive", "size": 100}),
         ),
-        "archive: export team" => Request::new(
-            Method::GET,
-            format!("{API}/teams/{ROOT_TEAM_ID}/archive/export"),
-        ),
-        "categories: list" => Request::new(
-            Method::GET,
-            format!("{API}/teams/{ROOT_TEAM_ID}/categories"),
-        ),
-        "team: boards" => Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/boards")),
-        "team: templates" => {
-            Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/templates"))
+        "archive: export workspace" => {
+            Request::new(Method::GET, format!("{workspace}/archive/export"))
         }
-        "team: search" => Request::new(
-            Method::GET,
-            format!("{API}/teams/{ROOT_TEAM_ID}/boards/search?q=Matrix"),
-        ),
-        "team: users" => Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/users")),
+        "categories: list" => Request::new(Method::GET, format!("{workspace}/categories")),
+        "workspace: boards" => Request::new(Method::GET, format!("{workspace}/boards")),
+        "workspace: templates" => Request::new(Method::GET, format!("{workspace}/templates")),
+        "workspace: search" => {
+            Request::new(Method::GET, format!("{workspace}/boards/search?q=Matrix"))
+        }
+        "workspace: users" => Request::new(Method::GET, format!("{workspace}/users")),
         other => panic!("no request is defined for the route {other:?}"),
     }
 }

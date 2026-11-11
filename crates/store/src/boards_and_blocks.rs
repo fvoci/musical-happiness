@@ -143,8 +143,8 @@ impl Store {
     /// Copies a board and its blocks, except comments, under new identifiers. Returns the
     /// copies and the membership that makes `user_id` an administrator of the new board.
     ///
-    /// The copy is a private board created by `user_id`, in `to_team`
-    /// or else in the team of the original. A copy of the same kind as the original has
+    /// The copy is a private board created by `user_id`, in `to_workspace`
+    /// or else in the workspace of the original. A copy of the same kind as the original has
     /// " copy" appended to its title, and a template made from a board is titled "New
     /// board template".
     ///
@@ -156,11 +156,11 @@ impl Store {
         &self,
         board_id: &str,
         user_id: &str,
-        to_team: Option<&str>,
+        to_workspace: Option<&str>,
         duplicate_as: DuplicateAs,
     ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), StoreError> {
         self.transaction(async |scope| {
-            duplicate_board(scope, board_id, user_id, to_team, duplicate_as).await
+            duplicate_board(scope, board_id, user_id, to_workspace, duplicate_as).await
         })
         .await
     }
@@ -273,7 +273,7 @@ pub(crate) async fn duplicate_board(
     scope: &mut Scope<'_>,
     board_id: &str,
     user_id: &str,
-    to_team: Option<&str>,
+    to_workspace: Option<&str>,
     duplicate_as: DuplicateAs,
 ) -> Result<(BoardsAndBlocks, Vec<BoardMember>), StoreError> {
     let mut board = boards::get_board(scope, board_id).await?;
@@ -291,8 +291,8 @@ pub(crate) async fn duplicate_board(
     board.board_type = BoardType::Private;
     board.is_template = as_template;
     user_id.clone_into(&mut board.created_by);
-    if let Some(team_id) = to_team {
-        team_id.clone_into(&mut board.team_id);
+    if let Some(workspace_id) = to_workspace {
+        workspace_id.clone_into(&mut board.workspace_id);
     }
 
     let mut blocks: Vec<_> = blocks::get_blocks(scope, &BlockFilter::board(board_id))

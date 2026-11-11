@@ -37,7 +37,7 @@ import {
   type CardSummary,
   type Category,
   type Sharing,
-  type Team,
+  type WorkspaceInfo,
   type User,
   type ViewDraft,
 } from '../state/backend.ts';
@@ -63,14 +63,17 @@ export function userOf(user: Schemas['User']): User {
   };
 }
 
-export function teamOf(team: Schemas['Team']): Team {
-  return { id: team.id, title: team.title };
+/** The workspaces the reader works in, not those they are a guest of, in the server's order. */
+export function workspacesOf(workspaces: Schemas['UserWorkspace'][]): WorkspaceInfo[] {
+  return workspaces
+    .filter((workspace) => workspace.role !== 'guest')
+    .map((workspace) => ({ id: workspace.id, title: workspace.name }));
 }
 
 export function boardOf(board: Schemas['Board']): Board {
   return {
     id: board.id,
-    teamId: board.teamId,
+    workspaceId: board.workspaceId,
     createdBy: board.createdBy,
     modifiedBy: board.modifiedBy,
     type: board.type,
@@ -248,7 +251,7 @@ export function categoryOf(category: Schemas['CategoryBoards']): Category {
     id: category.id,
     name: category.name,
     userId: category.userId,
-    teamId: category.teamId,
+    workspaceId: category.workspaceId,
     type: category.type,
     collapsed: category.collapsed,
     sortOrder: category.sortOrder,
@@ -289,7 +292,7 @@ export function sharingOf(sharing: Schemas['Sharing']): Sharing {
 
 /** A board and its first view, to be made in one request (`createBoardsAndBlocks`). */
 export function newBoardAndViewOf(
-  teamId: string,
+  workspaceId: string,
   draft: BoardDraft,
   firstView: ViewDraft,
 ): Schemas['NewBoardsAndBlocks'] {
@@ -298,7 +301,7 @@ export function newBoardAndViewOf(
     boards: [
       {
         id: boardRef,
-        teamId,
+        workspaceId,
         type: draft.type ?? 'P',
         title: draft.title,
         description: draft.description ?? '',

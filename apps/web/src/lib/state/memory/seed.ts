@@ -168,7 +168,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   const clock = (): number => SEED_EPOCH + (tick += 1) * MINUTE;
   const world = new World(clock);
 
-  world.team = { id: world.newId(), title: 'fvoci' };
+  world.workspace = { id: world.newId(), title: 'fvoci' };
 
   const users: User[] = PEOPLE.map((person, index) => {
     const at = world.now();
@@ -193,11 +193,11 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
     const at = world.now();
     const others = users.filter((user) => user !== reader);
     // Three or four people per board, a different set on each.
-    const team = [reader, ...others.filter((_, index) => (index + templateIndex) % 5 < 3)];
+    const people = [reader, ...others.filter((_, index) => (index + templateIndex) % 5 < 3)];
     const board: Board = {
       ...createBoard(),
       id: boardId,
-      teamId: world.team.id,
+      workspaceId: world.workspace.id,
       createdBy: reader.id,
       modifiedBy: reader.id,
       type: 'P',
@@ -220,7 +220,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
     world.boards.set(boardId, board);
     world.members.set(
       boardId,
-      team.map((user, index) =>
+      people.map((user, index) =>
         memberOf(
           boardId,
           user.id,
@@ -252,11 +252,11 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       const id = world.newId();
       cardIdOf.set(card.id, id);
       const made = world.now();
-      const author = team[cardIndex % team.length] ?? reader;
+      const author = people[cardIndex % people.length] ?? reader;
       const properties: Record<string, PropertyValue> = structuredClone(card.fields.properties);
-      // A person property of a template points at nobody we have: give it one of the team.
+      // A person property of a template points at nobody we have: give it one of the people.
       board.cardProperties.forEach((property, propertyIndex) => {
-        const person = team[(cardIndex + propertyIndex + 1) % team.length] ?? reader;
+        const person = people[(cardIndex + propertyIndex + 1) % people.length] ?? reader;
         if (property.type === 'person') properties[property.id] = person.id;
         if (property.type === 'multiPerson') properties[property.id] = [person.id, author.id];
       });
@@ -280,7 +280,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       // Two comments on the first card of every board, one on the second.
       const comments = card.fields.isTemplate ? 0 : cardIndex === 0 ? 2 : cardIndex === 1 ? 1 : 0;
       for (let index = 0; index < comments; index += 1) {
-        const commenter = team[(cardIndex + index + 1) % team.length] ?? reader;
+        const commenter = people[(cardIndex + index + 1) % people.length] ?? reader;
         const written = world.now();
         const commentId = world.newId();
         world.blocks.set(commentId, {
@@ -370,7 +370,7 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
       id: world.newId(),
       name: category.name,
       userId: reader.id,
-      teamId: world.team.id,
+      workspaceId: world.workspace.id,
       type: category.type,
       collapsed: false,
       sortOrder: index * 10,

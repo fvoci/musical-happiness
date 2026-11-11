@@ -41,7 +41,7 @@ macro_rules! scenarios {
 scenarios![
     accounts::system,
     accounts::auth,
-    accounts::teams,
+    accounts::workspaces,
     accounts::admins,
     accounts::settings,
     accounts::cookies,

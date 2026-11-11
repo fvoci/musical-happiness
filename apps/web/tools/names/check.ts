@@ -1,6 +1,8 @@
 /**
  * Fails when a file of the web app contains one of the two names the product
- * was known by before the port. Case does not matter.
+ * was known by before the port, case not mattering, and when it has the name
+ * the original gives the workspace where `exceptions.txt` does not let it stay
+ * (`workspace.ts`), or that list has an entry nothing needs.
  *
  *   node tools/names/check.ts
  *
@@ -16,6 +18,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+
+import { EXCEPTIONS, checkFile, parseExceptions, staleExceptions } from './workspace.ts';
 
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
 const NAMES = [
@@ -85,22 +89,30 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+const exceptions = parseExceptions(readFileSync(path.join(WEB_ROOT, EXCEPTIONS), 'utf8'));
+const used = exceptions.map(() => false);
 const hits: string[] = [];
+const workspaceHits: string[] = [];
 for (const file of files) {
   if (pattern.test(file)) hits.push(`${file}: in the file name`);
-  let text: string;
+  let text = '';
   try {
     text = readFileSync(path.join(WEB_ROOT, file), 'utf8');
   } catch {
-    continue;
+    // Not there to read: its name is still checked.
   }
   text.split('\n').forEach((line, index) => {
     if (pattern.test(line)) hits.push(`${file}:${index + 1}: ${line.trim().slice(0, 120)}`);
   });
+  if (file !== EXCEPTIONS) workspaceHits.push(...checkFile(file, text, exceptions, used));
 }
+const stale = staleExceptions(exceptions, used);
 
-if (hits.length > 0) {
-  console.error(`old product names found:\n  ${hits.join('\n  ')}`);
-  process.exit(1);
+if (hits.length > 0) console.error(`old product names found:\n  ${hits.join('\n  ')}`);
+if (workspaceHits.length > 0 || stale.length > 0) {
+  console.error(
+    `the original's name of the workspace, where ${EXCEPTIONS} does not list it with its reason:\n  ${[...workspaceHits, ...stale].join('\n  ')}`,
+  );
 }
-console.log(`names: ok (${files.length} files)`);
+if (hits.length > 0 || workspaceHits.length > 0 || stale.length > 0) process.exit(1);
+console.log(`names: ok (${files.length} files, ${exceptions.length} exceptions)`);

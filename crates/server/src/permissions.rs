@@ -1,15 +1,15 @@
 //! Who may do what. A standalone server has no system roles: every signed-in user may
-//! use the one team, and what a user may do on a board follows from their membership.
+//! use the one workspace, and what a user may do on a board follows from their membership.
 
 use fvoci_model::BoardMember;
 
-/// Something a user can be allowed to do in a team.
+/// Something a user can be allowed to do in a workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TeamPermission {
-    /// See the team and its open boards.
-    ViewTeam,
-    /// Administer the team. Nobody has this on a standalone server.
-    ManageTeam,
+pub enum WorkspacePermission {
+    /// See the workspace and its open boards.
+    ViewWorkspace,
+    /// Administer the workspace. Nobody has this on a standalone server.
+    ManageWorkspace,
     /// Create open boards.
     CreatePublicChannel,
     /// Create private boards.
@@ -39,13 +39,19 @@ pub enum BoardPermission {
     ManageOthersComments,
 }
 
-/// Returns whether a member of a team has a permission in it.
+/// Returns whether a member of a workspace has a permission in it.
 ///
-/// A member has every team permission except [`TeamPermission::ManageTeam`]. An empty
-/// user or team identifier has none. Whether the user is a member of the team is not
-/// asked here: `App::has_permission_to_team` asks it first.
-pub fn has_permission_to_team(user_id: &str, team_id: &str, permission: TeamPermission) -> bool {
-    !user_id.is_empty() && !team_id.is_empty() && permission != TeamPermission::ManageTeam
+/// A member has every workspace permission except [`WorkspacePermission::ManageWorkspace`]. An empty
+/// user or workspace identifier has none. Whether the user is a member of the workspace is not
+/// asked here: `App::has_permission_to_workspace` asks it first.
+pub fn has_permission_to_workspace(
+    user_id: &str,
+    workspace_id: &str,
+    permission: WorkspacePermission,
+) -> bool {
+    !user_id.is_empty()
+        && !workspace_id.is_empty()
+        && permission != WorkspacePermission::ManageWorkspace
 }
 
 /// Returns whether a board membership grants a permission.
@@ -84,34 +90,38 @@ mod tests {
     /// `TestHasPermissionToTeam` in
     /// `server/services/permissions/localpermissions/localpermissions_test.go`.
     #[test]
-    fn has_permission_to_team_cases() {
+    fn has_permission_to_workspace_cases() {
         // "empty input should always unauthorize" (the nil-permission case has no
         // counterpart: a permission is always given)
         assert!(
-            !has_permission_to_team("", "team-id", TeamPermission::ViewTeam),
+            !has_permission_to_workspace("", "workspace-id", WorkspacePermission::ViewWorkspace),
             "no user"
         );
         assert!(
-            !has_permission_to_team("user-id", "", TeamPermission::ViewTeam),
-            "no team"
+            !has_permission_to_workspace("user-id", "", WorkspacePermission::ViewWorkspace),
+            "no workspace"
         );
 
         // "all users have all permissions on teams"
         for permission in [
-            TeamPermission::ViewTeam,
-            TeamPermission::CreatePublicChannel,
-            TeamPermission::CreatePrivateChannel,
+            WorkspacePermission::ViewWorkspace,
+            WorkspacePermission::CreatePublicChannel,
+            WorkspacePermission::CreatePrivateChannel,
         ] {
             assert!(
-                has_permission_to_team("user-id", "team-id", permission),
+                has_permission_to_workspace("user-id", "workspace-id", permission),
                 "{permission:?}"
             );
         }
 
         // "no users have PermissionManageTeam on teams"
         assert!(
-            !has_permission_to_team("user-id", "team-id", TeamPermission::ManageTeam),
-            "nobody manages the team"
+            !has_permission_to_workspace(
+                "user-id",
+                "workspace-id",
+                WorkspacePermission::ManageWorkspace
+            ),
+            "nobody manages the workspace"
         );
     }
 
