@@ -520,6 +520,11 @@
             "description": "Whether the card is a template.",
             "type": "boolean"
           },
+          "lastCommentAt": {
+            "description": "When the card's last comment was posted (its `createAt`), in milliseconds since\nthe Unix epoch; zero if it has none. Deleted comments do not count, and a\ncomment does not change `updateAt`. What a request sends here is ignored.",
+            "format": "int64",
+            "type": "integer"
+          },
           "modifiedBy": {
             "description": "The identifier of the user who last modified the card.",
             "type": "string"
@@ -561,6 +566,7 @@
           "icon",
           "id",
           "isTemplate",
+          "lastCommentAt",
           "modifiedBy",
           "properties",
           "tasksDone",

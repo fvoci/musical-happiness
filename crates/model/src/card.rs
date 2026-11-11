@@ -87,6 +87,11 @@ pub struct Card {
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
+    /// When the card's last comment was posted (its `createAt`), in milliseconds since
+    /// the Unix epoch; zero if it has none. Deleted comments do not count, and a
+    /// comment does not change `updateAt`. What a request sends here is ignored.
+    #[serde(deserialize_with = "null_as_default")]
+    pub last_comment_at: i64,
 }
 
 impl Card {
@@ -198,6 +203,8 @@ impl Card {
             create_at: block.create_at,
             update_at: block.update_at,
             delete_at: block.delete_at,
+            // A block does not know its comments.
+            last_comment_at: 0,
         };
         card.populate(now);
         Ok(card)

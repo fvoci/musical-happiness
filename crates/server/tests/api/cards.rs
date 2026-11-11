@@ -787,6 +787,7 @@ async fn create_card_answer_and_stored_block() {
             "hasBody": false,
             "tasksTotal": 0,
             "tasksDone": 0,
+            "lastCommentAt": 0,
             "createAt": card.create_at,
             "updateAt": card.update_at,
             "deleteAt": 0,
@@ -852,6 +853,7 @@ async fn create_card_without_members() {
                 "hasBody": false,
                 "tasksTotal": 0,
                 "tasksDone": 0,
+                "lastCommentAt": 0,
                 "createAt": card.create_at,
                 "updateAt": card.update_at,
                 "deleteAt": 0,
@@ -1311,6 +1313,7 @@ async fn get_card_permissions_and_refusals() {
             "hasBody": false,
             "tasksTotal": 0,
             "tasksDone": 0,
+            "lastCommentAt": 0,
             "createAt": response.value()["createAt"],
             "updateAt": response.value()["updateAt"],
             "deleteAt": 0,
@@ -1748,4 +1751,96 @@ async fn card_changes_call_the_webhook() {
 
     th.teardown().await;
     serving.abort();
+}
+
+/// Posts a comment on the card and returns it as stored (the server says when).
+async fn comment_on(client: &Client, card: &Card) -> Block {
+    let comment = Block {
+        id: new_id(),
+        board_id: card.board_id.clone(),
+        parent_id: card.id.clone(),
+        block_type: BlockType::Comment,
+        title: "said".to_owned(),
+        create_at: 1,
+        update_at: 1,
+        ..Block::default()
+    };
+    let stored: Vec<Block> = client
+        .insert_blocks(&card.board_id, std::slice::from_ref(&comment))
+        .await
+        .created_json();
+    // The next comment is posted a millisecond later at least.
+    tokio::time::sleep(Duration::from_millis(3)).await;
+    stored.into_iter().next().expect("the comment")
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The card list and getCard
+/// say when a card's last comment was posted, zero for none; a deleted comment does not
+/// count, and commenting leaves the card's updateAt as it was.
+#[tokio::test]
+async fn a_card_says_when_it_was_last_commented_on() {
+    let th = Setup::native().start().await.init_basic().await;
+    let (board, cards) = create_board_and_cards(&th, 2).await;
+    let card = &cards[0];
+    let posted_at = |cards: &[Card]| -> Vec<(String, i64)> {
+        let mut seen: Vec<(String, i64)> = cards
+            .iter()
+            .map(|card| (card.id.clone(), card.last_comment_at))
+            .collect();
+        seen.sort();
+        seen
+    };
+    let expected = |first: i64| {
+        let mut all = vec![(cards[0].id.clone(), first), (cards[1].id.clone(), 0)];
+        all.sort();
+        all
+    };
+
+    assert_eq!(
+        posted_at(&cards_of(&th.client, &board.id, "").await),
+        expected(0)
+    );
+    let earlier = comment_on(&th.client, card).await;
+    let later = comment_on(&th.client, card).await;
+    assert!(
+        later.create_at > earlier.create_at,
+        "posted one after the other"
+    );
+    assert_eq!(
+        posted_at(&cards_of(&th.client, &board.id, "").await),
+        expected(later.create_at)
+    );
+    let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
+    assert_eq!(read.last_comment_at, later.create_at, "getCard says it too");
+    assert_eq!(
+        read.update_at, card.update_at,
+        "commenting does not touch the card"
+    );
+
+    th.client
+        .delete(&format!("/boards/{}/blocks/{}", board.id, later.id))
+        .await
+        .check_no_content();
+    let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
+    assert_eq!(
+        read.last_comment_at, earlier.create_at,
+        "a deleted comment does not count"
+    );
+    let patched: Card = th
+        .client
+        .patch(&card_path(&card.id), &title_patch("renamed"))
+        .await
+        .ok_json();
+    assert_eq!(
+        patched.last_comment_at, earlier.create_at,
+        "patchCard says it too"
+    );
+    th.client
+        .delete(&format!("/boards/{}/blocks/{}", board.id, earlier.id))
+        .await
+        .check_no_content();
+    assert_eq!(
+        posted_at(&cards_of(&th.client, &board.id, "").await),
+        expected(0)
+    );
 }

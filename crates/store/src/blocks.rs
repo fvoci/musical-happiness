@@ -44,12 +44,19 @@ const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"sc
                              fields, create_at, update_at, board_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
+/// When a listed block's last comment was posted, zero for none: read after
+/// [`LISTED_BLOCK_COLUMNS`], at [`LISTED_LAST_COMMENT_AT`].
+const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.create_at) FROM blocks c \
+                                      WHERE c.parent_id = blocks.id AND c.type = 'comment'), 0)";
+
 /// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
 const LISTED_HAS_BODY: usize = 12;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.
 const LISTED_TASKS_TOTAL: usize = 13;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's checked task items.
 const LISTED_TASKS_DONE: usize = 14;
+/// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
+const LISTED_LAST_COMMENT_AT: usize = 15;
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -114,6 +121,17 @@ pub enum DuplicateAs {
     Template,
 }
 
+/// A block as a list gives it: without its body, with what the list says about it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListedBlock {
+    /// The block, without its body.
+    pub block: Block,
+    /// What the list says about the body.
+    pub summary: BodySummary,
+    /// When the block's last comment was posted; zero if it has none.
+    pub last_comment_at: i64,
+}
+
 impl Store {
     /// Writes the fields of a block as they are, without any check: for tests that need
     /// a block as an older server stored it.
@@ -149,7 +167,7 @@ impl Store {
 
     /// Returns the blocks that match `filter` as [`Store::get_blocks`] does, but without
     /// their bodies: each comes with what a list says about its body instead, read from
-    /// what was worked out when the body was stored.
+    /// what was worked out when the body was stored, and when its last comment was posted.
     ///
     /// # Errors
     ///
@@ -158,9 +176,10 @@ impl Store {
     pub async fn get_listed_blocks(
         &self,
         filter: &BlockFilter,
-    ) -> Result<Vec<(Block, BodySummary)>, StoreError> {
+    ) -> Result<Vec<ListedBlock>, StoreError> {
         self.with_conn(async |scope| {
-            let sql = filtered_blocks(scope, filter, LISTED_BLOCK_COLUMNS);
+            let columns = format!("{LISTED_BLOCK_COLUMNS}, {LAST_COMMENT_AT_COLUMN}");
+            let sql = filtered_blocks(scope, filter, &columns);
             scope
                 .fetch_all(sql)
                 .await?
@@ -174,9 +193,31 @@ impl Store {
                         has_body: row.bool(LISTED_HAS_BODY)?,
                         tasks,
                     };
-                    Ok((block_from_row(row)?, summary))
+                    Ok(ListedBlock {
+                        block: block_from_row(row)?,
+                        summary,
+                        last_comment_at: row.int(LISTED_LAST_COMMENT_AT)?,
+                    })
                 })
                 .collect()
+        })
+        .await
+    }
+
+    /// Returns when the last comment on a block was posted (its `create_at`); zero if
+    /// it has none. Deleted comments are in the trash and do not count.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database's error.
+    pub async fn get_last_comment_at(&self, block_id: &str) -> Result<i64, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(
+                "SELECT COALESCE(MAX(create_at), 0) FROM blocks WHERE type = 'comment' AND parent_id = ",
+            );
+            sql.bind(Id(block_id));
+            let row = scope.fetch_optional(sql).await?;
+            row.map_or(Ok(0), |row| row.int(0))
         })
         .await
     }
@@ -847,6 +888,7 @@ mod tests {
         assert_eq!(columns[LISTED_TASKS_TOTAL], "body_tasks_total");
         assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
         assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
+        assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
     }
 
     #[test]
