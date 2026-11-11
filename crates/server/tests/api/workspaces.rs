@@ -409,11 +409,11 @@ async fn the_moved_routes_find_no_workspace_of_another_organization() {
         .post(&format!("/w/{their_workspace}/categories"), &category)
         .await;
     assert_eq!(not_there(&posted), hidden, "a new category");
-    let users = ts
+    let by_ids = ts
         .client
         .post(&format!("/w/{their_workspace}/users"), &json!([user1]))
         .await;
-    assert_eq!(not_there(&users), hidden, "users by their identifiers");
+    assert_eq!(not_there(&by_ids), hidden, "users by their identifiers");
     ts.client
         .get(&format!("/w/{their_workspace}/boards"))
         .await
