@@ -19,24 +19,36 @@
   (`--gantt-row`, higher for a finger), so the chart follows the reader's
   text size (lib/logic/gantt.ts).
 
-  Where the chart is scrolled to is the state of the screen only: another
-  view, or a new load, starts with today in sight.
+  The view is grouped as a table is (`groupById`): a heading before the cards
+  of each group. A card without a value for the date has no row: the row
+  above the chart counts them and lists them on asking, as the calendar does
+  (a column at the right, or a sheet on a compact page).
+
+  The zoom is the view's (`ganttZoom`), stored where the reader may change
+  the view and kept for the visit where not. Where the chart is scrolled to
+  is the state of the screen only: another view, or a new load, starts with
+  today in sight.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
 
+  import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { Room } from '$lib/layout/room.svelte.ts';
+  import { overlayPresentation } from '$lib/layout/presentation.ts';
+  import { page, Room } from '$lib/layout/room.svelte.ts';
   import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
-  import { DAY_WIDTH, xOfDay, zoomOf } from '$lib/logic/gantt.ts';
+  import { DAY_WIDTH, dayAt, xOfDay, zoomOf } from '$lib/logic/gantt.ts';
+  import type { GanttZoom } from '$lib/logic/wire.ts';
 
   import { MinuteClock } from '../calendar/clock.svelte.ts';
+  import Undated from '../calendar/Undated.svelte';
   import type { ViewProps } from '../props.ts';
 
   import Arrows from './Arrows.svelte';
   import AxisHeader from './AxisHeader.svelte';
   import BarRow from './BarRow.svelte';
   import { GanttChart } from './chart.svelte.ts';
+  import GroupRow from './GroupRow.svelte';
   import Toolbar from './Toolbar.svelte';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
@@ -45,7 +57,9 @@
   const clock = new MinuteClock();
   /** Today, on the reader's calendar. */
   const today = $derived(dateOfInstant(clock.now, board.workspace.regional.timeZone));
-  const zoom = $derived(zoomOf(view.fields.ganttZoom));
+  /** The zoom a reader who may not change the view chose, for this visit only. */
+  let ownZoom = $state<GanttZoom | undefined>(undefined);
+  const zoom = $derived((board.canEdit ? undefined : ownZoom) ?? zoomOf(view.fields.ganttZoom));
 
   /** The box the chart scrolls in, measured: the axis is at least as long as it is wide. */
   const box = new Room();
@@ -77,21 +91,47 @@
   /** The box that scrolls. Not reactive: read when something is brought into view. */
   let scroller: HTMLElement | undefined;
 
-  /** Scrolls the days so that `date` is a third of the way into what is in sight. */
-  function showDay(date: CalendarDate): void {
-    if (!scroller) return;
+  /** How wide the days in sight are, in pixels: the box less the column of titles. */
+  function daysRoom(): number {
+    if (!scroller) return 0;
     const titles = scroller.querySelector<HTMLElement>('[data-gantt-corner]')?.offsetWidth ?? 0;
-    const x = (xOfDay(axis, date) + axis.dayWidth / 2) * rem();
-    scroller.scrollLeft = Math.max(0, x - (scroller.clientWidth - titles) / 3);
+    return scroller.clientWidth - titles;
   }
 
-  /** The box, once it is drawn: it starts with today in sight. For `{@attach}`. */
+  /** Scrolls the days so that the middle of `date` is `part` of the way into what is in sight. */
+  function showDay(date: CalendarDate, part = 1 / 3): void {
+    if (!scroller) return;
+    const x = (xOfDay(axis, date) + axis.dayWidth / 2) * rem();
+    scroller.scrollLeft = Math.max(0, x - daysRoom() * part);
+  }
+
+  /** Another zoom: the day in the middle of what is in sight stays there. */
+  async function setZoom(next: GanttZoom): Promise<void> {
+    if (next === zoom) return;
+    const middle = scroller ? dayAt(axis, (scroller.scrollLeft + daysRoom() / 2) / rem()) : today;
+    if (board.canEdit) void board.setViewFields(view.id, { ganttZoom: next }, 'ganttZoom');
+    else ownZoom = next;
+    await tick();
+    showDay(middle, 1 / 2);
+  }
+
+  /**
+   * The box, once it is drawn: it starts with today in sight. The column of
+   * cards without a date lies over it: the focus going into the box means
+   * the reader has left the column, which closes so that nothing focused is
+   * under it. For `{@attach}`.
+   */
   function attachScroller(element: HTMLElement): () => void {
     scroller = element;
     untrack(() => {
       showDay(today);
     });
+    const left = (): void => {
+      if (!sheet) undatedOpen = false;
+    };
+    element.addEventListener('focusin', left);
     return () => {
+      element.removeEventListener('focusin', left);
       scroller = undefined;
     };
   }
@@ -101,7 +141,7 @@
   /** The bar the Tab key stops on: the one last focused, the first until then. */
   let focused = $state<string | undefined>(undefined);
   const stop = $derived(
-    focused !== undefined && chart.bars.has(focused) ? focused : chart.lines[0]?.id,
+    focused !== undefined && chart.bars.has(focused) ? focused : chart.cardLines[0]?.id,
   );
 
   function focusBar(cardId: string | undefined): void {
@@ -119,12 +159,75 @@
   /** The arrow keys walk the bars: up and down a row, Home and End to the first and last. */
   function barKeys(event: KeyboardEvent, cardId: string): void {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    const lines = chart.lines;
+    const lines = chart.cardLines;
     const at = lines.findIndex((line) => line.id === cardId);
     const to = { ArrowUp: at - 1, ArrowDown: at + 1, Home: 0, End: lines.length - 1 }[event.key];
     if (to === undefined) return;
     event.preventDefault();
     focusBar(lines[Math.min(lines.length - 1, Math.max(0, to))]?.id);
+  }
+
+  // ------------------------------------------------ cards without a date
+
+  const sheet = $derived(overlayPresentation(page.stage) === 'sheet');
+  /**
+   * The cards without a date are open: a column at the right, or a sheet on
+   * a compact page. Closed when the page changes between the two, so that a
+   * device turned on its side does not raise a sheet unasked.
+   */
+  let undatedOpen = $derived<boolean>(sheet && false);
+  /** "No date" in the row above, and the column it opens: where the focus goes and comes back. */
+  let undatedButton = $state<HTMLElement | null>(null);
+  let undatedPanel: HTMLElement | undefined;
+
+  const undatedRows = $derived({
+    placed: chart.placed,
+    templates: board.board?.cardProperties ?? [],
+    visiblePropertyIds: view.fields.visiblePropertyIds,
+    users: board.workspace.users,
+    nameFormat: board.workspace.nameFormat,
+    cardHref,
+  });
+
+  async function toggleUndated(): Promise<void> {
+    undatedOpen = !undatedOpen;
+    if (!undatedOpen) return;
+    await tick();
+    undatedPanel?.querySelector<HTMLElement>('[data-testid="undated-close"]')?.focus();
+  }
+
+  /** Closes the column of cards without a date, the focus back on its button. */
+  function closeUndated(): void {
+    undatedOpen = false;
+    undatedButton?.focus();
+  }
+
+  /** The column: kept for the focus, and Escape in it closes it. For `{@attach}`. */
+  function attachUndated(element: HTMLElement): () => void {
+    undatedPanel = element;
+    const keys = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') closeUndated();
+    };
+    element.addEventListener('keydown', keys);
+    return () => {
+      element.removeEventListener('keydown', keys);
+      undatedPanel = undefined;
+    };
+  }
+
+  /**
+   * A card opened from the cards without a date. Given a date, it leaves the
+   * list: the focus is put on "No date" first, which is where the card gives
+   * it back then (CardDialog gives it to the card's bar where there is one).
+   * On a sheet, the sheet closes first.
+   */
+  async function openUndated(cardId: string): Promise<void> {
+    if (sheet) {
+      undatedOpen = false;
+      await tick();
+    }
+    undatedButton?.focus();
+    onOpenCard(cardId);
   }
 </script>
 
@@ -150,6 +253,12 @@
     onloop={() => {
       focusNext(chart.loopIds);
     }}
+    {zoom}
+    onzoom={(next: GanttZoom) => void setZoom(next)}
+    undated={chart.placed.undated.length}
+    {undatedOpen}
+    bind:undatedButton
+    onundated={() => void toggleUndated()}
   />
 
   <!-- Measured here, outside the scrollbars of the box inside: the width does not depend on them. -->
@@ -186,17 +295,21 @@
               <div class="sticky left-0 h-full w-(--gantt-title) border-r bg-background"></div>
             </div>
             <ul aria-label={m.gantt_rows()} class="relative">
-              {#each chart.lines as line (line.id)}
-                <BarRow
-                  {line}
-                  current={line.id === stop}
-                  href={cardHref(line.id)}
-                  onopen={onOpenCard}
-                  onkeys={barKeys}
-                  onfocused={(cardId: string) => {
-                    focused = cardId;
-                  }}
-                />
+              {#each chart.lines as line (`${line.kind}:${line.id}`)}
+                {#if line.kind === 'group'}
+                  <GroupRow {line} />
+                {:else}
+                  <BarRow
+                    {line}
+                    current={line.id === stop}
+                    href={cardHref(line.id)}
+                    onopen={onOpenCard}
+                    onkeys={barKeys}
+                    onfocused={(cardId: string) => {
+                      focused = cardId;
+                    }}
+                  />
+                {/if}
               {:else}
                 <li
                   data-testid="gantt-empty"
@@ -211,5 +324,28 @@
         </div>
       </div>
     {/if}
+
+    {#if undatedOpen && !sheet}
+      <div
+        data-testid="undated-panel"
+        class="absolute inset-y-0 right-0 z-40 flex w-80 max-w-full flex-col border-l bg-background pb-(--safe-bottom) shadow-lg"
+        {@attach attachUndated}
+      >
+        <Undated
+          {...undatedRows}
+          onOpenCard={(cardId: string) => void openUndated(cardId)}
+          onclose={closeUndated}
+        />
+      </div>
+    {/if}
   </div>
 </div>
+
+{#if sheet}
+  <BottomSheet
+    bind:open={undatedOpen}
+    title={m.calendar_undated_count({ count: chart.placed.undated.length })}
+  >
+    <Undated {...undatedRows} onOpenCard={(cardId: string) => void openUndated(cardId)} />
+  </BottomSheet>
+{/if}

@@ -6,6 +6,7 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { displayProperty } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
+import type { BoardGroup } from '$lib/logic/group.ts';
 import {
   arrowsOf,
   axisOf,
@@ -60,7 +61,22 @@ export interface CardLine {
   loop: boolean;
 }
 
-export type ChartLine = CardLine;
+/** The row that starts a group. */
+export interface GroupLine {
+  kind: 'group';
+  id: string;
+  row: number;
+  /** What the group is called: the option, the person, or "No Status". */
+  name: string;
+  /** The colour name of the option; undefined for a group that is not an option. */
+  color: string | undefined;
+  /** How many cards of the group have a bar. */
+  count: number;
+}
+
+export type ChartLine = CardLine | GroupLine;
+
+const PERSON_KINDS: readonly string[] = ['person', 'createdBy', 'updatedBy'];
 
 export class GanttChart {
   readonly #source: ChartSource;
@@ -105,15 +121,56 @@ export class GanttChart {
 
   readonly scale = $derived.by<Scale>(() => scaleOf(this.axis, this.#regional.weekStart));
 
+  /** The property the view groups by, when the board still has it; as the table reads it. */
+  readonly groupBy = $derived.by<PropertyTemplate | undefined>(() => {
+    const id = this.#source.view().fields.groupById;
+    return id ? this.#templates.find((template) => template.id === id) : undefined;
+  });
+
+  /** The groups of the cards that have days, each in the order of the view; none: not grouped. */
+  readonly #groups = $derived.by<BoardGroup[] | undefined>(() => {
+    if (!this.groupBy) return undefined;
+    const dated = this.placed.spans.flatMap((span) => this.placed.card(span.id) ?? []);
+    return this.#board.groupsOf(this.#source.view(), dated, (property) =>
+      m['BoardComponent.no-property']({ property }),
+    ).visible;
+  });
+
   /** The cards that have days, as the lists between headings. */
-  readonly #lists = $derived.by<RowList[]>(() => [
-    { cardIds: this.placed.spans.map((span) => span.id) },
-  ]);
+  readonly #lists = $derived.by<RowList[]>(() =>
+    this.#groups
+      ? this.#groups.map((group) => ({
+          groupId: group.option.id,
+          cardIds: group.cards.map((card) => card.id),
+        }))
+      : [{ cardIds: this.placed.spans.map((span) => span.id) }],
+  );
+
+  /** The heading of a group as drawn: named and coloured as the table does. */
+  #groupLine(row: Extract<ChartRow, { kind: 'group' }>): GroupLine[] {
+    const option = this.#groups?.find((group) => group.option.id === row.id)?.option;
+    if (!option || !this.groupBy) return [];
+    const person = option.id !== '' && PERSON_KINDS.includes(this.groupBy.type);
+    return [
+      {
+        ...row,
+        name: person
+          ? (this.#board.workspace.userName(option.id) ?? m['centerPanel.unknown-user']())
+          : option.value,
+        color: person || option.id === '' ? undefined : option.color,
+      },
+    ];
+  }
 
   readonly rows = $derived.by<ChartRow[]>(() => rowsOf(this.#lists));
 
   readonly bars = $derived.by(() =>
     barsOf(this.axis, this.rows, (cardId) => this.placed.span(cardId)),
+  );
+
+  /** The cards of the rows: a card of a group the view hides has days and no row. */
+  readonly #rowCards = $derived.by<Card[]>(() =>
+    this.rows.flatMap((row) => (row.kind === 'card' ? (this.placed.card(row.id) ?? []) : [])),
   );
 
   /** The card relation read as what comes before what; none: no arrows. */
@@ -123,7 +180,7 @@ export class GanttChart {
 
   /** The edges between the cards that have a bar. Loops are looked for on the whole board. */
   readonly relations = $derived.by<ChartRelations>(() =>
-    relationsOf(this.#source.cards(), this.#board.realCards, this.dependency?.id, (cardId) =>
+    relationsOf(this.#rowCards, this.#board.realCards, this.dependency?.id, (cardId) =>
       this.placed.span(cardId),
     ),
   );
@@ -172,7 +229,8 @@ export class GanttChart {
   /** The rows as drawn. */
   readonly lines = $derived.by<ChartLine[]>(() =>
     this.rows.flatMap((row): ChartLine[] => {
-      const card = row.kind === 'card' ? this.placed.card(row.id) : undefined;
+      if (row.kind === 'group') return this.#groupLine(row);
+      const card = this.placed.card(row.id);
       const bar = this.bars.get(row.id);
       if (!card || !bar) return [];
       return [
@@ -190,11 +248,14 @@ export class GanttChart {
     }),
   );
 
+  /** The rows of cards, from the top: what the arrow keys walk. */
+  readonly cardLines = $derived.by(() => this.lines.filter((line) => line.kind === 'card'));
+
   /** The cards with a bar that are out of order, and those on a loop, from the top. */
   readonly lateIds = $derived.by(() =>
-    this.lines.filter((line) => line.late).map((line) => line.id),
+    this.cardLines.filter((line) => line.late).map((line) => line.id),
   );
   readonly loopIds = $derived.by(() =>
-    this.lines.filter((line) => line.loop).map((line) => line.id),
+    this.cardLines.filter((line) => line.loop).map((line) => line.id),
   );
 }
