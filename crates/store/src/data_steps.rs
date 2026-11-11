@@ -62,28 +62,45 @@ async fn claim(scope: &mut Scope<'_>, step: &str) -> Result<bool, StoreError> {
     Ok(!scope.fetch_all(sql).await?.is_empty())
 }
 
-/// Deletes the content blocks (every type but [`KEPT_TYPES`]), on the boards and in the
-/// trash, and the references to the files they showed. A file that no
-/// block shows any more is marked, to be collected after the grace period like any
-/// other. Returns how many blocks were deleted.
+/// Deletes the content blocks (every type but [`KEPT_TYPES`]) with every block below
+/// them, as deleting a block does, on the boards and in the trash, and the references to
+/// the files they showed. A file that no block shows any more is marked, to be collected
+/// after the grace period like any other. Returns how many blocks were deleted.
 async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
-    let mut sql = scope.sql("DELETE FROM blocks WHERE type NOT IN (");
+    // `UNION`, not `UNION ALL`: a cycle of parents ends.
+    let mut sql =
+        scope.sql("WITH RECURSIVE tree(id) AS (SELECT id FROM blocks WHERE type NOT IN (");
     for (index, block_type) in KEPT_TYPES.iter().enumerate() {
         sql.push_bind(if index == 0 { "" } else { ", " }, block_type.as_str());
     }
-    sql.push(")");
+    sql.push(
+        ") UNION SELECT b.id FROM blocks AS b JOIN tree ON b.parent_id = tree.id) \
+         DELETE FROM blocks WHERE id IN (SELECT id FROM tree)",
+    );
     let mut deleted = scope.execute(sql).await?;
 
-    // The trash keeps a block as JSON: its type is read here.
-    let sql = scope.sql("SELECT id, block FROM deleted_blocks");
-    let mut in_trash = Vec::new();
+    // The trash keeps a block as JSON: its type is read here, and what is below a
+    // content block is found by the parents.
+    let sql = scope.sql("SELECT id, COALESCE(parent_id, ''), block FROM deleted_blocks");
+    let mut children: HashMap<String, Vec<String>> = HashMap::new();
+    let mut gone: Vec<String> = Vec::new();
     for row in scope.fetch_all(sql).await? {
-        let block = row.json(1, "block")?;
+        let id = row.id(0)?;
+        let parent_id = row.text(1)?;
+        let block = row.json(2, "block")?;
         let block_type = BlockType::from(block["type"].as_str().unwrap_or_default());
         if !KEPT_TYPES.contains(&block_type) {
-            in_trash.push(row.id(0)?);
+            gone.push(id.clone());
+        }
+        children.entry(parent_id).or_default().push(id);
+    }
+    let mut in_trash: HashSet<String> = HashSet::new();
+    while let Some(id) = gone.pop() {
+        if in_trash.insert(id.clone()) {
+            gone.extend(children.get(&id).into_iter().flatten().cloned());
         }
     }
+    let in_trash: Vec<String> = in_trash.into_iter().collect();
     for chunk in in_trash.chunks(500) {
         let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE id IN (");
         sql.bind_list(chunk.iter().map(|id| Id(id))).push(")");
@@ -156,4 +173,35 @@ fn definitions(list: &serde_json::Value) -> impl Iterator<Item = &fvoci_model::J
         .into_iter()
         .flatten()
         .filter_map(serde_json::Value::as_object)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The step keeps what a block may be given, and the legacy board block besides: a
+    /// type that becomes current is kept too.
+    #[test]
+    fn the_kept_types_are_the_current_ones_and_the_board() {
+        let current = [
+            "card",
+            "view",
+            "comment",
+            "attachment",
+            "board",
+            "text",
+            "h1",
+            "",
+        ]
+        .map(BlockType::from)
+        .into_iter()
+        .filter(BlockType::is_current);
+        for block_type in current {
+            assert!(KEPT_TYPES.contains(&block_type), "{block_type}");
+        }
+        assert_eq!(
+            KEPT_TYPES.iter().filter(|kept| !kept.is_current()).count(),
+            1
+        );
+    }
 }

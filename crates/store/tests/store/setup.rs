@@ -869,9 +869,9 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     test.teardown().await;
 }
 
-/// The step of migration 8 deletes the content blocks an older server stored, on the
-/// board and in the trash, and leaves the files that only they showed to be collected.
-/// The other blocks and their files stay.
+/// The step of migration 8 deletes the content blocks an older server stored, with what
+/// is below them, on the board and in the trash, and leaves the files that only they
+/// showed to be collected. The other blocks and their files stay.
 #[tokio::test]
 async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect() {
     let test = common::setup().await;
@@ -910,9 +910,22 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         block("attachment", serde_json::json!({"fileId": "7image.png"})),
         block("text", none.clone()),
         block("h1", none.clone()),
-        block("checkbox", none),
+        block("checkbox", none.clone()),
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
+    // A comment below the text and one below the heading, which takes it to the trash:
+    // they go with them.
+    let mut below = [
+        Block {
+            parent_id: blocks[5].id.clone(),
+            ..block("comment", none.clone())
+        },
+        Block {
+            parent_id: blocks[6].id.clone(),
+            ..block("comment", none)
+        },
+    ];
+    common::insert_blocks(&test, &mut below, &user_id).await;
     test.delete_block(&blocks[6].id, &user_id)
         .await
         .expect("the heading goes to the trash");
@@ -937,7 +950,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     for kept in &blocks[..4] {
         store.get_block(&kept.id).await.expect("the block stays");
     }
-    for gone in &blocks[4..] {
+    for gone in blocks[4..].iter().chain(&below) {
         let error = store
             .get_block(&gone.id)
             .await
@@ -962,6 +975,13 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         "the image's file, not the attachment's"
     );
     store.close().await;
+    let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM deleted_blocks")
+        .await
+        .expect("the trash is there");
+    assert_eq!(
+        left, 0,
+        "the heading and the comment below it left the trash"
+    );
 
     test.teardown().await;
 }

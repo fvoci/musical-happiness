@@ -263,11 +263,9 @@ pub struct Block {
     /// The schema version of the block.
     #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
-    /// The block type: `card`, `view`, `comment` or `attachment`. A block stored before a
-    /// card's content became its body may have another (`text`, `image`, `checkbox`,
-    /// `divider` and others the web app had); it keeps it. No request makes a block of
-    /// such a type or patches one into it (400 naming `type`), except that duplicating a
-    /// stored one, or the card or board it is on, copies it.
+    /// The block type: `card`, `view`, `comment` or `attachment`. A database of the
+    /// original may also hold a legacy `board` block. No request makes a block of another
+    /// type or patches one into it (400 naming `type`).
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]

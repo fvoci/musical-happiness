@@ -73,7 +73,7 @@
             "type": "string"
           },
           "type": {
-            "description": "The block type: `card`, `view`, `comment` or `attachment`. A block stored before a\ncard's content became its body may have another (`text`, `image`, `checkbox`,\n`divider` and others the web app had); it keeps it. No request makes a block of\nsuch a type or patches one into it (400 naming `type`), except that duplicating a\nstored one, or the card or board it is on, copies it.",
+            "description": "The block type: `card`, `view`, `comment` or `attachment`. A database of the\noriginal may also hold a legacy `board` block. No request makes a block of another\ntype or patches one into it (400 naming `type`).",
             "type": "string"
           },
           "updateAt": {
