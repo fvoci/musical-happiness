@@ -81,12 +81,12 @@ async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
 
     // The trash keeps a block as JSON: its type is read here, and what is below a
     // content block is found by the parents.
-    let sql = scope.sql("SELECT id, COALESCE(parent_id, ''), block FROM deleted_blocks");
+    let sql = scope.sql("SELECT id, parent_id, block FROM deleted_blocks");
     let mut children: HashMap<String, Vec<String>> = HashMap::new();
     let mut gone: Vec<String> = Vec::new();
     for row in scope.fetch_all(sql).await? {
         let id = row.id(0)?;
-        let parent_id = row.text(1)?;
+        let parent_id = row.id(1)?;
         let block = row.json(2, "block")?;
         let block_type = BlockType::from(block["type"].as_str().unwrap_or_default());
         if !KEPT_TYPES.contains(&block_type) {
