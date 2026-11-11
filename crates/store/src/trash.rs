@@ -83,6 +83,38 @@ impl Store {
         .await
     }
 
+    /// Returns the block at the top of the deletion that a block of the trash went with:
+    /// the one that was deleted, and took the others along. Restoring any of them
+    /// restores it ([`Store::undelete_block`]). The block itself, if it was the one
+    /// deleted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if no block of that identifier is in the trash.
+    pub async fn get_deletion_top(&self, block_id: &str) -> Result<DeletedBlock, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(
+                "SELECT head.block, head.deleted_by FROM deleted_blocks named \
+                 JOIN deleted_blocks head ON head.deletion_id = named.deletion_id \
+                 WHERE named.id = ",
+            );
+            sql.bind(Id(block_id)).push(
+                " AND NOT EXISTS (SELECT 1 FROM deleted_blocks above \
+                 WHERE above.deletion_id = head.deletion_id AND above.id = head.parent_id) \
+                 ORDER BY head.id LIMIT 1",
+            );
+            let row = scope
+                .fetch_optional(sql)
+                .await?
+                .ok_or_else(block_not_in_trash)?;
+            Ok(DeletedBlock {
+                block: block_from_json(&row, 0)?,
+                deleted_by: row.id(1)?,
+            })
+        })
+        .await
+    }
+
     /// Returns the cards of a board that are in the trash at the top of what was deleted
     /// with them, the last deleted first and then by identifier: one page of them if
     /// `paging` says so (a page size of zero is every card). A card that went with the

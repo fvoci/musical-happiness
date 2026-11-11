@@ -228,8 +228,9 @@ export interface paths {
          * Change a block
          * @description For editors. A comment is changed by its author with the commenter's role, and the
          *     comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-         *     editor may not change it. Making a comment a block of another type is for editors,
-         *     and making a block of somebody else a comment for the board's admins.
+         *     editor may not change it. The commenter's role changes a comment's text (its body);
+         *     moving a comment to another card (`parentId`) or making it a block of another type
+         *     is for editors, and making a block of somebody else a comment for the board's admins.
          *     The block's `modifiedBy` and `updateAt` say who changed it and when.
          */
         patch: operations["patchBlock"];
@@ -268,7 +269,12 @@ export interface paths {
         /**
          * Bring a deleted block back
          * @description Restores a block of the board from the trash, with the blocks that went there with
-         *     it. A block whose parent is gone has nowhere to come back to: 404. For editors.
+         *     it. A block whose parent is gone has nowhere to come back to: 404. For who may
+         *     delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
+         *     else the board's admins only (403, `access denied to undelete other users'
+         *     comments`). What decides is the block that was deleted, which took the others along:
+         *     a block below somebody else's comment is brought back by the admins only, and a
+         *     comment that went with its card by whoever may bring back the card.
          */
         post: operations["undeleteBlock"];
         delete?: never;
