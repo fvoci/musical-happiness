@@ -38,8 +38,8 @@ pub use auth::{
 };
 pub use block::{
     BLOCK_FIELDS_MAX_CHARS, BLOCK_TITLE_MAX_CHARS, Block, BlockError, BlockPatch, BlockPatchBatch,
-    BlockType, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, TYPE_SHOWN_CHARS,
-    stamp_modification_metadata,
+    BlockType, CARD_FIELD_KINDS, CARD_FIELDS_MAX_CHARS, ParseBlockTypeError, TYPE_SHOWN_CHARS,
+    is_card_field_of_its_kind, stamp_modification_metadata,
 };
 pub use block_ids::generate_block_ids;
 pub use board::{

@@ -81,12 +81,6 @@ pub(crate) fn check_error(response: &ApiResponse, status: StatusCode, message: &
     response.check_error(status, message);
 }
 
-/// Checks that the answer is the server error, which never says what went wrong.
-#[track_caller]
-pub(crate) fn check_internal_error(response: &ApiResponse) {
-    response.check_internal_error();
-}
-
 fn cards_path(board_id: &str) -> String {
     format!("/boards/{board_id}/cards")
 }
@@ -550,26 +544,31 @@ async fn app_get_cards_success_scenario() {
 }
 
 /// `TestGetCards/"error scenario"` (app). The original injects a store failure through
-/// a mock; the failure the real store allows is a card block that cannot be read as a
-/// card.
+/// a mock. The failure the real store allowed, a card block that cannot be read as a
+/// card, is refused when it is written now, and one stored before is read without its
+/// malformed field (see `card_from_stored_block` in `app/cards.rs`): the board's list
+/// of cards has no failure left to show.
 #[tokio::test]
 async fn app_get_cards_error_scenario() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    insert_card_block(&th.client, &board.id, json!({"icon": 5})).await;
+    let block = Block {
+        fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
+        ..new_block(&board.id, "", BlockType::Card)
+    };
+    let response = th
+        .client
+        .insert_blocks(&board.id, std::slice::from_ref(&block))
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("fields"));
 
-    let error = th
+    let cards = th
         .app
         .cards_for_board(&board.id, 0, 0)
         .await
-        .expect_err("one of the cards is malformed");
-
-    assert_eq!(error.kind(), ErrorKind::Internal, "{error:?}");
-    assert_eq!(
-        error.to_string(),
-        "Block2Card fail: invalid type for field 'icon'",
-        "what the log says"
-    );
+        .expect("the cards are read");
+    assert!(cards.is_empty(), "nothing was stored: {cards:?}");
     th.teardown().await;
 }
 
@@ -1067,18 +1066,17 @@ async fn get_cards_paging() {
     th.teardown().await;
 }
 
-/// Preserved quirk: one card block that cannot be read as a card fails the board's
-/// whole list of cards (server/app/cards.go:54-60), and reading it alone is a bad
-/// request that says why. Properties that are no object are the exception, see
-/// `cards_whose_properties_are_no_object_are_read_without_properties`.
+/// A card block whose `icon` is no string or whose `isTemplate` is no boolean is
+/// refused (400 naming `fields`), through the blocks routes too: the original stores
+/// it, and then fails the board's whole list of cards (server/app/cards.go:54-60).
+/// `null` stands for an absent field. A stored `contentOrder` is not read, whatever
+/// its shape.
 #[tokio::test]
-async fn get_cards_fails_on_a_malformed_card() {
+async fn a_malformed_card_block_is_refused() {
     let th = Setup::native().start().await.init_basic().await;
     let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
-    let path = cards_path(&board.id);
     create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
-    // A stored `contentOrder` is not read, whatever its shape: side-by-side content, as
-    // the original's web app stores it, has nested lists.
+    // Side-by-side content, as the original's web app stores it, has nested lists.
     insert_card_block(
         &th.client,
         &board.id,
@@ -1086,34 +1084,116 @@ async fn get_cards_fails_on_a_malformed_card() {
     )
     .await;
     insert_card_block(&th.client, &board.id, json!({"contentOrder": "a"})).await;
+    let nulls = insert_card_block(
+        &th.client,
+        &board.id,
+        json!({"icon": null, "isTemplate": null}),
+    )
+    .await;
+    let cards = cards_of(&th.client, &board.id, "").await;
+    assert_eq!(cards.len(), 4, "four cards");
+    let read: Card = th.client.get(&card_path(&nulls.id)).await.ok_json();
+    assert_eq!(read.icon, "", "null is no icon");
+    assert!(!read.is_template, "null is not a template");
+
+    for fields in [
+        json!({"icon": 5}),
+        json!({"icon": ["x"]}),
+        json!({"isTemplate": "yes"}),
+        json!({"isTemplate": 1}),
+    ] {
+        let block = Block {
+            fields: serde_json::from_value(fields.clone()).expect("an object"),
+            ..new_block(&board.id, "", BlockType::Card)
+        };
+        let response = th
+            .client
+            .insert_blocks(&board.id, std::slice::from_ref(&block))
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], json!("fields"), "{fields}");
+
+        // Nor can a card get it by a patch.
+        let response = th
+            .client
+            .patch(
+                &format!("/boards/{}/blocks/{}", board.id, nulls.id),
+                &json!({"updatedFields": fields}),
+            )
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], json!("fields"), "{fields}");
+    }
+    // Another block may hold such fields: only a card is read as one.
+    let view = Block {
+        fields: serde_json::from_value(json!({"icon": 5})).expect("an object"),
+        ..new_block(&board.id, "", BlockType::View)
+    };
+    insert_block(&th.client, &view).await;
     assert_eq!(
         cards_of(&th.client, &board.id, "").await.len(),
-        3,
-        "three cards"
+        4,
+        "the list works"
     );
 
-    let cases = [json!({"icon": 5}), json!({"isTemplate": "yes"})];
-    for fields in cases {
-        let block = insert_card_block(&th.client, &board.id, fields).await;
+    th.teardown().await;
+}
 
-        let response = th.client.get(&path).await;
-        check_internal_error(&response);
-        // What is stored is no card: that is the server's state, not the request's
-        // mistake. (The original answers 400 for the card alone.)
-        let response = th.client.get(&card_path(&block.id)).await;
-        check_internal_error(&response);
+/// A title with U+0000 is refused (400 naming `title`) on both databases: PostgreSQL
+/// cannot store it in text, which was a 500 there.
+#[tokio::test]
+async fn a_title_with_u0000_is_refused() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let block = Block {
+        title: "a\u{0}b".to_owned(),
+        ..new_block(&board.id, "", BlockType::Card)
+    };
+    let response = th
+        .client
+        .insert_blocks(&board.id, std::slice::from_ref(&block))
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("title"));
 
-        th.client
-            .delete(&format!("/boards/{}/blocks/{}", board.id, block.id))
-            .await
-            .check_no_content();
-        assert_eq!(
-            cards_of(&th.client, &board.id, "").await.len(),
-            3,
-            "the list works again without the malformed card"
-        );
+    let card = create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
+    let response = th
+        .client
+        .patch(
+            &format!("/boards/{}/blocks/{}", board.id, card.id),
+            &json!({"title": "a\u{0}b"}),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("title"));
+
+    for (patch, member) in [
+        (json!({"title": "a\u{0}"}), "title"),
+        (json!({"description": "\u{0}"}), "description"),
+        (json!({"icon": "\u{0}"}), "icon"),
+        (json!({"updatedProperties": {"k": "a\u{0}"}}), "properties"),
+        (json!({"updatedProperties": {"a\u{0}": "v"}}), "properties"),
+        (
+            json!({"updatedCardProperties": [{"id": "p", "name": "a\u{0}", "type": "text"}]}),
+            "cardProperties",
+        ),
+    ] {
+        let response = th
+            .client
+            .patch(&format!("/boards/{}", board.id), &patch)
+            .await;
+        response.check_bad_request();
+        assert_eq!(response.value()["field"], json!(member), "{patch}");
     }
-
+    let response = th
+        .client
+        .post(
+            "/boards",
+            &json!({"teamId": TEST_TEAM_ID, "type": "O", "title": "x\u{0}"}),
+        )
+        .await;
+    response.check_bad_request();
+    assert_eq!(response.value()["field"], json!("title"));
     th.teardown().await;
 }
 

@@ -652,7 +652,7 @@ pub(crate) async fn insert_board(
 ) -> Result<(), StoreError> {
     // Every way a board is stored comes through here: created, patched, duplicated,
     // imported.
-    board.validate_card_properties().map_err(BoardError::from)?;
+    board.check_storable()?;
     // A board that exists is held while it is read and written.
     lock_board(scope, &board.id).await?;
     let existing = find_board(scope, &board.id).await?;

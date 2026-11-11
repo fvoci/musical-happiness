@@ -148,7 +148,8 @@ impl Card {
     ///
     /// Returns [`CardError::NotCardBlock`] for any other block type, and
     /// [`CardError::InvalidFieldType`] if `icon` is not a string, `isTemplate` is not a
-    /// boolean or `properties` is not an object. A card's content is its body; a
+    /// boolean or `properties` is not an object (`null` as `icon` or `isTemplate` is
+    /// taken as absent). A card's content is its body; a
     /// `contentOrder` that a card stored before has is left among the block's fields and
     /// is not read (`docs/s6-design.md` 5.7).
     pub fn from_block(block: &Block, now: i64) -> Result<Self, CardError> {
@@ -157,12 +158,12 @@ impl Card {
         }
 
         let icon = match block.fields.get("icon") {
-            None => String::new(),
+            None | Some(Value::Null) => String::new(),
             Some(Value::String(icon)) => icon.clone(),
             Some(_) => return Err(CardError::InvalidFieldType { field: "icon" }),
         };
         let is_template = match block.fields.get("isTemplate") {
-            None => false,
+            None | Some(Value::Null) => false,
             Some(Value::Bool(is_template)) => *is_template,
             Some(_) => {
                 return Err(CardError::InvalidFieldType {

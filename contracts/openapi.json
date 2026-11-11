@@ -48,7 +48,7 @@
           },
           "fields": {
             "additionalProperties": true,
-            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment or an attachment and 800,000 for a view or a block of another type.",
+            "description": "Type-specific data, free-form: serialized, at most 64,000 characters for a card, a\ncomment or an attachment and 800,000 for a view or a block of another type. The\n`icon` of a card is a string and its `isTemplate` a boolean, or either `null`\n(400 naming `fields` otherwise).",
             "type": "object"
           },
           "id": {
@@ -69,7 +69,7 @@
             "type": "integer"
           },
           "title": {
-            "description": "The display title.",
+            "description": "The display title. A title with U+0000 is refused (400 naming `title`).",
             "type": "string"
           },
           "type": {
@@ -261,7 +261,7 @@
             "type": "integer"
           },
           "title": {
-            "description": "The board's title.",
+            "description": "The board's title. No text of a board (this, `description`, `icon`, and the\nstrings and member names of `properties` and `cardProperties`) holds U+0000:\n400 naming the member.",
             "type": "string"
           },
           "type": {

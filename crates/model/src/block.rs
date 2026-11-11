@@ -4,6 +4,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 use crate::JsonMap;
@@ -213,6 +214,32 @@ pub enum BlockError {
     /// A block that is neither a card nor a comment has a body.
     #[error("only a card or a comment has a body")]
     BodyNotAllowed,
+    /// The title holds U+0000, which PostgreSQL cannot store in text.
+    #[error("the title holds the character U+0000")]
+    NulInTitle,
+    /// A field of a card has a value of the wrong kind: `icon` a string, `isTemplate` a
+    /// boolean (or either `null`).
+    #[error("the field {field} of a card must be {expected}")]
+    InvalidCardField {
+        /// The field.
+        field: &'static str,
+        /// What its value must be.
+        expected: &'static str,
+    },
+}
+
+/// The fields of a card whose value has one kind, with the kind: anything else breaks
+/// the reading of the card ([`crate::Card::from_block`]). `null` is taken as absent.
+pub const CARD_FIELD_KINDS: [(&str, &str); 2] = [("icon", "a string"), ("isTemplate", "a boolean")];
+
+/// Whether `value` is of the kind [`CARD_FIELD_KINDS`] gives `field`: `null` always is.
+#[must_use]
+pub fn is_card_field_of_its_kind(field: &str, value: &Value) -> bool {
+    match (field, value) {
+        (_, Value::Null) | ("icon", Value::String(_)) | ("isTemplate", Value::Bool(_)) => true,
+        ("icon" | "isTemplate", _) => false,
+        _ => true,
+    }
 }
 
 /// How much of a type that is refused a [`BlockError::TypeNotCurrent`] shows: the
@@ -260,11 +287,13 @@ pub struct Block {
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
     pub block_type: BlockType,
-    /// The display title.
+    /// The display title. A title with U+0000 is refused (400 naming `title`).
     #[serde(deserialize_with = "null_as_default")]
     pub title: String,
     /// Type-specific data, free-form: serialized, at most 64,000 characters for a card, a
-    /// comment or an attachment and 800,000 for a view or a block of another type.
+    /// comment or an attachment and 800,000 for a view or a block of another type. The
+    /// `icon` of a card is a string and its `isTemplate` a boolean, or either `null`
+    /// (400 naming `fields` otherwise).
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub fields: JsonMap,
@@ -292,16 +321,31 @@ impl Block {
     /// # Errors
     ///
     /// Returns a [`BlockError`] if the board identifier is empty, the title or the
-    /// serialized fields exceed their size limits (the latter by type), or the fields
-    /// hold `properties` that are not well-formed card property values. The last applies
-    /// to blocks of every type: `properties` among a block's fields always means card
-    /// property values.
+    /// serialized fields exceed their size limits (the latter by type), the title holds
+    /// U+0000, the fields hold `properties` that are not well-formed card property
+    /// values, or the block is a card whose `icon` or `isTemplate` is of another kind
+    /// ([`CARD_FIELD_KINDS`]). `properties` among a block's fields always means card
+    /// property values, whatever the block's type.
     pub fn validate(&self) -> Result<(), BlockError> {
         if self.board_id.is_empty() {
             return Err(BlockError::EmptyBoardId);
         }
         if self.title.chars().count() > BLOCK_TITLE_MAX_CHARS {
             return Err(BlockError::TitleSizeLimitExceeded);
+        }
+        if self.title.contains('\0') {
+            return Err(BlockError::NulInTitle);
+        }
+        if self.block_type == BlockType::Card {
+            for (field, expected) in CARD_FIELD_KINDS {
+                if self
+                    .fields
+                    .get(field)
+                    .is_some_and(|value| !is_card_field_of_its_kind(field, value))
+                {
+                    return Err(BlockError::InvalidCardField { field, expected });
+                }
+            }
         }
         // Serializing a map with string keys cannot fail; if it ever did, the fields would
         // not be storable either.

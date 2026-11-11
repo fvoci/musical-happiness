@@ -354,6 +354,9 @@ impl From<StoreError> for AppError {
             | StoreError::BlockNotInDeletedBoards { .. }
             | StoreError::InvalidCategory(_)
             | StoreError::InvalidSubscription(_) => Self::bad_request(error),
+            StoreError::InvalidBoard(BoardError::NulCharacter { member }) => {
+                Self::bad_request(error).with_field(member)
+            }
             // A parent that is no block of the board, whether it is none at all or
             // another board's: the answer does not tell the two apart.
             StoreError::InvalidBlock {
@@ -361,6 +364,8 @@ impl From<StoreError> for AppError {
                     source @ (BlockError::ParentNotOnBoard
                     | BlockError::ParentBelowBlock
                     | BlockError::BodyNotAllowed
+                    | BlockError::NulInTitle
+                    | BlockError::InvalidCardField { .. }
                     | BlockError::TypeNotCurrent(_)),
                 ..
             } => Self::from(source),
@@ -401,6 +406,8 @@ impl From<BlockError> for AppError {
             | BlockError::FieldsSizeLimitExceeded
             | BlockError::InvalidCardProperties(_) => Self::bad_request(error),
             BlockError::BodyNotAllowed => Self::bad_request(error).with_field("body"),
+            BlockError::NulInTitle => Self::bad_request(error).with_field("title"),
+            BlockError::InvalidCardField { .. } => Self::bad_request(error).with_field("fields"),
             BlockError::TypeNotCurrent(_) => Self::bad_request(error).with_field("type"),
             BlockError::ParentNotOnBoard | BlockError::ParentBelowBlock => {
                 Self::bad_request(error).with_field("parentId")

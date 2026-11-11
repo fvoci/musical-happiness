@@ -325,7 +325,7 @@ impl Walk {
 
 /// Whether a string or a member name in the value holds U+0000, which PostgreSQL cannot
 /// store in `jsonb`.
-fn holds_nul(value: &Value) -> bool {
+pub(crate) fn holds_nul(value: &Value) -> bool {
     match value {
         Value::String(text) => text.contains('\0'),
         Value::Array(items) => items.iter().any(holds_nul),
