@@ -140,12 +140,19 @@ export function edgesOnLoops(edges: readonly RelationEdge[]): RelationEdge[] {
 }
 
 /** The first and last day a card takes by a date property, for a reader in `timeZone`. */
-function daysOfCard(
-  card: Card,
-  template: PropertyTemplate,
-  timeZone: string,
-): { first: CalendarDate; last: CalendarDate } | undefined {
+function daysOfCard(card: Card, template: PropertyTemplate, timeZone: string): Days | undefined {
   return propertyBehavior(template.type).days?.(cardProperty(card, template.id), card, timeZone);
+}
+
+/** The first and last day of something on the calendar. */
+export interface Days {
+  first: CalendarDate;
+  last: CalendarDate;
+}
+
+/** The rule itself: what comes after starts on a day before the day what comes before ends. */
+export function daysOutOfOrder(before: Days | undefined, after: Days | undefined): boolean {
+  return before !== undefined && after !== undefined && after.first < before.last;
 }
 
 /**
@@ -161,9 +168,22 @@ export function isOutOfOrder(
   template: PropertyTemplate,
   timeZone: string,
 ): boolean {
-  const first = daysOfCard(before, template, timeZone);
-  const second = daysOfCard(after, template, timeZone);
-  return first !== undefined && second !== undefined && second.first < first.last;
+  return daysOutOfOrder(
+    daysOfCard(before, template, timeZone),
+    daysOfCard(after, template, timeZone),
+  );
+}
+
+/**
+ * The edges whose two cards are out of order, by days worked out already
+ * (a chart has them for its bars): `daysOf` answers undefined for a card
+ * without a date.
+ */
+export function edgesOutOfOrderByDays(
+  edges: readonly RelationEdge[],
+  daysOf: (cardId: string) => Days | undefined,
+): RelationEdge[] {
+  return edges.filter(({ from, to }) => daysOutOfOrder(daysOf(from), daysOf(to)));
 }
 
 /** The edges whose two cards are out of order by a date property. */

@@ -286,6 +286,9 @@ export function createFilterGroup(source?: FilterGroup): FilterGroup {
 
 export type ViewType = 'board' | 'table' | 'gallery' | 'calendar';
 
+/** How far in a Gantt view is zoomed: what one mark of its axis is. */
+export type GanttZoom = 'day' | 'week' | 'month';
+
 /** The pseudo property that stands for the title column in sort options and calculations. */
 export const TITLE_COLUMN_ID = '__title';
 
@@ -297,6 +300,13 @@ export type BoardViewFields = {
   viewType: ViewType;
   groupById?: string;
   dateDisplayPropertyId?: string;
+  /**
+   * A Gantt view: the card relation property whose value on a card names the
+   * cards that come before it. Missing or empty: no card comes after another.
+   */
+  dependencyPropertyId?: string;
+  /** A Gantt view: its zoom. Missing, or a word this version does not know: `week`. */
+  ganttZoom?: GanttZoom;
   sortOptions: SortOption[];
   visiblePropertyIds: string[];
   visibleOptionIds: string[];
@@ -324,6 +334,8 @@ export function createBoardView(source?: Block): BoardView {
       viewType: fields.viewType || 'board',
       groupById: fields.groupById,
       dateDisplayPropertyId: fields.dateDisplayPropertyId,
+      dependencyPropertyId: fields.dependencyPropertyId,
+      ganttZoom: fields.ganttZoom,
       sortOptions: (fields.sortOptions ?? []).map((option) => ({ ...option })),
       visiblePropertyIds: copyList(fields.visiblePropertyIds),
       visibleOptionIds: copyList(fields.visibleOptionIds),
