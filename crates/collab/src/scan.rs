@@ -221,10 +221,13 @@ impl Walk<'_> {
                 self.text()?;
                 self.text()?;
             }
-            // A shared type; an XML element has its name.
+            // A shared type; an XML element has its name. An XML hook (5), which the
+            // library writes without the name that the editors' library reads after
+            // it, and a type of no kind (15), which the editors' library has not, would
+            // leave a document no browser can open.
             7 => match self.byte()? {
                 3 => self.text()?,
-                0..=2 | 4..=6 | 15 => {}
+                0..=2 | 4 | 6 => {}
                 _ => return Err(Refusal::Unknown),
             },
             // Values.
@@ -245,9 +248,11 @@ impl Walk<'_> {
 
     /// A whole number of a value: the sign and six bits, then seven bits a byte.
     ///
-    /// One past 53 bits is refused. The library reads it, and writes it back as a
-    /// number of 64 bits, which this walk refuses, so that a document that took it
-    /// could not be read again; and JavaScript does not keep it. Nine bytes hold 62
+    /// One past 53 bits is refused. JavaScript does not keep it, and the library, which
+    /// reads it, writes it back as a float where a float holds it exactly and otherwise
+    /// as a number of 64 bits, which this walk refuses: a document that took it could
+    /// not be read again. Every whole number up to 53 bits is written back in a form
+    /// this walk reads. Nine bytes hold 62
     /// bits; the library reads more, and a tenth could spell the one number that has
     /// no negative, which it negates, so the number is refused by its length as well.
     fn whole_number(&mut self) -> Result<(), Refusal> {
@@ -487,6 +492,13 @@ mod tests {
             json.extend_from_slice(b"default");
             json.extend_from_slice(&[count, 1, b'1', 1, b'2', 0]);
             assert_eq!(check(&json), Err(Refusal::Unknown), "{count}");
+        }
+        // An XML hook and a type of no kind, which the editors' library cannot read.
+        for kind in [5, 15] {
+            let mut shared = vec![1, 1, 5, 0, 7, 1, 7];
+            shared.extend_from_slice(b"default");
+            shared.extend_from_slice(&[kind, 0]);
+            assert_eq!(check(&shared), Err(Refusal::Unknown), "{kind}");
         }
         // A subdocument.
         let mut subdocument = vec![1, 1, 5, 0, 9, 1, 7];

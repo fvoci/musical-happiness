@@ -78,13 +78,13 @@ pub fn state_of(doc: &Doc) -> Vec<u8> {
 /// # Errors
 ///
 /// Returns [`UpdateError::DocumentUnreadable`] if the document's own state cannot be
-/// read again ([`doc_of_state`]).
+/// read again as any update is read.
 pub fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
     doc_of_state(&state_of(doc)).map_err(UpdateError::DocumentUnreadable)
 }
 
-/// The Y document whose state is `state`, read as an update from anybody is read: past
-/// the walk (`scan`), with every change it builds on, and with nothing that waits.
+/// The Y document whose state is `state`, read as any update is read: past the walk
+/// (`scan`), with every change it builds on, and with nothing left waiting.
 ///
 /// # Errors
 ///
