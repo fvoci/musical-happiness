@@ -24,10 +24,6 @@ pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 #[derive(Clone, Default, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
 #[serde(default)]
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "each flag is a separate key of the configuration file"
-)]
 pub struct AmazonS3Config {
     /// The access key; empty to use the environment's credentials.
     #[serde(rename = "accesskeyid")]
@@ -51,8 +47,6 @@ pub struct AmazonS3Config {
     pub sign_v2: bool,
     /// Whether to ask for server-side encryption of stored objects.
     pub sse: bool,
-    /// Whether to log every request to the object store.
-    pub trace: bool,
     /// The request timeout in milliseconds; zero for the default.
     pub timeout: i64,
 }
@@ -69,7 +63,6 @@ impl std::fmt::Debug for AmazonS3Config {
             .field("ssl", &self.ssl)
             .field("sign_v2", &self.sign_v2)
             .field("sse", &self.sse)
-            .field("trace", &self.trace)
             .field("timeout", &self.timeout)
             .finish_non_exhaustive()
     }
@@ -161,14 +154,6 @@ pub struct Configuration {
     /// The authentication mode. Only `native` is supported.
     #[serde(rename = "authmode")]
     pub auth_mode: String,
-    /// A logging configuration file of the original server. Not supported.
-    pub logging_cfg_file: String,
-    /// A logging configuration of the original server. Not supported.
-    pub logging_cfg_json: String,
-    /// An audit configuration file of the original server. Not supported.
-    pub audit_cfg_file: String,
-    /// An audit configuration of the original server. Not supported.
-    pub audit_cfg_json: String,
     /// How often the server pings each websocket, in seconds; zero to never ping. Keeps
     /// proxies and CDNs from closing idle connections.
     pub websocket_ping_seconds: u64,
@@ -263,10 +248,6 @@ impl Default for Configuration {
             show_email_address: false,
             show_full_name: false,
             auth_mode: "native".to_owned(),
-            logging_cfg_file: String::new(),
-            logging_cfg_json: String::new(),
-            audit_cfg_file: String::new(),
-            audit_cfg_json: String::new(),
             websocket_ping_seconds: 30,
             compress_responses: true,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
@@ -374,7 +355,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
-const ENV_KEYS: [(&str, EnvKind); 45] = [
+const ENV_KEYS: [(&str, EnvKind); 41] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -398,10 +379,6 @@ const ENV_KEYS: [(&str, EnvKind); 45] = [
     ("showemailaddress", EnvKind::Flag),
     ("showfullname", EnvKind::Flag),
     ("authmode", EnvKind::Text),
-    ("logging_cfg_file", EnvKind::Text),
-    ("logging_cfg_json", EnvKind::Text),
-    ("audit_cfg_file", EnvKind::Text),
-    ("audit_cfg_json", EnvKind::Text),
     ("websocket_ping_seconds", EnvKind::Number),
     ("compress_responses", EnvKind::Flag),
     ("max_request_bytes", EnvKind::Number),
@@ -446,9 +423,10 @@ pub const MIN_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024;
 pub const MAX_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
 /// Keys of the original server's configuration that this server no longer has, each with
-/// what to do instead. A file or an environment that sets one to something is refused:
-/// a server that silently ignored it would run differently from what its operator wrote.
-const REMOVED_KEYS: [(&str, &str); 5] = [
+/// what to do instead; a key of `filess3config` as `filess3config.<key>`. A file or an
+/// environment that sets one to something is refused: a server that silently ignored it
+/// would run differently from what its operator wrote.
+const REMOVED_KEYS: [(&str, &str); 10] = [
     (
         "dbtableprefix",
         "tables have fixed names; to keep them apart from other tables in one PostgreSQL \
@@ -473,7 +451,32 @@ const REMOVED_KEYS: [(&str, &str); 5] = [
         "when a session was last used is recorded at most every ten minutes; there is \
          nothing to set",
     ),
+    (
+        "logging_cfg_file",
+        "the log is set with FVOCI_LOG_LEVEL and FVOCI_LOG_FORMAT",
+    ),
+    (
+        "logging_cfg_json",
+        "the log is set with FVOCI_LOG_LEVEL and FVOCI_LOG_FORMAT",
+    ),
+    ("audit_cfg_file", "there is no audit log"),
+    ("audit_cfg_json", "there is no audit log"),
+    (
+        "filess3config.trace",
+        "requests to the object store are not logged one by one",
+    ),
 ];
+
+/// The value of a key of [`REMOVED_KEYS`] in the file's keys, and the name of its
+/// environment variable: `FVOCI_` and the key in capitals, a dot as `_`.
+fn removed_key<'a>(keys: &'a Map<String, Value>, key: &str) -> (Option<&'a Value>, String) {
+    let name = format!("{ENV_PREFIX}{}", key.to_uppercase().replace('.', "_"));
+    let value = match key.split_once('.') {
+        Some((outer, inner)) => keys.get(outer).and_then(|outer| outer.get(inner)),
+        None => keys.get(key),
+    };
+    (value, name)
+}
 
 /// Whether a configuration value says nothing: what a removed key may still hold.
 fn is_unset(value: &Value) -> bool {
@@ -533,9 +536,9 @@ impl Configuration {
         }
 
         for (key, instead) in REMOVED_KEYS {
-            let name = format!("{ENV_PREFIX}{}", key.to_uppercase());
+            let (value, name) = removed_key(&keys, key);
             let from_env = env(&name).is_some_and(|text| !text.trim().is_empty());
-            if from_env || keys.get(key).is_some_and(|value| !is_unset(value)) {
+            if from_env || value.is_some_and(|value| !is_unset(value)) {
                 bail!("{key} is no longer a setting: {instead}");
             }
         }
@@ -673,17 +676,7 @@ impl Configuration {
             other => bail!("filesdriver {other:?} is not supported; use \"local\" or \"amazons3\""),
         }
 
-        let ignored = [
-            ("logging_cfg_file", &self.logging_cfg_file),
-            ("logging_cfg_json", &self.logging_cfg_json),
-            ("audit_cfg_file", &self.audit_cfg_file),
-            ("audit_cfg_json", &self.audit_cfg_json),
-        ];
-        let mut warnings: Vec<String> = ignored
-            .into_iter()
-            .filter(|(_, value)| !value.is_empty())
-            .map(|(key, _)| format!("{key} is set but not supported and has no effect"))
-            .collect();
+        let mut warnings = Vec::new();
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
         // which address that is, all clients are one client to the login limits: one
@@ -956,9 +949,22 @@ mod tests {
         // that sets them is told what there is instead.
         assert!(error(r#"{"session_expire_time": 2592000}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_refresh_time": 18000}"#).contains("ten minutes"));
+        // The settings that did nothing (user decision 2026-11-11 11:05 KST).
+        assert!(error(r#"{"logging_cfg_json": "{}"}"#).contains("FVOCI_LOG_LEVEL"));
+        assert!(error(r#"{"audit_cfg_file": "a.json"}"#).contains("audit"));
+        assert!(error(r#"{"FilesS3Config": {"Trace": true}}"#).contains("filess3config.trace"));
+        let env = |name: &str| (name == "FVOCI_FILESS3CONFIG_TRACE").then(|| "true".to_owned());
+        assert!(
+            Configuration::parse("{}", env).is_err(),
+            "a key of filess3config has its variable too"
+        );
         // A file written for the original server usually carries the key, empty.
-        Configuration::parse(r#"{"dbtableprefix": ""}"#, no_env)
-            .expect("a removed key that says nothing is not in the way");
+        Configuration::parse(
+            r#"{"dbtableprefix": "", "logging_cfg_file": "", "audit_cfg_json": "",
+                "filess3config": {"Trace": false}}"#,
+            no_env,
+        )
+        .expect("a removed key that says nothing is not in the way");
     }
 
     #[test]
@@ -1005,11 +1011,6 @@ mod tests {
             error(r#"{"filesdriver": "amazons3", "filess3config": {"SignV2": true}}"#)
                 .contains("SignV2")
         );
-
-        let warnings = parse(r#"{"logging_cfg_json": "{}", "audit_cfg_file": "a.json"}"#)
-            .check()
-            .expect("unsupported logging settings only warn");
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
     }
 
     #[test]

@@ -68,7 +68,6 @@
 | `filess3config.ssl` | — | 참·거짓 | `false` | `endpoint`에 HTTPS로 닿는지. 거짓이면 HTTP도 허락한다 |
 | `filess3config.signv2` | — | 참·거짓 | `false` | 옛 서명 방식 v2. **받지 않는다**: `filesdriver`가 `amazons3`인데 참이면 시작하지 않는다(요청은 v4로 서명한다) |
 | `filess3config.sse` | — | 참·거짓 | `false` | 참이면 저장하는 객체에 서버 쪽 암호화(SSE-S3, `AES256`)를 청한다 |
-| `filess3config.trace` | — | 참·거짓 | `false` | **받지만 아무 일도 하지 않는다**(원본 서버에서는 S3 요청마다 로그를 남겼다) |
 | `filess3config.timeout` | — | 정수(밀리초) | `0` | S3 요청의 시간 제한. 0 이하면 클라이언트의 기본값이다 |
 
 **S3의 예.** MinIO 같은 호환 저장소에 HTTP로 닿는다.
@@ -170,19 +169,6 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `authmode` | `FVOCI_AUTHMODE` | 문자열 | `"native"` | 로그인 방식. 뒤에 OIDC 로그인을 넣을 자리다. 지금은 `native`(이 서버의 사용자 이름과 비밀번호)만 받는다 |
 | `prometheusaddress` | `FVOCI_PROMETHEUSADDRESS` | 문자열 | `""` | Prometheus 지표를 내는 주소. 뒤에 넣을 자리다. 지금은 비어 있어야 한다 |
 
-## 키: 받지만 아무 일도 하지 않는 것
-
-원본 서버의 설정 파일이 그대로 읽히도록 받는다. 값이 있으면 경고하거나(`logging_*`, `audit_*`) 말없이 무시한다(`filess3config.trace`). 지울지는 정하지 않았다(작업 묶음의 보고에 "사용자 결정 필요"로 올렸다).
-
-| 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
-|---|---|---|---|---|
-| `logging_cfg_file` | `FVOCI_LOGGING_CFG_FILE` | 문자열 | `""` | 아무 일도 하지 않는다. 값이 있으면 시작할 때 경고한다. 로그는 아래 `FVOCI_LOG_LEVEL`, `FVOCI_LOG_FORMAT`으로 정한다 |
-| `logging_cfg_json` | `FVOCI_LOGGING_CFG_JSON` | 문자열 | `""` | 위와 같다 |
-| `audit_cfg_file` | `FVOCI_AUDIT_CFG_FILE` | 문자열 | `""` | 위와 같다(감사 로그는 없다) |
-| `audit_cfg_json` | `FVOCI_AUDIT_CFG_JSON` | 문자열 | `""` | 위와 같다 |
-
-`filess3config.trace`도 아무 일도 하지 않는다(파일 저장소의 표).
-
 ## 없앤 키
 
 원본 서버에 있었고 이 서버에는 없는 키다. 파일이 이 키에 뜻이 있는 값(빈 문자열, 0, `false`, `null`, 빈 목록이 아닌 것)을 주거나, 환경 변수(`FVOCI_` + 대문자)가 공백만이 아니면(`false`나 `0`이어도) **서버가 시작하지 않는다**. 말없이 무시하면 운영자가 적은 것과 다르게 돌기 때문이다.
@@ -194,6 +180,11 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `securecookie` | 세션 쿠키는 `serverRoot`가 https일 때 `Secure`다 |
 | `session_expire_time` | 세션은 `session_idle_days` 동안 쓰지 않으면, 그리고 로그인한 뒤 `session_max_days`가 지나면 끝난다. 둘 다 날 단위다 |
 | `session_refresh_time` | 세션을 마지막으로 쓴 때는 많아야 10분마다 적는다. 정할 것이 없다 |
+| `logging_cfg_file` | 로그는 `FVOCI_LOG_LEVEL`, `FVOCI_LOG_FORMAT`으로 정한다 |
+| `logging_cfg_json` | 위와 같다 |
+| `audit_cfg_file` | 감사 로그는 없다 |
+| `audit_cfg_json` | 위와 같다 |
+| `filess3config.trace` | S3 요청마다 로그를 남기지 않는다. 환경 변수는 `FVOCI_FILESS3CONFIG_TRACE`다 |
 
 ## 명령줄 인자
 
