@@ -40,7 +40,9 @@
   const workspace = $derived(board.workspace);
   const editable = $derived(board.canEdit);
   const Editor = $derived(editable ? editorChunk.component : undefined);
-  const resolveUser = (userId: string): string | undefined => workspace.userName(userId);
+  // Somebody not known (gone, or a mention that names nobody, as an anonymous reader gets them).
+  const resolveUser = (userId: string): string =>
+    workspace.userName(userId) ?? m['centerPanel.unknown-user']();
   /** Who can be mentioned: the members of the board. */
   const people = $derived(
     board.orderedMembers.map((member) => ({

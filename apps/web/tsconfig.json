@@ -28,6 +28,7 @@
     "src/**/*",
     "tests/**/*",
     "e2e/**/*",
+    "e2e-live/**/*",
     "stories/**/*",
     "spikes/**/*",
     "tools/**/*",

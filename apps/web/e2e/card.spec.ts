@@ -8,11 +8,13 @@
  * behind it draws its cards. The tests that are about coming from the board
  * (back closes, the focus returns) press a card on the board instead.
  *
- * `FVOCI_SCREENS=1` also takes the pictures of docs/screens/card/.
+ * `FVOCI_SCREENS=1` also takes the pictures of the card, into
+ * `target/screens/card/` (`e2e/screens.ts`).
  */
 import path from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { screensDir } from './screens.ts';
 
 // The longer tests here take a dozen steps each. On a machine that is busy with
 // other work they have run past the default of thirty seconds without anything
@@ -897,8 +899,9 @@ test('a comment somebody else writes appears by itself', async ({ page }) => {
   );
   await expect(list).toHaveCount(count + 1);
   await expect(list.last()).toContainText('Seen from elsewhere');
-  // Not the reader's: it cannot be deleted here.
-  await expect(list.last().getByRole('button')).toHaveCount(0);
+  // Not the reader's, but the reader is the board's admin, who deletes
+  // anyone's comment (`deleteBlock` in the contract).
+  await expect(list.last().getByRole('button', { name: /^Delete the comment/ })).toHaveCount(1);
 });
 
 test('attachments: several files at once, a link to each, deleting and bringing back', async ({
@@ -1140,22 +1143,23 @@ test('somebody else deletes the card while it is open: the same notice', async (
 
 // ------------------------------------------------------------------- menu
 
-test('the menu deletes the card after a question, and the card closes', async ({ page }) => {
+test('the menu deletes the card without asking, the card closes, and undo brings it back', async ({
+  page,
+}) => {
   const place = await openTaskCard(page);
   const onBoard = page.locator(`[data-card="${place.cardId}"]`);
   await expect(onBoard).toHaveCount(1);
 
   await cardMenu(page, 'delete');
-  const confirm = page.getByTestId('confirm-dialog');
-  await expect(confirm).toContainText('Identify dependencies');
-  await confirm.getByRole('button', { name: 'Cancel' }).click();
-  await expect(dialog(page)).toBeVisible();
-
-  await cardMenu(page, 'delete');
-  await confirm.getByRole('button', { name: 'Delete' }).click();
+  // No question in between: the card closes by the choice alone. (A question
+  // would keep the card open, and the next line would fail.)
+  await expect(page.getByTestId('confirm-dialog')).toBeHidden();
   await expect(dialog(page)).toBeHidden();
   await expect(onBoard).toHaveCount(0);
   await expect(page).toHaveURL(new RegExp(`/board/${place.boardId}/${place.viewId}$`));
+
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(onBoard).toHaveCount(1);
 });
 
 test('the menu copies the link to the card', async ({ page, context }) => {
@@ -1191,7 +1195,7 @@ test.describe('in Korean', () => {
 test.describe('pictures of the card', () => {
   test.skip(!process.env.FVOCI_SCREENS, 'set FVOCI_SCREENS=1 to take the pictures');
 
-  const SCREENS = path.resolve(import.meta.dirname, '../docs/screens/card');
+  const SCREENS = screensDir('card');
 
   for (const scheme of ['light', 'dark'] as const) {
     test(`the card, its menu, a picker and a conflict (${scheme})`, async ({ page }, testInfo) => {

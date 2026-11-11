@@ -59,10 +59,10 @@ export const math = (latex: string): DocNode => ({ type: 'inlineMath', attrs: { 
 /** A formula on a line of its own. */
 export const mathBlock = (latex: string): DocNode => ({ type: 'blockMath', attrs: { latex } });
 
-/** The people the documents mention. `user-gone` is deliberately not among them. */
+/** The people the documents mention. The third (gone) is deliberately not among them. */
 export const PEOPLE: Record<string, string> = {
-  'user-kim': '김하늘',
-  'user-ada': 'Ada Lovelace',
+  '01930000-0000-7000-8000-00000000c001': '김하늘',
+  '01930000-0000-7000-8000-00000000c002': 'Ada Lovelace',
 };
 
 /** Files whose identifier starts like this have no address. */
@@ -107,16 +107,23 @@ export const HAND_MADE: Record<string, DocNode> = {
   mentions: doc(
     paragraph(
       text('담당 '),
-      mention('user-kim'),
+      mention('01930000-0000-7000-8000-00000000c001'),
       text(' 님, 검토 '),
-      mention('user-ada'),
+      mention('01930000-0000-7000-8000-00000000c002'),
       text(', 그리고 떠난 사람 '),
-      mention('user-gone'),
+      mention('01930000-0000-7000-8000-00000000c003'),
     ),
-    paragraph(mention('user-kim')),
-    paragraph(mention('user-kim'), mention('user-ada')),
-    heading(3, mention('user-ada'), text(' in a heading')),
-    paragraph(text('bold', 'bold'), mention('user-kim'), text('bold again', 'bold')),
+    paragraph(mention('01930000-0000-7000-8000-00000000c001')),
+    paragraph(
+      mention('01930000-0000-7000-8000-00000000c001'),
+      mention('01930000-0000-7000-8000-00000000c002'),
+    ),
+    heading(3, mention('01930000-0000-7000-8000-00000000c002'), text(' in a heading')),
+    paragraph(
+      text('bold', 'bold'),
+      mention('01930000-0000-7000-8000-00000000c001'),
+      text('bold again', 'bold'),
+    ),
   ),
 
   'struck text and inline code': doc(
@@ -184,7 +191,7 @@ export const HAND_MADE: Record<string, DocNode> = {
         true,
         paragraph(
           text('for '),
-          mention('user-kim'),
+          mention('01930000-0000-7000-8000-00000000c001'),
           lineBreak(),
           text('with '),
           text('marks', 'bold'),

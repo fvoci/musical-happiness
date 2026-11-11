@@ -5,14 +5,13 @@
   "scripts": {
     "dev": "pnpm run i18n && vite",
     "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/i18n/paraglide --strategy globalVariable baseLocale --silent",
-    "i18n:convert": "node tools/i18n/convert.ts",
     "i18n:keys": "node tools/i18n/check-keys.ts",
     "fonts": "node tools/fonts/build.ts",
     "licenses": "node tools/licenses/check.ts",
     "names": "node tools/names/check.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "check": "pnpm run i18n && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && eslint . && prettier --check . && node tools/licenses/check.ts && node tools/names/check.ts && node tools/i18n/convert.ts --check && node tools/i18n/check-keys.ts",
+    "check": "pnpm run i18n && openapi-typescript ../../contracts/openapi.json -o src/lib/api/contract.ts --check && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && eslint . && prettier --check . && node tools/licenses/check.ts && node tools/names/check.ts && node tools/i18n/check-keys.ts",
     "test": "pnpm run i18n && node tools/test-zones.ts",
     "build": "pnpm run i18n && node tools/fonts/build.ts && vite build",
     "preview": "node tools/preview.ts",
@@ -23,7 +22,9 @@
     "spikes:build": "pnpm run i18n && vite build --config vite.spikes.config.ts",
     "spikes:e2e": "pnpm run i18n && playwright test --config playwright.spikes.config.ts",
     "test:once": "pnpm run i18n && vitest run",
-    "look": "pnpm run build && pnpm run spikes:build && pnpm run build-storybook && node tools/serve.ts --host 0.0.0.0 --port 18410 app:app=dist screens=dist-spikes storybook=storybook-static"
+    "look": "pnpm run build && pnpm run spikes:build && pnpm run build-storybook && node tools/serve.ts --host 0.0.0.0 --port 18410 app:app=dist screens=dist-spikes storybook=storybook-static",
+    "api:types": "openapi-typescript ../../contracts/openapi.json -o src/lib/api/contract.ts",
+    "e2e:live": "playwright test --config playwright.live.config.ts"
   },
   "dependencies": {
     "@tiptap/core": "3.33.0",
@@ -72,6 +73,7 @@
     "fast-check": "4.10.2",
     "globals": "17.14.0",
     "jsdom": "31.0.0",
+    "openapi-typescript": "7.13.0",
     "prettier": "3.9.10",
     "prettier-plugin-svelte": "4.1.1",
     "prettier-plugin-tailwindcss": "0.8.1",

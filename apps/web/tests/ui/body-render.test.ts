@@ -7,7 +7,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setFileUrlResolver } from '$lib/editor/files.ts';
 import { renderBody, type RenderedBody } from '$lib/editor/render.ts';
-import { isAllowedHref, MAX_DEPTH, MAX_NODES, type DocNode } from '$lib/editor/schema.ts';
+import {
+  isAllowedHref,
+  MAX_DEPTH,
+  MAX_NODES,
+  validateDoc,
+  type DocNode,
+} from '$lib/editor/schema.ts';
 
 import { doc, image, link, mention, paragraph, task, tasks, text } from '../support/body-docs.ts';
 
@@ -121,6 +127,16 @@ describe('what is drawn', () => {
     // Without a resolver at all, as the editor does without a list of people.
     const bare = place(renderBody(doc(paragraph(mention('u1')))));
     expect(bare.textContent).toBe('@u1');
+  });
+
+  it('draws a mention that names nobody (as an anonymous reader gets it) through the caller, though it may not be written', () => {
+    const anonymous = doc(paragraph(text('ask '), mention('')));
+    expect(validateDoc(anonymous)).not.toEqual([]);
+    expect(validateDoc(anonymous, { shown: true })).toEqual([]);
+    const body = place(
+      renderBody(anonymous, { resolveUser: (userId) => (userId ? undefined : 'Unknown user') }),
+    );
+    expect(body.querySelector('span.mention')?.textContent).toBe('@Unknown user');
   });
 
   it('draws an image from the address of its file, lazily', () => {

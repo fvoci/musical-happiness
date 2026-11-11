@@ -253,6 +253,7 @@ export const LAYERS: Readonly<Record<string, number>> = {
   state: 2,
   ui: 2,
   components: 3,
+  api: 3,
   features: 4,
 };
 

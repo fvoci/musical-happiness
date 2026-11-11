@@ -16,6 +16,8 @@
  */
 export const BODY_VERSION = 2;
 
+/** The largest body, as the bytes of its JSON in UTF-8 (`storedSize`). */
+export const MAX_BODY_BYTES = 1024 * 1024;
 export const MAX_DEPTH = 32;
 export const MAX_NODES = 20_000;
 /**
@@ -70,6 +72,12 @@ const isIntegerBetween =
   (value) =>
     typeof value === 'number' && Number.isInteger(value) && value >= low && value <= high;
 const isBoolean: AttributeRule = (value) => typeof value === 'boolean';
+const NIL_ID = '00000000-0000-0000-0000-000000000000';
+/** A user's identifier as the server writes one: a UUID in lower case with hyphens, not the nil one. */
+export const isUserId: AttributeRule = (value) =>
+  typeof value === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value) &&
+  value !== NIL_ID;
 /** A language tag of a code block: `rust`, `c++`, `objective-c`. */
 const isLanguage: AttributeRule = (value) =>
   typeof value === 'string' && /^[A-Za-z0-9+#._-]{1,40}$/.test(value);
@@ -128,7 +136,7 @@ export const NODE_SPECS: Record<string, NodeSpec> = {
     children: [],
     minChildren: 0,
   },
-  mention: { attrs: { userId: required(isNonEmptyText(100)) }, children: [], minChildren: 0 },
+  mention: { attrs: { userId: required(isUserId) }, children: [], minChildren: 0 },
   // A formula is its LaTeX source and nothing else; it is drawn where it is shown.
   inlineMath: {
     attrs: { latex: required(isNonEmptyText(MAX_LATEX)) },
@@ -182,11 +190,44 @@ function checkAttributes(
 }
 
 /**
+ * Whether any text or member name of a value holds U+0000, which the
+ * server's store cannot keep (PostgreSQL's `jsonb`) and so refuses.
+ */
+function holdsNul(value: unknown): boolean {
+  if (typeof value === 'string') return value.includes('\u0000');
+  if (Array.isArray(value)) return value.some(holdsNul);
+  if (typeof value === 'object' && value !== null) {
+    return Object.entries(value).some(
+      ([name, inner]) => name.includes('\u0000') || holdsNul(inner),
+    );
+  }
+  return false;
+}
+
+/**
+ * The attributes of a mention in a body that is only shown. Whoever reads a
+ * shared board with its read token alone gets every mention with an empty
+ * `userId` (`docs/contract-pending.md`, 1): drawn as an unknown user, never
+ * written back.
+ */
+const SHOWN_MENTION = { userId: required(isText(100)) };
+
+export interface ValidateOptions {
+  /**
+   * The document is only shown, not written: a mention may name nobody
+   * (an empty `userId`), and U+0000, which only the server's store cannot
+   * keep, is drawn as the letter it is.
+   */
+  shown?: boolean;
+}
+
+/**
  * Everything that is wrong with a document; an empty list means the server
  * will take it. Checked are the kinds of nodes and marks, their attributes,
  * which node may be inside which, and the limits on depth and size.
+ * With `shown`, what may be drawn though it may not be written.
  */
-export function validateDoc(doc: unknown): string[] {
+export function validateDoc(doc: unknown, options: ValidateOptions = {}): string[] {
   const problems: string[] = [];
   let count = 0;
 
@@ -224,13 +265,20 @@ export function validateDoc(doc: unknown): string[] {
     if (allowed && !allowed.includes(type))
       problems.push(`${at}: not allowed inside ${where || 'the root'}`);
     for (const key of Object.keys(rest)) problems.push(`${at}: unknown member "${key}"`);
-    checkAttributes(at, attrs, spec.attrs, problems);
+    checkAttributes(
+      at,
+      attrs,
+      options.shown && type === 'mention' ? SHOWN_MENTION : spec.attrs,
+      problems,
+    );
 
     if (type === 'text') {
       if (typeof text !== 'string' || text.length === 0) problems.push(`${at}: text is empty`);
       // What is stored comes from elsewhere: nothing about its shape is taken on trust.
-      const given: unknown = marks ?? [];
-      if (!Array.isArray(given)) {
+      // A member that is there is a list; `null` is not an empty one.
+      const stated: unknown = marks;
+      const given: unknown = stated ?? [];
+      if (stated === null || !Array.isArray(given)) {
         problems.push(`${at}: marks is not a list`);
         return;
       }
@@ -263,8 +311,9 @@ export function validateDoc(doc: unknown): string[] {
       if (marks !== undefined) problems.push(`${at}: only text nodes have marks`);
     }
 
-    const children: unknown = content ?? [];
-    if (!Array.isArray(children)) {
+    const listed: unknown = content;
+    const children: unknown = listed ?? [];
+    if (listed === null || !Array.isArray(children)) {
       problems.push(`${at}: content is not a list`);
       return;
     }
@@ -288,6 +337,8 @@ export function validateDoc(doc: unknown): string[] {
   }
 
   visit(doc, '', 1, ['doc']);
+  if (problems.length === 0 && !options.shown && holdsNul(doc))
+    problems.push('a text or a name holds U+0000');
   return problems;
 }
 

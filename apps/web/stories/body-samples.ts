@@ -19,8 +19,8 @@ const task = (checked: boolean, ...content: DocNode[]): DocNode => ({
 });
 
 export const PEOPLE: Record<string, string> = {
-  'user-kim': '김하늘',
-  'user-ada': 'Ada Lovelace',
+  '01930000-0000-7000-8000-00000000c001': '김하늘',
+  '01930000-0000-7000-8000-00000000c002': 'Ada Lovelace',
 };
 
 /** A picture for a file identifier that starts with `file-`; the others have no address. */
@@ -42,11 +42,11 @@ export const MIXED: DocNode = {
       text('다음 주 '),
       text('목요일', 'bold'),
       text('까지 끝낼 일입니다. 담당은 '),
-      { type: 'mention', attrs: { userId: 'user-kim' } },
+      { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c001' } },
       text(' 님, 검토는 '),
-      { type: 'mention', attrs: { userId: 'user-ada' } },
+      { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c002' } },
       text(' 님, 그리고 이름을 모르는 '),
-      { type: 'mention', attrs: { userId: 'user-gone' } },
+      { type: 'mention', attrs: { userId: '01930000-0000-7000-8000-00000000c003' } },
       text('.'),
     ),
     heading(2, '할 일'),
@@ -107,7 +107,7 @@ export const MIXED: DocNode = {
 };
 
 /**
- * One document of the built-in templates, as tools/templates/archive.ts gives
+ * One document of the built-in templates, as the template archive held
  * it: the template "Project Tasks", the card "Identify dependencies" (copied
  * at commit 17d04ad6).
  */

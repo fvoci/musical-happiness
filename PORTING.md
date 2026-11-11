@@ -308,7 +308,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 
 - 스키마를 sqlx의 migrator가 적용한다. 파일은 `crates/store/schema/{sqlite,postgres}/0001_baseline.sql`이고 기록은 `_sqlx_migrations`에 있다.
 - 테이블 접두사가 없다. `dbtableprefix`는 설정이 아니다. 값이 있으면 시작 오류다.
-- 다음 DB는 이유를 말하고 거절한다: 옛 Focalboard 서버가 만든 DB(SQLite의 `db_migrations`, PostgreSQL의 `…schema_migrations`), 기록 없는 테이블이 있는 DB, 더 새 서버가 올린 DB, 고쳐 쓴 이력.
+- 다음 DB는 이유를 말하고 거절한다: 기록 없이 `blocks` 테이블이 있는 DB, 더 새 서버가 올린 DB, 고쳐 쓴 이력. 옛 Focalboard 서버가 만든 DB를 알아보는 검사는 없다.
 - 두 스키마 파일이 열 타입 말고는 같다는 것을 테스트가 본다(`setup::the_two_baseline_schemas_differ_in_the_column_types_only`).
 
 #### single-user 모드가 없다

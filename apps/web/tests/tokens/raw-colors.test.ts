@@ -144,7 +144,7 @@ describe('the colours that have to be written out', () => {
     return `#${channel(colour.r)}${channel(colour.g)}${channel(colour.b)}`;
   };
 
-  it('are the page colours of the two brightnesses', () => {
+  it('are the page colours of the two themes', () => {
     expect(THEME_COLORS.light).toBe(hex(background(':root')));
     expect(THEME_COLORS.dark).toBe(hex(background('.dark')));
   });

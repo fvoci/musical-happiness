@@ -22,7 +22,6 @@
 | 마크다운 → 문서 노드 (한 방향, 손실 집계 포함)                             | `src/lib/editor/markdown.ts`                                                                                         |
 | 본문의 모양(CSS)                                                           | `src/lib/editor/editor.css`                                                                                          |
 | 화면: 메모리의 문서를 편집하고 저장될 JSON·검증 결과·크기를 옆에 보여 준다 | `spikes/editor/`                                                                                                     |
-| 템플릿 변환과 집계                                                         | `tools/templates/convert.ts`                                                                                         |
 | 테스트                                                                     | `tests/editor/` 64건, `tests/ui/editor.test.ts` 13건, `spikes/editor/editor.spec.ts` 10건 × 2(데스크톱, 터치 뷰포트) |
 
 판(2026-11-10 18:26 KST에 npm 레지스트리에서 확인): `@tiptap/core`와 `@tiptap/pm`, 확장 전부 **3.33.0**(2026-11-05 공개). `marked` **18.1.3**(18.2.0은 공개 10시간째여서 직전 판). 묶음(`starter-kit`)을 쓰지 않고 확장을 하나씩 넣었다. 묶음에는 밑줄처럼 목록에 없는 것이 들어 있다.
@@ -32,14 +31,13 @@
 ```bash
 pnpm --filter web run spikes        # http://127.0.0.1:5173/spikes/editor/
 pnpm --filter web run spikes:e2e
-node apps/web/tools/templates/convert.ts [--write <폴더>]
 ```
 
 ## 2. 허용 노드와 마크 (최종안, `body_version` 2)
 
 3.7절의 목록과 다른 점은 굵게 표시했다.
 
-**판 2**(2026-11-10 23:52 KST): 수식 노드 둘(`inlineMath`, `blockMath`)을 더했다. 그 밖은 판 1과 같고, 판 1의 문서는 그대로 판 2의 문서다. 서버가 맞춰야 할 것만 모은 문서는 `docs/contract-assumptions.md`(4절)다.
+**판 2**(2026-11-10 23:52 KST): 수식 노드 둘(`inlineMath`, `blockMath`)을 더했다. 그 밖은 판 1과 같고, 판 1의 문서는 그대로 판 2의 문서다. 서버는 이 판을 받아들였다(저장소 루트의 `docs/contract-pending.md` 1절의 "허용 목록의 판").
 
 ### 노드
 
@@ -58,7 +56,7 @@ node apps/web/tools/templates/convert.ts [--write <폴더>]
 | `horizontalRule` | 없음                                           | 없음                                  |                                                                                      |
 | `hardBreak`      | 없음                                           | 없음                                  | 인라인                                                                               |
 | `image`          | `fileId`: 1–100자, 필수. `alt`: 0–1000자, 선택 | 없음                                  | **블록이다**(문단 안에 올 수 없다). 주소는 문서에 없다                               |
-| `mention`        | `userId`: 1–100자, 필수                        | 없음                                  | 인라인. 이름(label)은 저장하지 않는다                                                |
+| `mention`        | `userId`: 사용자 ID(소문자 UUID), 필수         | 없음                                  | 인라인. 이름(label)은 저장하지 않는다                                                |
 | `inlineMath`     | `latex`: 1–4,000자, 필수                       | 없음                                  | **판 2.** 인라인. 문장 안의 수식. LaTeX 원문 하나이고 그린 결과는 저장하지 않는다    |
 | `blockMath`      | `latex`: 1–4,000자, 필수                       | 없음                                  | **판 2.** 블록. 한 줄을 차지하는 수식                                                |
 | `text`           | 없음                                           | 없음                                  | `text`는 비어 있지 않은 문자열. `marks`는 여기에만 온다                              |
@@ -499,7 +497,7 @@ type RenderedBody =
 
 ## 10. 제품 부품, 수식, 다이어그램, 이모지
 
-2026-11-10 23:52 KST. 스파이크 화면의 편집기를 제품 부품으로 만들고, 수식(KaTeX)과 다이어그램(Mermaid), 실제 이모지 목록을 더했다. `body_version`은 2가 됐다(2절). 서버가 맞춰야 할 것은 `docs/contract-assumptions.md`(4절)에, 스스로 정한 것 34가지는 `docs/decisions.md`("편집기: 수식, 다이어그램, 이모지")에 따로 적었다. 이 절은 무엇을 만들었고 무엇을 확인했는지를 적는다.
+2026-11-10 23:52 KST. 스파이크 화면의 편집기를 제품 부품으로 만들고, 수식(KaTeX)과 다이어그램(Mermaid), 실제 이모지 목록을 더했다. `body_version`은 2가 됐다(2절). 서버는 이 판을 받아들였고(`docs/contract-pending.md` 1절), 스스로 정한 것 34가지는 `docs/decisions.md`("편집기: 수식, 다이어그램, 이모지")에 따로 적었다. 이 절은 무엇을 만들었고 무엇을 확인했는지를 적는다.
 
 ### 무엇을 만들었나
 
@@ -515,7 +513,7 @@ type RenderedBody =
 | 자동 완성 목록(사람, 이모지), 이미지 올리기의 자리 표시                      | `src/lib/editor/suggestion-list.ts`, `uploads.ts`                                                          |
 | ELK 배치 엔진의 자리에 넣는 빈 모듈                                          | `src/lib/editor/no-elk.ts`, `vite.config.ts`의 `resolve.alias`                                             |
 | 라이선스: KaTeX 글꼴의 고지, 파일에만 적힌 라이선스, 실리지 않는 패키지      | `tools/licenses/katex-fonts.ts`, `OFL-1.1.txt`, `exceptions.json`, `check.ts`, `notices.ts`, `packages.ts` |
-| 메시지 21개(영어, 한국어)                                                    | `messages-own/editor/`                                                                                     |
+| 메시지 21개(영어, 한국어)                                                    | `messages/`의 `editor_*`                                                                                   |
 | 테스트                                                                       | 아래 "테스트"                                                                                              |
 
 스파이크 화면(`spikes/editor/`)은 이제 제품 부품을 쓴다. 서식 도구 모음은 부품의 `toolbar` 인자로 넘긴다. 예제는 `empty`, `plain`(수식도 다이어그램도 없음), `everything`(수식 포함), `diagrams`, `embeds`, `corners`다. 화면 언어는 주소의 `?locale=ko`로 바꾼다(없으면 영어).
@@ -753,7 +751,7 @@ WOFF2만 싣는 방법: KaTeX의 스타일시트는 글꼴마다 WOFF2·WOFF·TT
 - **수식**은 글자 색(`currentColor`)으로 그려진다. KaTeX의 스타일시트에 색이 없는 것을 테스트가 본다. 브라우저 테스트가 두 화면에서 수식의 색이 문단의 글자 색과 같은 것을 확인한다.
 - **다이어그램**의 색은 토큰에서 읽는다(`diagram.ts`의 `PALETTE`, `SERIES`). 토큰은 oklch라 라이브러리(색 계산에 `khroma`를 쓴다)가 읽지 못하므로, 캔버스에 한 점을 칠하고 그 점을 읽어 `#rrggbb`로 넘긴다. 반투명 토큰은 바탕 위에 칠한다. 읽을 수 없는 브라우저에서는 라이브러리의 `neutral` 테마로 물러난다. 루트 요소의 `class`가 바뀌면(밝기가 바뀌면) 편집기와 표시기의 모든 다이어그램을 다시 그린다. 브라우저 테스트가 노드의 채움이 두 화면 모두에서 `--muted`와 같은 색이고 밝기를 바꾸면 그림이 새로 그려지는 것을 확인한다.
 - **대비**(표시기, 예제 `embeds`, 브라우저에서 잰 값): 밝은 화면에서 수식 19.8:1, 노드의 라벨 18.2:1, 선 5.5:1. 어두운 화면에서 19.0:1, 14.5:1, 7.7:1. 테스트는 글자 4.5:1, 선 3:1 이상을 요구한다.
-- 스크린샷: `docs/screens/editor/`의 `view-light.png`, `view-dark.png`, `editor-light.png`, `editor-dark.png`(1280×900, 예제 `embeds`). 다시 찍으려면 `FVOCI_EDITOR_SHOTS=1 FVOCI_SPIKES_PORT=<포트> pnpm --filter web run spikes:e2e editor/embeds --project desktop`. 평소의 실행은 찍지 않는다(기기의 글꼴에 달린 산출물이다).
+- 스크린샷: `docs/screens/editor/`의 `view-light.png`, `view-dark.png`, `editor-light.png`, `editor-dark.png`(1280×900, 예제 `embeds`). 다시 찍으면 커밋하지 않는 `target/screens/spikes/editor/`에 생긴다(2026-11-11부터). 다시 찍으려면 `FVOCI_EDITOR_SHOTS=1 FVOCI_SPIKES_PORT=<포트> pnpm --filter web run spikes:e2e editor/embeds --project desktop`. 평소의 실행은 찍지 않는다(기기의 글꼴에 달린 산출물이다).
 
 ### 편집기와 표시기의 비교에 더한 것
 
@@ -792,13 +790,12 @@ WOFF2만 싣는 방법: KaTeX의 스타일시트는 글꼴마다 WOFF2·WOFF·TT
 
 ### 남은 결정
 
-| 항목                                                                | 누가         | 메모                                                                                                         |
-| ------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
-| EPL-2.0(`elkjs`)을 허용 목록에 넣을지                               | 사용자       | 지금은 번들에서 뺐고 배치는 dagre다. ELK는 큰 흐름도에서 선이 덜 엉킨다                                      |
-| 길이를 무엇으로 세는가(UTF-16 코드 단위)                            | 서버         | `docs/contract-assumptions.md` 4절의 "새 노드". 판 1의 모든 길이 한도에 해당한다                             |
-| 앱 페이지의 콘텐츠 보안 정책                                        | 서버, 사용자 | 같은 문서 5절. `img-src 'self' data: blob:`를 권한다. `style-src`를 조이면 다이어그램의 스타일을 옮겨야 한다 |
-| 서식 도구 모음을 어디에 둘지                                        | 웹앱         | `lib/components`의 부품을 권한다. 지금은 호출부가 `toolbar` 스니펫으로 그린다                                |
-| 다이어그램 원문의 자체 설정(테마, 배치 방향 등)을 일부라도 허용할지 | 사용자       | 지금은 전부 버린다. 허용하려면 `secure`에서 그 이름을 빼고 공격 문자열 테스트에 경우를 더한다                |
-| 수식·다이어그램을 넣는 도구 버튼, 다이어그램 종류 고르기            | 웹앱         | 지금은 타이핑으로만 넣는다(`$…$`, ` ```mermaid `)                                                            |
-| KaTeX의 판을 하나로                                                 | 웹앱         | Mermaid가 0.18.x를 따로 가져온다. 위 "받는 시점과 크기"                                                      |
-| 링크 편집 UI                                                        | 웹앱         | 여전히 없다(붙여넣기와 자동 링크뿐)                                                                          |
+| 항목                                                                | 누가         | 메모                                                                                                                              |
+| ------------------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| EPL-2.0(`elkjs`)을 허용 목록에 넣을지                               | 사용자       | 지금은 번들에서 뺐고 배치는 dagre다. ELK는 큰 흐름도에서 선이 덜 엉킨다                                                           |
+| 앱 페이지의 콘텐츠 보안 정책                                        | 서버, 사용자 | `docs/contract-assumptions.md` 3절. `img-src 'self' data: blob:`를 권한다. `style-src`를 조이면 다이어그램의 스타일을 옮겨야 한다 |
+| 서식 도구 모음을 어디에 둘지                                        | 웹앱         | `lib/components`의 부품을 권한다. 지금은 호출부가 `toolbar` 스니펫으로 그린다                                                     |
+| 다이어그램 원문의 자체 설정(테마, 배치 방향 등)을 일부라도 허용할지 | 사용자       | 지금은 전부 버린다. 허용하려면 `secure`에서 그 이름을 빼고 공격 문자열 테스트에 경우를 더한다                                     |
+| 수식·다이어그램을 넣는 도구 버튼, 다이어그램 종류 고르기            | 웹앱         | 지금은 타이핑으로만 넣는다(`$…$`, ` ```mermaid `)                                                                                 |
+| KaTeX의 판을 하나로                                                 | 웹앱         | Mermaid가 0.18.x를 따로 가져온다. 위 "받는 시점과 크기"                                                                           |
+| 링크 편집 UI                                                        | 웹앱         | 여전히 없다(붙여넣기와 자동 링크뿐)                                                                                               |

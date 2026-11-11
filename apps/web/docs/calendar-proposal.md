@@ -39,7 +39,7 @@ pnpm --filter web run spikes        # 개발 서버. 포트를 바꾸려면 뒤�
 FVOCI_CALENDAR_SHOTS=1 pnpm --filter web run spikes:e2e calendar/shots --project desktop
 ```
 
-- `spikes/calendar/shots.spec.ts`가 `docs/calendar/`에 PNG 61장을 쓴다(1분 20초에서 2분. 기기가 바쁘면 더 걸린다). 환경 변수가 없으면 건너뛴다. 포트가 겹치면 앞에 `FVOCI_SPIKES_PORT=<번호>`를 붙인다. 같은 명령이 끝에 "한가운데 세로선에 무엇이 오는가"를 화면·안마다 한 줄씩 찍어 낸다.
+- `spikes/calendar/shots.spec.ts`가 PNG 61장을 쓴다(1분 20초에서 2분. 기기가 바쁘면 더 걸린다). 이 문서의 그림은 `docs/calendar/`에 있고, 2026-11-11부터 다시 찍으면 커밋하지 않는 `target/screens/spikes/calendar/`(저장소의 맨 위)에 생긴다. 환경 변수가 없으면 건너뛴다. 포트가 겹치면 앞에 `FVOCI_SPIKES_PORT=<번호>`를 붙인다. 같은 명령이 끝에 "한가운데 세로선에 무엇이 오는가"를 화면·안마다 한 줄씩 찍어 낸다.
 - 360, 626, 820, 890은 터치 기기 설정(`hasTouch`, `isMobile`, 기기 픽셀 비율 2), 1280×800은 데스크톱(마우스)이다.
 - 브라우저의 시계도 같은 순간으로 고정하고(생성된 날짜 선택기가 브라우저에 "오늘"을 묻는다), 애니메이션과 전환을 끈 페이지에서, 한글 글꼴이 실린 뒤에 찍는다. 그림이 찍을 때마다 같은지는 아래 "그림"에 적었다.
 
@@ -459,7 +459,7 @@ Playwright에서 `setViewportSize`로 창을 바꿔 본 것이다(`calendar.spec
 | 드래그: 양 끝 늘이기           | 같은 폴더 + `src/lib/drag/pointer-drag.ts` | 250줄     | **기반에 없다.** 손잡이를 끄는 것은 "옮기기"가 아니라 값 하나를 바꾸는 것이라 `pointer-drag.ts`(누름·움직임·취소) 위에 따로 짠다. 주를 넘는 늘이기, 취소     |
 | 뷰 머리글의 "표시 기준"        | `src/lib/features/view-header/`            | 100줄     | 메뉴 한 줄과 속성 목록                                                                                                                                       |
 | 조립                           | `src/app/BoardPage.svelte`                 | 50줄      | 지금은 "캘린더 뷰는 아직 만들지 않았다"는 안내가 그 자리에 있다(`app_calendar_not_built`)                                                                    |
-| 화면의 글                      | `messages-own/<묶음>/`                     | 키 30개쯤 | 원본에 있는 것은 그것을 쓴다: `calendar.today`, `calendar.month`, `calendar.week`, `CalendarCard.untitled`, `ViewHeader.display-by`, `View.NewCalendarTitle` |
+| 화면의 글                      | `messages/<태그>.json`                     | 키 30개쯤 | 원본에 있는 것은 그것을 쓴다: `calendar.today`, `calendar.month`, `calendar.week`, `CalendarCard.untitled`, `ViewHeader.display-by`, `View.NewCalendarTitle` |
 
 합쳐서 화면 2,200줄, 로직 250줄 안팎이다. 테스트는 로직 단위 테스트 40건쯤(주의 시작 셋, 달의 경계, 줄 배치, 넘침, 시간대에 따라 달라지는 날), 화면 테스트 30건쯤, 브라우저 테스트 15건쯤으로 어림한다. 이 스파이크의 브라우저 테스트 53건 가운데 배치와 44px을 보는 것들은 옮겨 쓸 수 있다.
 

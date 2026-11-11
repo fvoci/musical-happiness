@@ -4,15 +4,16 @@
  * read-only view draw, in the light and in the dark, and how a formula is
  * typed and changed.
  *
- * Screenshots of both looks are written to docs/screens/editor/ when
- * `FVOCI_EDITOR_SHOTS=1` is set (they depend on the machine's fonts, so an
- * ordinary run leaves the committed ones alone).
+ * Screenshots of both looks are written to `target/screens/spikes/editor/`
+ * at the top of the repository when `FVOCI_EDITOR_SHOTS=1` is set. That
+ * folder is not committed; the pictures in docs/screens/editor/ stay as
+ * they are.
  */
 import path from 'node:path';
 
 import { expect, test, type Page, type Request } from '@playwright/test';
 
-const SHOTS = path.resolve(import.meta.dirname, '../../docs/screens/editor');
+const SHOTS = path.resolve(import.meta.dirname, '../../../../target/screens/spikes/editor');
 const TAKE_SHOTS = process.env.FVOCI_EDITOR_SHOTS === '1';
 
 const editorOf = (page: Page) => page.getByTestId('editor').locator('.ProseMirror');

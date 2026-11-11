@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { boardPage, card, choose, dialog, fitPane, openView, undo } from './kanban.support.ts';
+import { screensDir } from './screens.ts';
 
 const WELCOME = ['Welcome to fvoci!', 'Preview: Gallery View'] as const;
 
@@ -131,7 +132,7 @@ test.describe('screens', () => {
       await openView(page, info, ...WELCOME);
       await expect(boardPage(page)).toBeVisible();
       await expect(cards(page)).toHaveCount(10);
-      await page.screenshot({ path: `docs/screens/gallery/gallery-${stage}-${scheme}.png` });
+      await page.screenshot({ path: `${screensDir('gallery')}/gallery-${stage}-${scheme}.png` });
     });
   }
 });
