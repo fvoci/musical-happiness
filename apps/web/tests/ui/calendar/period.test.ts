@@ -102,7 +102,7 @@ describe('what the row calls it', () => {
     expect(periodTitle('month', period.weeks(7), period.month, 'en-US')).toBe('November 2026');
     period.scale = 'week';
     expect(plain(periodTitle('week', period.weeks(7), period.month, 'en-US'))).toBe(
-      'November 8 – 14, 2026',
+      'Nov 8 – 14, 2026',
     );
     expect(plain(periodTitle('week', period.weeks(7), period.month, 'ko-KR'))).toBe(
       '2026년 11월 8일~14일',
@@ -113,7 +113,7 @@ describe('what the row calls it', () => {
     const period = new Period('view-title-2', day('2026-12-30'));
     period.scale = 'week';
     expect(plain(periodTitle('week', period.weeks(1), period.month, 'en-US'))).toBe(
-      'December 28, 2026 – January 3, 2027',
+      'Dec 28, 2026 – Jan 3, 2027',
     );
   });
 });

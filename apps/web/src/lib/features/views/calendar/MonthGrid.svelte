@@ -33,6 +33,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { foldWeek, inMonth, layWeek, type Month } from '$lib/logic/calendar.ts';
   import type { CalendarDate } from '$lib/logic/dates.ts';
+  import type { Card, PropertyTemplate } from '$lib/logic/wire.ts';
   import {
     displayDay,
     displayDayLong,
@@ -56,6 +57,8 @@
     finger: boolean;
     /** One week, every card in it, bars of two lines. */
     week?: boolean;
+    /** The properties the view turned on that a card has: the second line of a week's bar. */
+    shownOf?: (card: Card) => readonly PropertyTemplate[];
     cardHref: (cardId: string) => string;
     onOpenCard: (cardId: string) => void;
     /** A day was pressed: its cards are wanted. */
@@ -74,6 +77,7 @@
     selected,
     finger,
     week = false,
+    shownOf = () => [],
     cardHref,
     onOpenCard,
     onpick,
@@ -93,19 +97,22 @@
   }
 
   // The row of numbers is 1.75rem and a bar with its gap 1.5rem; a week is never lower than 5.5rem.
+  /** The bars of each week, laid once. */
+  const laid = $derived(weeks.map((days) => layWeek(days, placed.spans)));
+
   const lanes = $derived.by(() => {
     if (week) {
       // As many rows as the week's cards need: none is folded into "+N".
-      const laid = layWeek(weeks[0] ?? [], placed.spans);
-      return Math.max(1, ...laid.map((segment) => segment.lane + 1));
+      return Math.max(1, ...(laid[0] ?? []).map((segment) => segment.lane + 1));
     }
     const row = Math.max(rem(5.5), height / Math.max(1, weeks.length));
     return Math.max(1, Math.floor((row - rem(1.75) - 2) / rem(1.5)));
   });
 
   const rows = $derived(
-    weeks.map((week) => ({ week, ...foldWeek(layWeek(week, placed.spans), lanes) })),
+    weeks.map((days, at) => ({ week: days, ...foldWeek(laid[at] ?? [], lanes) })),
   );
+  const barRow = $derived(week ? '2.875rem' : '1.5rem');
 </script>
 
 <div data-testid="month-grid" data-lanes={lanes} class="flex min-h-0 flex-1 flex-col">
@@ -125,8 +132,7 @@
       <div
         data-week={row.week[0]}
         class="relative grid grid-cols-7 border-b last:border-b-0"
-        style:grid-template-rows="1.75rem repeat({lanes}, {week ? '2.875rem' : '1.5rem'}) minmax(0,
-        1fr)"
+        style:grid-template-rows="1.75rem repeat({lanes}, {barRow}) minmax(0, 1fr)"
       >
         {#each row.week as date, column (date)}
           {@const isToday = date === today}
@@ -134,7 +140,7 @@
           {@const label = placed.dayName(date, displayDayLong(date, locale))}
           {@const cell = [
             'relative row-span-full row-start-1 flex min-w-0 items-start border-r text-left last:border-r-0',
-            !inMonth(date, month) && 'bg-muted/50 text-muted-foreground',
+            !week && !inMonth(date, month) && 'bg-muted/50 text-muted-foreground',
           ]}
           {#snippet number()}
             <span
@@ -266,7 +272,7 @@
                 toAfter={segment.toAfter}
                 pressable={!finger || week}
                 tall={week}
-                detail={week ? placed.detail(card) : undefined}
+                detail={week ? placed.detail(card, shownOf(card)) : undefined}
                 href={cardHref(card.id)}
                 onopen={onOpenCard}
               />

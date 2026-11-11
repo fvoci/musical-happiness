@@ -43,6 +43,8 @@
     placed: Placed;
     /** The date property the calendar is placed by; the picker is for nothing else. */
     template: PropertyTemplate | undefined;
+    /** The card's line in a list still on screen, which the popover hangs by. */
+    line?: HTMLElement | null;
     /** The calendar's picked day: where the popover hangs, and the month a card without a date starts at. */
     selected: CalendarDate;
     today: CalendarDate;
@@ -59,6 +61,7 @@
     board,
     placed,
     template,
+    line,
     selected,
     today,
     sheet,
@@ -88,9 +91,15 @@
       days: time ? m.calendar_time_title({ time, title: days }) : days,
     });
   });
-  /** The anchor is read when the popover opens: the day the card's list was of, or "No date". */
+  /**
+   * The anchor is read when the popover opens: the card's own line where it
+   * is still on screen (`line`: the lists of a narrow week, the list under the
+   * small grid), else the day the card's list was of, or "No date".
+   */
   const anchor = $derived(
-    span ? `[data-testid="calendar"] [data-day="${selected}"]` : '[data-testid="calendar-undated"]',
+    (line ?? span)
+      ? `[data-testid="calendar"] [data-day="${selected}"]`
+      : '[data-testid="calendar-undated"]',
   );
   const weekStartsOn = $derived((placed.regional.weekStart % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
 

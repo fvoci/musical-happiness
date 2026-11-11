@@ -29,11 +29,13 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
 
+  import { faceProperties } from '$lib/components/card-face/face.ts';
   import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { fingerPointer, page, PaneRoom } from '$lib/layout/room.svelte.ts';
   import { datesWritable, displayProperty } from '$lib/logic/calendar.ts';
   import { addDays, dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
+  import type { Card } from '$lib/logic/wire.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
 
   import type { ViewProps } from '../props.ts';
@@ -241,9 +243,13 @@
   /** The card whose date the picker of a day changes, and whether the picker is open. */
   let changing = $state<string | undefined>(undefined);
   let pickerOpen = $state(false);
+  let changingLine = $state<HTMLElement | null>(null);
 
   /** "Change date" in a card's menu: the lists close, and the picker opens by the picked day. */
   async function changeDate(cardId: string): Promise<void> {
+    // A line of a list in the calendar's box stays on screen: the picker hangs by it.
+    changingLine =
+      body?.querySelector<HTMLElement>(`li[data-card="${CSS.escape(cardId)}"]`) ?? null;
     dayOpen = false;
     undatedOpen = false;
     changing = cardId;
@@ -265,7 +271,13 @@
   /** The picker has closed: the focus goes to the card's day, or back to "No date". */
   async function pickerClosed(dated: boolean): Promise<void> {
     await tick();
-    if (dated) focusDay();
+    // Back to the "…" of the line it came from, where that line is still there.
+    const back = changingLine?.isConnected
+      ? changingLine.querySelector<HTMLElement>('[data-card-menu]')
+      : null;
+    changingLine = null;
+    if (back) back.focus();
+    else if (dated) focusDay();
     else undatedButton?.focus();
   }
 </script>
@@ -306,6 +318,7 @@
         <MonthGrid
           {weeks}
           week={scale === 'week'}
+          shownOf={(card: Card) => faceProperties(card, templates, view.fields.visiblePropertyIds)}
           {placed}
           {month}
           {today}
@@ -330,6 +343,7 @@
             {today}
             {selected}
             rows={{ ...rows, onOpenCard }}
+            {fixed}
             onpick={pick}
             onmove={(by: number) => void move(by)}
             oncreate={creatable ? createOn : undefined}
@@ -385,6 +399,7 @@
 <DayPicker
   bind:cardId={changing}
   bind:open={pickerOpen}
+  line={changingLine}
   {board}
   {placed}
   {template}

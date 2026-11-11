@@ -99,7 +99,7 @@
     role="group"
     aria-label={m.calendar_scale()}
     data-testid="calendar-scale"
-    class="mr-1 hidden shrink-0 rounded-md border p-0.5 @columns/pane:flex"
+    class="mr-1 hidden shrink-0 rounded-md border p-0.5 @columns/pane:flex roomy:border-0 roomy:p-0"
   >
     {#each SCALES as choice (choice.id)}
       <Button
@@ -107,7 +107,7 @@
         size="sm"
         aria-pressed={scale === choice.id}
         data-scale={choice.id}
-        class="h-7 px-2.5 roomy:h-9"
+        class="h-7 px-2.5 roomy:h-touch roomy:px-3"
         onclick={() => {
           onscale(choice.id);
         }}

@@ -35,12 +35,16 @@
     today: CalendarDate;
     selected: CalendarDate;
     rows: RowProps;
+    /** Why no date can be changed here, where none can (question C14). */
+    fixed?: string;
     onpick: (date: CalendarDate) => void;
     onmove: (by: number) => void;
     oncreate?: (date: CalendarDate) => void;
   }
 
-  let { week, placed, today, selected, rows, onpick, onmove, oncreate }: Props = $props();
+  let { week, placed, today, selected, rows, fixed, onpick, onmove, oncreate }: Props = $props();
+
+  const uid = $props.id();
 
   const locale = $derived(placed.locale);
   /** The list of the days, for bringing one into view. Not reactive. */
@@ -53,10 +57,19 @@
     };
   }
 
-  /** Brings the part of a day into view in the list. */
+  /** Brings the part of a day into view in the list, its heading at the top, when it is not. */
   function show(date: CalendarDate): void {
-    list?.querySelector(`[data-agenda-day="${date}"]`)?.scrollIntoView({ block: 'nearest' });
+    const part = list?.querySelector<HTMLElement>(`[data-agenda-day="${date}"]`);
+    if (!list || !part) return;
+    const top = part.offsetTop;
+    const seen = top >= list.scrollTop && top + 40 <= list.scrollTop + list.clientHeight;
+    if (!seen) list.scrollTop = top;
   }
+
+  // The picked day stays in view: on the first draw, by the arrow keys, a week on or back.
+  $effect(() => {
+    show(selected);
+  });
 </script>
 
 <div data-testid="week-agenda" class="flex min-h-0 flex-1 flex-col">
@@ -78,7 +91,6 @@
         ]}
         onclick={() => {
           onpick(date);
-          show(date);
         }}
         onkeydown={(event) => {
           dayKeys(event, onmove);
@@ -99,24 +111,37 @@
     {/each}
   </div>
 
+  {#if fixed}
+    <p id="{uid}-fixed" data-testid="dates-fixed" class="px-4 pt-1 text-xs text-muted-foreground">
+      {fixed}
+    </p>
+  {/if}
   <div
     {@attach attachList}
-    class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-[calc(0.5rem+var(--safe-bottom))]"
+    class="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-[calc(0.5rem+var(--safe-bottom))]"
   >
     {#each week as date (date)}
       {@const cards = placed.on(date)}
-      <section data-agenda-day={date} aria-label={displayDayLong(date, locale)} class="pt-2">
+      <section data-agenda-day={date} aria-labelledby="{uid}-{date}" class="pt-2">
         <h3
+          id="{uid}-{date}"
           class={[
-            'px-3 py-1 text-sm font-semibold',
+            'flex items-center gap-2 px-3 py-1 text-sm font-semibold',
             date === selected ? 'text-foreground' : 'text-muted-foreground',
           ]}
         >
           {displayDayLong(date, locale)}
+          {#if date === today}
+            <span
+              class="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground"
+            >
+              {m.calendar_today()}
+            </span>
+          {/if}
         </h3>
         <ul>
           {#each cards as card (card.id)}
-            <CardRow {card} {date} {...rows} />
+            <CardRow {card} {date} {...rows} describedBy={fixed ? `${uid}-fixed` : undefined} />
           {:else}
             <li class="px-3 py-1 text-sm text-muted-foreground">{m.calendar_no_cards()}</li>
           {/each}

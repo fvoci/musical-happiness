@@ -48,7 +48,7 @@ test('a week with the keys alone: its days, the arrows a week on, and back to th
   await openCalendar(page, info);
   await expect(calendar(page)).toHaveAttribute('data-scale', 'month');
   await chooseByKeys(page, 'week');
-  await expect.poll(() => titleText(page)).toBe('November 8 – 14, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14, 2026');
   await expect(calendar(page).locator('[data-week]')).toHaveCount(wide(info) ? 1 : 0);
   if (!wide(info)) {
     await expect(page.getByTestId('week-agenda').locator('[data-agenda-day]')).toHaveCount(7);
@@ -62,14 +62,14 @@ test('a week with the keys alone: its days, the arrows a week on, and back to th
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 10/);
   await page.keyboard.press('ArrowDown');
   await expect(focused(page)).toHaveAccessibleName(/^Tuesday, November 17/);
-  await expect.poll(() => titleText(page)).toBe('November 15 – 21, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 15 – 21, 2026');
 
   await page.getByRole('button', { name: 'Next week' }).click();
-  await expect.poll(() => titleText(page)).toBe('November 22 – 28, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 22 – 28, 2026');
   await page.getByRole('button', { name: 'Next week' }).click();
-  await expect.poll(() => titleText(page)).toBe('November 29 – December 5, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 29 – Dec 5, 2026');
   await page.getByTestId('calendar-today').click();
-  await expect.poll(() => titleText(page)).toBe('November 8 – 14, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14, 2026');
 
   await chooseByKeys(page, 'month');
   await expect(title(page)).toHaveText('November 2026');
@@ -119,7 +119,32 @@ test('the week is remembered for the view on this device, after a reload', async
   await chooseByKeys(page, 'week');
   await page.reload();
   await expect(calendar(page)).toHaveAttribute('data-scale', 'week');
-  await expect.poll(() => titleText(page)).toBe('November 8 – 14, 2026');
+  await expect.poll(() => titleText(page)).toBe('Nov 8 – 14, 2026');
   // The month in view is not kept: a new load is at today.
   await expect(dayButton(page, '2026-11-10')).toHaveAttribute('aria-current', 'date');
+});
+
+test('in a narrow week the picked day stays in view, and the list says why dates are fixed', async ({
+  page,
+}, info) => {
+  await openCalendar(page, info);
+  await chooseByKeys(page, 'week');
+  if (wide(info)) {
+    // A wide week has no list to scroll: every day is a column of the grid.
+    await expect(page.getByTestId('week-agenda')).toHaveCount(0);
+    return;
+  }
+  const agenda = page.getByTestId('week-agenda');
+  await dayButton(page, '2026-11-10').focus();
+  for (let step = 0; step < 4; step += 1) await page.keyboard.press('ArrowRight');
+  await expect(focused(page)).toHaveAccessibleName(/^Saturday, November 14/);
+  await expect(agenda.locator('[data-agenda-day="2026-11-14"] h3')).toBeInViewport();
+
+  // Placed by when cards were changed: no "Change date", and the list says why.
+  await page.getByTestId('view-header').locator('[data-tool="more"]').click();
+  await page.locator('[role="menuitem"][data-action="display-by"]').click();
+  await page.getByRole('menuitem', { name: 'Last updated time' }).click();
+  await expect(agenda.getByTestId('dates-fixed')).toHaveText(
+    'The cards are placed by Last updated time, which cannot be changed here.',
+  );
 });

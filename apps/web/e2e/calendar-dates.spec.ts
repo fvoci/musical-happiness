@@ -87,7 +87,10 @@ test('Escape leaves the date as it was and gives the focus back to the day', asy
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('day-picker')).toBeHidden();
   expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
-  await expect(focused(page)).toHaveAccessibleName(/^Thursday, November 12/);
+  // Back to the day; under the small grid, where the card's line is still there, to its "…".
+  await expect(focused(page)).toHaveAccessibleName(
+    wide(info) ? /^Thursday, November 12/ : 'Card menu: Drag cards',
+  );
 
   // Enter on the day the card is on already: the picker closes, and nothing changes.
   await changeDateByKeys(page, info, 'Drag cards');

@@ -9,8 +9,19 @@ import { m } from '$lib/i18n/paraglide/messages.js';
 import { cardsByDay, compareSpans, spansOf, type Span } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
 import { displayDay, displayDayRange, displayTime } from '$lib/logic/format.ts';
+import { propertyBehavior } from '$lib/logic/properties.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import { parseDateValue, type Card, type PropertyTemplate } from '$lib/logic/wire.ts';
+
+/** Kinds of property whose value is not words: a person's face, a file, a box. */
+const WORDLESS = new Set<string>([
+  'person',
+  'multiPerson',
+  'createdBy',
+  'updatedBy',
+  'file',
+  'checkbox',
+]);
 
 export class Placed {
   /** The cards that have days, in the order of the view. */
@@ -88,9 +99,34 @@ export class Placed {
     return displayDayRange(span.first, span.last, this.locale);
   }
 
-  /** The second line of a bar of a week: its time and, for several days, which. */
-  detail(card: Card): string | undefined {
-    const parts = [this.time(card), this.range(card)].filter((part) => part !== undefined);
+  /**
+   * The second line of a bar of a week (question C5): its time and, for
+   * several days, which; then the text of the properties the view turned on
+   * (`shown`). People, files and boxes are left to the card's own lines: a
+   * bar has room for words only.
+   */
+  detail(card: Card, shown: readonly PropertyTemplate[] = []): string | undefined {
+    const context = {
+      locale: this.locale,
+      timeZone: this.regional.timeZone,
+      hourCycle: this.regional.hourCycle,
+    };
+    const words = shown
+      .filter((template) => !WORDLESS.has(template.type))
+      .flatMap((template) => {
+        const text = propertyBehavior(template.type).displayValue(
+          card.fields.properties[template.id],
+          card,
+          template,
+          context,
+        );
+        return (Array.isArray(text) ? text : [text]).filter(
+          (part) => part !== undefined && part !== '',
+        );
+      });
+    const parts = [this.time(card), this.range(card), ...words].filter(
+      (part) => part !== undefined,
+    );
     return parts.length > 0 ? parts.join(' · ') : undefined;
   }
 

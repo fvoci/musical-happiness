@@ -1,6 +1,7 @@
 /**
  * What the calendar's row calls what it shows: the month, or the days of the
- * week with the year, in the reader's language.
+ * week with the year (the month's name short, to fit a narrow pane), in the
+ * reader's language.
  */
 import { firstOf, type Month } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
@@ -22,7 +23,7 @@ function utcNoon(date: CalendarDate): Date {
   return day;
 }
 
-/** What the calendar's row calls what it shows: "November 2026", or "November 8 – 14, 2026". */
+/** What the calendar's row calls what it shows: "November 2026", or "Nov 8 – 14, 2026". */
 export function periodTitle(
   scale: Scale,
   weeks: readonly (readonly CalendarDate[])[],
@@ -39,7 +40,8 @@ export function periodTitle(
       timeZone: 'UTC',
       calendar: 'gregory',
       year: 'numeric',
-      month: 'long',
+      // Short, so that the week fits the row of a narrow pane: "Nov 8 – 14, 2026".
+      month: 'short',
       day: 'numeric',
     });
     rangeFormatters.set(locale, format);
