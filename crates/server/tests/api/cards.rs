@@ -1810,6 +1810,33 @@ async fn a_card_says_when_it_was_last_commented_on() {
         posted_at(&cards_of(&th.client, &board.id, "").await),
         expected(later.create_at)
     );
+    // What is not a comment of the card does not count: a block on the card after it,
+    // and a comment on the comment.
+    tokio::time::sleep(Duration::from_millis(3)).await;
+    insert_block(
+        &th.client,
+        &new_block(&board.id, &card.id, BlockType::Attachment),
+    )
+    .await;
+    let reply = Block {
+        parent_id: later.id.clone(),
+        ..new_block(&board.id, &later.id, BlockType::Comment)
+    };
+    let replied = th
+        .client
+        .insert_blocks(&board.id, std::slice::from_ref(&reply))
+        .await;
+    assert!(
+        replied.status.is_success() || replied.status == StatusCode::BAD_REQUEST,
+        "{}",
+        replied.text()
+    );
+    let first_page: Vec<Card> = cards_of(&th.client, &board.id, "?page=0&perPage=1").await;
+    assert_eq!(
+        posted_at(&first_page),
+        [(card.id.clone(), later.create_at)],
+        "a page of the list says it too"
+    );
     let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
     assert_eq!(read.last_comment_at, later.create_at, "getCard says it too");
     assert_eq!(
@@ -1834,6 +1861,19 @@ async fn a_card_says_when_it_was_last_commented_on() {
     assert_eq!(
         patched.last_comment_at, earlier.create_at,
         "patchCard says it too"
+    );
+    // A comment changed is not a comment posted.
+    th.client
+        .patch(
+            &format!("/boards/{}/blocks/{}", board.id, earlier.id),
+            &json!({"title": "said again"}),
+        )
+        .await
+        .check_no_content();
+    let read: Card = th.client.get(&card_path(&card.id)).await.ok_json();
+    assert_eq!(
+        read.last_comment_at, earlier.create_at,
+        "the time it was posted"
     );
     th.client
         .delete(&format!("/boards/{}/blocks/{}", board.id, earlier.id))

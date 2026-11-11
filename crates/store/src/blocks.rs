@@ -44,8 +44,11 @@ const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"sc
                              fields, create_at, update_at, board_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
-/// When a listed block's last comment was posted, zero for none: read after
-/// [`LISTED_BLOCK_COLUMNS`], at [`LISTED_LAST_COMMENT_AT`].
+/// When the last comment on the block `blocks.id` was posted, zero for none: its
+/// comments (blocks of the type `comment` whose parent it is; deleted ones are in the
+/// trash) and their `create_at`, which writing a comment again does not change. Read
+/// after [`LISTED_BLOCK_COLUMNS`], at [`LISTED_LAST_COMMENT_AT`], and alone by
+/// [`Store::get_last_comment_at`]. `blocks_parent_type_create_at_idx` answers it.
 const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.create_at) FROM blocks c \
                                       WHERE c.parent_id = blocks.id AND c.type = 'comment'), 0)";
 
@@ -212,10 +215,11 @@ impl Store {
     /// Returns the database's error.
     pub async fn get_last_comment_at(&self, block_id: &str) -> Result<i64, StoreError> {
         self.with_conn(async |scope| {
-            let mut sql = scope.sql(
-                "SELECT COALESCE(MAX(create_at), 0) FROM blocks WHERE type = 'comment' AND parent_id = ",
-            );
+            let mut sql = scope.sql(&format!(
+                "SELECT {LAST_COMMENT_AT_COLUMN} FROM blocks WHERE id = "
+            ));
             sql.bind(Id(block_id));
+            // No such block has no comments.
             let row = scope.fetch_optional(sql).await?;
             row.map_or(Ok(0), |row| row.int(0))
         })

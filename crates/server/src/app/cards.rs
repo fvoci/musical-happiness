@@ -165,7 +165,18 @@ impl App {
     /// an internal error if the block is not a card or cannot be read as one.
     pub async fn card(&self, card_id: &str) -> Result<Card, AppError> {
         let block = self.block(card_id).await?;
-        self.with_last_comment_at(card_from_stored_block(&block, now_millis())?)
+        self.card_of_block(&block).await
+    }
+
+    /// Returns the card of a card block that was read before, with when its last
+    /// comment was posted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an internal error if the block cannot be read as a card, and the store's
+    /// error if its comments cannot be read.
+    pub async fn card_of_block(&self, block: &Block) -> Result<Card, AppError> {
+        self.with_last_comment_at(card_from_stored_block(block, now_millis())?)
             .await
     }
 

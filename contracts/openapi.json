@@ -521,7 +521,7 @@
             "type": "boolean"
           },
           "lastCommentAt": {
-            "description": "When the card's last comment was posted (its `createAt`), in milliseconds since\nthe Unix epoch; zero if it has none. Deleted comments do not count, and a\ncomment does not change `updateAt`. What a request sends here is ignored.",
+            "description": "When the card's last comment was posted (the `createAt` of the newest of its\ncomments, the blocks of the type `comment` directly on it), in milliseconds since\nthe Unix epoch; zero if it has none. Changing a comment does not change it; a\ndeleted comment does not count, and counts again with its time if restored. A\ncomment does not change the card's `updateAt`. A new comment comes as\n`UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is\nread again for it. A number sent here in a request is ignored.",
             "format": "int64",
             "type": "integer"
           },
