@@ -338,3 +338,43 @@ fn card_patch_rejects_an_icon_of_two_graphemes() {
     assert_eq!(patch.validate(), want);
     assert_eq!(patch.to_block_patch().map(|_| ()), want);
 }
+
+/// A card for whoever reads with a read token alone names no users: not its creator or
+/// writer, not the users of its person properties, not those mentioned in its body; the
+/// values of properties the board does not define go, and the others stay.
+#[test]
+fn a_card_hides_its_people() {
+    let definitions: Vec<JsonMap> = [
+        json!({"id": "owner", "type": "person"}),
+        json!({"id": "team", "type": "multiPerson"}),
+        json!({"id": "status", "type": "select"}),
+    ]
+    .into_iter()
+    .map(|definition| match definition {
+        Value::Object(map) => map,
+        _ => unreachable!("an object"),
+    })
+    .collect();
+    let people = fvoci_model::PersonProperties::of(&definitions);
+    let mut card = Card {
+        created_by: "u1".to_owned(),
+        modified_by: "u2".to_owned(),
+        properties: match json!({"owner": "u1", "team": ["u1", "u2"], "status": "done", "gone": "u3"})
+        {
+            Value::Object(map) => map,
+            _ => unreachable!("an object"),
+        },
+        ..Card::default()
+    };
+
+    card.hide_people(&people);
+
+    assert_eq!(
+        (card.created_by.as_str(), card.modified_by.as_str()),
+        ("", "")
+    );
+    assert_eq!(
+        Value::Object(card.properties),
+        json!({"owner": "", "team": ["", ""], "status": "done"})
+    );
+}

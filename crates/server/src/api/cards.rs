@@ -10,16 +10,20 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewCard;
-use super::contract::params::{BoardId, CardId, DisableNotify, Page, PerPage};
+use super::contract::params::{BoardId, CardId, DisableNotify, Page, PerPage, Preview, ReadToken};
 use super::contract::tag;
 
 use super::change_notification;
-use super::{ApiResult, RequiredSession, created, json_response, query_param};
+use super::{
+    ApiResult, OptionalSession, RequiredSession, created, has_valid_read_token, json_response,
+    query_param,
+};
 use super::{decode_with_document, require_board_permission, require_permission_through};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
+use fvoci_store::Previews;
 
 /// The page of cards a request without `page` gets.
 pub(super) const DEFAULT_PAGE: i64 = 0;
@@ -125,37 +129,70 @@ async fn handle_create_card(
 
 /// The cards of a board
 ///
-/// One page of the board's cards, for the board's members. Oldest first; the pages cut
-/// that order. A `page` or `perPage` that is no whole number is 400.
+/// One page of the board's cards, for the board's members, and with the board's read
+/// token for whoever has it. Oldest first; the pages cut that order. A `page` or
+/// `perPage` that is no whole number is 400. With `preview=true` each card has its
+/// `preview` (the first image and the beginning of the text of its body), which a
+/// list without it leaves out.
+///
+/// To a reader with the read token alone (no session, or a user who is no member of
+/// the board) the cards name no users, as `getBlocks` gives them: `createdBy` and
+/// `modifiedBy` are empty, the values of person properties are emptied, and values of
+/// properties the board does not define are left out. The preview's text has no
+/// mentions in it, and its image `getFile` gives with the same token.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/cards",
     operation_id = "getCards",
     tag = tag::CARDS,
-    params(BoardId, Page, PerPage),
+    params(BoardId, Page, PerPage, Preview, ReadToken),
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
 async fn handle_get_cards(
     State(app): State<App>,
-    RequiredSession(session): RequiredSession,
+    session: OptionalSession,
     Path(board_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> ApiResult {
     let query = query.as_deref();
-    let user_id = session.user_id.as_str();
-    require_board_permission(
-        &app,
-        user_id,
-        &board_id,
-        BoardPermission::ViewBoard,
-        "access denied to fetch cards",
-    )
-    .await?;
+    let user_id = session.user_id();
+    let has_read_token = has_valid_read_token(&app, query, &board_id).await?;
+    if user_id.is_empty() && !has_read_token {
+        return Err(AppError::unauthorized("access denied to fetch cards"));
+    }
+    let by_token_alone = if has_read_token {
+        // A board that is shared exists; one that went since is not there.
+        app.board(&board_id).await?;
+        !app.is_board_reader(user_id, &board_id).await?
+    } else {
+        require_board_permission(
+            &app,
+            user_id,
+            &board_id,
+            BoardPermission::ViewBoard,
+            "access denied to fetch cards",
+        )
+        .await?;
+        false
+    };
 
     let page = int_query_param(query, "page", DEFAULT_PAGE)?;
     let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE)?;
+    let previews = if query_param(query, "preview") == "true" {
+        Previews::With
+    } else {
+        Previews::Without
+    };
 
-    let cards = app.cards_for_board(&board_id, page, per_page).await?;
+    let mut cards = app
+        .cards_for_board(&board_id, page, per_page, previews)
+        .await?;
+    if by_token_alone {
+        let people = app.board(&board_id).await?.person_properties();
+        for card in &mut cards {
+            card.hide_people(&people);
+        }
+    }
     tracing::debug!(
         board_id,
         user_id,

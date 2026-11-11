@@ -8,6 +8,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType, PropertyChanges};
 use crate::body::{Body, BodyChange, BodySummary};
+use crate::card_property::PersonProperties;
 use crate::id::new_id;
 use crate::serde_util::null_as_default;
 
@@ -96,9 +97,64 @@ pub struct Card {
     /// read again for it. A number sent here in a request is ignored.
     #[serde(deserialize_with = "null_as_default")]
     pub last_comment_at: i64,
+    /// What a gallery shows of the card's body: only in a list asked for it
+    /// (`getCards` with `preview=true`), and left out otherwise. What a request sends
+    /// here is ignored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<CardPreview>,
+}
+
+/// What a gallery shows of a card's body.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CardPreview {
+    /// The file the body's first image shows (`getFile` gives it, also with the board's
+    /// read token); empty if the body has no image.
+    pub image_file_id: String,
+    /// The beginning of the body's text: its plain text as it is searched (a line per
+    /// paragraph, heading, code block and formula block, separated by `\n`; a formula
+    /// gives its source, an image and a mention nothing), at most
+    /// [`CARD_PREVIEW_TEXT_LENGTH`] UTF-16 code units, cut between characters. Empty for
+    /// a card without text.
+    pub text: String,
+}
+
+/// The longest text of a [`CardPreview`], in UTF-16 code units.
+pub const CARD_PREVIEW_TEXT_LENGTH: usize = 200;
+
+impl CardPreview {
+    /// The preview of a body whose plain text is `text` and whose first image shows
+    /// `image_file_id` (empty for none).
+    #[must_use]
+    pub fn new(image_file_id: String, text: &str) -> Self {
+        let mut units = 0;
+        let end = text
+            .char_indices()
+            .find(|&(_, c)| {
+                units += c.len_utf16();
+                units > CARD_PREVIEW_TEXT_LENGTH
+            })
+            .map_or(text.len(), |(at, _)| at);
+        Self {
+            image_file_id,
+            text: text[..end].trim_end().to_owned(),
+        }
+    }
 }
 
 impl Card {
+    /// Empties the users the card names, as a block's are for whoever reads with a read
+    /// token alone ([`Block::hide_people`]): its creator and last writer, the users of
+    /// its person properties (by `people`, the board's), and the mentions of its body.
+    pub fn hide_people(&mut self, people: &PersonProperties) {
+        self.created_by.clear();
+        self.modified_by.clear();
+        people.hide_values(&mut self.properties);
+        if let Some(body) = self.body.as_mut() {
+            body.clear_mentions();
+        }
+    }
+
     /// The card as a list shows it: without its body, with what the list says about
     /// the body instead.
     #[must_use]
@@ -211,6 +267,7 @@ impl Card {
             delete_at: block.delete_at,
             // A block does not know its comments.
             last_comment_at: 0,
+            preview: None,
         };
         card.populate(now);
         Ok(card)

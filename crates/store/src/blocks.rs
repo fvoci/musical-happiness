@@ -60,6 +60,13 @@ const LISTED_TASKS_TOTAL: usize = 13;
 const LISTED_TASKS_DONE: usize = 14;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
 const LISTED_LAST_COMMENT_AT: usize = 15;
+/// The columns a list reads for previews, after the last comment's time: the plain text
+/// of the body, worked out when it was stored, and the body.
+const PREVIEW_COLUMNS: &str = "body_text, body";
+/// The column of the plain text of the body, read for previews.
+const LISTED_BODY_TEXT: usize = 16;
+/// The column of the body, read for previews.
+const LISTED_BODY: usize = 17;
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -133,6 +140,26 @@ pub struct ListedBlock {
     pub summary: BodySummary,
     /// When the block's last comment was posted; zero if it has none.
     pub last_comment_at: i64,
+    /// What a preview shows of the body, if the list was asked for previews.
+    pub preview: Option<BodyPreview>,
+}
+
+/// What a list asked for previews reads of a block's body.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BodyPreview {
+    /// The body's plain text, as it is searched (a line per paragraph), whole.
+    pub text: String,
+    /// The stored name of the file of the body's first image, if it has one.
+    pub first_image: Option<String>,
+}
+
+/// Whether a list of blocks reads what previews show of their bodies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Previews {
+    /// It does not.
+    Without,
+    /// It reads the plain text and the first image of each body.
+    With,
 }
 
 impl Store {
@@ -179,9 +206,13 @@ impl Store {
     pub async fn get_listed_blocks(
         &self,
         filter: &BlockFilter,
+        previews: Previews,
     ) -> Result<Vec<ListedBlock>, StoreError> {
         self.with_conn(async |scope| {
-            let columns = format!("{LISTED_BLOCK_COLUMNS}, {LAST_COMMENT_AT_COLUMN}");
+            let mut columns = format!("{LISTED_BLOCK_COLUMNS}, {LAST_COMMENT_AT_COLUMN}");
+            if previews == Previews::With {
+                columns = format!("{columns}, {PREVIEW_COLUMNS}");
+            }
             let sql = filtered_blocks(scope, filter, &columns);
             scope
                 .fetch_all(sql)
@@ -200,6 +231,10 @@ impl Store {
                         block: block_from_row(row)?,
                         summary,
                         last_comment_at: row.int(LISTED_LAST_COMMENT_AT)?,
+                        preview: match previews {
+                            Previews::Without => None,
+                            Previews::With => Some(preview_from_row(row)?),
+                        },
                     })
                 })
                 .collect()
@@ -464,6 +499,21 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
             document => Some(Body::from_stored(document)),
         },
         edited_at: 0,
+    })
+}
+
+/// What a preview shows of the body of a listed row read with [`PREVIEW_COLUMNS`].
+fn preview_from_row(row: &Row) -> Result<BodyPreview, StoreError> {
+    let first_image = match row.json(LISTED_BODY, "body")? {
+        Value::Null => None,
+        document => Body::from_stored(document)
+            .file_ids()
+            .first()
+            .map(|&name| name.to_owned()),
+    };
+    Ok(BodyPreview {
+        text: row.text(LISTED_BODY_TEXT)?,
+        first_image,
     })
 }
 
@@ -893,6 +943,12 @@ mod tests {
         assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
         assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
         assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
+        let previews: Vec<&str> = PREVIEW_COLUMNS.split(", ").collect();
+        assert_eq!(
+            previews[LISTED_BODY_TEXT - LISTED_LAST_COMMENT_AT - 1],
+            "body_text"
+        );
+        assert_eq!(previews[LISTED_BODY - LISTED_LAST_COMMENT_AT - 1], "body");
     }
 
     #[test]

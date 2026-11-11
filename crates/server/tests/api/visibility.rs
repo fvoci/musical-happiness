@@ -373,6 +373,11 @@ fn cases() -> Vec<Case> {
             |h, i| format!("/boards/{}/blocks?readToken=wrong", h.board[i]),
             no_body,
         ),
+        case(
+            Method::GET,
+            |h, i| format!("/boards/{}/cards?readToken=wrong&preview=true", h.board[i]),
+            no_body,
+        ),
         // Both kinds of combined request.
         case(
             Method::PATCH,

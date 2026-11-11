@@ -51,6 +51,7 @@ parameter!(ContentDigest: Header "Content-Digest", String, True, "The SHA-256 di
 
 parameter!(ReadToken: Query "readToken", String, False, "The read token of the board. With the token of a board that is shared, the request needs no session.");
 parameter!(DisableNotify: Query "disableNotify", bool, False, "`true` keeps the change from being told to the subscribers of what changed. The server has nothing yet that tells subscribers, so today this changes nothing.");
+parameter!(Preview: Query "preview", bool, False, "`true` gives each card its `preview`. Any other value does not, and the cards have none.");
 parameter!(AsTemplate: Query "asTemplate", bool, False, "`true` makes the copy a template. Any other value does not.");
 parameter!(ToTeam: Query "toTeam", String, False, "The team the copy goes to. Left out, it stays in the team of the board.");
 parameter!(SourceBoardId: Query "sourceBoardId", String, False, "The board the blocks were copied from. The files the blocks refer to are copied from that board to this one, and the blocks point at the copies.");
