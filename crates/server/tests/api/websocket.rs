@@ -581,13 +581,23 @@ async fn follow_block(th: &TestServer, block: &Block, read_token: &str) -> (Sock
 async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let user1 = th.client.me().await;
-    let (_board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (_board, mut block, token) = shared_board_with_a_card(&th, &user1.id).await;
     assert_eq!(block.created_by, user1.id, "the block has an author");
+    block.body = fvoci_model::Body::parse(json!({"type": "doc", "content": [
+        {"type": "paragraph", "content": [{"type": "mention", "attrs": {"userId": user1.id}}]},
+    ]}))
+    .expect("a body");
+    let mention = "/block/body/content/0/content/0/attrs/userId";
 
     let (_reader, message) = follow_block(&th, &block, &token).await;
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
     assert_eq!(message["block"]["modifiedBy"], json!(""), "{message}");
+    assert_eq!(
+        message.pointer(mention),
+        Some(&json!("")),
+        "nor who is mentioned"
+    );
 
     let mut member = Socket::connect_as(&th.client).await;
     subscribe_to_team(&th, &mut member, ROOT_TEAM_ID, &user1.id).await;
@@ -600,6 +610,11 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         .await
         .expect("the member is told");
     assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
+    assert_eq!(
+        message.pointer(mention),
+        Some(&json!(user1.id)),
+        "{message}"
+    );
 
     th.teardown().await;
 }

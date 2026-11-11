@@ -1060,6 +1060,50 @@ async fn get_blocks_of_templates() {
     th.teardown().await;
 }
 
+/// Whoever reads a shared board with its read token alone is not told who wrote a block
+/// or who its body mentions; a member reading with the token is.
+#[tokio::test]
+async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
+    let th = Setup::local_mode().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let me = th.client.me().await;
+    let mention = json!({"type": "mention", "attrs": {"userId": me.id}});
+    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [mention]}]});
+    th.client
+        .post(
+            &format!("/boards/{}/cards", boards.board.id),
+            &json!({"title": "mentions", "body": body}),
+        )
+        .await
+        .check_created();
+    let read_token = th.share(&boards.board.id).await;
+    let path = format!(
+        "{}?readToken={read_token}&type=card",
+        blocks_path(&boards.board.id)
+    );
+    let mentioned = |blocks: &Value| -> Vec<Value> {
+        blocks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|block| block["body"]["content"][0]["content"][0]["attrs"]["userId"].clone())
+            .collect()
+    };
+
+    // As JSON: the answer is a shape that is only sent, which the allowlist of a write
+    // refuses.
+    let blocks = th.anonymous().get(&path).await.value();
+    assert_eq!(
+        mentioned(&blocks),
+        [json!("")],
+        "nobody, to the token alone"
+    );
+    assert_eq!(blocks[0]["createdBy"], json!(""), "nor who wrote it");
+    let blocks = th.client.get(&path).await.value();
+    assert_eq!(mentioned(&blocks), [json!(me.id)], "the user, to a member");
+    th.teardown().await;
+}
+
 /// A shared board's read token lets anyone read its blocks, and nothing else.
 #[tokio::test]
 async fn get_blocks_with_a_read_token() {

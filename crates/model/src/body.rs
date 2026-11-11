@@ -155,6 +155,14 @@ impl Body {
         ids
     }
 
+    /// Empties the `userId` of every mention: the body as it goes to whoever reads with a
+    /// read token alone, who is not told who the server's users are. That is a shape that
+    /// is sent, never one that is stored or received: the allowlist refuses a mention
+    /// without a user.
+    pub fn clear_mentions(&mut self) {
+        clear_mentions_in(&mut self.document);
+    }
+
     /// The body with its images pointed at other files: `rename` gives the new name of
     /// a file, or `None` for a file that has none, whose image becomes an empty
     /// paragraph (a body has no image without its file, and the place of a block
@@ -173,6 +181,21 @@ fn image_file(node: &Value) -> Option<&str> {
         return None;
     }
     node.get("attrs")?.get("fileId")?.as_str()
+}
+
+/// Empties the `userId` of every mention below and at `node`.
+fn clear_mentions_in(node: &mut Value) {
+    if node.get("type").and_then(Value::as_str) == Some("mention") {
+        if let Some(attrs) = node.get_mut("attrs").and_then(Value::as_object_mut) {
+            attrs.insert("userId".to_owned(), Value::String(String::new()));
+        }
+        return;
+    }
+    if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+        for child in children {
+            clear_mentions_in(child);
+        }
+    }
 }
 
 /// Renames the file of every image below and at `node`, and turns an image whose file
@@ -412,6 +435,29 @@ mod tests {
             "still a valid body"
         );
         assert_eq!(body.file_ids(), ["copy.png"]);
+    }
+
+    /// Every mention loses its user, also deep in a list; nothing else changes.
+    #[test]
+    fn clearing_the_mentions_empties_every_user_id() {
+        let mention = |id: &str| json!({"type": "mention", "attrs": {"userId": id}});
+        let id = "01a1c8e0-e250-735f-b851-4aaaa2ad2d83";
+        let mut body = Body::parse(document(&[
+            json!({"type": "paragraph", "content": [mention(id), {"type": "text", "text": "x"}]}),
+            json!({"type": "bulletList", "content": [{"type": "listItem", "content": [
+                {"type": "paragraph", "content": [mention(id)]},
+            ]}]}),
+        ]))
+        .expect("a body")
+        .expect("not empty");
+        body.clear_mentions();
+        let value = serde_json::to_value(&body).expect("JSON");
+        assert_eq!(value["content"][0]["content"][0], mention(""));
+        assert_eq!(value["content"][0]["content"][1]["text"], json!("x"));
+        assert_eq!(
+            value["content"][1]["content"][0]["content"][0]["content"][0],
+            mention("")
+        );
     }
 
     /// A body that was an image without its file and nothing else is no body.

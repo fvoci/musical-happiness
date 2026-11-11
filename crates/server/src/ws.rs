@@ -536,13 +536,9 @@ impl Hub {
         }
         self.send(&recipients, &message);
         if !anonymous.is_empty() {
-            // Whoever reads with a read token alone is not told who made or changed a
-            // block, here as over HTTP: an identifier says when its user registered.
-            let without_authors = Block {
-                created_by: String::new(),
-                modified_by: String::new(),
-                ..block.clone()
-            };
+            // As over HTTP (`getBlocks`).
+            let mut without_authors = block.clone();
+            without_authors.hide_people();
             let message = UpdateBlockMessage {
                 action: "UPDATE_BLOCK",
                 team_id,

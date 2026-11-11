@@ -284,7 +284,9 @@ pub struct Block {
     pub fields: JsonMap,
     /// The body of a card or a comment; `null` for a block without one. Only those two
     /// have one: a body on another block is refused (400 naming `body`). Every image of
-    /// it shows a file of the block's board.
+    /// it shows a file of the block's board. Whoever reads with a read token alone gets
+    /// every mention with an empty `userId`: a shape that is only sent, which a write
+    /// would have refused.
     pub body: Option<Body>,
     /// Creation time in milliseconds since the Unix epoch.
     #[serde(deserialize_with = "null_as_default")]
@@ -368,10 +370,22 @@ impl Block {
         malformed
     }
 
-    /// The stored names of the files the block shows, each once: the file of an image
-    /// or attachment block (`fileId`, or failing that `attachmentId`), and the images
-    /// of the body. The store's migration of file references
-    /// (`0003_file_refs.sql`) copies this rule in SQL; the two change together.
+    /// The block as it goes to whoever reads with a read token alone, who is nobody the
+    /// server knows and is not told who its users are (`docs/s6-design.md`, decision 7):
+    /// no `createdBy` or `modifiedBy`, and no user in the mentions of the body. A user's
+    /// identifier tells when they signed up.
+    pub fn hide_people(&mut self) {
+        self.created_by.clear();
+        self.modified_by.clear();
+        if let Some(body) = self.body.as_mut() {
+            body.clear_mentions();
+        }
+    }
+
+    /// The stored names of the files the block shows, each once: the file of an
+    /// attachment block (`fileId`, or failing that `attachmentId`), and the images of the
+    /// body. The store's migration of file references (`0003_file_refs.sql`) put down
+    /// the same rule in SQL, with the image blocks of then.
     #[must_use]
     pub fn shown_files(&self) -> Vec<String> {
         if self.block_type == BlockType::Attachment {

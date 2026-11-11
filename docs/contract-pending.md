@@ -59,7 +59,7 @@
 - `BlockPatch.readAt`은 지금 쓰인다: `patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`의 패치에 있으면 `patchCard`처럼 검사하고 어긋나면 409다.
 - 있는 블록을 고칠 때마다 `updateAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
 - 휴지통에서 되살린 카드와 복제한 카드는 본문과 할 일 수를 그대로 갖는다.
-- **사용자 결정 필요: 공유 보드의 익명 독자와 멘션.** 익명 독자(읽기 토큰)에게는 블록의 `createdBy`·`modifiedBy`를 비운다(결정 7: UUIDv7이 가입 시각을 드러낸다). 그런데 본문의 `mention.userId`도 같은 사용자 ID라 익명 독자에게 그대로 간다. 권고: 익명 독자에게 나가는 본문에서 `userId`를 비운 멘션으로 바꾼다(화면은 "알 수 없는 사용자"로 그린다). 결정 7의 범위를 넓히는 일이라 정하지 않았다.
+- **공유 보드의 익명 독자와 멘션(사용자 결정 2026-11-11 11:05 KST, tracer-bullet 17).** 읽기 토큰만으로 읽는 독자에게 나가는 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이다. HTTP(`getBlocks`)와 WebSocket(`UPDATE_BLOCK`) 모두. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다.
 
 **들어간 것(tracer-bullet 6, 2026-11-11 08:42 KST).** 표의 나머지 넷(블록의 `type`, `contentOrder`, `moveContentBlock`, `fields` 한도)이 들어갔다. 이로써 이 표는 모두 계약 파일에 있다.
 

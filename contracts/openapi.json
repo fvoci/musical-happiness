@@ -25,7 +25,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Body",
-                "description": "The body of a card or a comment; `null` for a block without one. Only those two\nhave one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board."
+                "description": "The body of a card or a comment; `null` for a block without one. Only those two\nhave one: a body on another block is refused (400 naming `body`). Every image of\nit shows a file of the block's board. Whoever reads with a read token alone gets\nevery mention with an empty `userId`: a shape that is only sent, which a write\nwould have refused."
               },
               {
                 "type": "null"

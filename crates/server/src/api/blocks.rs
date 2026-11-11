@@ -166,11 +166,8 @@ async fn handle_get_blocks(
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     let mut blocks = blocks;
     if user_id.is_empty() {
-        // Whoever reads through a read token alone is nobody the server knows. An
-        // identifier tells when it was made: a user's would tell when they signed up.
         for block in &mut blocks {
-            block.created_by.clear();
-            block.modified_by.clear();
+            block.hide_people();
         }
     }
     Ok(json_response(&blocks))

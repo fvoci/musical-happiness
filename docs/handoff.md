@@ -49,8 +49,8 @@
   | 14 | 빌드 크기(디버그 정보 수준) | 끝 |
   | 15 | 사용자 결정 1(11:05 KST): `patchCard`가 바뀐 속성만 받아 합치고 지울 속성을 따로 받는다 | 끝 |
   | 16 | 사용자 결정 2: 저장된 옛 콘텐츠 블록을 데이터 단계로 지우고(파일은 수거의 길로) 그것을 다루던 코드를 걷는다 | 끝 |
-  | 17 | 사용자 결정 3: 공유 링크의 익명 독자에게 나가는 본문의 멘션에서 사용자 ID를 비운다(HTTP와 WebSocket) | 다음 |
-  | 18 | 사용자 결정 4: `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`를 없앤 키로 | |
+  | 17 | 사용자 결정 3: 공유 링크의 익명 독자에게 나가는 본문의 멘션에서 사용자 ID를 비운다(HTTP와 WebSocket) | 끝 |
+  | 18 | 사용자 결정 4: `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`를 없앤 키로 | 다음 |
   | 19 | 사용자 결정 5: S3의 비밀 아닌 설정을 `FVOCI_*` 환경 변수로도 받는다 | |
   | 끝 | 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | |
 
@@ -59,7 +59,6 @@
   이 묶음에서 "사용자 결정 필요"로 남긴 것(까닭과 권고는 적힌 자리에):
 
   - 웹앱의 질문 가운데 계약의 모양이나 권한에 걸린 것(`docs/contract-pending.md` 9절의 "사용자 결정 필요" 줄).
-  - 공유 보드의 익명 독자에게 가는 본문의 `mention.userId`(`docs/contract-pending.md` 1절). 결정됨(11:05 KST), tracer-bullet 17.
   - 받지만 아무 일도 하지 않는 설정 키(`logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`)를 지울지, S3의 키를 `FVOCI_*` 환경 변수로 받을지(`docs/configuration.md`. 권고는 아래 "설정"). 결정됨(11:05 KST), tracer-bullet 18과 19. `authmode`와 `prometheusaddress`는 지우지 않는다(사용자 결정, 05:04 KST. 6절의 후속 후보).
 
 - **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. 권고: (1) `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 "없앤 키"로 옮겨 값이 있으면 시작하지 않게 한다(지금은 경고만 하거나 말없이 무시해, 적은 운영자가 효과가 있다고 믿는다). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). (2) S3는 `accesskeyid`를 비우면 표준 `AWS_*` 변수를 읽으므로 비밀 키를 파일 밖에 둘 길이 이미 있다. 그래도 `bucket`, `endpoint`, `region`, `pathprefix`처럼 배포마다 다른 값은 `FVOCI_FILESS3CONFIG_BUCKET` 꼴로 받게 하기를 권한다(컨테이너 하나로 여러 환경을 띄울 수 있다). 비밀 키는 `AWS_*`를 권하는 쪽으로 문서에 적어 두었다.
