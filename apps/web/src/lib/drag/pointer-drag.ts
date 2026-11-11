@@ -10,6 +10,17 @@
  * resting on the item for a moment; a finger that moves before that is
  * scrolling, and is left to the browser. The moment the resting finger has
  * picked the item up the device buzzes briefly, where it can.
+ *
+ * `immediate` is for a thing that is dragged along a scale of days, where a
+ * few pixels are a day: a mouse takes the item at the press (`start` with
+ * the point pressed), and the moves follow once it has gone the few pixels,
+ * measured from the press. A button let go before that was a click: the
+ * drag is cancelled and the click goes through. A finger still rests first,
+ * so that a finger landing on an item can scroll.
+ *
+ * Escape cancels a drag unless `escapeCancels` is false. Where it is false,
+ * putting the item back where it was is the way to cancel, and Escape does
+ * nothing during a drag.
  */
 import type { Point } from '$lib/logic/drop-target.ts';
 
@@ -24,6 +35,14 @@ export interface PointerDragOptions {
   touchTolerance: number;
   /** How long the device buzzes when a resting finger begins a drag, in milliseconds. 0 for none. */
   touchVibration: number;
+}
+
+/** How a use of `pointerDrag` differs from a list's: the numbers above are the same everywhere. */
+export interface PointerDragManner {
+  /** A mouse takes the item at the press; a click is still a click (above). False by default. */
+  immediate?: boolean;
+  /** Escape during a drag cancels it. True by default. */
+  escapeCancels?: boolean;
 }
 
 export const POINTER_DRAG_DEFAULTS: PointerDragOptions = {
@@ -64,6 +83,11 @@ interface Press {
   origin: Point;
   last: Point;
   dragging: boolean;
+  /**
+   * A press taken at once (`immediate`) has gone far enough to be a drag:
+   * the moves reach the session, and letting go is a drop, not a click.
+   */
+  moved: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
   /** Removes the listeners that only live while this press does. */
   release: () => void;
@@ -91,7 +115,7 @@ function buzz(duration: number): void {
 class PointerDragController {
   readonly #root: HTMLElement;
   readonly #source: PointerDragSource;
-  readonly #settings: PointerDragOptions;
+  readonly #settings: PointerDragOptions & Required<PointerDragManner>;
   readonly #notPassive = { passive: false };
   // Capture on the window sees input before handlers inside the page.
   readonly #capture = { capture: true };
@@ -99,10 +123,19 @@ class PointerDragController {
   /** A pointer whose drag was cancelled while it was still down. */
   #spent: { touch: boolean; forget: () => void } | undefined;
 
-  constructor(root: HTMLElement, source: PointerDragSource, options: Partial<PointerDragOptions>) {
+  constructor(
+    root: HTMLElement,
+    source: PointerDragSource,
+    options: Partial<PointerDragOptions> & PointerDragManner,
+  ) {
     this.#root = root;
     this.#source = source;
-    this.#settings = { ...POINTER_DRAG_DEFAULTS, ...options };
+    this.#settings = {
+      ...POINTER_DRAG_DEFAULTS,
+      immediate: false,
+      escapeCancels: true,
+      ...options,
+    };
     this.#root.addEventListener('pointerdown', this.#onPointerDown);
     this.#root.addEventListener('lostpointercapture', this.#onLostCapture);
     // Present before any finger lands: a browser decides when the touch begins
@@ -157,19 +190,27 @@ class PointerDragController {
     if (!this.#press || this.#press.dragging) return;
     clearTimeout(this.#press.timer);
     this.#press.dragging = true;
-    // The root takes the pointer: the item under it may leave the document
-    // while it is dragged, and events must keep coming when the pointer
-    // leaves the window.
-    try {
-      this.#root.setPointerCapture(this.#press.pointerId);
-    } catch {
-      // The pointer is already gone; its pointerup or pointercancel follows.
-    }
+    if (this.#press.moved) this.#takePointer();
     // Only a finger that rested gets the buzz: it is the one sign that the
     // wait is over. A mouse sees the item move.
     if (this.#press.touch) buzz(this.#settings.touchVibration);
     this.#press.session.start(this.#press.last);
   };
+
+  /**
+   * The root takes the pointer: the item under it may leave the document
+   * while it is dragged, and events must keep coming when the pointer leaves
+   * the window. Not before the press is a drag: a captured pointer's click
+   * goes to the root, and a press taken at once may still be a click.
+   */
+  #takePointer(): void {
+    if (!this.#press) return;
+    try {
+      this.#root.setPointerCapture(this.#press.pointerId);
+    } catch {
+      // The pointer is already gone; its pointerup or pointercancel follows.
+    }
+  }
 
   /** A drag that ends with the button going up would otherwise be followed by a click. */
   #swallowNextClick(): void {
@@ -187,14 +228,19 @@ class PointerDragController {
   readonly #onPointerMove = (event: PointerEvent): void => {
     if (event.pointerId !== this.#press?.pointerId) return;
     this.#press.last = pointOf(event);
-    if (this.#press.dragging) {
-      this.#press.session.move(this.#press.last);
-      return;
-    }
     const travelled = Math.hypot(
       this.#press.last.x - this.#press.origin.x,
       this.#press.last.y - this.#press.origin.y,
     );
+    if (this.#press.dragging) {
+      // Taken at once: the moves follow once it has gone far enough to be no click.
+      if (!this.#press.moved && travelled >= this.#settings.mouseDistance) {
+        this.#press.moved = true;
+        this.#takePointer();
+      }
+      if (this.#press.moved) this.#press.session.move(this.#press.last);
+      return;
+    }
     if (this.#press.touch) {
       // Moved before the wait was over: this is a scroll, not a drag.
       if (travelled > this.#settings.touchTolerance) this.#finish();
@@ -207,6 +253,11 @@ class PointerDragController {
     if (event.pointerId !== this.#press?.pointerId) return;
     const ended = this.#finish();
     if (!ended?.dragging) return;
+    if (!ended.moved) {
+      // Taken at once and let go where it was pressed: a click, which goes through.
+      ended.session.cancel();
+      return;
+    }
     this.#swallowNextClick();
     ended.session.drop(pointOf(event));
   };
@@ -222,6 +273,14 @@ class PointerDragController {
 
   readonly #onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape' || !this.#press) return;
+    if (!this.#settings.escapeCancels) {
+      // Nothing else reacts to it mid-drag either: a column or a dialog does not close under it.
+      if (this.#press.dragging) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
     if (this.#press.dragging) {
       // Escape ends the drag and nothing else, such as a dialog around the board.
       event.preventDefault();
@@ -276,6 +335,8 @@ class PointerDragController {
       origin,
       last: origin,
       dragging: false,
+      // A drag that is not taken at once has gone far enough by the time it begins.
+      moved: touch || !this.#settings.immediate,
       timer: touch ? setTimeout(this.#begin, this.#settings.touchDelay) : undefined,
       release: () => {
         window.removeEventListener('pointermove', this.#onPointerMove, this.#capture);
@@ -286,6 +347,7 @@ class PointerDragController {
         target?.removeEventListener('touchmove', this.#onTouchMove);
       },
     };
+    if (!touch && this.#settings.immediate) this.#begin();
   };
 
   cancel(): void {
@@ -306,7 +368,7 @@ class PointerDragController {
 export function pointerDrag(
   root: HTMLElement,
   source: PointerDragSource,
-  options: Partial<PointerDragOptions> = {},
+  options: Partial<PointerDragOptions> & PointerDragManner = {},
 ): PointerDragHandle {
   const controller = new PointerDragController(root, source, options);
   return {
