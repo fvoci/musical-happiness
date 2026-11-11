@@ -1,5 +1,5 @@
 {
-  "description": "Bodies as Y documents, written by apps/web/tools/ydoc/vectors.ts from the editor's own binding (@tiptap/y-tiptap); the server's conversion (crates/collab) and the web app's tests read it. Do not edit by hand. field is the name of the XML fragment at the root of the Y document. An update is a whole Y document as a version 1 update in base64, and json is what an editor reads from it in the form that is stored (null for no body). documents: every accepted case of body-vectors.json with a body (not those with a build), by its name. bodies: more bodies, each with the body. In both, json is the body as it comes back: without an empty content or attrs, with the marks of a text in the order of the schema, neighbouring texts with the same marks as one, and an attribute the editor fills in (the start of an ordered list). readings: shared content no editor writes, which every editor that did not write it keeps as it is, and how it is read. refused: shared content the editors keep the same way though what they read (json) is no body: the editor's schema checks no value, the server's rules do. repairs: shared content that does not fit the schema; json is what is left when an editor has deleted what fails. schema: the marks in the order the editor stores them, and the attributes of each mark and node with the value given to one that is left out (null: left out).",
+  "description": "Bodies as Y documents, written by apps/web/tools/ydoc/vectors.ts from the editor's own binding (@tiptap/y-tiptap); the server's conversion (crates/collab) and the web app's tests read it. Do not edit by hand. field is the name of the XML fragment at the root of the Y document. An update is a whole Y document as a version 1 update in base64, and json is what an editor reads from it in the form that is stored (null for no body). documents: every accepted case of body-vectors.json with a body (not those with a build), by its name. bodies: more bodies, each with the body. In both, json is the body as it comes back: without an empty content or attrs, with the marks of a text in the order of the schema, neighbouring texts with the same marks as one, and an attribute the editor fills in (the start of an ordered list). readings: shared content no editor writes, which every editor that did not write it keeps as it is, and how it is read. refused: shared content the editors keep the same way though what they read (json) is no body: the editor's schema checks no value, the server's rules do. repairs: shared content that does not fit the schema; json is what is left when an editor has deleted what fails. session: start is the document a server opens, updates are what the binding of one editor sends after it, in order, as it makes one edit after another, and json is what an editor reads at the end. schema: the marks in the order the editor stores them, and the attributes of each mark and node with the value given to one that is left out (null: left out).",
   "bodyVersion": 2,
   "field": "default",
   "schema": {
@@ -3592,5 +3592,86 @@
       "update": "AQQBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3SHAQADBXZpZGVvhwEBAwpibG9ja3F1b3RlBwABAgMKYmxvY2txdW90ZQA=",
       "json": null
     }
-  ]
+  ],
+  "session": {
+    "start": "AQwBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQtoZWxsbyB3b3JsZIcBAAMKYnVsbGV0TGlzdAcAAQ0DCGxpc3RJdGVtBwABDgMJcGFyYWdyYXBoBwABDwYEAAEQA29uZYcBDgMIbGlzdEl0ZW0HAAEUAwlwYXJhZ3JhcGgHAAEVBgQAARYDdHdvAA==",
+    "updates": [
+      "AQECAMQBBwEIBmJyYXZlIAA=",
+      "AQICBsYBBwIABGJvbGQCe33GAgQCBQRib2xkBG51bGwA",
+      "AQQCCEcBAAMHaGVhZGluZwcAAggGBAACCQpUaXRsZSDwn5iAKAACCAVsZXZlbAF9AgEBAQ4G",
+      "AQUCE6gCEgF9A4cBFAMIbGlzdEl0ZW0HAAIUAwlwYXJhZ3JhcGgHAAIVBgQAAhYFdGhyZWUCAgIACBIBAQECCw==",
+      "AQYCHIQCEQEhhAEMBWFnYWluhwENAwljb2RlQmxvY2sHAAIiBgQAAiMQZ3JhcGggVEQKICBBLS0+QigAAiIIbGFuZ3VhZ2UBdwdtZXJtYWlkAA=="
+    ],
+    "json": {
+      "type": "doc",
+      "content": [
+        {
+          "type": "heading",
+          "attrs": {
+            "level": 3
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Title 😀!"
+            }
+          ]
+        },
+        {
+          "type": "paragraph",
+          "content": [
+            {
+              "type": "text",
+              "text": "again"
+            }
+          ]
+        },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "two"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "listItem",
+              "content": [
+                {
+                  "type": "paragraph",
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "three"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "codeBlock",
+          "attrs": {
+            "language": "mermaid"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "graph TD\n  A-->B"
+            }
+          ]
+        }
+      ]
+    }
+  }
 }

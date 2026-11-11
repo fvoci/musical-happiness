@@ -13,12 +13,6 @@ use yrs::{
 use crate::FIELD;
 use crate::schema::{self, Fallback};
 
-/// The identifier of the client that writes a body into a new Y document. Every
-/// document made from the same body is the same, byte for byte. An editor takes its own
-/// identifier at random from 32 bits; that one of them takes this one is as likely as
-/// that two of them take the same.
-const WRITER: u64 = 1;
-
 /// An empty Y document for a body, whose root is the fragment the editors are bound to.
 /// A card without a body starts from this: an editor shows its empty paragraph over an
 /// empty fragment and writes when somebody types.
@@ -46,9 +40,22 @@ pub(crate) fn doc_of_client(client: Option<u64>) -> Doc {
 /// written with the value an editor gives it.
 ///
 /// The server makes it when a body is first opened for editing together; no editor does.
+/// The body is written by a client whose identifier is taken at random, anew each
+/// time: an update made against another document, or against an earlier making of
+/// this one, builds on changes this document does not have and is refused
+/// ([`crate::UpdateError::MissingChanges`]) instead of landing somewhere in it.
 #[must_use]
 pub fn from_body(body: &Body) -> Doc {
-    let doc = doc_of_client(Some(WRITER));
+    // 32 bits, as the editors take theirs.
+    from_body_by(body, ClientID::random().get() & 0xffff_ffff)
+}
+
+/// [`from_body`] with the identifier of the writing client given. The same body and
+/// writer give the same document, byte for byte; two documents by the same writer take
+/// each other's updates as their own, which is why [`from_body`] gives each its own.
+#[must_use]
+pub fn from_body_by(body: &Body, writer: u64) -> Doc {
+    let doc = doc_of_client(Some(writer));
     {
         let root = doc.get_or_insert_xml_fragment(FIELD);
         let mut txn = doc.transact_mut();

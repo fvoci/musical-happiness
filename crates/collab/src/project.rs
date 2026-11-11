@@ -35,6 +35,17 @@ pub(crate) fn project<T: ReadTxn>(
     txn: &T,
     root: &XmlFragmentRef,
 ) -> Result<Option<Body>, BodyError> {
+    // A text at the root, even one without letters, makes an editor's binding throw.
+    if let Some(index) = read::children(txn, root)
+        .unwrap_or_default()
+        .iter()
+        .position(|child| matches!(child, Child::Text(_)))
+    {
+        return Err(BodyError::InvalidNode {
+            path: format!("/content/{index}"),
+            problem: "a text stands at the root",
+        });
+    }
     let mut walk = Walk {
         txn,
         nodes: 1,

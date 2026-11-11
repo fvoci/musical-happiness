@@ -20,6 +20,8 @@
  *   read is no body; only the server's rules refuse it.
  * - `repairs`: shared content that does not fit the schema, and the JSON of
  *   what is left once an editor has deleted what fails.
+ * - `session`: one body edited step by step, as the document the server opens
+ *   and the updates the binding then sends, one after another.
  * - `schema`: the marks in the schema's order and the attributes each node
  *   and mark has, with the value an editor gives one that is left out.
  *
@@ -41,7 +43,7 @@ import {
   type DocNode,
 } from '../../src/lib/editor/schema.ts';
 
-import { BODIES, READINGS, REFUSED, REPAIRS, type RawCase } from './cases.ts';
+import { BODIES, READINGS, REFUSED, REPAIRS, SESSION, type RawCase } from './cases.ts';
 import { rawType, type RawNode } from './shape.ts';
 
 /** The shared type an editor is bound to: the collaboration extension's own name for it. */
@@ -65,7 +67,9 @@ const DESCRIPTION =
   'write it keeps as it is, and how it is read. refused: shared content the editors keep the ' +
   "same way though what they read (json) is no body: the editor's schema checks no value, the " +
   "server's rules do. repairs: shared content that does not fit the schema; json is what is left " +
-  'when an editor has deleted what fails. schema: the marks in the order the editor stores them, ' +
+  'when an editor has deleted what fails. session: start is the document a server opens, ' +
+  'updates are what the binding of one editor sends after it, in order, as it makes one edit ' +
+  'after another, and json is what an editor reads at the end. schema: the marks in the order the editor stores them, ' +
   'and the attributes of each mark and node with the value given to one that is left out ' +
   '(null: left out).';
 
@@ -101,6 +105,7 @@ export interface YdocVectors {
   readings: YdocVector[];
   refused: YdocVector[];
   repairs: YdocVector[];
+  session: { start: string; updates: string[]; json: DocNode | null };
 }
 
 interface BodyCase {
@@ -296,6 +301,26 @@ function docOfBody(schema: Schema, body: unknown): Y.Doc {
   return doc;
 }
 
+/**
+ * One editor's session: the document the server opens, and every update the
+ * binding sends as the editor's document becomes each state in turn.
+ */
+function session(schema: Schema): YdocVectors['session'] {
+  const [opened, ...states] = SESSION;
+  const start = Y.encodeStateAsUpdate(docOfBody(schema, opened));
+  const editor = newDoc(WRITER + 1);
+  Y.applyUpdate(editor, start);
+  const updates: string[] = [];
+  editor.on('update', (update: Uint8Array) => updates.push(base64(update)));
+  for (const state of states)
+    prosemirrorToYXmlFragment(Node.fromJSON(schema, state), editor.getXmlFragment(FIELD));
+  const json = readStored(readerOf(Y.encodeStateAsUpdate(editor)), schema);
+  const last = toStoredDoc(Node.fromJSON(schema, states.at(-1)).toJSON() as DocNode);
+  if (JSON.stringify(json) !== JSON.stringify(last))
+    throw new Error('the session does not end in its last state');
+  return { start: base64(start), updates, json };
+}
+
 /** Everything the file holds, from the editor's schema and the accepted bodies. */
 export function buildVectors(schema: Schema, bodyCases: BodyCase[]): YdocVectors {
   // That an editor keeps every one of them as it is, is checked as it is read.
@@ -329,6 +354,7 @@ export function buildVectors(schema: Schema, bodyCases: BodyCase[]): YdocVectors
     readings: raw(READINGS, 'kept'),
     refused: raw(REFUSED, 'refused'),
     repairs: [...mergedRepairs(schema), ...raw(REPAIRS, 'repaired')],
+    session: session(schema),
   };
 }
 

@@ -263,7 +263,7 @@ impl Walk<'_> {
                     }
                 }
                 124 => self.skip(4)?,
-                122 | 123 => self.skip(8)?,
+                123 => self.skip(8)?,
                 // Bytes and a text.
                 116 | 119 => self.text()?,
                 tag @ (117 | 118) => {
@@ -276,6 +276,8 @@ impl Walk<'_> {
                         map: tag == 118,
                     });
                 }
+                // A whole number of 64 bits (122), which JavaScript reads as another
+                // kind of number than the library and no editor writes, or no value.
                 _ => return Err(Refusal::Unknown),
             }
             // What was read ends every list it was the last entry of; the next entry
@@ -354,7 +356,6 @@ mod tests {
             vec![125, 0xff, 0x01],
             vec![124, 0, 0, 0, 0],
             vec![123, 0, 0, 0, 0, 0, 0, 0, 0],
-            vec![122, 0, 0, 0, 0, 0, 0, 0, 0],
             vec![121],
             vec![120],
             vec![119, 2, b'h', b'i'],
@@ -415,6 +416,11 @@ mod tests {
         assert_eq!(
             check(&[2, 1, 5, 0, 0, 1, 1, 5, 9, 0, 1, 0]),
             Err(Refusal::Gap)
+        );
+        assert_eq!(
+            check(&of_values(&[122, 0, 0, 0, 0, 0, 0, 0, 2], 1)),
+            Err(Refusal::Unknown),
+            "a whole number of 64 bits"
         );
         // A subdocument.
         let mut subdocument = vec![1, 1, 5, 0, 9, 1, 7];

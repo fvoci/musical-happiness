@@ -157,6 +157,48 @@ export const BODIES: BodyCase[] = [
   },
 ];
 
+const entryOf = (value: string): DocNode => ({ type: 'listItem', content: [lineOf(run(value))] });
+
+/**
+ * A body as one person edits it, state after state: the first is what the
+ * server opens, each one after it what the editor holds after an edit. The
+ * vectors hold the updates the binding sends for each step.
+ */
+export const SESSION: DocNode[] = [
+  bodyOf(lineOf(run('hello world')), {
+    type: 'bulletList',
+    content: [entryOf('one'), entryOf('two')],
+  }),
+  // Typing in the middle of a text.
+  bodyOf(lineOf(run('hello brave world')), {
+    type: 'bulletList',
+    content: [entryOf('one'), entryOf('two')],
+  }),
+  // A mark on a word.
+  bodyOf(lineOf(run('hello '), run('brave', 'bold'), run(' world')), {
+    type: 'bulletList',
+    content: [entryOf('one'), entryOf('two')],
+  }),
+  // An entry deleted, a heading put before everything.
+  bodyOf(
+    { type: 'heading', attrs: { level: 2 }, content: [run('Title 😀')] },
+    lineOf(run('hello '), run('brave', 'bold'), run(' world')),
+    { type: 'bulletList', content: [entryOf('two')] },
+  ),
+  // The mark taken off again, the paragraph emptied, the heading's level changed.
+  bodyOf({ type: 'heading', attrs: { level: 3 }, content: [run('Title 😀')] }, lineOf(), {
+    type: 'bulletList',
+    content: [entryOf('two'), entryOf('three')],
+  }),
+  // A diagram at the end, and letters after the emoji.
+  bodyOf(
+    { type: 'heading', attrs: { level: 3 }, content: [run('Title 😀!')] },
+    lineOf(run('again')),
+    { type: 'bulletList', content: [entryOf('two'), entryOf('three')] },
+    { type: 'codeBlock', attrs: { language: 'mermaid' }, content: [run('graph TD\n  A-->B')] },
+  ),
+];
+
 export const READINGS: RawCase[] = [
   {
     name: 'a heading without a level is of level 1',

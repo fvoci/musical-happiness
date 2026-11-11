@@ -162,6 +162,35 @@ fn an_update_that_begins_after_a_hole_is_refused() {
     assert_eq!(texts(&with).len(), 2, "the paragraph the update adds");
 }
 
+/// An update made against one making of a body does not land in another, though both
+/// hold the same body: each is written by a client of its own.
+#[test]
+fn an_update_for_another_document_is_refused() {
+    let one = opened("the same body");
+    let other = opened("the same body");
+    let typed = {
+        let client = copy_of(&one);
+        let before = client.transact().state_vector();
+        let root = client.get_or_insert_xml_fragment(FIELD);
+        let mut txn = client.transact_mut();
+        let Some(yrs::types::xml::XmlOut::Element(line)) = root.first_child() else {
+            panic!("the body is a paragraph");
+        };
+        let Some(yrs::types::xml::XmlOut::Text(text)) = line.first_child() else {
+            panic!("the paragraph is a text");
+        };
+        text.insert(&mut txn, 4, "typed ");
+        drop(txn);
+        client.transact().encode_diff_v1(&before)
+    };
+    let with = with_update(&one, &typed, &ROOMY).expect("taken where it was made");
+    assert_eq!(texts(&with), ["the typed same body"]);
+    assert_eq!(
+        with_update(&other, &typed, &ROOMY).map(|_| ()),
+        Err(UpdateError::MissingChanges)
+    );
+}
+
 /// An update may write only into the fragment that holds the body.
 #[test]
 fn an_update_that_writes_to_another_root_is_refused() {

@@ -4,7 +4,7 @@
 
 mod support;
 
-use fvoci_collab::{from_body, repair, state_of, to_body};
+use fvoci_collab::{from_body, from_body_by, repair, state_of, to_body};
 use serde_json::{Value, json};
 use support::{body_of, body_vectors, doc_of, json_of, to_base64, vectors};
 
@@ -42,15 +42,22 @@ fn a_document_made_here_projects_to_what_an_editor_reads() {
     }
 }
 
-/// A body is always made into the same Y document, byte for byte.
+/// The same writer makes the same Y document of a body, byte for byte; left to
+/// itself, every document has a writer of its own.
 #[test]
-fn a_document_is_made_the_same_every_time() {
+fn a_document_is_made_the_same_by_the_same_writer() {
     for one in body_vectors() {
         let body = body_of(&one.body);
         assert_eq!(
-            state_of(&from_body(&body)),
-            state_of(&from_body(&body)),
+            state_of(&from_body_by(&body, 1)),
+            state_of(&from_body_by(&body, 1)),
             "{}",
+            one.vector.name
+        );
+        assert_ne!(
+            state_of(&from_body(&body)),
+            state_of(&from_body(&body)),
+            "{}: a writer of its own each time",
             one.vector.name
         );
     }
@@ -159,7 +166,7 @@ fn made_here() -> Value {
     let documents: Vec<Value> = body_vectors()
         .iter()
         .map(|one| {
-            let update = to_base64(&state_of(&from_body(&body_of(&one.body))));
+            let update = to_base64(&state_of(&from_body_by(&body_of(&one.body), 1)));
             json!({"name": one.vector.name, "update": update})
         })
         .collect();
@@ -201,4 +208,49 @@ fn the_file_for_the_web_app_is_up_to_date() {
         "{} is stale: run FVOCI_WRITE_VECTORS=1 cargo test -p fvoci-collab --test vectors",
         path.display()
     );
+}
+
+/// One editor's session, as the vectors recorded it from the binding: the document the
+/// server opens, then every update the editor sends. Each is taken in its turn, taking
+/// one twice changes nothing, one that comes before the one it builds on is refused,
+/// and the end is the body an editor reads there.
+#[test]
+fn the_updates_of_an_editing_session_are_taken_in_order() {
+    let file = support::read_json(&support::contract("ydoc-vectors.json"));
+    let session = &file["session"];
+    let bytes = |text: &Value| support::from_base64(text.as_str().expect("base64"));
+    let updates: Vec<Vec<u8>> = session["updates"]
+        .as_array()
+        .expect("the updates of the session")
+        .iter()
+        .map(bytes)
+        .collect();
+    assert!(updates.len() >= 5, "an update for every edit");
+    let opened = doc_of(&bytes(&session["start"]));
+
+    let ahead = updates.last().expect("a last update");
+    assert_eq!(
+        fvoci_collab::with_update(&opened, ahead, &support::ROOMY).map(|_| ()),
+        Err(fvoci_collab::UpdateError::MissingChanges),
+        "the last update first"
+    );
+
+    let mut doc = opened;
+    for (index, update) in updates.iter().enumerate() {
+        doc = fvoci_collab::with_update(&doc, update, &support::ROOMY)
+            .unwrap_or_else(|error| panic!("update {index}: {error}"));
+        assert!(
+            to_body(&doc).is_ok(),
+            "update {index}: a body after every edit"
+        );
+        let again = fvoci_collab::with_update(&doc, update, &support::ROOMY)
+            .unwrap_or_else(|error| panic!("update {index}, again: {error}"));
+        assert_eq!(
+            state_of(&again),
+            state_of(&doc),
+            "update {index}: twice is once"
+        );
+    }
+    let end = to_body(&doc).expect("a body at the end");
+    assert_eq!(json_of(end.as_ref()), session["json"]);
 }

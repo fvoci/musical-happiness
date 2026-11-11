@@ -31,7 +31,7 @@ mod scan;
 mod schema;
 mod update;
 
-pub use build::{from_body, new_doc};
+pub use build::{from_body, from_body_by, new_doc};
 pub use project::to_body;
 pub use repair::{Repair, repair};
 pub use update::{UpdateError, UpdateLimits, copy_of, state_of, with_update};

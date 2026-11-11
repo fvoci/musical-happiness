@@ -28,7 +28,9 @@ pub struct Repair {
 ///
 /// Two edits that are each valid can merge into a document that is not: two people each
 /// delete one of the last two entries of a list, and a list without entries is left.
-/// Every editor deletes shared content its schema refuses, and so does this, with the
+/// Every editor deletes shared content its schema refuses (as long as it is made
+/// without its content check, with which it keeps the content and stops editing),
+/// and so does this, with the
 /// allowlist as the judge: a node that fails by itself is deleted with all it holds (a
 /// kind nobody knows, an attribute that is not allowed, too few children, a child of a
 /// kind it may not hold, a list entry that does not start with a paragraph), from the
@@ -39,8 +41,9 @@ pub struct Repair {
 /// The allowlist refuses more than the editor's schema, which checks no value: a
 /// heading of level 9 or a link to `javascript:` stays in an editor and is deleted here.
 /// At the root an editor wraps a node the document may not hold (a list entry, a
-/// mention) instead of deleting it; this deletes it. And a node that holds letters or
-/// values where its children belong, which an editor passes over, is deleted whole.
+/// mention) instead of deleting it; this deletes it, and a text at the root, on which
+/// an editor's binding throws. And a node that holds letters or values where its
+/// children belong, which an editor passes over, is deleted whole.
 ///
 /// # Errors
 ///
@@ -69,10 +72,9 @@ pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
     if !left.is_empty() {
         Body::parse(json!({"type": "doc", "content": left}))?;
     }
-    let deleted = found.cuts.len();
-    // From the last to the first, so that no deletion moves the place of another.
-    for cut in found.cuts.iter().rev() {
-        cut.make(&mut txn);
+    let deleted = found.cuts.iter().map(|cuts| cuts.indexes.len()).sum();
+    for cuts in &found.cuts {
+        cuts.make(&mut txn);
     }
     let body = project(&txn, &root)?;
     let update = (deleted > 0).then(|| txn.encode_update_v1());
@@ -83,19 +85,35 @@ pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
     })
 }
 
-/// A child to delete: where it is.
+/// The children of one parent to delete: their indexes, in order.
 #[derive(Debug)]
-struct Cut {
+struct Cuts {
     parent: ArrayRef,
-    index: u32,
+    indexes: Vec<u32>,
 }
 
-impl Cut {
-    /// Deletes the child, if the parent has one at the index. (It has, as the index
-    /// was read from it; deleting past the end of a parent would panic in the library.)
+impl Cuts {
+    /// Deletes the children, neighbours in one stretch, from the front: the library
+    /// walks to an index from the front of the parent, and what is deleted before a
+    /// stretch is then no longer in the way.
     fn make(&self, txn: &mut TransactionMut<'_>) {
-        if self.index < self.parent.len(txn) {
-            self.parent.remove_range(txn, self.index, 1);
+        let mut gone = 0_u32;
+        let mut rest = self.indexes.as_slice();
+        while let Some(&first) = rest.first() {
+            let stretch = rest
+                .iter()
+                .zip(first..)
+                .take_while(|(index, expected)| **index == *expected)
+                .count();
+            let length = u32::try_from(stretch).unwrap_or(u32::MAX);
+            let start = first.saturating_sub(gone);
+            // The indexes were read from this parent, so the stretch is there;
+            // deleting past the end of a parent would panic in the library.
+            if start.saturating_add(length) <= self.parent.len(txn) {
+                self.parent.remove_range(txn, start, length);
+            }
+            gone = gone.saturating_add(length);
+            rest = rest.get(stretch..).unwrap_or(&[]);
         }
     }
 }
@@ -111,8 +129,20 @@ struct Survey<'txn, T> {
 struct Found {
     /// The JSON of the children that stay.
     content: Content,
-    /// The children to delete, here and below, in the order of the document.
-    cuts: Vec<Cut>,
+    /// The children to delete, here and below, parent by parent.
+    cuts: Vec<Cuts>,
+}
+
+impl Found {
+    /// Notes the children of a parent that are to be deleted, if there are any.
+    fn note(&mut self, parent: &ArrayRef, indexes: Vec<u32>) {
+        if !indexes.is_empty() {
+            self.cuts.push(Cuts {
+                parent: parent.clone(),
+                indexes,
+            });
+        }
+    }
 }
 
 impl<T: ReadTxn> Survey<'_, T> {
@@ -125,17 +155,20 @@ impl<T: ReadTxn> Survey<'_, T> {
                 problem: "the root holds something that is neither a node nor a text",
             });
         };
-        let parent: &ArrayRef = root.as_ref();
         let mut found = Found::default();
+        let mut own = Vec::new();
         for (index, child) in children.into_iter().enumerate() {
             // What is noted below this child from here on goes with it if it goes.
             let noted = found.cuts.len();
+            // A text at the root goes whatever it holds: an editor's binding throws on one.
+            let at_root = !matches!(child, Child::Text(_));
             let stays = match self.child(child, 2, &mut found.cuts)? {
                 // Each was within the limits as the node it is, so this gives no error.
                 Some(nodes)
-                    if nodes
-                        .iter()
-                        .all(|node| passes(node, Place::Block) == Ok(true)) =>
+                    if at_root
+                        && nodes
+                            .iter()
+                            .all(|node| passes(node, Place::Block) == Ok(true)) =>
                 {
                     found.content.extend(nodes);
                     true
@@ -144,12 +177,10 @@ impl<T: ReadTxn> Survey<'_, T> {
             };
             if !stays {
                 found.cuts.truncate(noted);
-                found.cuts.push(Cut {
-                    parent: parent.clone(),
-                    index: index_of(index),
-                });
+                own.push(index_of(index));
             }
         }
+        found.note(root.as_ref(), own);
         Ok(found)
     }
 
@@ -159,17 +190,15 @@ impl<T: ReadTxn> Survey<'_, T> {
         let Some(children) = read::children(self.txn, element) else {
             return Ok(None);
         };
-        let parent: &ArrayRef = element.as_ref();
         let mut found = Found::default();
+        let mut own = Vec::new();
         for (index, child) in children.into_iter().enumerate() {
             match self.child(child, depth, &mut found.cuts)? {
                 Some(nodes) => found.content.extend(nodes),
-                None => found.cuts.push(Cut {
-                    parent: parent.clone(),
-                    index: index_of(index),
-                }),
+                None => own.push(index_of(index)),
             }
         }
+        found.note(element.as_ref(), own);
         Ok(Some(found))
     }
 
@@ -180,7 +209,7 @@ impl<T: ReadTxn> Survey<'_, T> {
         &self,
         child: Child,
         depth: usize,
-        cuts: &mut Vec<Cut>,
+        cuts: &mut Vec<Cuts>,
     ) -> Result<Option<Vec<Value>>, BodyError> {
         match child {
             Child::Element(element) => {

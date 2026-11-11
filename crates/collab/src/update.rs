@@ -109,6 +109,13 @@ fn read(doc: &Doc, update: &[u8]) -> Result<Update, UpdateError> {
 /// either. They stay in the document, and [`UpdateLimits::state_bytes`] is what bounds
 /// them.
 ///
+/// How long this takes is not bounded by the size of the update alone. The library
+/// places a change among the others that claim the same place by looking at each of
+/// them, so an update made for it can take the square of its size: 112 kB of changes
+/// that all claim the end of a parent of 16,000 children took 29 seconds. What calls
+/// this for a client keeps [`UpdateLimits::update_bytes`] small and does not hold
+/// anything others wait for while it runs.
+///
 /// # Errors
 ///
 /// Returns an [`UpdateError`] if the update is too large, is no update, cannot be

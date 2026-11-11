@@ -6,7 +6,7 @@ mod support;
 
 use std::sync::Arc;
 
-use fvoci_collab::{FIELD, from_body, new_doc, repair, state_of, to_body};
+use fvoci_collab::{FIELD, from_body, from_body_by, new_doc, repair, state_of, to_body};
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BodyError};
 use serde_json::{Value, json};
 use support::{body_of, json_of};
@@ -121,6 +121,60 @@ fn a_text_at_the_root_is_refused_and_deleted() {
     assert_eq!(repaired(&doc), document(&[text_paragraph("kept")]));
 }
 
+/// Also a text without letters: the binding throws on a text at the root whatever it
+/// holds, though it would add nothing to the body.
+#[test]
+fn an_empty_text_at_the_root_is_refused_and_deleted() {
+    let doc = written(|txn, root| {
+        root.push_back(txn, XmlTextPrelim::new(""));
+        paragraph(txn, root, "kept");
+        root.push_back(txn, XmlTextPrelim::new(""));
+    });
+    assert_eq!(
+        to_body(&doc),
+        Err(BodyError::InvalidNode {
+            path: "/content/0".to_owned(),
+            problem: "a text stands at the root",
+        })
+    );
+    assert_eq!(repaired(&doc), document(&[text_paragraph("kept")]));
+    assert_eq!(
+        repair(&doc).expect("a second repair").deleted,
+        0,
+        "once is enough"
+    );
+}
+
+/// Many nodes that fail under one parent, alone and in stretches, between ones that
+/// stay: each goes, and each that stays is where it was.
+#[test]
+fn many_failing_children_of_one_parent_are_all_deleted() {
+    let doc = written(|txn, root| {
+        for index in (0..3000_u32).rev() {
+            // Two of every five stay; the three between them are a stretch that goes.
+            if index % 5 < 2 {
+                let line = root.push_front(txn, XmlElementPrelim::empty("paragraph"));
+                line.push_front(txn, XmlTextPrelim::new(index.to_string()));
+            } else {
+                root.push_front(txn, XmlElementPrelim::empty("video"));
+            }
+        }
+    });
+    let repair = {
+        assert!(to_body(&doc).is_err(), "refused as it is");
+        repair(&doc).expect("a repair")
+    };
+    assert_eq!(repair.deleted, 1800);
+    let kept: Vec<Value> = (0..3000_u32)
+        .filter(|index| index % 5 < 2)
+        .map(|index| text_paragraph(&index.to_string()))
+        .collect();
+    assert!(
+        json_of(repair.body.as_ref()) == document(&kept),
+        "the 1200 that stay, in order"
+    );
+}
+
 /// Values where the children of a node belong have no JSON at all. An editor passes
 /// over them; the server refuses the document, and a repair deletes the node that
 /// holds them.
@@ -195,7 +249,7 @@ fn letters_where_nodes_belong_are_refused_without_being_listed() {
 
     // The same text under the paragraph of a body: the paragraph is the first change
     // of the client that wrote the body, client 1.
-    let body = from_body(&body_of(&document(&[text_paragraph("kept")])));
+    let body = from_body_by(&body_of(&document(&[text_paragraph("kept")])), 1);
     let under_paragraph = [1, 1, 5, 0, 4, 0, 1, 0, 4, 0xf0, 0x9f, 0x98, 0x80, 0];
     let doc = fvoci_collab::with_update(&body, &under_paragraph, &support::ROOMY)
         .expect("the update is taken");

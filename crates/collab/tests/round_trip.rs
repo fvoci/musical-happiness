@@ -4,7 +4,7 @@
 
 mod support;
 
-use fvoci_collab::{FIELD, from_body, repair, state_of, to_body, with_update};
+use fvoci_collab::{FIELD, from_body, from_body_by, repair, state_of, to_body, with_update};
 use serde_json::Value;
 use support::random::{Random, document};
 use support::{ROOMY, body_of, doc_of, json_of};
@@ -19,7 +19,7 @@ fn a_body_comes_back_as_it_went() {
     for seed in 0..CASES {
         let document = document(&mut Random::new(seed));
         let body = body_of(&document);
-        let doc = from_body(&body);
+        let doc = from_body_by(&body, seed + 1);
         let state = state_of(&doc);
 
         let back = to_body(&doc).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
@@ -33,7 +33,7 @@ fn a_body_comes_back_as_it_went() {
         );
 
         assert_eq!(
-            state_of(&from_body(&body)),
+            state_of(&from_body_by(&body, seed + 1)),
             state,
             "seed {seed}: made the same again"
         );
