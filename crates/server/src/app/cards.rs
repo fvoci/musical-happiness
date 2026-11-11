@@ -3,8 +3,8 @@
 //! A card has no storage of its own. It is created, read and patched as its block, so
 //! every change is announced the way block changes are.
 
-use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, new_id};
-use fvoci_store::{BlockFilter, Paging};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, CardPreview, new_id};
+use fvoci_store::{BlockFilter, Paging, Previews};
 
 use super::{App, ChangeNotification};
 use crate::auth::now_millis;
@@ -88,7 +88,7 @@ impl App {
 
     /// Returns cards of a board, in no particular order: page number `page`, counted
     /// from zero, of pages of `per_page` cards. A `per_page` of zero or less asks for
-    /// all cards, whatever the page.
+    /// all cards, whatever the page. With [`Previews::With`] each card has its preview.
     ///
     /// # Errors
     ///
@@ -99,6 +99,7 @@ impl App {
         board_id: &str,
         page: i64,
         per_page: i64,
+        previews: Previews,
     ) -> Result<Vec<Card>, AppError> {
         let mut filter = BlockFilter::board(board_id).with_type(BlockType::Card);
         match CardRange::new(page, per_page) {
@@ -106,18 +107,27 @@ impl App {
             CardRange::Page(paging) => filter.paging = Some(paging),
             CardRange::Nothing => return Ok(Vec::new()),
         }
-        let blocks = self.store().get_listed_blocks(&filter).await?;
+        let blocks = self.store().get_listed_blocks(&filter, previews).await?;
 
         let now = now_millis();
         blocks
             .iter()
-            .map(|(block, summary)| {
+            .map(|listed| {
                 // The fields of a card that are not of their kind are left out
                 // (`card_from_stored_block`), so no stored card fails the list; an
                 // error here would be the server's.
                 // A list says whether a card has a body; the body is read with the card.
-                card_from_stored_block(block, now)
-                    .map(|card| card.listed(*summary))
+                card_from_stored_block(&listed.block, now)
+                    .map(|card| Card {
+                        last_comment_at: listed.last_comment_at,
+                        preview: listed.preview.as_ref().map(|preview| {
+                            CardPreview::new(
+                                preview.first_image.clone().unwrap_or_default(),
+                                &preview.text,
+                            )
+                        }),
+                        ..card.listed(listed.summary)
+                    })
                     .map_err(|error| AppError::from(error).context("Block2Card fail"))
             })
             .collect()
@@ -150,7 +160,8 @@ impl App {
             .patch_block(card_id, &block_patch, user_id, notification)
             .await
             .map_err(|error| error.context(format_args!("cannot patch card {card_id}")))?;
-        Ok(card_from_stored_block(&block, now_millis())?)
+        self.with_last_comment_at(card_from_stored_block(&block, now_millis())?)
+            .await
     }
 
     /// Returns the card with the given identifier.
@@ -161,7 +172,28 @@ impl App {
     /// an internal error if the block is not a card or cannot be read as one.
     pub async fn card(&self, card_id: &str) -> Result<Card, AppError> {
         let block = self.block(card_id).await?;
-        Ok(card_from_stored_block(&block, now_millis())?)
+        self.card_of_block(&block).await
+    }
+
+    /// Returns the card of a card block that was read before, with when its last
+    /// comment was posted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an internal error if the block cannot be read as a card, and the store's
+    /// error if its comments cannot be read.
+    pub async fn card_of_block(&self, block: &Block) -> Result<Card, AppError> {
+        self.with_last_comment_at(card_from_stored_block(block, now_millis())?)
+            .await
+    }
+
+    /// The card with when its last comment was posted.
+    async fn with_last_comment_at(&self, card: Card) -> Result<Card, AppError> {
+        let last_comment_at = self.store().get_last_comment_at(&card.id).await?;
+        Ok(Card {
+            last_comment_at,
+            ..card
+        })
     }
 }
 

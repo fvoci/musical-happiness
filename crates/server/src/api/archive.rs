@@ -3,8 +3,6 @@
 //! Ports `server/api/archive.go`. The team-export route is registered twice in the
 //! original (the standalone server answers it); the import field is `file`.
 
-use std::time::Duration;
-
 use axum::Extension;
 use axum::body::{Body, Bytes};
 use axum::extract::{ConnectInfo, Path, State};
@@ -257,7 +255,7 @@ fn archive_response(
     slot: Slot,
     breaker: Option<Breaker>,
 ) -> Response {
-    let stall = Duration::from_secs(app.config().export_stall_seconds);
+    let stall = app.config().export_stall();
     let size = archive.size;
     let filename = export_filename(crate::auth::now_millis());
     (

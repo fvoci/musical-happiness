@@ -645,6 +645,12 @@ impl Configuration {
         }
     }
 
+    /// How long an export's download may send nothing before it is given up
+    /// (`export_stall_seconds`).
+    pub fn export_stall(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.export_stall_seconds)
+    }
+
     /// Checks the limits on uploads: none turns a limit off, and they fit together.
     fn check_upload_limits(&self) -> anyhow::Result<()> {
         // An S3 multipart upload takes no smaller part but the last, and none larger.
@@ -909,6 +915,7 @@ mod tests {
         assert_eq!(config.max_comment_versions, 50);
         assert_eq!(config.max_concurrent_exports, 2);
         assert_eq!(config.export_stall_seconds, 60);
+        assert_eq!(config.export_stall(), std::time::Duration::from_secs(60));
         assert_eq!(config.max_concurrent_imports, 2);
         assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");

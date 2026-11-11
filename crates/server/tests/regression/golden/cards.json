@@ -54,6 +54,7 @@
       "icon": "🃏",
       "id": "<id:5>",
       "isTemplate": false,
+      "lastCommentAt": 0,
       "modifiedBy": "<id:1>",
       "properties": {
         "p1": "v1"
@@ -79,6 +80,7 @@
       "icon": "",
       "id": "<id:6>",
       "isTemplate": false,
+      "lastCommentAt": 0,
       "modifiedBy": "<id:1>",
       "properties": {},
       "tasksDone": 0,
@@ -145,6 +147,7 @@
         "icon": "🃏",
         "id": "<id:5>",
         "isTemplate": false,
+        "lastCommentAt": 0,
         "modifiedBy": "<id:1>",
         "properties": {
           "p1": "v1"
@@ -164,6 +167,7 @@
         "icon": "",
         "id": "<id:6>",
         "isTemplate": false,
+        "lastCommentAt": 0,
         "modifiedBy": "<id:1>",
         "properties": {},
         "tasksDone": 0,
@@ -189,6 +193,7 @@
         "icon": "🃏",
         "id": "<id:5>",
         "isTemplate": false,
+        "lastCommentAt": 0,
         "modifiedBy": "<id:1>",
         "properties": {
           "p1": "v1"
@@ -208,6 +213,7 @@
         "icon": "",
         "id": "<id:6>",
         "isTemplate": false,
+        "lastCommentAt": 0,
         "modifiedBy": "<id:1>",
         "properties": {},
         "tasksDone": 0,
@@ -270,6 +276,7 @@
       "icon": "🃏",
       "id": "<id:5>",
       "isTemplate": false,
+      "lastCommentAt": 0,
       "modifiedBy": "<id:1>",
       "properties": {
         "p1": "v1"
@@ -295,6 +302,7 @@
       "icon": "🃏",
       "id": "<id:5>",
       "isTemplate": false,
+      "lastCommentAt": 0,
       "modifiedBy": "<id:1>",
       "properties": {
         "p1": "v1"
@@ -334,6 +342,7 @@
       "icon": "🂡",
       "id": "<id:5>",
       "isTemplate": false,
+      "lastCommentAt": 0,
       "modifiedBy": "<id:1>",
       "properties": {
         "p1": "v1",
@@ -402,6 +411,7 @@
       "icon": "🂡",
       "id": "<id:5>",
       "isTemplate": false,
+      "lastCommentAt": 0,
       "modifiedBy": "<id:1>",
       "properties": {
         "p1": "v1",
@@ -481,6 +491,7 @@
       "icon": "🂡",
       "id": "<id:5>",
       "isTemplate": false,
+      "lastCommentAt": 0,
       "modifiedBy": "<id:1>",
       "properties": {
         "p1": "v1",
