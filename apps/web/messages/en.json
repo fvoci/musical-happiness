@@ -146,6 +146,8 @@
   "gantt_problems": "Out of order: {late}. On a loop: {loops}.",
   "gantt_bar_late": "Out of order: starts before the end of {cards}.",
   "gantt_bar_loop": "On a loop: following what it comes after leads back to it.",
+  "gantt_bar_group": "Group: {group}.",
+  "gantt_undated_hint": "These cards have no {property} and so no bar on the chart.",
   "gantt_late": "Out of order",
   "gantt_late_next": "Out of order: {count}. Show the next.",
   "gantt_loop": "On a loop",

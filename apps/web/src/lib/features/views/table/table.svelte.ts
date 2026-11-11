@@ -16,6 +16,7 @@ import { m } from '$lib/i18n/paraglide/messages.js';
 import { moveItems, type ListOrder } from '$lib/logic/drop-target.ts';
 import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
 import type { DisplayContext } from '$lib/logic/format.ts';
+import { orderingRelations } from '$lib/logic/gantt.ts';
 import type { BoardGroup } from '$lib/logic/group.ts';
 import { propertyBehavior, type CalculationOption } from '$lib/logic/properties.ts';
 import {
@@ -459,6 +460,10 @@ export class TableController {
     get cards() {
       return table.#board.cardsById;
     },
+    ordering: (propertyId) =>
+      orderingRelations(table.#board.views, table.#board.board?.cardProperties ?? []).has(
+        propertyId,
+      ),
     cardHref: (cardId) => table.#source.cardHref(cardId),
     open: (cardId) => {
       table.#source.openCard(cardId);

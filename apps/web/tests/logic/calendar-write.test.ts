@@ -11,7 +11,13 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { datesWritable, movedValue, newCardProperties } from '$lib/logic/calendar.ts';
+import {
+  datesWritable,
+  draggedDays,
+  movedValue,
+  newCardProperties,
+  resizedValue,
+} from '$lib/logic/calendar.ts';
 import { wallTimeOf } from '$lib/logic/date-entry.ts';
 import {
   addDays,
@@ -130,6 +136,117 @@ describe('a value moved to another first day', () => {
       from: on('2026-11-19'),
       to: { instant: at(zone, 2026, 11, 21, 10, 0) },
     });
+  });
+});
+
+describe('the days of a dragged card', () => {
+  const days = { first: day('2026-11-12'), last: day('2026-11-14') };
+
+  it('all of them move, over the end of a month', () => {
+    expect(draggedDays(days, 'move', 20)).toEqual({
+      first: day('2026-12-02'),
+      last: day('2026-12-04'),
+    });
+  });
+
+  it('an end moves and stops on the other', () => {
+    expect(draggedDays(days, 'end', 3)).toEqual({ first: days.first, last: day('2026-11-17') });
+    expect(draggedDays(days, 'end', -9)).toEqual({ first: days.first, last: days.first });
+    expect(draggedDays(days, 'start', -2)).toEqual({ first: day('2026-11-10'), last: days.last });
+    expect(draggedDays(days, 'start', 9)).toEqual({ first: days.last, last: days.last });
+  });
+
+  it('none goes past the days that can be written', () => {
+    const late = { first: day('9999-12-30'), last: day('9999-12-31') };
+    expect(draggedDays(late, 'move', 5)).toEqual(late);
+    expect(draggedDays(late, 'end', 5)).toEqual(late);
+    const early = { first: day('0001-01-01'), last: day('0001-01-02') };
+    expect(draggedDays(early, 'move', -5)).toEqual(early);
+    expect(draggedDays(early, 'start', -5)).toEqual(early);
+  });
+});
+
+describe('a value with one end moved', () => {
+  const zone = 'Asia/Seoul';
+
+  it('the last day of a range moves, over the end of a month', () => {
+    const value = { from: on('2026-11-24'), to: on('2026-11-26') };
+    expect(resizedValue(value, 'end', day('2026-12-02'), zone)).toEqual({
+      from: on('2026-11-24'),
+      to: on('2026-12-02'),
+    });
+  });
+
+  it('the first day of a range moves, over the end of a year', () => {
+    const value = { from: on('2027-01-02'), to: on('2027-01-05') };
+    expect(resizedValue(value, 'start', day('2026-12-30'), zone)).toEqual({
+      from: on('2026-12-30'),
+      to: on('2027-01-05'),
+    });
+  });
+
+  it('a value of one day becomes a range from either end', () => {
+    expect(resizedValue({ from: on('2026-11-12') }, 'end', day('2026-11-14'), zone)).toEqual({
+      from: on('2026-11-12'),
+      to: on('2026-11-14'),
+    });
+    expect(resizedValue({ from: on('2026-11-12') }, 'start', day('2026-11-10'), zone)).toEqual({
+      from: on('2026-11-10'),
+      to: on('2026-11-12'),
+    });
+  });
+
+  it('an end stops on the day of the other, and a range of one day becomes one day', () => {
+    const value = { from: on('2026-11-12'), to: on('2026-11-14') };
+    expect(resizedValue(value, 'start', day('2026-11-20'), zone)).toEqual({
+      from: on('2026-11-14'),
+    });
+    expect(resizedValue(value, 'end', day('2026-11-01'), zone)).toEqual({
+      from: on('2026-11-12'),
+    });
+    expect(resizedValue({ from: on('2026-11-12') }, 'end', day('2026-11-01'), zone)).toEqual({
+      from: on('2026-11-12'),
+    });
+  });
+
+  it('a range stored backwards comes out in order', () => {
+    const value = { from: on('2026-11-24'), to: on('2026-11-12') };
+    expect(resizedValue(value, 'end', day('2026-11-28'), zone)).toEqual({
+      from: on('2026-11-12'),
+      to: on('2026-11-28'),
+    });
+  });
+
+  it('a moment keeps its time of day; the other end is left as it is', () => {
+    const value = {
+      from: { instant: at(zone, 2026, 11, 10, 9, 0) },
+      to: { instant: at(zone, 2026, 11, 11, 17, 0) },
+    };
+    expect(resizedValue(value, 'end', day('2026-11-13'), zone)).toEqual({
+      from: value.from,
+      to: { instant: at(zone, 2026, 11, 13, 17, 0) },
+    });
+  });
+
+  it('an end moved onto the other’s day takes no time before the other’s', () => {
+    const value = {
+      from: { instant: at(zone, 2026, 11, 10, 18, 0) },
+      to: { instant: at(zone, 2026, 11, 12, 9, 0) },
+    };
+    expect(resizedValue(value, 'end', day('2026-11-10'), zone)).toEqual({ from: value.from });
+  });
+
+  it('keeps nine in the morning over a night the clocks change', () => {
+    const ny = 'America/New_York';
+    const value = { from: { instant: at(ny, 2026, 3, 6, 9, 0) } };
+    expect(resizedValue(value, 'end', day('2026-03-09'), ny)).toEqual({
+      from: value.from,
+      to: { instant: at(ny, 2026, 3, 9, 9, 0) },
+    });
+  });
+
+  it('an empty value becomes the day', () => {
+    expect(resizedValue({}, 'end', day('2026-11-12'), zone)).toEqual({ from: on('2026-11-12') });
   });
 });
 

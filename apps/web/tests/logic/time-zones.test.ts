@@ -262,6 +262,30 @@ describe('near the date line', () => {
   });
 });
 
+describe('at the ends of the years a date can have (1 to 9999)', () => {
+  // The last minute of 9999 in UTC is in the year 10000 in Seoul.
+  const lastMinute = Date.UTC(9999, 11, 31, 23, 59);
+  const firstMoment = new Date(0).setUTCFullYear(1, 0, 1);
+
+  it('a moment late on the last day of 9999 is on that day east of UTC, not in 10000', () => {
+    expect(dateOfInstant(lastMinute, 'Asia/Seoul')).toBe('9999-12-31');
+    expect(dateOfInstant(lastMinute, 'Pacific/Kiritimati')).toBe('9999-12-31');
+    // Days compare as text: a range that ends then still ends after it starts.
+    const days = daysOf(
+      { from: { date: '9999-12-30' as CalendarDate }, to: { instant: lastMinute } },
+      'Asia/Seoul',
+    );
+    expect(days).toEqual({ first: '9999-12-30', last: '9999-12-31' });
+  });
+
+  it('a moment early on the first day of the year 1 is on that day west of UTC, not a year on', () => {
+    // Before it, for a reader in Los Angeles, is the year 1 before the era: read as "1".
+    expect(dateOfInstant(firstMoment, 'America/Los_Angeles')).toBe('0001-01-01');
+    expect(dateOfInstant(firstMoment, 'UTC')).toBe('0001-01-01');
+    expect(dateOfInstant(firstMoment + 86_400_000, 'America/Los_Angeles')).toBe('0001-01-01');
+  });
+});
+
 describe('a date without a time is the same date for every reader', () => {
   const fifth = calendarDate(2026, 3, 5);
   const now = Date.UTC(2026, 5, 1);

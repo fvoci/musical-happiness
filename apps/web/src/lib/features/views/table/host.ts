@@ -28,6 +28,8 @@ export interface RowHost {
   readonly canEdit: boolean;
   /** The board's cards that are there, by identifier: what a relation names. */
   readonly cards: ReadonlyMap<string, Card>;
+  /** A Gantt view reads the relation as an order: no card that closes a loop is offered. */
+  ordering(propertyId: string): boolean;
   cardHref(cardId: string): string;
   open: (cardId: string) => void;
   /** A cell was pressed (or Enter on it): edit it, or for a checkbox change it. */

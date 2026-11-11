@@ -15,6 +15,7 @@
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { page } from '$lib/layout/room.svelte.ts';
+  import { orderingRelations } from '$lib/logic/gantt.ts';
   import { SELECTABLE_PROPERTY_TYPES } from '$lib/logic/properties.ts';
   import type { BoardView, PropertyType, PropertyValue as StoredValue } from '$lib/logic/wire.ts';
   import type { BoardStore, CardSummary } from '$lib/state/index.ts';
@@ -39,6 +40,8 @@
   const workspace = $derived(board.workspace);
   const templates = $derived(board.board?.cardProperties ?? []);
   const editable = $derived(board.canEdit);
+  /** The relations a Gantt view reads as an order: no card that closes a loop is offered. */
+  const ordering = $derived(orderingRelations(board.views, templates));
   const presentation = $derived(overlayPresentation(page.stage));
   /** The people a person property can be set to: the members of the board. */
   const users = $derived<readonly PropertyUser[]>(board.people);
@@ -95,6 +98,7 @@
             regional={workspace.regional}
             {presentation}
             cards={board.cardsById}
+            preventLoops={ordering.has(template.id)}
             {onOpenCard}
             onChange={(value: StoredValue | undefined) =>
               void board.setCardProperty(card.id, template.id, value)}

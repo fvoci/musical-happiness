@@ -11,10 +11,9 @@
  *   finger, a filter that hides it), the dialog leaves it nowhere. Once the
  *   card has closed, a focus left on nothing goes to the day.
  *
- * The view header's "New" (and its round button on a folded header) is not
- * this: it is the board page's, and makes a card as on every view (C13 is
- * not built; the header may not reach into a view, and the page is not the
- * calendar's to change).
+ * The view header's "New" (and its round button on a folded header) makes
+ * a card here too, on the day picked: the calendar names this as its maker
+ * to the board page (lib/state/new-card.ts, question C13).
  */
 import { tick } from 'svelte';
 

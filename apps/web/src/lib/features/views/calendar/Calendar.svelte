@@ -15,10 +15,14 @@
     seven days (WeekAgenda).
 
   A card is made on a day from "New card on …" at the end of the day's list,
-  or with a mouse from the "+" of its cell (question C11, answer B).
+  or with a mouse from the "+" of its cell (question C11, answer B); the
+  header's "New" makes it on the day picked (C13).
   A card's date is changed from the "…" of its line in a list: a picker of
   days (DayPicker) moves it whole (questions C9, C10). Where the cards are
   placed by a date nobody sets, no line offers it and the lists say why.
+  With a pointer, a bar of the grid is dragged to another day, its ends to
+  make it longer or shorter, and a card without a date from its column
+  onto a day (card-drag.svelte.ts).
 
   Month or week, the month in view and the day picked are kept above the
   parts that draw them (Period): a window that changes size swaps the grid of
@@ -33,9 +37,18 @@
   import BottomSheet from '$lib/components/sheet/BottomSheet.svelte';
   import { overlayPresentation } from '$lib/layout/presentation.ts';
   import { fingerPointer, page, PaneRoom } from '$lib/layout/room.svelte.ts';
-  import { datesWritable, displayProperty, weekOf, weeksOfMonth } from '$lib/logic/calendar.ts';
+  import {
+    datesWritable,
+    displayProperty,
+    weekOf,
+    weeksOfMonth,
+    type BarGrip,
+  } from '$lib/logic/calendar.ts';
   import { addDays, dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
+  import type { Days } from '$lib/logic/dependencies.ts';
+  import { displayDay } from '$lib/logic/format.ts';
   import type { Card } from '$lib/logic/wire.ts';
+  import { registerNewCard } from '$lib/state/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
 
   import type { ViewProps } from '../props.ts';
@@ -43,6 +56,7 @@
   import DayList from './DayList.svelte';
   import DayOverlay from './DayOverlay.svelte';
   import DayPicker from './DayPicker.svelte';
+  import { CardDrag } from './card-drag.svelte.ts';
   import { CardMaker } from './making.svelte.ts';
   import MiniMonth from './MiniMonth.svelte';
   import MonthGrid from './MonthGrid.svelte';
@@ -52,7 +66,9 @@
   import { Placed } from './placed.ts';
   import Toolbar from './Toolbar.svelte';
   import Undated from './Undated.svelte';
+  import { UndatedColumn } from './undated-column.svelte.ts';
   import WeekAgenda from './WeekAgenda.svelte';
+  import { writeDays } from './write.ts';
 
   let { board, view, cards, cardHref, onOpenCard }: ViewProps = $props();
 
@@ -81,12 +97,16 @@
    * that widens again does not bring them back unasked.
    */
   let dayOpen = $derived<boolean>(bars && false);
-  /**
-   * The cards without a date are open: a column at the right, or a sheet on a
-   * compact page. Closed when the page changes between the two, so that a
-   * device turned on its side does not raise a sheet unasked.
-   */
-  let undatedOpen = $derived<boolean>(sheet && false);
+  /** The cards without a date: a column at the right, or a sheet on a compact page. */
+  const undated = new UndatedColumn({
+    sheet: () => sheet,
+    onOpenCard: (cardId: string) => {
+      onOpenCard(cardId);
+    },
+    onopen: () => {
+      dayOpen = false;
+    },
+  });
 
   /**
    * The first day of the week drawn, in a week. A string, so that the arrow
@@ -105,9 +125,6 @@
 
   /** The box, for finding the button of a day in it. Not reactive: read on a key press. */
   let body: HTMLElement | undefined;
-  /** "No date" in the row above, and the column it opens: where the focus goes and comes back. */
-  let undatedButton = $state<HTMLElement | null>(null);
-  let undatedPanel: HTMLElement | undefined;
 
   /**
    * The box: kept for the focus, and measured. The column of cards without a
@@ -118,7 +135,7 @@
   function attachBody(element: HTMLElement): () => void {
     body = element;
     const left = (): void => {
-      if (!sheet) undatedOpen = false;
+      undated.left();
     };
     element.addEventListener('focusin', left);
     return () => {
@@ -152,7 +169,7 @@
   }
 
   function pick(date: CalendarDate): void {
-    undatedOpen = false;
+    undated.open = false;
     select(date);
     if (bars) dayOpen = true;
   }
@@ -185,53 +202,37 @@
   );
   const lists = $derived({ ...rows, today, fixed });
 
-  /** Opens or closes the cards without a date; the list of a day gives way to them. */
-  async function toggleUndated(): Promise<void> {
-    undatedOpen = !undatedOpen;
-    if (!undatedOpen) return;
-    dayOpen = false;
-    await tick();
-    undatedPanel?.querySelector<HTMLElement>('[data-testid="undated-close"]')?.focus();
+  // ------------------------------------------------------------ dragging
+
+  const drag = new CardDrag({
+    days: (cardId: string) => placed.span(cardId),
+    enabled: () => writable && board.canEdit,
+    ondrop: dropCard,
+  });
+
+  /** A card let go on other days: its date is written, and the board shows it at once. */
+  function dropCard(cardId: string, grip: BarGrip, days: Days): void {
+    const card = placed.card(cardId);
+    if (!card || !template || !datesWritable(template)) return;
+    void writeDays(board, card, template, grip, days, regional.timeZone);
   }
 
-  /**
-   * The column of cards without a date: kept for the focus, and Escape in it
-   * closes it. A listener and not `onkeydown`: the column is a region of the
-   * page, not a control, and the key is the column's way out like its close
-   * button. For `{@attach}`.
-   */
-  function attachUndated(element: HTMLElement): () => void {
-    undatedPanel = element;
-    const keys = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') closeUndated();
-    };
-    element.addEventListener('keydown', keys);
-    return () => {
-      element.removeEventListener('keydown', keys);
-      undatedPanel = undefined;
-    };
-  }
-
-  /** Closes the column of cards without a date, the focus back on its button. */
-  function closeUndated(): void {
-    undatedOpen = false;
-    undatedButton?.focus();
-  }
-
-  /**
-   * A card opened from the cards without a date. Given a date, it may leave
-   * the list and have no bar in view either: the focus is put on "No date"
-   * first, which is where the card gives it back then (CardDialog gives it to
-   * the card's bar where there is one). On a sheet, the sheet closes first.
-   */
-  async function openUndated(cardId: string): Promise<void> {
-    if (sheet) {
-      undatedOpen = false;
-      await tick();
-    }
-    undatedButton?.focus();
-    onOpenCard(cardId);
-  }
+  /** What the chip that follows a dragged card says: its title and the days it would go to. */
+  const chip = $derived.by(() => {
+    const preview = drag.preview;
+    const card = preview ? placed.card(preview.id) : undefined;
+    if (!preview || !card) return undefined;
+    const days = preview.days;
+    const when = days
+      ? days.first === days.last
+        ? displayDay(days.first, locale)
+        : m.gantt_days_range({
+            first: displayDay(days.first, locale),
+            last: displayDay(days.last, locale),
+          })
+      : undefined;
+    return { title: placed.title(card), when };
+  });
 
   // -------------------------------------------------------- making a card
 
@@ -249,6 +250,12 @@
     void maker.on(date);
   };
 
+  // The header's "New" makes the card on the day picked (question C13).
+  $effect(() => {
+    if (!creatable) return;
+    return registerNewCard(view.id, () => maker.on(period.selected));
+  });
+
   // ------------------------------------------------------ changing a date
 
   /** The card whose date the picker of a day changes, and whether the picker is open. */
@@ -261,7 +268,7 @@
     // A line of a list in the calendar's box stays on screen: the picker hangs by it.
     changingLine = line && body?.contains(line) ? line : null;
     dayOpen = false;
-    undatedOpen = false;
+    undated.open = false;
     changing = cardId;
     await tick();
     pickerOpen = true;
@@ -288,7 +295,7 @@
     changingLine = null;
     if (back) back.focus();
     else if (dated) focusDay();
-    else undatedButton?.focus();
+    else undated.button?.focus();
   }
 </script>
 
@@ -310,13 +317,13 @@
     onstep={step}
     ontoday={goToday}
     undated={placed.undated.length}
-    {undatedOpen}
-    bind:undatedButton
-    onundated={() => void toggleUndated()}
+    undatedOpen={undated.open}
+    bind:undatedButton={undated.button}
+    onundated={() => void undated.toggle()}
   />
 
   <!-- Measured here, outside the scrollbar a low window gives the box: the width does not depend on it. -->
-  <div class="relative flex min-h-0 flex-1 flex-col" {@attach box.attach}>
+  <div class="relative flex min-h-0 flex-1 flex-col" {@attach box.attach} {@attach drag.attach}>
     <!-- A low window scrolls the small grid and its list together; the list keeps room for two cards. -->
     <div
       class={['relative flex min-h-0 flex-1 flex-col', !bars && 'overflow-y-auto']}
@@ -339,6 +346,8 @@
           onpick={pick}
           onmove={(by: number) => void move(by)}
           oncreate={creatable ? createOn : undefined}
+          draggable={writable && board.canEdit}
+          dragging={drag.preview}
         />
       {:else if scale === 'week'}
         <div
@@ -386,7 +395,7 @@
       {/if}
     </div>
 
-    {#if undatedOpen && !sheet}
+    {#if undated.open && !sheet}
       <!--
         Over the grid, at its right: the proposal's column stands beside the
         grid only from a pane of 54rem, a width this step does not add.
@@ -394,12 +403,12 @@
       <div
         data-testid="undated-panel"
         class="absolute inset-y-0 right-0 z-30 flex w-80 max-w-full flex-col border-l bg-background pb-(--safe-bottom) shadow-lg"
-        {@attach attachUndated}
+        {@attach undated.attach}
       >
         <Undated
           {...rows}
-          onOpenCard={(cardId: string) => void openUndated(cardId)}
-          onclose={closeUndated}
+          onOpenCard={(cardId: string) => void undated.openCard(cardId)}
+          onclose={undated.close}
         />
       </div>
     {/if}
@@ -422,11 +431,24 @@
 
 {#if sheet}
   <BottomSheet
-    bind:open={undatedOpen}
+    bind:open={undated.open}
     title={m.calendar_undated_count({ count: placed.undated.length })}
   >
-    <Undated {...rows} onOpenCard={(cardId: string) => void openUndated(cardId)} />
+    <Undated {...rows} onOpenCard={(cardId: string) => void undated.openCard(cardId)} />
   </BottomSheet>
+{/if}
+
+{#if chip && drag.at}
+  <div
+    data-testid="calendar-drag-chip"
+    aria-hidden="true"
+    class="pointer-events-none fixed z-50 flex max-w-60 flex-col rounded-sm bg-popover px-2 py-1 text-xs text-popover-foreground shadow-lg ring-1 ring-border"
+    style:left="{drag.at.x + 12}px"
+    style:top="{drag.at.y + 12}px"
+  >
+    <span class="truncate font-medium">{chip.title}</span>
+    {#if chip.when}<span class="truncate text-muted-foreground">{chip.when}</span>{/if}
+  </div>
 {/if}
 
 {#if bars}
@@ -437,7 +459,7 @@
     {selected}
     {locale}
     {lists}
-    mayFocusDay={() => !undatedOpen}
+    mayFocusDay={() => !undated.open}
     {focusDay}
     {onOpenCard}
     oncreate={creatable ? createOn : undefined}

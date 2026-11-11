@@ -225,13 +225,15 @@ function without<T>(
  *
  * Without `becomes` the property is being deleted, and every mention of it
  * goes: the visible properties, the sort, the filter, the grouping, the date
- * a calendar shows cards by, the widths and the calculations.
+ * a calendar shows cards by, the relation a Gantt chart draws arrows by,
+ * the widths and the calculations.
  *
  * With `becomes` the property stays and changes its kind to that. Where it
  * is shown and sorted by stays. What was written for the old kind goes: the
  * filter clauses (their conditions belong to a kind), the calculations, the
  * columns of a grouping (they name options), and the grouping or the
- * calendar date itself when the new kind cannot do that.
+ * calendar date itself when the new kind cannot do that, and the relation a
+ * Gantt chart draws arrows by when it is no card relation any more.
  *
  * Returns the view it was given when nothing in it changes.
  */
@@ -265,6 +267,9 @@ export function viewWithoutProperty(
   }
   if (fields.dateDisplayPropertyId === propertyId && behavior?.days === undefined) {
     delete fields.dateDisplayPropertyId;
+  }
+  if (fields.dependencyPropertyId === propertyId && becomes !== 'relation') {
+    delete fields.dependencyPropertyId;
   }
   const next: BoardView = { ...view, fields };
   return JSON.stringify(next.fields) === JSON.stringify(view.fields) ? view : next;

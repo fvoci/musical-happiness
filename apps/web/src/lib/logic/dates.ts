@@ -62,12 +62,23 @@ function utcOf(date: CalendarDate): number {
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
-/** The day a moment falls on for a reader in `timeZone`. */
+/** The first and the last day a date can be: the years 1 to 9999, as the server has them. */
+const FIRST_DATE = '0001-01-01' as CalendarDate;
+const LAST_DATE = '9999-12-31' as CalendarDate;
+
+/**
+ * The day a moment falls on for a reader in `timeZone`. A moment of the
+ * first or the last day there is (in UTC) may be in the year 0 or 10000 on
+ * the reader's clock, by a few hours: it is on that first or last day, for
+ * a day of five digits would sort before every other as text, and the year
+ * before the year 1 is written "1" with another era.
+ */
 export function dateOfInstant(instant: number, timeZone: string): CalendarDate {
   let formatter = formatters.get(timeZone);
   if (!formatter) {
     formatter = new Intl.DateTimeFormat('en-u-ca-gregory-nu-latn', {
       timeZone,
+      era: 'short',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -76,7 +87,10 @@ export function dateOfInstant(instant: number, timeZone: string): CalendarDate {
   }
   const parts: Record<string, string> = {};
   for (const part of formatter.formatToParts(instant)) parts[part.type] = part.value;
-  return calendarDate(Number(parts.year), Number(parts.month), Number(parts.day));
+  const year = Number(parts.year);
+  if (parts.era === 'BC' || year < 1) return FIRST_DATE;
+  if (year > 9999) return LAST_DATE;
+  return calendarDate(year, Number(parts.month), Number(parts.day));
 }
 
 /**

@@ -7,9 +7,14 @@
   turned on (question C5). At its end, for someone who may edit, the card's
   "…" (CardMenu), whose first line changes its date.
 
+  A card on a loop of a Gantt chart's relation says so (`loop`), in words
+  next to the mark.
+
   A line is 2.5rem high for a mouse and 3rem for a finger.
 -->
 <script lang="ts">
+  import RepeatIcon from '@lucide/svelte/icons/repeat';
+
   import { faceProperties } from '$lib/components/card-face/face.ts';
   import { PropertyValue, type PropertyUser } from '$lib/components/properties/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -35,6 +40,8 @@
     onChangeDate?: (cardId: string, line: HTMLElement | undefined) => void;
     /** The id of what the card's "…" is described by: why its date cannot be changed here. */
     describedBy?: string;
+    /** The card is on a loop of what comes before what. */
+    loop?: boolean;
   }
 
   let {
@@ -49,6 +56,7 @@
     board,
     onChangeDate,
     describedBy,
+    loop = false,
   }: Props = $props();
 
   const span = $derived(date ? placed.span(card.id) : undefined);
@@ -94,6 +102,11 @@
       <span class={['truncate', !card.title && 'text-muted-foreground']}>
         {placed.title(card)}
       </span>
+      {#if loop}
+        <span data-mark="loop" class="flex items-center gap-1 text-xs text-destructive">
+          <RepeatIcon aria-hidden="true" class="size-3.5 shrink-0" />{m.gantt_loop()}
+        </span>
+      {/if}
       {#if time || range}
         <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           {#if time}<span class="shrink-0">{time}</span>{/if}

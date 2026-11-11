@@ -9,6 +9,12 @@
   With a mouse the bar is a link that opens the card. With a finger it is a
   picture (`pressable` false): 22 pixels are too low to hit, and the cell
   under it takes the tap and opens the cards of the day (question C2).
+
+  Where the reader may change the dates the bar is dragged to another day
+  (card-drag.svelte.ts), and a bar that can be pressed has grips at the
+  ends that are its own in this week, to make it longer or shorter: a few
+  pixels at each end, shown while it is pointed at. While it is dragged it
+  is faint where it was (`dragged`).
 -->
 <script lang="ts">
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
@@ -31,6 +37,10 @@
     detail?: string;
     href: string;
     onopen: (cardId: string) => void;
+    /** Grips at the ends of a bar that can be dragged. */
+    grips?: boolean;
+    /** The card is being dragged. */
+    dragged?: boolean;
   }
 
   let {
@@ -45,10 +55,13 @@
     detail,
     href,
     onopen,
+    grips = false,
+    dragged = false,
   }: Props = $props();
 
   const shape = $derived([
-    'flex min-w-0 items-center gap-1 rounded-sm bg-foreground/10 px-1.5 text-xs text-foreground',
+    'relative flex min-w-0 items-center gap-1 rounded-sm bg-foreground/10 px-1.5 text-xs text-foreground',
+    dragged && 'opacity-40',
     tall ? 'h-11' : 'h-5.5',
     fromBefore && 'rounded-l-none',
     toAfter && 'rounded-r-none',
@@ -63,7 +76,24 @@
   }
 </script>
 
+{#snippet grip(end: 'start' | 'end')}
+  <span
+    data-grip={end}
+    aria-hidden="true"
+    class={[
+      'absolute inset-y-0 flex w-1.5 cursor-ew-resize items-center justify-center roomy:w-3',
+      end === 'start' ? 'left-0' : 'right-0',
+    ]}
+  >
+    <span
+      class="h-3 w-0.5 rounded-full bg-foreground/50 opacity-0 group-hover/bar:opacity-100 roomy:opacity-60"
+    ></span>
+  </span>
+{/snippet}
+
 {#snippet content()}
+  {#if grips && !fromBefore}{@render grip('start')}{/if}
+  {#if grips && !toAfter}{@render grip('end')}{/if}
   {#if fromBefore}<ChevronLeftIcon aria-hidden="true" class="size-3 shrink-0 opacity-60" />{/if}
   {#if tall}
     <span class="flex min-w-0 flex-1 flex-col">
@@ -87,7 +117,7 @@
     aria-label={name}
     class={[
       shape,
-      'outline-none focus-visible:ring-2 focus-visible:ring-ring can-hover:hover:bg-foreground/15',
+      'group/bar outline-none focus-visible:ring-2 focus-visible:ring-ring can-hover:hover:bg-foreground/15',
     ]}
     onclick={open}
   >

@@ -1,13 +1,13 @@
 /**
  * A Gantt view of a board of 2,000 cards on the in-memory backend: every bar
  * and arrow is drawn, and how long the chart takes to draw, to scroll a
- * frame and to take a change to one card is measured and printed
- * (`[gantt 2000] …`, for a person to read).
+ * frame, to take a change to one card and to draw a frame while a bar is
+ * dragged is measured and printed (`[gantt 2000] …`, for a person to read).
  */
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 
 import { arrows, bar, bars, gantt, scroller, type Backend, type Dev } from './gantt.support.ts';
-import { fitPane, paneOf } from './kanban.support.ts';
+import { fitPane, nextFrame, paneOf } from './kanban.support.ts';
 
 test.use({ timezoneId: 'Asia/Seoul', locale: 'en-US' });
 
@@ -133,6 +133,42 @@ async function scrollFrames(
   );
 }
 
+/**
+ * Drags a bar across with the mouse, a step a frame, and answers the time
+ * each frame took meanwhile, in milliseconds; then lets it go.
+ */
+async function dragFrames(page: Page, target: Locator): Promise<number[]> {
+  const box = await target.boundingBox();
+  if (!box) throw new Error('the bar is not on the page');
+  const from = { x: box.x + Math.min(box.width / 2, 8), y: box.y + box.height / 2 };
+  await page.evaluate(() => {
+    const record = { times: [] as number[], going: true };
+    Reflect.set(window, 'dragFrames', record);
+    let last = performance.now();
+    const frame = (now: number): void => {
+      record.times.push(now - last);
+      last = now;
+      if (record.going) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  for (let step = 1; step <= 60; step += 1) {
+    await page.mouse.move(from.x + step * 4, from.y);
+    await nextFrame(page);
+  }
+  await expect(gantt(page).locator('[data-bar][data-dragged]')).toHaveCount(1);
+  const times = await page.evaluate(() => {
+    const record = Reflect.get(window, 'dragFrames') as { times: number[]; going: boolean };
+    record.going = false;
+    return record.times.slice(1);
+  });
+  await page.mouse.up();
+  await expect(gantt(page).locator('[data-bar][data-dragged]')).toHaveCount(0);
+  return times;
+}
+
 /** The middle, the 95th of a hundred, and the longest of some times, rounded to a tenth. */
 function summary(times: number[]): { median: number; p95: number; max: number } {
   const sorted = [...times].sort((a, b) => a - b);
@@ -237,6 +273,14 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
   });
   await expect(bar(page, 'Task 1000, renamed')).toHaveCount(1);
 
+  // A bar dragged across 240 pixels, a step a frame: only that bar is drawn again.
+  await scroller(page).evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  const dragged = bars(page).nth(3);
+  await dragged.scrollIntoViewIfNeeded();
+  const drag = summary(await dragFrames(page, dragged));
+
   const figures = {
     project: info.project.name,
     cards: MANY,
@@ -245,6 +289,7 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
     scrollDownFrameMs: down,
     scrollAcrossFrameMs: across,
     renameOneCardMs: renamed,
+    dragFrameMs: drag,
   };
   // Printed for a person to read, with the output of the run.
   process.stdout.write(`[gantt 2000] ${JSON.stringify(figures)}\n`);
@@ -253,4 +298,5 @@ test('a board of 2,000 cards draws every bar and arrow, and scrolls in frames th
   expect(down.median).toBeLessThan(100);
   expect(across.median).toBeLessThan(100);
   expect(renamed).toBeLessThan(2000);
+  expect(drag.median).toBeLessThan(100);
 });

@@ -363,6 +363,17 @@ describe('CSV rows', () => {
     ).toHaveLength(5);
   });
 
+  it('adds the date a Gantt view places its cards by, the one it falls back to too', () => {
+    const gantt = { ...view, viewType: 'gantt' as const };
+    expect(tableRows([], templates, gantt, 'Name', context)[0]?.at(-1)).toBe('"Due"');
+    expect(
+      tableRows([], templates, { ...gantt, dateDisplayPropertyId: 'due' }, 'Name', context)[0],
+    ).toHaveLength(6);
+    // Shown already: not twice.
+    const shown = { ...gantt, visiblePropertyIds: ['due'] };
+    expect(tableRows([], templates, shown, 'Name', context)[0]).toEqual(['"Name"', '"Due"']);
+  });
+
   it('exports who created a card from the card itself', () => {
     const by: PropertyTemplate = { id: 'by', name: 'By', type: 'createdBy', options: [] };
     const created = card('1', 't');

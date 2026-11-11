@@ -106,3 +106,38 @@ test('with a mouse the "+" of a day makes a card there; under a finger the day i
   // Back on the card's new bar.
   await expect(focused(page)).toHaveAttribute('data-bar', /.+/);
 });
+
+test('the header’s “New” makes the card on the day picked (question C13)', async ({
+  page,
+}, info) => {
+  await openCalendar(page, info);
+  const before = await cardCount(page);
+  // A day is picked: its cards open, and are closed again.
+  await dayButton(page, '2026-11-25').click();
+  if (wide(info)) {
+    await expect(listOf(page, info)).toBeVisible();
+    await page.keyboard.press('Escape');
+  }
+  await expect(calendar(page)).toHaveAttribute('data-selected', '2026-11-25');
+  await page.locator('[data-testid="new-card"]:visible').first().click();
+  await expect(dialog(page)).toBeVisible();
+  await expect.poll(() => cardCount(page)).toBe(before + 1);
+  const newest = await page.evaluate(() => {
+    const store = (
+      window as unknown as {
+        fvociDev: {
+          workspace: {
+            board: {
+              board: { cardProperties: { id: string; name: string }[] };
+              cards: { createAt: number; fields: { properties: Record<string, unknown> } }[];
+            };
+          };
+        };
+      }
+    ).fvociDev.workspace.board;
+    const due = store.board.cardProperties.find((each) => each.name === 'Due Date')?.id ?? '';
+    const last = [...store.cards].sort((a, b) => b.createAt - a.createAt)[0];
+    return last?.fields.properties[due];
+  });
+  expect(newest).toEqual({ from: '2026-11-25' });
+});

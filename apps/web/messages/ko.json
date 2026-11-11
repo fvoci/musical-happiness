@@ -146,6 +146,8 @@
   "gantt_problems": "어긋남 {late}. 순환 {loops}.",
   "gantt_bar_late": "어긋남: 선행 카드({cards})가 끝나기 전에 시작합니다.",
   "gantt_bar_loop": "순환: 선행 카드를 따라가면 이 카드로 돌아옵니다.",
+  "gantt_bar_group": "묶음: {group}.",
+  "gantt_undated_hint": "{property} 값이 없어 차트에 막대가 없는 카드입니다.",
   "gantt_late": "어긋남",
   "gantt_late_next": "어긋남 {count}. 다음 카드 보기",
   "gantt_loop": "순환",

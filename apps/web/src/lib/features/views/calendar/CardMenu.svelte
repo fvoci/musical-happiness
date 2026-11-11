@@ -40,9 +40,21 @@
     onChangeDate?: (cardId: string) => void;
     /** The id of what the button is described by: why the date cannot be changed here. */
     describedBy?: string;
+    /**
+     * Out of the order of the Tab key, and shown only while its line is
+     * pointed at or has the focus, on any device: where the line opens the
+     * menu by a key, and the button lies over the line's own text.
+     */
+    quiet?: boolean;
   }
 
-  let { board, card, title, dated, onChangeDate, describedBy }: Props = $props();
+  let { board, card, title, dated, onChangeDate, describedBy, quiet = false }: Props = $props();
+
+  const shown = $derived(
+    quiet
+      ? 'pointer-events-none bg-background opacity-0 group-focus-within/card:pointer-events-auto group-focus-within/card:opacity-100 aria-expanded:pointer-events-auto aria-expanded:opacity-100 can-hover:group-hover/card:pointer-events-auto can-hover:group-hover/card:opacity-100'
+      : 'can-hover:opacity-0 can-hover:group-focus-within/card:opacity-100 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100',
+  );
 
   let open = $state(false);
   /** The menu is made: the line was pointed at, or the button pressed. */
@@ -98,8 +110,9 @@
     {...props}
     label={m.kanban_card_menu({ title })}
     aria-describedby={describedBy}
+    tabindex={quiet ? -1 : undefined}
     data-card-menu={card.id}
-    class="shrink-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/card:opacity-100 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100"
+    class={['shrink-0 text-muted-foreground', shown]}
   >
     <EllipsisIcon aria-hidden="true" />
   </IconButton>
