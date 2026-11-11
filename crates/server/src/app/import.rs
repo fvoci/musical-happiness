@@ -30,10 +30,13 @@ use fvoci_store::StoreError;
 const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The most entries an archive has (`docs/s6-design.md` 4.2).
-const MAX_ENTRIES: usize = 10_000;
+const MAX_ENTRIES: u64 = 10_000;
 
-/// [`MAX_ENTRIES`] as the end record of a ZIP counts.
-const MAX_ENTRIES_U64: u64 = 10_000;
+/// The signature each entry of a ZIP's central directory begins with (APPNOTE 4.3.12).
+const CENTRAL_HEADER: &[u8; 4] = b"PK\x01\x02";
+
+/// How much of an archive is read at a time to count its central headers.
+const SCAN_CHUNK_BYTES: usize = 1024 * 1024;
 
 /// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2).
 const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
@@ -93,11 +96,8 @@ impl App {
         if zip.is_empty() {
             return Err(AppError::bad_request("zip: not a valid zip file"));
         }
-        if zip.len() > MAX_ENTRIES {
-            return Err(AppError::too_large(
-                format_args!("the archive has more than {MAX_ENTRIES} entries"),
-                MAX_ENTRIES_U64,
-            ));
+        if u64::try_from(zip.len()).map_or(true, |entries| entries > MAX_ENTRIES) {
+            return Err(too_many_entries());
         }
         let largest_file = u64::try_from(self.largest_upload()).unwrap_or(0);
 
@@ -130,8 +130,8 @@ impl App {
         // while nothing of it is stored yet.
         let mut unpacked: u64 = 0;
         for index in 0..zip.len() {
-            let (_, filename) = entry_name(&zip, index)?;
-            let limit = entry_limit(&filename, largest_file);
+            let (dir, filename) = entry_name(&zip, index)?;
+            let limit = entry_limit(&dir, &filename, largest_file);
             unpacked = unpacked.saturating_add(check_entry(&zip, index, limit).await?);
             if unpacked > MAX_UNPACKED_BYTES {
                 return Err(AppError::too_large(
@@ -178,12 +178,14 @@ impl App {
                 tracing::warn!(dir, filename, "skipping orphan image in archive");
                 continue;
             };
-            unpack_entry(&zip, index, largest_file, &unpacked_file).await?;
-            let saved = match fs::File::open(&unpacked_file).await {
-                Ok(mut file) => self.save_file(&mut file, &board.id, &filename).await,
-                Err(error) => Err(AppError::internal(format_args!(
-                    "cannot open an unpacked archive entry: {error}"
-                ))),
+            let saved = match unpack_entry(&zip, index, largest_file, &unpacked_file).await {
+                Ok(()) => match fs::File::open(&unpacked_file).await {
+                    Ok(mut file) => self.save_file(&mut file, &board.id, &filename).await,
+                    Err(error) => Err(AppError::internal(format_args!(
+                        "cannot open an unpacked archive entry: {error}"
+                    ))),
+                },
+                Err(error) => Err(error),
             };
             remove_unpacked(&unpacked_file).await;
             let new_name = saved.map_err(|error| {
@@ -609,13 +611,15 @@ async fn open_archive(path: &Path) -> Result<Archive, AppError> {
                 "an archive of version 1 is not read; this server reads version {ARCHIVE_VERSION}"
             )));
         }
-        // Counted from the end record before the directory is read: reading it holds every
-        // entry in memory.
-        if declared_entries(&mut file).is_some_and(|entries| entries > MAX_ENTRIES_U64) {
-            return Err(AppError::too_large(
-                format_args!("the archive has more than {MAX_ENTRIES} entries"),
-                MAX_ENTRIES_U64,
-            ));
+        // Counted before the directory is read, as reading it holds every entry in memory.
+        // Every entry the reader takes begins with the central header's signature, so
+        // there are at most as many entries as signatures, whatever the end records say.
+        file.position = 0;
+        let headers = count_central_headers(&mut file, MAX_ENTRIES).map_err(|error| {
+            AppError::internal(format_args!("cannot read the archive: {error}"))
+        })?;
+        if headers > MAX_ENTRIES {
+            return Err(too_many_entries());
         }
         file.position = 0;
         zip::ZipArchive::new(file).map_err(|error| AppError::bad_request(format_args!("{error}")))
@@ -624,48 +628,51 @@ async fn open_archive(path: &Path) -> Result<Archive, AppError> {
     .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
 }
 
-/// The number of entries the end record of a ZIP declares, from its ZIP64 record when it
-/// has one; `None` when there is no record to read, which the reader of the directory
-/// then refuses.
-fn declared_entries(file: &mut SharedFile) -> Option<u64> {
-    /// The end record: a signature, 18 bytes, and a comment of up to 65,535 bytes.
-    const END: &[u8] = b"PK\x05\x06";
-    const END_LEN: u64 = 22;
-    const ZIP64_LOCATOR: &[u8] = b"PK\x06\x07";
-    const ZIP64_END: &[u8] = b"PK\x06\x06";
-    let tail_len = file.len.min(END_LEN + u64::from(u16::MAX));
-    file.position = file.len - tail_len;
-    let mut tail = vec![0; usize::try_from(tail_len).ok()?];
-    file.read_exact(&mut tail).ok()?;
-    let at = tail.windows(END.len()).rposition(|window| window == END)?;
-    let count: [u8; 2] = tail.get(at + 10..at + 12)?.try_into().ok()?;
-    let count = u16::from_le_bytes(count);
-    if count != u16::MAX {
-        return Some(u64::from(count));
-    }
-    // As many as an end record holds: the true count is in the ZIP64 record, which the
-    // 20 bytes before the end record locate.
-    let locator = tail.get(at.checked_sub(20)?..at)?;
-    if locator.get(..4)? != ZIP64_LOCATOR {
-        return Some(u64::from(count));
-    }
-    let offset: [u8; 8] = locator.get(8..16)?.try_into().ok()?;
-    file.position = u64::from_le_bytes(offset);
-    let mut record = [0; 40];
-    file.read_exact(&mut record).ok()?;
-    if record.get(..4)? != ZIP64_END {
-        return None;
-    }
-    let count: [u8; 8] = record.get(32..40)?.try_into().ok()?;
-    Some(u64::from_le_bytes(count))
+/// The refusal of an archive of more than [`MAX_ENTRIES`] entries.
+fn too_many_entries() -> AppError {
+    AppError::too_large(
+        format_args!("the archive has more than {MAX_ENTRIES} entries"),
+        MAX_ENTRIES,
+    )
 }
 
-/// The most the entry of a file name may unpack to: a `board.jsonl`, a `version.json`,
-/// or a file, which is held to the limit of an upload.
-fn entry_limit(filename: &str, largest_file: u64) -> u64 {
+/// Counts the central headers' signatures in what `reader` gives, up to the first count
+/// over `limit`, where it stops reading.
+fn count_central_headers(reader: &mut impl Read, limit: u64) -> io::Result<u64> {
+    let mut chunk = vec![0; SCAN_CHUNK_BYTES];
+    // The last bytes of the chunk before: a signature may span two chunks.
+    let mut carried = 0;
+    let mut count: u64 = 0;
+    loop {
+        let read = match reader.read(chunk.get_mut(carried..).unwrap_or_default()) {
+            Ok(0) => return Ok(count),
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        let filled = chunk.get(..carried + read).unwrap_or_default();
+        let found = filled
+            .windows(CENTRAL_HEADER.len())
+            .filter(|window| window == CENTRAL_HEADER)
+            .count();
+        count = count.saturating_add(u64::try_from(found).unwrap_or(u64::MAX));
+        if count > limit {
+            return Ok(count);
+        }
+        // Three bytes are kept: four would count a signature at the end twice.
+        let keep = filled.len().min(CENTRAL_HEADER.len() - 1);
+        let start = filled.len() - keep;
+        chunk.copy_within(start..start + keep, 0);
+        carried = keep;
+    }
+}
+
+/// The most an entry may unpack to: a `board.jsonl`, the archive's `version.json` (the
+/// one at its root), or a file, which is held to the limit of an upload.
+fn entry_limit(dir: &str, filename: &str, largest_file: u64) -> u64 {
     match filename {
         "board.jsonl" => MAX_JSONL_BYTES,
-        "version.json" => MAX_VERSION_BYTES,
+        "version.json" if dir == "." => MAX_VERSION_BYTES,
         _ => largest_file,
     }
 }
@@ -839,6 +846,28 @@ fn clear_values_of_another_kind(boards_and_blocks: &mut BoardsAndBlocks) {
 
 #[cfg(test)]
 mod tests {
+    use super::{CENTRAL_HEADER, SCAN_CHUNK_BYTES, count_central_headers};
+
+    /// The central headers are counted wherever they are, a chunk's end included, and
+    /// the count stops once it is over the limit.
+    #[test]
+    fn central_headers_are_counted_across_chunks() {
+        let count = |bytes: &[u8], limit: u64| {
+            count_central_headers(&mut &bytes[..], limit).expect("a slice reads")
+        };
+        assert_eq!(count(b"", 10), 0, "nothing");
+        assert_eq!(count(b"PK\x01", 10), 0, "a part of one");
+        assert_eq!(count(b"PK\x01\x02PK\x01\x02xPK\x01\x02", 10), 3, "three");
+        for at in SCAN_CHUNK_BYTES - 3..=SCAN_CHUNK_BYTES {
+            let mut bytes = vec![0; SCAN_CHUNK_BYTES * 2];
+            bytes[at..at + 4].copy_from_slice(CENTRAL_HEADER);
+            assert_eq!(count(&bytes, 10), 1, "one at {at}, on the chunk's edge");
+        }
+        let many = CENTRAL_HEADER.repeat(SCAN_CHUNK_BYTES);
+        let in_a_chunk = u64::try_from(SCAN_CHUNK_BYTES / 4).expect("a small count");
+        assert_eq!(count(&many, 5), in_a_chunk, "stops after the chunk");
+    }
+
     use super::*;
 
     fn block(id: &str, parent_id: &str) -> Block {

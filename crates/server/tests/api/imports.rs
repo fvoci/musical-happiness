@@ -248,6 +248,18 @@ async fn an_archive_over_its_limits_stores_nothing() {
     response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(response.value()["limit"], json!(10_000));
 
+    // An end record that declares fewer entries than the archive has changes nothing:
+    // the entries are counted by their headers before the directory is read.
+    let mut forged = too_many.clone();
+    let end = forged
+        .windows(4)
+        .rposition(|window| window == b"PK\x05\x06")
+        .expect("an end record");
+    forged[end + 8..end + 12].copy_from_slice(&[5, 0, 5, 0]);
+    let response = import(&ts.client, TEST_TEAM_ID, &forged).await;
+    response.check_status(StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(response.value()["limit"], json!(10_000));
+
     let jsonl = archive_with(&[], zip::CompressionMethod::Deflated);
     let mut zip = zip::ZipArchive::new(Cursor::new(jsonl)).expect("a ZIP");
     let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -378,5 +390,31 @@ async fn with_s3_an_archive_is_received_on_the_disk() {
         Vec::<String>::new(),
         "nothing stays"
     );
+    ts.teardown().await;
+}
+
+/// A `version.json` at the root that is too large to be one is no archive of this
+/// server's (400); one inside a board's directory is a file like any other.
+#[tokio::test]
+async fn a_large_version_json_is_no_archive() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+    let mut version = br#"{"version":3,"date":1}"#.to_vec();
+    version.resize(65 * 1024, b' ');
+    let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    writer.start_file("version.json", options).expect("start");
+    writer.write_all(&version).expect("write");
+    let large_root = writer.finish().expect("finish").into_inner();
+    let response = import(&ts.client, TEST_TEAM_ID, &large_root).await;
+    response.check_bad_request();
+
+    let nested = archive_with(
+        &[("b1/version.json", &version)],
+        zip::CompressionMethod::Deflated,
+    );
+    import(&ts.client, TEST_TEAM_ID, &nested)
+        .await
+        .check_no_content();
     ts.teardown().await;
 }
