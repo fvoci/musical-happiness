@@ -43,7 +43,7 @@
 | 글꼴의 결정과 수치                               | `PORTING.md`의 "글꼴"                                                                                            |
 | 날짜 값의 와이어, 지역 설정의 값                 | `PORTING.md`의 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대: 계정 설정"                                     |
 | 번역 결정, 한국어 검수 표                        | `docs/i18n-conversion.md`, `docs/ko-review.md`                                                                   |
-| 템플릿 산출물과 바뀐 곳                          | `tools/templates/output/README.md`, `CHANGES.md`                                                                 |
+| 내장 템플릿과 변환이 바꾼 곳                     | 저장소 루트의 `crates/server/assets/templates/`의 `README.md`, `CHANGES.md`                                      |
 | 편집기, 읽기 전용 표시기, 번들 크기              | `docs/spike-editor.md`(표시기는 9절, 창 크기는 6.5절, 수식과 다이어그램은 10절)                                  |
 | 드래그의 결정 1–11, 공개 형태, 창 크기가 바뀔 때 | `docs/spike-drag.md`                                                                                             |
 | 속성 편집기, 카드 상세와 원본 테스트의 대응      | `docs/properties-test-mapping.md`, `docs/card-test-mapping.md`, `src/lib/components/README.md`                   |
@@ -89,13 +89,12 @@
 
 1. **서버에 붙이는 일을 잇는다.** 붙은 것은 위의 tracer-bullet 열 개이고, 나머지 조작(보드·뷰·카테고리 만들기와 고치기, 카드 본문, 댓글 쓰기, 첨부 올리기, 구성원 관리 등)은 `not_wired`로 거절한다(`docs/decisions.md`의 연결 3). 본문과 댓글은 서버의 답(아래 H4)이 먼저다. 서버를 부르는 구현의 타입은 계약에서 만든다(`pnpm --filter web run api:types`, `src/lib/api/contract.ts`).
 2. **가정을 계약과 맞춘다.** `docs/contract-assumptions.md`의 머리 표("계약이 나온 뒤 답이 난 것")에 답이 난 것이 모여 있다. 남은 질문은 그 문서의 6절과 8절에 있다.
-3. **손으로 적은 임시 타입이 남아 있다**(`tools/templates/output.ts`, `wire.ts`의 날짜 값). 이번 묶음에서는 `tools/templates/`를 건드리지 않았다.
-4. **서버 쪽에 전달한다.** 온보딩 보드를 제목이 아니라 템플릿 산출물의 `onboarding` 표식으로 찾아야 한다. `docs/contract-assumptions.md`의 5절 "내장 템플릿의 산출물"에 넷이 있다.
-5. **브라우저 둘을 띄우는 실서버 테스트를 늘린다.** 지금은 `e2e-live/`에 11개다(가입·로그인, 보드, 카드 만들기·고치기·옮기기·지우기, 실시간).
-6. **검토에서 남긴 것을 본다.** `docs/decisions.md`의 "검토에서 나온 것과 처리"에 까닭과 함께 있다. 정해야 할 것은 선택지 편집을 저장소로 모으는 일이다.
-7. **캘린더 뷰는 안만 있다.** 질문 24개의 답이 오면 만든다.
-8. **가끔 실패하는 드래그 테스트의 원인을 가른다**(아래).
-9. **실제 기기에서 본다.** 터치 드래그, 한글 조합 입력, 진동, 접기·회전, 안전 영역은 아직 실제 기기에서 본 적이 없다.
+3. **손으로 적은 임시 타입이 남아 있다**(`wire.ts`의 날짜 값, `src/lib/state/memory/seed.ts`의 템플릿 파일).
+4. **브라우저 둘을 띄우는 실서버 테스트를 늘린다.** 지금은 `e2e-live/`에 11개다(가입·로그인, 보드, 카드 만들기·고치기·옮기기·지우기, 실시간).
+5. **검토에서 남긴 것을 본다.** `docs/decisions.md`의 "검토에서 나온 것과 처리"에 까닭과 함께 있다. 정해야 할 것은 선택지 편집을 저장소로 모으는 일이다.
+6. **캘린더 뷰는 안만 있다.** 질문 24개의 답이 오면 만든다.
+7. **가끔 실패하는 드래그 테스트의 원인을 가른다**(아래).
+8. **실제 기기에서 본다.** 터치 드래그, 한글 조합 입력, 진동, 접기·회전, 안전 영역은 아직 실제 기기에서 본 적이 없다.
 
 ## 도구가 있는 곳
 
@@ -125,7 +124,7 @@
 | 실제 서버의 Playwright                 | `e2e:live`(아래)                  | 18510, `FVOCI_LIVE_PORT`   | 스스로 띄우고 끈다 |
 | Storybook 개발 서버                    | `pnpm --filter web run storybook` | 6006                       | `/`                |
 
-`e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server`(템플릿 아카이브를 놓아야 컴파일된다, 루트 `docs/handoff.md`)와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
+`e2e:live`에 관해: 먼저 저장소 루트에서 `cargo build -p fvoci-server`와 `pnpm --filter web run build`를 한다. 그 뒤 `pnpm --filter web run e2e:live`가 그 서버를 SQLite로 `target/web-live/<시각>-<포트>/`에 띄우고 끝나면 멈춘다. 테스트는 `e2e-live/`, 정한 것은 `docs/decisions.md`의 연결 8번.
 
 `look`에 관해:
 
@@ -204,7 +203,7 @@
 ### 문서와 커밋
 
 - **문서에 시각을 미리 적지 않는다.** 일이 끝날 시각을 어림해 적었다가 여러 번 고쳤다. `date`를 찍고 그 값을 적는다.
-- **이름 검사는 산출물도 본다.** 템플릿의 "바뀐 곳 목록"은 이전 문구에 원본의 이름이 들어가므로 `{old product name}`, `{old company name}`으로 가려서 쓴다(`tools/templates/rewrite.ts`의 `maskOldNames`).
+- **이름 검사는 산출물도 본다.** 템플릿의 "바뀐 곳 목록"(`CHANGES.md`)은 이전 문구에 원본의 이름이 들어가므로 `{old product name}`, `{old company name}`으로 가려서 썼다.
 - **생성물을 Prettier가 다시 접는다.** `JSON.stringify(…, null, 2)`의 배열 모양은 Prettier의 것과 다르다. 도구가 쓰는 파일은 `.prettierignore`에 넣고, "최신인가"는 검사가 본다(`src/lib/api/contract.ts`).
 - **충돌을 풀며 체리픽한 커밋은 `git cherry`가 "같은 변경"으로 알아보지 못한다.** 화면 조립 때 메시지 파일의 충돌을 풀며 들어온 커밋이 그랬다. 워크트리를 지워도 되는지는 워킹 트리가 깨끗한지와 내용이 들어왔는지를 따로 확인한다.
 - **다른 커밋의 트리를 `target/` 아래에 풀고 거기서 `pnpm exec`를 부르면 안 된다.** pnpm이 심볼릭 링크를 타고 `apps/web/node_modules`에 잠금 파일 없이 설치한다. 한 번 겪었고, 지우고 `--frozen-lockfile`로 다시 설치했다. 추적되는 파일에는 영향이 없었다.

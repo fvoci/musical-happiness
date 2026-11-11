@@ -75,7 +75,7 @@ import {
 } from '$lib/editor/schema.ts';
 
 import { SAMPLES } from '../../spikes/editor/fixtures.ts';
-import { templateDocuments } from '../../tools/templates/archive.ts';
+import { templateDocuments } from '../support/templates.ts';
 import { HAND_MADE, PEOPLE, UNRESOLVED_FILE_PREFIX, WITH_DIAGRAMS } from '../support/body-docs.ts';
 
 // The editor draws a diagram under its source as soon as it has one. The

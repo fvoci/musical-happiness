@@ -340,7 +340,7 @@
 
 ### 내장 템플릿의 산출물
 
-서버가 내장 템플릿으로 받아 쓰는 것은 웹앱 쪽 변환기의 산출물 `tools/templates/output/`이다(설계 5.7절의 "3.10의 갱신"). 모양은 그 폴더의 `README.md`에 있다. 서버가 넣을 때 맞춰야 하는 것은 넷이다.
+내장 템플릿은 저장소 루트의 `crates/server/assets/templates/`에 있다(설계 5.7절의 "3.10의 갱신"). 모양은 그 폴더의 `README.md`에 있다. 서버가 넣을 때 맞춰야 하는 것은 넷이다.
 
 1. **온보딩 보드를 제목이 아니라 `onboarding` 표식으로 찾는다.** 서버의 `crates/server/src/app/templates.rs`는 제목 `Welcome to Boards!`로 찾는다(2026-11-10 20:09 KST에 본 것). 산출물에서는 그 제목이 `Welcome to fvoci!`로 바뀌었다.
 2. **식별자는 넣을 때 새로 만든다.** 산출물의 식별자는 아카이브의 것이다.

@@ -22,7 +22,6 @@
 | 마크다운 → 문서 노드 (한 방향, 손실 집계 포함)                             | `src/lib/editor/markdown.ts`                                                                                         |
 | 본문의 모양(CSS)                                                           | `src/lib/editor/editor.css`                                                                                          |
 | 화면: 메모리의 문서를 편집하고 저장될 JSON·검증 결과·크기를 옆에 보여 준다 | `spikes/editor/`                                                                                                     |
-| 템플릿 변환과 집계                                                         | `tools/templates/convert.ts`                                                                                         |
 | 테스트                                                                     | `tests/editor/` 64건, `tests/ui/editor.test.ts` 13건, `spikes/editor/editor.spec.ts` 10건 × 2(데스크톱, 터치 뷰포트) |
 
 판(2026-11-10 18:26 KST에 npm 레지스트리에서 확인): `@tiptap/core`와 `@tiptap/pm`, 확장 전부 **3.33.0**(2026-11-05 공개). `marked` **18.1.3**(18.2.0은 공개 10시간째여서 직전 판). 묶음(`starter-kit`)을 쓰지 않고 확장을 하나씩 넣었다. 묶음에는 밑줄처럼 목록에 없는 것이 들어 있다.
@@ -32,7 +31,6 @@
 ```bash
 pnpm --filter web run spikes        # http://127.0.0.1:5173/spikes/editor/
 pnpm --filter web run spikes:e2e
-node apps/web/tools/templates/convert.ts [--write <폴더>]
 ```
 
 ## 2. 허용 노드와 마크 (최종안, `body_version` 2)

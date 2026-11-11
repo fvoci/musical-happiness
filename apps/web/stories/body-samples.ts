@@ -107,7 +107,7 @@ export const MIXED: DocNode = {
 };
 
 /**
- * One document of the built-in templates, as tools/templates/archive.ts gives
+ * One document of the built-in templates, as the template archive held
  * it: the template "Project Tasks", the card "Identify dependencies" (copied
  * at commit 17d04ad6).
  */

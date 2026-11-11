@@ -66,8 +66,6 @@ pnpm --filter web run spikes:e2e
 
 - `e2e`가 건너뛴 179건은 다른 크기의 몫인 테스트와, `FVOCI_SCREENS`가 있어야 도는 그림이다.
 - 고친 뒤 전체를 두 번씩 돌려(`--repeat-each 2`) 1,064건이 통과하는 것을 보고 위의 마지막 실행을 했다. 그 앞의 실행에서 실패한 한 건은 "합친 뒤에 드러나 고친 것"의 방문 기록이다.
-- **원본의 폴더를 뺀 사본에서도 통과했다**(2026-11-11 01:39–01:47 KST, 추적 파일 1,126개). 명령은 `node apps/web/tools/detached/verify.ts target/detached/final --port 18322 --fonts target/fonts-snapshot`이다. install, check, test, build, e2e 다섯이 모두 통과했다.
-  - 원본이 없어 건너뛴 것은 도구가 스스로 적는다. check에서는 "원본의 번역을 다시 변환해 견주기" 1건을 건너뛴다(메시지 파일끼리의 검사가 대신한다). test에서는 번역 변환과 템플릿 아카이브 변환의 테스트 41건을 건너뛴다(2,373건 통과).
   - e2e는 532건 통과·179건 건너뜀으로 원본이 있을 때와 같다.
 - 확인하지 못한 것과 가끔 실패하는 테스트는 `docs/handoff.md`의 "가끔 실패하는 것, 확인하지 못한 것"에 있다. 종단 테스트는 Chromium의 세 크기다.
 
@@ -95,7 +93,7 @@ apps/web/
   e2e/                     Playwright (제품)
   spikes/                  스파이크 화면과 그 Playwright
   stories/                 Storybook
-  tools/                   build, detached, emoji, fonts, i18n, licenses, lint, math, names, templates, preview, serve
+  tools/                   build, emoji, fonts, i18n, licenses, lint, math, names, preview, serve
   docs/                    문서와 그림
 ```
 
@@ -507,7 +505,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | 카드 상세: 세 가지 틀, 속성과 그 정의, 본문, 첨부, 댓글                       | `src/lib/features/card/`                                                                                           | `docs/card-test-mapping.md`, `docs/screens/card/`                     |
 | 편집기의 제품 부품, 수식(KaTeX), 다이어그램(Mermaid), 이모지 목록(CLDR)       | `src/lib/editor/`                                                                                                  | `docs/spike-editor.md` 10절                                           |
 | 조립: 주소, 보드 페이지, 카드 대화상자                                        | `src/app/`                                                                                                         | `docs/decisions.md`의 "주소와 언어"                                   |
-| 빌드의 `.zst`, 원본 폴더에서 떼어 내기, 템플릿의 주소                         | `tools/build/`, `tools/original.ts`, `tools/detached/verify.ts`, `tools/templates/`                                | `docs/build-notes.md`                                                 |
+| 빌드의 `.zst`, 원본 폴더에서 떼어 내기, 템플릿의 주소                         | `tools/build/`, 저장소 루트의 `crates/server/assets/templates/`                                                    | `docs/build-notes.md`                                                 |
 | 캘린더 뷰의 화면 안(구현은 하지 않았다)                                       | `spikes/calendar/`, `docs/calendar/`(그림 61장)                                                                    | `docs/calendar-proposal.md`(질문 24개)                                |
 
 - **모바일 안의 결정 36건**은 `docs/mobile-proposal.md`의 "결정" 절에 답마다 "바꾸려면 어디를"과 함께 있다. 권고와 다르게 만든 곳은 그 표에 굵게 적었다: 모바일 안의 Q16의 "보이는 열에 만들기"(만들지 않았다), Q22의 표의 "열기", Q24의 터치 드래그 범위, Q34의 단계가 바뀔 때. 무엇을 설정으로 둘지(카드를 여는 방식, 밀도, 진동)도 그때 정해졌고, 설정은 `src/lib/logic/display.ts`와 설정 대화상자에 있다.
@@ -577,7 +575,7 @@ W0 때의 결과(2026-11-10 17:36 KST): 설치된 패키지는 MIT 265, Apache-2
 | 날짜 값의 와이어, 지역 설정의 값, 파일 주소의 전제 | `src/lib/logic/wire.ts`, `regional.ts`, `src/lib/editor/files.ts`                 | 위 "날짜 속성 값의 와이어 모양", "보는 사람의 시간대" |
 | 글꼴: 한국어 세 파일, 한국어·일본어는 CJK 먼저     | `tools/fonts/`, `src/styles/app.css`, `e2e/fonts.spec.ts`                         | 위 "글꼴"                                             |
 | 번역 결정, 한국어 검수 표                          | `messages/`, `docs/ko-review.md`                                                  | 아래 "번역"                                           |
-| 템플릿 산출물                                      | `tools/templates/output/`                                                         | 아래 "내장 템플릿의 변환 산출물"                      |
+| 내장 템플릿                                        | 저장소 루트의 `crates/server/assets/templates/`                                   | 아래 "내장 템플릿의 변환 산출물"                      |
 | 모바일 화면 안(합의용)                             | `spikes/mobile/`, `docs/mobile/`(그림 64장), `docs/mobile-proposal.md`(질문 36개) | 그 문서                                               |
 | 본문 읽기 전용 표시기                              | `src/lib/editor/render.ts`, `BodyView.svelte`, `drawing.ts`                       | `docs/spike-editor.md` 9절                            |
 | 속성 편집기 15종                                   | `src/lib/components/properties/`, `stories/properties/`, `tests/ui/properties/`   | 아래, `docs/properties-test-mapping.md`               |
@@ -702,15 +700,12 @@ W0 때 남긴 것 가운데 아직 열려 있는 것이다. `{{.BaseURL}}`을 �
 
 ### 내장 템플릿의 변환 산출물
 
-2026-11-10 20:09 KST에 만들었다. 서버 설계 5.7절의 "3.10의 갱신"대로, 내장 템플릿은 서버에서 다시 변환하지 않고 이쪽 변환기의 산출물을 서버가 받아 쓴다. `node tools/templates/convert.ts --write tools/templates/output`이 만들고, 결과는 `tools/templates/output/`에 커밋되어 있다(파일 17개: `index.json`, 템플릿 13개, `changes.json`, `CHANGES.md`, 손으로 쓴 `README.md`). 모양과 건수의 설명은 그 폴더의 `README.md`에 있다.
+2026-11-10 20:09 KST에 원본의 템플릿 아카이브에서 변환했고, 변환기는 2026-11-11에 지웠다. 내장 템플릿 13개는 저장소 루트의 `crates/server/assets/templates/`에만 있다. 서버가 그 파일을 바이너리에 넣고, 메모리 구현(`src/lib/state/memory/seed.ts`)이 같은 파일을 읽는다. **글은 그 폴더의 템플릿 파일에서 고친다.** 모양과 고치는 법은 그 폴더의 `README.md`에 있다.
 
-- 도구는 셋으로 나뉜다: `archive.ts`(아카이브를 읽어 카드마다 문서 하나로), `rewrite.ts`(글을 바꾸는 규칙), `output.ts`(산출물의 모양과 조립). `convert.ts`는 집계를 찍고 `--write`·`--check`를 받는다.
 - 템플릿마다 보드, 뷰, 카드(본문 문서 포함)가 한 파일이다. 템플릿 13, 뷰 38, 카드 77, 본문 58.
-- **글에서 바뀐 곳은 47곳**이고 목록이 `CHANGES.md`·`changes.json`에 있다: 원본의 두 이름 → `fvoci` 9, 제품을 가리키는 "Boards" → `fvoci` 5, 본문의 바깥 링크와 그 문장 1, 바깥 주소인 링크 속성 값 32. 바깥 주소의 대부분은 본문이 아니라 `url` 속성의 값에 있었다. 링크 값을 지우거나 옮기는 규칙은 `docs/decisions.md`의 42번과 T1–T7에 있다.
-- "Boards" 다섯 곳은 계획의 결정 14의 글자보다 한 걸음 나간 판단이다(번역의 같은 결정을 따랐다). 목록에서 규칙이 따로 표시되어 있다.
-- 날짜 속성 값 19건은 새 와이어 모양(`{"from": "2022-11-22"}`)으로 바꿨다.
-- **타입은 임시다.** `output.ts`의 타입은 설계 문서와 아카이브를 보고 손으로 적었다. 계약에서 생성한 타입에 맞춘 뒤 다시 만든다.
-- 테스트: `tests/tools/templates.test.ts` 20건(이름 바꾸기, 문장 빼기와 빈 것의 정리, 산출물의 수와 참조의 온전함, 원본 이름·바깥 주소가 남지 않음, 커밋된 폴더가 최신인지).
+- **변환이 글에서 바꾼 곳은 47곳**이고 목록이 그 폴더의 `CHANGES.md`에 있다: 원본의 두 이름 → `fvoci` 9, 제품을 가리키는 "Boards" → `fvoci` 5, 본문의 바깥 링크와 그 문장 1, 바깥 주소인 링크 속성 값 32. 링크 값을 지우거나 옮긴 규칙은 `docs/decisions.md`의 42번과 T1–T7에 있다.
+- 날짜 속성 값 19건은 새 와이어 모양(`{"from": "2022-11-22"}`)이다.
+- 테스트: `tests/tools/builtin-templates.test.ts`(수, 본문의 검증, 원본 이름·바깥 주소가 남지 않음, 날짜 값, 참조의 온전함).
 - **서버 쪽에 전달할 것** 넷은 `docs/contract-assumptions.md`의 5절 "내장 템플릿의 산출물"에 있다. 첫째가 온보딩 보드를 제목이 아니라 `onboarding` 표식으로 찾는 일이다.
 - 미결: 그림을 넣을지, 템플릿 수를 줄일지(서버 설계 3.10), 글의 검수(바뀐 47곳과 `reviewNotes`의 28건), 온보딩의 "Share cards on Channels" 카드처럼 이 제품에 없는 기능을 설명하는 카드를 둘지.
 
