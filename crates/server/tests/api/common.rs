@@ -45,6 +45,8 @@ pub(crate) struct TestServer {
     /// The application state, for arranging and inspecting what the API has no route for.
     pub(crate) app: App,
     pub(crate) base_url: String,
+    /// Where the metrics are served, if the server keeps them.
+    pub(crate) metrics_address: Option<std::net::SocketAddr>,
     /// The first client; `user1` after [`TestServer::init_basic`].
     pub(crate) client: Client,
     /// The second client; `user2` after [`TestServer::init_basic`].
@@ -70,6 +72,8 @@ pub(crate) struct Setup {
     /// Whether the built-in templates are imported at startup. Off by default so a
     /// server starts quickly; the counterpart of the original's `SkipTemplateInit`.
     with_templates: bool,
+    /// `prometheusaddress`.
+    metrics_at: Option<String>,
 }
 
 impl Setup {
@@ -104,6 +108,12 @@ impl Setup {
     /// Serves everything under a path prefix such as `/boards`.
     pub(crate) fn base_path(mut self, base_path: &str) -> Self {
         base_path.clone_into(&mut self.base_path);
+        self
+    }
+
+    /// Keeps the metrics and serves them at `address` (`prometheusaddress`).
+    pub(crate) fn metrics_at(mut self, address: &str) -> Self {
+        self.metrics_at = Some(address.to_owned());
         self
     }
 
@@ -171,6 +181,9 @@ impl Setup {
             config.enable_local_mode = true;
             config.local_mode_socket_location = path.display().to_string();
         }
+        if let Some(address) = &self.metrics_at {
+            address.clone_into(&mut config.prometheus_address);
+        }
         for change in &self.configure {
             change(&mut config);
         }
@@ -181,6 +194,7 @@ impl Setup {
             server = server.with_tls_files(tls_files);
         }
         let app = server.app().clone();
+        let metrics_address = server.metrics_address();
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("a local port is free");
@@ -193,6 +207,7 @@ impl Setup {
         let base_url = format!("http://{address}{}", self.base_path);
         let mut server = TestServer {
             app,
+            metrics_address,
             client: Client::new(&base_url, ""),
             client2: Client::new(&base_url, ""),
             base_url,

@@ -47,6 +47,7 @@ use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::config::Configuration;
 use crate::error::AppError;
+use crate::metrics::Metrics;
 use crate::permissions::{
     BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
 };
@@ -75,6 +76,8 @@ struct Inner {
     files: FileBackend,
     web: WebRoot,
     webhook: Webhook,
+    /// The Prometheus metrics, kept if `prometheusaddress` is set.
+    metrics: Metrics,
     /// Work that continues after a response was sent: websocket broadcasts and webhooks.
     background: TaskTracker,
     /// Held while a user's default category is looked for and created, so that two
@@ -120,9 +123,15 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an error if `serverRoot` or an allowed origin is no URL, or if webhooks
-    /// are configured and their HTTP client cannot be set up.
+    /// Returns an error if `serverRoot` or an allowed origin is no URL, if webhooks
+    /// are configured and their HTTP client cannot be set up, or if `prometheusaddress`
+    /// is no address.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
+        let metrics = if config.metrics_address()?.is_some() {
+            Metrics::kept()?
+        } else {
+            Metrics::none()
+        };
         let auth = Authenticator::new(store.clone(), &config)?;
         let login_limiter = LoginLimiter::new(Limits::from_config(&config));
         let password_work = HashQueue::new(
@@ -148,6 +157,7 @@ impl App {
                 files,
                 web,
                 webhook,
+                metrics,
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
                 opening_upload: tokio::sync::Mutex::new(()),
@@ -155,6 +165,11 @@ impl App {
                 part_memory: Arc::new(tokio::sync::Semaphore::new(part_memory)),
             }),
         })
+    }
+
+    /// The Prometheus metrics; they do nothing unless `prometheusaddress` is set.
+    pub fn metrics(&self) -> &Metrics {
+        &self.inner.metrics
     }
 
     /// The server configuration.

@@ -20,6 +20,40 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 /// so every single valid block fits. Requests of the web app measured below 1 kB.
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Where the metrics listener listens: `prometheusaddress` read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricsAddress {
+    /// The host name or address; `None` for every interface.
+    pub host: Option<String>,
+    /// The port; zero for any free one.
+    pub port: u16,
+}
+
+impl MetricsAddress {
+    /// Reads `host:port`, `[ipv6]:port` or `:port`; `None` if the text is none of them.
+    fn parse(text: &str) -> Option<Self> {
+        let (host, port) = text.rsplit_once(':')?;
+        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let port: u16 = port.parse().ok()?;
+        let host = if host.is_empty() {
+            None
+        } else if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+            inner.parse::<std::net::Ipv6Addr>().ok()?;
+            Some(inner.to_owned())
+        } else if host
+            .chars()
+            .any(|c| matches!(c, ':' | '[' | ']' | '/' | '@') || c.is_whitespace())
+        {
+            return None;
+        } else {
+            Some(host.to_owned())
+        };
+        Some(Self { host, port })
+    }
+}
+
 /// The settings of the S3 file backend, the `filess3config` object.
 #[derive(Clone, Default, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
@@ -114,7 +148,8 @@ pub struct Configuration {
     /// what an upload in parts carries (`upload_part_bytes` × 10,000).
     #[serde(rename = "maxfilesize")]
     pub max_file_size: i64,
-    /// The address of the metrics endpoint. Not supported; must be empty.
+    /// Where the Prometheus metrics are served, as `host:port`; empty for none. A
+    /// listener of their own, apart from the API's ([`Configuration::metrics_address`]).
     #[serde(rename = "prometheusaddress")]
     pub prometheus_address: String,
     /// URLs that receive a POST with every changed block.
@@ -669,8 +704,9 @@ impl Configuration {
     /// # Errors
     ///
     /// Returns an error naming the first setting this server cannot honor: an
-    /// authentication mode other than `native`, a metrics address, port 0, a limit of
-    /// zero, an unknown file backend, or version 2 request signing for S3.
+    /// authentication mode other than `native`, a metrics address that is no `host:port`,
+    /// port 0, a limit of zero, an unknown file backend, or version 2 request signing for
+    /// S3.
     pub fn check(&self) -> anyhow::Result<Vec<String>> {
         if self.auth_mode != "native" {
             bail!(
@@ -703,9 +739,7 @@ impl Configuration {
             bail!("trash_retention_days must be at least 1");
         }
         self.check_upload_limits()?;
-        if !self.prometheus_address.is_empty() {
-            bail!("prometheusaddress is set, but this server has no metrics endpoint");
-        }
+        self.metrics_address()?;
         match self.files_driver.as_str() {
             "local" => {}
             "amazons3" => {
@@ -736,6 +770,27 @@ impl Configuration {
             );
         }
         Ok(warnings)
+    }
+
+    /// Where the metrics are served: `prometheusaddress` read as `host:port`, or `None`
+    /// if it is empty and no metrics are kept.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the address is not empty and no `host:port`: the host a name,
+    /// an IPv4 address, an IPv6 address in brackets, or nothing for every interface; the
+    /// port a number up to 65535.
+    pub fn metrics_address(&self) -> anyhow::Result<Option<MetricsAddress>> {
+        let text = self.prometheus_address.as_str();
+        if text.is_empty() {
+            return Ok(None);
+        }
+        MetricsAddress::parse(text).map(Some).ok_or_else(|| {
+            anyhow::anyhow!(
+                "prometheusaddress must be empty or host:port, such as 127.0.0.1:9092 or \
+                 :9092 for every interface, not {text:?}"
+            )
+        })
     }
 
     /// Checks the settings of the login limits and of the queue of password work.
@@ -1058,6 +1113,32 @@ mod tests {
     }
 
     #[test]
+    fn the_metrics_address_is_host_and_port() {
+        let address = |text: &str| {
+            Configuration {
+                prometheus_address: text.to_owned(),
+                ..Configuration::default()
+            }
+            .metrics_address()
+            .expect("a valid address")
+        };
+        assert_eq!(address(""), None, "no metrics");
+        let expected = |host: Option<&str>, port| {
+            Some(MetricsAddress {
+                host: host.map(str::to_owned),
+                port,
+            })
+        };
+        assert_eq!(address(":9092"), expected(None, 9092), "every interface");
+        assert_eq!(address("127.0.0.1:9092"), expected(Some("127.0.0.1"), 9092));
+        assert_eq!(address("[::1]:9092"), expected(Some("::1"), 9092));
+        assert_eq!(
+            address("metrics.internal:0"),
+            expected(Some("metrics.internal"), 0)
+        );
+    }
+
+    #[test]
     fn check_rejects_what_the_server_cannot_honor() {
         let parse = |text: &str| Configuration::parse(text, no_env).expect("valid JSON");
         let error = |text: &str| {
@@ -1067,7 +1148,21 @@ mod tests {
                 .to_string()
         };
         assert!(error(r#"{"authMode": "other"}"#).contains("authMode"));
-        assert!(error(r#"{"prometheusaddress": ":9092"}"#).contains("prometheusaddress"));
+        for address in [
+            "9092",
+            "localhost",
+            ":",
+            "host:port",
+            "::1:9092",
+            "host:70000",
+            "a b:1",
+        ] {
+            let text = format!(r#"{{"prometheusaddress": "{address}"}}"#);
+            assert!(
+                error(&text).contains("prometheusaddress"),
+                "{address} is refused"
+            );
+        }
         assert!(error(r#"{"filesdriver": "ftp"}"#).contains("filesdriver"));
         // Zero would not mean "no limit" to anyone who reads it as "nothing".
         assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));

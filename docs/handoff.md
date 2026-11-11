@@ -61,7 +61,7 @@
   - 웹앱의 질문 가운데 계약의 모양이나 권한에 걸린 것(`docs/contract-pending.md` 9절의 "사용자 결정 필요" 줄).
   - 공유 링크의 익명 독자에게 사람 속성(`person`, `multiPerson`)의 값인 사용자 ID가 그대로 나간다. 결정 7과 멘션은 `createdBy`, `modifiedBy`, 멘션만 비운다. 로그인했지만 보드의 멤버가 아닌 사용자(다른 조직)는 읽기 토큰으로 읽어도 ID를 모두 받는다. 권고: 사람 속성도 비운다(보드의 `cardProperties`로 사람 속성을 가린다). 다른 조직의 사용자는 익명 독자와 같이 다룬다.
 
-- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
+- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`는 예약된 키다(사용자 결정, 05:04 KST). `prometheusaddress`는 지표를 따로 연 리스너에서 낸다(`fvoci/metrics`). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
@@ -273,10 +273,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
 5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
 
-**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 둘이다(`docs/configuration.md`의 "예약된 키").
-
-- `prometheusaddress`: Prometheus 지표를 내는 주소.
-- `authmode`: OIDC 로그인. 지금은 `native`만 받는다.
+**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 `authmode`다(`docs/configuration.md`의 "예약된 키"). OIDC 로그인의 자리이고 지금은 `native`만 받는다.
 
 **웹앱 쪽에 전할 것.**
 

@@ -39,6 +39,9 @@ clap = { version = "4", features = ["derive"] }
 # Ctrl-C, SIGTERM and SIGHUP in xtask, so that a test run stops the containers it
 # started. License: MIT OR Apache-2.0.
 ctrlc = { version = "3", features = ["termination"] }
+# The metrics: a registry per server, the Prometheus text format and the process
+# metrics (procfs, Linux). License: Apache-2.0.
+prometheus = { version = "0.14", default-features = false, features = ["process"] }
 object_store = { version = "0.14", default-features = false, features = ["aws"] }
 rcgen = "0.14"
 reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls"] }

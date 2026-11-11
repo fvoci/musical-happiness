@@ -9,6 +9,7 @@ pub mod auth;
 pub mod client_address;
 pub mod config;
 pub mod error;
+pub mod metrics;
 pub mod permissions;
 pub mod scheduler;
 pub mod storage;
@@ -16,6 +17,7 @@ pub mod web;
 pub mod webhook;
 pub mod ws;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -74,6 +76,8 @@ pub struct Server {
     app: App,
     base_path: String,
     tls_files: TlsFiles,
+    /// The listener of the metrics, if `prometheusaddress` is set.
+    metrics_listener: Option<tokio::net::TcpListener>,
 }
 
 impl Server {
@@ -84,8 +88,9 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// Returns an error if the configuration asks for something unsupported, or the
-    /// database or the file storage cannot be set up.
+    /// Returns an error if the configuration asks for something unsupported, the
+    /// database or the file storage cannot be set up, or the metrics listener cannot
+    /// listen at `prometheusaddress`.
     pub async fn new(config: Configuration, base_path: &str) -> anyhow::Result<Self> {
         for warning in config.check()? {
             tracing::warn!("{warning}");
@@ -109,6 +114,11 @@ impl Server {
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
         let app = App::new(config, store, files)?;
+        // Before the slow work below: an address that is taken is reported at once.
+        let metrics_listener = match app.config().metrics_address()? {
+            Some(address) => Some(metrics::bind(&address).await?),
+            None => None,
+        };
         app.root_team().await.context("unable to get root team")?;
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
@@ -126,6 +136,7 @@ impl Server {
             app,
             base_path: base_path.to_owned(),
             tls_files: TlsFiles::default(),
+            metrics_listener,
         })
     }
 
@@ -135,6 +146,14 @@ impl Server {
     pub fn with_tls_files(mut self, tls_files: TlsFiles) -> Self {
         self.tls_files = tls_files;
         self
+    }
+
+    /// The address the metrics are served at; `None` if `prometheusaddress` is empty,
+    /// and nothing listens for them.
+    pub fn metrics_address(&self) -> Option<SocketAddr> {
+        self.metrics_listener
+            .as_ref()
+            .and_then(|listener| listener.local_addr().ok())
     }
 
     /// The application state.
@@ -209,8 +228,9 @@ impl Server {
     ///
     /// Connections are served over TLS if the configuration has `usessl`. While serving,
     /// the administration socket is open if the configuration has `enablelocalmode`,
-    /// and once at the start and then every hour the sessions that have ended are
-    /// deleted and the trash is purged of what has been in it for too long.
+    /// the metrics are served, over plain HTTP, if it has `prometheusaddress`, and once
+    /// at the start and then every hour the sessions that have ended are deleted and
+    /// the trash is purged of what has been in it for too long.
     ///
     /// # Errors
     ///
@@ -218,11 +238,12 @@ impl Server {
     /// certificate or the key is missing or cannot be used, or the administration socket
     /// cannot be opened. Returns an error if accepting connections fails.
     pub async fn serve(
-        self,
+        mut self,
         listener: tokio::net::TcpListener,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<()> {
-        let result = self.run(listener, shutdown).await;
+        let metrics_listener = self.metrics_listener.take();
+        let result = self.run(listener, metrics_listener, shutdown).await;
         self.shutdown().await;
         result
     }
@@ -232,6 +253,7 @@ impl Server {
     async fn run(
         &self,
         listener: tokio::net::TcpListener,
+        metrics_listener: Option<tokio::net::TcpListener>,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<()> {
         let tls = self.tls_config()?;
@@ -245,6 +267,8 @@ impl Server {
 
         let service = self.router().into_make_service_with_connect_info::<Peer>();
         let stop = CancellationToken::new();
+        let metrics_serving = metrics_listener
+            .map(|listener| serve_metrics(listener, self.app.metrics(), stop.clone()));
         let stopped = stop.clone().cancelled_owned();
         let serving = async move {
             if let Some(tls) = tls {
@@ -274,6 +298,15 @@ impl Server {
                     })
             }
         };
+        // Also when serving failed, without a shutdown.
+        stop.cancel();
+        if let Some(metrics_serving) = metrics_serving
+            && tokio::time::timeout(CONNECTION_DRAIN_TIMEOUT, metrics_serving)
+                .await
+                .is_err()
+        {
+            tracing::warn!("a metrics scrape still open after the drain timeout; closing it");
+        }
         tracing::info!("the server stopped accepting connections");
 
         if let Some(admin_socket) = admin_socket {
@@ -336,6 +369,28 @@ impl Server {
         self.app.store().close().await;
         tracing::info!("server shut down");
     }
+}
+
+/// Serves the metrics from `listener` until `stop` is cancelled, in a task of its own.
+/// Plain HTTP, whatever `usessl` says, and without the request log: a scrape every few
+/// seconds would fill it.
+fn serve_metrics(
+    listener: tokio::net::TcpListener,
+    metrics: &metrics::Metrics,
+    stop: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let router = metrics::router(metrics.clone());
+    if let Ok(address) = listener.local_addr() {
+        tracing::info!(%address, "metrics server started");
+    }
+    tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, router)
+            .with_graceful_shutdown(stop.cancelled_owned())
+            .await
+        {
+            tracing::error!(%error, "the metrics server stopped");
+        }
+    })
 }
 
 /// Returns the address the server listens on, in the original's notation: `localhost:8000`
