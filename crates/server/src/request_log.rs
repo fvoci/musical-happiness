@@ -129,6 +129,8 @@ fn identify(mut response: Response, request_id: &str, base_path: &str) -> Respon
             parts.headers.remove(CONTENT_ENCODING);
             response = Response::from_parts(parts, Body::from(bytes));
         }
+        // Kept, as sent, for the measurement of the requests, which counts problems.
+        response.extensions_mut().insert(ReportedError(body));
     }
     if let Ok(value) = HeaderValue::from_str(request_id) {
         response.headers_mut().insert(X_REQUEST_ID, value);

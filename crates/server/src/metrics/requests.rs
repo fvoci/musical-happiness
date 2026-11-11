@@ -1,10 +1,11 @@
-//! The metrics of HTTP requests on the API's listener: how many are being answered, and
-//! how long each took, by method, route and status. What a request's method, route and
-//! status are is for the middleware that measures (`request_metrics`) to say.
+//! The metrics of HTTP requests on the API's listener: how many are being answered, how
+//! long each took, by method, route and status, and which problems (RFC 9457) they were
+//! refused with. What a request's method, route, status and problem are is for the
+//! middleware that measures (`request_metrics`) to say.
 
 use std::time::Duration;
 
-use prometheus::{HistogramOpts, HistogramVec, IntGauge, Opts, Registry};
+use prometheus::{HistogramOpts, HistogramVec, IntCounterVec, IntGauge, Opts, Registry};
 
 use super::{Metrics, PREFIX};
 
@@ -17,6 +18,9 @@ pub(crate) const ABANDONED: &str = "abandoned";
 
 /// The method of a request that is none of the methods the server has routes for.
 pub(crate) const OTHER_METHOD: &str = "other";
+
+/// The problem of an answer whose `type` names none of the server's problems.
+pub(crate) const OTHER_PROBLEM: &str = "other";
 
 /// The upper bounds of the buckets of the request durations, in seconds: from a
 /// cached read to an import or an export of a large archive.
@@ -31,6 +35,8 @@ pub(crate) struct RequestMetrics {
     duration: HistogramVec,
     /// How many requests are being answered.
     in_flight: IntGauge,
+    /// How many answers were problems, by the name of the problem.
+    problems: IntCounterVec,
 }
 
 impl RequestMetrics {
@@ -56,11 +62,22 @@ impl RequestMetrics {
             )
             .namespace(PREFIX),
         )?;
+        let problems = IntCounterVec::new(
+            Opts::new(
+                "http_problems_total",
+                "How many answers of the API's listener were problems (RFC 9457), by \
+                 problem: the name its type ends in (/problems/<name>), or other.",
+            )
+            .namespace(PREFIX),
+            &["problem"],
+        )?;
         registry.register(Box::new(duration.clone()))?;
         registry.register(Box::new(in_flight.clone()))?;
+        registry.register(Box::new(problems.clone()))?;
         Ok(Self {
             duration,
             in_flight,
+            problems,
         })
     }
 
@@ -82,6 +99,12 @@ impl RequestMetrics {
         self.duration
             .with_label_values(&[method, route, status])
             .observe(duration.as_secs_f64());
+    }
+
+    /// Counts an answer that was the problem `problem`: the name of one of the server's
+    /// problems, or [`OTHER_PROBLEM`], and never what a client sent.
+    pub(crate) fn refused(&self, problem: &str) {
+        self.problems.with_label_values(&[problem]).inc();
     }
 }
 
