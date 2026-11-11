@@ -139,19 +139,29 @@ function isEmptyDoc(doc: DocNode): boolean {
   return others.length === 0 && only?.type === 'paragraph' && childrenOf(only).length === 0;
 }
 
-function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
-  const page = options.document ?? document;
-  const isLanguage = NODE_SPECS.codeBlock?.attrs.language?.rule;
+/** Draws each node kind in the same page, with the caller's naming options. */
+class BodyDrawing {
+  readonly #page: Document;
+  readonly #options: RenderBodyOptions;
+  readonly #isLanguage: ((value: unknown) => boolean) | undefined;
 
-  const nameOf = (userId: string): string => options.resolveUser?.(userId) || userId;
+  constructor(options: RenderBodyOptions) {
+    this.#page = options.document ?? document;
+    this.#isLanguage = NODE_SPECS.codeBlock?.attrs.language?.rule;
+    this.#options = options;
+  }
 
-  function mention(node: DocNode): HTMLElement {
+  #nameOf(userId: string): string {
+    return this.#options.resolveUser?.(userId) || userId;
+  }
+
+  #mention(node: DocNode): HTMLElement {
     const userId = textAttribute(node, 'userId') ?? '';
-    const element = page.createElement('span');
+    const element = this.#page.createElement('span');
     element.setAttribute('data-user-id', userId);
     element.setAttribute('data-mention', '');
     element.setAttribute('class', 'mention');
-    element.append(page.createTextNode(`@${nameOf(userId)}`));
+    element.append(this.#page.createTextNode(`@${this.#nameOf(userId)}`));
     return element;
   }
 
@@ -161,12 +171,12 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
    * component around this, embeds.ts) finds these and draws the formulas;
    * until then, and when one cannot be drawn, the source is what shows.
    */
-  function math(name: MathNodeName, node: DocNode): HTMLElement {
+  #math(name: MathNodeName, node: DocNode): HTMLElement {
     const latex = textAttribute(node, 'latex') ?? '';
-    const element = page.createElement(MATH_SLOTS[name].tag);
+    const element = this.#page.createElement(MATH_SLOTS[name].tag);
     for (const [attribute, value] of Object.entries(mathSlotAttributes(name, latex)))
       element.setAttribute(attribute, value);
-    element.append(page.createTextNode(latex));
+    element.append(this.#page.createTextNode(latex));
     return element;
   }
 
@@ -175,7 +185,7 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
    * follow each other share the elements of the marks they have in common,
    * from the outside in, the way the editor draws them.
    */
-  function fillTextblock(element: HTMLElement, node: DocNode, marked: boolean): void {
+  #fillTextblock(element: HTMLElement, node: DocNode, marked: boolean): void {
     const open: { key: string; element: HTMLElement }[] = [];
     // Whether the last line has nothing on it yet. True for an empty block.
     let lineIsEmpty = true;
@@ -187,7 +197,7 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
       while (keep < open.length && open[keep]?.key === marks[keep]?.key) keep += 1;
       open.length = keep;
       for (const mark of marks.slice(keep)) {
-        const wrapper = page.createElement(mark.tag);
+        const wrapper = this.#page.createElement(mark.tag);
         if (mark.href !== undefined) {
           for (const [name, fixed] of Object.entries(LINK_ATTRIBUTES))
             wrapper.setAttribute(name, fixed);
@@ -200,81 +210,82 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
       if (child.type === 'text') {
         const last = parent.lastChild;
         if (last?.nodeType === TEXT_NODE) (last as Text).appendData(value);
-        else parent.append(page.createTextNode(value));
+        else parent.append(this.#page.createTextNode(value));
         lineIsEmpty = value.endsWith('\n');
       } else if (child.type === 'hardBreak') {
-        parent.append(page.createElement('br'));
+        parent.append(this.#page.createElement('br'));
         lineIsEmpty = true;
       } else if (child.type === 'mention') {
-        parent.append(mention(child));
+        parent.append(this.#mention(child));
         lineIsEmpty = false;
       } else if (child.type === 'inlineMath') {
-        parent.append(math('inlineMath', child));
+        parent.append(this.#math('inlineMath', child));
         lineIsEmpty = false;
       }
     }
     // A browser gives an empty last line no height: an empty paragraph would
     // collapse and a break at the end of a paragraph would not show. The
     // editor holds such a line open with a `<br>`, and so does this.
-    if (lineIsEmpty) element.append(page.createElement('br'));
+    if (lineIsEmpty) element.append(this.#page.createElement('br'));
   }
 
-  function textblock(tag: string, node: DocNode, marked = true): HTMLElement {
-    const element = page.createElement(tag);
-    fillTextblock(element, node, marked);
+  #textblock(tag: string, node: DocNode, marked = true): HTMLElement {
+    const element = this.#page.createElement(tag);
+    this.#fillTextblock(element, node, marked);
     return element;
   }
 
-  function container(tag: string, node: DocNode): HTMLElement {
-    const element = page.createElement(tag);
+  #container(tag: string, node: DocNode): HTMLElement {
+    const element = this.#page.createElement(tag);
     for (const child of childrenOf(node)) {
-      const drawn = block(child);
+      const drawn = this.#block(child);
       if (drawn) element.append(drawn);
     }
     return element;
   }
 
   /** What a task says: the words of its first paragraph. */
-  function taskText(node: DocNode): string {
+  #taskText(node: DocNode): string {
     const words = (inline: DocNode): string => {
       if (inline.type === 'text') return typeof inline.text === 'string' ? inline.text : '';
       if (inline.type === 'inlineMath') return textAttribute(inline, 'latex') ?? '';
       if (inline.type === 'hardBreak') return ' ';
-      if (inline.type === 'mention') return `@${nameOf(textAttribute(inline, 'userId') ?? '')}`;
+      if (inline.type === 'mention')
+        return `@${this.#nameOf(textAttribute(inline, 'userId') ?? '')}`;
       return '';
     };
     const first = childrenOf(node)[0];
     return (first ? childrenOf(first) : []).map(words).join('').trim();
   }
 
-  function taskItem(node: DocNode): HTMLElement {
+  #taskItem(node: DocNode): HTMLElement {
     const checked = node.attrs?.checked === true;
-    const item = page.createElement('li');
+    const item = this.#page.createElement('li');
     item.setAttribute('data-checked', String(checked));
 
     // The box shows the state and reads it out, and cannot be changed: a
     // click (or the space bar, or a click on the label) is undone before it
     // takes effect. It is not `disabled`, which would grey it out and make
     // it look unlike the same task in the editor.
-    const box = page.createElement('input');
+    const box = this.#page.createElement('input');
     box.setAttribute('type', 'checkbox');
     box.checked = checked;
     box.setAttribute('aria-readonly', 'true');
-    const text = taskText(node);
-    const name = options.taskLabel ? options.taskLabel(text, checked) : text;
+    const text = this.#taskText(node);
+    const name = this.#options.taskLabel ? this.#options.taskLabel(text, checked) : text;
     if (name !== '') box.setAttribute('aria-label', name);
     box.addEventListener('click', (event) => {
       event.preventDefault();
     });
 
-    const label = page.createElement('label');
+    const label = this.#page.createElement('label');
     label.append(box);
-    item.append(label, container('div', node));
+    item.append(label, this.#container('div', node));
     return item;
   }
 
-  function image(node: DocNode): HTMLElement {
-    const element = page.createElement('img');
+  #image(node: DocNode): HTMLElement {
+    const element = this.#page.createElement('img');
     const fileId = textAttribute(node, 'fileId');
     const alt = textAttribute(node, 'alt');
     if (fileId !== undefined) element.setAttribute('data-file-id', fileId);
@@ -287,60 +298,67 @@ function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
     return element;
   }
 
-  function block(node: DocNode): HTMLElement | undefined {
+  #block(node: DocNode): HTMLElement | undefined {
     switch (node.type) {
       case 'paragraph':
-        return textblock('p', node);
+        return this.#textblock('p', node);
       case 'heading':
-        return textblock(headingTag(node), node);
+        return this.#textblock(headingTag(node), node);
       case 'bulletList':
-        return container('ul', node);
+        return this.#container('ul', node);
       case 'orderedList': {
-        const list = container('ol', node);
+        const list = this.#container('ol', node);
         const start = node.attrs?.start;
         if (typeof start === 'number' && Number.isInteger(start) && start !== 1)
           list.setAttribute('start', String(start));
         return list;
       }
       case 'listItem':
-        return container('li', node);
+        return this.#container('li', node);
       case 'taskList': {
-        const list = container('ul', node);
+        const list = this.#container('ul', node);
         list.setAttribute('data-type', 'taskList');
         return list;
       }
       case 'taskItem':
-        return taskItem(node);
+        return this.#taskItem(node);
       case 'blockquote':
-        return container('blockquote', node);
+        return this.#container('blockquote', node);
       case 'codeBlock': {
-        const pre = page.createElement('pre');
+        const pre = this.#page.createElement('pre');
         // The text of a code block carries no marks.
-        const code = textblock('code', node, false);
+        const code = this.#textblock('code', node, false);
         const language = textAttribute(node, 'language');
+        const isLanguage = this.#isLanguage;
         if (language !== undefined && isLanguage?.(language))
           code.setAttribute('class', `language-${language}`);
         pre.append(code);
         return pre;
       }
       case 'horizontalRule':
-        return page.createElement('hr');
+        return this.#page.createElement('hr');
       case 'image':
-        return image(node);
+        return this.#image(node);
       case 'blockMath':
-        return math('blockMath', node);
+        return this.#math('blockMath', node);
       default:
         // Not on the list: not drawn.
         return undefined;
     }
   }
 
-  const fragment = page.createDocumentFragment();
-  for (const child of childrenOf(doc)) {
-    const drawn = block(child);
-    if (drawn) fragment.append(drawn);
+  draw(doc: DocNode): DocumentFragment {
+    const fragment = this.#page.createDocumentFragment();
+    for (const child of childrenOf(doc)) {
+      const drawn = this.#block(child);
+      if (drawn) fragment.append(drawn);
+    }
+    return fragment;
   }
-  return fragment;
+}
+
+function draw(doc: DocNode, options: RenderBodyOptions): DocumentFragment {
+  return new BodyDrawing(options).draw(doc);
 }
 
 /**
