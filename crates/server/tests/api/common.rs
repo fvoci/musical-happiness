@@ -889,6 +889,7 @@ impl ApiResponse {
             416 => "range-not-satisfiable",
             429 => "rate-limited",
             500 => "internal",
+            503 => "service-unavailable",
             other => panic!("status {other} is no error status of the API"),
         };
         let name = match body.get("reason") {

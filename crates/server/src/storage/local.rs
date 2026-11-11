@@ -10,6 +10,7 @@ use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt a
 use tokio_util::io::ReaderStream;
 
 use super::{FileStream, ObjectListing, StorageError, StoredObject};
+use crate::metrics::Metrics;
 
 /// Files kept in a directory on the local disk, the `filespath` setting.
 ///
@@ -18,6 +19,8 @@ use super::{FileStream, ObjectListing, StorageError, StoredObject};
 #[derive(Debug, Clone)]
 pub struct LocalFiles {
     root: PathBuf,
+    /// What the operations are measured into ([`super::FileBackend::measured`]).
+    pub(super) metrics: Metrics,
 }
 
 /// The directory under the root, in which files are written before they are renamed
@@ -44,7 +47,13 @@ impl LocalFiles {
     pub fn new(directory: impl AsRef<Path>) -> Self {
         Self {
             root: directory.as_ref().to_path_buf(),
+            metrics: Metrics::none(),
         }
+    }
+
+    /// The same backend, measuring its operations into `metrics`.
+    pub(super) fn measured(self, metrics: Metrics) -> Self {
+        Self { metrics, ..self }
     }
 
     /// Resolves a stored path to a path under the root.
@@ -62,6 +71,19 @@ impl LocalFiles {
             Ok(self.root.join(relative))
         } else {
             Err(StorageError::InvalidPath(path.to_owned()))
+        }
+    }
+
+    /// Whether the directory can be used: it is a directory, or is not there yet and is
+    /// made on the first write.
+    pub(super) async fn check(&self) -> Result<(), StorageError> {
+        match fs::metadata(&self.root).await {
+            Ok(metadata) if metadata.is_dir() => Ok(()),
+            Ok(_) => Err(StorageError::Config(
+                "filespath is not a directory".to_owned(),
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
         }
     }
 

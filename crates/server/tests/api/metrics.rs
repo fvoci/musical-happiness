@@ -616,6 +616,11 @@ async fn attempts_the_login_limits_refuse_are_counted_by_limit() {
         |body: &str, limit: &str| sample(body, "fvoci_login_refusals_total", &[("limit", limit)]);
     let body = scrape(&server).await;
     assert_eq!(refusals(&body, "pair_delay"), Some(1.0), "{body}");
+    assert_eq!(
+        sample(&body, "fvoci_logins_total", &[("outcome", "limited")]),
+        Some(1.0),
+        "and the login is counted as limited: {body}"
+    );
     for limit in ["account_lock", "address_busy", "address_rate"] {
         assert_eq!(refusals(&body, limit), Some(0.0), "{limit}: {body}");
     }
@@ -662,5 +667,58 @@ async fn a_local_only_server_serves_metrics_without_a_host_on_its_loopback() {
     let address = server.metrics_address.expect("the server keeps metrics");
     assert!(address.ip().is_loopback(), "{address}");
     scrape(&server).await;
+    server.teardown().await;
+}
+
+#[tokio::test]
+async fn with_a_token_set_a_scrape_must_send_it() {
+    const TOKEN: &str = "a-token-for-the-scrapes";
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| TOKEN.clone_into(&mut config.prometheus_token))
+        .start()
+        .await;
+    let address = server.metrics_address.expect("the server keeps metrics");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("an HTTP client");
+    let get = |authorization: Option<&str>| {
+        let mut request = client.get(format!("http://{address}/metrics"));
+        if let Some(value) = authorization {
+            request = request.header("authorization", value);
+        }
+        request.send()
+    };
+    for authorization in [None, Some("Bearer not-the-token")] {
+        let response = get(authorization).await.expect("an answer");
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{authorization:?}"
+        );
+        let challenge = if authorization.is_some() {
+            "Bearer realm=\"metrics\", error=\"invalid_token\""
+        } else {
+            "Bearer realm=\"metrics\""
+        };
+        assert_eq!(
+            response
+                .headers()
+                .get("www-authenticate")
+                .and_then(|value| value.to_str().ok()),
+            Some(challenge)
+        );
+        let body = response.text().await.expect("a body");
+        let problem: serde_json::Value = serde_json::from_str(&body).expect("a problem");
+        assert_eq!(problem["type"], "/problems/unauthorized", "{body}");
+        assert!(!body.contains(TOKEN) && !body.contains("fvoci_"), "{body}");
+    }
+    let response = get(Some(&format!("Bearer {TOKEN}")))
+        .await
+        .expect("an answer");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.expect("a body");
+    assert!(body.contains("fvoci_build_info"), "{body}");
     server.teardown().await;
 }

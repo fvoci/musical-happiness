@@ -62,8 +62,9 @@ pub(crate) async fn problems_only(request: Request, next: Next) -> Response {
     problem
 }
 
-/// The body of an error response as it left the handler, kept beside the response so
-/// that the request log can add the identifier of the request to it.
+/// The body of an error response, kept beside the response: as it left the handler,
+/// so that the request log can add the identifier of the request to it, and then as it
+/// was sent, so that the measurement of the requests can count it by its problem.
 #[derive(Debug, Clone)]
 pub(crate) struct ReportedError(pub(crate) Problem);
 
@@ -175,6 +176,12 @@ mod tests {
                 500,
                 "internal",
                 "internal server error",
+            ),
+            (
+                AppError::service_unavailable("not ready: database"),
+                503,
+                "service-unavailable",
+                "not ready: database",
             ),
         ];
         assert_eq!(cases.len(), ErrorKind::ALL.len(), "a case for every kind");

@@ -101,6 +101,30 @@ impl Store {
         .await
     }
 
+    /// Counts the sessions that are live at `now`, as [`Store::get_session`] would find
+    /// them: not past their `expires_at`, used after `idle_since`, and of a user who is
+    /// not deactivated.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn count_live_sessions(&self, now: i64, idle_since: i64) -> Result<i64, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT COUNT(*) FROM sessions WHERE expires_at > ");
+            sql.bind(now)
+                .push_bind(" AND last_used_at > ", idle_since)
+                .push(
+                    " AND EXISTS (SELECT 1 FROM users WHERE users.id = sessions.user_id \
+                     AND users.delete_at = 0)",
+                );
+            match scope.fetch_optional(sql).await? {
+                Some(row) => row.int(0),
+                None => Ok(0),
+            }
+        })
+        .await
+    }
+
     /// Records that a session was in use at `now`. A session that is gone is left gone,
     /// and the record only ever moves forward: a use that is older than what is recorded
     /// changes nothing.

@@ -219,6 +219,7 @@ impl Server {
         };
         let routes = self.with_request_layers(routes, &self.base_path);
         if measured {
+            request_metrics::know_problems(self.app.metrics());
             routes.layer(middleware::from_fn_with_state(
                 request_metrics::Measured {
                     metrics: self.app.metrics().clone(),

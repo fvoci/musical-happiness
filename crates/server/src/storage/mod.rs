@@ -3,10 +3,15 @@
 //! Two backends exist, selected by the `filesdriver` setting: a directory on the local
 //! disk and an S3-compatible object store. Both store a file under the same relative path
 //! the original server uses, so an existing files directory or bucket keeps working.
+//!
+//! A backend given the metrics (`FileBackend::measured`) measures every operation, by
+//! the backend and the operation, at this boundary; but the listing, which is no
+//! operation of a request's.
 
 #[cfg(feature = "test-util")]
 mod faults;
 mod local;
+mod measure;
 mod s3;
 
 use std::ops::Range;
@@ -22,6 +27,7 @@ pub use local::{LocalFiles, WRITING_DIR};
 pub use s3::S3Files;
 
 use crate::config::Configuration;
+use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
 /// An error of a file backend.
 #[derive(Debug, Error)]
@@ -42,6 +48,10 @@ pub enum StorageError {
     #[error("object store error: {0}")]
     ObjectStore(#[source] object_store::Error),
 }
+
+/// The key the readiness check lists under in the object store. Nothing stores a file
+/// at it (no stored path begins with a dot); that the list is answered is what counts.
+const READY_KEY: &str = ".fvoci-ready";
 
 /// The bytes of a stored file, as a stream of chunks.
 pub type FileStream = BoxStream<'static, Result<Bytes, StorageError>>;
@@ -103,6 +113,46 @@ impl FileBackend {
         }
     }
 
+    /// The same backend, measuring its operations into `metrics`.
+    #[must_use]
+    pub(crate) fn measured(self, metrics: Metrics) -> Self {
+        match self {
+            Self::Local(files) => {
+                metrics.files_known(FilesBackend::Local);
+                Self::Local(files.measured(metrics))
+            }
+            Self::S3(files) => {
+                metrics.files_known(FilesBackend::S3);
+                Self::S3(files.measured(metrics))
+            }
+            #[cfg(feature = "test-util")]
+            Self::Faulty(inner, faults) => Self::Faulty(Box::new(inner.measured(metrics)), faults),
+        }
+    }
+
+    /// The metrics the operations are measured into, and the backend they are of;
+    /// `None` for a backend that only passes them on, measured by the one it wraps.
+    fn metrics(&self) -> Option<(&Metrics, FilesBackend)> {
+        match self {
+            Self::Local(files) => Some((&files.metrics, FilesBackend::Local)),
+            Self::S3(files) => Some((&files.metrics, FilesBackend::S3)),
+            #[cfg(feature = "test-util")]
+            Self::Faulty(..) => None,
+        }
+    }
+
+    /// Runs `work`, which is `operation` on this backend, measured.
+    async fn measure<T>(
+        &self,
+        operation: FilesOperation,
+        work: impl Future<Output = Result<T, StorageError>>,
+    ) -> Result<T, StorageError> {
+        match self.metrics() {
+            Some((metrics, backend)) => measure::measured(metrics, backend, operation, work).await,
+            None => work.await,
+        }
+    }
+
     /// Stores everything `reader` yields at `path`, replacing any existing file, and
     /// returns the number of bytes written.
     ///
@@ -111,6 +161,23 @@ impl FileBackend {
     /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
     /// root, or the backend's error if reading or writing fails.
     pub async fn write(
+        &self,
+        path: &str,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+    ) -> Result<u64, StorageError> {
+        let Some(measuring) = self.metrics().and_then(|(metrics, backend)| {
+            measure::Measuring::start(metrics, backend, FilesOperation::Put)
+        }) else {
+            return self.store(path, reader).await;
+        };
+        let mut input = measure::WatchedInput::new(reader);
+        let result = self.store(path, &mut input).await;
+        measuring.end(input.outcome(&result));
+        result
+    }
+
+    /// Stores everything `reader` yields at `path`, unmeasured.
+    async fn store(
         &self,
         path: &str,
         reader: &mut (dyn AsyncRead + Send + Unpin),
@@ -135,12 +202,15 @@ impl FileBackend {
     /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
     /// root, or the backend's error if the lookup fails.
     pub async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {
-        match self {
-            Self::Local(files) => files.size(path).await,
-            Self::S3(files) => files.size(path).await,
-            #[cfg(feature = "test-util")]
-            Self::Faulty(inner, _) => Box::pin(inner.size(path)).await,
-        }
+        self.measure(FilesOperation::Head, async {
+            match self {
+                Self::Local(files) => files.size(path).await,
+                Self::S3(files) => files.size(path).await,
+                #[cfg(feature = "test-util")]
+                Self::Faulty(inner, _) => Box::pin(inner.size(path)).await,
+            }
+        })
+        .await
     }
 
     /// Returns `true` if a file exists at `path`.
@@ -153,6 +223,8 @@ impl FileBackend {
     }
 
     /// Opens the file at `path` and returns the given byte range of it, or all of it.
+    /// What is measured is the time until the bytes can be read; an error while they
+    /// are is counted as a failure of the same operation.
     ///
     /// The range must lie within the file.
     ///
@@ -166,12 +238,20 @@ impl FileBackend {
         path: &str,
         range: Option<Range<u64>>,
     ) -> Result<FileStream, StorageError> {
-        match self {
-            Self::Local(files) => files.read(path, range).await,
-            Self::S3(files) => files.read(path, range).await,
-            #[cfg(feature = "test-util")]
-            Self::Faulty(inner, _) => Box::pin(inner.read(path, range)).await,
-        }
+        let stream = self
+            .measure(FilesOperation::Get, async {
+                match self {
+                    Self::Local(files) => files.read(path, range).await,
+                    Self::S3(files) => files.read(path, range).await,
+                    #[cfg(feature = "test-util")]
+                    Self::Faulty(inner, _) => Box::pin(inner.read(path, range)).await,
+                }
+            })
+            .await?;
+        Ok(match self.metrics() {
+            Some((metrics, backend)) => measure::counting_failures(stream, metrics, backend),
+            None => stream,
+        })
     }
 
     /// Copies the file at `from` to `to`, replacing any existing file.
@@ -181,15 +261,18 @@ impl FileBackend {
     /// Returns [`StorageError::NotFound`] if there is no file at `from`, or the backend's
     /// error if the copy fails.
     pub async fn copy(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        match self {
-            Self::Local(files) => files.copy(from, to).await,
-            Self::S3(files) => files.copy(from, to).await,
-            #[cfg(feature = "test-util")]
-            Self::Faulty(inner, faults) => {
-                faults.check(FaultyOp::Copy, to)?;
-                Box::pin(inner.copy(from, to)).await
+        self.measure(FilesOperation::Copy, async {
+            match self {
+                Self::Local(files) => files.copy(from, to).await,
+                Self::S3(files) => files.copy(from, to).await,
+                #[cfg(feature = "test-util")]
+                Self::Faulty(inner, faults) => {
+                    faults.check(FaultyOp::Copy, to)?;
+                    Box::pin(inner.copy(from, to)).await
+                }
             }
-        }
+        })
+        .await
     }
 
     /// Removes the file at `path`. Removing a file that is not there succeeds.
@@ -199,15 +282,18 @@ impl FileBackend {
     /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
     /// root, and the backend's error if the file cannot be removed.
     pub async fn delete(&self, path: &str) -> Result<(), StorageError> {
-        match self {
-            Self::Local(files) => files.delete(path).await,
-            Self::S3(files) => files.delete(path).await,
-            #[cfg(feature = "test-util")]
-            Self::Faulty(inner, faults) => {
-                faults.check(FaultyOp::Delete, path)?;
-                Box::pin(inner.delete(path)).await
+        self.measure(FilesOperation::Delete, async {
+            match self {
+                Self::Local(files) => files.delete(path).await,
+                Self::S3(files) => files.delete(path).await,
+                #[cfg(feature = "test-util")]
+                Self::Faulty(inner, faults) => {
+                    faults.check(FaultyOp::Delete, path)?;
+                    Box::pin(inner.delete(path)).await
+                }
             }
-        }
+        })
+        .await
     }
 
     /// Moves the file at `from` to `to`, replacing any existing file.
@@ -217,11 +303,31 @@ impl FileBackend {
     /// Returns [`StorageError::NotFound`] if there is no file at `from`, or the backend's
     /// error if the move fails.
     pub async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.measure(FilesOperation::Rename, async {
+            match self {
+                Self::Local(files) => files.rename(from, to).await,
+                Self::S3(files) => files.rename(from, to).await,
+                #[cfg(feature = "test-util")]
+                Self::Faulty(inner, _) => Box::pin(inner.rename(from, to)).await,
+            }
+        })
+        .await
+    }
+
+    /// Whether the storage can be used, for the readiness check, unmeasured: on the local
+    /// disk, that the directory is one or is still to be made; on the object store, that
+    /// the bucket is there and lists its objects under a key that need not be there, with
+    /// the credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns the backend's error if the look fails.
+    pub async fn check(&self) -> Result<(), StorageError> {
         match self {
-            Self::Local(files) => files.rename(from, to).await,
-            Self::S3(files) => files.rename(from, to).await,
+            Self::Local(files) => files.check().await,
+            Self::S3(files) => files.check(READY_KEY).await,
             #[cfg(feature = "test-util")]
-            Self::Faulty(inner, _) => Box::pin(inner.rename(from, to)).await,
+            Self::Faulty(inner, _) => Box::pin(inner.check()).await,
         }
     }
 
