@@ -153,7 +153,9 @@ impl Server {
             ))
             // Under the API prefix nothing is ever answered with the web app's page.
             .fallback(api_not_found)
-            .method_not_allowed_fallback(method_not_allowed);
+            .method_not_allowed_fallback(method_not_allowed)
+            // Nor with an error in the framework's words.
+            .layer(middleware::from_fn(error::problems_only));
         let api = if self.app.config().compress_responses {
             api.layer(compression())
                 .layer(middleware::from_fn(identity_is_always_acceptable))
@@ -187,7 +189,11 @@ impl Server {
     /// The router of the administration socket. It must never be served on a TCP
     /// listener; its routes refuse requests that did not arrive through a Unix socket.
     pub fn admin_router(&self) -> Router {
-        self.with_request_layers(api::admin_router().with_state(self.app.clone()))
+        self.with_request_layers(
+            api::admin_router()
+                .layer(middleware::from_fn(error::problems_only))
+                .with_state(self.app.clone()),
+        )
     }
 
     /// Wraps `router` in the layers every listener has: outermost the request log, then

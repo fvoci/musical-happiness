@@ -288,7 +288,16 @@ async fn handle_patch_board(
         .await?;
     }
 
-    let board = app.patch_board(&patch, &board_id, user_id).await?;
+    // The store names what it refuses as a board has it; the patch has two of those
+    // members under other names.
+    let board = app
+        .patch_board(&patch, &board_id, user_id)
+        .await
+        .map_err(|error| {
+            error
+                .moved("/properties", "/updatedProperties")
+                .moved("/cardProperties", "/updatedCardProperties")
+        })?;
     Ok(json_response(&board))
 }
 

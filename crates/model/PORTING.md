@@ -97,7 +97,7 @@
 - **카드 속성의 모양 검증(`card_property.rs`).** `validate_card_property_values`(값은 문자열, 문자열 목록, `null`), `validate_block_properties`(블록의 `fields.properties`는 있으면 그런 값들의 객체), `validate_card_property_definitions`(정의의 `id`·`name`·`type`·`options`). 오류는 `CardPropertyError`. `Block::validate`가 `fields.properties`를, `Board::validate`와 새 `Board::validate_card_properties`·`BoardPatch::validate`가 정의를 본다. 서버 문서의 S14.
 - `BlockError`와 `BoardError`는 속성 오류(문자열을 담는다)를 담게 되어 더는 `Copy`가 아니다.
 
-- **오류 본문(`problem.rs`, 2026-11-11 KST).** RFC 9457의 `Problem {type, title, status, detail, instance?, reason?, errors?, limit?, retry_after?, request_id?}`와 `errors`의 항목 `InvalidInput {pointer? | parameter? | header?, detail, reason}`이다(`docs/s6-design.md` 1.2). 선택 멤버는 값이 있을 때만 나간다. 테스트 `wire_format`.
+- **오류 본문(`problem.rs`, 2026-11-11 17:05 KST).** RFC 9457의 `Problem {type, title, status, detail, instance?, reason?, errors?, limit?, retry_after?, request_id?}`와 `errors`의 항목 `InvalidInput {pointer? | parameter? | header?, detail, reason}`이다(`docs/s6-design.md` 1.2). 선택 멤버는 값이 있을 때만 나간다. 테스트 `wire_format`.
 - **`renew_boards_and_blocks_ids`** (2026-11-10 18:38 KST): 이미 저장된 보드와 블록에 새 ID를 준다. 요청을 검증하는 `generate_boards_and_blocks_ids`와 달리 블록 없는 보드를 받는다(복제와 가져오기용). 테스트 `boards_and_blocks::renew_boards_and_blocks_ids_takes_boards_without_blocks`.
 
 - **계약의 스키마(2026-11-11 02:07 KST).** 와이어 타입이 `utoipa::ToSchema`를 낸다(의존성 `utoipa` 6). 타입과 멤버의 **문서 주석이 `contracts/openapi.json`의 설명이 된다.** 그래서 해석 쪽의 사정(기본값, 너그러움)은 문서 주석이 아니라 보통 주석에 적는다(`Board`, `Subscription`). 멤버가 늘 있는지는 여기서 정하지 않고 서버의 `api/contract.rs`의 표가 정한다. `JsonMap` 멤버는 `#[schema(value_type = Object)]`로 자유 형식 객체가 된다. 타입을 고치면 `cargo xtask openapi --write`로 계약을 다시 쓴다.

@@ -88,6 +88,8 @@ describe('writing a body', () => {
     );
     expect(isConflict(error)).toBe(true);
     expect(error.status).toBe(409);
+    // The server's stale write has no reason either: the status says it.
+    expect(error).toMatchObject({ type: '/problems/conflict', reason: undefined });
     expect((await backend.card(boardId, card.id)).body).toEqual(text('theirs'));
   });
 

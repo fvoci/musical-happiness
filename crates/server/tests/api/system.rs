@@ -150,6 +150,19 @@ async fn api_responses_are_not_cacheable() {
     th.teardown().await;
 }
 
+/// What the framework refuses before a handler runs is answered in the API's format
+/// too: a parameter of the path that is no text.
+#[tokio::test]
+async fn a_path_that_is_no_text_is_a_problem_like_any_other_error() {
+    let th = Setup::native().start().await.init_basic().await;
+    for path in ["/boards/%FF", "/boards/%FF/sharing", "/users/%C3%28"] {
+        let response = th.client.get(path).await;
+        response.check_error(StatusCode::BAD_REQUEST, "the request is malformed");
+        assert_eq!(response.header("cache-control"), "no-store", "{path}");
+    }
+    th.teardown().await;
+}
+
 /// An operation without a result answers 204: no body, and no `Content-Type` for the
 /// body that is not there, whichever route it is and whatever else its answer carries
 /// (a login and a logout set a cookie).

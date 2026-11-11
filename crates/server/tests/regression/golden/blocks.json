@@ -505,7 +505,7 @@
       "errors": [
         {
           "detail": "missing type for block id x1",
-          "pointer": "/type",
+          "pointer": "/0/type",
           "reason": "invalid"
         }
       ],
@@ -526,7 +526,7 @@
       "errors": [
         {
           "detail": "invalid createAt for block id x1",
-          "pointer": "/createAt",
+          "pointer": "/0/createAt",
           "reason": "invalid"
         }
       ],
@@ -547,7 +547,7 @@
       "errors": [
         {
           "detail": "invalid updateAt for block id x1",
-          "pointer": "/updateAt",
+          "pointer": "/0/updateAt",
           "reason": "invalid"
         }
       ],
@@ -568,7 +568,7 @@
       "errors": [
         {
           "detail": "invalid boardId for block id x1",
-          "pointer": "/boardId",
+          "pointer": "/0/boardId",
           "reason": "invalid"
         }
       ],

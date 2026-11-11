@@ -252,13 +252,13 @@ async fn handle_upload_file(
             .await
             .map_err(|error| AppError::bad_request(error.to_string()))?;
         let Some(field) = field else {
-            break Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
+            break Err(AppError::bad_request(NO_FILE_PART).with_parameter(UPLOAD_FIELD));
         };
         if field.name() != Some(UPLOAD_FIELD) {
             continue;
         }
         let Some(filename) = field.file_name().map(str::to_owned) else {
-            break Err(AppError::bad_request(NO_FILE_PART).with_field(UPLOAD_FIELD));
+            break Err(AppError::bad_request(NO_FILE_PART).with_parameter(UPLOAD_FIELD));
         };
         // The stored name is what a reader asks for the file by; it stays out of the log.
         tracing::debug!(filename, "uploadFile");

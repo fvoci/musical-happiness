@@ -29,24 +29,28 @@ pub struct Problem {
     pub detail: String,
     /// The request this answer is to: `urn:uuid:` and the `request_id`.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub instance: Option<String>,
     /// Why, where a client must tell causes of the same status apart, such as
     /// `invalid_credentials` or `last_admin`.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub reason: Option<String>,
-    /// What of the request was refused, one entry for each: every member that a check
-    /// of the request's own shape refuses, or the one that a later check does.
+    /// What of the request was refused, one entry for each.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<InvalidInput>,
     /// The limit that was exceeded.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub limit: Option<u64>,
     /// How many seconds to wait before trying again, as in the `Retry-After` header.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub retry_after: Option<u64>,
     /// The identifier of the request, the same as in the `x-request-id` response header
     /// and in the server's request log.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub request_id: Option<String>,
 }
 
@@ -56,20 +60,23 @@ pub struct Problem {
 #[serde(default)]
 pub struct InvalidInput {
     /// A JSON Pointer (RFC 6901) to the member of the request body: `/username`,
-    /// `/updatedFields/theme`. The empty pointer is the body as a whole.
+    /// `/blockPatches/2/title`.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub pointer: Option<String>,
-    /// The name of the parameter of the query or of the path.
+    /// The name of the parameter of the query or of the path, or of the part of a
+    /// multipart form.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub parameter: Option<String>,
     /// The name of the request header.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
     pub header: Option<String>,
     /// What is wrong with it, in English. Not for showing to users.
     pub detail: String,
-    /// Why it was refused, stable: the `reason` of the problem where it has one, a
-    /// cause of its own such as `required` or `too_short` where a check tells them
-    /// apart, else `invalid`.
+    /// Why it was refused, stable: the `reason` of the problem where it has one, else
+    /// `invalid`.
     pub reason: String,
 }
 

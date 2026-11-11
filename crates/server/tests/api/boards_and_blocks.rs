@@ -219,7 +219,7 @@ async fn create_boards_and_blocks_blocks_from_nonexistent_boards() {
         &response,
         "invalid boardId nonexistent-board-id (no board of the request has that id)",
     );
-    assert_eq!(response.refused_at(), "/boardId");
+    assert_eq!(response.refused_at(), "/blocks/0/boardId");
     th.teardown().await;
 }
 
@@ -420,7 +420,11 @@ async fn create_boards_and_blocks_refusals() {
             .post(PATH, &json!({"boards": [board], "blocks": [block]}))
             .await;
         expect_bad_request(&response, message);
-        assert_eq!(response.refused_at(), format!("/{field}"), "{message}");
+        assert_eq!(
+            response.refused_at(),
+            format!("/blocks/0/{field}"),
+            "{message}"
+        );
     }
 
     // No team at all, a team that does not exist, and text that is no identifier: the

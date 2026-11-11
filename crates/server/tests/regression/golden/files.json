@@ -68,7 +68,7 @@
       "errors": [
         {
           "detail": "the request has no part named `file` with a file name",
-          "pointer": "/file",
+          "parameter": "file",
           "reason": "invalid"
         }
       ],

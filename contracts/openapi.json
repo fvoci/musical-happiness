@@ -986,27 +986,18 @@
           },
           "header": {
             "description": "The name of the request header.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "parameter": {
-            "description": "The name of the parameter of the query or of the path.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "description": "The name of the parameter of the query or of the path, or of the part of a\nmultipart form.",
+            "type": "string"
           },
           "pointer": {
-            "description": "A JSON Pointer (RFC 6901) to the member of the request body: `/username`,\n`/updatedFields/theme`. The empty pointer is the body as a whole.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "description": "A JSON Pointer (RFC 6901) to the member of the request body: `/username`,\n`/blockPatches/2/title`.",
+            "type": "string"
           },
           "reason": {
-            "description": "Why it was refused, stable: the `reason` of the problem where it has one, a\ncause of its own such as `required` or `too_short` where a check tells them\napart, else `invalid`.",
+            "description": "Why it was refused, stable: the `reason` of the problem where it has one, else\n`invalid`.",
             "type": "string"
           }
         },
@@ -1528,7 +1519,7 @@
             "type": "string"
           },
           "errors": {
-            "description": "What of the request was refused, one entry for each: every member that a check\nof the request's own shape refuses, or the one that a later check does.",
+            "description": "What of the request was refused, one entry for each.",
             "items": {
               "$ref": "#/components/schemas/InvalidInput"
             },
@@ -1536,42 +1527,27 @@
           },
           "instance": {
             "description": "The request this answer is to: `urn:uuid:` and the `request_id`.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "limit": {
             "description": "The limit that was exceeded.",
             "format": "int64",
             "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "reason": {
             "description": "Why, where a client must tell causes of the same status apart, such as\n`invalid_credentials` or `last_admin`.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "request_id": {
             "description": "The identifier of the request, the same as in the `x-request-id` response header\nand in the server's request log.",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "retry_after": {
             "description": "How many seconds to wait before trying again, as in the `Retry-After` header.",
             "format": "int64",
             "minimum": 0,
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "status": {
             "description": "The HTTP status of the answer.",

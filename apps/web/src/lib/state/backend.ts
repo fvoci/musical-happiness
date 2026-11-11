@@ -74,6 +74,27 @@ export interface Problem {
   retry_after?: number;
 }
 
+/** The problems of the statuses as the server names them: the last part of `type`, and the title. */
+const STATUS_PROBLEMS: Record<ErrorStatus, readonly [name: string, title: string]> = {
+  400: ['bad-request', 'Bad request'],
+  401: ['unauthorized', 'No valid session'],
+  403: ['forbidden', 'Forbidden'],
+  404: ['not-found', 'Not found'],
+  405: ['method-not-allowed', 'Method not allowed'],
+  409: ['conflict', 'Conflict'],
+  412: ['precondition-failed', 'Precondition failed'],
+  413: ['payload-too-large', 'Payload too large'],
+  416: ['range-not-satisfiable', 'Range not satisfiable'],
+  429: ['rate-limited', 'Too many requests'],
+  500: ['internal', 'Internal server error'],
+};
+
+/** The problem the server answers with for a status that has no `reason`. */
+export function problemOf(status: ErrorStatus, detail: string): Problem {
+  const [name, title] = STATUS_PROBLEMS[status];
+  return { type: `/problems/${name}`, title, status, detail };
+}
+
 /** The entry of `errors` for a member of the request body, by its name. */
 export function refusedMember(member: string, detail: string, reason = 'invalid'): InvalidInput {
   return { pointer: `/${member.replaceAll('~', '~0').replaceAll('/', '~1')}`, detail, reason };

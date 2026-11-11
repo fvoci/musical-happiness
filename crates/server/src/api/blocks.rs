@@ -24,7 +24,8 @@ use super::{
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use super::{
-    decode_object_with, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+    decode_object_with, element_pointer, objects_mut, put_patch_bodies, take_block_bodies,
+    take_patch_bodies,
 };
 use super::{require_block_change_permission, require_block_type_change_permission};
 use crate::app::App;
@@ -52,6 +53,9 @@ fn optional_query_param(query: Option<&str>, name: &str) -> Option<String> {
 
 /// The refusal to change what is on a board.
 const CHANGES_DENIED: &str = "access denied to make board changes";
+
+/// The JSON Pointer to the patches of a `BlockPatchBatch`.
+const PATCHES: &str = "/blockPatches";
 
 /// Returns the block if it belongs to the board. A block of another board is as missing
 /// as one that does not exist: the path names the board the request is about.
@@ -226,9 +230,10 @@ async fn check_and_copy_body_files(
         require_source_board_access(app, user_id, &source_board_id).await?;
         &source_board_id
     };
-    for block in blocks.iter() {
+    for (index, block) in blocks.iter().enumerate() {
         app.check_body_files(files_board_id, block.body.as_ref())
-            .await?;
+            .await
+            .map_err(|error| error.under(&element_pointer(Some(""), index)))?;
     }
     if !source_board_id.is_empty() {
         // The blocks are not stored yet: each is pointed at its copy here, and stored
@@ -281,29 +286,35 @@ async fn handle_post_blocks(
     // A list first, so that a request that is none is refused as before, and the bodies
     // apart, so that one that may not be stored is refused as a body.
     let mut blocks: Vec<Value> = decode_json(&body)?;
-    let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut))?;
+    let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut), Some(""))?;
     let mut blocks: Vec<Block> =
         serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
-    for (block, body) in blocks.iter_mut().zip(bodies) {
+    // Where a block is in the request: the body is the list.
+    let place = |index: usize| element_pointer(Some(""), index);
+    for (index, (block, body)) in blocks.iter_mut().zip(bodies).enumerate() {
         // Refused before anything is copied for it.
         if body.is_some() && !block.block_type.has_body() {
-            return Err(BlockError::BodyNotAllowed.into());
+            return Err(AppError::from(BlockError::BodyNotAllowed).under(&place(index)));
         }
         block.body = body;
     }
 
     let mut has_comments = false;
     let mut has_contents = false;
-    for block in &blocks {
+    for (index, block) in blocks.iter().enumerate() {
         let id = &block.id;
+        let place = place(index);
         if block.block_type.is_empty() {
             return Err(
                 AppError::bad_request(format_args!("missing type for block id {id}"))
-                    .with_field("type"),
+                    .with_field("type")
+                    .under(&place),
             );
         }
         if !block.block_type.is_current() {
-            return Err(BlockError::type_not_current(&block.block_type).into());
+            return Err(
+                AppError::from(BlockError::type_not_current(&block.block_type)).under(&place),
+            );
         }
         if block.block_type == BlockType::Comment {
             has_comments = true;
@@ -313,19 +324,22 @@ async fn handle_post_blocks(
         if block.create_at < 1 {
             return Err(
                 AppError::bad_request(format_args!("invalid createAt for block id {id}"))
-                    .with_field("createAt"),
+                    .with_field("createAt")
+                    .under(&place),
             );
         }
         if block.update_at < 1 {
             return Err(
                 AppError::bad_request(format_args!("invalid updateAt for block id {id}"))
-                    .with_field("updateAt"),
+                    .with_field("updateAt")
+                    .under(&place),
             );
         }
         if block.board_id != board_id {
             return Err(
                 AppError::bad_request(format_args!("invalid boardId for block id {id}"))
-                    .with_field("boardId"),
+                    .with_field("boardId")
+                    .under(&place),
             );
         }
     }
@@ -355,8 +369,11 @@ async fn handle_post_blocks(
 
     check_and_copy_body_files(&app, user_id, &board_id, query, &mut blocks).await?;
 
+    // The store names a block it refuses by its identifier.
+    let ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();
     app.insert_blocks(&mut blocks, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), ""))?;
     tracing::debug!(block_count = blocks.len(), "POST Blocks");
     Ok(created(&blocks))
 }
@@ -532,8 +549,8 @@ async fn handle_patch_block(
     let block = block_on_board(&app, &block_id, &board_id).await?;
     require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
     let (mut patch, changes): (BlockPatch, _) =
-        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)]))?;
-    put_patch_bodies([&mut patch], changes?)?;
+        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)], None))?;
+    put_patch_bodies([&mut patch], changes?, None)?;
     require_block_type_change_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
     app.check_body_files(&board_id, patch.body.new_body())
         .await?;
@@ -579,9 +596,9 @@ async fn handle_patch_blocks(
     .await?;
     let board = app.board(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
-        take_patch_bodies(objects_mut(batch, "blockPatches"))
+        take_patch_bodies(objects_mut(batch, "blockPatches"), Some(PATCHES))
     })?;
-    put_patch_bodies(&mut batch.block_patches, changes?)?;
+    put_patch_bodies(&mut batch.block_patches, changes?, Some(PATCHES))?;
     if batch.block_ids.len() != batch.block_patches.len() {
         return Err(
             AppError::bad_request("blockIds and blockPatches differ in length")
@@ -602,13 +619,15 @@ async fn handle_patch_blocks(
         require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
         require_block_type_change_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
     }
-    for patch in &batch.block_patches {
+    for (index, patch) in batch.block_patches.iter().enumerate() {
         app.check_body_files(&board_id, patch.body.new_body())
-            .await?;
+            .await
+            .map_err(|error| error.under(&element_pointer(Some(PATCHES), index)))?;
     }
 
     app.patch_blocks(&board.team_id, &batch, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| error.among_blocks(batch.block_ids.iter().map(String::as_str), PATCHES))?;
     tracing::debug!(patches = batch.block_ids.len(), "PATCH Blocks");
     Ok(no_content())
 }

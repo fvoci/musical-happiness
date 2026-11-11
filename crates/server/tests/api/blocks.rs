@@ -3058,7 +3058,7 @@ async fn a_new_block_of_another_type_is_refused() {
         let block = child_of(&card, BlockType::from(name), name);
         let response = th.client.insert_blocks(&board.id, &[fine, block]).await;
         response.check_bad_request();
-        assert_eq!(response.refused_at(), "/type", "{name}");
+        assert_eq!(response.refused_at(), "/1/type", "the second block: {name}");
 
         let response = th
             .client
@@ -3073,7 +3073,11 @@ async fn a_new_block_of_another_type_is_refused() {
             )
             .await;
         response.check_bad_request();
-        assert_eq!(response.refused_at(), "/type", "{name} with a board");
+        assert_eq!(
+            response.refused_at(),
+            "/blocks/0/type",
+            "{name} with a board"
+        );
     }
     assert_eq!(
         ids(&blocks_of(&th.client, &board.id).await),
@@ -3105,7 +3109,7 @@ async fn a_patch_does_not_make_a_block_of_another_type() {
     };
     let response = th.client.patch(&blocks_path(&board.id), &batch).await;
     response.check_bad_request();
-    assert_eq!(response.refused_at(), "/type", "a batch");
+    assert_eq!(response.refused_at(), "/blockPatches/0/type", "a batch");
     assert_eq!(
         blocks_of(&th.client, &board.id).await[0].block_type,
         BlockType::Card,

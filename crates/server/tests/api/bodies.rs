@@ -418,7 +418,10 @@ async fn the_routes_of_blocks_take_the_body_of_a_card() {
     th.client.patch(&blocks, &batch).await.check_no_content();
     assert_eq!(card(&th.client, &card_id).await.body, Some(document_body()));
     let batch = json!({"blockIds": [card_id], "blockPatches": [{"body": null}]});
-    check_refused_member(&th.client.patch(&blocks, &batch).await, "readAt");
+    check_refused_member(
+        &th.client.patch(&blocks, &batch).await,
+        "blockPatches/0/readAt",
+    );
 
     let read = card(&th.client, &card_id).await;
     let request = json!({
@@ -483,7 +486,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
                 &[card_block(&board.id, &with_image(missing))],
             )
             .await;
-        check_refused_member(&response, "body");
+        check_refused_member(&response, "0/body");
     }
     let created: Card = new_card(
         &th.client,
@@ -510,7 +513,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
         &th.client
             .patch(&format!("/boards/{}/blocks", board.id), &batch)
             .await,
-        "body",
+        "blockPatches/0/body",
     );
     let request = json!({
         "boardIds": [board.id], "boardPatches": [{"title": "n"}],
@@ -518,7 +521,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
     });
     check_refused_member(
         &th.client.patch("/boards-and-blocks", &request).await,
-        "body",
+        "blockPatches/0/body",
     );
     // A new board has no files.
     let response = th
@@ -531,7 +534,7 @@ async fn the_images_of_a_body_are_files_of_its_board() {
             }),
         )
         .await;
-    check_refused_member(&response, "body");
+    check_refused_member(&response, "blocks/0/body");
     assert_eq!(card(&th.client, &created.id).await, created, "unchanged");
 
     th.teardown().await;
@@ -554,18 +557,18 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
 
     // What may not be stored, and a body on a block that is no card.
     for (block, field) in [
-        (card_block(&board.id, &json!("attachment")), "body"),
+        (card_block(&board.id, &json!("attachment")), "0/body"),
         (
             card_block(
                 &board.id,
                 &json!({"type": "doc", "content": [{"type": "table"}]}),
             ),
-            "body",
+            "0/body",
         ),
         (
             json!({"id": "t1", "boardId": board.id, "parentId": card_id, "type": "attachment",
                    "createAt": 1, "updateAt": 1, "body": document()}),
-            "body",
+            "0/body",
         ),
     ] {
         let response = th.client.post(&blocks, &[block]).await;
@@ -581,7 +584,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
             }),
         )
         .await;
-    check_refused_member(&response, "body");
+    check_refused_member(&response, "blocks/0/body");
     // A card with a body may not become another block.
     let response = th
         .client
@@ -823,7 +826,7 @@ async fn a_comment_has_a_body() {
         &th.client
             .post(&blocks, &comment(&with_image(&elsewhere)))
             .await,
-        "body",
+        "0/body",
     );
     check_refused_member(
         &th.client
@@ -832,7 +835,7 @@ async fn a_comment_has_a_body() {
                 &comment(&json!({"type": "doc", "content": [{"type": "table"}]})),
             )
             .await,
-        "body",
+        "0/body",
     );
     let made: Vec<Value> = th
         .client

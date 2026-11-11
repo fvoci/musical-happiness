@@ -561,7 +561,7 @@ async fn app_get_cards_error_scenario() {
         .insert_blocks(&board.id, std::slice::from_ref(&block))
         .await;
     response.check_bad_request();
-    assert_eq!(response.refused_at(), "/fields");
+    assert_eq!(response.refused_at(), "/0/fields");
 
     let cards = th
         .app
@@ -1115,7 +1115,7 @@ async fn a_malformed_card_block_is_refused() {
             .insert_blocks(&board.id, std::slice::from_ref(&block))
             .await;
         response.check_bad_request();
-        assert_eq!(response.refused_at(), "/fields", "{fields}");
+        assert_eq!(response.refused_at(), "/0/fields", "{fields}");
 
         // Nor can a card get it by a patch.
         let response = th
@@ -1210,7 +1210,7 @@ async fn a_title_with_u0000_is_refused() {
         .insert_blocks(&board.id, std::slice::from_ref(&block))
         .await;
     response.check_bad_request();
-    assert_eq!(response.refused_at(), "/title");
+    assert_eq!(response.refused_at(), "/0/title");
 
     let card = create_card(&th.client, &board.id, &json!({"title": "fine"})).await;
     let response = th
@@ -1227,11 +1227,17 @@ async fn a_title_with_u0000_is_refused() {
         (json!({"title": "a\u{0}"}), "title"),
         (json!({"description": "\u{0}"}), "description"),
         (json!({"icon": "\u{0}"}), "icon"),
-        (json!({"updatedProperties": {"k": "a\u{0}"}}), "properties"),
-        (json!({"updatedProperties": {"a\u{0}": "v"}}), "properties"),
+        (
+            json!({"updatedProperties": {"k": "a\u{0}"}}),
+            "updatedProperties",
+        ),
+        (
+            json!({"updatedProperties": {"a\u{0}": "v"}}),
+            "updatedProperties",
+        ),
         (
             json!({"updatedCardProperties": [{"id": "p", "name": "a\u{0}", "type": "text"}]}),
-            "cardProperties",
+            "updatedCardProperties",
         ),
     ] {
         let response = th

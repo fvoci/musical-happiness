@@ -7,8 +7,10 @@
 //! or the exceeded `limit`.
 
 use axum::body::Body;
-use axum::http::header::{CONTENT_TYPE, RETRY_AFTER};
+use axum::extract::Request;
+use axum::http::header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, RETRY_AFTER};
 use axum::http::{HeaderValue, StatusCode};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use fvoci_model::{
     AuthParamError, BlockError, BoardError, CardError, CategoryError, InvalidInput,
@@ -80,6 +82,12 @@ impl ErrorKind {
         Self::RateLimited,
         Self::Internal,
     ];
+
+    /// The kind of error a status is of; `None` for a status the API does not answer
+    /// with.
+    pub fn of_status(status: StatusCode) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.status() == status)
+    }
 
     /// The name of the problem an error of this kind is when it has no [`Reason`]: the
     /// last part of its `type`.
@@ -160,7 +168,7 @@ pub enum Reason {
 
 impl Reason {
     /// Every reason. A reason that is not listed here has no page under
-    /// [`PROBLEMS_PATH`], and an error with it does not pass the tests.
+    /// [`PROBLEMS_PATH`]; an error with it panics in a debug build, as the tests are.
     pub const ALL: [Self; 18] = [
         Self::Csrf,
         Self::ForeignOrigin,
@@ -255,6 +263,15 @@ enum Place {
     Header(String),
 }
 
+/// What the store refused the members of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Subject {
+    /// The block with this identifier.
+    Block(String),
+    /// A board; the store does not say which.
+    Board,
+}
+
 /// One thing of a request that was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Refused {
@@ -275,6 +292,10 @@ pub struct AppError {
     reason: Option<Reason>,
     /// What of the request was refused, where the error is about something of it.
     refused: Vec<Refused>,
+    /// What the refused members are of, where the store refused a block or a board: a
+    /// request with a list of them says with it which one, or that it cannot say
+    /// ([`AppError::among_blocks`]). Never sent.
+    subject: Option<Subject>,
     limit: Option<u64>,
     /// How many seconds to wait before trying again.
     retry_after: Option<u64>,
@@ -308,6 +329,7 @@ impl AppError {
             message: message.to_string(),
             reason: None,
             refused: Vec::new(),
+            subject: None,
             limit: None,
             retry_after: None,
             cause: None,
@@ -428,6 +450,51 @@ impl AppError {
         self.refusing(Place::Header(name.to_owned()))
     }
 
+    /// Says that what was refused in the body is under `prefix`, a JSON Pointer: for a
+    /// request that carries a list of what the error is about, `/blocks/2`.
+    #[must_use]
+    pub fn under(mut self, prefix: &str) -> Self {
+        for refused in &mut self.refused {
+            if let Place::Body(pointer) = &mut refused.place {
+                pointer.insert_str(0, prefix);
+            }
+        }
+        self
+    }
+
+    /// Says where in a request with a list of blocks the members are that the store
+    /// refused of one of them: under `list` (a JSON Pointer, empty if the body is the
+    /// list) at the place its identifier has among `ids`. A refusal of a block that is
+    /// not among them, or of one of the request's boards, names no member: where it is
+    /// cannot be said. Any other error is left as it is.
+    #[must_use]
+    pub fn among_blocks<'a>(mut self, ids: impl IntoIterator<Item = &'a str>, list: &str) -> Self {
+        let index = match self.subject.take() {
+            None => return self,
+            Some(Subject::Block(block)) => ids.into_iter().position(|id| id == block),
+            Some(Subject::Board) => None,
+        };
+        if let Some(index) = index {
+            return self.under(&format!("{list}/{index}"));
+        }
+        self.refused
+            .retain(|refused| !matches!(refused.place, Place::Body(_)));
+        self
+    }
+
+    /// Says that what was refused at the JSON Pointer `from` is at `to` in the request:
+    /// for a request that names a member otherwise than what it changes does, as a
+    /// patch's `updatedProperties` are a board's `properties`.
+    #[must_use]
+    pub fn moved(mut self, from: &str, to: &str) -> Self {
+        for refused in &mut self.refused {
+            if refused.place == Place::Body(from.to_owned()) {
+                refused.place = Place::Body(to.to_owned());
+            }
+        }
+        self
+    }
+
     fn refusing(mut self, place: Place) -> Self {
         self.refused.push(Refused {
             place,
@@ -488,6 +555,12 @@ impl AppError {
             Some(reason) => (reason.name(), reason.title()),
             None => (self.kind.name().to_owned(), self.kind.title()),
         };
+        debug_assert!(
+            self.reason
+                .is_none_or(|reason| Reason::ALL.contains(&reason)),
+            "{:?} is not in Reason::ALL",
+            self.reason
+        );
         let reason = self.reason.map(Reason::as_str);
         let errors = self
             .refused
@@ -579,11 +652,14 @@ impl From<StoreError> for AppError {
             | StoreError::InvalidCategory(_)
             | StoreError::InvalidSubscription(_) => Self::bad_request(error),
             StoreError::InvalidBoard(BoardError::NulCharacter { member }) => {
-                Self::bad_request(error).with_field(member)
+                let mut error = Self::bad_request(error).with_field(member);
+                error.subject = Some(Subject::Board);
+                error
             }
             // A parent that is no block of the board, whether it is none at all or
             // another board's: the answer does not tell the two apart.
             StoreError::InvalidBlock {
+                id,
                 source:
                     source @ (BlockError::ParentNotOnBoard
                     | BlockError::ParentBelowBlock
@@ -591,8 +667,11 @@ impl From<StoreError> for AppError {
                     | BlockError::NulInTitle
                     | BlockError::InvalidCardField { .. }
                     | BlockError::TypeNotCurrent(_)),
-                ..
-            } => Self::from(source),
+            } => {
+                let mut error = Self::from(source);
+                error.subject = Some(Subject::Block(id));
+                error
+            }
             // What a request names by something that is no identifier does not exist.
             // The text is not echoed: it is the client's own, and it may be long.
             StoreError::InvalidId(_) => {
@@ -659,6 +738,44 @@ impl From<SubscriptionError> for AppError {
     fn from(error: SubscriptionError) -> Self {
         Self::bad_request(error)
     }
+}
+
+/// Answers in the API's own format what was refused before a handler ran, by the
+/// framework: a parameter of the path that is no text, for one. Such an answer comes
+/// with the framework's words as plain text; it becomes the problem of its status,
+/// with words of this server, and keeps its other headers. A status the API has no
+/// kind for becomes 400 if it is the client's and 500 if not.
+pub(crate) async fn problems_only(request: Request, next: Next) -> Response {
+    let response = next.run(request).await;
+    let status = response.status();
+    let is_error = status.is_client_error() || status.is_server_error();
+    if !is_error || response.extensions().get::<ReportedError>().is_some() {
+        return response;
+    }
+    let kind = ErrorKind::of_status(status).unwrap_or(if status.is_client_error() {
+        ErrorKind::BadRequest
+    } else {
+        ErrorKind::Internal
+    });
+    let message = match kind {
+        ErrorKind::BadRequest => "the request is malformed",
+        ErrorKind::Internal => INTERNAL_MESSAGE,
+        _ => status
+            .canonical_reason()
+            .unwrap_or("the request was refused"),
+    };
+    tracing::debug!(
+        status = status.as_u16(),
+        "an answer that was no problem was made one"
+    );
+    let (parts, _) = response.into_parts();
+    let mut problem = AppError::new(kind, message).into_response();
+    for (name, value) in &parts.headers {
+        if ![CONTENT_TYPE, CONTENT_LENGTH, CONTENT_ENCODING].contains(name) {
+            problem.headers_mut().insert(name, value.clone());
+        }
+    }
+    problem
 }
 
 /// The body of an error response as it left the handler, kept beside the response so
@@ -857,6 +974,64 @@ mod tests {
 
         let (_, body) = reported(AppError::payload_too_large(4096)).await;
         assert_eq!(body.limit, Some(4096), "the limit");
+    }
+
+    #[tokio::test]
+    async fn a_block_the_store_refused_is_found_in_the_list_of_the_request() {
+        let refused = || {
+            AppError::from(StoreError::InvalidBlock {
+                id: "b2".to_owned(),
+                source: BlockError::NulInTitle,
+            })
+        };
+        let pointers = |error: AppError| -> Vec<Option<String>> {
+            error
+                .body()
+                .errors
+                .into_iter()
+                .map(|entry| entry.pointer)
+                .collect()
+        };
+        assert_eq!(
+            pointers(refused()),
+            [Some("/title".to_owned())],
+            "a request that is the block"
+        );
+        assert_eq!(
+            pointers(refused().among_blocks(["b1", "b2"], "/blockPatches")),
+            [Some("/blockPatches/1/title".to_owned())]
+        );
+        assert_eq!(
+            pointers(refused().among_blocks(["b1", "b2"], "")),
+            [Some("/1/title".to_owned())],
+            "the body is the list"
+        );
+        assert_eq!(
+            pointers(refused().among_blocks(["b1"], "")),
+            [],
+            "a block the request does not list: nowhere to point"
+        );
+        let board = || {
+            AppError::from(StoreError::InvalidBoard(BoardError::NulCharacter {
+                member: "properties",
+            }))
+        };
+        assert_eq!(
+            pointers(board().moved("/properties", "/updatedProperties")),
+            [Some("/updatedProperties".to_owned())],
+            "a patch names the member its own way"
+        );
+        assert_eq!(
+            pointers(board().among_blocks(["b1"], "/blocks")),
+            [],
+            "one of several boards: nowhere to point"
+        );
+        let other = AppError::bad_request("no").with_field("blockIds");
+        assert_eq!(
+            pointers(other.among_blocks(["b1"], "/blockPatches")),
+            [Some("/blockIds".to_owned())],
+            "an error that is about no block stays"
+        );
     }
 
     #[tokio::test]

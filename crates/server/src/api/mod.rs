@@ -46,7 +46,8 @@ pub(crate) use access::{
 };
 pub(crate) use body::{
     decode_json, decode_object, decode_object_members, decode_object_with, decode_with_document,
-    json_object, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+    element_pointer, json_object, objects_mut, put_patch_bodies, take_block_bodies,
+    take_patch_bodies,
 };
 pub(crate) use limits::WEBSOCKET_MESSAGE_LIMIT;
 pub(crate) use session::{OptionalSession, RequiredSession};

@@ -105,7 +105,7 @@
       "errors": [
         {
           "detail": "invalid boardId elsewhere (no board of the request has that id)",
-          "pointer": "/boardId",
+          "pointer": "/blocks/0/boardId",
           "reason": "invalid"
         }
       ],

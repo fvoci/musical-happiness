@@ -2059,18 +2059,20 @@ export interface components {
             /** @description What is wrong with it, in English. Not for showing to users. */
             detail: string;
             /** @description The name of the request header. */
-            header?: string | null;
-            /** @description The name of the parameter of the query or of the path. */
-            parameter?: string | null;
+            header?: string;
+            /**
+             * @description The name of the parameter of the query or of the path, or of the part of a
+             *     multipart form.
+             */
+            parameter?: string;
             /**
              * @description A JSON Pointer (RFC 6901) to the member of the request body: `/username`,
-             *     `/updatedFields/theme`. The empty pointer is the body as a whole.
+             *     `/blockPatches/2/title`.
              */
-            pointer?: string | null;
+            pointer?: string;
             /**
-             * @description Why it was refused, stable: the `reason` of the problem where it has one, a
-             *     cause of its own such as `required` or `too_short` where a check tells them
-             *     apart, else `invalid`.
+             * @description Why it was refused, stable: the `reason` of the problem where it has one, else
+             *     `invalid`.
              */
             reason: string;
         };
@@ -2325,33 +2327,30 @@ export interface components {
              *     internals.
              */
             detail: string;
-            /**
-             * @description What of the request was refused, one entry for each: every member that a check
-             *     of the request's own shape refuses, or the one that a later check does.
-             */
+            /** @description What of the request was refused, one entry for each. */
             errors?: components["schemas"]["InvalidInput"][];
             /** @description The request this answer is to: `urn:uuid:` and the `request_id`. */
-            instance?: string | null;
+            instance?: string;
             /**
              * Format: int64
              * @description The limit that was exceeded.
              */
-            limit?: number | null;
+            limit?: number;
             /**
              * @description Why, where a client must tell causes of the same status apart, such as
              *     `invalid_credentials` or `last_admin`.
              */
-            reason?: string | null;
+            reason?: string;
             /**
              * @description The identifier of the request, the same as in the `x-request-id` response header
              *     and in the server's request log.
              */
-            request_id?: string | null;
+            request_id?: string;
             /**
              * Format: int64
              * @description How many seconds to wait before trying again, as in the `Retry-After` header.
              */
-            retry_after?: number | null;
+            retry_after?: number;
             /**
              * Format: int32
              * @description The HTTP status of the answer.

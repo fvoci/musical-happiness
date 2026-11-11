@@ -80,6 +80,14 @@ fn body_refused(error: BodyError) -> AppError {
     AppError::bad_request(error).with_field("body")
 }
 
+/// The JSON Pointer to the block at `index` of a request: empty if the request body is
+/// the one block (`list` is `None`), else the element of the list at the pointer
+/// `list`, which is empty if the body is the list itself.
+pub(crate) fn element_pointer(list: Option<&str>, index: usize) -> String {
+    list.map(|list| format!("{list}/{index}"))
+        .unwrap_or_default()
+}
+
 /// Takes the member `body` out of each block of a request before the blocks are decoded
 /// and reads it, so that a body that may not be stored is refused as one (`errors`
 /// names `/body`). Returns the bodies in the order of the blocks; an element that is no object
@@ -87,16 +95,22 @@ fn body_refused(error: BodyError) -> AppError {
 ///
 /// # Errors
 ///
-/// Returns a bad request that names `body` for the first body that may not be stored.
+/// Returns a bad request that names `body` for the first body that may not be stored,
+/// where its block is in the request ([`element_pointer`]).
 pub(crate) fn take_block_bodies<'a>(
     blocks: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+    list: Option<&str>,
 ) -> Result<Vec<Option<Body>>, AppError> {
     blocks
         .into_iter()
-        .map(|block| match block.and_then(|block| block.remove("body")) {
-            None => Ok(None),
-            Some(value) => Body::parse(value).map_err(body_refused),
-        })
+        .enumerate()
+        .map(
+            |(index, block)| match block.and_then(|block| block.remove("body")) {
+                None => Ok(None),
+                Some(value) => Body::parse(value)
+                    .map_err(|error| body_refused(error).under(&element_pointer(list, index))),
+            },
+        )
         .collect()
 }
 
@@ -105,16 +119,22 @@ pub(crate) fn take_block_bodies<'a>(
 ///
 /// # Errors
 ///
-/// Returns a bad request that names `body` for the first body that may not be stored.
+/// Returns a bad request that names `body` for the first body that may not be stored,
+/// where its patch is in the request ([`element_pointer`]).
 pub(crate) fn take_patch_bodies<'a>(
     patches: impl IntoIterator<Item = Option<&'a mut JsonMap>>,
+    list: Option<&str>,
 ) -> Result<Vec<BodyChange>, AppError> {
     patches
         .into_iter()
-        .map(|patch| match patch.and_then(|patch| patch.remove("body")) {
-            None => Ok(BodyChange::Keep),
-            Some(value) => BodyChange::parse(value).map_err(body_refused),
-        })
+        .enumerate()
+        .map(
+            |(index, patch)| match patch.and_then(|patch| patch.remove("body")) {
+                None => Ok(BodyChange::Keep),
+                Some(value) => BodyChange::parse(value)
+                    .map_err(|error| body_refused(error).under(&element_pointer(list, index))),
+            },
+        )
         .collect()
 }
 
@@ -123,13 +143,15 @@ pub(crate) fn take_patch_bodies<'a>(
 ///
 /// # Errors
 ///
-/// Returns a bad request that names `readAt` for a change of body without it.
+/// Returns a bad request that names `readAt` for a change of body without it, where
+/// its patch is in the request ([`element_pointer`]).
 pub(crate) fn put_patch_bodies<'a>(
     patches: impl IntoIterator<Item = &'a mut BlockPatch>,
     changes: Vec<BodyChange>,
+    list: Option<&str>,
 ) -> Result<(), AppError> {
     let mut changes = changes.into_iter();
-    for patch in patches {
+    for (index, patch) in patches.into_iter().enumerate() {
         // One change was taken out of each patch.
         let Some(change) = changes.next() else {
             return Err(AppError::from(anyhow::anyhow!(
@@ -140,7 +162,8 @@ pub(crate) fn put_patch_bodies<'a>(
             return Err(AppError::bad_request(
                 "a change of the body needs readAt, the updateAt of the block as it was read",
             )
-            .with_field("readAt"));
+            .with_field("readAt")
+            .under(&element_pointer(list, index)));
         }
         patch.body = change;
     }

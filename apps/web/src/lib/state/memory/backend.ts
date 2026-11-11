@@ -41,6 +41,7 @@ import {
 } from '../../logic/wire.ts';
 import {
   BackendError,
+  problemOf,
   refusedMember,
   type AccountSettings,
   type AccountSettingsPatch,
@@ -89,14 +90,13 @@ const copy = <T>(value: T): T => structuredClone(value);
 function fail(
   status: ErrorStatus,
   detail: string,
-  extra: { field?: string; reason?: string; limit?: number } = {},
+  extra: { field?: string; limit?: number } = {},
 ): never {
-  const { field, reason, limit } = extra;
+  const { field, limit } = extra;
   throw new BackendError(status, {
-    detail,
-    ...(reason === undefined ? {} : { reason }),
+    ...problemOf(status, detail),
     ...(limit === undefined ? {} : { limit }),
-    ...(field === undefined ? {} : { errors: [refusedMember(field, detail, reason)] }),
+    ...(field === undefined ? {} : { errors: [refusedMember(field, detail)] }),
   });
 }
 
@@ -658,7 +658,7 @@ export class MemoryBackend implements Backend {
     const card = this.#block(boardId, cardId, 'card') as StoredCard;
     const body = this.#checkBody(boardId, write.body);
     if (card.updateAt !== write.readAt) {
-      fail(409, 'the card changed since it was read', { reason: 'stale' });
+      fail(409, 'the card changed since it was read');
     }
     card.body = body;
     this.#touch(card);
@@ -694,7 +694,7 @@ export class MemoryBackend implements Backend {
     const checked = this.#checkBody(boardId, write.body);
     if (checked === null) fail(400, 'a comment needs a text', { field: 'body' });
     if (block.updateAt !== write.readAt) {
-      fail(409, 'the comment changed since it was read', { reason: 'stale' });
+      fail(409, 'the comment changed since it was read');
     }
     block.body = checked;
     this.#touch(block);
