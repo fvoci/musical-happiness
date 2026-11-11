@@ -261,7 +261,7 @@ async fn handle_update_category_board(
     require_team_access(&app, &session.user_id, &team_id).await?;
     app.user_category(&team_id, &session.user_id, &category_id)
         .await?;
-    require_board_of_workspace(&app, &session.user_id, &team_id, &board_id).await?;
+    require_board_visible(&app, &session.user_id, &board_id).await?;
     app.add_update_user_category_board(&team_id, &session.user_id, &category_id, &[board_id])
         .await?;
     Ok(no_content())
@@ -384,27 +384,8 @@ async fn set_board_visibility(
 ) -> ApiResult {
     require_team_access(app, user_id, team_id).await?;
     app.user_category(team_id, user_id, category_id).await?;
-    require_board_of_workspace(app, user_id, team_id, board_id).await?;
+    require_board_visible(app, user_id, board_id).await?;
     app.set_board_visibility(team_id, user_id, category_id, board_id, visibility)
         .await?;
     Ok(no_content())
-}
-
-/// Fails with the 404 of a board that is not there unless the user sees the board and it
-/// is one of the workspace of the path, which the category was found in, or a built-in
-/// template, which every workspace's categories take. A user who works in two
-/// workspaces sees the boards of both; a category holds those of its own.
-async fn require_board_of_workspace(
-    app: &App,
-    user_id: &str,
-    team_id: &str,
-    board_id: &str,
-) -> Result<(), AppError> {
-    require_board_visible(app, user_id, board_id).await?;
-    let board = app.board(board_id).await?;
-    if board.team_id == team_id || board.is_builtin {
-        Ok(())
-    } else {
-        Err(AppError::not_found("board"))
-    }
 }

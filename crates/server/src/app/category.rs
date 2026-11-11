@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use fvoci_model::{Category, CategoryType};
 
 use super::App;
-use super::category_boards::DEFAULT_CATEGORY_BOARDS;
+use super::category_boards::{DEFAULT_CATEGORY_BOARDS, is_filed_in};
 use crate::auth::now_millis;
 use crate::error::AppError;
 
@@ -127,7 +127,9 @@ impl App {
     }
 
     /// Moves the boards of a category to the user's default category, which is created
-    /// if the user does not have it yet.
+    /// if the user does not have it yet. A board of another team, filed here before the
+    /// categories took the boards of their own team only, is not moved: it goes with the
+    /// category, and is filed nowhere in the team.
     async fn move_boards_to_default_category(
         &self,
         user_id: &str,
@@ -150,11 +152,13 @@ impl App {
             ));
         };
 
-        let board_ids: Vec<String> = source
-            .board_metadata
-            .iter()
-            .map(|metadata| metadata.board_id.clone())
-            .collect();
+        let mut board_ids = Vec::with_capacity(source.board_metadata.len());
+        for metadata in &source.board_metadata {
+            let board = self.board(&metadata.board_id).await?;
+            if is_filed_in(&board, team_id) {
+                board_ids.push(board.id);
+            }
+        }
         self.add_update_user_category_board(team_id, user_id, &default.category.id, &board_ids)
             .await
             .map_err(|error| error.context("moveBoardsToDefaultCategory"))

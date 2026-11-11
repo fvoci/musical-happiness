@@ -344,6 +344,103 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
     );
 }
 
+/// A board of a workspace the user is not in, where the user is still on the board,
+/// is visible to them; through a category of their own workspace it is not filed, and
+/// answers as a board that is not there.
+#[tokio::test]
+async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_not_in() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let user_id = ts.client.me().await.id;
+    let mut board = Board {
+        id: new_id(),
+        team_id: HIDDEN_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        ..Board::default()
+    };
+    ts.app
+        .store()
+        .insert_board_with_admin(&mut board, &user_id)
+        .await
+        .expect("the user is on a board of a workspace they are not in");
+    let categories: Vec<CategoryBoards> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await
+        .ok_json();
+    let category = format!(
+        "/teams/{ROOT_TEAM_ID}/categories/{}/boards",
+        categories[0].category.id
+    );
+    let seen = ts.client.get(&format!("/boards/{}", board.id)).await.status;
+    let filed = ts
+        .client
+        .post(&format!("{category}/{}", board.id), &json!({}))
+        .await;
+    let absent = ts
+        .client
+        .post(&format!("{category}/{UNKNOWN_ID}"), &json!({}))
+        .await;
+    ts.teardown().await;
+    assert_eq!(seen, StatusCode::OK, "the user sees the board");
+    assert_eq!(
+        answer(&filed),
+        answer(&absent),
+        "a board of a workspace the user is not in answers as one that is not there"
+    );
+}
+
+/// A board of another workspace that was filed under a category before the categories
+/// took the boards of their own workspace only does not keep the category from being
+/// deleted: it goes with the category, and the boards of the workspace move to the
+/// default category.
+#[tokio::test]
+async fn deleting_a_category_leaves_behind_a_board_of_another_workspace() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let user_id = ts.client.me().await.id;
+    let ours = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
+    let theirs = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let category = ts
+        .app
+        .create_category(fvoci_model::Category {
+            name: "Earlier".to_owned(),
+            user_id: user_id.clone(),
+            team_id: ROOT_TEAM_ID.to_owned(),
+            ..fvoci_model::Category::default()
+        })
+        .await
+        .expect("the category is made");
+    ts.app
+        .store()
+        .add_update_category_board(
+            &user_id,
+            &category.id,
+            &[ours.id.clone(), theirs.id.clone()],
+        )
+        .await
+        .expect("both boards are filed as they could be before");
+    let deleted = ts
+        .client
+        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", category.id))
+        .await
+        .status;
+    let after: Vec<CategoryBoards> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await
+        .ok_json();
+    ts.teardown().await;
+    let filed: Vec<&str> = after
+        .iter()
+        .flat_map(|entry| &entry.board_metadata)
+        .map(|metadata| metadata.board_id.as_str())
+        .collect();
+    assert_eq!(deleted, StatusCode::NO_CONTENT, "the category is deleted");
+    assert!(
+        filed.contains(&ours.id.as_str()) && !filed.contains(&theirs.id.as_str()),
+        "the workspace's board moved, the other's went: {filed:?}"
+    );
+}
+
 /// The ID-only inventory comes from the contract, so adding a resource operation
 /// automatically includes it in the comparisons. The team inventory above spells out
 /// the complete team list separately, and body/query targets are checked below.
