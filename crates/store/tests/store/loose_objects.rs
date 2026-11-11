@@ -1,7 +1,7 @@
 //! The objects of the file storage that may have no record: marked while they are
 //! written, doomed with the record that goes, and kept apart by organization.
 
-use fvoci_model::{FileInfo, new_id};
+use fvoci_model::{FileInfo, Upload, new_id};
 use fvoci_store::{DbType, LooseObject, LooseState, Store, Tenant};
 
 use crate::common;
@@ -326,10 +326,98 @@ async fn a_mark_of_one_organization_does_not_block_anothers_write() {
     assert_eq!(theirs.loose_objects().await.expect("listed"), []);
     // Ours, gone stale and doomed, is one row of the place; theirs a record of it.
     assert_eq!(test.doom_stale_writing(i64::MAX).await.expect("doomed"), 1);
+    let held = test.held_objects(&[&path], None).await.expect("read");
+    assert!(held.contains(&path), "their record holds it, asked of all");
+    test.teardown().await;
+}
+
+/// What holds an object, asked of every organization: a record of a live board or of
+/// one in the trash, a write under way, an upload session but the one excepted; and
+/// not a doomed object, nor a place nothing names.
+#[tokio::test]
+async fn what_holds_an_object() {
+    let test = common::setup().await;
+    let (board_id, user_id) = board(&test).await;
+    let trashed = format!("boards/20261112/{board_id}/trashed.png");
+    test.save_file_info(&file_at(&board_id, &trashed))
+        .await
+        .expect("a file of the board");
+    test.delete_board(&board_id, &user_id)
+        .await
+        .expect("the board goes to the trash");
+    let (live_board, user_id) = board(&test).await;
+    let live = format!("boards/20261112/{live_board}/live.png");
+    test.save_file_info(&file_at(&live_board, &live))
+        .await
+        .expect("a file of the board");
+    test.mark_writing("boards/being-written", i64::MAX)
+        .await
+        .expect("marked");
+    test.mark_writing("boards/doomed", 0).await.expect("marked");
+    test.doom_stale_writing(1).await.expect("doomed");
+    let upload = Upload {
+        id: new_id(),
+        user_id,
+        board_id: live_board.clone(),
+        name: "a.bin".to_owned(),
+        size: 1,
+        part_size: 1,
+        create_at: 1,
+        expires_at: i64::MAX,
+        path: "boards/uploading".to_owned(),
+        ..Upload::default()
+    };
+    test.create_upload(&upload)
+        .await
+        .expect("an upload is opened");
+
+    let asked = [
+        trashed.as_str(),
+        live.as_str(),
+        "boards/being-written",
+        "boards/doomed",
+        "boards/uploading",
+        "boards/nothing",
+    ];
+    let held = test.held_objects(&asked, None).await.expect("read");
+    let mut expected = vec![
+        trashed.clone(),
+        live.clone(),
+        "boards/being-written".to_owned(),
+        "boards/uploading".to_owned(),
+    ];
+    expected.sort_unstable();
+    assert_eq!(held.into_iter().collect::<Vec<_>>(), expected);
     let held = test
-        .held_objects(std::slice::from_ref(&path), None)
+        .held_objects(&["boards/uploading"], Some(&upload.id))
         .await
         .expect("read");
-    assert!(held.contains(&path), "their record holds it, asked of all");
+    assert!(
+        held.is_empty(),
+        "the excepted session holds nothing: {held:?}"
+    );
+    test.teardown().await;
+}
+
+/// A place one organization doomed, as a wrong call of the store could, is held while
+/// another organization writes there: the housekeeping does not remove an object under
+/// a write.
+#[tokio::test]
+async fn another_organizations_write_holds_a_doomed_place() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let (other_org, _) = common::organization(&unset, "the other").await;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    test.mark_writing("boards/p", 0).await.expect("ours");
+    test.doom_stale_writing(1).await.expect("ours is doomed");
+    theirs
+        .mark_writing("boards/p", i64::MAX)
+        .await
+        .expect("theirs is being written");
+    let held = test.held_objects(&["boards/p"], None).await.expect("read");
+    assert!(held.contains("boards/p"), "their write holds it");
     test.teardown().await;
 }

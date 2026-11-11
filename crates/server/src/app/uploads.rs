@@ -651,18 +651,6 @@ impl App {
         recorded
     }
 
-    /// Removes a file of the object store that has no record: one is given out through no
-    /// board, and only taking room. Returns whether it went.
-    async fn remove_unrecorded(&self, path: &str) -> bool {
-        match self.files().delete(path).await {
-            Ok(()) => true,
-            Err(error) => {
-                tracing::warn!(%error, "an uploaded file without a record could not be removed");
-                false
-            }
-        }
-    }
-
     /// Checks that every part of an upload was received with its size, and returns the
     /// parts by number.
     async fn check_parts(&self, upload: &Upload) -> Result<Vec<UploadPart>, AppError> {
@@ -816,18 +804,22 @@ impl App {
     }
 
     /// Removes the object at the place of a multipart upload unless something else holds
-    /// it: a completion that took effect without its file being recorded, as when the
-    /// answer was lost or the server stopped in between, leaves an object nothing gives
-    /// out. Whether a record or another session names the place is asked of every board
-    /// and organization (`Store::held_objects`), not of the session's board: an object's
-    /// place is one across them. Returns `None` if it is not settled, as whether it is
-    /// held could not be read; else whether all went (false if the object is there and
-    /// could not be removed, which is logged).
+    /// it, as asked of every board and organization (`Store::held_objects`): a completion
+    /// that took effect without its file being recorded, as when the answer was lost or
+    /// the server stopped in between, leaves an object nothing gives out. Returns `None`
+    /// if it is not settled, as whether it is held could not be read; else whether all
+    /// went (false if the object is there and could not be removed, which is logged).
     async fn remove_if_unrecorded(&self, upload: &Upload) -> Option<bool> {
-        let paths = [upload.path.clone()];
+        let paths = [upload.path.as_str()];
         match self.store().held_objects(&paths, Some(&upload.id)).await {
-            Ok(held) if held.is_empty() => Some(self.remove_unrecorded(&upload.path).await),
-            Ok(_) => Some(true),
+            Ok(held) if !held.is_empty() => Some(true),
+            Ok(_) => match self.files().delete(&upload.path).await {
+                Ok(()) => Some(true),
+                Err(error) => {
+                    tracing::warn!(%error, "an uploaded file without a record could not be removed");
+                    Some(false)
+                }
+            },
             Err(error) => {
                 tracing::warn!(%error, "whether an uploaded file has a record could not be read");
                 None

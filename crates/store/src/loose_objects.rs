@@ -300,6 +300,13 @@ pub(crate) async fn doom(
 ) -> Result<(), StoreError> {
     let now = now_millis();
     let names_org = scope.dialect() == Dialect::Postgres && !scope.has_org();
+    // A statement takes a row once: two records of one place (which only a wrong call
+    // of the store makes) are one object to doom.
+    let objects: Vec<&(String, Option<String>)> = objects
+        .iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     for chunk in objects.chunks(DOOMED_PER_STATEMENT) {
         let mut sql = scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at");
         sql.push(if names_org {
@@ -307,7 +314,7 @@ pub(crate) async fn doom(
         } else {
             ") VALUES "
         });
-        for (index, (path, org_id)) in chunk.iter().enumerate() {
+        for (index, &(path, org_id)) in chunk.iter().enumerate() {
             sql.push_bind(if index == 0 { "(" } else { ", (" }, path.as_str())
                 .push_bind(", ", LooseState::Doomed.as_str())
                 .push_bind(", ", now)
