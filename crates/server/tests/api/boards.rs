@@ -259,7 +259,7 @@ async fn get_boards_a_non_authenticated_client_should_be_rejected() {
 
     let response = th
         .anonymous()
-        .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
         .await;
 
     response.check_unauthorized();
@@ -314,7 +314,7 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
 
     let mut listed: Vec<Board> = th
         .client
-        .get(&format!("/teams/{team_id}/boards"))
+        .get(&format!("/w/{team_id}/boards"))
         .await
         .ok_json();
     listed.sort_by(|a, b| a.title.cmp(&b.title));
@@ -326,7 +326,7 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
 
     let from_other_team: Vec<Board> = th
         .client
-        .get(&format!("/teams/{other_team_id}/boards"))
+        .get(&format!("/w/{other_team_id}/boards"))
         .await
         .ok_json();
     assert_eq!(
@@ -345,19 +345,16 @@ async fn get_boards_should_only_return_the_boards_that_the_user_is_a_member_of()
 async fn get_boards_of_a_team_without_boards_is_an_empty_list() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let response = th
-        .client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
-        .await;
+    let response = th.client.get(&format!("/w/{TEST_TEAM_ID}/boards")).await;
 
     response.check_ok();
     assert_eq!(response.text(), "[]", "an empty JSON list");
 
     for no_team in [UNKNOWN_ID, "empty-team"] {
         th.client
-            .get(&format!("/teams/{no_team}/boards"))
+            .get(&format!("/w/{no_team}/boards"))
             .await
-            .check_error(StatusCode::NOT_FOUND, "team not found");
+            .check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
     th.teardown().await;
 }
@@ -3094,7 +3091,7 @@ async fn duplicate_board_without_blocks() {
     assert!(copy.blocks.is_empty(), "no blocks");
     let boards: Vec<Board> = th
         .client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
         .await
         .ok_json();
     let mut expected = vec![board.id.clone(), copy.boards[0].id.clone()];
@@ -3914,7 +3911,7 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
         // A millisecond apart at least, so that their order is that of time.
         tokio::time::sleep(Duration::from_millis(3)).await;
     }
-    let trash = format!("/teams/{TEST_TEAM_ID}/trash/boards");
+    let trash = format!("/w/{TEST_TEAM_ID}/trash/boards");
     let names_of = |listed: &[Value]| -> Vec<Value> {
         listed.iter().map(|entry| entry["title"].clone()).collect()
     };

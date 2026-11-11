@@ -121,7 +121,7 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
     assert_eq!(ids(&boards), [open.id.as_str(), private.id.as_str()]);
     let of_the_team: Vec<Board> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
         .await
         .ok_json();
     assert_eq!(boards, of_the_team, "as the team's route answers");
@@ -352,10 +352,14 @@ async fn a_workspace_of_another_organization_is_reached_by_its_members_only() {
         .get(&format!("/boards/{their_board}"))
         .await
         .check_not_found();
+    // A route that names the workspace in its body, not its path, is one of them.
     ts.client
-        .get(&format!("/teams/{their_workspace}/boards"))
+        .post(
+            "/boards",
+            &json!({"teamId": their_workspace, "type": "P", "title": "new"}),
+        )
         .await
-        .check_not_found();
+        .check_error(reqwest::StatusCode::BAD_REQUEST, "no such team");
 
     ts.teardown().await;
 }
@@ -387,43 +391,40 @@ async fn a_team_the_user_is_not_in_answers_as_one_that_is_not_there() {
         "/trash/boards",
         "/users",
     ] {
-        let hidden = ts
-            .client
-            .get(&format!("/teams/{HIDDEN_TEAM_ID}{route}"))
-            .await;
-        let absent = ts.client.get(&format!("/teams/{UNKNOWN_ID}{route}")).await;
-        assert_eq!(said(&hidden), said(&absent), "GET /teams/<id>{route}");
-        hidden.check_error(reqwest::StatusCode::NOT_FOUND, "team not found");
+        let hidden = ts.client.get(&format!("/w/{HIDDEN_TEAM_ID}{route}")).await;
+        let absent = ts.client.get(&format!("/w/{UNKNOWN_ID}{route}")).await;
+        assert_eq!(said(&hidden), said(&absent), "GET /w/<id>{route}");
+        hidden.check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
     }
     for route in ["/onboard", "/signup-token", "/archive/uploads"] {
         let hidden = ts
             .client
-            .post(&format!("/teams/{HIDDEN_TEAM_ID}{route}"), &nothing)
+            .post(&format!("/w/{HIDDEN_TEAM_ID}{route}"), &nothing)
             .await;
         let absent = ts
             .client
-            .post(&format!("/teams/{UNKNOWN_ID}{route}"), &nothing)
+            .post(&format!("/w/{UNKNOWN_ID}{route}"), &nothing)
             .await;
-        assert_eq!(said(&hidden), said(&absent), "POST /teams/<id>{route}");
-        hidden.check_error(reqwest::StatusCode::NOT_FOUND, "team not found");
+        assert_eq!(said(&hidden), said(&absent), "POST /w/<id>{route}");
+        hidden.check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
     }
     let hidden = ts
         .client
         .post(
-            &format!("/teams/{HIDDEN_TEAM_ID}/categories"),
+            &format!("/w/{HIDDEN_TEAM_ID}/categories"),
             &category(HIDDEN_TEAM_ID),
         )
         .await;
     let absent = ts
         .client
         .post(
-            &format!("/teams/{UNKNOWN_ID}/categories"),
+            &format!("/w/{UNKNOWN_ID}/categories"),
             &category(UNKNOWN_ID),
         )
         .await;
-    assert_eq!(said(&hidden), said(&absent), "POST /teams/<id>/categories");
-    hidden.check_error(reqwest::StatusCode::NOT_FOUND, "team not found");
-    let listed: Vec<Team> = ts.client.get("/teams").await.ok_json();
+    assert_eq!(said(&hidden), said(&absent), "POST /w/<id>/categories");
+    hidden.check_error(reqwest::StatusCode::NOT_FOUND, "workspace not found");
+    let listed: Vec<UserWorkspace> = ts.client.get("/users/me/workspaces").await.ok_json();
     let listed: Vec<&str> = listed.iter().map(|team| team.id.as_str()).collect();
     assert_eq!(
         listed,
@@ -510,7 +511,7 @@ async fn an_open_board_of_a_team_the_user_is_not_in_is_not_there() {
 
     for search in [
         "/boards/search?q=Concealed".to_owned(),
-        format!("/teams/{ROOT_TEAM_ID}/boards/search?q=Concealed"),
+        format!("/w/{ROOT_TEAM_ID}/boards/search?q=Concealed"),
     ] {
         let found: Vec<Board> = ts.client.get(&search).await.ok_json();
         assert!(found.is_empty(), "{search} finds {found:?}");
@@ -518,10 +519,7 @@ async fn an_open_board_of_a_team_the_user_is_not_in_is_not_there() {
     // What is in an archive: the names of its entries. One without boards holds its
     // version and nothing else.
     let exported = async |team: &str| {
-        let archive = ts
-            .client
-            .get(&format!("/teams/{team}/archive/export"))
-            .await;
+        let archive = ts.client.get(&format!("/w/{team}/archive/export")).await;
         archive.check_ok();
         let archive = zip::ZipArchive::new(std::io::Cursor::new(archive.body))
             .expect("the export is an archive");
@@ -679,7 +677,7 @@ async fn a_board_takes_the_people_of_its_team() {
             .check_no_content();
         let boards: Vec<Board> = ts
             .client
-            .get(&format!("/teams/{team_id}/boards"))
+            .get(&format!("/w/{team_id}/boards"))
             .await
             .ok_json();
         let imported = boards

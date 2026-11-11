@@ -64,7 +64,7 @@ fn check_read_and_refused(response: &ApiResponse) {
 async fn board_count(th: &TestServer) -> usize {
     let boards: Vec<Value> = th
         .client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
         .await
         .ok_json();
     boards.len()
@@ -92,7 +92,7 @@ async fn a_json_body_over_the_default_limit_is_refused_with_413() {
         (Method::POST, format!("/boards/{}/blocks", board.id)),
         (Method::PATCH, format!("/boards/{}/blocks", board.id)),
         (Method::POST, "/boards-and-blocks".to_owned()),
-        (Method::POST, format!("/teams/{TEST_TEAM_ID}/categories")),
+        (Method::POST, format!("/w/{TEST_TEAM_ID}/categories")),
         (Method::POST, "/subscriptions".to_owned()),
         (Method::POST, "/users".to_owned()),
         // A board nobody has: the body is refused before the board is looked for.

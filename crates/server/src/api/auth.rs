@@ -1,7 +1,7 @@
 //! Login, logout, registration, password change and signup-token regeneration.
 
 use axum::body::Bytes;
-use axum::extract::{Extension, Path, State};
+use axum::extract::{Extension, State};
 use axum::http::HeaderMap;
 use axum::http::header::{SET_COOKIE, USER_AGENT};
 use axum::response::Response;
@@ -11,12 +11,12 @@ use fvoci_model::{
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::TeamId;
 use super::contract::tag;
 
+use super::contract::params::WorkspaceId;
+use super::workspace::WorksIn;
 use super::{
     ApiResult, RequiredSession, created, decode_object, json_response, no_content, require_admin,
-    require_team_access,
 };
 use crate::app::{Admission, App};
 use crate::auth::tokens_match;
@@ -230,21 +230,17 @@ async fn handle_register(
 /// administrators.
 #[utoipa::path(
     post,
-    path = "/teams/{teamId}/signup-token",
+    path = "/w/{workspaceId}/signup-token",
     operation_id = "regenerateSignupToken",
     tag = tag::TEAMS,
-    params(TeamId),
+    params(WorkspaceId),
     responses((status = 200, description = "The team, with its new token.", body = Team)),
 )]
-async fn handle_regenerate_signup_token(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
-) -> ApiResult {
-    require_team_access(&app, &session.user_id, &team_id).await?;
-    require_admin(&app, &session.user_id).await?;
-    let team = app
-        .regenerate_signup_token(&team_id, &session.user_id)
+async fn handle_regenerate_signup_token(WorksIn(ws): WorksIn) -> ApiResult {
+    require_admin(&ws.app, &ws.session.user_id).await?;
+    let team = ws
+        .app
+        .regenerate_signup_token(&ws.workspace_id, &ws.session.user_id)
         .await?;
     // The team with its new token: the one answer that carries it without being asked.
     Ok(json_response(&team))

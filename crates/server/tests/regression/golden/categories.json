@@ -53,7 +53,7 @@
   },
   {
     "name": "list: default only",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -83,7 +83,7 @@
   },
   {
     "name": "list: other user",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-bob",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -104,7 +104,7 @@
   },
   {
     "name": "create",
-    "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -122,7 +122,7 @@
   },
   {
     "name": "create second",
-    "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 201,
     "content_type": "application/json",
     "body": {
@@ -140,7 +140,7 @@
   },
   {
     "name": "create: no name",
-    "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -161,7 +161,7 @@
   },
   {
     "name": "create: for another user",
-    "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -182,7 +182,7 @@
   },
   {
     "name": "create: for another team",
-    "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -203,7 +203,7 @@
   },
   {
     "name": "create: bad type",
-    "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -217,7 +217,7 @@
   },
   {
     "name": "create: malformed body",
-    "request": "POST /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -231,7 +231,7 @@
   },
   {
     "name": "list",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -287,7 +287,7 @@
   },
   {
     "name": "update",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8> as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -305,7 +305,7 @@
   },
   {
     "name": "update: id mismatch",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8> as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -326,7 +326,7 @@
   },
   {
     "name": "update: other user",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8> as cat-bob",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8> as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -340,7 +340,7 @@
   },
   {
     "name": "update: unknown category",
-    "request": "PUT /api/v1/teams/<id:3>/categories/unknown-category as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/unknown-category as cat-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -354,7 +354,7 @@
   },
   {
     "name": "update: system category",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:5> as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:5> as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -372,19 +372,19 @@
   },
   {
     "name": "file a board",
-    "request": "POST /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2> as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories/<id:8>/boards/<id:2> as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "file the second board",
-    "request": "POST /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:4> as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories/<id:8>/boards/<id:4> as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "list after filing",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -440,13 +440,13 @@
   },
   {
     "name": "hide",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "hide: other user",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-bob",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/boards/<id:2>/hide as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -460,7 +460,7 @@
   },
   {
     "name": "list after hiding",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -516,13 +516,13 @@
   },
   {
     "name": "unhide",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/<id:2>/unhide as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/boards/<id:2>/unhide as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "reorder boards",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -532,7 +532,7 @@
   },
   {
     "name": "reorder boards: missing one",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -546,7 +546,7 @@
   },
   {
     "name": "reorder boards: unknown board",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/board-order as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -560,7 +560,7 @@
   },
   {
     "name": "reorder boards: other user",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/board-order as cat-bob",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/board-order as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -574,7 +574,7 @@
   },
   {
     "name": "old path: reorder boards",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8>/boards/reorder as cat-alice",
     "status": 405,
     "content_type": "application/problem+json",
     "body": {
@@ -588,7 +588,7 @@
   },
   {
     "name": "old path: reorder categories",
-    "request": "PUT /api/v1/teams/<id:3>/categories/reorder as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/reorder as cat-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -602,7 +602,7 @@
   },
   {
     "name": "reorder categories",
-    "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/category-order as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -613,7 +613,7 @@
   },
   {
     "name": "reorder categories: missing one",
-    "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/category-order as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -627,7 +627,7 @@
   },
   {
     "name": "reorder categories: unknown id",
-    "request": "PUT /api/v1/teams/<id:3>/category-order as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/category-order as cat-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -641,7 +641,7 @@
   },
   {
     "name": "list after reorder",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -697,7 +697,7 @@
   },
   {
     "name": "delete: other user",
-    "request": "DELETE /api/v1/teams/<id:3>/categories/<id:8> as cat-bob",
+    "request": "DELETE /api/v1/w/<id:3>/categories/<id:8> as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -711,7 +711,7 @@
   },
   {
     "name": "delete: system category",
-    "request": "DELETE /api/v1/teams/<id:3>/categories/<id:5> as cat-alice",
+    "request": "DELETE /api/v1/w/<id:3>/categories/<id:5> as cat-alice",
     "status": 403,
     "content_type": "application/problem+json",
     "body": {
@@ -725,7 +725,7 @@
   },
   {
     "name": "delete: unknown category",
-    "request": "DELETE /api/v1/teams/<id:3>/categories/unknown-category as cat-alice",
+    "request": "DELETE /api/v1/w/<id:3>/categories/unknown-category as cat-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -739,13 +739,13 @@
   },
   {
     "name": "delete",
-    "request": "DELETE /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
+    "request": "DELETE /api/v1/w/<id:3>/categories/<id:8> as cat-alice",
     "status": 204,
     "body": "<0 bytes>"
   },
   {
     "name": "delete: again",
-    "request": "DELETE /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
+    "request": "DELETE /api/v1/w/<id:3>/categories/<id:8> as cat-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -759,7 +759,7 @@
   },
   {
     "name": "update: deleted category",
-    "request": "PUT /api/v1/teams/<id:3>/categories/<id:8> as cat-alice",
+    "request": "PUT /api/v1/w/<id:3>/categories/<id:8> as cat-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -773,7 +773,7 @@
   },
   {
     "name": "list at the end",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -816,7 +816,7 @@
   },
   {
     "name": "file a board: other user's category",
-    "request": "POST /api/v1/teams/<id:3>/categories/<id:9>/boards/<id:4> as cat-bob",
+    "request": "POST /api/v1/w/<id:3>/categories/<id:9>/boards/<id:4> as cat-bob",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -830,7 +830,7 @@
   },
   {
     "name": "list after the attempt on another user's category",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -873,7 +873,7 @@
   },
   {
     "name": "file a board: unknown category",
-    "request": "POST /api/v1/teams/<id:3>/categories/unknown-category/boards/<id:4> as cat-alice",
+    "request": "POST /api/v1/w/<id:3>/categories/unknown-category/boards/<id:4> as cat-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
@@ -887,7 +887,7 @@
   },
   {
     "name": "list after filing into an unknown category",
-    "request": "GET /api/v1/teams/<id:3>/categories as cat-alice",
+    "request": "GET /api/v1/w/<id:3>/categories as cat-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [

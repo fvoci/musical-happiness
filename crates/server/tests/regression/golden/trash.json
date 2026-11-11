@@ -568,7 +568,7 @@
   },
   {
     "name": "boards of the team: not listed",
-    "request": "GET /api/v1/teams/<id:3>/boards as trash-alice",
+    "request": "GET /api/v1/w/<id:3>/boards as trash-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []

@@ -1,29 +1,27 @@
 [
   {
-    "name": "teams",
-    "request": "GET /api/v1/teams as teams-alice",
+    "name": "workspaces",
+    "request": "GET /api/v1/users/me/workspaces as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
       {
         "id": "<id:1>",
-        "modifiedBy": "",
-        "settings": {},
-        "title": "",
-        "updateAt": "<ts>"
+        "name": "",
+        "orgId": "<id:2>",
+        "role": "member"
       },
       {
-        "id": "<id:2>",
-        "modifiedBy": "",
-        "settings": {},
-        "title": "",
-        "updateAt": "<ts>"
+        "id": "<id:3>",
+        "name": "",
+        "orgId": "<id:2>",
+        "role": "member"
       }
     ]
   },
   {
     "name": "team 0",
-    "request": "GET /api/v1/teams/<id:1> as teams-alice",
+    "request": "GET /api/v1/w/<id:1> as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -36,11 +34,11 @@
   },
   {
     "name": "some other team id",
-    "request": "GET /api/v1/teams/anything as teams-alice",
+    "request": "GET /api/v1/w/anything as teams-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {
-      "detail": "team not found",
+      "detail": "workspace not found",
       "instance": "urn:uuid:<request-id>",
       "requestId": "<request-id>",
       "status": 404,
@@ -50,7 +48,7 @@
   },
   {
     "name": "team without session",
-    "request": "GET /api/v1/teams/<id:1> as anonymous",
+    "request": "GET /api/v1/w/<id:1> as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -70,7 +68,7 @@
   },
   {
     "name": "team users search",
-    "request": "GET /api/v1/teams/<id:1>/users?search=teams-ali as teams-alice",
+    "request": "GET /api/v1/w/<id:1>/users?search=teams-ali as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -78,7 +76,7 @@
         "createAt": "<ts>",
         "deleteAt": 0,
         "displayName": "",
-        "id": "<id:3>",
+        "id": "<id:4>",
         "isAdmin": false,
         "updateAt": "<ts>",
         "username": "teams-alice"
@@ -87,14 +85,14 @@
   },
   {
     "name": "team users search without match",
-    "request": "GET /api/v1/teams/<id:1>/users?search=zzzz-no-such as teams-alice",
+    "request": "GET /api/v1/w/<id:1>/users?search=zzzz-no-such as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "team users by id",
-    "request": "POST /api/v1/teams/<id:1>/users as teams-alice",
+    "request": "POST /api/v1/w/<id:1>/users as teams-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -102,7 +100,7 @@
         "createAt": "<ts>",
         "deleteAt": 0,
         "displayName": "",
-        "id": "<id:3>",
+        "id": "<id:4>",
         "isAdmin": false,
         "updateAt": "<ts>",
         "username": "teams-alice"
@@ -111,7 +109,7 @@
   },
   {
     "name": "team users by id: empty",
-    "request": "POST /api/v1/teams/<id:1>/users as teams-alice",
+    "request": "POST /api/v1/w/<id:1>/users as teams-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {

@@ -541,7 +541,7 @@ async fn the_archives_that_hold_their_place_are_counted() {
         "given back"
     );
     let export_route = "/api/v1/boards/{boardId}/archive/export";
-    let import_route = "/api/v1/teams/{teamId}/archive/import";
+    let import_route = "/api/v1/w/{workspaceId}/archive/import";
     assert_eq!(
         requests(&body, "GET", export_route, "200"),
         Some(1.0),

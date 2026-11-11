@@ -292,16 +292,13 @@ async fn the_original_paths_of_routes_that_have_another_path_are_not_found() {
 
     let requests = [
         (Method::GET, "/clientConfig".to_owned()),
-        (
-            Method::POST,
-            format!("/teams/{team}/regenerate_signup_token"),
-        ),
+        (Method::POST, format!("/w/{team}/regenerate_signup_token")),
         (Method::POST, format!("/users/{me}/changepassword")),
         (Method::POST, format!("/users/{other}/changepassword")),
         (Method::GET, "/users/me/config".to_owned()),
         (Method::PUT, format!("/users/{me}/config")),
         (Method::PUT, format!("/users/{other}/config")),
-        (Method::POST, format!("/teams/{team}/{board}/files")),
+        (Method::POST, format!("/w/{team}/{board}/files")),
         (Method::GET, format!("/files/teams/{team}/{board}/{file}")),
         (
             Method::GET,

@@ -300,9 +300,10 @@ async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> Result<boo
 /// the user is no member of, and a team of another organization, answer as one that
 /// does not exist.
 ///
-/// The routes that name a team work in the server's one organization (TEMPORARY, with
+/// For the copy of a board, whose query names the team it goes to: the routes that name
+/// no workspace in their path work in the server's one organization (TEMPORARY, with
 /// `only_organization_scope`), and ask the same fact the routes under a workspace ask
-/// (`api/workspace.rs`); this check goes with the last route that is not moved.
+/// (`api/workspace.rs`, `WorksIn`).
 pub(crate) async fn require_team_access(
     app: &App,
     user_id: &str,

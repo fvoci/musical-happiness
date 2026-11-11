@@ -120,7 +120,7 @@ async fn board_of_somebody_else(th: &TestServer, team_id: &str) -> String {
 }
 
 fn categories_path(team_id: &str) -> String {
-    format!("/teams/{team_id}/categories")
+    format!("/w/{team_id}/categories")
 }
 
 /// `GetUserCategoryBoards`
@@ -140,7 +140,7 @@ async fn create_category(client: &Client, category: &Category) -> Category {
 async fn file_board(client: &Client, team_id: &str, category_id: &str, board_id: &str) {
     let response = client
         .post_empty(&format!(
-            "/teams/{team_id}/categories/{category_id}/boards/{board_id}"
+            "/w/{team_id}/categories/{category_id}/boards/{board_id}"
         ))
         .await;
     response.check_no_content();
@@ -1021,7 +1021,7 @@ async fn verify_new_categories_match_existing_base_case() {
 
     let response = th
         .client
-        .put(&format!("/teams/{ROOT_TEAM_ID}/category-order"), &new_order)
+        .put(&format!("/w/{ROOT_TEAM_ID}/category-order"), &new_order)
         .await;
 
     assert_eq!(
@@ -1048,7 +1048,7 @@ async fn verify_new_categories_match_existing_different_category_counts() {
     let response = th
         .client
         .put(
-            &format!("/teams/{ROOT_TEAM_ID}/category-order"),
+            &format!("/w/{ROOT_TEAM_ID}/category-order"),
             &[second.id.as_str(), third.id.as_str()],
         )
         .await;
@@ -1102,7 +1102,7 @@ async fn get_user_category_boards_user_had_no_default_category_but_had_no_boards
 
     let response = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/categories"))
         .await;
 
     let listed: Vec<CategoryBoards> = response.ok_json();
@@ -1375,35 +1375,26 @@ async fn category_routes_need_a_session() {
     let th = Setup::native().start().await.init_basic().await;
     let anonymous = th.anonymous();
     let requests = [
-        (Method::GET, &format!("/teams/{ROOT_TEAM_ID}/categories")),
-        (Method::POST, &format!("/teams/{ROOT_TEAM_ID}/categories")),
+        (Method::GET, &format!("/w/{ROOT_TEAM_ID}/categories")),
+        (Method::POST, &format!("/w/{ROOT_TEAM_ID}/categories")),
+        (Method::PUT, &format!("/w/{ROOT_TEAM_ID}/category-order")),
+        (Method::PUT, &format!("/w/{ROOT_TEAM_ID}/categories/any")),
+        (Method::DELETE, &format!("/w/{ROOT_TEAM_ID}/categories/any")),
         (
             Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/category-order"),
-        ),
-        (
-            Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/any"),
-        ),
-        (
-            Method::DELETE,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/any"),
-        ),
-        (
-            Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/any/board-order"),
+            &format!("/w/{ROOT_TEAM_ID}/categories/any/board-order"),
         ),
         (
             Method::POST,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/any"),
+            &format!("/w/{ROOT_TEAM_ID}/categories/any/boards/any"),
         ),
         (
             Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/any/hide"),
+            &format!("/w/{ROOT_TEAM_ID}/categories/any/boards/any/hide"),
         ),
         (
             Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/any/boards/any/unhide"),
+            &format!("/w/{ROOT_TEAM_ID}/categories/any/boards/any/unhide"),
         ),
     ];
 
@@ -1442,7 +1433,7 @@ async fn category_routes_need_a_team_that_exists() {
             (Method::POST, categories.clone(), new),
             (
                 Method::PUT,
-                format!("/teams/{team_id}/category-order"),
+                format!("/w/{team_id}/category-order"),
                 json!(ids(&before)),
             ),
             (Method::PUT, one.clone(), change),
@@ -1457,7 +1448,7 @@ async fn category_routes_need_a_team_that_exists() {
                 .client
                 .send_raw_body(method, &path, &body.to_string())
                 .await;
-            check_error(&response, StatusCode::NOT_FOUND, "team not found");
+            check_error(&response, StatusCode::NOT_FOUND, "workspace not found");
         }
     }
 
@@ -1522,7 +1513,7 @@ async fn create_category_answers_the_stored_category() {
     let response = th
         .client
         .post(
-            &format!("/teams/{ROOT_TEAM_ID}/categories"),
+            &format!("/w/{ROOT_TEAM_ID}/categories"),
             &json!({"name": "Cat A", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         )
         .await;
@@ -1553,7 +1544,7 @@ async fn create_category_answers_the_stored_category() {
     let response = th
         .client
         .post(
-            &format!("/teams/{ROOT_TEAM_ID}/categories"),
+            &format!("/w/{ROOT_TEAM_ID}/categories"),
             &json!({
                 "name": "With id",
                 "userId": user.id,
@@ -1591,7 +1582,7 @@ async fn create_category_answers_the_stored_category() {
         let response = th
             .client
             .post(
-                &format!("/teams/{ROOT_TEAM_ID}/categories"),
+                &format!("/w/{ROOT_TEAM_ID}/categories"),
                 &json!({"name": "Blank type", "userId": user.id, "teamId": ROOT_TEAM_ID, "type": blank}),
             )
             .await;
@@ -1611,7 +1602,7 @@ async fn create_category_refuses_invalid_requests() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
     let other = th.client2.me().await;
-    let path = &format!("/teams/{ROOT_TEAM_ID}/categories");
+    let path = &format!("/w/{ROOT_TEAM_ID}/categories");
     let invalid_type = "category type is invalid. Allowed types: system and custom";
     // A category is made for the session's user and nobody else, whatever else the
     // body says.
@@ -1728,7 +1719,7 @@ async fn update_category_changes_the_name_and_the_collapsed_state_only() {
     let response = th
         .client
         .put(
-            &format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id),
+            &format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id),
             &json!({
                 "id": created.id,
                 "name": "Cat A2",
@@ -1775,7 +1766,7 @@ async fn update_category_refuses_invalid_requests() {
     let user = th.client.me().await;
     let other = th.client2.me().await;
     let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
-    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let path = format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id);
     let body = |change: Value| {
         let mut body =
             json!({"id": created.id, "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID});
@@ -1817,19 +1808,19 @@ async fn update_category_refuses_invalid_requests() {
     let others = create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "Theirs")).await;
     for (route, request) in [
         (
-            format!("/teams/{TEST_TEAM_ID}/categories/{}", created.id),
+            format!("/w/{TEST_TEAM_ID}/categories/{}", created.id),
             body(json!({"teamId": TEST_TEAM_ID})),
         ),
         (
-            format!("/teams/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}"),
+            format!("/w/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}"),
             json!({"id": UNKNOWN_ID, "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         ),
         (
-            format!("/teams/{ROOT_TEAM_ID}/categories/nope"),
+            format!("/w/{ROOT_TEAM_ID}/categories/nope"),
             json!({"id": "nope", "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         ),
         (
-            format!("/teams/{ROOT_TEAM_ID}/categories/{}", others.id),
+            format!("/w/{ROOT_TEAM_ID}/categories/{}", others.id),
             json!({"id": others.id, "name": "n", "userId": user.id, "teamId": ROOT_TEAM_ID}),
         ),
     ] {
@@ -1866,12 +1857,12 @@ async fn delete_category_over_the_api() {
         .id
         .clone();
     let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
-    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let path = format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id);
 
     for missing in [UNKNOWN_ID, "nope"] {
         let response = th
             .client
-            .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{missing}"))
+            .delete(&format!("/w/{ROOT_TEAM_ID}/categories/{missing}"))
             .await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
     }
@@ -1879,14 +1870,14 @@ async fn delete_category_over_the_api() {
     // In another team than its own the category does not exist.
     let response = th
         .client
-        .delete(&format!("/teams/{TEST_TEAM_ID}/categories/{}", created.id))
+        .delete(&format!("/w/{TEST_TEAM_ID}/categories/{}", created.id))
         .await;
     check_error(&response, StatusCode::NOT_FOUND, "category not found");
 
     // (The original answers 500.)
     let response = th
         .client
-        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}"))
+        .delete(&format!("/w/{ROOT_TEAM_ID}/categories/{default_id}"))
         .await;
     check_error(
         &response,
@@ -1922,7 +1913,7 @@ async fn delete_category_over_the_api() {
 async fn reorder_categories_over_the_api() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    let path = &format!("/teams/{ROOT_TEAM_ID}/category-order");
+    let path = &format!("/w/{ROOT_TEAM_ID}/category-order");
 
     // With no categories, the empty order is accepted and answered with the empty
     // list. The user has none before the first listing creates the default one. (The
@@ -2024,10 +2015,7 @@ async fn reorder_category_boards_over_the_api() {
     for board_id in &boards {
         file_board(&th.client, ROOT_TEAM_ID, &created.id, board_id).await;
     }
-    let path = format!(
-        "/teams/{ROOT_TEAM_ID}/categories/{}/board-order",
-        created.id
-    );
+    let path = format!("/w/{ROOT_TEAM_ID}/categories/{}/board-order", created.id);
     let order = async || {
         let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
         board_ids(entry(&listed, &created.id))
@@ -2063,12 +2051,9 @@ async fn reorder_category_boards_over_the_api() {
 
     // A category of another team than the path's, and one that does not exist.
     for route in [
-        format!(
-            "/teams/{TEST_TEAM_ID}/categories/{}/board-order",
-            created.id
-        ),
-        format!("/teams/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}/board-order"),
-        format!("/teams/{ROOT_TEAM_ID}/categories/nope/board-order"),
+        format!("/w/{TEST_TEAM_ID}/categories/{}/board-order", created.id),
+        format!("/w/{ROOT_TEAM_ID}/categories/{UNKNOWN_ID}/board-order"),
+        format!("/w/{ROOT_TEAM_ID}/categories/nope/board-order"),
     ] {
         let response = th.client.put(&route, &new_order).await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -2081,7 +2066,7 @@ async fn reorder_category_boards_over_the_api() {
         .client
         .send_raw_body(
             Method::PUT,
-            &format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/board-order"),
+            &format!("/w/{ROOT_TEAM_ID}/categories/{default_id}/board-order"),
             "[]",
         )
         .await;
@@ -2090,7 +2075,7 @@ async fn reorder_category_boards_over_the_api() {
 
     // A deleted category has no boards to order.
     th.client
-        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id))
+        .delete(&format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id))
         .await
         .check_no_content();
     let response = th.client.put(&path, &new_order).await;
@@ -2111,10 +2096,7 @@ async fn update_category_board_over_the_api() {
         .clone();
     let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
     let board_path = |team_id: &str, category_id: &str| {
-        format!(
-            "/teams/{team_id}/categories/{category_id}/boards/{}",
-            board.id
-        )
+        format!("/w/{team_id}/categories/{category_id}/boards/{}", board.id)
     };
     let places = async || {
         let listed = category_boards(&th.client, ROOT_TEAM_ID).await;
@@ -2152,7 +2134,7 @@ async fn update_category_board_over_the_api() {
     // board stays where it is.
     let deleted = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Deleted")).await;
     th.client
-        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", deleted.id))
+        .delete(&format!("/w/{ROOT_TEAM_ID}/categories/{}", deleted.id))
         .await
         .check_no_content();
     for path in [
@@ -2177,7 +2159,7 @@ async fn update_category_board_over_the_api() {
         let response = th
             .client
             .post_empty(&format!(
-                "/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/{board_id}"
+                "/w/{ROOT_TEAM_ID}/categories/{default_id}/boards/{board_id}"
             ))
             .await;
         check_error(&response, StatusCode::NOT_FOUND, "board not found");
@@ -2208,26 +2190,26 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     for nothing in [UNKNOWN_ID, "nope"] {
         for (path, missing) in [
             (
-                format!("/teams/{ROOT_TEAM_ID}/categories/{nothing}/boards/{nothing}/hide"),
+                format!("/w/{ROOT_TEAM_ID}/categories/{nothing}/boards/{nothing}/hide"),
                 "category not found",
             ),
             (
                 format!(
-                    "/teams/{ROOT_TEAM_ID}/categories/{nothing}/boards/{}/hide",
+                    "/w/{ROOT_TEAM_ID}/categories/{nothing}/boards/{}/hide",
                     board.id
                 ),
                 "category not found",
             ),
             (
-                format!("/teams/{ROOT_TEAM_ID}/categories/{nothing}/boards/{nothing}/unhide"),
+                format!("/w/{ROOT_TEAM_ID}/categories/{nothing}/boards/{nothing}/unhide"),
                 "category not found",
             ),
             (
-                format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/{nothing}/hide"),
+                format!("/w/{ROOT_TEAM_ID}/categories/{default_id}/boards/{nothing}/hide"),
                 "board not found",
             ),
             (
-                format!("/teams/{ROOT_TEAM_ID}/categories/{default_id}/boards/{nothing}/unhide"),
+                format!("/w/{ROOT_TEAM_ID}/categories/{default_id}/boards/{nothing}/unhide"),
                 "board not found",
             ),
         ] {
@@ -2242,7 +2224,7 @@ async fn hiding_a_board_that_is_not_in_the_category_changes_nothing() {
     let response = put_empty(
         &th.client,
         &format!(
-            "/teams/{ROOT_TEAM_ID}/categories/{}/boards/{}/hide",
+            "/w/{ROOT_TEAM_ID}/categories/{}/boards/{}/hide",
             other.id, board.id
         ),
     )
@@ -2269,7 +2251,7 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
     let before = category_boards(&th.client, ROOT_TEAM_ID).await;
 
     // Among the categories: an update and a deletion of the category `reorder`.
-    let as_category = format!("/teams/{ROOT_TEAM_ID}/categories/reorder");
+    let as_category = format!("/w/{ROOT_TEAM_ID}/categories/reorder");
     let mut reversed = ids(&before);
     reversed.reverse();
     let response = th.client.put(&as_category, &reversed).await;
@@ -2279,10 +2261,7 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
 
     // Among the boards of a category: the place of the board `reorder`, which takes
     // `POST` only.
-    let as_board = format!(
-        "/teams/{ROOT_TEAM_ID}/categories/{}/boards/reorder",
-        created.id
-    );
+    let as_board = format!("/w/{ROOT_TEAM_ID}/categories/{}/boards/reorder", created.id);
     let response = th.client.put(&as_board, &[&board.id]).await;
     check_error(
         &response,
@@ -2299,7 +2278,7 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
     // The paths of the orders take `PUT` and nothing else.
     let response = th
         .client
-        .delete(&format!("/teams/{ROOT_TEAM_ID}/category-order"))
+        .delete(&format!("/w/{ROOT_TEAM_ID}/category-order"))
         .await;
     check_error(
         &response,
@@ -2311,7 +2290,7 @@ async fn the_word_reorder_is_an_identifier_like_any_other() {
     let response = th
         .client
         .post_empty(&format!(
-            "/teams/{ROOT_TEAM_ID}/categories/{}/board-order",
+            "/w/{ROOT_TEAM_ID}/categories/{}/board-order",
             created.id
         ))
         .await;
@@ -2382,7 +2361,7 @@ async fn filing_a_board_into_another_users_category_is_refused() {
                 .th
                 .client2
                 .post_empty(&format!(
-                    "/teams/{ROOT_TEAM_ID}/categories/{category_id}/boards/{board_id}"
+                    "/w/{ROOT_TEAM_ID}/categories/{category_id}/boards/{board_id}"
                 ))
                 .await;
             check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -2439,7 +2418,7 @@ async fn filing_a_board_into_an_own_category_works() {
 #[tokio::test]
 async fn another_users_deleted_category_is_not_handed_out() {
     let two = TwoUsers::start().await;
-    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", two.category.id);
+    let path = format!("/w/{ROOT_TEAM_ID}/categories/{}", two.category.id);
     two.th.client.delete(&path).await.check_no_content();
 
     for client in [&two.th.client2, &two.th.client] {
@@ -2457,7 +2436,7 @@ async fn another_users_category_cannot_be_changed() {
     let two = TwoUsers::start().await;
     let before = two.owner_view().await;
     let intruder = &two.th.client2;
-    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", two.category.id);
+    let path = format!("/w/{ROOT_TEAM_ID}/categories/{}", two.category.id);
 
     // Update, whoever the body says the category belongs to.
     let as_owner = Category {
@@ -2486,13 +2465,13 @@ async fn another_users_category_cannot_be_changed() {
     // Reorder the categories: they are not among the intruder's.
     let order: Vec<&str> = ids(&before);
     let response = intruder
-        .put(&format!("/teams/{ROOT_TEAM_ID}/category-order"), &order)
+        .put(&format!("/w/{ROOT_TEAM_ID}/category-order"), &order)
         .await;
     response.check_bad_request();
 
     // The same answers as for a category nobody has.
     for nobodys in [UNKNOWN_ID, "nope"] {
-        let nobody = &format!("/teams/{ROOT_TEAM_ID}/categories/{nobodys}");
+        let nobody = &format!("/w/{ROOT_TEAM_ID}/categories/{nobodys}");
         let response = intruder.put(nobody, &as_intruder).await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
         let response = intruder.delete(nobody).await;
@@ -2592,7 +2571,7 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
     create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "theirs")).await;
     let before = stored_categories(&th, &user.id).await;
     let others_before = stored_categories(&th, &other.id).await;
-    let path = &format!("/teams/{ROOT_TEAM_ID}/category-order");
+    let path = &format!("/w/{ROOT_TEAM_ID}/category-order");
 
     for hostile_id in [
         "a' THEN 777 WHEN 'zz",
@@ -2634,10 +2613,7 @@ async fn reorder_categories_treats_a_hostile_identifier_as_data() {
         check_not_an_identifier(written, hostile_id);
 
         // In a path it names no category.
-        let named = format!(
-            "/teams/{ROOT_TEAM_ID}/categories/{}",
-            path_segment(hostile_id)
-        );
+        let named = format!("/w/{ROOT_TEAM_ID}/categories/{}", path_segment(hostile_id));
         let change = category(ROOT_TEAM_ID, &user.id, "renamed");
         let response = th.client.put(&named, &change).await;
         check_error(&response, StatusCode::NOT_FOUND, "category not found");
@@ -2694,7 +2670,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
     for board_id in &boards {
         file_board(&th.client, ROOT_TEAM_ID, &created.id, board_id).await;
     }
-    let category_path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let category_path = format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id);
     let path = format!("{category_path}/board-order");
     let new_order = [boards[2].as_str(), boards[0].as_str(), boards[1].as_str()];
     let response = th.client.put(&path, &new_order).await;
@@ -2749,7 +2725,7 @@ async fn reorder_category_boards_treats_a_hostile_identifier_as_data() {
         let response = th
             .client
             .put(
-                &format!("/teams/{ROOT_TEAM_ID}/categories/{segment}/board-order"),
+                &format!("/w/{ROOT_TEAM_ID}/categories/{segment}/board-order"),
                 &new_order,
             )
             .await;
@@ -2856,7 +2832,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
         "after creating a category"
     );
 
-    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let path = format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id);
     let change = Category {
         name: "Cat B".to_owned(),
         ..created.clone()
@@ -2871,7 +2847,7 @@ async fn category_changes_are_sent_to_the_users_connection() {
     let category_order = [default_id.as_str(), created.id.as_str()];
     th.client
         .put(
-            &format!("/teams/{ROOT_TEAM_ID}/category-order"),
+            &format!("/w/{ROOT_TEAM_ID}/category-order"),
             &category_order,
         )
         .await
@@ -2927,7 +2903,7 @@ async fn category_board_changes_are_sent_to_the_users_connection() {
     let user = th.client.me().await;
     category_boards(&th.client, ROOT_TEAM_ID).await;
     let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
-    let path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let path = format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id);
     let mut socket = subscribed_socket(&th, ROOT_TEAM_ID, &user.id).await;
     let board_change = |boards: Value| json!({"action": "UPDATE_BOARD_CATEGORY", "teamId": ROOT_TEAM_ID, "boardCategories": boards});
     let first = open_board(&th, ROOT_TEAM_ID).await;
@@ -3010,7 +2986,7 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
 
     let categories = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/categories"))
         .await
         .value();
     let categories = categories.as_array().expect("a list of categories");
@@ -3066,7 +3042,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .created_json();
     file_board(&th.client, ROOT_TEAM_ID, &created.id, &board.id).await;
     file_board(&th.client2, ROOT_TEAM_ID, &gone.id, &board.id).await;
-    let category_path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    let category_path = format!("/w/{ROOT_TEAM_ID}/categories/{}", created.id);
     put_empty(
         &th.client,
         &format!("{category_path}/boards/{}/hide", board.id),
@@ -3082,7 +3058,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
         .await
         .check_no_content();
     th.client2
-        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", gone.id))
+        .delete(&format!("/w/{ROOT_TEAM_ID}/categories/{}", gone.id))
         .await
         .check_no_content();
     th.client

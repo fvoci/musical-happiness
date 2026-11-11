@@ -316,7 +316,7 @@ impl TestServer {
             .await;
         let team: Team = self
             .client
-            .get(&format!("/teams/{ROOT_TEAM_ID}"))
+            .get(&format!("/w/{ROOT_TEAM_ID}"))
             .await
             .ok_json();
         assert!(!team.signup_token.is_empty(), "the team has a signup token");

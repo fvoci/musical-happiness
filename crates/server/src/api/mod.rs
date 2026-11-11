@@ -24,7 +24,6 @@ mod session;
 mod sharing;
 mod subscriptions;
 mod system;
-mod teams;
 mod templates;
 mod trash;
 mod uploads;
@@ -106,7 +105,6 @@ fn routes() -> Routes {
         .merge(search::routes())
         .merge(sharing::routes())
         .merge(subscriptions::routes())
-        .merge(teams::routes())
         .merge(templates::routes())
         .merge(uploads::routes())
         .merge(users::routes())

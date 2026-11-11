@@ -55,7 +55,7 @@ async fn card_titles(ts: &TestServer, client: &Client, board_id: &str) -> Vec<St
 /// The built-in template that carries the onboarding mark.
 async fn marked_template(client: &Client) -> Board {
     let templates: Vec<Board> = client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json();
     let marked: Vec<Board> = templates
@@ -85,7 +85,7 @@ async fn onboarding_without_the_built_in_templates_does_not_copy_a_user_template
 
     let value = ts
         .client2
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
@@ -125,7 +125,7 @@ async fn onboarding_copies_the_built_in_board_whatever_users_made() {
 
     let value = ts
         .client2
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
@@ -170,7 +170,7 @@ async fn onboarding_finds_the_built_in_board_by_its_mark_not_by_its_title() {
 
     let value = ts
         .client
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id").to_owned();
@@ -200,7 +200,7 @@ async fn onboard_duplicates_the_welcome_board_and_records_preferences() {
 
     let response = ts
         .client
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
         .await;
     let value = response.ok_json::<Value>();
     assert_eq!(
@@ -269,7 +269,7 @@ async fn onboard_echoes_the_team_identifier() {
         .await;
     let value = ts
         .client
-        .post_empty(&format!("/teams/{TEST_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{TEST_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     assert_eq!(
@@ -284,7 +284,7 @@ async fn onboard_echoes_the_team_identifier() {
     ts.teardown().await;
 }
 
-/// `POST /teams/0/onboard` without a session is refused.
+/// `POST /w/0/onboard` without a session is refused.
 #[tokio::test]
 async fn onboard_without_a_session_is_refused() {
     let ts = Setup::native()
@@ -294,7 +294,7 @@ async fn onboard_without_a_session_is_refused() {
         .init_basic()
         .await;
     ts.anonymous()
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -318,7 +318,7 @@ async fn onboard_stores_the_templates_again_when_the_welcome_board_is_gone() {
 
     let value = ts
         .client
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
         .await
         .ok_json::<Value>();
     let board_id = value["boardId"].as_str().expect("a board id");
@@ -349,7 +349,7 @@ async fn concurrent_onboarding_stores_the_templates_once() {
         .await
         .expect("the built-in templates are removed");
 
-    let path = format!("/teams/{ROOT_TEAM_ID}/onboard");
+    let path = format!("/w/{ROOT_TEAM_ID}/onboard");
     let answers = futures_util::future::join_all(
         [&ts.client, &ts.client2, &ts.client, &ts.client2].map(|client| client.post_empty(&path)),
     )

@@ -109,7 +109,7 @@ async fn board_with_card(th: &TestServer) -> (Board, Card) {
 
 async fn board_count(client: &Client) -> usize {
     let boards: Vec<Board> = client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
         .await
         .ok_json();
     boards.len()
@@ -758,7 +758,7 @@ async fn date_values_on_the_patch_routes_and_in_an_archive() {
     .check_no_content();
     let boards: Vec<Board> = th
         .client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
         .await
         .ok_json();
     let imported = boards

@@ -162,15 +162,15 @@ export function importInParts(
     options,
     () =>
       http.request<Schemas['UploadOpened']>(
-        '/api/v1/teams/{teamId}/archive/uploads',
-        { teamId },
+        '/api/v1/w/{workspaceId}/archive/uploads',
+        { workspaceId: teamId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const request: Schemas['ImportRequest'] = { uploadId };
       await http.request(
-        '/api/v1/teams/{teamId}/archive/import',
-        { teamId },
+        '/api/v1/w/{workspaceId}/archive/import',
+        { workspaceId: teamId },
         { method: 'POST', json: request, signal },
       );
     },

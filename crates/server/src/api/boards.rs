@@ -3,14 +3,13 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{Board, BoardPatch, BoardType, BoardsAndBlocks, JsonMap, MinimumRole};
-use fvoci_store::PublicBoards;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::NewBoard;
-use super::contract::params::{AsTemplate, BoardId, ReadToken, TeamId, ToTeam};
+use super::contract::params::{AsTemplate, BoardId, ReadToken, ToTeam};
 use super::contract::tag;
 
 use super::{
@@ -27,7 +26,6 @@ use crate::permissions::{BoardPermission, TeamPermission, member_has_permission}
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
-        .routes(routes!(handle_get_boards))
         .routes(routes!(handle_create_board))
         .routes(routes!(
             handle_get_board,
@@ -112,38 +110,6 @@ fn decode_board_patch(body: &[u8]) -> Result<BoardPatch, AppError> {
 }
 
 // -- handlers -------------------------------------------------------------------------
-
-/// The boards of a team
-///
-/// The boards of the team that the user is a member of, and the team's open boards.
-/// Templates are not among them. Oldest first.
-#[utoipa::path(
-    get,
-    path = "/teams/{teamId}/boards",
-    operation_id = "getBoards",
-    tag = tag::BOARDS,
-    params(TeamId),
-    responses((status = 200, description = "The boards.", body = Vec<Board>)),
-)]
-async fn handle_get_boards(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
-) -> ApiResult {
-    let user_id = &session.user_id;
-    require_team_access(&app, user_id, &team_id).await?;
-
-    // A guest would see only the boards they are a member of.
-    let public_boards = if user_is_guest(&app, user_id).await? {
-        PublicBoards::Exclude
-    } else {
-        PublicBoards::Include
-    };
-    let boards = app
-        .boards_for_user_and_team(user_id, &team_id, public_boards)
-        .await?;
-    Ok(json_response(&boards))
-}
 
 /// Make a board
 ///

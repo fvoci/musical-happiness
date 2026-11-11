@@ -63,7 +63,7 @@
   },
   {
     "name": "templates: anonymous",
-    "request": "GET /api/v1/teams/<id:1>/templates as anonymous",
+    "request": "GET /api/v1/w/<id:1>/templates as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -129,7 +129,7 @@
   },
   {
     "name": "onboard",
-    "request": "POST /api/v1/teams/<id:1>/onboard as tpl-alice",
+    "request": "POST /api/v1/w/<id:1>/onboard as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": {
@@ -260,7 +260,7 @@
   },
   {
     "name": "categories after onboarding",
-    "request": "GET /api/v1/teams/<id:1>/categories as tpl-alice",
+    "request": "GET /api/v1/w/<id:1>/categories as tpl-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [

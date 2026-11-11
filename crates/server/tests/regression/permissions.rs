@@ -478,26 +478,23 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
         }
         "archive: open an upload" => Request::json(
             Method::POST,
-            format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+            format!("{API}/w/{ROOT_TEAM_ID}/archive/uploads"),
             json!({"name": "a.boardarchive", "size": 100}),
         ),
         "archive: export team" => Request::new(
             Method::GET,
-            format!("{API}/teams/{ROOT_TEAM_ID}/archive/export"),
+            format!("{API}/w/{ROOT_TEAM_ID}/archive/export"),
         ),
-        "categories: list" => Request::new(
-            Method::GET,
-            format!("{API}/teams/{ROOT_TEAM_ID}/categories"),
-        ),
-        "team: boards" => Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/boards")),
-        "team: templates" => {
-            Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/templates"))
+        "categories: list" => {
+            Request::new(Method::GET, format!("{API}/w/{ROOT_TEAM_ID}/categories"))
         }
+        "team: boards" => Request::new(Method::GET, format!("{API}/w/{ROOT_TEAM_ID}/boards")),
+        "team: templates" => Request::new(Method::GET, format!("{API}/w/{ROOT_TEAM_ID}/templates")),
         "team: search" => Request::new(
             Method::GET,
-            format!("{API}/teams/{ROOT_TEAM_ID}/boards/search?q=Matrix"),
+            format!("{API}/w/{ROOT_TEAM_ID}/boards/search?q=Matrix"),
         ),
-        "team: users" => Request::new(Method::GET, format!("{API}/teams/{ROOT_TEAM_ID}/users")),
+        "team: users" => Request::new(Method::GET, format!("{API}/w/{ROOT_TEAM_ID}/users")),
         other => panic!("no request is defined for the route {other:?}"),
     }
 }

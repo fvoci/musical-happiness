@@ -294,20 +294,19 @@ pub(crate) async fn auth(s: &mut Session) {
 
 pub(crate) async fn teams(s: &mut Session) {
     let [alice] = s.users("teams", ["alice"]).await;
-    s.get("teams", &format!("{API}/teams")).user(&alice).await;
-    s.get("team 0", &format!("{API}/teams/{ROOT_TEAM_ID}"))
+    s.get("workspaces", &format!("{API}/users/me/workspaces"))
         .user(&alice)
         .await;
-    s.get("some other team id", &format!("{API}/teams/anything"))
+    s.get("team 0", &format!("{API}/w/{ROOT_TEAM_ID}"))
         .user(&alice)
         .await;
-    s.get(
-        "team without session",
-        &format!("{API}/teams/{ROOT_TEAM_ID}"),
-    )
-    .await;
+    s.get("some other team id", &format!("{API}/w/anything"))
+        .user(&alice)
+        .await;
+    s.get("team without session", &format!("{API}/w/{ROOT_TEAM_ID}"))
+        .await;
     let users = s
-        .get("team users", &format!("{API}/teams/{ROOT_TEAM_ID}/users"))
+        .get("team users", &format!("{API}/w/{ROOT_TEAM_ID}/users"))
         .user(&alice)
         .unrecorded()
         .await;
@@ -320,27 +319,24 @@ pub(crate) async fn teams(s: &mut Session) {
     s.note("team users include me", &json!(includes_me));
     s.get(
         "team users search",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users?search=teams-ali"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/users?search=teams-ali"),
     )
     .user(&alice)
     .await;
     s.get(
         "team users search without match",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users?search=zzzz-no-such"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/users?search=zzzz-no-such"),
     )
     .user(&alice)
     .await;
     let alice_id = s.user_id(&alice).await;
-    s.post(
-        "team users by id",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users"),
-    )
-    .json(json!([alice_id]))
-    .user(&alice)
-    .await;
+    s.post("team users by id", &format!("{API}/w/{ROOT_TEAM_ID}/users"))
+        .json(json!([alice_id]))
+        .user(&alice)
+        .await;
     s.post(
         "team users by id: empty",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/users"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/users"),
     )
     .json(json!([]))
     .user(&alice)
@@ -355,7 +351,7 @@ pub(crate) async fn admins(s: &mut Session) {
     let bob_id = s.user_id(&bob).await;
     let root_id = s.user_id("root").await;
     let old_token = s.signup_token("root").await;
-    let team = format!("{API}/teams/{ROOT_TEAM_ID}");
+    let team = format!("{API}/w/{ROOT_TEAM_ID}");
     let regenerate = format!("{team}/signup-token");
     let admin_of = |user_id: &str| format!("{API}/users/{user_id}/admin");
 
@@ -375,19 +371,25 @@ pub(crate) async fn admins(s: &mut Session) {
     // -- the signup token is for administrators --------------------------------------
     s.get("team: administrator", &team).user("root").await;
     s.get("team: anybody else", &team).user(&alice).await;
-    s.get("teams: administrator", &format!("{API}/teams"))
-        .user("root")
-        .await;
-    s.get("teams: anybody else", &format!("{API}/teams"))
-        .user(&alice)
-        .await;
+    s.get(
+        "workspaces: administrator",
+        &format!("{API}/users/me/workspaces"),
+    )
+    .user("root")
+    .await;
+    s.get(
+        "workspaces: anybody else",
+        &format!("{API}/users/me/workspaces"),
+    )
+    .user(&alice)
+    .await;
     s.post("renew the token: not an administrator", &regenerate)
         .user(&alice)
         .await;
     s.post("renew the token: no session", &regenerate).await;
     s.post(
         "renew the token: unknown team",
-        &format!("{API}/teams/{UNKNOWN_ID}/signup-token"),
+        &format!("{API}/w/{UNKNOWN_ID}/signup-token"),
     )
     .user("root")
     .await;

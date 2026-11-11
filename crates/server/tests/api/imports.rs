@@ -40,7 +40,7 @@ fn entries(directory: &std::path::Path) -> Vec<String> {
 async fn open_import(client: &Client, team_id: &str, size: usize) -> crate::common::ApiResponse {
     client
         .post(
-            &format!("/teams/{team_id}/archive/uploads"),
+            &format!("/w/{team_id}/archive/uploads"),
             &json!({"name": "archive.boardarchive", "size": size}),
         )
         .await

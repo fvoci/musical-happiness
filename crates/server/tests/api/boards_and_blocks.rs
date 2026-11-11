@@ -362,7 +362,7 @@ fn card_json(board_id: &str) -> Value {
 /// The boards of the test team that a client's user sees.
 async fn team_boards(client: &Client) -> Vec<Board> {
     client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
         .await
         .ok_json()
 }

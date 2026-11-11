@@ -56,7 +56,7 @@ test('a category made elsewhere shows in the sidebar of every tab of its user', 
   await listening;
 
   const me = (await (await api.get('/api/v1/users/me')).json()) as Schemas['User'];
-  const made = await api.post(`/api/v1/teams/${board.teamId}/categories`, {
+  const made = await api.post(`/api/v1/w/${board.teamId}/categories`, {
     data: { name: 'Errands', teamId: board.teamId, userId: me.id, type: 'custom' },
   });
   expect(made.ok(), await made.text()).toBe(true);

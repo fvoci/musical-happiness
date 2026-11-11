@@ -242,7 +242,7 @@
   },
   {
     "name": "list: member",
-    "request": "GET /api/v1/teams/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/w/<id:3>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -299,7 +299,7 @@
   },
   {
     "name": "list: other user",
-    "request": "GET /api/v1/teams/<id:3>/boards as boards-bob",
+    "request": "GET /api/v1/w/<id:3>/boards as boards-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -956,7 +956,7 @@
   },
   {
     "name": "list at the end",
-    "request": "GET /api/v1/teams/<id:3>/boards as boards-alice",
+    "request": "GET /api/v1/w/<id:3>/boards as boards-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [

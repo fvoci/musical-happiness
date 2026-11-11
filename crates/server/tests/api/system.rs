@@ -109,7 +109,11 @@ async fn get_client_config() {
 async fn reading_needs_no_requested_with_header() {
     let th = Setup::native().start().await.init_basic().await;
 
-    for path in ["/api/v1/client-config", "/api/v1/users/me", "/api/v1/teams"] {
+    for path in [
+        "/api/v1/client-config",
+        "/api/v1/users/me",
+        "/api/v1/users/me/workspaces",
+    ] {
         let request = th
             .client
             .raw_request(Method::GET, path)
@@ -423,7 +427,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let boards = th
             .client
-            .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
+            .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
             .await
             .value();
         let created: Vec<&str> = boards
@@ -434,7 +438,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
             .collect();
         let categories = th
             .client
-            .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+            .get(&format!("/w/{ROOT_TEAM_ID}/categories"))
             .await
             .value();
         let filed: Vec<&str> = categories

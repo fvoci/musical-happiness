@@ -23,9 +23,7 @@ import {
 test.use({ locale: 'en-US' });
 
 async function boardsTitled(api: APIRequestContext, teamId: string, title: string) {
-  const boards = (await (
-    await api.get(`/api/v1/teams/${teamId}/boards`)
-  ).json()) as Schemas['Board'][];
+  const boards = (await (await api.get(`/api/v1/w/${teamId}/boards`)).json()) as Schemas['Board'][];
   return boards.filter((board) => board.title === title);
 }
 

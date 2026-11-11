@@ -19,10 +19,7 @@ use crate::harness::{API, OCTET_STREAM, Payload, Session, multipart, string_memb
 pub(crate) async fn templates(s: &mut Session) {
     let [alice] = s.users("tpl", ["alice"]).await;
     let listing = s
-        .get(
-            "templates",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
-        )
+        .get("templates", &format!("{API}/w/{ROOT_TEAM_ID}/templates"))
         .user(&alice)
         .unrecorded()
         .await;
@@ -67,13 +64,13 @@ pub(crate) async fn templates(s: &mut Session) {
     s.note("welcome template block counts", &json!(counts));
     s.get(
         "templates: anonymous",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/templates"),
     )
     .await;
     let custom = new_board(s, &alice, "My template", "P", json!({"isTemplate": true})).await;
     s.get(
         "templates include mine",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/templates"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/templates"),
     )
     .user(&alice)
     .unrecorded()
@@ -82,7 +79,7 @@ pub(crate) async fn templates(s: &mut Session) {
         .user(&alice)
         .await;
     let onboard = s
-        .post("onboard", &format!("{API}/teams/{ROOT_TEAM_ID}/onboard"))
+        .post("onboard", &format!("{API}/w/{ROOT_TEAM_ID}/onboard"))
         .user(&alice)
         .await;
     let tour_board = onboard.string("boardId");
@@ -99,16 +96,13 @@ pub(crate) async fn templates(s: &mut Session) {
         .await;
     let tour_blocks = tour.json().as_array().map_or(0, Vec::len);
     s.note("onboarding board block count", &json!(tour_blocks));
-    s.post(
-        "onboard again",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/onboard"),
-    )
-    .user(&alice)
-    .unrecorded()
-    .await;
+    s.post("onboard again", &format!("{API}/w/{ROOT_TEAM_ID}/onboard"))
+        .user(&alice)
+        .unrecorded()
+        .await;
     s.get(
         "categories after onboarding",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/categories"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/categories"),
     )
     .user(&alice)
     .await;
@@ -425,7 +419,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let team_export = s
         .get(
             "team export",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/archive/export"),
+            &format!("{API}/w/{ROOT_TEAM_ID}/archive/export"),
         )
         .user(&alice)
         .unrecorded()
@@ -441,7 +435,7 @@ pub(crate) async fn archive(s: &mut Session) {
         s.note("team export entries", &json!(entries));
     }
 
-    let import = format!("{API}/teams/{ROOT_TEAM_ID}/archive/import");
+    let import = format!("{API}/w/{ROOT_TEAM_ID}/archive/import");
     let upload = upload_archive(s, &bob, &exported).await;
     s.post("import", &import)
         .json(json!({"uploadId": upload}))
@@ -449,7 +443,7 @@ pub(crate) async fn archive(s: &mut Session) {
         .await;
     s.post(
         "import: anonymous",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/archive/uploads"),
     )
     .json(json!({"name": "export.boardarchive", "size": exported.len()}))
     .await;
@@ -465,7 +459,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let imported = s
         .get(
             "boards after import",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+            &format!("{API}/w/{ROOT_TEAM_ID}/boards"),
         )
         .user(&bob)
         .await;
@@ -526,7 +520,7 @@ pub(crate) async fn archive(s: &mut Session) {
     let boards = s
         .get(
             "boards after legacy import",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+            &format!("{API}/w/{ROOT_TEAM_ID}/boards"),
         )
         .user(&bob)
         .unrecorded()
@@ -548,7 +542,7 @@ async fn upload_archive(s: &mut Session, user: &str, bytes: &[u8]) -> String {
     let opened = s
         .post(
             "open an upload of an archive",
-            &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+            &format!("{API}/w/{ROOT_TEAM_ID}/archive/uploads"),
         )
         .json(json!({"name": "export.boardarchive", "size": bytes.len()}))
         .user(user)

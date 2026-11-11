@@ -25,7 +25,7 @@ async fn export_board(client: &Client, board_id: &str) -> ApiResponse {
 pub(crate) async fn import(client: &Client, team_id: &str, bytes: &[u8]) -> ApiResponse {
     let opened = client
         .post(
-            &format!("/teams/{team_id}/archive/uploads"),
+            &format!("/w/{team_id}/archive/uploads"),
             &serde_json::json!({"name": "archive.boardarchive", "size": bytes.len()}),
         )
         .await;
@@ -53,7 +53,7 @@ pub(crate) async fn import(client: &Client, team_id: &str, bytes: &[u8]) -> ApiR
 pub(crate) async fn import_upload(client: &Client, team_id: &str, upload_id: &str) -> ApiResponse {
     client
         .post(
-            &format!("/teams/{team_id}/archive/import"),
+            &format!("/w/{team_id}/archive/import"),
             &serde_json::json!({"uploadId": upload_id}),
         )
         .await
@@ -226,7 +226,7 @@ async fn export_board_access_control() {
     ts.teardown().await;
 }
 
-/// `GET /teams/0/archive/export` is a 200 ZIP (verified on the oracle), and anonymous is
+/// `GET /w/0/archive/export` is a 200 ZIP (verified on the oracle), and anonymous is
 /// refused.
 #[tokio::test]
 async fn export_team_is_a_zip() {
@@ -234,7 +234,7 @@ async fn export_team_is_a_zip() {
     board_with_card(&ts, ROOT_TEAM_ID).await;
     let response = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/archive/export"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/archive/export"))
         .await;
     response.check_ok();
     assert!(
@@ -242,7 +242,7 @@ async fn export_team_is_a_zip() {
         "a zip"
     );
     ts.anonymous()
-        .get(&format!("/teams/{ROOT_TEAM_ID}/archive/export"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/archive/export"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -415,7 +415,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
 /// The boards of a team that the first client sees.
 pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Board> {
     ts.client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
         .await
         .ok_json()
 }
@@ -902,7 +902,7 @@ async fn exports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_TEAM_ID).await;
     let me = ts.client.me().await;
-    let team_export = format!("/teams/{TEST_TEAM_ID}/archive/export");
+    let team_export = format!("/w/{TEST_TEAM_ID}/archive/export");
     let refused = |response: &ApiResponse, reason: &str| {
         response.check_status(StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(response.error_reason(), reason, "{}", response.text());

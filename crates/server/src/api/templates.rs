@@ -2,16 +2,15 @@
 //!
 //! Ports `server/api/templates.go`.
 
-use axum::extract::{Path, State};
 use fvoci_model::{Board, BoardType};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::TeamId;
+use super::contract::params::WorkspaceId;
 use super::contract::tag;
 
-use super::{ApiResult, RequiredSession, json_response};
-use super::{require_team_access, user_is_guest};
+use super::workspace::WorksIn;
+use super::{ApiResult, json_response, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
@@ -26,24 +25,19 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// every team is offered. Each of the two oldest first.
 #[utoipa::path(
     get,
-    path = "/teams/{teamId}/templates",
+    path = "/w/{workspaceId}/templates",
     operation_id = "getTemplates",
     tag = tag::BOARDS,
-    params(TeamId),
+    params(WorkspaceId),
     responses((status = 200, description = "The templates.", body = Vec<Board>)),
 )]
-async fn handle_get_templates(
-    State(app): State<App>,
-    RequiredSession(session): RequiredSession,
-    Path(team_id): Path<String>,
-) -> ApiResult {
-    let user_id = session.user_id.as_str();
-    require_team_access(&app, user_id, &team_id).await?;
-    if user_is_guest(&app, user_id).await? {
+async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
+    let (app, user_id, team_id) = (&ws.app, ws.session.user_id.as_str(), &ws.workspace_id);
+    if user_is_guest(app, user_id).await? {
         return Err(AppError::forbidden("access denied to templates"));
     }
 
-    let boards = app.template_boards(&team_id, user_id).await?;
+    let boards = app.template_boards(team_id, user_id).await?;
     let mut results: Vec<Board> = Vec::with_capacity(boards.len());
     for board in boards {
         let visible = board.board_type == BoardType::Open

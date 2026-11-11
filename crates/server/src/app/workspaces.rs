@@ -1,7 +1,7 @@
 //! Workspaces: which a user is a member of, and the way into one. A workspace is the
 //! team of the routes that are not moved under a workspace yet.
 
-use fvoci_model::{Board, OrgRole, Team, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Board, OrgRole, UserWorkspace, WorkspaceRole};
 use fvoci_store::{PublicBoards, Tenant};
 
 use super::App;
@@ -87,8 +87,9 @@ impl App {
     }
 
     /// Whether the user works in the team: a member of the workspace who is no guest.
-    /// This is what the routes that name a team, and are not moved under a workspace
-    /// yet, ask before anything else; for anybody else the team is not there.
+    /// This is what the routes that name a team in their body or query, and not under
+    /// `/w/{workspaceId}`, ask before anything else; for anybody else the team is not
+    /// there. The routes under a workspace ask it of their path (`WorksIn`).
     ///
     /// A guest of a workspace is on the boards they were invited to and reaches those
     /// by their board; what a member of the team may do (see its boards, make one,
@@ -118,26 +119,6 @@ impl App {
         }
         let access = self.store().resolve_workspace(user_id, team_id).await?;
         Ok(access.is_some())
-    }
-
-    /// The teams of the organization that the user works in, oldest first.
-    ///
-    /// # Errors
-    ///
-    /// Returns the store's error if a query fails.
-    pub async fn teams_of_user(&self, user_id: &str) -> Result<Vec<Team>, AppError> {
-        // The user's workspaces are of every organization; the teams are those of the
-        // organization the routes that name a team work in.
-        let works_in: Vec<String> = self
-            .workspaces_of_user(user_id)
-            .await?
-            .into_iter()
-            .filter(|workspace| workspace.role != WorkspaceRole::Guest)
-            .map(|workspace| workspace.id)
-            .collect();
-        let mut teams = self.teams().await?;
-        teams.retain(|team| works_in.contains(&team.id));
-        Ok(teams)
     }
 
     /// The workspaces the user is a member of, in every organization: by organization,

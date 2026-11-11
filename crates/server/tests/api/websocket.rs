@@ -126,7 +126,7 @@ async fn category_messages_reach_every_tab_of_the_user() {
 
     th.client
         .post(
-            &format!("/teams/{ROOT_TEAM_ID}/categories"),
+            &format!("/w/{ROOT_TEAM_ID}/categories"),
             &json!({"name": "both tabs", "userId": user1.id, "teamId": ROOT_TEAM_ID}),
         )
         .await

@@ -48,7 +48,7 @@ test('a board is made with its first view, changed, deleted and brought back', a
   expect(first?.fields).toMatchObject({ viewType: 'board', groupById: status?.id });
   // Filed under the reader's default category by the server.
   const categories = (await (
-    await api.get(`/api/v1/teams/${board.teamId}/categories`)
+    await api.get(`/api/v1/w/${board.teamId}/categories`)
   ).json()) as Schemas['CategoryBoards'][];
   expect(categories.flatMap((one) => one.boardMetadata.map((entry) => entry.boardId))).toContain(
     boardId,
@@ -93,7 +93,7 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await expect
     .poll(async () => {
       const categories = (await (
-        await api.get(`/api/v1/teams/${board.teamId}/categories`)
+        await api.get(`/api/v1/w/${board.teamId}/categories`)
       ).json()) as Schemas['CategoryBoards'][];
       return categories
         .flatMap((one) => one.boardMetadata)

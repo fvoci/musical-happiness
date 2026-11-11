@@ -36,7 +36,6 @@ import {
   type DownloadOptions,
   type Sharing,
   type SharingChange,
-  type Team,
   type UploadedFile,
   type UploadOptions,
   type User,
@@ -60,7 +59,6 @@ import {
   rolesOf,
   settingsOf,
   sharingOf,
-  teamOf,
   userOf,
   viewOf,
   wireBody,
@@ -141,17 +139,13 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return userOf(await this.#http.request<Schemas['User']>('/api/v1/users/me'));
   }
 
-  async teams(): Promise<Team[]> {
-    return (await this.#http.request<Schemas['Team'][]>('/api/v1/teams')).map(teamOf);
-  }
-
   /**
    * The people of the team. The server answers at most ten of them
    * (`getTeamUsers` without a search; `docs/contract-assumptions.md`, D2).
    */
   async users(teamId: string): Promise<User[]> {
-    const users = await this.#http.request<Schemas['User'][]>('/api/v1/teams/{teamId}/users', {
-      teamId,
+    const users = await this.#http.request<Schemas['User'][]>('/api/v1/w/{workspaceId}/users', {
+      workspaceId: teamId,
     });
     return users.map(userOf);
   }
@@ -160,8 +154,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const ids = [...new Set(userIds)];
     if (ids.length === 0) return [];
     const users = await this.#http.request<Schemas['User'][]>(
-      '/api/v1/teams/{teamId}/users',
-      { teamId },
+      '/api/v1/w/{workspaceId}/users',
+      { workspaceId: teamId },
       { method: 'POST', json: ids },
     );
     return users.map(userOf);
@@ -197,8 +191,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   // ------------------------------------------------------------- boards
 
   async boards(teamId: string): Promise<Board[]> {
-    const boards = await this.#http.request<Schemas['Board'][]>('/api/v1/teams/{teamId}/boards', {
-      teamId,
+    const boards = await this.#http.request<Schemas['Board'][]>('/api/v1/w/{workspaceId}/boards', {
+      workspaceId: teamId,
     });
     return boards.map(boardOf);
   }
@@ -258,8 +252,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** `searchTeamBoards` by title (the server searches every team of the reader). */
   async searchBoards(teamId: string, query: string): Promise<Board[]> {
     const boards = await this.#http.request<Schemas['Board'][]>(
-      '/api/v1/teams/{teamId}/boards/search',
-      { teamId },
+      '/api/v1/w/{workspaceId}/boards/search',
+      { workspaceId: teamId },
       { query: { q: query } },
     );
     return boards.map(boardOf);
@@ -267,8 +261,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   async templates(teamId: string): Promise<Board[]> {
     const boards = await this.#http.request<Schemas['Board'][]>(
-      '/api/v1/teams/{teamId}/templates',
-      { teamId },
+      '/api/v1/w/{workspaceId}/templates',
+      { workspaceId: teamId },
     );
     return boards.map(boardOf);
   }
@@ -287,8 +281,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   async onboard(teamId: string): Promise<string> {
     const started = await this.#http.request<Schemas['OnboardingStart']>(
-      '/api/v1/teams/{teamId}/onboard',
-      { teamId },
+      '/api/v1/w/{workspaceId}/onboard',
+      { workspaceId: teamId },
       { method: 'POST' },
     );
     return started.boardId;
@@ -373,8 +367,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   /** `getTeamUsers` with a search: ten at most, whatever the case (D2). */
   async searchUsers(teamId: string, query: string): Promise<User[]> {
     const users = await this.#http.request<Schemas['User'][]>(
-      '/api/v1/teams/{teamId}/users',
-      { teamId },
+      '/api/v1/w/{workspaceId}/users',
+      { workspaceId: teamId },
       { query: { search: query } },
     );
     return users.map(userOf);
@@ -395,8 +389,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
 
   async categories(teamId: string): Promise<Category[]> {
     const categories = await this.#http.request<Schemas['CategoryBoards'][]>(
-      '/api/v1/teams/{teamId}/categories',
-      { teamId },
+      '/api/v1/w/{workspaceId}/categories',
+      { workspaceId: teamId },
     );
     return categories.map(categoryOf);
   }
@@ -420,8 +414,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     const { id: userId } = await this.me();
     const request: Schemas['NewCategory'] = { name: draft.name, userId, teamId };
     const made = await this.#http.request<Schemas['Category']>(
-      '/api/v1/teams/{teamId}/categories',
-      { teamId },
+      '/api/v1/w/{workspaceId}/categories',
+      { workspaceId: teamId },
       { method: 'POST', json: request },
     );
     return categoryOf({ ...made, boardMetadata: [] });
@@ -450,8 +444,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
       collapsed: patch.collapsed ?? before.collapsed,
     };
     const updated = await this.#http.request<Schemas['Category']>(
-      '/api/v1/teams/{teamId}/categories/{categoryId}',
-      { teamId, categoryId },
+      '/api/v1/w/{workspaceId}/categories/{categoryId}',
+      { workspaceId: teamId, categoryId },
       { method: 'PUT', json: request },
     );
     // The answer is the category alone; its boards are as they were read.
@@ -465,8 +459,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   deleteCategory(teamId: string, categoryId: string): Promise<void> {
     return this.#sidebarTurn(teamId, async () => {
       await this.#http.request(
-        '/api/v1/teams/{teamId}/categories/{categoryId}',
-        { teamId, categoryId },
+        '/api/v1/w/{workspaceId}/categories/{categoryId}',
+        { workspaceId: teamId, categoryId },
         { method: 'DELETE' },
       );
     });
@@ -475,8 +469,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   reorderCategories(teamId: string, categoryIds: string[]): Promise<void> {
     return this.#sidebarTurn(teamId, async () => {
       await this.#http.request(
-        '/api/v1/teams/{teamId}/category-order',
-        { teamId },
+        '/api/v1/w/{workspaceId}/category-order',
+        { workspaceId: teamId },
         { method: 'PUT', json: categoryIds },
       );
     });
@@ -506,8 +500,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     index: number,
   ): Promise<void> {
     await this.#http.request(
-      '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}',
-      { teamId, categoryId, boardId },
+      '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}',
+      { workspaceId: teamId, categoryId, boardId },
       { method: 'POST' },
     );
     const filed = (await this.#category(teamId, categoryId)).boardIds.filter(
@@ -515,8 +509,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     );
     filed.splice(Math.max(0, Math.min(index, filed.length)), 0, boardId);
     await this.#http.request(
-      '/api/v1/teams/{teamId}/categories/{categoryId}/board-order',
-      { teamId, categoryId },
+      '/api/v1/w/{workspaceId}/categories/{categoryId}/board-order',
+      { workspaceId: teamId, categoryId },
       { method: 'PUT', json: filed },
     );
   }
@@ -530,9 +524,9 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
     return this.#sidebarTurn(teamId, async () => {
       await this.#http.request(
         hidden
-          ? '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide'
-          : '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide',
-        { teamId, categoryId, boardId },
+          ? '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/hide'
+          : '/api/v1/w/{workspaceId}/categories/{categoryId}/boards/{boardId}/unhide',
+        { workspaceId: teamId, categoryId, boardId },
         { method: 'PUT' },
       );
     });
@@ -945,8 +939,8 @@ export class ServerBackend extends ServerRequests implements Backend, Account {
   exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
     return downloadWithProgress(
       this.#http,
-      '/api/v1/teams/{teamId}/archive/export',
-      { teamId },
+      '/api/v1/w/{workspaceId}/archive/export',
+      { workspaceId: teamId },
       'archive.boardarchive',
       options,
     );

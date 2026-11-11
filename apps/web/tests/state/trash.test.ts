@@ -244,7 +244,7 @@ describe('the trash, on the server', () => {
     await backend.deletedBoards('t1');
     expect(sent).toEqual([
       'GET /api/v1/boards/b1/trash/cards?page=2&perPage=50',
-      'GET /api/v1/teams/t1/trash/boards',
+      'GET /api/v1/w/t1/trash/boards',
     ]);
   });
 });

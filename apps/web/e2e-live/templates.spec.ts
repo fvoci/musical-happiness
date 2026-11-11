@@ -20,7 +20,7 @@ import {
 test.use({ locale: 'en-US' });
 
 async function templates(api: APIRequestContext, teamId: string) {
-  const answer = await api.get(`/api/v1/teams/${teamId}/templates`);
+  const answer = await api.get(`/api/v1/w/${teamId}/templates`);
   expect(answer.ok()).toBe(true);
   return (await answer.json()) as Schemas['Board'][];
 }

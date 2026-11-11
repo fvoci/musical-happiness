@@ -40,7 +40,7 @@ test('a board of the server is listed and opens with its views, cards and member
   // sidebar by itself, and with it reads its members' names.
   const byId = page.waitForRequest(
     (request) =>
-      request.method() === 'POST' && /\/api\/v1\/teams\/[^/]+\/users$/.test(request.url()),
+      request.method() === 'POST' && /\/api\/v1\/w\/[^/]+\/users$/.test(request.url()),
   );
   await signInOnPage(page, reader);
 

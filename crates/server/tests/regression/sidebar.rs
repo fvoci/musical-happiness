@@ -17,7 +17,7 @@ pub(crate) async fn categories(s: &mut Session) {
     let other = new_board(s, &alice, "Other board", "P", json!({})).await;
     let alice_id = s.user_id(&alice).await;
     let bob_id = s.user_id(&bob).await;
-    let path = format!("{API}/teams/{ROOT_TEAM_ID}/categories");
+    let path = format!("{API}/w/{ROOT_TEAM_ID}/categories");
 
     s.get("list: default only", &path).user(&alice).await;
     s.get("list: other user", &path).user(&bob).await;
@@ -153,7 +153,7 @@ pub(crate) async fn categories(s: &mut Session) {
         .json(json!([archive, category, default]))
         .user(&alice)
         .await;
-    let reorder = format!("{API}/teams/{ROOT_TEAM_ID}/category-order");
+    let reorder = format!("{API}/w/{ROOT_TEAM_ID}/category-order");
     s.put("reorder categories", &reorder)
         .json(json!([archive, category, default]))
         .user(&alice)
@@ -437,7 +437,7 @@ pub(crate) async fn search(s: &mut Session) {
     new_board(s, &alice, "Quarterly zebra plan", "P", json!({})).await;
     new_board(s, &alice, "Open zebra notes", "O", json!({})).await;
     new_board(s, &bob, "Private zebra diary", "P", json!({})).await;
-    let team_search = format!("{API}/teams/{ROOT_TEAM_ID}/boards/search");
+    let team_search = format!("{API}/w/{ROOT_TEAM_ID}/boards/search");
 
     s.get("team search", &format!("{team_search}?q=zebra"))
         .user(&alice)

@@ -56,15 +56,12 @@ pub(crate) async fn boards(s: &mut Session) {
     s.get("get: non-member, open", &open_path).user(&bob).await;
     s.get("get: anonymous", &path).await;
     s.get("get: unknown board", &unknown).user(&alice).await;
-    s.get(
-        "list: member",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
-    )
-    .user(&alice)
-    .await;
+    s.get("list: member", &format!("{API}/w/{ROOT_TEAM_ID}/boards"))
+        .user(&alice)
+        .await;
     s.get(
         "list: other user",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/boards"),
     )
     .user(&bob)
     .await;
@@ -165,12 +162,9 @@ pub(crate) async fn boards(s: &mut Session) {
     s.get("blocks after undelete", &format!("{path}/blocks"))
         .user(&alice)
         .await;
-    s.get(
-        "list at the end",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
-    )
-    .user(&alice)
-    .await;
+    s.get("list at the end", &format!("{API}/w/{ROOT_TEAM_ID}/boards"))
+        .user(&alice)
+        .await;
 }
 
 pub(crate) async fn members(s: &mut Session) {

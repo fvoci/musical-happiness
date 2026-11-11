@@ -34,7 +34,7 @@ async function stored(
   api: APIRequestContext,
   teamId: string,
 ): Promise<Schemas['CategoryBoards'][]> {
-  const answer = await api.get(`/api/v1/teams/${teamId}/categories`);
+  const answer = await api.get(`/api/v1/w/${teamId}/categories`);
   expect(answer.ok()).toBe(true);
   return (await answer.json()) as Schemas['CategoryBoards'][];
 }

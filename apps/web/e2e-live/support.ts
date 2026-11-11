@@ -61,8 +61,13 @@ export async function invitation(baseURL: string): Promise<string> {
   const registered = await api.post('/api/v1/register', { data: ADMIN });
   if (!registered.ok() && registered.status() !== 403) await ok(registered, 'register admin');
   await ok(await api.post('/api/v1/login', { data: ADMIN }), 'login admin');
-  const teams = (await (await api.get('/api/v1/teams')).json()) as Schemas['Team'][];
-  token = teams[0]?.signupToken;
+  const [workspace] = (await (
+    await api.get('/api/v1/users/me/workspaces')
+  ).json()) as Schemas['UserWorkspace'][];
+  const team = workspace
+    ? ((await (await api.get(`/api/v1/w/${workspace.id}`)).json()) as Schemas['Team'])
+    : undefined;
+  token = team?.signupToken;
   await api.dispose();
   if (!token) throw new Error('the administrator was given no invitation');
   return token;
@@ -138,8 +143,11 @@ async function json<T>(answer: Awaited<ReturnType<APIRequestContext['get']>>, wh
 
 /** Makes a board through the API as the person `api` is signed in as, who becomes its admin. */
 export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promise<MadeBoard> {
-  const teams = await json<Schemas['Team'][]>(await api.get('/api/v1/teams'), 'teams');
-  const teamId = teams[0]?.id ?? '';
+  const workspaces = await json<Schemas['UserWorkspace'][]>(
+    await api.get('/api/v1/users/me/workspaces'),
+    'workspaces',
+  );
+  const teamId = workspaces[0]?.id ?? '';
   const statuses = plan.statuses ?? ['To do', 'Doing', 'Done'];
   const options = Object.fromEntries(statuses.map((name, at) => [name, `opt-${at}`]));
   const board = await json<Schemas['Board']>(
@@ -209,7 +217,7 @@ export async function makeBoard(api: APIRequestContext, plan: BoardPlan): Promis
   }
   for (const { who, role } of plan.members ?? []) {
     const found = await json<Schemas['User'][]>(
-      await api.get(`/api/v1/teams/${teamId}/users`, { params: { search: who.username } }),
+      await api.get(`/api/v1/w/${teamId}/users`, { params: { search: who.username } }),
       `find ${who.username}`,
     );
     const user = found.find((candidate) => candidate.username === who.username);

@@ -56,7 +56,7 @@ async fn json_answers_are_compressed_as_the_client_asks() {
     for _ in 0..3 {
         ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     }
-    let path = format!("/teams/{TEST_TEAM_ID}/boards");
+    let path = format!("/w/{TEST_TEAM_ID}/boards");
     let plain = ts.client.get(&path).await;
     plain.check_ok();
     assert_eq!(encoding(&plain), "", "nothing asked, nothing compressed");
@@ -116,7 +116,7 @@ async fn compression_can_be_turned_off() {
     ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let response = get_encoded(
         &ts.client,
-        &format!("/teams/{TEST_TEAM_ID}/boards"),
+        &format!("/w/{TEST_TEAM_ID}/boards"),
         "gzip, zstd",
     )
     .await;
@@ -160,12 +160,7 @@ async fn refusing_identity_changes_no_status() {
             "",
             "{refusal}: no encoding was acceptable"
         );
-        let listed = get_encoded(
-            &ts.client,
-            &format!("/teams/{TEST_TEAM_ID}/boards"),
-            refusal,
-        )
-        .await;
+        let listed = get_encoded(&ts.client, &format!("/w/{TEST_TEAM_ID}/boards"), refusal).await;
         assert_eq!(listed.status, StatusCode::OK, "{refusal}");
     }
     assert_eq!(

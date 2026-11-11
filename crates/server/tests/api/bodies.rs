@@ -607,7 +607,7 @@ async fn the_routes_of_blocks_refuse_what_a_body_may_not_be() {
     );
     let boards = th
         .client
-        .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
+        .get(&format!("/w/{TEST_TEAM_ID}/boards"))
         .await
         .value();
     assert_eq!(boards.as_array().map(Vec::len), Some(1), "{boards}");

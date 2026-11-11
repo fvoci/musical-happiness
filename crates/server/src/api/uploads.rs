@@ -16,7 +16,7 @@ use utoipa_axum::routes;
 
 use super::archive::require_import_access;
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, ContentDigest, PartNumber, TeamId, UploadId};
+use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId, WorkspaceId};
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
@@ -229,10 +229,10 @@ async fn handle_create_upload(
 /// are not guests, as `importArchive`.
 #[utoipa::path(
     post,
-    path = "/teams/{teamId}/archive/uploads",
+    path = "/w/{workspaceId}/archive/uploads",
     operation_id = "createImportUpload",
     tag = tag::ARCHIVES,
-    params(TeamId),
+    params(WorkspaceId),
     request_body = NewUpload,
     responses((status = 201, description = "The upload is open.", body = UploadOpened)),
 )]
@@ -242,17 +242,17 @@ async fn handle_create_import_upload(
     Path(team_id): Path<String>,
     body: Bytes,
 ) -> ApiResult {
-    let user_id = session.user_id.as_str();
-    require_import_access(&app, user_id, &team_id).await?;
+    let ws = require_import_access(&app, session, team_id).await?;
     let NewUpload {
         name,
         size,
         content_type,
     } = decode_object(&body)?;
-    let upload = app
+    let upload = ws
+        .app
         .create_import_upload(
-            user_id,
-            &team_id,
+            &ws.session.user_id,
+            &ws.workspace_id,
             FileToUpload {
                 name,
                 size,

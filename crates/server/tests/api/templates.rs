@@ -23,7 +23,7 @@ async fn get_templates_returns_the_built_in_templates() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -96,7 +96,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
 
@@ -123,7 +123,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
     ts.teardown().await;
 }
 
-/// `GET /teams/0/templates` without a session is a 401 (verified on the oracle).
+/// `GET /w/0/templates` without a session is a 401 (verified on the oracle).
 #[tokio::test]
 async fn get_templates_without_a_session_is_401() {
     let ts = Setup::native()
@@ -133,7 +133,7 @@ async fn get_templates_without_a_session_is_401() {
         .init_basic()
         .await;
     ts.anonymous()
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .check_unauthorized();
     ts.teardown().await;
@@ -207,7 +207,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     };
     let before: Vec<Board> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json();
     let marked_before = marked(&before);
@@ -237,7 +237,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     );
     let after: Vec<Board> = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json();
     assert_eq!(after.len(), before.len(), "the same number of templates");
@@ -245,7 +245,7 @@ async fn templates_without_the_onboarding_mark_are_imported_again() {
     assert_eq!(marked_after.len(), 1, "one marked template again");
     assert_ne!(marked_after, marked_before, "a newly imported board");
     ts.client
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/onboard"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/onboard"))
         .await
         .check_ok();
     ts.teardown().await;
@@ -265,7 +265,7 @@ async fn a_built_in_template_cannot_be_joined_or_changed() {
         .await;
     let templates = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
     let welcome = templates
@@ -381,7 +381,7 @@ async fn the_built_in_templates_are_the_template_files() {
         .await;
     let boards = ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/templates"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/templates"))
         .await
         .ok_json::<Vec<Board>>();
     let files = template_files();

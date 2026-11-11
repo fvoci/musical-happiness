@@ -15,7 +15,7 @@ use super::media::Scene;
 async fn import_bytes(client: &Client, team: &str, bytes: Vec<u8>) {
     let opened = client
         .post(
-            &format!("/teams/{team}/archive/uploads"),
+            &format!("/w/{team}/archive/uploads"),
             &json!({"name": "transfer.zip", "size": bytes.len()}),
         )
         .await;
@@ -35,7 +35,7 @@ async fn import_bytes(client: &Client, team: &str, bytes: Vec<u8>) {
     .check_no_content();
     client
         .post(
-            &format!("/teams/{team}/archive/import"),
+            &format!("/w/{team}/archive/import"),
             &json!({"uploadId": upload}),
         )
         .await
@@ -166,7 +166,7 @@ async fn an_authorized_archive_transfer_remaps_ids_files_and_members_into_the_de
     let boards: Vec<Board> = scene
         .ts
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/boards"))
         .await
         .ok_json();
     let imported = boards

@@ -82,13 +82,13 @@ impl Hidden {
 
         // Listing creates the default category; then one of the owner's own.
         th.client
-            .get(&format!("/teams/{TEST_TEAM_ID}/categories"))
+            .get(&format!("/w/{TEST_TEAM_ID}/categories"))
             .await
             .check_ok();
         let category: Category = th
             .client
             .post(
-                &format!("/teams/{TEST_TEAM_ID}/categories"),
+                &format!("/w/{TEST_TEAM_ID}/categories"),
                 &json!({"name": "Hidden", "userId": owner.id, "teamId": TEST_TEAM_ID}),
             )
             .await
@@ -148,13 +148,13 @@ impl Hidden {
             .created_json();
         created.pop().expect("the text is created");
         th.client2
-            .get(&format!("/teams/{TEST_TEAM_ID}/categories"))
+            .get(&format!("/w/{TEST_TEAM_ID}/categories"))
             .await
             .check_ok();
         let own_category: Category = th
             .client2
             .post(
-                &format!("/teams/{TEST_TEAM_ID}/categories"),
+                &format!("/w/{TEST_TEAM_ID}/categories"),
                 &json!({"name": "Own", "userId": outsider, "teamId": TEST_TEAM_ID}),
             )
             .await
@@ -418,29 +418,24 @@ fn cases() -> Vec<Case> {
         // The owner's category.
         case(
             Method::PUT,
-            |h, i| format!("/teams/{TEST_TEAM_ID}/categories/{}", h.category[i]),
+            |h, i| format!("/w/{TEST_TEAM_ID}/categories/{}", h.category[i]),
             |h, i| json!({"id": h.category[i], "name": "x", "teamId": TEST_TEAM_ID}),
         ),
         case(
             Method::DELETE,
-            |h, i| format!("/teams/{TEST_TEAM_ID}/categories/{}", h.category[i]),
+            |h, i| format!("/w/{TEST_TEAM_ID}/categories/{}", h.category[i]),
             no_body,
         ),
         case(
             Method::PUT,
-            |h, i| {
-                format!(
-                    "/teams/{TEST_TEAM_ID}/categories/{}/board-order",
-                    h.category[i]
-                )
-            },
+            |h, i| format!("/w/{TEST_TEAM_ID}/categories/{}/board-order", h.category[i]),
             |_, _| json!([]),
         ),
         case(
             Method::POST,
             |h, i| {
                 format!(
-                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}",
+                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}",
                     h.category[i], h.board[i]
                 )
             },
@@ -450,7 +445,7 @@ fn cases() -> Vec<Case> {
             Method::PUT,
             |h, i| {
                 format!(
-                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}/hide",
+                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}/hide",
                     h.category[i], h.board[i]
                 )
             },
@@ -559,7 +554,7 @@ fn mixed_cases() -> Vec<Case> {
             Method::POST,
             |h, i| {
                 format!(
-                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}",
+                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}",
                     h.own_category, h.board[i]
                 )
             },
@@ -569,7 +564,7 @@ fn mixed_cases() -> Vec<Case> {
             Method::PUT,
             |h, i| {
                 format!(
-                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}/hide",
+                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}/hide",
                     h.own_category, h.board[i]
                 )
             },
@@ -579,7 +574,7 @@ fn mixed_cases() -> Vec<Case> {
             Method::PUT,
             |h, i| {
                 format!(
-                    "/teams/{TEST_TEAM_ID}/categories/{}/boards/{}/unhide",
+                    "/w/{TEST_TEAM_ID}/categories/{}/boards/{}/unhide",
                     h.own_category, h.board[i]
                 )
             },
@@ -588,7 +583,7 @@ fn mixed_cases() -> Vec<Case> {
         // A new category that names the identifier of somebody's category.
         case(
             Method::POST,
-            |_, _| format!("/teams/{TEST_TEAM_ID}/categories"),
+            |_, _| format!("/w/{TEST_TEAM_ID}/categories"),
             |h, i| {
                 json!({
                     "id": h.category[i], "name": "x",
@@ -801,22 +796,18 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
 
     // `{}` stands for the identifier that is asked about.
     let requests: Vec<(Method, String, Value)> = vec![
-        (Method::GET, "/teams/{}".to_owned(), Value::Null),
-        (Method::GET, "/teams/{}/boards".to_owned(), Value::Null),
-        (Method::GET, "/teams/{}/templates".to_owned(), Value::Null),
-        (Method::GET, "/teams/{}/users".to_owned(), Value::Null),
-        (Method::GET, "/teams/{}/categories".to_owned(), Value::Null),
+        (Method::GET, "/w/{}".to_owned(), Value::Null),
+        (Method::GET, "/w/{}/boards".to_owned(), Value::Null),
+        (Method::GET, "/w/{}/templates".to_owned(), Value::Null),
+        (Method::GET, "/w/{}/users".to_owned(), Value::Null),
+        (Method::GET, "/w/{}/categories".to_owned(), Value::Null),
         (
             Method::GET,
-            "/teams/{}/boards/search?q=x".to_owned(),
+            "/w/{}/boards/search?q=x".to_owned(),
             Value::Null,
         ),
-        (Method::POST, "/teams/{}/onboard".to_owned(), Value::Null),
-        (
-            Method::POST,
-            "/teams/{}/signup-token".to_owned(),
-            Value::Null,
-        ),
+        (Method::POST, "/w/{}/onboard".to_owned(), Value::Null),
+        (Method::POST, "/w/{}/signup-token".to_owned(), Value::Null),
         (Method::GET, "/users/{}".to_owned(), Value::Null),
         (Method::GET, "/subscriptions/{}".to_owned(), Value::Null),
         (
@@ -888,27 +879,27 @@ async fn text_that_is_no_identifier_answers_as_an_identifier_of_nothing() {
         ),
         (
             Method::PUT,
-            format!("/teams/{team}/categories/{{}}"),
+            format!("/w/{team}/categories/{{}}"),
             json!({"id": "{}", "name": "x", "userId": me, "teamId": team}),
         ),
         (
             Method::DELETE,
-            format!("/teams/{team}/categories/{{}}"),
+            format!("/w/{team}/categories/{{}}"),
             Value::Null,
         ),
         (
             Method::POST,
-            format!("/teams/{team}/categories/{{}}/boards/{board}"),
+            format!("/w/{team}/categories/{{}}/boards/{board}"),
             Value::Null,
         ),
         (
             Method::POST,
-            format!("/teams/{team}/categories/{category}/boards/{{}}"),
+            format!("/w/{team}/categories/{category}/boards/{{}}"),
             Value::Null,
         ),
         (
             Method::PUT,
-            format!("/teams/{team}/categories/{category}/boards/{{}}/hide"),
+            format!("/w/{team}/categories/{category}/boards/{{}}/hide"),
             Value::Null,
         ),
         (

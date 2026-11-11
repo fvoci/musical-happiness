@@ -79,7 +79,7 @@
   },
   {
     "name": "team search",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q=zebra as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -127,7 +127,7 @@
   },
   {
     "name": "team search: other user",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q=zebra as search-bob",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as search-bob",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -175,28 +175,28 @@
   },
   {
     "name": "team search: no match",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q=giraffe as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q=giraffe as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "team search: empty term",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q= as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q= as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "team search: no term",
-    "request": "GET /api/v1/teams/<id:3>/boards/search as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": []
   },
   {
     "name": "team search: case",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q=ZEBRA as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q=ZEBRA as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -244,7 +244,7 @@
   },
   {
     "name": "team search: by field",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q=zebra&field=title as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra&field=title as search-alice",
     "status": 200,
     "content_type": "application/json",
     "body": [
@@ -292,7 +292,7 @@
   },
   {
     "name": "team search: bad field",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q=zebra&field=nope as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra&field=nope as search-alice",
     "status": 400,
     "content_type": "application/problem+json",
     "body": {
@@ -306,7 +306,7 @@
   },
   {
     "name": "team search: anonymous",
-    "request": "GET /api/v1/teams/<id:3>/boards/search?q=zebra as anonymous",
+    "request": "GET /api/v1/w/<id:3>/boards/search?q=zebra as anonymous",
     "status": 401,
     "content_type": "application/problem+json",
     "body": {
@@ -375,7 +375,7 @@
   },
   {
     "name": "linkable search",
-    "request": "GET /api/v1/teams/<id:3>/boards/search/linkable?q=zebra as search-alice",
+    "request": "GET /api/v1/w/<id:3>/boards/search/linkable?q=zebra as search-alice",
     "status": 404,
     "content_type": "application/problem+json",
     "body": {

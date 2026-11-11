@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use fvoci_model::{
-    Block, BlockType, Board, BoardMember, BoardType, OrgRole, Team, User, WorkspaceRole, new_id,
+    Block, BlockType, Board, BoardMember, BoardType, OrgRole, Team, User, UserWorkspace,
+    WorkspaceRole, new_id,
 };
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, SharingChange, Store, Tenant};
@@ -108,12 +109,9 @@ async fn another_organizations_user_cannot_discover_the_oldest_workspace() {
         .await
         .check_not_found();
 
-    let team = ts.client2.get(&format!("/teams/{ROOT_TEAM_ID}")).await;
-    let boards = ts
-        .client2
-        .get(&format!("/teams/{ROOT_TEAM_ID}/boards"))
-        .await;
-    let teams: Vec<Team> = ts.client2.get("/teams").await.ok_json();
+    let team = ts.client2.get(&format!("/w/{ROOT_TEAM_ID}")).await;
+    let boards = ts.client2.get(&format!("/w/{ROOT_TEAM_ID}/boards")).await;
+    let teams: Vec<UserWorkspace> = ts.client2.get("/users/me/workspaces").await.ok_json();
     ts.teardown().await;
 
     assert_eq!(
@@ -229,7 +227,7 @@ async fn a_team_user_search_and_profile_lookup_do_not_expose_another_organizatio
     let found: Vec<User> = ts
         .client2
         .get(&format!(
-            "/teams/{ROOT_TEAM_ID}/users?search=confidential.other"
+            "/w/{ROOT_TEAM_ID}/users?search=confidential.other"
         ))
         .await
         .ok_json();

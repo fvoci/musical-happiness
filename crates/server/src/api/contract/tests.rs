@@ -482,7 +482,6 @@ const ORDERS: &[(&str, &str)] = &[
         "getBlocks",
         "Oldest first; the blocks that one request made come in the order that request had them in",
     ),
-    ("getBoards", "Oldest first"),
     ("getCards", "Oldest first; the pages cut that order"),
     ("getCategories", "by `sortOrder`, lowest first"),
     ("getCommentVersions", "The first one first"),
@@ -506,7 +505,6 @@ const ORDERS: &[(&str, &str)] = &[
         "getTeamUsersById",
         "Oldest account first, not in the order of the request",
     ),
-    ("getTeams", "oldest first"),
     ("getTemplates", "Each of the two oldest first"),
     (
         "getUsers",

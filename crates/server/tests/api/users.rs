@@ -502,13 +502,13 @@ async fn users_list_and_profiles() {
 
     let team_users: Vec<User> = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/users"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/users"))
         .await
         .ok_json();
     assert_eq!(team_users.len(), 2, "the team has both users");
     let found: Vec<User> = th
         .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/users?search=user2"))
+        .get(&format!("/w/{ROOT_TEAM_ID}/users?search=user2"))
         .await
         .ok_json();
     assert_eq!(found.len(), 1, "the search narrows the list");
@@ -516,7 +516,7 @@ async fn users_list_and_profiles() {
 
     let by_id: Vec<User> = th
         .client
-        .post(&format!("/teams/{ROOT_TEAM_ID}/users"), &[&user2.id])
+        .post(&format!("/w/{ROOT_TEAM_ID}/users"), &[&user2.id])
         .await
         .ok_json();
     assert_eq!(by_id.len(), 1, "one user was asked for");
@@ -1022,7 +1022,7 @@ async fn client_state_is_bounded_and_apart_from_the_settings() {
 async fn teams() {
     let th = Setup::native().start().await.init_basic().await;
 
-    let teams = th.client.get("/teams").await.value();
+    let teams = th.client.get("/users/me/workspaces").await.value();
     assert_eq!(
         teams.as_array().map(Vec::len),
         Some(2),
@@ -1037,14 +1037,10 @@ async fn teams() {
     // A team is asked for by its identifier. Any other identifier, well-formed or
     // not, names no team; the original answered the root team to whatever was asked.
     for no_team in [UNKNOWN_ID, "some-other-team", "0"] {
-        let response = th.client.get(&format!("/teams/{no_team}")).await;
-        response.check_error(StatusCode::NOT_FOUND, "team not found");
+        let response = th.client.get(&format!("/w/{no_team}")).await;
+        response.check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
-    let team = th
-        .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
-        .await
-        .value();
+    let team = th.client.get(&format!("/w/{ROOT_TEAM_ID}")).await.value();
     assert_eq!(team["id"], json!(ROOT_TEAM_ID), "{team}");
     let signup_token = team["signupToken"].as_str().unwrap_or_default().to_owned();
     assert_eq!(
@@ -1054,35 +1050,27 @@ async fn teams() {
     );
 
     th.client
-        .post_empty(&format!("/teams/{ROOT_TEAM_ID}/signup-token"))
+        .post_empty(&format!("/w/{ROOT_TEAM_ID}/signup-token"))
         .await
         .check_ok();
-    let regenerated = th
-        .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
-        .await
-        .value();
+    let regenerated = th.client.get(&format!("/w/{ROOT_TEAM_ID}")).await.value();
     assert_ne!(
         regenerated["signupToken"],
         json!(signup_token),
         "the token changed"
     );
-    let other = th
-        .client
-        .get(&format!("/teams/{TEST_TEAM_ID}"))
-        .await
-        .value();
+    let other = th.client.get(&format!("/w/{TEST_TEAM_ID}")).await.value();
     assert_ne!(
         other["signupToken"], regenerated["signupToken"],
         "each team has a token of its own"
     );
     th.client
-        .post_empty(&format!("/teams/{UNKNOWN_ID}/signup-token"))
+        .post_empty(&format!("/w/{UNKNOWN_ID}/signup-token"))
         .await
-        .check_error(StatusCode::NOT_FOUND, "team not found");
+        .check_error(StatusCode::NOT_FOUND, "workspace not found");
 
     th.anonymous()
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
+        .get(&format!("/w/{ROOT_TEAM_ID}"))
         .await
         .check_unauthorized();
     th.teardown().await;
@@ -1517,7 +1505,7 @@ async fn a_user_has_a_display_name_of_their_choosing() {
     assert_eq!(th.client.me().await.display_name, "Michael Scott 🎉");
 
     // Found by either name, whatever the case.
-    let search = |query: &str| format!("/teams/{ROOT_TEAM_ID}/users?search={query}");
+    let search = |query: &str| format!("/w/{ROOT_TEAM_ID}/users?search={query}");
     let found: Vec<User> = jim.get(&search("scott")).await.ok_json();
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].id, me.id);

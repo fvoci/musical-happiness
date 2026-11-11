@@ -63,8 +63,11 @@ export function userOf(user: Schemas['User']): User {
   };
 }
 
-export function teamOf(team: Schemas['Team']): Team {
-  return { id: team.id, title: team.title };
+/** The workspaces the reader works in, not those they are a guest of, in the server's order. */
+export function teamsOf(workspaces: Schemas['UserWorkspace'][]): Team[] {
+  return workspaces
+    .filter((workspace) => workspace.role !== 'guest')
+    .map((workspace) => ({ id: workspace.id, title: workspace.name }));
 }
 
 export function boardOf(board: Schemas['Board']): Board {

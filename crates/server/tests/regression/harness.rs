@@ -377,7 +377,7 @@ impl Http {
     pub(crate) async fn signup_token(&self, token: &str) -> String {
         self.api(
             Method::GET,
-            &format!("{API}/teams/{ROOT_TEAM_ID}"),
+            &format!("{API}/w/{ROOT_TEAM_ID}"),
             Payload::None,
             &Caller::Token(token.to_owned()),
         )

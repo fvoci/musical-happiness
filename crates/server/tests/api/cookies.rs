@@ -185,7 +185,7 @@ async fn a_change_with_the_cookie_needs_the_request_forgery_header() {
     browser.get("/users/me").await.check_ok();
 
     // Reading with the cookie alone: as a link or an image tag does.
-    for path in ["/users/me", "/teams", "/users/me/settings"] {
+    for path in ["/users/me", "/users/me/workspaces", "/users/me/settings"] {
         Client::send(browser.bare_request(Method::GET, path))
             .await
             .check_ok();

@@ -182,7 +182,7 @@ pub(crate) async fn trash(s: &mut Session) {
     .await;
     s.get(
         "boards of the team: not listed",
-        &format!("{API}/teams/{ROOT_TEAM_ID}/boards"),
+        &format!("{API}/w/{ROOT_TEAM_ID}/boards"),
     )
     .user(&alice)
     .await;

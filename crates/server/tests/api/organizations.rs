@@ -189,14 +189,17 @@ async fn org_creation_is_one_of_two_words_and_open_needs_postgresql() {
 #[tokio::test]
 async fn a_first_start_makes_the_organization_and_its_workspace() {
     let ts = Setup::one_user().on_an_empty_database().start().await;
-    let teams: Vec<fvoci_model::Team> = ts.client.get("/teams").await.ok_json();
-    assert_eq!(teams.len(), 1, "one team: {teams:?}");
-    assert!(!teams[0].signup_token.is_empty(), "with a signup token");
     let workspaces: Vec<fvoci_model::UserWorkspace> =
         ts.client.get("/users/me/workspaces").await.ok_json();
     assert_eq!(workspaces.len(), 1, "one workspace: {workspaces:?}");
-    assert_eq!(workspaces[0].id, teams[0].id, "the team is the workspace");
     assert_eq!(workspaces[0].role, fvoci_model::WorkspaceRole::Admin);
+    let teams: Vec<fvoci_model::Team> = vec![
+        ts.client
+            .get(&format!("/w/{}", workspaces[0].id))
+            .await
+            .ok_json(),
+    ];
+    assert!(!teams[0].signup_token.is_empty(), "with a signup token");
     // And it is there to work in.
     let board = ts.create_board(&teams[0].id, BoardType::Private).await;
     let boards: Vec<fvoci_model::Board> = ts

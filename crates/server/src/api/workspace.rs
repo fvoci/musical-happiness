@@ -4,17 +4,18 @@
 //! workspace, with the application reaching the rows of the workspace's organization.
 //! For anybody else the workspace is not there (404), whether it exists or not.
 
+use axum::body::Bytes;
 use axum::extract::rejection::RawPathParamsRejection;
-use axum::extract::{FromRequestParts, RawPathParams, State};
+use axum::extract::{FromRequestParts, Path, RawPathParams, RawQuery, State};
 use axum::http::request::Parts;
-use fvoci_model::{Board, Session, UserWorkspace, WorkspaceRole};
+use fvoci_model::{Board, Session, Team, User, UserWorkspace, WorkspaceRole};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::params::WorkspaceId;
+use super::contract::params::{UserSearch, WorkspaceId};
 use super::contract::tag;
 use super::session::session_of;
-use super::{ApiResult, RequiredSession, json_response};
+use super::{ApiResult, RequiredSession, decode_json, json_response, query_param, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 
@@ -25,6 +26,8 @@ pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_my_workspaces))
         .routes(routes!(handle_get_workspace_boards))
+        .routes(routes!(handle_get_team))
+        .routes(routes!(handle_get_team_users, handle_get_team_users_by_id))
 }
 
 /// The workspace a request names in its path, for a member of it.
@@ -65,6 +68,24 @@ impl FromRequestParts<App> for Ws {
             .find(|(name, _)| *name == WORKSPACE_ID)
             .map(|(_, value)| value.to_owned())
             .ok_or_else(|| AppError::internal("the route names no workspace"))?;
+        Self::enter(app, session, workspace_id).await
+    }
+}
+
+impl Ws {
+    /// The workspace for the session's user, as the extractor finds it: for a route
+    /// that looks at something of the request (its body, its query) before it asks
+    /// whether the workspace is there.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 unless the user is a member of the workspace, and the store's error
+    /// if the membership cannot be read.
+    pub(crate) async fn enter(
+        app: &App,
+        session: Session,
+        workspace_id: String,
+    ) -> Result<Self, AppError> {
         let entered = app
             .enter_workspace(&session.user_id, &workspace_id)
             .await?
@@ -75,6 +96,38 @@ impl FromRequestParts<App> for Ws {
             workspace_id,
             role: entered.role,
         })
+    }
+
+    /// The workspace for one who works in it: a member who is no guest. A guest of the
+    /// workspace is on the boards they were invited to and reaches those by their
+    /// board; for the rest of the workspace (its sidebar, its templates, its users,
+    /// its archives) a guest is told what anybody else is, that it is not there.
+    ///
+    /// # Errors
+    ///
+    /// Returns 404 for a guest.
+    pub(crate) fn works_there(self) -> Result<Self, AppError> {
+        if self.role == WorkspaceRole::Guest {
+            return Err(workspace_not_found());
+        }
+        Ok(self)
+    }
+}
+
+/// The workspace a request names in its path, for one who works in it: [`Ws`] for a
+/// member who is no guest ([`Ws::works_there`]). A guest is told what anybody else is:
+/// 404.
+#[derive(Debug)]
+pub(crate) struct WorksIn(pub(crate) Ws);
+
+impl FromRequestParts<App> for WorksIn {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &App) -> Result<Self, Self::Rejection> {
+        Ws::from_request_parts(parts, app)
+            .await?
+            .works_there()
+            .map(Self)
     }
 }
 
@@ -121,4 +174,78 @@ async fn handle_get_workspace_boards(ws: Ws) -> ApiResult {
         .workspace_boards(&ws.session.user_id, &ws.workspace_id, ws.role)
         .await?;
     Ok(json_response(&boards))
+}
+
+/// A team
+///
+/// The signup token, which lets in whoever has it, is there for administrators only.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}",
+    operation_id = "getTeam",
+    tag = tag::TEAMS,
+    params(WorkspaceId),
+    responses((status = 200, description = "The team.", body = Team)),
+)]
+async fn handle_get_team(WorksIn(ws): WorksIn) -> ApiResult {
+    let mut team = ws.app.team(&ws.workspace_id).await?;
+    // The signup token lets anyone in who has it: it is for the administrators, who
+    // hand it on, and is left out for everybody else.
+    if !ws.app.user(&ws.session.user_id).await?.is_admin {
+        team.signup_token.clear();
+    }
+    Ok(json_response(&team))
+}
+
+/// The users of a team
+///
+/// Up to ten users: with `search` those whose login name or display name has that text
+/// in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
+/// account first.
+#[utoipa::path(
+    get,
+    path = "/w/{workspaceId}/users",
+    operation_id = "getTeamUsers",
+    tag = tag::TEAMS,
+    params(WorkspaceId, UserSearch),
+    responses((status = 200, description = "The users.", body = Vec<User>)),
+)]
+async fn handle_get_team_users(WorksIn(ws): WorksIn, RawQuery(query): RawQuery) -> ApiResult {
+    let search_query = query_param(query.as_deref(), "search");
+    // There are no guests to treat differently, but the user must exist.
+    user_is_guest(&ws.app, &ws.session.user_id).await?;
+    Ok(json_response(
+        &ws.app.search_team_users(&search_query).await?,
+    ))
+}
+
+/// Users of a team by their identifiers
+///
+/// The users with the identifiers of the body, which must name at least one: an empty
+/// list is 400. Every identifier must be a user's and none may be there twice;
+/// otherwise the request is 404. Oldest account first, not in the order of the request.
+#[utoipa::path(
+    post,
+    path = "/w/{workspaceId}/users",
+    operation_id = "getTeamUsersById",
+    tag = tag::TEAMS,
+    params(WorkspaceId),
+    request_body = Vec<String>,
+    responses((status = 200, description = "The users.", body = Vec<User>)),
+)]
+async fn handle_get_team_users_by_id(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path(workspace_id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    // The body is read before the workspace is asked for, as it always was.
+    let user_ids: Vec<String> = decode_json(&body)?;
+    let ws = Ws::enter(&app, session, workspace_id)
+        .await?
+        .works_there()?;
+    if user_ids.is_empty() {
+        return Err(AppError::bad_request("User IDs are empty"));
+    }
+    Ok(json_response(&ws.app.users_list(&user_ids).await?))
 }

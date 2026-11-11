@@ -60,7 +60,7 @@ fn titled(title: &str, board_type: BoardType, team_id: &str) -> Board {
 /// `SearchBoardsForTeam`
 async fn search_team(client: &Client, team_id: &str, term: &str) -> ApiResponse {
     client
-        .get(&format!("/teams/{team_id}/boards/search?q={term}"))
+        .get(&format!("/w/{team_id}/boards/search?q={term}"))
         .await
 }
 
@@ -234,9 +234,9 @@ async fn search_without_a_term_finds_nothing() {
     let (th, _open, _private) = two_boards().await;
 
     for path in [
-        &format!("/teams/{ROOT_TEAM_ID}/boards/search"),
-        &format!("/teams/{ROOT_TEAM_ID}/boards/search?q="),
-        &format!("/teams/{ROOT_TEAM_ID}/boards/search?field=title"),
+        &format!("/w/{ROOT_TEAM_ID}/boards/search"),
+        &format!("/w/{ROOT_TEAM_ID}/boards/search?q="),
+        &format!("/w/{ROOT_TEAM_ID}/boards/search?field=title"),
         "/boards/search",
         "/boards/search?q=",
     ] {
@@ -294,7 +294,7 @@ async fn search_boards_of_a_team() {
     // The team has to be one, though.
     for no_team in [UNKNOWN_ID, "another-team"] {
         let response = search_team(&th.client, no_team, "b").await;
-        response.check_error(StatusCode::NOT_FOUND, "team not found");
+        response.check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
 
     th.teardown().await;
@@ -319,7 +319,7 @@ async fn search_boards_by_field() {
     .await;
     let search = async |query: &str| {
         th.client
-            .get(&format!("/teams/{ROOT_TEAM_ID}/boards/search?{query}"))
+            .get(&format!("/w/{ROOT_TEAM_ID}/boards/search?{query}"))
             .await
     };
 
@@ -379,7 +379,7 @@ async fn searches_answer_the_same_on_both_databases() {
     .await;
     let search = async |query: &str| {
         th.client
-            .get(&format!("/teams/{ROOT_TEAM_ID}/boards/search?{query}"))
+            .get(&format!("/w/{ROOT_TEAM_ID}/boards/search?{query}"))
             .await
     };
     for query in [
@@ -464,7 +464,7 @@ async fn search_routes_of_the_host_application_do_not_exist() {
     let paths = [
         &format!("/teams/{ROOT_TEAM_ID}/channels"),
         &format!("/teams/{ROOT_TEAM_ID}/channels?search=x"),
-        &format!("/teams/{ROOT_TEAM_ID}/boards/search/linkable?q=b"),
+        &format!("/w/{ROOT_TEAM_ID}/boards/search/linkable?q=b"),
     ];
 
     for path in paths {

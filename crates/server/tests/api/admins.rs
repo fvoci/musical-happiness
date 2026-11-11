@@ -45,10 +45,7 @@ fn check_admins_only(response: &ApiResponse) {
 }
 
 async fn team_as(client: &Client) -> Value {
-    client
-        .get(&format!("/teams/{ROOT_TEAM_ID}"))
-        .await
-        .ok_json()
+    client.get(&format!("/w/{ROOT_TEAM_ID}")).await.ok_json()
 }
 
 /// The first user to register is the administrator; whoever registers after is not.
@@ -200,20 +197,16 @@ async fn the_signup_token_is_for_administrators() {
     );
     assert_eq!(for_other["id"], for_admin["id"], "the same team otherwise");
 
-    let listed_for_admin: Vec<Team> = th.client.get("/teams").await.ok_json();
-    let listed_for_other: Vec<Value> = th.client2.get("/teams").await.ok_json();
-    assert!(
-        listed_for_admin
-            .iter()
-            .all(|team| !team.signup_token.is_empty()),
-        "the list has the tokens for the administrator"
-    );
-    assert!(
-        listed_for_other
-            .iter()
-            .all(|team| team.get("signupToken").is_none()),
-        "and not for anybody else: {listed_for_other:?}"
-    );
+    // The list of a user's workspaces carries no token, for anybody.
+    for client in [&th.client, &th.client2] {
+        let listed: Vec<Value> = client.get("/users/me/workspaces").await.ok_json();
+        assert!(
+            listed
+                .iter()
+                .all(|workspace| workspace.get("signupToken").is_none()),
+            "{listed:?}"
+        );
+    }
 
     th.teardown().await;
 }
@@ -223,7 +216,7 @@ async fn the_signup_token_is_for_administrators() {
 #[tokio::test]
 async fn an_administrator_renews_the_signup_token() {
     let th = Setup::native().start().await.init_basic().await;
-    let path = format!("/teams/{ROOT_TEAM_ID}/signup-token");
+    let path = format!("/w/{ROOT_TEAM_ID}/signup-token");
     let old = team_as(&th.client).await["signupToken"]
         .as_str()
         .expect("the token")
@@ -233,9 +226,9 @@ async fn an_administrator_renews_the_signup_token() {
     // A team that does not exist is not found, whoever asks.
     for client in [&th.client, &th.client2] {
         client
-            .post_empty(&format!("/teams/{UNKNOWN_ID}/signup-token"))
+            .post_empty(&format!("/w/{UNKNOWN_ID}/signup-token"))
             .await
-            .check_error(StatusCode::NOT_FOUND, "team not found");
+            .check_error(StatusCode::NOT_FOUND, "workspace not found");
     }
     assert_eq!(
         team_as(&th.client).await["signupToken"],
