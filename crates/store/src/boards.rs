@@ -967,19 +967,26 @@ pub(crate) async fn delete_member(
     Ok(())
 }
 
-/// Appends one condition per space-separated word of `term`: the board's title must
-/// contain the word, ignoring case.
-fn push_title_words(sql: &mut Sql, term: &str) {
-    // Preserved quirk: the words are split at single spaces, so two spaces in a row
-    // yield an empty word that matches every title, and `%` and `_` in a word are `LIKE`
-    // wildcards. On SQLite `lower()` only folds ASCII letters, so a title with other
-    // capital letters is not found (`server/services/store/sqlstore/board.go:691-695`).
-    for word in term.trim().split(' ') {
-        sql.push_bind(
-            " AND lower(b.title) LIKE ",
-            format!("%{}%", word.to_lowercase()),
-        );
+/// Whether the title contains every space-separated word of `term`, ignoring case.
+///
+/// Compared here rather than in SQL, so that both databases fold every letter the same
+/// way (SQLite's `lower()` folds ASCII letters only) and `%` and `_` are characters
+/// like any other. Preserved quirk: the words are split at single spaces, so two spaces
+/// in a row yield an empty word, which every title contains
+/// (`server/services/store/sqlstore/board.go:691-695`).
+fn title_has_words(title: &str, term: &str) -> bool {
+    let title = title.to_lowercase();
+    term.trim()
+        .split(' ')
+        .all(|word| title.contains(&word.to_lowercase()))
+}
+
+/// Keeps the boards whose title has the words of `term`; an empty term keeps all.
+fn with_title_words(mut boards: Vec<Board>, term: &str) -> Vec<Board> {
+    if !term.is_empty() {
+        boards.retain(|board| title_has_words(&board.title, term));
     }
+    boards
 }
 
 pub(crate) async fn search_boards_for_user(
@@ -990,27 +997,29 @@ pub(crate) async fn search_boards_for_user(
     public_boards: PublicBoards,
 ) -> Result<Vec<Board>, StoreError> {
     let mut sql = select_boards_of_user(scope, user_id, public_boards);
-    if !term.is_empty() {
-        match search_field {
-            BoardSearchField::Title => push_title_words(&mut sql, term),
-            BoardSearchField::PropertyName => match scope.dialect() {
-                Dialect::Postgres => {
-                    sql.push_bind(" AND b.properties -> ", term)
-                        .push(" IS NOT NULL");
-                }
-                Dialect::Sqlite => {
-                    // Preserved quirk: the term becomes part of a JSON path, so on SQLite
-                    // `a.b` finds a nested property, a property set to `null` is not
-                    // found, and a term that is not a valid path is a database error
-                    // (`server/services/store/sqlstore/board.go:678-680`).
-                    sql.push_bind(" AND JSON_EXTRACT(b.properties, ", format!("$.{term}"))
-                        .push(") IS NOT NULL");
-                }
-            },
+    if !term.is_empty() && search_field == BoardSearchField::PropertyName {
+        // A board property of that name, whatever its value, `null` too; a name is no
+        // path, so `a.b` is a name with a dot.
+        match scope.dialect() {
+            Dialect::Postgres => {
+                sql.push_bind(" AND b.properties -> ", term)
+                    .push(" IS NOT NULL");
+            }
+            Dialect::Sqlite => {
+                sql.push_bind(
+                    " AND EXISTS (SELECT 1 FROM json_each(b.properties) AS p WHERE p.key = ",
+                    term,
+                )
+                .push(")");
+            }
         }
     }
     sql.push(OLDEST_BOARD_FIRST);
-    fetch_boards(scope, sql).await
+    let boards = fetch_boards(scope, sql).await?;
+    Ok(match search_field {
+        BoardSearchField::Title => with_title_words(boards, term),
+        BoardSearchField::PropertyName => boards,
+    })
 }
 
 pub(crate) async fn search_boards_for_user_in_team(
@@ -1030,11 +1039,8 @@ pub(crate) async fn search_boards_for_user_in_team(
         .push_bind(" OR (b.type = ", BoardType::Private.as_str())
         .push_bind(" AND bm.user_id = ", Id(user_id))
         .push("))");
-    if !term.is_empty() {
-        push_title_words(&mut sql, term);
-    }
     sql.push(OLDEST_BOARD_FIRST);
-    fetch_boards(scope, sql).await
+    Ok(with_title_words(fetch_boards(scope, sql).await?, term))
 }
 
 pub(crate) async fn get_template_boards(

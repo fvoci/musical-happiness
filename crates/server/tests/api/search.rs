@@ -5,7 +5,7 @@
 
 use fvoci_model::{Board, BoardType, JsonMap, new_id};
 use reqwest::StatusCode;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::common::{
     ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID,
@@ -353,6 +353,57 @@ async fn search_boards_by_field() {
     let response = th.client.get("/boards/search?q=one&field=bogus").await;
     assert_eq!(found_ids(&response), sorted_ids(&[&open]), "field ignored");
 
+    th.teardown().await;
+}
+
+/// The searches answer the same on both databases: a property name is a name, not a
+/// path, and is found with a `null` value too; a title and a user name are matched
+/// ignoring the case of every letter; `%` and `_` are characters.
+#[tokio::test]
+async fn searches_answer_the_same_on_both_databases() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user = th.client.me().await;
+    let mut properties = JsonMap::new();
+    properties.insert("a.b".to_owned(), json!("x"));
+    properties.insert("empty".to_owned(), Value::Null);
+    properties.insert("nested".to_owned(), json!({"inner": 1}));
+    let board = create_board(
+        &th,
+        Board {
+            properties,
+            ..titled("Ärger 100% über_all", BoardType::Open, ROOT_TEAM_ID)
+        },
+        &user.id,
+        Membership::Admin,
+    )
+    .await;
+    let search = async |query: &str| {
+        th.client
+            .get(&format!("/teams/{ROOT_TEAM_ID}/boards/search?{query}"))
+            .await
+    };
+    for query in [
+        "q=a.b&field=property_name",
+        "q=empty&field=property_name",
+        "q=%C3%A4rger",
+        "q=%C3%84RGER%20%C3%BCBER",
+        "q=100%25",
+        "q=r_a",
+    ] {
+        let response = search(query).await;
+        assert_eq!(found_ids(&response), sorted_ids(&[&board]), "{query}");
+    }
+    for query in [
+        "q=nested.inner&field=property_name",
+        "q=a&field=property_name",
+        "q=%5B&field=property_name",
+        "q=10%25%25",
+        "q=r%25a",
+    ] {
+        let response = search(query).await;
+        response.check_ok();
+        check_nothing_found(&response);
+    }
     th.teardown().await;
 }
 

@@ -57,7 +57,7 @@ const CLIENT_CATEGORY: &str = "client";
 const SETTINGS_CATEGORY: &str = "settings";
 
 /// The most users a search returns.
-const SEARCH_LIMIT: i64 = 10;
+const SEARCH_LIMIT: usize = 10;
 
 /// The order of a list of users: by when their accounts were made, and by identifier
 /// where that is the same.
@@ -375,26 +375,24 @@ impl Store {
         .await
     }
 
-    /// Returns the ten oldest users, oldest first, whose name contains `search_query`.
+    /// Returns the ten oldest users, oldest first, whose name contains `search_query`,
+    /// ignoring case.
     ///
-    /// The match is the database's `LIKE`: SQLite ignores the case of ASCII letters and
-    /// PostgreSQL does not, and `%` and `_` in the query are wildcards.
+    /// Compared here rather than in SQL, so that both databases fold every letter the
+    /// same way and `%` and `_` are characters like any other. (The original's `LIKE`
+    /// ignores ASCII case on SQLite only, `server/services/store/sqlstore/user.go:227`.)
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the query fails.
     pub async fn search_users_by_team(&self, search_query: &str) -> Result<Vec<User>, StoreError> {
-        self.with_conn(async |scope| {
-            // Preserved quirk: one `LIKE` for both databases, so the case sensitivity is
-            // whatever the database's is, and the query's own wildcards are not escaped
-            // (`server/services/store/sqlstore/user.go:227`).
-            let mut sql = select_users(scope);
-            sql.push_bind(" AND username LIKE ", format!("%{search_query}%"))
-                .push(OLDEST_FIRST)
-                .push_bind(" LIMIT ", SEARCH_LIMIT);
-            fetch_users(scope, sql).await
-        })
-        .await
+        let wanted = search_query.to_lowercase();
+        let users = self.get_users_by_team().await?;
+        Ok(users
+            .into_iter()
+            .filter(|user| user.username.to_lowercase().contains(&wanted))
+            .take(SEARCH_LIMIT)
+            .collect())
     }
 
     /// Sets and removes entries of the bag of client state of a user and returns the

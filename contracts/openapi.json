@@ -2224,7 +2224,7 @@
     },
     "/api/v1/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters. Templates are never found. In a word `%`\nstands for any text and `_` for any one character. Oldest first.",
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm: a title matches if every word of the term, as spaces divide it, is somewhere\nin it, whatever the case of the letters (of every letter, not only ASCII). Templates\nare never found. `%` and `_` are characters like any other. Oldest first.",
         "operationId": "searchBoards",
         "parameters": [
           {
@@ -4607,7 +4607,7 @@
     },
     "/api/v1/teams/{teamId}/boards/search": {
       "get": {
-        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name. The team of the path is not part of\nthe search: the boards of every team are searched. A `field` that is neither is 400.\nOldest first.",
+        "description": "The boards the user may find, as `getBoards` lists them, whose title matches the\nterm as `searchBoards` matches it, or with `field=property_name` those whose own\n`properties` have a member of exactly that name, whatever its value (`null` too). The team of the path is not part of\nthe search: the boards of every team are searched. A `field` that is neither is 400.\nOldest first.",
         "operationId": "searchTeamBoards",
         "parameters": [
           {
@@ -5294,7 +5294,7 @@
     },
     "/api/v1/teams/{teamId}/users": {
       "get": {
-        "description": "Up to ten users: with `search` those whose name has that text in it, without it\nthe ten oldest accounts. Oldest account first.",
+        "description": "Up to ten users: with `search` those whose name has that text in it, whatever the\ncase of the letters, without it the ten oldest accounts. Oldest account first.",
         "operationId": "getTeamUsers",
         "parameters": [
           {
