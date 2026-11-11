@@ -46,6 +46,7 @@ use crate::auth::token::Credential;
 use crate::client_address::TrustedProxies;
 use crate::config::Configuration;
 use crate::error::{AppError, ErrorKind, ReportedError};
+use crate::metrics::{Job, JobOutcome};
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
 use crate::tls::TlsListener;
@@ -491,13 +492,13 @@ async fn clean_up_sessions(app: &App) {
 
 /// Removes for good what has been in the trash for longer than `trash_retention_days`,
 /// and the files of the boards that go: nothing says where they are afterwards.
-async fn purge_trash(app: &App) {
+async fn purge_trash(app: &App) -> JobOutcome {
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let purged = match app.store().purge_trash(deleted_before).await {
         Ok(purged) => purged,
         Err(error) => {
             tracing::error!(%error, "unable to purge the trash");
-            return;
+            return JobOutcome::Failed;
         }
     };
     let mut files_left = 0_usize;
@@ -515,18 +516,28 @@ async fn purge_trash(app: &App) {
             "removed old boards and blocks from the trash"
         );
     }
+    outcome_of(files_left)
+}
+
+/// How a job ended that could not remove `files_left` files.
+fn outcome_of(files_left: usize) -> JobOutcome {
+    if files_left == 0 {
+        JobOutcome::Done
+    } else {
+        JobOutcome::Failed
+    }
 }
 
 /// Removes the files that no block, live or in the trash, has shown for as long as the
 /// trash keeps what is deleted (`docs/s6-design.md` 5.7). A file whose record went but
 /// that cannot be removed from the storage is logged: nothing names it any more.
-async fn collect_unreferenced_files(app: &App) {
+async fn collect_unreferenced_files(app: &App) -> JobOutcome {
     let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let files = match app.store().collect_unreferenced_files(before).await {
         Ok(files) => files,
         Err(error) => {
             tracing::error!(%error, "unable to collect the files no block shows");
-            return;
+            return JobOutcome::Failed;
         }
     };
     let mut files_left = 0_usize;
@@ -543,6 +554,7 @@ async fn collect_unreferenced_files(app: &App) {
             "removed the files no block has shown for the grace period"
         );
     }
+    outcome_of(files_left)
 }
 
 /// Starts the task that deletes the sessions that have ended. It runs once at the
@@ -563,20 +575,33 @@ fn start_trash_purge(app: &App) -> RecurringTask {
     RecurringTask::spawn_starting_now("purgeTrash", PURGE_TRASH_INTERVAL, move || {
         let app = app.clone();
         async move {
-            purge_trash(&app).await;
+            let purged = purge_trash(&app).await;
             // After the purge: what it removed for good shows its files no more.
-            collect_unreferenced_files(&app).await;
+            let collected = collect_unreferenced_files(&app).await;
+            let outcome = if purged == JobOutcome::Done && collected == JobOutcome::Done {
+                JobOutcome::Done
+            } else {
+                JobOutcome::Failed
+            };
+            app.metrics().job_ran(Job::PurgeTrash, outcome);
         }
     })
 }
 
 /// Throws away the upload sessions that have ended, with their parts.
 async fn clean_up_uploads(app: &App) {
-    match app.clean_up_uploads(auth::now_millis()).await {
-        Ok(0) => {}
-        Ok(removed) => tracing::info!(removed, "threw away the upload sessions that ended"),
-        Err(error) => tracing::error!(%error, "unable to clean up the upload sessions"),
-    }
+    let outcome = match app.clean_up_uploads(auth::now_millis()).await {
+        Ok(0) => JobOutcome::Done,
+        Ok(removed) => {
+            tracing::info!(removed, "threw away the upload sessions that ended");
+            JobOutcome::Done
+        }
+        Err(error) => {
+            tracing::error!(%error, "unable to clean up the upload sessions");
+            JobOutcome::Failed
+        }
+    };
+    app.metrics().job_ran(Job::CleanUpUploads, outcome);
 }
 
 /// Starts the task that throws away the upload sessions that have ended. The server

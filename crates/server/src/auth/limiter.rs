@@ -29,6 +29,8 @@ use std::time::{Duration, Instant};
 
 use sha2::{Digest as _, Sha256};
 
+use crate::metrics::{LoginLimit, Metrics};
+
 use crate::config::Configuration;
 
 /// How many records of each kind are kept at most.
@@ -145,6 +147,8 @@ struct Records {
 pub struct LoginLimiter {
     limits: Limits,
     records: Arc<Mutex<Records>>,
+    /// Where the refusals are counted, by the limit that refused.
+    metrics: Metrics,
 }
 
 /// An attempt that may go ahead. Whoever holds it says how it ended; an attempt that is
@@ -167,7 +171,15 @@ impl LoginLimiter {
         Self {
             limits,
             records: Arc::default(),
+            metrics: Metrics::none(),
         }
+    }
+
+    /// This limiter, counting its refusals in `metrics`.
+    #[must_use]
+    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     fn records(&self) -> std::sync::MutexGuard<'_, Records> {
@@ -203,13 +215,20 @@ impl LoginLimiter {
             let locked = records
                 .accounts
                 .get(account)
-                .and_then(|record| record.locked_until);
+                .and_then(|record| record.locked_until)
+                .map(|until| (until, LoginLimit::AccountLock));
             let blocked = address
                 .and_then(|address| records.pairs.get(&(*account, address)))
-                .map(|record| record.blocked_until);
+                .map(|record| (record.blocked_until, LoginLimit::PairDelay));
             [locked, blocked]
         });
-        if let Some(until) = waits.flatten().filter(|until| *until > now).max() {
+        // The longest wait is the one answered, and the limit counted.
+        if let Some((until, limit)) = waits
+            .flatten()
+            .filter(|(until, _)| *until > now)
+            .max_by_key(|(until, _)| *until)
+        {
+            self.metrics.login_refused(limit);
             return Err(RetryAfter(until - now));
         }
         self.count_against_address(&mut records, address, now)?;
@@ -278,12 +297,14 @@ impl LoginLimiter {
             record.attempts.pop_front();
         }
         if record.busy {
+            self.metrics.login_refused(LoginLimit::AddressBusy);
             return Err(RetryAfter(BUSY_RETRY));
         }
         let allowed = usize::try_from(per_minute).unwrap_or(usize::MAX);
         if record.attempts.len() >= allowed {
             // Room again when the oldest attempt of the window is a minute old.
             let oldest = record.attempts.front().copied().unwrap_or(now);
+            self.metrics.login_refused(LoginLimit::AddressRate);
             return Err(RetryAfter(
                 ADDRESS_WINDOW.saturating_sub(now.duration_since(oldest)),
             ));

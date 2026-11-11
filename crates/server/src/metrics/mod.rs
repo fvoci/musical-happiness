@@ -22,10 +22,12 @@ use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
 use crate::app::App;
 use crate::config::MetricsAddress;
 
+mod background;
 mod http;
 mod storage;
 mod websocket;
 
+pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use http::{Measured, measure_requests, note_route};
 pub(crate) use storage::count_archives;
 pub(crate) use websocket::Disconnect;
@@ -51,6 +53,7 @@ struct Kept {
     http: http::HttpMetrics,
     websocket: websocket::WebsocketMetrics,
     storage: storage::StorageMetrics,
+    background: background::BackgroundMetrics,
 }
 
 impl Metrics {
@@ -87,12 +90,14 @@ impl Metrics {
         let http = http::HttpMetrics::register(&registry)?;
         let websocket = websocket::WebsocketMetrics::register(&registry)?;
         let storage = storage::StorageMetrics::register(&registry)?;
+        let background = background::BackgroundMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
                 http,
                 websocket,
                 storage,
+                background,
             })),
         })
     }

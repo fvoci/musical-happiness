@@ -133,7 +133,8 @@ impl App {
             Metrics::none()
         };
         let auth = Authenticator::new(store.clone(), &config)?;
-        let login_limiter = LoginLimiter::new(Limits::from_config(&config));
+        let login_limiter =
+            LoginLimiter::new(Limits::from_config(&config)).with_metrics(metrics.clone());
         let password_work = HashQueue::new(
             usize::try_from(config.password_hash_concurrency).unwrap_or(usize::MAX),
             usize::try_from(config.password_hash_queue).unwrap_or(usize::MAX),

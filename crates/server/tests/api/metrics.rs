@@ -482,3 +482,68 @@ async fn the_pool_the_open_uploads_and_the_archives_are_measured() {
     );
     server.teardown().await;
 }
+
+#[tokio::test]
+async fn the_background_jobs_are_counted_from_their_first_run() {
+    let server = server_with_metrics().await;
+    let job = |body: &str, name: &str, job: &str| sample(body, name, &[("job", job)]);
+    // Both run once as the server starts: the uploads before it serves, the trash
+    // right after.
+    let body = scrape_until(&server, |body| {
+        job(body, "fvoci_job_runs_total", "purge_trash") == Some(1.0)
+    })
+    .await;
+    for name in ["purge_trash", "clean_up_uploads"] {
+        assert_eq!(
+            job(&body, "fvoci_job_runs_total", name),
+            Some(1.0),
+            "{name}: {body}"
+        );
+        assert_eq!(
+            job(&body, "fvoci_job_failures_total", name),
+            Some(0.0),
+            "{name}: {body}"
+        );
+        let last = job(&body, "fvoci_job_last_run_timestamp_seconds", name).unwrap_or_default();
+        assert!(last > 1.7e9, "{name} ran just now: {body}");
+    }
+    server.teardown().await;
+}
+
+#[tokio::test]
+async fn attempts_the_login_limits_refuse_are_counted_by_limit() {
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| config.login_pair_free_failures = 1)
+        .start()
+        .await;
+    let attempt = async || {
+        server
+            .anonymous()
+            .post(
+                "/login",
+                &serde_json::json!({"type": "normal", "username": "nobody", "password": "a guess"}),
+            )
+            .await
+            .status
+    };
+    assert_eq!(attempt().await, StatusCode::UNAUTHORIZED, "free");
+    assert_eq!(
+        attempt().await,
+        StatusCode::UNAUTHORIZED,
+        "the address waits after it"
+    );
+    assert_eq!(
+        attempt().await,
+        StatusCode::TOO_MANY_REQUESTS,
+        "made to wait"
+    );
+    let refusals =
+        |body: &str, limit: &str| sample(body, "fvoci_login_refusals_total", &[("limit", limit)]);
+    let body = scrape(&server).await;
+    assert_eq!(refusals(&body, "pair_delay"), Some(1.0), "{body}");
+    for limit in ["account_lock", "address_busy", "address_rate"] {
+        assert_eq!(refusals(&body, limit), Some(0.0), "{limit}: {body}");
+    }
+    server.teardown().await;
+}
