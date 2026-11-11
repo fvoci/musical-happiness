@@ -30,9 +30,11 @@
     /** The view the card was opened from: a table gets a new property as a column. */
     view: BoardView | undefined;
     card: CardSummary;
+    /** Opens another card: a card a relation names. */
+    onOpenCard?: (cardId: string) => void;
   }
 
-  let { board, view, card }: Props = $props();
+  let { board, view, card, onOpenCard }: Props = $props();
 
   const workspace = $derived(board.workspace);
   const templates = $derived(board.board?.cardProperties ?? []);
@@ -93,6 +95,8 @@
             locale={workspace.locale}
             regional={workspace.regional}
             {presentation}
+            cards={board.cardsById}
+            {onOpenCard}
             onChange={(value: StoredValue | undefined) =>
               void board.setCardProperty(card.id, template.id, value)}
             onCreateOption={options.onCreateOption}

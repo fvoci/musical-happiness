@@ -204,7 +204,7 @@ describe('changes from the server', () => {
             answer = resolve;
           }),
       )
-      .mockImplementationOnce(() => Promise.reject(new BackendError(403, { message: 'no' })));
+      .mockImplementationOnce(() => Promise.reject(new BackendError(403, { detail: 'no' })));
     const { socket, board } = await connected();
     const message = {
       action: 'UPDATE_MEMBER',

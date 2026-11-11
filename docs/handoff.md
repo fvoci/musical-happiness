@@ -1,6 +1,6 @@
 # 서버 인수인계
 
-고친 때: 2026-11-11 14:00 KST(서버의 다음 묶음이 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+고친 때: 2026-11-11 20:25 KST(작업 묶음 `fvoci/server-decide`의 끝). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
 
 ## 저장소가 하나로 합쳐졌다
 
@@ -22,46 +22,24 @@
 ## 지금 상태
 
 - **서버.** 설계(`docs/s6-design.md`)의 "구현 순서" 1–9단계가 끝났다. 1–7단계는 오류 응답과 경로 규칙, 요청 크기 한도, 새 기준 스키마, 쿠키 인증, 로그인 시도 제한, 접두어 `/api/v1`, 계약 파일이고, 8단계(본문, 날짜 값, 템플릿)와 9단계(청크 업로드, 스트리밍, 한도)는 아래 목록의 tracer-bullet들로 들어갔다.
-- **지금의 작업 묶음(브랜치 `fvoci/server-next`, 2026-11-11 04:08 KST에 시작).** 지시는 보관 폴더의 `PROMPT-server-next.md`다. 일을 tracer-bullet(기능 하나가 스키마부터 계약·테스트·스냅샷까지 끝에서 끝까지 도는 것) 하나씩으로 끊고, 하나가 끝날 때마다 검증하고 커밋해 올린 뒤 아래 목록에 표시한다. 올리기 전마다 새 하위 에이전트가 그 diff를 `beautiful-rust:rust-review`와 설계·계약에 견주어 검토하고, 받아들인 지적은 같은 tracer-bullet에서 고친다. 받아들이지 않은 지적은 `PORTING.md`에 까닭과 함께 적는다.
+- **마지막 작업 묶음(브랜치 `fvoci/server-decide`, 2026-11-11 14:43–20:30 KST).** 사용자가 2026-11-11 14:25–14:46 KST에 정한 것들을 넣었다. 리뷰의 지적과 받아들이지 않은 까닭은 커밋 메시지의 본문에 있다. 웹앱이 알 것은 `docs/contract-pending.md` 9절이다.
 
   | # | tracer-bullet | 상태 |
   |---|---|---|
-  | 0 | WebSocket 메시지를 지금 모양대로 적는다(`contracts/websocket.md`, `websocket.json`, 견주는 테스트), 웹앱의 G1–G6에 답한다 | 끝 |
-  | 1 | 카드의 본문 하나를 쓰고 읽는다: `body` 열, `createCard`·`patchCard`·`getCard`, 목록의 본문 여부와 할 일 수, 읽은 판의 409, 검증의 최소한, 벡터 몇 개. 설계의 "답을 기다리는 것" 셋을 결정으로 옮긴다 | 끝 |
-  | 1b | 설정의 문서와 예시 파일(지시문 9절): `docker/fvoci/config.json`을 지금의 키로 고치고 읽히는지 보는 테스트, `docs/configuration.md`에 키 전부(S3 하위 키, `FVOCI_*`, 명령줄 인자, 없앤 키), 문서와 코드의 키가 어긋나면 실패하는 검사. 쓰이지 않는 키와 S3 키의 환경 변수는 보고에 | 끝 |
-  | 2 | 허용 목록 전체: 노드·마크·속성·포함 관계, 판 2(수식 노드), 길이를 UTF-16으로, `href` 규칙, 검색용 평문(`body_text`), 공유 벡터 전체(웹앱 문서 4.4 포함) | 끝 |
-  | 2b | 블록 길의 본문: `createBlocks`·`patchBlock`·`patchBlocks`·boards-and-blocks의 `body`와 `field: body`, 본문을 가질 수 있는 블록 종류, 이미지 `fileId`가 같은 보드의 파일인지, 복제가 본문의 이미지를 새 파일로 바꾸는 것 | 끝 |
-  | 2c | 본문과 첨부가 가리키는 파일의 표(`file_refs`)와 유예를 둔 수거(설계 5.7의 C) | 끝 |
-  | 3 | 댓글의 본문: 댓글 블록이 `body`를 받는다(카드와 같은 검증, `readAt`, 이미지 규칙). 설계 결정 11번을 "됨"으로 | 끝 |
-  | 4 | 날짜 속성 값(5.7의 B): 날짜 속성은 날짜 값이나 `null`만, 다른 속성은 날짜 값을 받지 않는다. 마이그레이션 4의 데이터 단계가 저장된 값과 날짜 필터를 바꾼다(휴지통 포함), 예전 아카이브도. 템플릿의 날짜 값이 새 모양이라 템플릿보다 먼저 한다 | 끝 |
-  | 5 | 템플릿 받기: 산출물을 저장소에, 이미지 빼기, `onboarding` 표식, `onboard`의 500, Dockerfile에서 아카이브를 뺌 | 끝 |
-  | 5b | 아카이브 판 3(계약의 타입 그대로, 본문의 이미지 파일까지), 옛 형식(판 1, 판 2) 가져오기를 걷음. 설계 결정 14번 | 끝 |
-  | 6 | 콘텐츠 블록 걷어 내기: 콘텐츠 블록 종류, `contentOrder`, `moveContentBlock`, 종류별 `fields` 한도. 저장된 콘텐츠 블록은 16에서 지운다 | 끝 |
-  | 7 | 파일 하나를 청크로 올리고 받는다(올리기 세션, 로컬 저장소): `createUpload`, `putUploadPart`, `getUpload`, `completeUpload`, `deleteUpload`, 설정 `upload_part_bytes`와 `tmp_path` | 끝 |
-  | 8 | 업로드의 한도(429, 설정 `max_pending_upload_bytes`), 만료와 정리(한 시간마다와 시작할 때), 시작할 때 남은 임시 파일 지우기, `uploadFile`의 스트리밍과 부분 하나 한도(413 `upload_in_parts`), `maxfilesize` 기본 100 MiB | 끝 |
-  | 8b | S3 멀티파트: S3 설정에서 부분을 S3에 바로 올리고(`MultipartStore`), 버리거나 끝나면 `abort_multipart`. 운영 문서에 버킷의 `AbortIncompleteMultipartUpload` 규칙(설계 5.6의 7) | 끝 |
-  | 9a | 내보내기를 임시 파일에 쓰고 길이와 함께 흘려 보낸다. 시작할 때 남은 것을 지운다 | 끝 |
-  | 9b | 가져오기를 올리기 세션(용도 `import`)으로, 아카이브를 디스크에서 읽고 한도(256 MiB, 풀린 합계 1 GiB, 항목 수, `board.jsonl`, 파일 항목) | 끝 |
-  | 10 | 응답 압축(정적 `.zst`, API의 gzip·brotli·zstd) | 끝 |
-  | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | 끝 |
-  | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | 끝 |
-  | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | 끝 |
-  | 14 | 빌드 크기(디버그 정보 수준) | 끝 |
-  | 15 | 사용자 결정 1(11:05 KST): `patchCard`가 바뀐 속성만 받아 합치고 지울 속성을 따로 받는다 | 끝 |
-  | 16 | 사용자 결정 2: 저장된 옛 콘텐츠 블록을 데이터 단계로 지우고(파일은 수거의 길로) 그것을 다루던 코드를 걷는다 | 끝 |
-  | 17 | 사용자 결정 3: 공유 링크의 익명 독자에게 나가는 본문의 멘션에서 사용자 ID를 비운다(HTTP와 WebSocket) | 끝 |
-  | 18 | 사용자 결정 4: `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`를 없앤 키로 | 끝 |
-  | 19 | 사용자 결정 5: S3의 비밀 아닌 설정을 `FVOCI_*` 환경 변수로도 받는다 | 끝 |
-  | 끝 | 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | 끝 |
+  | 1 | 읽기 토큰의 독자(익명, 구성원이 아닌 사용자)에게 사용자 ID가 나가지 않는다: 사람 속성의 값, 뷰 필터, HTTP와 WebSocket | 끝 |
+  | 2 | 댓글을 고치는 권한(자기 것은 댓글 역할, 남의 것은 관리자), 고친 사람과 시각 | 끝 |
+  | 2b | 댓글의 고치기 전 글의 이력(판 50까지, 원문은 늘 남김), 읽는 조작, 파일 참조 | 끝 |
+  | 3·4 | 내보내기와 가져오기의 동시 수 한도(한 사람 하나, 서버 전체 설정값) | 끝 |
+  | 5 | 사용자의 보일 이름 | 끝 |
+  | 6 | 휴지통을 읽는 조작 둘(보드의 지운 카드, 지운 보드) | 끝 |
+  | 7 | 계정 설정의 언어 | 끝 |
+  | 8 | 되살린 보드가 구성원마다 원래 카테고리의 원래 자리로 | 끝 |
+  | 9 | 카드 목록과 `getCard`의 마지막 댓글 시각 | 끝 |
+  | 10 | 카드 목록의 갤러리 미리보기(청할 때만) | 끝 |
+  | 11 | 보드의 속성 순서를 바꾸는 요청 | 끝 |
+  | 끝 | `docs/contract-pending.md` 9절, 웹앱의 만든 타입(`contract.ts`), 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | 끝 |
 
-  관찰: 테스트 `system::a_request_is_finished_when_its_client_disconnects`가 전체 실행에서 두 번(05:50, 13:20 KST) "보드 20개 가운데 19개만 카테고리에 들어감"으로 실패했다. 보드는 저장된 뒤에 카테고리에 들어가는데, 기다림이 "100 ms 동안 바뀌지 않으면 끝"이었다. 이제 만든 보드가 모두 들어갈 때까지(10초까지) 기다린다. 끝내 들어가지 않는 보드는 여전히 실패한다. 단독과 전체 실행 네 번에서는 재현되지 않았다.
-
-  이 묶음에서 "사용자 결정 필요"로 남긴 것(까닭과 권고는 적힌 자리에):
-
-  - 웹앱의 질문 가운데 계약의 모양이나 권한에 걸린 것(`docs/contract-pending.md` 9절의 "사용자 결정 필요" 줄).
-  - 공유 링크의 익명 독자에게 사람 속성(`person`, `multiPerson`)의 값인 사용자 ID가 그대로 나간다. 결정 7과 멘션은 `createdBy`, `modifiedBy`, 멘션만 비운다. 로그인했지만 보드의 멤버가 아닌 사용자(다른 조직)는 읽기 토큰으로 읽어도 ID를 모두 받는다. 권고: 사람 속성도 비운다(보드의 `cardProperties`로 사람 속성을 가린다). 다른 조직의 사용자는 익명 독자와 같이 다룬다.
-
-- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`와 `prometheusaddress`는 예약된 키다(사용자 결정, 05:04 KST). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
+- **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`는 예약된 키다(사용자 결정, 05:04 KST). `prometheusaddress`는 지표를 따로 연 리스너에서 낸다(`fvoci/metrics`). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
 
 - **작업 자리.** 저장소는 `fvoci/musical-happiness`(비공개)이고 브랜치는 `master`다. 일마다 `master`에서 워크트리를 새로 만들고 끝나면 `master`에 합친다.
 - **푸시.** 일한 세션이 자기 브랜치를 이름으로 올린다. 강제 푸시는 하지 않는다. **올라간 커밋은 `amend`·`rebase`·`reset`으로 고쳐 쓰지 않는다.** 고칠 것은 새 커밋으로 얹는다.
@@ -88,7 +66,8 @@
 ## 1. 검증
 
 ```bash
-cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 계약, 라이선스·권고. 외부 서비스 없음
+cargo xtask check    # 포맷, clippy, 단위 테스트, 문서, 이름, 층, 길이, 계약, 라이선스·권고. 외부 서비스 없음
+cargo xtask measure  # 길이의 예외 목록(xtask/exceptions/lengths.txt)을 지금 코드로 다시 쓴다. 천장을 올리는 유일한 길이고, 따로 잰 묶음들을 합친 뒤 한 번만 돌린다. 웹앱의 것은 pnpm --filter web run lengths:measure
 cargo xtask test     # 컨테이너 준비 → SQLite 전체 → PostgreSQL(store, server) → S3 저장소 테스트
 cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르면 실패. --write 가 고쳐 쓴다
 ```
@@ -97,8 +76,8 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 일곱 단계 PASS |
-| `cargo xtask test` | SQLite 1,095건, PostgreSQL 956건, S3 7건, 실패 0(2026-11-11, `fvoci/server-next`) |
+| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮기기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이다. 손으로 더한 줄이나 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
+| `cargo xtask test` | SQLite 1,220건, PostgreSQL 1,021건, S3 7건, 실패 0(2026-11-11 20:50 KST, `fvoci/checks`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
 
@@ -106,7 +85,6 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
-- `cargo xtask test`는 스스로 띄운 컨테이너를, 마지막으로 쓴 실행이 끝날 때 멈춘다(tracer-bullet 11).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다.
 
 **걸리는 시간.** 이 기기에서 빌드 캐시가 있을 때, 2026-11-11 02–03시 KST에 잰 값이다.
@@ -114,12 +92,12 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 무엇 | 시간 |
 |---|---|
 | `cargo xtask check`, 소스를 고친 뒤 | 30–40초 |
-| `cargo xtask check`, 고친 것이 없을 때 | 5초 |
+| `cargo xtask check`, 고친 것이 없을 때 | 10초(2026-11-11 17시 KST, 층과 길이 단계가 든 뒤) |
 | `cargo xtask test` | 2분 40초–4분 10초 |
 | 회귀 테스트만(`cargo test -p fvoci-server --test regression`) | SQLite 29–30초 |
 | API 테스트만(`--test api`, 487건) | SQLite 15초, PostgreSQL 37초 |
 
-- `check`의 단계별 시간은 clippy 10초, 단위 테스트 3–13초, 문서 4초, 계약 3초, cargo-deny 1–2초다.
+- `check`의 단계별 시간은 clippy 10초, 단위 테스트 3–13초, 문서 4초, 층 2초, 길이 3초, 계약 3초, cargo-deny 1–2초다.
 - `test`의 단계별 시간은 SQLite 65초, PostgreSQL 96–186초, S3 1초 미만이다. PostgreSQL은 기기가 바쁘면 길어진다. 186초였던 실행의 원인은 따로 보지 않았다.
 
 **커밋마다 clippy를 통과시킨다.** 워크스페이스 린트가 엄격해서(`too_many_lines`, `as_conversions`, `print_stderr`, `similar_names` 등) 테스트 코드에서 자주 걸린다. `cargo doc`도 경고가 오류다. 없는 항목을 가리키는 문서 링크 하나로 check가 실패한다.
@@ -139,7 +117,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 - 변수는 정확히 `1`이어야 한다. 다른 값(`0`, `true`)은 오류이고 `CI`에서는 기록을 거부한다. 셸에 `export`해 두지 않는다.
 - 하네스는 목록을 **온 순서대로** 기록한다. 목록을 돌려주는 라우트마다 순서가 정해져 있고(`PORTING.md` M절, 계약의 라우트 설명) 스냅샷이 그 순서를 고정한다.
 - 새 목록 라우트를 만들면 스토어의 쿼리에 순서를 넣고 `crates/store/tests/store/order.rs`에 테스트를 더한다. 순서 없는 목록은 두 DB에서 스냅샷이 어긋나는 것으로 드러난다.
-- 타임스탬프는 모두 `<ts>`, ID는 `<id:N>`, `request_id`는 `<request-id>`로 바뀐다. 응답 본문을 **문자열로** 기록하는 관찰 단계는 이 정규화를 지나지 않는다. 한 번 그래서 요청마다 다른 `request_id`가 스냅샷에 들어가 다음 실행이 실패했다(`cards`의 "list: bad page"). JSON으로 기록하게 고쳤다.
+- 타임스탬프는 모두 `<ts>`, ID는 `<id:N>`, `requestId`는 `<request-id>`로 바뀐다. 응답 본문을 **문자열로** 기록하는 관찰 단계는 이 정규화를 지나지 않는다. 한 번 그래서 요청마다 다른 `requestId`가 스냅샷에 들어가 다음 실행이 실패했다(`cards`의 "list: bad page"). JSON으로 기록하게 고쳤다.
 - 권한 표의 준비 요청은 성공해야 한다. 실패하면 단언으로 멈춘다. 칸이 엉뚱한 이유의 상태 코드를 기록하지 않게 한 것이다.
 - 없앤 라우트(채널, 통계, 컴플라이언스, 메타데이터)의 단계와 권한 표의 행은 남겨 두었다. 404를 고정한다.
 
@@ -272,10 +250,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
 5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
 
-**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 둘이다(`docs/configuration.md`의 "예약된 키").
-
-- `prometheusaddress`: Prometheus 지표를 내는 주소.
-- `authmode`: OIDC 로그인. 지금은 `native`만 받는다.
+**후속 후보(이 묶음 밖, 사용자 결정 2026-11-11 05:04 KST).** 설정에 자리만 있고 아직 아무 일도 하지 않는 예약된 키 `authmode`다(`docs/configuration.md`의 "예약된 키"). OIDC 로그인의 자리이고 지금은 `native`만 받는다.
 
 **웹앱 쪽에 전할 것.**
 

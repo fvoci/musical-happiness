@@ -159,9 +159,16 @@ export interface PropertyToggle {
  * properties of the board. The title is always shown, and so are the marks
  * of a description and of a checklist on a card (card-face/CardFace.svelte),
  * so neither has a switch; a switch nothing reads would only look like one.
+ * For the same reason a card relation has a switch in a table only: the face
+ * of a card does not show it.
  */
-export function propertyToggles(templates: readonly PropertyTemplate[]): PropertyToggle[] {
-  return templates.map((template) => ({ id: template.id, template }));
+export function propertyToggles(
+  templates: readonly PropertyTemplate[],
+  viewType: ViewType,
+): PropertyToggle[] {
+  return templates
+    .filter((template) => viewType === 'table' || template.type !== 'relation')
+    .map((template) => ({ id: template.id, template }));
 }
 
 /** The visible properties with `propertyId` shown or hidden. A newly shown one goes last. */

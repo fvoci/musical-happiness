@@ -7,8 +7,7 @@
  * server. Nothing above this file knows which.
  *
  * The shapes follow the server design (its `docs/s6-design.md`): errors are
- * `{error, message, reason?, field?, limit?}` with the status codes of its
- * section 1.3, identifiers are made by the server, a card or a comment has
+ * the problem details of RFC 9457 with the status codes of its section 1.3, identifiers are made by the server, a card or a comment has
  * its text as one document (`body`), a card list comes without bodies, and
  * a body is written with the `updateAt` it was read at so that a stale write
  * is refused with 409. Where the design says nothing and something had to be
@@ -33,56 +32,102 @@ import type {
 
 // ----------------------------------------------------------------- errors
 
-/** The kinds of error, one per status code (server design 1.3). */
-export const ERROR_KINDS = {
-  400: 'bad_request',
-  401: 'unauthorized',
-  403: 'forbidden',
-  404: 'not_found',
-  405: 'method_not_allowed',
-  409: 'conflict',
-  413: 'payload_too_large',
-  429: 'rate_limited',
-  500: 'internal',
-} as const;
+/** The statuses the server answers an error with (server design 1.3). */
+export const ERROR_STATUSES = [400, 401, 403, 404, 405, 409, 412, 413, 416, 429, 500] as const;
 
-export type ErrorStatus = keyof typeof ERROR_KINDS;
-export type ErrorKind = (typeof ERROR_KINDS)[ErrorStatus] | 'network';
+export type ErrorStatus = (typeof ERROR_STATUSES)[number];
 
-/** The body of an error answer, as the server design has it. */
-export interface ErrorBody {
-  error: ErrorKind;
+/**
+ * One thing of a request that was refused, and where it is: exactly one of
+ * `pointer` (a JSON Pointer into the body, `/username`), `parameter` (of the
+ * query or the path) and `header` says.
+ */
+export interface InvalidInput {
+  pointer?: string;
+  parameter?: string;
+  header?: string;
   /** English, for logs and developers. Never shown as it is. */
-  message: string;
-  /** A stable reason within the kind, for choosing the text to show. */
+  detail: string;
+  /** Why, stable: `required`, `too_short`, …, or `invalid` when no finer cause is told. */
+  reason: string;
+}
+
+/** The body of an error answer: the problem details of RFC 9457, as the contract has them (`Problem`). */
+export interface Problem {
+  /** The kind of problem, `/problems/<name>`: the same for every problem of the kind. */
+  type: string;
+  /** The name of the type, in English. */
+  title: string;
+  status: number;
+  /** English, for logs and developers. Never shown as it is. */
+  detail: string;
+  /** The request, as a URN of its identifier. */
+  instance?: string;
+  /** A stable reason within the status, for choosing the text to show. */
   reason?: string;
-  field?: string;
+  /** What of the request was refused, one entry for each. */
+  errors?: InvalidInput[];
   limit?: number;
-  request_id?: string;
+  requestId?: string;
   /** Seconds, with 429. */
-  retry_after?: number;
+  retryAfter?: number;
+}
+
+/** The problems of the statuses as the server names them: the last part of `type`, and the title. */
+const STATUS_PROBLEMS: Record<ErrorStatus, readonly [name: string, title: string]> = {
+  400: ['bad-request', 'Bad request'],
+  401: ['unauthorized', 'No valid session'],
+  403: ['forbidden', 'Forbidden'],
+  404: ['not-found', 'Not found'],
+  405: ['method-not-allowed', 'Method not allowed'],
+  409: ['conflict', 'Conflict'],
+  412: ['precondition-failed', 'Precondition failed'],
+  413: ['payload-too-large', 'Payload too large'],
+  416: ['range-not-satisfiable', 'Range not satisfiable'],
+  429: ['rate-limited', 'Too many requests'],
+  500: ['internal', 'Internal server error'],
+};
+
+/** The problem the server answers with for a status that has no `reason`. */
+export function problemOf(status: ErrorStatus, detail: string): Problem {
+  const [name, title] = STATUS_PROBLEMS[status];
+  return { type: `/problems/${name}`, title, status, detail };
+}
+
+/** The entry of `errors` for a member of the request body, by its name. */
+export function refusedMember(member: string, detail: string, reason = 'invalid'): InvalidInput {
+  return { pointer: `/${member.replaceAll('~', '~0').replaceAll('/', '~1')}`, detail, reason };
 }
 
 /** What every method of the backend rejects with. */
 export class BackendError extends Error {
-  /** 0 when no answer arrived at all (`network`). */
+  /** 0 when no answer arrived at all. */
   readonly status: ErrorStatus | 0;
-  readonly kind: ErrorKind;
+  /** The kind of problem; `about:blank` when the answer named none (RFC 9457, 4.2). */
+  readonly type: string;
   readonly reason: string | undefined;
-  readonly field: string | undefined;
+  /** What of the request was refused; empty when the error is about nothing of it. */
+  readonly errors: readonly InvalidInput[];
   readonly limit: number | undefined;
   readonly retryAfter: number | undefined;
+  /** The server's name for the request, to report a failure by. */
+  readonly requestId: string | undefined;
 
-  constructor(status: ErrorStatus | 0, body?: Partial<ErrorBody>) {
-    const kind = status === 0 ? 'network' : ERROR_KINDS[status];
-    super(body?.message ?? kind);
+  constructor(status: ErrorStatus | 0, problem?: Partial<Problem>) {
+    super(problem?.detail ?? problem?.title ?? (status === 0 ? 'no answer' : `status ${status}`));
     this.name = 'BackendError';
     this.status = status;
-    this.kind = kind;
-    this.reason = body?.reason;
-    this.field = body?.field;
-    this.limit = body?.limit;
-    this.retryAfter = body?.retry_after;
+    this.type = problem?.type ?? 'about:blank';
+    this.reason = problem?.reason;
+    this.errors = problem?.errors ?? [];
+    this.limit = problem?.limit;
+    this.retryAfter = problem?.retryAfter;
+    this.requestId = problem?.requestId;
+  }
+
+  /** The entry of `errors` about the member of the request body at this JSON Pointer, if there is one. */
+  refusalAt(pointer: string): InvalidInput | undefined {
+    return this.errors.find((entry) => entry.pointer === pointer);
   }
 }
 
@@ -140,6 +185,24 @@ export interface Category {
   hiddenBoardIds: string[];
   createAt: number;
   updateAt: number;
+}
+
+/** A role on a board: one of them, the highest a member has. */
+export type BoardRole = 'admin' | 'editor' | 'commenter' | 'viewer';
+
+/**
+ * A board's public link: whether it is on, and the token a reader without
+ * an account reads the board with (empty while it is off and was never on).
+ */
+export interface Sharing {
+  enabled: boolean;
+  token: string;
+}
+
+export interface SharingChange {
+  enabled: boolean;
+  /** Makes a new token: the old link stops working. */
+  regenerate?: boolean;
 }
 
 export interface CategoryDraft {
@@ -226,6 +289,18 @@ export interface UploadOptions {
   signal?: AbortSignal;
 }
 
+export interface DownloadOptions {
+  /** `sentBytes` counts what has arrived; `totalBytes` is 0 when the length is not known. */
+  onProgress?: (progress: UploadProgress) => void;
+  signal?: AbortSignal;
+}
+
+/** Bytes to be saved, under the name they come with. */
+export interface DownloadedFile {
+  bytes: Blob;
+  name: string;
+}
+
 export interface UploadedFile {
   fileId: string;
   name: string;
@@ -256,6 +331,12 @@ export interface Account {
   /** Makes an account. It does not sign in. */
   register(registration: Registration): Promise<void>;
   signOut(): Promise<void>;
+  /**
+   * Changes the reader's password; `oldPassword` proves they know it. Their
+   * other sessions end, this one goes on. A wrong old password is 400 with
+   * the reason `invalid_credentials`, too many tries 429.
+   */
+  changePassword(oldPassword: string, newPassword: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------- changes
@@ -319,13 +400,56 @@ export interface Backend {
   // Boards.
   boards(teamId: string): Promise<Board[]>;
   board(boardId: string): Promise<Board>;
-  createBoard(teamId: string, draft: BoardDraft): Promise<Board>;
+  /**
+   * Makes a board and its first view together, all or none: a board without
+   * a view has nothing to show. The reader becomes its admin, and a board
+   * that is no template is filed under their default category.
+   */
+  createBoard(
+    teamId: string,
+    draft: BoardDraft,
+    firstView: ViewDraft,
+  ): Promise<{ board: Board; view: BoardView }>;
   patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
+  /**
+   * The templates the reader may make a board from: the team's they may
+   * see, then the built-in ones every team is offered.
+   */
+  templates(teamId: string): Promise<Board[]>;
+  /**
+   * Copies a board with its views and cards (not its comments) into the
+   * team: a board from a template, or a template from a board. The reader is
+   * the copy's admin, and it is private. The team is said because a built-in
+   * template belongs to none of the reader's.
+   */
+  duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board>;
+  /** Copies the welcome board for the reader; answers its identifier. Each call makes another copy. */
+  onboard(teamId: string): Promise<string>;
+  /**
+   * The boards the reader may find whose title has every word of `query` in
+   * it, whatever the case: those of `boards`, hidden ones too. No templates.
+   */
+  searchBoards(teamId: string, query: string): Promise<Board[]>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
   /** Takes the board, its blocks and its members back out of the trash. */
   restoreBoard(boardId: string): Promise<Board>;
   members(boardId: string): Promise<BoardMember[]>;
+  /**
+   * Makes a person of the team a member of the board, with the role. For the
+   * board's admins. Someone who is a member already keeps their role.
+   */
+  addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  /** Gives a member another role. The board's last admin stays one (409, `last_admin`). */
+  setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  /** Takes a member off the board. Not its last admin (409, `last_admin`). */
+  removeMember(boardId: string, userId: string): Promise<void>;
+  /** The board's public link. For the board's admins. */
+  sharing(boardId: string): Promise<Sharing>;
+  /** Turns the public link on or off, or makes it anew. */
+  setSharing(boardId: string, change: SharingChange): Promise<Sharing>;
+  /** People of the team whose name has `query` in it, whatever the case; ten at most. */
+  searchUsers(teamId: string, query: string): Promise<User[]>;
   /**
    * Makes the reader a member of an open board of their team, with the
    * board's minimum role. Until then such a board is readable but its views,
@@ -335,13 +459,31 @@ export interface Backend {
 
   // The reader's sidebar.
   categories(teamId: string): Promise<Category[]>;
+  /** A new category goes first. */
   createCategory(teamId: string, draft: CategoryDraft): Promise<Category>;
-  patchCategory(categoryId: string, patch: CategoryPatch): Promise<Category>;
-  deleteCategory(categoryId: string): Promise<void>;
+  /** The default category keeps its name whatever the patch says. */
+  patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category>;
+  /** Its boards go to the default category, which cannot be deleted. */
+  deleteCategory(teamId: string, categoryId: string): Promise<void>;
   /** The reader's order of all their categories. */
   reorderCategories(teamId: string, categoryIds: string[]): Promise<void>;
-  /** Files a board under a category, at a place among its boards. */
-  moveBoardToCategory(boardId: string, categoryId: string, index: number): Promise<void>;
+  /**
+   * Files a board under a category, at `index` in the category's own list
+   * (`Category.boardIds`, without the board).
+   */
+  moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void>;
+  /** Hides a board of a category from the reader's sidebar, or shows it again. */
+  setBoardHidden(
+    teamId: string,
+    categoryId: string,
+    boardId: string,
+    hidden: boolean,
+  ): Promise<void>;
 
   // Views.
   views(boardId: string): Promise<BoardView[]>;
@@ -384,6 +526,19 @@ export interface Backend {
   fileBytes(boardId: string, fileId: string): Promise<Blob>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
   fileUrl(boardId: string, fileId: string): string | undefined;
+
+  // Archives of boards.
+  /** An archive of the board with its blocks, files and members. For its members. */
+  exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  /** An archive of every board of the team the reader may see. */
+  exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  /**
+   * Makes the boards of an archive in the team, the reader their admin. An
+   * archive over the server's limit is refused before anything is sent (413,
+   * with the limit); one that is no archive of this app is 400. The boards
+   * are made one after the other: a failure keeps those before it.
+   */
+  importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void>;
 
   // Changes as they happen.
   /** Listens to the changes of one board. Returns the function that stops listening. */

@@ -6,18 +6,18 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::body::Body;
-use axum::extract::connect_info::Connected;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header::{CONTENT_ENCODING, CONTENT_LENGTH};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::serve::IncomingStream;
 use futures_util::FutureExt as _;
 use uuid::Uuid;
 
 use crate::client_address::{ClientAddress, TrustedProxies};
-use crate::error::{AppError, ReportedError};
+use crate::connection::Connection;
+use crate::error::{AppError, PROBLEMS_PATH};
+use crate::error_response::ReportedError;
 
 /// The response header that carries the identifier of the request.
 const X_REQUEST_ID: &str = "x-request-id";
@@ -31,17 +31,24 @@ pub enum Peer {
     Unix,
 }
 
-impl Connected<IncomingStream<'_, tokio::net::TcpListener>> for Peer {
-    fn connect_info(stream: IncomingStream<'_, tokio::net::TcpListener>) -> Self {
-        Self::Tcp(*stream.remote_addr())
+impl Peer {
+    /// Where the connection of a request comes from, if the server said
+    /// ([`Connection`]).
+    pub(crate) fn of(request: &Request) -> Option<Self> {
+        request
+            .extensions()
+            .get::<ConnectInfo<Connection>>()
+            .map(|ConnectInfo(connection)| connection.peer)
     }
 }
 
-#[cfg(unix)]
-impl Connected<IncomingStream<'_, tokio::net::UnixListener>> for Peer {
-    fn connect_info(_stream: IncomingStream<'_, tokio::net::UnixListener>) -> Self {
-        Self::Unix
-    }
+/// What the request log knows of how the server is served.
+#[derive(Debug, Default)]
+pub(crate) struct Served {
+    /// The reverse proxies whose word about the client's address is taken.
+    pub(crate) proxies: TrustedProxies,
+    /// The path everything is served under; empty at the root of the host.
+    pub(crate) base_path: String,
 }
 
 /// Returns the client of a request: its address, also behind the reverse proxies the
@@ -65,14 +72,16 @@ fn client_of(
 /// identifier it gave the request.
 ///
 /// The identifier is a random one of this server's making. It goes into the log line,
-/// into the `x-request-id` response header and into the body of an error answer, so that
-/// what a user reports can be found in the log. An identifier the client sends is not
+/// into the `x-request-id` response header and into the body of an error answer (its
+/// `requestId`, and its `instance` as a URN), so that what a user reports can be found
+/// in the log. The `type` of an error answer gets the path the server is served under
+/// before it, so that it is the address of the page about it. An identifier the client sends is not
 /// taken over: it would let a client write into the log.
 ///
 /// The query string is left out because it can carry the read token of a shared board,
 /// and no header is logged, so neither are the session token and the cookies.
 pub(crate) async fn log_request(
-    State(proxies): State<Arc<TrustedProxies>>,
+    State(served): State<Arc<Served>>,
     mut request: Request,
     next: Next,
 ) -> Response {
@@ -80,16 +89,13 @@ pub(crate) async fn log_request(
     let request_id = Uuid::now_v7().to_string();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
-    let peer = request
-        .extensions()
-        .get::<ConnectInfo<Peer>>()
-        .map(|ConnectInfo(peer)| *peer);
-    let (address, client) = client_of(&proxies, request.headers(), peer);
+    let peer = Peer::of(&request);
+    let (address, client) = client_of(&served.proxies, request.headers(), peer);
     // For the handlers that count by where a request comes from: the same address the
     // log shows.
     request.extensions_mut().insert(address);
 
-    let response = identify(next.run(request).await, &request_id);
+    let response = identify(next.run(request).await, &request_id, &served.base_path);
 
     // Whole microseconds, shown as milliseconds.
     let duration_ms = (started.elapsed().as_secs_f64() * 1_000_000.0).round() / 1000.0;
@@ -106,9 +112,14 @@ pub(crate) async fn log_request(
 }
 
 /// Puts the identifier of the request on its response: into the header, and into the
-/// body if the response is an error of this server's own format.
-fn identify(mut response: Response, request_id: &str) -> Response {
+/// body if the response is an error of this server's own format, whose `type` is made
+/// the address of its page under `base_path`.
+fn identify(mut response: Response, request_id: &str, base_path: &str) -> Response {
     if let Some(ReportedError(mut body)) = response.extensions_mut().remove::<ReportedError>() {
+        if body.problem_type.starts_with(PROBLEMS_PATH) {
+            body.problem_type.insert_str(0, base_path);
+        }
+        body.instance = Some(format!("urn:uuid:{request_id}"));
         body.request_id = Some(request_id.to_owned());
         // An error body is a handful of strings; serializing it cannot fail.
         if let Ok(bytes) = serde_json::to_vec(&body) {
@@ -275,7 +286,10 @@ mod tests {
             .route("/api/v1/boom", get(boom))
             .layer(middleware::from_fn(contain_panics))
             .layer(middleware::from_fn_with_state(
-                Arc::new(proxies),
+                Arc::new(Served {
+                    proxies,
+                    base_path: "/base".to_owned(),
+                }),
                 log_request,
             ));
         let response = router
@@ -302,7 +316,10 @@ mod tests {
                 .header(X_FORWARDED_FOR, "203.0.113.7")
                 .body(Body::empty())
                 .expect("a valid request");
-        request.extensions_mut().insert(ConnectInfo(socket_peer()));
+        request.extensions_mut().insert(ConnectInfo(Connection {
+            peer: socket_peer(),
+            breaker: None,
+        }));
 
         let (status, body, log) = logged(proxies(&[]), request).await;
 
@@ -328,7 +345,10 @@ mod tests {
             .header(X_FORWARDED_FOR, "203.0.113.7, 10.0.0.1")
             .body(Body::empty())
             .expect("a valid request");
-        request.extensions_mut().insert(ConnectInfo(socket_peer()));
+        request.extensions_mut().insert(ConnectInfo(Connection {
+            peer: socket_peer(),
+            breaker: None,
+        }));
 
         let (_, _, log) = logged(proxies(&["192.0.2.1", "10.0.0.0/8"]), request).await;
 
@@ -346,12 +366,21 @@ mod tests {
         let (status, body, log) = logged(proxies(&[]), request).await;
 
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
-        let error: fvoci_model::ErrorBody =
+        let error: fvoci_model::Problem =
             serde_json::from_str(&body).expect("the standard error body");
-        assert_eq!(error.error, "internal", "{body}");
-        assert_eq!(error.message, "internal server error", "{body}");
+        assert_eq!(
+            error.problem_type, "/base/problems/internal",
+            "the type is under the path the server is served at: {body}"
+        );
+        assert_eq!(error.status, 500, "{body}");
+        assert_eq!(error.detail, "internal server error", "{body}");
         let request_id = error.request_id.expect("the identifier of the request");
         assert_eq!(request_id.len(), 36, "a random identifier: {request_id}");
+        assert_eq!(
+            error.instance,
+            Some(format!("urn:uuid:{request_id}")),
+            "the instance is the request: {body}"
+        );
         assert!(
             log.contains(&format!("request_id=\"{request_id}\"")),
             "the log line of the request carries the identifier of the answer: {log}"

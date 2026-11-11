@@ -24,7 +24,7 @@ blocks: insert card                         401        404        403        403
 blocks: insert view                         401        404        403        403        201        201
 blocks: insert comment                      401        404        403        201        201        201
 blocks: patch card                          401        404        403        403        204        204
-blocks: patch another's comment             401        404        403        403        204        204
+blocks: patch another's comment             401        404        403        403        403        204
 blocks: patch several                       401        404        403        403        204        204
 blocks: delete card                         401        404        403        403        204        204
 blocks: delete view                         401        404        403        403        204        204

@@ -16,7 +16,7 @@ use crate::sessions;
 
 /// The columns of a user, in the order [`user_from_row`] reads them.
 const USER_COLUMNS: &str =
-    "id, username, email, password_hash, create_at, update_at, delete_at, is_admin";
+    "id, username, email, password_hash, create_at, update_at, delete_at, is_admin, display_name";
 
 /// How a new user gets in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,8 +375,33 @@ impl Store {
         .await
     }
 
-    /// Returns the ten oldest users, oldest first, whose name contains `search_query`,
-    /// ignoring case.
+    /// Sets the name the user is shown by; empty for none. Returns the user as stored
+    /// now. Whether the name is one a user may have is the caller's to check.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such user, and
+    /// [`StoreError::Database`] if the statement fails.
+    pub async fn set_display_name(
+        &self,
+        user_id: &str,
+        display_name: &str,
+    ) -> Result<User, StoreError> {
+        self.transaction(async |scope| {
+            let mut sql = scope.sql("UPDATE users SET display_name = ");
+            sql.bind(display_name)
+                .push_bind(", update_at = ", now_millis())
+                .push_bind(" WHERE delete_at = 0 AND id = ", Id(user_id));
+            if scope.execute(sql).await? == 0 {
+                return Err(user_not_found());
+            }
+            get_user_by_id(scope, user_id).await
+        })
+        .await
+    }
+
+    /// Returns the ten oldest users, oldest first, whose login name or display name
+    /// contains `search_query`, ignoring case.
     ///
     /// Compared here rather than in SQL, so that both databases fold every letter the
     /// same way and `%` and `_` are characters like any other. (The original's `LIKE`
@@ -395,11 +420,14 @@ impl Store {
             }
             // The names only, matched here; then the users that matched, read whole.
             let wanted = search_query.to_lowercase();
-            let mut sql = scope.sql("SELECT id, username FROM users WHERE delete_at = 0");
+            let mut sql =
+                scope.sql("SELECT id, username, display_name FROM users WHERE delete_at = 0");
             sql.push(OLDEST_FIRST);
             let mut matched = Vec::with_capacity(SEARCH_LIMIT);
             for row in scope.fetch_all(sql).await? {
-                if row.text(1)?.to_lowercase().contains(&wanted) {
+                let found = row.text(1)?.to_lowercase().contains(&wanted)
+                    || row.text(2)?.to_lowercase().contains(&wanted);
+                if found {
                     matched.push(row.id(0)?);
                     if matched.len() == SEARCH_LIMIT {
                         break;
@@ -508,6 +536,7 @@ fn user_from_row(row: &Row) -> Result<User, StoreError> {
         update_at: row.int(5)?,
         delete_at: row.int(6)?,
         is_admin: row.bool(7)?,
+        display_name: row.text(8)?,
         ..User::default()
     })
 }
@@ -599,6 +628,7 @@ async fn create_user(
         .push_bind(", ", user.update_at)
         .push_bind(", ", user.delete_at)
         .push_bind(", ", user.is_admin)
+        .push_bind(", ", &user.display_name)
         .push(")");
     match scope.execute(sql).await {
         Ok(_) => Ok(()),

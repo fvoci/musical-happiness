@@ -12,7 +12,7 @@ import { DEFAULT_DISPLAY_SETTINGS } from '../logic/display.ts';
 import { DEFAULT_REGIONAL_SETTINGS, resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
 import { SHOW_NICKNAME_FULL_NAME, userDisplayName } from '../logic/users.ts';
-import { createBoardView, type Board } from '../logic/wire.ts';
+import { createBoard as createEmptyBoard, createBoardView, type Board } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
 import {
@@ -24,12 +24,25 @@ import {
   type BoardDraft,
   type Category,
   type Change,
+  type DownloadedFile,
   type Team,
   type User,
 } from './backend.ts';
 import { BoardStore } from './board.svelte.ts';
-import { sidebarOf, type SidebarCategory } from './order.ts';
+import { hiddenBoardsOf, sidebarOf, type SidebarCategory } from './order.ts';
 import { reread } from './write.ts';
+
+/** An archive on its way down or up, for the reader to watch. */
+export interface Transfer {
+  id: number;
+  kind: 'export' | 'import';
+  /** What is moved: the board's title, the team's, or the archive's file name. */
+  name: string;
+  done: number;
+  /** 0 while the length is not known. */
+  total: number;
+  finished: boolean;
+}
 
 /** `signedOut`: the backend has accounts and nobody is signed in (401). */
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'failed' | 'signedOut';
@@ -42,13 +55,16 @@ export interface Problem {
   error: BackendError | undefined;
 }
 
-export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'conflict';
+export type ProblemAction = 'load' | 'save' | 'undo' | 'upload' | 'conflict' | 'export' | 'import';
 
 export interface WorkspaceOptions {
   backend: Backend;
   /** The language the app is shown in, a BCP 47 tag. Decides alphabetical order. */
   locale: () => string;
 }
+
+/** How long a finished transfer stays in sight, in milliseconds. */
+const TRANSFER_STAYS = 6000;
 
 const DEFAULT_SETTINGS: AccountSettings = {
   ...DEFAULT_REGIONAL_SETTINGS,
@@ -63,10 +79,13 @@ export class Workspace {
   me = $state.raw<User | undefined>(undefined);
   team = $state.raw<Team | undefined>(undefined);
   users = $state.raw<User[]>([]);
+  /** The team's list as the backend gives it without a search: on the server, its oldest ten (D2). */
+  teamUsers = $state.raw<User[]>([]);
   boards = $state.raw<Board[]>([]);
   categories = $state.raw<Category[]>([]);
   settings = $state.raw<AccountSettings>(DEFAULT_SETTINGS);
   problems = $state.raw<Problem[]>([]);
+  transfers = $state.raw<Transfer[]>([]);
 
   /** The board that is open, if one is. */
   board = $state.raw<BoardStore | undefined>(undefined);
@@ -79,6 +98,11 @@ export class Workspace {
   /** The sidebar: categories and their boards, in the order to show them. */
   readonly sidebar = $derived<SidebarCategory[]>(
     sidebarOf(this.categories, this.boards, this.locale),
+  );
+
+  /** The boards the reader hid from the sidebar, by title. */
+  readonly hiddenBoards = $derived<Board[]>(
+    hiddenBoardsOf(this.categories, this.boards, this.sidebar, this.locale),
   );
 
   /** Time zone, first day of the week and way of writing hours, settled for this device. */
@@ -139,6 +163,7 @@ export class Workspace {
       this.me = me;
       this.team = team;
       this.users = users;
+      this.teamUsers = users;
       this.boards = boards;
       this.categories = categories;
       this.#takeSettings(settings);
@@ -186,6 +211,9 @@ export class Workspace {
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board': {
+        // Two tellings of one board may arrive out of order: the older one is let go.
+        const known = this.boards.find((board) => board.id === change.board.id);
+        if (known && known.updateAt > change.board.updateAt) break;
         // A template is no board of the sidebar, as the server's list of boards says.
         const others = this.boards.filter((board) => board.id !== change.board.id);
         this.boards = change.board.isTemplate ? others : [...others, change.board];
@@ -193,6 +221,13 @@ export class Workspace {
       }
       case 'boardDeleted':
         this.boards = this.boards.filter((board) => board.id !== change.boardId);
+        // A deleted board leaves every category (no message says so). Brought
+        // back, it is filed nowhere: it shows at the end of the default category.
+        this.categories = this.categories.map((category) => ({
+          ...category,
+          boardIds: category.boardIds.filter((id) => id !== change.boardId),
+          hiddenBoardIds: category.hiddenBoardIds.filter((id) => id !== change.boardId),
+        }));
         break;
       case 'categories':
         this.categories = change.categories;
@@ -219,6 +254,7 @@ export class Workspace {
     this.#refreshing += 1;
     const reading = this.#refreshing;
     const before = this.boards.map((board) => board.id);
+    const begun = this.#sidebarBegun;
     try {
       const [boards, categories] = await Promise.all([
         this.backend.boards(team.id),
@@ -226,7 +262,10 @@ export class Workspace {
       ]);
       if (reading !== this.#refreshing) return;
       this.boards = reread(this.boards, boards, before);
-      this.categories = categories;
+      // Not over a sidebar write under way, or one begun since this reading was.
+      if (this.#sidebarWrites > 0) this.#sidebarStale = true;
+      else if (begun !== this.#sidebarBegun) void this.#refresh();
+      else this.categories = categories;
     } catch (error) {
       // A reading in the background: only a session that is over is told
       // (as signing out). The next message, or the next load, brings the rest.
@@ -284,6 +323,22 @@ export class Workspace {
     }
   }
 
+  /**
+   * People of the team whose name has `query` in it (ten at most). A failure
+   * finds nobody; a session that is over signs out.
+   */
+  async searchUsers(query: string): Promise<User[]> {
+    const team = this.team;
+    if (!team) return [];
+    try {
+      return await this.backend.searchUsers(team.id, query);
+    } catch (error) {
+      if (isBackendError(error) && error.status === 401) this.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
+      return [];
+    }
+  }
+
   // ----------------------------------------------------------- settings
 
   /** Changes settings. They apply at once and go back if the server refuses them. */
@@ -309,7 +364,8 @@ export class Workspace {
    * that was open is closed. The returned store is also `this.board`.
    */
   async openBoard(boardId: string): Promise<BoardStore> {
-    if (this.board?.boardId === boardId) return this.board;
+    // A board that went missing is read anew: it may have been brought back.
+    if (this.board?.boardId === boardId && !this.board.missing) return this.board;
     this.board?.close();
     const store = new BoardStore(this, boardId);
     this.board = store;
@@ -324,27 +380,208 @@ export class Workspace {
 
   /**
    * Makes a board and its first view, a kanban grouped by the board's first
-   * select property. `viewTitle` is the title of that view; the caller passes
-   * the translated word. A board without a view has nothing to show, so the
-   * two are made together (in two requests, until the contract says there is
-   * one for both).
+   * select property (a board without card properties is given one named
+   * `statusName`). `viewTitle` is the title of that view. The caller passes
+   * both in the reader's language. The two are made together.
    */
-  async createBoard(draft: BoardDraft, viewTitle = ''): Promise<Board | undefined> {
+  async createBoard(
+    draft: BoardDraft,
+    viewTitle = '',
+    statusName = 'Status',
+  ): Promise<Board | undefined> {
     if (!this.team) return undefined;
     try {
-      const board = await this.backend.createBoard(this.team.id, draft);
-      const groupBy = board.cardProperties.find((template) => template.type === 'select');
+      const cardProperties =
+        draft.cardProperties ?? createEmptyBoard(undefined, statusName).cardProperties;
+      const groupBy = cardProperties.find((template) => template.type === 'select');
       const fields = createBoardView().fields;
       fields.viewType = 'board';
       fields.groupById = groupBy?.id;
       fields.visibleOptionIds = [...(groupBy?.options.map((option) => option.id) ?? []), ''];
-      await this.backend.createView(board.id, { title: viewTitle, fields });
+      const { board } = await this.backend.createBoard(
+        this.team.id,
+        { ...draft, cardProperties },
+        { title: viewTitle, fields },
+      );
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
       this.report('save', error);
       return undefined;
     }
+  }
+
+  /**
+   * The boards the reader may find by `query` (every word in the title).
+   * A failure finds nothing; a session that is over signs out.
+   */
+  async searchBoards(query: string): Promise<Board[]> {
+    const team = this.team;
+    if (!team || query.trim() === '') return [];
+    try {
+      return await this.backend.searchBoards(team.id, query.trim());
+    } catch (error) {
+      if (isBackendError(error) && error.status === 401) this.report('load', error);
+      else if (!isBackendError(error)) console.error(error);
+      return [];
+    }
+  }
+
+  /** The templates a board can be made from; none when they cannot be read (told). */
+  async templates(): Promise<Board[]> {
+    if (!this.team) return [];
+    try {
+      return await this.backend.templates(this.team.id);
+    } catch (error) {
+      this.report('load', error);
+      return [];
+    }
+  }
+
+  /** Makes a board from a template; it keeps the template's title, views and cards. */
+  async createBoardFromTemplate(templateId: string): Promise<Board | undefined> {
+    if (!this.team) return undefined;
+    try {
+      const board = await this.backend.duplicateBoard(templateId, false, this.team.id);
+      this.#apply({ kind: 'board', board });
+      return board;
+    } catch (error) {
+      this.report('save', error);
+      return undefined;
+    }
+  }
+
+  /** Makes a template of the team from a board. A template is no board of the sidebar. */
+  async createTemplateFromBoard(boardId: string): Promise<Board | undefined> {
+    if (!this.team) return undefined;
+    try {
+      return await this.backend.duplicateBoard(boardId, true, this.team.id);
+    } catch (error) {
+      this.report('save', error);
+      return undefined;
+    }
+  }
+
+  /**
+   * The welcome board of a new account, copied for them: called once, right
+   * after the account is made (each call makes another copy). Undefined when
+   * it could not be made; the reader starts with an empty workspace then.
+   */
+  async onboard(): Promise<string | undefined> {
+    if (!this.team) return undefined;
+    let boardId: string;
+    try {
+      boardId = await this.backend.onboard(this.team.id);
+    } catch (error) {
+      this.report('load', error);
+      return undefined;
+    }
+    try {
+      this.#apply({ kind: 'board', board: await this.backend.board(boardId) });
+    } catch {
+      // It is made; the server's message, or the next reading, shows it.
+    }
+    return boardId;
+  }
+
+  // ----------------------------------------------------------- archives
+
+  #transferCount = 0;
+  /** What stops each transfer under way, and what it moves (one at a time of each). */
+  #running: { id: number; stop: AbortController; key: string }[] = [];
+
+  /**
+   * Runs a transfer that the reader can watch: its progress, its end. A
+   * finished one stays a moment, then goes; a failed one is told as a
+   * problem; one given up (dismissed while under way) is told nothing. The
+   * same thing is not moved twice at once: asked again meanwhile, nothing
+   * more is done.
+   */
+  async #transfer<T>(
+    kind: Transfer['kind'],
+    key: string,
+    name: string,
+    run: (options: {
+      onProgress: (progress: { sentBytes: number; totalBytes: number }) => void;
+      signal: AbortSignal;
+    }) => Promise<T>,
+  ): Promise<T | undefined> {
+    if (this.#running.some((running) => running.key === key)) return undefined;
+    this.#transferCount += 1;
+    const id = this.#transferCount;
+    const stop = new AbortController();
+    this.#running = [...this.#running, { id, stop, key }];
+    const change = (patch: Partial<Transfer>): void => {
+      this.transfers = this.transfers.map((one) => (one.id === id ? { ...one, ...patch } : one));
+    };
+    this.transfers = [...this.transfers, { id, kind, name, done: 0, total: 0, finished: false }];
+    try {
+      const result = await run({
+        onProgress: (progress) => {
+          change({ done: progress.sentBytes, total: progress.totalBytes });
+        },
+        signal: stop.signal,
+      });
+      if (stop.signal.aborted) return undefined;
+      change({ finished: true });
+      setTimeout(() => {
+        this.dismissTransfer(id);
+      }, TRANSFER_STAYS);
+      return result;
+    } catch (error) {
+      if (!stop.signal.aborted) {
+        this.dismissTransfer(id);
+        this.report(kind, error);
+      }
+      return undefined;
+    } finally {
+      this.#running = this.#running.filter((running) => running.id !== id);
+    }
+  }
+
+  /** Takes a transfer out of sight; one under way is given up. */
+  dismissTransfer(id: number): void {
+    this.#running.find((running) => running.id === id)?.stop.abort();
+    this.transfers = this.transfers.filter((one) => one.id !== id);
+  }
+
+  /** An archive of the board, for the shell to save. */
+  exportBoard(boardId: string): Promise<DownloadedFile | undefined> {
+    const board = this.boards.find((one) => one.id === boardId);
+    return this.#transfer('export', `board ${boardId}`, board?.title ?? '', (options) =>
+      this.backend.exportBoard(boardId, options),
+    );
+  }
+
+  /** An archive of every board of the team the reader may see. */
+  exportTeam(): Promise<DownloadedFile | undefined> {
+    const team = this.team;
+    if (!team) return Promise.resolve(undefined);
+    return this.#transfer('export', `team ${team.id}`, team.title, (options) =>
+      this.backend.exportTeam(team.id, options),
+    );
+  }
+
+  /**
+   * Imports the boards of an archive, then reads the boards and the sidebar
+   * again: the server tells the new boards before their members exist, so
+   * nobody hears of them. Whether it went through.
+   */
+  async importArchive(file: File): Promise<boolean> {
+    const team = this.team;
+    if (!team) return false;
+    const done = await this.#transfer(
+      'import',
+      `import ${file.name} ${file.size} ${file.lastModified}`,
+      file.name,
+      async (options) => {
+        await this.backend.importArchive(team.id, file, options);
+        return true;
+      },
+    );
+    // Even a failed import may have made some boards (one after the other).
+    void this.#refresh();
+    return done === true;
   }
 
   /** Deletes a board. It can be brought back with undo. */
@@ -367,59 +604,114 @@ export class Workspace {
 
   // --------------------------------------------------------- categories
 
+  /**
+   * Shows a sidebar write at once. When it is refused the sidebar goes back
+   * to what it was and is read again: what was taken back may be older than
+   * what arrived from elsewhere meanwhile.
+   */
   async #categoryWrite(optimistic: Category[], send: () => Promise<unknown>): Promise<void> {
     const before = this.categories;
     this.categories = optimistic;
+    this.#sidebarWriting();
     try {
       await send();
     } catch (error) {
-      this.categories = before;
+      this.#sidebarRefused(before);
       this.report('save', error);
+    } finally {
+      this.#sidebarWritten();
     }
   }
 
+  /**
+   * Sidebar writes under way. A reading of the sidebar meanwhile may be
+   * older than what they show (a filing is two requests, and the first one's
+   * message has the sidebar read between them): it is not shown, and the
+   * sidebar is read again once the last write has ended.
+   */
+  #sidebarWrites = 0;
+  /** Sidebar writes ever begun: a reading begun before one of them is older than it. */
+  #sidebarBegun = 0;
+  #sidebarStale = false;
+
+  #sidebarWriting(): void {
+    this.#sidebarWrites += 1;
+    this.#sidebarBegun += 1;
+  }
+
+  #sidebarWritten(): void {
+    this.#sidebarWrites -= 1;
+    if (this.#sidebarWrites > 0 || !this.#sidebarStale) return;
+    this.#sidebarStale = false;
+    void this.#refresh();
+  }
+
+  #sidebarRefused(before: Category[]): void {
+    this.categories = before;
+    void this.#refresh();
+  }
+
+  /** A new category goes first, as the backend puts it. */
   async createCategory(name: string): Promise<void> {
     if (!this.team) return;
+    this.#sidebarWriting();
     try {
       const category = await this.backend.createCategory(this.team.id, { name });
-      if (!this.categories.some((existing) => existing.id === category.id)) {
-        this.categories = [...this.categories, category];
-      }
+      if (this.categories.some((existing) => existing.id === category.id)) return;
+      // The others were moved down to make room; until they are read again,
+      // the new one is put before them.
+      const first = Math.min(...this.categories.map((existing) => existing.sortOrder));
+      this.categories = [
+        ...this.categories,
+        { ...category, sortOrder: Math.min(category.sortOrder, first - 1) },
+      ];
     } catch (error) {
       this.report('save', error);
+    } finally {
+      this.#sidebarWritten();
     }
   }
 
   async renameCategory(categoryId: string, name: string): Promise<void> {
+    const team = this.team;
+    if (!team) return;
     await this.#categoryWrite(
       this.categories.map((category) =>
         category.id === categoryId ? { ...category, name } : category,
       ),
-      () => this.backend.patchCategory(categoryId, { name }),
+      () => this.backend.patchCategory(team.id, categoryId, { name }),
     );
   }
 
   async setCategoryCollapsed(categoryId: string, collapsed: boolean): Promise<void> {
+    const team = this.team;
+    if (!team) return;
     await this.#categoryWrite(
       this.categories.map((category) =>
         category.id === categoryId ? { ...category, collapsed } : category,
       ),
-      () => this.backend.patchCategory(categoryId, { collapsed }),
+      () => this.backend.patchCategory(team.id, categoryId, { collapsed }),
     );
   }
 
   async deleteCategory(categoryId: string): Promise<void> {
+    const team = this.team;
     const gone = this.categories.find((category) => category.id === categoryId);
-    if (!gone) return;
+    if (!team || !gone) return;
     await this.#categoryWrite(
       this.categories
         .filter((category) => category.id !== categoryId)
         .map((category) =>
+          // Its boards go to the default category, those it hid still hidden.
           category.type === 'system'
-            ? { ...category, boardIds: [...category.boardIds, ...gone.boardIds] }
+            ? {
+                ...category,
+                boardIds: [...category.boardIds, ...gone.boardIds],
+                hiddenBoardIds: [...category.hiddenBoardIds, ...gone.hiddenBoardIds],
+              }
             : category,
         ),
-      () => this.backend.deleteCategory(categoryId),
+      () => this.backend.deleteCategory(team.id, categoryId),
     );
   }
 
@@ -438,6 +730,8 @@ export class Workspace {
 
   /** Files a board under a category, at `index` among the boards shown there. */
   async moveBoard(boardId: string, categoryId: string, index: number): Promise<void> {
+    const team = this.team;
+    if (!team) return;
     await this.#categoryWrite(
       this.categories.map((category) => {
         const boardIds = category.boardIds.filter((id) => id !== boardId);
@@ -446,8 +740,78 @@ export class Workspace {
         }
         return { ...category, boardIds };
       }),
-      () => this.backend.moveBoardToCategory(boardId, categoryId, index),
+      () => this.backend.moveBoardToCategory(team.id, boardId, categoryId, index),
     );
+  }
+
+  /**
+   * Takes a board out of the sidebar, or puts it back: it stays in its
+   * category, hidden. Hiding can be undone.
+   */
+  async hideBoard(boardId: string): Promise<void> {
+    const entry = this.sidebar.find((shown) => shown.boards.some((board) => board.id === boardId));
+    if (!entry) return;
+    const categoryId = entry.category.id;
+    try {
+      await this.undo.perform(
+        () => this.#setBoardHidden(categoryId, boardId, true),
+        () => this.#setBoardHidden(categoryId, boardId, false),
+        'hideBoard',
+      );
+    } catch (error) {
+      this.report('save', error);
+    }
+  }
+
+  /** Shows a hidden board in the sidebar again, in the category that hides it. */
+  async unhideBoard(boardId: string): Promise<void> {
+    const category = this.categories.find((one) => one.hiddenBoardIds.includes(boardId));
+    if (!category) return;
+    try {
+      await this.#setBoardHidden(category.id, boardId, false);
+    } catch (error) {
+      this.report('save', error);
+    }
+  }
+
+  /**
+   * Shows the change at once; when the backend refuses it, takes it back as
+   * any sidebar write (`#sidebarRefused`) and rejects.
+   */
+  async #setBoardHidden(categoryId: string, boardId: string, hidden: boolean): Promise<void> {
+    const team = this.team;
+    if (!team) return;
+    const before = this.categories;
+    const category = before.find((one) => one.id === categoryId);
+    // A board no category files (one brought back from the trash) is shown in
+    // the default category but cannot be hidden there until it is filed there.
+    const loose = hidden && category !== undefined && !category.boardIds.includes(boardId);
+    this.categories = before.map((one) => {
+      if (one.id !== categoryId) return one;
+      const others = one.hiddenBoardIds.filter((id) => id !== boardId);
+      return {
+        ...one,
+        boardIds: loose ? [...one.boardIds, boardId] : one.boardIds,
+        hiddenBoardIds: hidden ? [...others, boardId] : others,
+      };
+    });
+    this.#sidebarWriting();
+    try {
+      if (loose) {
+        await this.backend.moveBoardToCategory(
+          team.id,
+          boardId,
+          categoryId,
+          category.boardIds.length,
+        );
+      }
+      await this.backend.setBoardHidden(team.id, categoryId, boardId, hidden);
+    } catch (error) {
+      this.#sidebarRefused(before);
+      throw error;
+    } finally {
+      this.#sidebarWritten();
+    }
   }
 
   // --------------------------------------------------------------- undo

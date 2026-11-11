@@ -14,7 +14,7 @@
  *   and the browser sends the cookie. A shared, read-only board would be the
  *   one case where the address carries something: its read token, in the
  *   query (`getFile` takes `readToken`); the app has no such view yet. (Saving an attachment under its own
- *   name reads its bytes by script, features/card/download.ts: the server
+ *   name reads its bytes by script, lib/save.ts: the server
  *   names the download after the file's identifier.)
  * - `GET` needs no extra request header, which is what lets a tag fetch a file.
  * - The API lives under `/api/v1`, below the base path the server is given.

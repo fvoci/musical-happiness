@@ -1,6 +1,6 @@
 //! Checks that many handlers share: who may do what on a board or in a team.
 
-use fvoci_model::BoardType;
+use fvoci_model::{Block, BlockPatch, BlockType, BoardType};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
@@ -60,6 +60,109 @@ pub(crate) async fn board_refusal(
         Ok(true) => AppError::forbidden(denial),
         Ok(false) => AppError::not_found("board"),
         Err(error) => error,
+    }
+}
+
+/// The refusal of a change to a comment of somebody else, which only the board's admins
+/// may make.
+const OTHERS_COMMENTS_DENIED: &str = "access denied to change other users' comments";
+
+/// Checks that the user may change the block, of a board the request names: a comment
+/// is its author's to change with the commenter's role, and somebody else's only the
+/// board's admins change (as only they delete it); any other block is the editors'.
+/// A refusal says `denial`, except for the comment of somebody else, whose refusal says
+/// so. [`require_block_patch_permission`] checks the patch itself.
+pub(crate) async fn require_block_change_permission(
+    app: &App,
+    user_id: &str,
+    block: &Block,
+    denial: &str,
+) -> Result<(), AppError> {
+    let (permission, denial) = match block.block_type {
+        BlockType::Comment => comment_permission(user_id, block, denial),
+        _ => (BoardPermission::ManageBoardCards, denial),
+    };
+    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+}
+
+/// Checks what a patch does beyond changing a block's text. Changing a comment is its
+/// text (its body and the files that go with it): moving it to another card
+/// (`parentId`) or making it a block of another type is for editors (the commenter's
+/// role makes no card and moves none), and making a block a comment is for who may
+/// change that comment, so that nobody makes a comment that says somebody else wrote
+/// it. A refusal says what [`require_block_change_permission`]'s says.
+pub(crate) async fn require_block_patch_permission(
+    app: &App,
+    user_id: &str,
+    block: &Block,
+    patch: &BlockPatch,
+    denial: &str,
+) -> Result<(), AppError> {
+    // A block directly on its board has no parent, which clients of the original name
+    // by the board: naming it so moves nothing.
+    let moves = patch.parent_id.as_ref().is_some_and(|parent_id| {
+        *parent_id != block.parent_id
+            && !(block.parent_id.is_empty() && *parent_id == block.board_id)
+    });
+    if block.block_type == BlockType::Comment && moves {
+        require_board_permission(
+            app,
+            user_id,
+            &block.board_id,
+            BoardPermission::ManageBoardCards,
+            denial,
+        )
+        .await?;
+    }
+    let Some(new_type) = patch.block_type.as_ref() else {
+        return Ok(());
+    };
+    let (permission, denial) = match (&block.block_type, new_type) {
+        (BlockType::Comment, BlockType::Comment) => return Ok(()),
+        (BlockType::Comment, _) => (BoardPermission::ManageBoardCards, denial),
+        (_, BlockType::Comment) => comment_permission(user_id, block, denial),
+        _ => return Ok(()),
+    };
+    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+}
+
+/// Checks, for deleting a block or bringing it back, that a comment of somebody else is
+/// the board admins' to do (`ManageOthersComments`); refused with `denial`. Any other
+/// block, and the user's own comment, need nothing more than the editor's role the
+/// caller asked for.
+pub(crate) async fn require_comment_owner_or_admin(
+    app: &App,
+    user_id: &str,
+    block: &Block,
+    denial: &str,
+) -> Result<(), AppError> {
+    if block.block_type != BlockType::Comment || block.created_by == user_id {
+        return Ok(());
+    }
+    require_board_permission(
+        app,
+        user_id,
+        &block.board_id,
+        BoardPermission::ManageOthersComments,
+        denial,
+    )
+    .await
+}
+
+/// The permission that changing a comment, or making the block one, needs, and the
+/// refusal without it.
+fn comment_permission<'a>(
+    user_id: &str,
+    block: &Block,
+    denial: &'a str,
+) -> (BoardPermission, &'a str) {
+    if block.created_by == user_id {
+        (BoardPermission::CommentBoardCards, denial)
+    } else {
+        (
+            BoardPermission::ManageOthersComments,
+            OTHERS_COMMENTS_DENIED,
+        )
     }
 }
 

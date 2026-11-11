@@ -8,7 +8,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::JsonMap;
 use crate::block::{Block, BlockPatch, BlockType, PropertyChanges};
 use crate::body::{Body, BodyChange, BodySummary};
+use crate::card_property::{PersonProperties, check_card_property_values};
 use crate::id::new_id;
+use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 
 /// Errors from validating cards and converting them to and from blocks.
@@ -87,9 +89,74 @@ pub struct Card {
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
+    /// When the card's last comment was posted (the `createAt` of the newest of its
+    /// comments, the blocks of the type `comment` directly on it), in milliseconds since
+    /// the Unix epoch; zero if it has none. Changing a comment does not change it; a
+    /// deleted comment does not count, and counts again with its time if restored. A
+    /// comment does not change the card's `updateAt`. A new comment comes as
+    /// `UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is
+    /// read again for it. A number sent here in a request is ignored.
+    #[serde(deserialize_with = "null_as_default")]
+    pub last_comment_at: i64,
+    /// What a gallery shows of the card's body: only in a list asked for it
+    /// (`getCards` with `preview=true`), and left out otherwise. A request need not send
+    /// it; what it sends is not stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<CardPreview>,
+}
+
+/// What a gallery shows of a card's body.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(default, rename_all = "camelCase")]
+pub struct CardPreview {
+    /// The file the body's first image shows (`getFile` gives it, also with the board's
+    /// read token); empty if the body has no image.
+    pub image_file_id: String,
+    /// The beginning of the body's text: its plain text as it is searched (a line per
+    /// paragraph, heading, code block and formula block, separated by `\n`; a formula
+    /// gives its source, an image and a mention nothing), at most 200 UTF-16 code units,
+    /// cut between characters as they are seen (a flag or a letter with its accent stays
+    /// whole), without white space at its end. Nothing says it was cut. Empty for a card
+    /// without text.
+    pub text: String,
+}
+
+/// The longest text of a [`CardPreview`], in UTF-16 code units.
+pub const CARD_PREVIEW_TEXT_LENGTH: usize = 200;
+
+impl CardPreview {
+    /// The preview of a body whose plain text is `text` and whose first image shows
+    /// `image_file_id` (empty for none).
+    #[must_use]
+    pub fn new(image_file_id: String, text: &str) -> Self {
+        let mut units = 0;
+        let end = text
+            .grapheme_indices(true)
+            .find(|&(_, grapheme)| {
+                units += grapheme.encode_utf16().count();
+                units > CARD_PREVIEW_TEXT_LENGTH
+            })
+            .map_or(text.len(), |(at, _)| at);
+        Self {
+            image_file_id,
+            text: text[..end].trim_end().to_owned(),
+        }
+    }
 }
 
 impl Card {
+    /// Empties the users the card names, as a block's are for whoever reads with a read
+    /// token alone ([`Block::hide_people`]): its creator and last writer, the users of
+    /// its person properties (by `people`, the board's), and the mentions of its body.
+    pub fn hide_people(&mut self, people: &PersonProperties) {
+        self.created_by.clear();
+        self.modified_by.clear();
+        people.hide_values(&mut self.properties);
+        if let Some(body) = self.body.as_mut() {
+            body.clear_mentions();
+        }
+    }
+
     /// The card as a list shows it: without its body, with what the list says about
     /// the body instead.
     #[must_use]
@@ -117,6 +184,23 @@ impl Card {
         }
     }
 
+    /// Checks the shape of the card as a request to make it sends it, all of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member that is refused: an icon of more than one grapheme, and
+    /// each value of `properties` that has not the shape of one.
+    pub fn check_request(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        refuse_icon_and_values(
+            &mut refused,
+            Some(&self.icon),
+            &self.properties,
+            "properties",
+        );
+        refused.into_result()
+    }
+
     /// Checks that the card is complete.
     ///
     /// # Errors
@@ -142,7 +226,9 @@ impl Card {
 
     /// Builds a card from a block of type `card`.
     ///
-    /// Missing fields take their empty value, and a zero timestamp becomes `now`.
+    /// Missing fields take their empty value, and a zero timestamp becomes `now`. Its
+    /// `last_comment_at` is zero: a block does not know its comments, and whoever gives
+    /// the card out reads them (the app's `card_of_block`, the card list).
     ///
     /// # Errors
     ///
@@ -198,6 +284,9 @@ impl Card {
             create_at: block.create_at,
             update_at: block.update_at,
             delete_at: block.delete_at,
+            // A block does not know its comments.
+            last_comment_at: 0,
+            preview: None,
         };
         card.populate(now);
         Ok(card)
@@ -227,6 +316,7 @@ impl From<Card> for Block {
             update_at: card.update_at,
             delete_at: card.delete_at,
             board_id: card.board_id,
+            edited_at: 0,
         }
     }
 }
@@ -267,6 +357,36 @@ pub struct CardPatch {
 }
 
 impl CardPatch {
+    /// Checks the shape of the patch as a request sends it, all of it.
+    ///
+    /// # Errors
+    ///
+    /// Returns every member that is refused: an icon of more than one grapheme, a new
+    /// body without `readAt`, and each value of `updatedProperties` that has not the
+    /// shape of one. A value of a property the patch also deletes is not looked at: it
+    /// is gone when the patch is applied.
+    pub fn check_request(&self) -> Result<(), Refusals> {
+        let mut refused = Refusals::new();
+        if !self.body.is_keep() && self.read_at.is_none() {
+            refused.refuse(
+                "readAt",
+                RefusalReason::Required,
+                CardError::ReadAtMissing.to_string(),
+            );
+        }
+        let kept = self
+            .updated_properties
+            .iter()
+            .filter(|(id, _)| !self.deleted_properties.contains(id));
+        refuse_icon_and_values(
+            &mut refused,
+            self.icon.as_deref(),
+            kept,
+            "updatedProperties",
+        );
+        refused.into_result()
+    }
+
     /// Applies the patch to `card`: the updated properties are set, then the deleted ones
     /// removed.
     pub fn apply(&self, card: &mut Card) {
@@ -330,10 +450,35 @@ impl CardPatch {
     }
 }
 
+/// What an icon of more than one grapheme cluster is refused with.
+const ICON_OF_SEVERAL: &str = "Icon can have only one grapheme";
+
 /// Rejects an icon of more than one grapheme cluster.
 fn check_icon(icon: &str) -> Result<(), CardError> {
     if icon.graphemes(true).count() > 1 {
-        return Err(CardError::Invalid("Icon can have only one grapheme"));
+        return Err(CardError::Invalid(ICON_OF_SEVERAL));
     }
     Ok(())
+}
+
+/// Gathers what [`check_icon`] and the check of property values refuse of a request
+/// whose values are its member `values_member`.
+fn refuse_icon_and_values<'v>(
+    refused: &mut Refusals,
+    icon: Option<&str>,
+    values: impl IntoIterator<Item = (&'v String, &'v Value)>,
+    values_member: &str,
+) {
+    if icon.is_some_and(|icon| check_icon(icon).is_err()) {
+        refused.refuse(
+            "icon",
+            RefusalReason::Invalid,
+            CardError::Invalid(ICON_OF_SEVERAL).to_string(),
+        );
+    }
+    if let Err(of_values) = check_card_property_values(values, values_member) {
+        for refusal in of_values {
+            refused.push(refusal);
+        }
+    }
 }

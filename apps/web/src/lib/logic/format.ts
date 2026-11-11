@@ -22,6 +22,8 @@ export interface DisplayContext {
   hourCycle?: HourCycle;
   /** Shown for a select value whose option no longer exists. */
   unknownOption?: string;
+  /** The title of a card of the board; undefined for a card that is not there (deleted). */
+  cardTitle?: (cardId: string) => string | undefined;
 }
 
 const isValid = (instant: number): boolean => Number.isFinite(instant);

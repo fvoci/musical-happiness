@@ -2,11 +2,10 @@
 
 `contracts/openapi.json`은 지금 서버가 하는 일을 적은 것이다. 이 문서는 그 가운데 바뀌기로 결정된 부분과 구현된 결과를 모은다. 웹앱은 이 문서에 든 조작과 멤버를 나중에 쓰거나, 쓰더라도 얇게 감싸 둔다. 여기에 없는 것은 바꿀 계획이 없다.
 
-1, 2, 4, 5절은 작업 묶음 `fvoci/server-next`가 구현했다(설계 `docs/s6-design.md`의 "구현 순서" 8, 9단계). 그 절들의 "지금"은 구현 전의 기록이다.
+1, 2, 4, 5절은 작업 묶음 `fvoci/server-next`가 구현했다(설계 `docs/s6-design.md`의 "구현 순서" 8, 9단계).
 
 읽는 법:
 
-- 각 절의 "지금"은 계약 파일에 있는 것이고 "바뀐 뒤"는 설계의 결정이다.
 - 이 문서는 어느 조작과 멤버가 바뀌는지, 웹앱이 지금 무엇을 해도 되는지를 적는다. 바뀐 뒤의 모양과 검증 규칙의 전부는 절마다 가리키는 설계의 절에 있다.
 - 조작은 계약의 `operationId`로 가리킨다. 경로 매개변수는 계약의 이름(`{boardId}`처럼 camelCase)으로 적는다.
 
@@ -26,8 +25,6 @@
 
 ## 1. 카드와 댓글의 본문 (설계 5.7)
 
-**지금(구현 전의 기록).** 카드의 본문은 카드의 자식 블록들이다(`type`이 `text`, `image`, `divider`, `checkbox`, `h1`–`h3` 등). 순서는 카드의 `fields.contentOrder`에 있고 `moveContentBlock`이 그것을 고친다. 댓글의 글은 댓글 블록의 `title`에 마크다운으로 있다.
-
 **바뀐 뒤.** 본문은 허용 목록을 따르는 문서 하나다. 허용하는 노드와 마크, 속성, 포함 관계는 설계 5.7의 허용 목록 표에 있다.
 
 | 대상 | 바뀌는 것 |
@@ -40,7 +37,7 @@
 | 댓글 | 글이 `title`의 마크다운에서 `body` 문서로 간다 |
 | 첨부 | 카드의 자식 블록으로 남는다. 순서는 만든 시각이다 |
 | 블록의 `fields` 한도 | 카드·댓글·첨부는 64,000자, 뷰는 800,000자 |
-| `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `createBoardsAndBlocks`, `patchBoardsAndBlocks` | `body`를 받고 검증한다. 어긋나면 400이고 `field`가 `body`다 |
+| `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `createBoardsAndBlocks`, `patchBoardsAndBlocks` | `body`를 받고 검증한다. 어긋나면 400이고 `errors`가 `body`의 자리를 가리킨다 |
 | `body`의 한도 | 직렬화한 JSON 1 MiB, 깊이 32, 노드 20,000개 |
 | `image` 노드의 `fileId` | 같은 보드의 파일이어야 한다. 아니면 400 |
 
@@ -49,23 +46,24 @@
 - `Card`에 `body`, `hasBody`, `tasksTotal`, `tasksDone`가 늘 있다. `getCard`와 `createCard`·`patchCard`의 답은 `body`에 문서를, `getCards`는 `body`에 `null`을 싣고 나머지 셋으로 본문이 있는지와 할 일 수를 알린다. 목록은 본문을 읽지 않고 저장할 때 센 열을 읽는다.
 - `Block`에 `body`가 늘 있다(없으면 `null`). WebSocket의 `UPDATE_BLOCK`도 `Block` 전체이므로 본문을 싣는다(`contracts/websocket.md`).
 - `createCard`가 `body`를 받는다. 빠졌거나 `null`이거나 빈 문서(빈 문단 하나)면 본문이 없다.
-- `patchCard`가 `body`와 `readAt`을 받는다. `body`가 빠지면 본문은 그대로, `null`이나 빈 문서면 지운다. **`body`를 보내려면 `readAt`(그 카드를 읽었을 때의 `updateAt`)이 있어야 한다.** 없으면 400이고 `field`가 `readAt`이다. `readAt`이 지금의 `updateAt`과 다르면 409(`conflict`)이고 아무것도 바뀌지 않는다. `readAt`은 `body` 없이 보내도 검사한다. 패치를 적용한 블록이 블록의 한도(제목, `fields`)를 넘으면 `readAt`을 보기 전에 400이다. 부모의 검사는 그 뒤라서, 부모가 틀리고 `readAt`도 낡았으면 409다.
-- 검증은 허용 목록 판 2 전체다(tracer-bullet 2, 2026-11-11 05:29 KST): 노드와 마크의 종류, 속성과 그 값, 어느 노드가 어디에 올 수 있는지, 한도(1 MiB, 깊이 32, 노드 20,000). 길이는 UTF-16 코드 단위로 센다. 어느 문자열과 멤버 이름에도 U+0000이 있으면 거절한다(PostgreSQL의 `jsonb`가 담지 못한다. 웹앱의 검증기에는 아직 없는 규칙이다). 허용 목록을 통과한 문서가 빈 문단 하나뿐이면(`attrs`가 있어도) 본문이 없는 것이다. 어긋나면 400이고 `field`가 `body`다. 다만 JSON이 128단보다 깊게 겹친 요청은 디코더가 먼저 거절해 `field`가 없는 400이다(본문 한도는 32단이라 그 앞에서 늘 걸린다).
-- 서버가 저장할 때 `body_version`(2)과 검색용 평문 `body_text`를 함께 적는다. 평문은 문단·제목·코드 블록·수식 블록마다 한 줄이고 글자가 없는 블록의 줄은 뺀다. 줄바꿈(`hardBreak`)은 그 블록의 줄 안의 줄바꿈으로 남는다. 인라인 수식은 제자리에 원문으로 들어가고, 멘션은 아무것도 남기지 않는다(이름을 저장하지 않는다). 웹앱의 `plainText`는 멘션을 `@이름`으로 쓰므로 다르다. 평문은 아직 어느 응답에도 실리지 않는다.
-- 블록의 경로(`createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`)도 카드의 본문을 받는다(tracer-bullet 2b, 2026-11-11 05:55 KST). 검증과 거절(400, `field: body`)은 카드의 경로와 같다. 패치가 `body`를 바꾸려면(`null`도) `readAt`이 있어야 하고, 없으면 400이고 `field`가 `readAt`이다. **본문은 카드와 댓글만 갖는다.** 다른 블록에 본문이 있으면 400이고 `field`가 `body`다.
-- **본문의 이미지는 그 블록의 보드의 파일이다**(설계 5.7). `image`의 `fileId`가 그 보드가 가진 파일의 저장 이름이 아니면 400이고 `field`가 `body`다. 본문을 받는 경로가 모두 같다(아카이브 가져오기는 아직 아니다. 8절). `createBlocks`에 `sourceBoardId`를 주면 그 보드의 파일이어야 하고(받는 보드에 이미 있는 파일이어도 거절한다), 블록과 함께 파일이 복사된다. `createBoardsAndBlocks`의 보드는 새것이라 파일이 없으므로 이미지가 있는 본문을 무엇도 찾아보지 않고 거절한다. 본문이 있는 카드나 댓글을 그 둘이 아닌 `type`으로 바꾸는 패치는 본문을 보내지 않았어도 400이고 `field`가 `body`다.
-- **댓글의 본문**(tracer-bullet 3). 댓글 블록도 `createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`로 `body`를 받는다. 검증, `readAt`, 이미지가 그 보드의 파일이어야 하는 규칙, 저장되는 평문까지 카드와 같다. 댓글의 권한(누가 만들고 고치고 지우는가)은 그대로다. 그래서 댓글만 쓸 수 있는 멤버(commenter)는 파일을 올리지 못해 댓글에 새 그림을 넣지 못하고, `sourceBoardId`로 파일을 복사하게 되는 요청은 편집 권한을 요구한다(없으면 403). 댓글의 `title`은 아직 받고 돌려준다(웹앱이 `body`로 옮겨 간 뒤에 걷어 낼지는 5절의 콘텐츠 블록과 함께 본다). 카드·보드 복제는 지금처럼 댓글을 복사하지 않는다. `sourceBoardId`로 다른 보드의 댓글을 만들면 그 본문의 파일도 복사된다.
+- `patchCard`가 `body`와 `readAt`을 받는다. `body`가 빠지면 본문은 그대로, `null`이나 빈 문서면 지운다. **`body`를 보내려면 `readAt`(그 카드를 읽었을 때의 `updateAt`)이 있어야 한다.** 없으면 400이고 `errors`가 `readAt`의 자리를 가리킨다. `readAt`이 지금의 `updateAt`과 다르면 409(`conflict`)이고 아무것도 바뀌지 않는다. `readAt`은 `body` 없이 보내도 검사한다. 패치를 적용한 블록이 블록의 한도(제목, `fields`)를 넘으면 `readAt`을 보기 전에 400이다. 부모의 검사는 그 뒤라서, 부모가 틀리고 `readAt`도 낡았으면 409다.
+- 검증은 허용 목록 판 2 전체다(tracer-bullet 2, 2026-11-11 05:29 KST): 노드와 마크의 종류, 속성과 그 값, 어느 노드가 어디에 올 수 있는지, 한도(1 MiB, 깊이 32, 노드 20,000). 길이는 UTF-16 코드 단위로 센다. 어느 문자열과 멤버 이름에도 U+0000이 있으면 거절한다(PostgreSQL의 `jsonb`가 담지 못한다. 웹앱의 검증기에는 아직 없는 규칙이다). 허용 목록을 통과한 문서가 빈 문단 하나뿐이면(`attrs`가 있어도) 본문이 없는 것이다. 어긋나면 400이고 `errors`가 `body`의 자리를 가리킨다. 다만 JSON이 128단보다 깊게 겹친 요청은 디코더가 먼저 거절해 `errors`가 없는 400이다(본문 한도는 32단이라 그 앞에서 늘 걸린다).
+- 서버가 저장할 때 `body_version`(2)과 검색용 평문 `body_text`를 함께 적는다. 평문은 문단·제목·코드 블록·수식 블록마다 한 줄이고 글자가 없는 블록의 줄은 뺀다. 줄바꿈(`hardBreak`)은 그 블록의 줄 안의 줄바꿈으로 남는다. 인라인 수식은 제자리에 원문으로 들어가고, 멘션은 아무것도 남기지 않는다(이름을 저장하지 않는다). 웹앱의 `plainText`는 멘션을 `@이름`으로 쓰므로 다르다. 평문의 앞부분은 `getCards?preview=true`의 `preview.text`로 나간다.
+- 블록의 경로(`createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`)도 카드의 본문을 받는다(tracer-bullet 2b, 2026-11-11 05:55 KST). 검증과 거절(400, `errors`: `body`의 자리)은 카드의 경로와 같다. 패치가 `body`를 바꾸려면(`null`도) `readAt`이 있어야 하고, 없으면 400이고 `errors`가 `readAt`의 자리를 가리킨다. **본문은 카드와 댓글만 갖는다.** 다른 블록에 본문이 있으면 400이고 `errors`가 `body`의 자리를 가리킨다.
+- **본문의 이미지는 그 블록의 보드의 파일이다**(설계 5.7). `image`의 `fileId`가 그 보드가 가진 파일의 저장 이름이 아니면 400이고 `errors`가 `body`의 자리를 가리킨다. 본문을 받는 경로가 모두 같다(아카이브 가져오기는 아직 아니다. 8절). `createBlocks`에 `sourceBoardId`를 주면 그 보드의 파일이어야 하고(받는 보드에 이미 있는 파일이어도 거절한다), 블록과 함께 파일이 복사된다. `createBoardsAndBlocks`의 보드는 새것이라 파일이 없으므로 이미지가 있는 본문을 무엇도 찾아보지 않고 거절한다. 본문이 있는 카드나 댓글을 그 둘이 아닌 `type`으로 바꾸는 패치는 본문을 보내지 않았어도 400이고 `errors`가 `body`의 자리를 가리킨다.
+- **댓글의 본문**(tracer-bullet 3). 댓글 블록도 `createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`로 `body`를 받는다. 검증, `readAt`, 이미지가 그 보드의 파일이어야 하는 규칙, 저장되는 평문까지 카드와 같다. 댓글을 고치는 권한은 9절의 B1이다. 댓글만 쓸 수 있는 멤버(commenter)는 파일을 올리지 못해 댓글에 새 그림을 넣지 못하고, `sourceBoardId`로 파일을 복사하게 되는 요청은 편집 권한을 요구한다(없으면 403). 댓글의 `title`은 아직 받고 돌려준다(웹앱이 `body`로 옮겨 간 뒤에 걷어 낼지는 5절의 콘텐츠 블록과 함께 본다). 카드·보드 복제는 지금처럼 댓글을 복사하지 않는다. `sourceBoardId`로 다른 보드의 댓글을 만들면 그 본문의 파일도 복사된다.
+- **댓글의 이력(사용자 결정 2026-11-11 14:46 KST).** 댓글의 본문이 바뀔 때마다(어느 경로든, 본문이 같은 패치는 빼고) 서버가 그 전의 판을 남긴다. 본문이 바뀐 적 있는 댓글의 `Block`에는 `editedAt`(마지막으로 바뀐 시각)이 있고, 없으면 바뀐 적이 없다(클라이언트가 보낸 값은 무시한다). 판은 `getCommentVersions`(`GET /boards/{boardId}/blocks/{blockId}/versions`)로 읽는다: 지금의 것을 뺀 판들이 처음 것부터 `{version, body, writtenBy, writtenAt}`로 온다. 첫 판은 처음 쓴 글이고 쓴 사람은 댓글을 만든 사람이다. 보드의 구성원(보기 역할부터)만 읽고, 읽기 토큰으로는 읽지 못한다. 댓글이 휴지통에 있어도 읽는다. 댓글이 아닌 블록은 404다. 댓글마다 처음 판과 가장 새 판들을 합해 설정 `max_comment_versions`(기본 50)판까지 남긴다. 남은 판의 본문이 보이는 파일은 수거되지 않고, 댓글이 영구히 지워질 때 판도 지워진다. 내보내기·가져오기·복제는 판을 싣지 않는다(사용자가 확정, 2026-11-11 21:00 KST).
 - 카드를 복제하면(블록·보드 복제, 템플릿에서 보드 만들기) 본문의 이미지가 가리키는 파일도 복사되고, 복사본의 본문은 새 파일을 가리킨다.
 - `BlockPatch.readAt`은 지금 쓰인다: `patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`의 패치에 있으면 `patchCard`처럼 검사하고 어긋나면 409다.
 - 있는 블록을 고칠 때마다 `updateAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
 - 휴지통에서 되살린 카드와 복제한 카드는 본문과 할 일 수를 그대로 갖는다.
-- **공유 보드의 익명 독자와 멘션(사용자 결정 2026-11-11 11:05 KST, tracer-bullet 17).** 읽기 토큰만으로 읽는 독자에게 나가는 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이다. HTTP(`getBlocks`)와 WebSocket(`UPDATE_BLOCK`) 모두. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다.
+- **읽기 토큰의 독자와 사용자 ID(사용자 결정 2026-11-11 11:05, 14:25 KST).** 읽기 토큰으로 읽고 보드의 구성원(보기 역할부터)이 아닌 독자(세션이 없거나, 로그인했어도. 열린 보드의 팀 사용자도 토큰으로 읽으면 그렇다)에게 나가는 보드와 블록은 `createdBy`·`modifiedBy`가 비어 있고(결정 7), 카드와 댓글의 본문에서 모든 멘션의 `userId`가 빈 문자열이고, 보드의 사람 속성(`type`이 `person`, `multiPerson`, `createdBy`, `updatedBy`)이 가리키는 사람이 카드의 `fields.properties`와 뷰의 `fields.filter` 절에서 사람마다 빈 문자열이다(목록의 길이는 그대로). 카드의 값 가운데 보드가 정의하지 않은 속성의 것(지운 사람 속성이 남긴 것)은 빠지고, 사람 속성으로 묶은 뷰의 `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`, `kanbanCalculations`에는 값 없는 묶음(`""`)만 남는다. HTTP(`getBoard`, `getBlocks`, `getCards`의 카드도 같다)와 WebSocket(`UPDATE_BLOCK`) 모두. 그 독자가 받는 응답 가운데 사용자 ID를 싣는 자리는 이것뿐이다(`getFile`, `getFileInfo`는 싣지 않는다). 사람 속성을 `text` 같은 다른 종류로 바꾸면 남은 값은 그 종류의 값으로 그대로 나간다. 이것은 나가는 모양일 뿐 저장되는 모양이 아니다. 허용 목록은 `userId`가 사용자 ID가 아닌 멘션을 받지 않으므로, 그 본문을 그대로 되돌려 쓰면 400이다(익명 독자는 쓰지 못하니 생기지 않는다). 화면은 빈 `userId`의 멘션을 "알 수 없는 사용자"로 그리면 된다.
 
 **들어간 것(tracer-bullet 6, 2026-11-11 08:42 KST).** 표의 나머지 넷(블록의 `type`, `contentOrder`, `moveContentBlock`, `fields` 한도)이 들어갔다. 이로써 이 표는 모두 계약 파일에 있다.
 
 - `moveContentBlock`이 없다. 그 경로는 404다.
 - `Card`, `CardPatch`, `createCard`의 몸에서 `contentOrder`가 없어졌다. 보내도 무시하고 저장하지 않는다. 전에 저장된 카드 블록의 `fields.contentOrder`는 그대로 남고 읽지 않는다. 그래서 `contentOrder`가 중첩 목록인 카드(원본 웹앱의 나란히 놓기)도 이제 카드로 읽힌다(8절에서 그 경우를 뺐다).
-- 새 블록의 `type`은 `card`, `view`, `comment`, `attachment`만 된다. 다른 종류는 `createBlocks`와 `createBoardsAndBlocks`에서 400이고 `field`가 `type`이다. 메시지는 클라이언트가 적은 종류를 64자까지만 옮긴다. 아카이브 가져오기도 400이다(`field` 없이, 메시지가 블록과 종류를 적는다). 어느 쪽이든 아무것도 저장하지 않는다. 패치(`patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`)가 블록을 그런 종류로 바꾸는 것도 400이고 `field`가 `type`이다.
+- 새 블록의 `type`은 `card`, `view`, `comment`, `attachment`만 된다. 다른 종류는 `createBlocks`와 `createBoardsAndBlocks`에서 400이고 `errors`가 `type`의 자리를 가리킨다. 메시지는 클라이언트가 적은 종류를 64자까지만 옮긴다. 아카이브 가져오기도 400이다(`errors` 없이, 메시지가 블록과 종류를 적는다). 어느 쪽이든 아무것도 저장하지 않는다. 패치(`patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`)가 블록을 그런 종류로 바꾸는 것도 400이고 `errors`가 `type`의 자리를 가리킨다.
 - `fields`의 한도는 직렬화한 JSON의 글자 수로 카드·댓글·첨부 64,000자, 뷰 800,000자다. 만들 때와 패치할 때 모두 본다. 세는 단위는 지금까지의 800,000자와 같은 유니코드 글자다(본문의 UTF-16과 다르다). 원본의 옛 보드 블록은 800,000자다. 전에 저장된 카드·댓글·첨부가 64,000자를 넘으면 그 블록을 고치는 패치(제목만 바꾸는 것도)와 그 블록이나 그것이 든 보드의 복제가 400이다. `fields`를 64,000자 아래로 줄이는 패치는 받는다. 그런 카드가 든 보드는 내보낼 수 있지만, 그 아카이브의 가져오기는 400이다.
 - **저장된 콘텐츠 블록은 지운다(사용자 결정 2026-11-11 11:05 KST, tracer-bullet 16).** 마이그레이션 8의 데이터 단계가 서버가 시작할 때 한 번, 콘텐츠 블록(`text`, `image`, `checkbox`, `divider`, 제목들과 카드·뷰·댓글·첨부·옛 보드 블록이 아닌 모든 종류)의 행을 보드와 휴지통에서 지운다. 그 블록만 보이던 파일은 다른 파일처럼 유예 기간 뒤에 수거된다. 본문으로 바꾸지 않는다. 그 뒤로 서버에는 그런 블록을 읽고, 고치고, 복제하고, 내보내는 길이 없다. 그런 블록이 든 아카이브는 가져오기가 거절한다(전과 같다).
 
@@ -83,8 +81,6 @@
 
 ## 2. 날짜 속성의 값 (설계 5.7의 B)
 
-**지금(구현 전의 기록).** 카드의 `properties`(계약에서는 `object`)에서 날짜 속성의 값은 JSON을 담은 문자열이다: `"{\"from\":1772712000000}"`. 날짜만 있는 값도 "그날 정오의 시각"(밀리초)으로 적는다. `includeTime`, `timeZone` 멤버가 붙을 수 있다.
-
 **바뀐 뒤.** 값이 객체다. 달력 날짜는 문자열이고(`{"from": "2026-03-05"}`), 시각은 UTC 밀리초 정수다(`{"from": 1772703000000}`). 범위는 `to`를 더한다. 세 모양의 표와 서버의 검증 규칙은 설계 5.7의 "날짜 속성 값의 와이어 모양"에 있다.
 
 웹앱이 알아 둘 것:
@@ -94,7 +90,7 @@
 
 **들어간 것(tracer-bullet 4, 2026-11-11).** 서버가 설계 5.7의 규칙대로 받는다. 카드를 쓰는 모든 경로(`createCard`, `patchCard`, `createBlocks`, 블록 패치 셋, boards-and-blocks 둘, 가져오기)에서 같다.
 
-- 날짜 값은 객체이고 `from`과 `to` 밖의 멤버(`includeTime`, `timeZone`)가 있으면 거절한다. 달력에 없는 날, 연도 1–9999 밖, 0보다 작거나 9999년을 넘는 밀리초, 종류가 섞인 `from`과 `to`, `from`보다 앞선 `to`, `from`과 같은 `to`도 거절한다. 모두 400이다(`field`는 없고 메시지가 속성의 ID와 까닭을 말한다).
+- 날짜 값은 객체이고 `from`과 `to` 밖의 멤버(`includeTime`, `timeZone`)가 있으면 거절한다. 달력에 없는 날, 연도 1–9999 밖, 0보다 작거나 9999년을 넘는 밀리초, 종류가 섞인 `from`과 `to`, `from`보다 앞선 `to`, `from`과 같은 `to`도 거절한다. 모두 400이다(`errors`는 없고 메시지가 속성의 ID와 까닭을 말한다).
 - 보드의 속성 정의에서 `type`이 `date`인 속성은 날짜 값이나 `null`만 받는다. 다른 속성(정의가 없는 ID 포함)은 날짜 값을 받지 않는다. 그래서 날짜 속성에 예전 모양(JSON을 담은 문자열)을 보내면 400이다.
 - 속성 정의의 `type`을 바꾸거나 정의를 지워도 카드의 값은 그대로 둔다. 검사는 쓰기가 바꾸는 값에만 하므로, 맞지 않게 된 값이 있는 카드도 제목·본문 같은 다른 것은 고칠 수 있고, 그 값을 다시 쓸 때 새 규칙으로 검사한다. 카드와 보드를 복제하거나 아카이브를 가져올 때는 맞지 않는 종류의 값(날짜가 아닌 속성의 날짜 값, 날짜 속성의 문자열이나 목록)을 `null`로 바꿔 넣는다.
 - 밀리초는 JSON의 정수로 적는다. `1772703000000.0`처럼 소수점을 단 수는 받지 않는다(JavaScript는 그렇게 적지 않는다).
@@ -110,8 +106,6 @@
 **바뀐 뒤.** 2절의 날짜 값과 함께 속성 정의(`id`, `name`, `type`, `options`)와 속성 값의 타입을 계약에 적는다. 그때까지 웹앱은 이 둘의 타입을 자기 쪽에 둔다.
 
 ## 4. 파일 올리기 (설계 5.6, 4.3)
-
-**지금(구현 전의 기록).** `uploadFile`(`POST /boards/{boardId}/files`)이 `multipart/form-data` 요청 하나로 파일 전체를 받는다. 한도는 설정 `maxfilesize`이고 기본값은 한도 없음이다.
 
 **바뀐 뒤.** 올리기 세션의 조작 다섯이 생긴다: 세션 만들기, 부분 하나 올리기, 받은 부분 묻기, 완료, 버리기. 경로와 요청·답의 모양은 설계 5.6의 "라우트" 표에 있다. 조작 이름(`operationId`)은 계약에 넣을 때 정한다.
 
@@ -162,13 +156,6 @@
 
 ## 5. 아카이브와 템플릿 (설계 3.10, 5.7)
 
-**지금.**
-
-- `exportBoardArchive`와 `exportTeamArchive`가 판 2의 형식(ZIP, 안에 줄마다 JSON)을 낸다(구현 전의 기록. 지금은 판 3, 아래).
-- `importArchive`가 판 1(JSONL)과 판 2를 받는다(구현 전의 기록. 지금은 판 3만, 아래).
-- 계약은 이 셋의 본문을 `application/octet-stream`과 `multipart/form-data`로만 적는다.
-- 내장 템플릿은 저장소 밖에서 받아 온 판 2 아카이브에서 온다.
-
 **바뀐 뒤.**
 
 - 아카이브 형식이 판 3이 된다. 계약의 타입(보드, 블록, 본문)을 그대로 쓴다. 옛 형식(판 1, 판 2)의 가져오기는 없어진다.
@@ -194,7 +181,6 @@
 - `importArchive`는 판 3만 받는다. 판 1(JSONL), 판 2, `version.json`이 없는 ZIP은 400이고 아무것도 만들지 않는다. 읽을 수 없는 항목(체크섬이 틀리거나 한도를 넘는 것)이 있는 아카이브도 무엇을 만들기 전에 400이다(9b부터 한도를 넘는 것은 413, 아래).
 - 가져오기는 블록이 보이는 파일을 새 보드의 파일로 바꾼다. 이미지·첨부 블록의 `fileId`와 `attachmentId`, 본문의 이미지가 모두 바뀐다(8절의 결함에서 뺐다). 아카이브에 파일이 없는 이름은 블록의 필드에서 빈 이름이 되고, 본문의 이미지는 빈 문단이 된다(남는 것이 빈 문단뿐이면 본문이 없다). 복제도 같다.
 - 가져오기는 속성의 종류에 맞지 않는 값을 `null`로 바꾼다(2절, 복제와 같다). 예전 모양의 날짜 값을 새 모양으로 바꾸는 일은 하지 않는다. 판 3의 아카이브에는 예전 모양이 없다.
-- 4절의 올리기 세션과 스트리밍은 이때 아직이었다(9a, 9b에서 들어갔다).
 
 **들어간 것(tracer-bullet 9a, 2026-11-11 10:55 KST).** 내보내기(`exportBoardArchive`, `exportTeamArchive`)는 아카이브를 메모리에 모으지 않고 서버의 임시 파일에 다 쓴 뒤 보낸다. 응답에 `Content-Length`가 생겼다. 쓰다 실패하면 200을 보내기 전의 오류 응답이다(반쯤 나간 200이 없다). 아카이브의 내용과 형식은 그대로다. 가져오기의 올리기 세션은 9b다.
 
@@ -202,14 +188,14 @@
 
 - 새 조작 `createImportUpload`(`POST /teams/{teamId}/archive/uploads`). 요청과 답은 `createUpload`와 같다(`name`, `size`, `contentType` → `uploadId`, `partSize`, `partCount`, `expiresAt`). 권한은 가져오기와 같다(그 팀의 사용자이고 게스트가 아님). `size`가 `maxImportSize`를 넘으면 413이다.
 - 부분은 `putUploadPart`로 보낸다(파일과 같다). 아카이브의 부분은 저장소가 S3여도 서버의 임시 자리에 받는다(가져오기가 ZIP을 임의 접근으로 읽는다).
-- `importArchive`(`POST /teams/{teamId}/archive/import`)의 본문은 `multipart/form-data`가 아니라 JSON `{"uploadId": "…"}`다. 답은 그대로 204다. 설계 5.6의 9번은 "완료가 가져오기를 실행한다"였는데, `completeUpload`의 답(`fileId`)과 권한(보드)이 파일의 것이라 가져오기는 제 조작에서 업로드를 이름으로 받게 했다. 빠진 부분이 있으면 400이고 업로드는 열린 채 남는다. 그 밖에는 가져오기가 성공하든 실패하든 업로드가 끝난다. 다른 사용자의 업로드와 끝난 업로드는 404, 파일의 업로드나 다른 팀의 업로드는 400(`field: uploadId`)이다. 가져올 때 권한이 없으면 403이고 업로드를 버린다(완료와 같다).
-- `completeUpload`에 아카이브의 업로드를 주면 400(`field: uploadId`)이고 업로드는 남는다.
+- `importArchive`(`POST /teams/{teamId}/archive/import`)의 본문은 `multipart/form-data`가 아니라 JSON `{"uploadId": "…"}`다. 답은 그대로 204다. 설계 5.6의 9번은 "완료가 가져오기를 실행한다"였는데, `completeUpload`의 답(`fileId`)과 권한(보드)이 파일의 것이라 가져오기는 제 조작에서 업로드를 이름으로 받게 했다. 빠진 부분이 있으면 400이고 업로드는 열린 채 남는다. 그 밖에는 가져오기가 성공하든 실패하든 업로드가 끝난다. 다른 사용자의 업로드와 끝난 업로드는 404, 파일의 업로드나 다른 팀의 업로드는 400(`errors`가 `uploadId`의 자리를 가리킨다)이다. 가져올 때 권한이 없으면 403이고 업로드를 버린다(완료와 같다).
+- `completeUpload`에 아카이브의 업로드를 주면 400(`errors`가 `uploadId`의 자리를 가리킨다)이고 업로드는 남는다.
 - `getUpload`의 답에 `purpose`(`file` | `import`)와 `teamId`가 생겼다. 아카이브의 업로드는 `boardId`가 빈 문자열, 파일의 업로드는 `teamId`가 빈 문자열이다.
 - `getClientConfig`에 `maxImportSize`(설정 `max_import_bytes`, 기본 256 MiB)가 생겼다. 사용자 한 명의 열린 업로드가 걸어 두는 크기의 한도는 `maxFileSize`와 `maxImportSize` 가운데 큰 것의 두 배가 됐다(기본 512 MiB).
 - 아카이브의 한도(설계 4.2): 항목 10,000개, 풀린 합계 1 GiB, `board.jsonl` 64 MiB(전에는 70 MiB이고 400), 파일 항목 하나는 `maxFileSize`(전에는 항목마다 256 MiB이고 400). 넘으면 413이고 `limit`이 그 한도다(항목 수는 개수, 나머지는 바이트). 무엇을 만들기 전에 모든 항목을 한 번 읽어 보므로 한도를 넘는 아카이브는 아무것도 만들지 않는다.
 - 맨 위의 `version.json`이 64 KiB를 넘으면 이 서버의 아카이브가 아니라서 400이다(다른 판의 것과 같다). 보드 디렉터리 안의 같은 이름은 파일 항목의 한도(`maxFileSize`)를 받고, 가져오지는 않는다.
-- 항목 수는 ZIP의 디렉터리를 읽기 전에 파일 전체에서 중앙 헤더의 서명을 세어 본다. 끝 레코드가 적은 수를 말해도 헤더가 10,000개를 넘으면 413이다. 이것은 읽어 들이는 항목의 수를 묶을 뿐, ZIP 크레이트가 디렉터리를 읽기 전에 끝 레코드가 말하는 수만큼 잡아 두는 자리(가상 메모리. 꾸미면 아카이브 크기의 약 3배)는 묶지 못한다. 보통의 메모리 과할당 설정에서는 쓰이지 않고 400으로 끝나지만, 과할당을 막은 기기에서는 프로세스가 멈출 수 있다(사용자 결정 필요, 보고에). 압축하지 않고 저장한 ZIP(첨부한 `.zip`, `.xlsx` 등)을 담은 아카이브는 그 안의 헤더도 세어진다. 이 서버가 내보낸 아카이브는 항목을 모두 압축하므로 해당하지 않는다.
-- 서버는 아카이브를 메모리에 올리지 않는다. 부분을 임시 자리에서 차례로 한 파일에 이어 붙이며(붙인 부분은 지운다) 그 파일에서 항목을 하나씩 읽고, 파일 항목은 임시 파일로 풀어 저장소에 흘려 쓴다. 가져오는 동안 임시 자리는 아카이브 하나와 부분 하나, 파일 항목 하나만큼 쓴다. 가져오는 중인 아카이브는 열린 업로드의 한도에 들지 않는다.
+- 항목 수는 ZIP의 디렉터리를 읽기 전에 파일 전체에서 중앙 헤더의 서명을 세어 본다. 끝 레코드가 적은 수를 말해도 헤더가 10,000개를 넘으면 413이다. 이것은 읽어 들이는 항목의 수를 묶을 뿐, ZIP 크레이트가 디렉터리를 읽기 전에 끝 레코드가 말하는 수만큼 잡아 두는 자리(가상 메모리. 꾸미면 아카이브 크기의 약 3배)는 묶지 못한다. 보통의 메모리 과할당 설정에서는 쓰이지 않고 400으로 끝나지만, 과할당을 막은 기기에서는 프로세스가 멈출 수 있다(사용자에게 알렸고 코드는 그대로 둔다. `docs/configuration.md`의 `max_import_bytes`). 압축하지 않고 저장한 ZIP(첨부한 `.zip`, `.xlsx` 등)을 담은 아카이브는 그 안의 헤더도 세어진다. 이 서버가 내보낸 아카이브는 항목을 모두 압축하므로 해당하지 않는다.
+- 서버는 아카이브를 메모리에 올리지 않는다. 부분을 임시 자리에서 차례로 한 파일에 이어 붙이며(붙인 부분은 지운다) 그 파일에서 항목을 하나씩 읽고, 파일 항목은 임시 파일로 풀어 저장소에 흘려 쓴다. 가져오는 동안 임시 자리는 아카이브 하나와 부분 하나, 파일 항목 하나만큼 쓴다. 가져오는 중인 아카이브는 열린 업로드의 한도에 들지 않는다. 동시에 하는 가져오기와 내보내기는 한 사람에 하나, 서버 전체에 설정값(기본 2)까지이고 넘으면 429다(사용자 결정 2026-11-11 14:25 KST).
 
 ## 6. 계약 밖에 있는 것
 
@@ -218,14 +204,14 @@
   - 메시지가 싣는 보드, 블록, 카테고리, 멤버는 계약의 `Board`, `Block`, `Category`, `BoardMember`와 같은 모양이다.
   - `UPDATE_BLOCK`이 싣는 블록은 1절의 본문(`body`)을 함께 싣는다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.
-  - 모든 조작의 `default` 응답이 `ErrorBody`다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다.
-  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`.
-  - 429와 `Retry-After`는 `login`, `register`, `changePassword`에 따로 적었다.
-  - `getFile`의 412와 416만 `ErrorBody`가 아니다. 412는 본문이 없고 416은 `text/plain`이다.
+  - 모든 조작의 `default` 응답이 `application/problem+json`의 `Problem`(RFC 9457)이다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다. 거절된 입력은 `errors`에 자리(`pointer`, `parameter`, `header`)와 함께 온다.
+  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`, `export_running`, `server_exports_busy`, `import_running`, `server_imports_busy`.
+  - 429와 `Retry-After`는 `login`, `register`, `changePassword`에, 412와 416은 `getFile`에 따로 적었다. 모두 같은 `Problem`이다.
 - **관리자 소켓의 라우트**(`/api/v1/admin/...`). 로컬 유닉스 소켓에서만 받는다. 계약에 없다.
+- **Prometheus 지표**(`/metrics`). API와 다른 리스너(`prometheusaddress`)에서만 낸다. API의 리스너에는 없다(`docs/configuration.md`의 "키: 지표").
 - **응답 압축**(tracer-bullet 10, 2026-11-11 11:51 KST). 조작마다 적지 않는다. 모양과 뜻은 바뀌지 않는다.
   - API의 JSON 응답(`Content-Type: application/json`, 32바이트 이상인 것)은 요청의 `Accept-Encoding`에 따라 `zstd`, `br`, `gzip`으로 압축한다. 같은 가중치면 zstd, brotli, gzip 순이다. `deflate`만 받는 클라이언트에는 압축하지 않는다. 압축한 응답은 `Content-Encoding`을 달고 `Content-Length`가 없으며 `Vary: Accept-Encoding`이 붙는다. 브라우저는 스스로 푼다.
-  - 내보내는 아카이브와 파일(`getFile`), 그 밖에 JSON이 아닌 응답과 오류 응답(`ErrorBody`)은 압축하지 않는다. 그래서 내보내기의 `Content-Length`와 `getFile`의 범위 요청은 그대로다.
+  - 내보내는 아카이브와 파일(`getFile`), 그 밖에 JSON이 아닌 응답과 오류 응답(`Problem`)은 압축하지 않는다. 그래서 내보내기의 `Content-Length`와 `getFile`의 범위 요청은 그대로다.
   - `Accept-Encoding`이 압축하지 않은 응답을 거절해도(`identity;q=0`, `*;q=0`) 406으로 답하지 않는다. 그 항목은 없는 것으로 보고, 받을 수 있는 압축이 없으면 압축하지 않은 응답을 한 일의 상태 그대로 보낸다.
   - 설정 `compress_responses`(기본 참)로 끈다. 압축하는 프록시나 CDN 뒤의 배포를 위한 것이다.
   - WebSocket 메시지는 압축하지 않는다.
@@ -243,8 +229,6 @@
 | 동작을 경로 끝에 붙인 라우트 | `duplicate`, `undelete`, `join`, `leave`, `hide`, `unhide`, `onboard` |
 | 구독의 경로 | `DELETE /subscriptions/{blockId}/{subscriberId}`, `GET /subscriptions/{subscriberId}`. 아래 (1) |
 | 구독자의 종류 `channel` | 스키마 `SubscriberType`에 있으나 서버는 `user`만 받는다 |
-| 오류 본문의 `retry_after`, `request_id` | snake_case다(설계 1.2가 정한 모양) |
-| 오류 본문의 선택 멤버 | 스키마에는 `null`도 되는 것으로 적혀 있으나 서버는 `null`을 보내지 않고 멤버를 뺀다 |
 | `deleteAt` | 있는 것에서는 늘 0이다(지운 것은 휴지통에 있다). WebSocket의 삭제 알림이 쓴다 |
 | 팀의 `title`, `settings` | 값을 정하는 라우트가 없다 |
 | `ping`의 멤버 이름 | `db_type`, `build_number` 등 snake_case다. 주소는 아래 (2) |
@@ -278,7 +262,7 @@
 3. **요청 스키마와 서버의 해석.**
    - 만들기와 고치기의 요청은 계약에 따로 적었다: `NewBoard`, `NewBlock`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`.
    - 서버는 이보다 너그럽게 읽는다. 모르는 멤버를 대부분 버린다.
-   - 예외로 400을 답하는 곳이 있다. `patchUserSettings`는 모르는 멤버를 거절한다. `createBoard`와 `createCategory`는 `id`를, `setSharing`은 `token`을 거절한다.
+   - 예외로 400을 답하는 곳이 있다. `patchUserSettings`와 `patchMe`는 모르는 멤버를 거절한다. `createBoard`와 `createCategory`는 `id`를, `setSharing`은 `token`을 거절한다.
    - 스키마가 필수로 적은 멤버가 빠져도 거절하지 않고 빈 값으로 읽는 곳이 있다. `login`의 `password`가 없으면 401이고, `patchBlocks`의 목록이 없으면 204다.
    - 그러니 클라이언트는 계약에 없는 멤버를 보내지 않는다.
 4. **카테고리 요청의 `userId`, `teamId`.** 세션과 경로가 이미 말하는 값이다. 세션과 다른 `userId`는 만들 때 403, 고칠 때 400이다.
@@ -296,17 +280,17 @@
 
 ## 9. 웹앱의 질문에 대한 답 (`apps/web/docs/contract-assumptions.md`, 2026-11-11 06:40 KST 판)
 
-답은 이 브랜치의 서버가 지금 하는 것이다. "결정됨"은 사용자가 정한 것이고 이 묶음에서 들어간다. "사용자 결정 필요"는 계약의 모양이나 권한에 걸려 서버가 정하지 않은 것이다. 실시간(G1–G6)의 답은 `contracts/websocket.md` 5절에 있다.
+답은 이 브랜치의 서버가 지금 하는 것이다. "결정됨"은 사용자가 정한 것이다(2026-11-11). 실시간(G1–G6)의 답은 `contracts/websocket.md` 5절에 있다.
 
 | 항목 | 답 |
 |---|---|
 | A1 | 이름은 가정대로 `hasBody`, `tasksTotal`, `tasksDone`(`Card`) |
 | A2, H6 | **결정됨(11:05 KST), 구현됨.** `patchCard`의 `updatedProperties`는 보낸 값만 저장된 값에 합치고, 값을 지울 속성은 `deletedProperties`(속성 식별자의 목록)로 받는다(7절 (5)). 웹앱에 달라지는 것: (1) 읽은 뒤 값 전부를 `updatedProperties`로 보내도 저장은 되지만 그것으로 값이 지워지지 않는다. 빠진 속성은 그대로 남는다. 값을 지우려면 그 속성을 `deletedProperties`에 적는다. (2) 마지막 값을 `patchBlock`의 `updatedFields.properties`로 비우는 길은 필요 없다(그 길은 여전히 값 전체를 바꾼다). (3) 고친 속성만 보내면 남이 다른 속성을 고친 것을 덮지 않는다. 한 카드의 고치기를 차례로 보낼 까닭이 사라진다. 메시지(`UPDATE_BLOCK`)는 전처럼 합친 뒤의 블록 전체다 |
 | A3 | 본문은 `patchCard`(와 `patchBlock`)의 `body`로, 같은 라우트다. `body`에는 `readAt`이 있어야 하고, 제목·속성 패치에는 없어도 되지만 보내면 늘 비교한다 |
-| A4 | 409의 기준은 블록의 `updateAt` 하나다. 본문만의 판은 없다. **사용자 결정 필요**(권고: 두고, 웹앱의 "다시 읽고 같으면 한 번 다시 보내기"를 쓴다) |
+| A4 | 409의 기준은 블록의 `updateAt` 하나다. 본문만의 판은 없다. 지금대로 둔다, 그 계획에서 다시 본다 |
 | A5 | 된다. `createCard`의 `NewCard`에 `body`가 있다 |
-| A8 | 댓글은 카드의 `updateAt`을 올리지 않고, 목록에 마지막 댓글의 시각이 없다. **사용자 결정 필요** |
-| B1, H4 | 댓글은 `type=comment`, `parentId`=카드인 블록이고 `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 허용 목록의 `body`(문서)를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`(`readAt`과 함께). `patchBlock`은 보드 편집자부터라, 댓글만 달 수 있는 사람은 자기 댓글도 고치지 못하고 편집자는 남의 댓글도 고친다. 고치는 권한은 **사용자 결정 필요**(권고: `deleteBlock`처럼 자기 댓글은 댓글 권한으로, 남의 것은 관리자만) |
+| A8 | **결정됨.** 댓글은 카드의 `updateAt`을 올리지 않는다. 카드 목록·`getCard`·`patchCard`의 `lastCommentAt`이 마지막 댓글을 단 시각이다(없으면 0, 지운 댓글은 세지 않는다) |
+| B1, H4 | 댓글은 `type=comment`, `parentId`=카드인 블록이고 `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 허용 목록의 `body`(문서)를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`·`patchBlocks`(`readAt`과 함께). **결정됨(14:25 KST), 구현됨**: 자기 댓글의 글(`body`)은 댓글 권한으로, 남의 댓글은 보드 관리자만 고친다(편집자는 403, `access denied to change other users' comments`). 댓글을 다른 카드로 옮기는 것(`parentId`)은 편집자부터다. `patchBoardsAndBlocks`도 같다. 댓글을 다른 종류로 바꾸는 패치는 편집자부터, 남이 만든 블록을 댓글로 바꾸는 패치는 관리자만이다. 지운 댓글을 되살리는 것(`undeleteBlock`)은 지울 수 있는 사람만이다: 자기 댓글은 편집자부터, 남의 댓글은 관리자만(403, `access denied to undelete other users' comments`). 되살리면 함께 지워진 것이 함께 오므로 지워진 맨 위의 블록이 정한다. 고친 사람과 시각은 댓글의 `modifiedBy`·`updateAt`이다 |
 | B2 | 블록에는 `fileId`뿐이다. 이름·크기·확장자는 `getFileInfo`(`FileInfo`). 종류(MIME)는 없다 |
 | B3 | 아니다. `completeUpload`·`uploadFile`은 파일만 만들고(`UploadedFile`의 `fileId`) 첨부 블록은 클라이언트가 만든다 |
 | B4 | 답(`UploadedFile`)은 `fileId`뿐이다. 이름·크기는 `getFileInfo` |
@@ -315,29 +299,29 @@
 | C1, 6절 작업 공간 3 | `createBoardsAndBlocks`가 보드와 첫 뷰를 한 요청으로(한 트랜잭션) 만든다. 서버가 기본 뷰를 넣지는 않는다 |
 | C5 | 맞다. 지워진 보드, 없는 보드, 볼 수 없는 보드는 모두 404다. 열린 보드(`O`)는 구성원이 아니어도 보드는 읽지만, 카드·블록·구성원은 403이다 |
 | C3 | `cardOrder`는 뷰의 `fields`에 그대로 둔다 |
-| D1 | 지금 팀은 하나다. 여러 조직·팀은 SaaS의 계정 구조와 함께 **사용자 결정 필요** |
-| D2, H1 | 검색 없이 오래된 열 명, 검색으로 열 명까지(대소문자 무시). 구성원의 사용자는 `getMembers` 뒤 `getTeamUsersById`. 팀 전부를 읽는 길은 **사용자 결정 필요**(권고: 사람이 많은 SaaS에서 전부는 두지 않고 지금의 둘로) |
+| D1 | 지금 팀은 하나다. 지금대로 둔다, 그 계획에서 다시 본다 |
+| D2, H1 | 검색 없이 오래된 열 명, 검색으로 열 명까지(대소문자 무시). 구성원의 사용자는 `getMembers` 뒤 `getTeamUsersById`. 팀 전부를 읽는 길은 없다. 지금대로 둔다, 그 계획에서 다시 본다 |
 | D4 | `getClientConfig`의 `teammateNameDisplay` |
 | E1 | 가정과 다르다: `boardMetadata: [{boardId, hidden}]` |
 | E2, 6절 작업 공간 1 | 넣기(`setBoardCategory`)와 순서(`reorderCategoryBoards`, 그 카테고리의 보드 ID 전부를 새 순서로)가 따로다. 넣기에는 자리가 없다 |
 | E3 | 넣어 준다. 템플릿이 아닌 새 보드와 새로 든 보드는 그 사용자의 기본 카테고리에 들어간다 |
-| F2 | 언어는 계정 설정에 없다. 넣는 것은 **사용자 결정 필요** |
-| 6절 작업 공간 2 | 지운 보드는 모든 카테고리에서 빠지고(알림 없음), 되살려도 카테고리에 돌아가지 않는다. **사용자 결정 필요**(권고: 되살릴 때 구성원마다 기본 카테고리에 넣고 알린다) |
+| F2 | **결정됨.** 계정 설정의 `language`: `"auto"`(브라우저를 따른다) 또는 언어 태그. 서버는 모양만 본다 |
+| 6절 작업 공간 2 | **결정됨.** 지운 보드는 사이드바에서 빠지고, 되살리면 사람마다 원래 카테고리의 원래 자리로(그사이 지운 카테고리면 기본 카테고리로) 돌아오며 `UPDATE_BOARD_CATEGORY`와 `REORDER_CATEGORY_BOARDS`가 간다 |
 | 6절 작업 공간 4 | 보드 목록에 역할은 없다. 역할은 `getMyMemberships`. 지우기는 보드 관리자만 |
 | 6절 작업 공간 5 | 기본 카테고리의 이름은 바뀌지 않는다(200으로 답하되 이름은 그대로). 메뉴에서 뺀다 |
 | 6절 작업 공간 6 | 새 카테고리는 맨 위다(`reorderCategories` 뒤에도) |
 | 6절 작업 공간 7 | 맞다. `reorderCategories`는 카테고리 ID 전부를 새 순서로 받는다 |
-| 6절 작업 공간 9 | 맞다. 서버가 모르는 시간대 이름은 400(`field`) |
+| 6절 작업 공간 9 | 맞다. 서버가 모르는 시간대 이름은 400(`errors`) |
 | 6절 뷰 머리글 | 서버는 뷰의 `fields`를 크기(80만 자) 말고 검사하지 않는다. 뷰를 고치는 권한은 카드와 같다(보드 편집자). 보드의 마지막 뷰를 지우는 것도 막지 않는다 |
-| 6절 칸반 1 | 목록의 카드에 미리보기는 없다. **사용자 결정 필요** |
+| 6절 칸반 1 | **결정됨.** `getCards?preview=true`면 카드마다 `preview`(`imageFileId`, 글 앞 200자). 읽기 토큰으로도 같다 |
 | 6절 칸반 2, 카드 상세 가정 2, 카드 상세 질문 2 | 선택지나 속성을 지워도 서버는 카드의 값도 뷰의 `fields`도 건드리지 않는다. 카드를 쓸 때는 바뀌는 값만 보므로, 정의 없는 값이 그대로 남아 있는 것을 이유로 거절하지 않는다(정의 없는 속성에 날짜 값을 새로 쓰면 거절한다, 2절) |
 | 6절 카드 상세 가정 1 | 속성 정의와 선택지의 ID는 클라이언트가 만든다. 정의의 ID는 비지 않았는지와 겹치지 않는지 보고, 선택지의 ID는 문자열인지만 본다 |
 | 6절 카드 상세 가정 4 | 된다. `getFile`은 같은 출처에서 `Content-Disposition: attachment`로 보낸다(7절 (6)) |
 | 6절 카드 상세 질문 3 | 날짜 값만, 카드를 쓸 때 바뀌는 값을 검사한다(2절): 날짜 속성에는 날짜 값이나 `null`, 다른 속성이나 정의 없는 속성에는 날짜 값이 아닌 것. 종류를 바꿔도 값은 그대로 두고, 그 값을 다시 쓸 때 새 규칙으로 본다 |
-| 6절 카드 상세 질문 4 | 정의의 순서를 바꾸는 쓰기는 없다. **사용자 결정 필요** |
+| 6절 카드 상세 질문 4 | **결정됨.** `reorderCardProperties`(`PUT /boards/{boardId}/property-order`)가 속성 ID 전부를 새 순서로 받는다 |
 | 6절 카드 상세 질문 6 | 댓글만 달 수 있는 사람은 파일을 올리지 못한다(보드 편집자부터) |
-| H2 | 보일 이름은 없다. **사용자 결정 필요** |
-| H3 | 휴지통을 읽는 조작은 없다. **사용자 결정 필요** |
+| H2 | **결정됨.** `User.displayName`(가입 때나 `patchMe`로). 사용자 검색은 두 이름에서 찾는다 |
+| H3 | **결정됨.** `getDeletedCards`(보드의 편집자부터)와 `getDeletedBoards`(관리자였던 보드만). 되살리기는 `undeleteBlock`·`undeleteBoard` |
 | H5 | **결정됨(11:05 KST).** 웹앱이 "참여" 단계를 두고 서버의 `joinBoard`는 그대로다 |
-| G5 | 남이 본문을 고치면 블록 전체(본문까지)가 온다(`contracts/websocket.md` 5절). 요약만 보낼지는 **사용자 결정 필요**(권고: 본문 공동 편집을 설계할 때까지 지금대로. 요약만 오면 받는 쪽이 고칠 때마다 다시 읽어야 한다) |
+| G5 | 남이 본문을 고치면 블록 전체(본문까지)가 온다(`contracts/websocket.md` 5절). 지금대로 둔다, 그 계획에서 다시 본다 |
 | H7 | 카테고리의 네 메시지는 그 사용자가 그 팀을 구독한 연결 모두에 간다(tracer-bullet 13) |

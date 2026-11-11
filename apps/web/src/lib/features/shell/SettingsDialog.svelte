@@ -12,12 +12,17 @@
     the chosen one. The list and the function that changes it come from the
     app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
-  - Who is signed in, and signing out: only where the backend has accounts.
+  - Archives: every board of the team exported, an archive imported; the
+    progress shows at the foot of the page (`Transfers.svelte`).
+  - Who is signed in, signing out and changing the password: only where the
+    backend has accounts.
 
   A dialog in the middle of the page; on a compact page it fills the screen,
   clear of the edges the device keeps. The back button closes it.
 -->
 <script lang="ts">
+  import DownloadIcon from '@lucide/svelte/icons/download';
+  import UploadIcon from '@lucide/svelte/icons/upload';
   import XIcon from '@lucide/svelte/icons/x';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -40,12 +45,14 @@
     type WeekStartSetting,
   } from '$lib/logic/regional.ts';
   import { browserTimeZone } from '$lib/regional.ts';
+  import { saveBlob } from '$lib/save.ts';
   import type { Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import * as Dialog from '$lib/ui/dialog/index.js';
   import { Switch } from '$lib/ui/switch/index.js';
 
   import { devReadout } from './dev.svelte.ts';
+  import PasswordChange from './PasswordChange.svelte';
   import SettingChoice from './SettingChoice.svelte';
   import SettingPicker from './SettingPicker.svelte';
   import {
@@ -67,6 +74,8 @@
     onChooseLocale?: (locale: string) => void;
     /** Signs the reader out. Without it there is no account to leave (the backend in memory). */
     onSignOut?: () => void;
+    /** Changes the password. Without it there is no account (the backend in memory). */
+    onChangePassword?: (oldPassword: string, newPassword: string) => Promise<void>;
   }
 
   let {
@@ -76,6 +85,7 @@
     locale,
     onChooseLocale,
     onSignOut,
+    onChangePassword,
   }: Props = $props();
 
   closeOnBack(
@@ -84,6 +94,15 @@
       open = false;
     },
   );
+
+  const uid = $props.id();
+  let importField = $state<HTMLInputElement | null>(null);
+
+  /** Saves an archive of every board of the team, once it has all arrived. */
+  async function exportTeam(): Promise<void> {
+    const archive = await workspace.exportTeam();
+    if (archive) saveBlob(archive.bytes, archive.name);
+  }
 
   const settings = $derived(workspace.settings);
   const compact = $derived(page.stage === 'compact');
@@ -269,6 +288,49 @@
           }}
         />
       </label>
+
+      <section class="grid gap-2 border-t pt-4" aria-labelledby="{uid}-archives">
+        <h3 id="{uid}-archives" class="font-medium">{m.shell_archive_title()}</h3>
+        <div class="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            class="roomy:min-h-touch"
+            data-testid="export-team"
+            onclick={() => void exportTeam()}
+          >
+            <DownloadIcon aria-hidden="true" />
+            {m.shell_export_team()}
+          </Button>
+          <Button
+            variant="outline"
+            class="roomy:min-h-touch"
+            aria-describedby="{uid}-import-hint"
+            onclick={() => importField?.click()}
+          >
+            <UploadIcon aria-hidden="true" />
+            {m.shell_import()}
+          </Button>
+          <input
+            bind:this={importField}
+            type="file"
+            accept=".boardarchive,application/zip"
+            hidden
+            data-testid="import-archive"
+            onchange={(event) => {
+              const field = event.currentTarget;
+              const file = field.files?.[0];
+              // The same file can be chosen again.
+              field.value = '';
+              if (file) void workspace.importArchive(file);
+            }}
+          />
+        </div>
+        <p id="{uid}-import-hint" class="text-xs text-muted-foreground">{m.shell_import_hint()}</p>
+      </section>
+
+      {#if onChangePassword}
+        <PasswordChange onChange={onChangePassword} />
+      {/if}
 
       {#if onSignOut}
         <div class="flex min-h-8 items-center gap-3 border-t pt-4 roomy:min-h-touch">

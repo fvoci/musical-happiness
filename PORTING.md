@@ -85,7 +85,7 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 |---|---|---|
 | 응답의 고정 | 회귀 스냅샷(시나리오와 권한 표)이 응답을 고정한다. 응답을 바꾸는 커밋은 스냅샷을 함께 바꾼다 | A |
 | 설계 | `docs/s6-design.md`의 1–5절이 모두 결정됐다 | B, E |
-| 오류 응답 | 본문은 `{"error": 코드, "message", …}`다. 상태 코드는 한 표를 따른다. 볼 수 없는 것은 404, 볼 수는 있는데 못 하는 것은 403이다 | D |
+| 오류 응답 | 본문은 RFC 9457의 `application/problem+json`이다(`type`, `title`, `status`, `detail`, …). 상태 코드는 한 표를 따른다. 볼 수 없는 것은 404, 볼 수는 있는데 못 하는 것은 403이다 | D |
 | 경로 | 모든 API가 `/api/v1` 아래에 있다. 모르는 API 경로는 JSON 404, 틀린 메서드는 405다. 그 밖의 `GET`은 웹앱의 화면이다 | D, K, Q |
 | 요청 크기 | JSON 4 MiB, 세션 없는 요청 64 KiB, WebSocket 메시지 64 KiB. 파일의 한도는 아직 없다 | D |
 | 스키마 | sqlx의 migrator가 적용하는 새 기준 하나다. 식별자는 UUIDv7이고 외래 키를 강제한다 | G |
@@ -94,7 +94,7 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 | 세션 | `HttpOnly` 쿠키나 `Authorization: Bearer`로 전한다. 한가함 14일, 절대 90일에 끝난다 | G, H |
 | 관리자 | 처음 가입한 사용자가 관리자다. 가입 토큰은 관리자만 본다 | G |
 | 공유 | 읽기 토큰은 서버가 만든다. 공유를 끄면 토큰을 지운다 | G |
-| 사용자 설정 | 계정의 표시 설정 일곱과, 한도가 있는 화면 상태의 주머니 | G |
+| 사용자 설정 | 계정의 표시 설정 여덟과, 한도가 있는 화면 상태의 주머니 | G |
 | 최소 역할 | 모든 보드에 있다. 참여와 추가가 그 역할을 준다 | G |
 | 로그인 제한 | 이름과 주소의 쌍마다 점점 길어지는 대기, 이름마다의 잠금, 주소마다의 분당 횟수, 해시 대기열. 거절은 429다 | I |
 | 이름 | 경로, 질의 매개변수, JSON 멤버가 한 표기다 | L |
@@ -188,8 +188,8 @@ D절과 G절부터는 설계 문서(`docs/s6-design.md`)의 "구현 순서"를 �
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| 오류 본문은 `{"error": 코드, "message", "reason"?, "field"?, "limit"?, "request_id"}`다 | 화면이 문구가 아니라 코드로 분기하게 하고, 사용자가 본 오류를 로그의 한 줄과 잇는다(설계 1.2). 응답 헤더 `x-request-id`가 같은 값을 싣고 요청 로그에도 남는다 | `fvoci_model::ErrorBody`, `server::error`, `request_log` |
-| 상태 코드가 한 표를 따른다: 400·401·403·404·405·409·413·429·500. 501과 "분류되지 않아 500"은 없다 | 같은 종류의 잘못이 라우트마다 다른 코드를 받고 있었다(설계 1.3). 429는 로그인 제한이 더했다(I절) | `ErrorKind`, 핸들러 전반 |
+| 오류 본문은 RFC 9457의 `Problem`이다: `type`(`/problems/<이름>`), `title`, `status`, `detail`, `instance`, 그리고 `reason`?, `errors`?, `limit`?, `retryAfter`?, `requestId` | 화면이 문구가 아니라 `status`와 `reason`으로 분기하게 하고, 사용자가 본 오류를 로그의 한 줄과 잇는다(설계 1.2). 응답 헤더 `x-request-id`가 같은 값을 싣고 요청 로그에도 남는다 | `fvoci_model::Problem`, `server::error`, `request_log` |
+| 상태 코드가 한 표를 따른다: 400·401·403·404·405·409·412·413·416·429·500(412와 416은 `getFile`). 501과 "분류되지 않아 500"은 없다 | 같은 종류의 잘못이 라우트마다 다른 코드를 받고 있었다(설계 1.3). 429는 로그인 제한이 더했다(I절) | `ErrorKind`, 핸들러 전반 |
 | 볼 수 없는 것은 없는 것과 같은 404, 볼 수는 있는데 못 하는 것은 403이다 | 403과 404의 차이로 남의 보드·블록·카테고리·구독·파일의 존재를 알 수 있었다(결정 대기 S6·S9·S11, 설계 1.4의 규칙 B) | `api::access`, `App::user_category`, 테스트 `visibility.rs` |
 | 검사 순서는 세션(401) → 볼 수 있나(404) → 권한(403) → 본문(400) → 충돌(409)이다 | 권한 없는 사용자가 본문을 바꿔 가며 검증 문구를 읽을 수 없게 한다. 예외는 표 아래 (1) | 핸들러 전반 |
 | 채널, 통계, 컴플라이언스, 보드 메타데이터, linkable 검색 라우트가 없다. `subscriberType: "channel"`과 `/users/me?channelID`도 없다 | 거절만 하던 라우트다(설계의 결정 4). 채널 열과 `channelId` 멤버도 없다(G절) | `api::{channels,statistics,compliance}` 삭제 |
@@ -237,7 +237,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 
 **D절의 리뷰에서 고친 것.**
 
-- **(Must) 남의 카테고리 ID의 존재가 샜다.** 카테고리를 만들 때 본문의 `id`가 누군가의 카테고리와 겹치면 409, 아니면 200이었다. D절에서 넣은 409가 만든 구멍이다. 이제 새 카테고리는 ID를 정할 수 없다(400, `field: id`). 겹치는지 보는 조회도 없앴다.
+- **(Must) 남의 카테고리 ID의 존재가 샜다.** 카테고리를 만들 때 본문의 `id`가 누군가의 카테고리와 겹치면 409, 아니면 200이었다. D절에서 넣은 409가 만든 구멍이다. 이제 새 카테고리는 ID를 정할 수 없다(400, `errors`: `id`의 자리). 겹치는지 보는 조회도 없앴다.
 - **(Must) 세션 조회의 실패가 401이 됐다.** 세션 조회에서 저장소가 실패하면 세션이 선택인 라우트(보드·블록·파일 읽기)가 401을 답해 클라이언트가 멀쩡한 세션을 버리게 됐다. 이제 "세션 없음"만 없는 것으로 보고 저장소 실패는 500이다.
 - **끝 슬래시 리다이렉트가 역슬래시를 거르지 않았다**(`/\host/` → 브라우저가 `//host`로 읽는다). 고치고 테스트를 더했다.
 - **세션 없는 요청도 4 MiB를 받았다.** 한도가 세션 검사보다 앞이기 때문이다. 지금의 동작:
@@ -326,7 +326,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | **내장 템플릿은 표식 열로 구분한다.** `boards.is_builtin`(와이어 `isBuiltin`). 만든 사용자가 없는(`createdBy`가 빈) 템플릿이다. 루트 팀에 속하고 모든 팀에 제공된다: `GET /teams/{team}/templates`가 그 팀의 템플릿과 내장 템플릿을 함께 답한다. `system`이라는 사용자와 내장 템플릿의 관리자 멤버십은 없다. 클라이언트가 보낸 `isBuiltin`은 무시한다. 사용자가 루트 팀에 만든 템플릿은 `trackingTemplateId`를 받지 않는다(전에는 팀 `0`의 템플릿이면 받았다) | 설계의 결정 6. 온보딩(S18)이 "시스템이 만든 보드"를 `createdBy`의 글자가 아니라 이 열로 본다 | `Store::{get_builtin_templates, remove_builtin_templates}`, `app/templates.rs` |
 | **채널이 없다.** 보드와 패치의 `channelId` 멤버, 채널 열, 채널 권한 검사가 없다. 패치에 `channelId`가 와도 무시한다 | 설계의 결정 4에서 이 단계로 미뤄 둔 것 | 모델 `Board`, `BoardPatch` |
 | **파일.** 저장 이름은 비밀 값 + 확장자다(템플릿 보드에 올려도 같다. 전에는 클라이언트의 이름을 그대로 썼다). 파일 기록(`file_info`)에 기본 키, `board_id`, 저장 이름(`name`), 올린 이름(`original_name`)이 있고, 파일은 `(보드, 저장 이름)`으로 찾는다. 기록이 없는 파일은 어느 보드로도 나가지 않는다. 정보 JSON은 `id`, `createAt`, `name`, `extension`, `size`다. 쓰이지 않던 채움 멤버 여섯과 삭제 표시(`delete_at`, `archived`)는 없다 | 설계 3.2·3.9. S16의 "파일은 한 보드의 것"이 경로 문자열이 아니라 열이 됐다. 이름의 첫 글자를 떼어 기록을 찾던 규칙이 없어졌다 | `app/files.rs`, `store/file_info.rs` |
-| 읽기 토큰만으로(세션 없이) 읽은 보드와 블록의 `createdBy`·`modifiedBy`는 빈 값이다 | 설계의 결정 7. UUIDv7이 그 사용자의 가입 시각을 드러낸다 | `api/boards.rs`, `api/blocks.rs` |
+| 읽기 토큰만으로(세션 없이, 또는 토큰 없이는 읽지 못하는 사용자가) 읽은 보드와 블록에는 사용자 ID가 없다(`createdBy`·`modifiedBy`, 멘션, 사람 속성과 뷰 필터의 값) | 설계의 결정 7. UUIDv7이 그 사용자의 가입 시각을 드러낸다 | `Board::hide_people`, `Block::hide_people` |
 | 사용자 이름과 이메일은 대소문자와 무관하게 하나뿐이다(유일 색인 `lower(…)`). 조회도 대소문자를 무시한다. 동시에 온 가입 둘 가운데 하나는 409다(전에는 둘 다 들어갔다) | 설계 3.9. SQLite의 `lower()`는 ASCII만 접는다(PostgreSQL은 DB의 로케일을 따른다). 두 DB의 차이로 적어 둔다 | `store/users.rs`, `StoreError::Conflict` |
 | 보드에 바로 달린 블록에는 부모가 없다. 복제와 가져오기에서 "부모 = 보드 ID"는 빈 `parentId`가 된다(전에는 복사본이 **원본** 보드의 ID를 부모로 들고 있었다). 가져오기는 부모가 아카이브에 없는 블록을 건너뛴다(내장 템플릿의 주인 없는 블록 38개가 이제 저장되지 않는다. 어느 카드에도 속하지 않아 화면에 보인 적이 없다) | UUID 열에는 옛 형식의 ID가 들어갈 수 없다. 부모의 외래 키와 그 규칙은 아래 "삭제와 복원에서 바뀐 것"의 "부모" 행에 있다 | `fvoci_model::renew_boards_and_blocks_ids`, `app/import.rs`의 `drop_orphans` |
 | 스키마에서 뺀 것: `blocks.root_id`·`channel_id`, `boards.channel_id`, `categories.channel_id`, `sharing.workspace_id`, `subscriptions.workspace_id`, `board_members.roles`, `users.mfa_secret`·`auth_service`·`auth_data`·`props`, 테이블 `notification_hints`·`system_settings`·`board_members_history`. 길이 제한이 붙은 `VARCHAR`는 `TEXT`로, 대부분의 열은 `NOT NULL`로 | 설계 3.1. 쓰이지 않거나 값이 하나뿐이었다. 저장소의 쓰이지 않는 함수(`get_board_count`, `get_active_user_count`, `update_user`, `update_session`, 시스템 설정 등)도 함께 지웠다 | `crates/store/schema/` |
@@ -353,7 +353,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | **세션 토큰은 SHA-256 다이제스트로 저장한다**(`sessions.token_hash`, 유일). 토큰 자체는 로그인 응답으로 한 번 나가고 어디에도 저장되지 않는다. 가입 토큰과 공유 토큰은 평문이다 | 설계의 결정 9. DB나 백업을 읽은 것만으로는 세션을 쓸 수 없다. 토큰이 256비트 난수라 느린 해시는 필요 없다 | `auth::secret::token_digest`, `store/sessions.rs`, 테스트 `users::the_store_keeps_the_digest_…` |
 | 세션 행이 `id, token_hash, user_id, created_at, last_used_at, expires_at, user_agent`다. `auth_service`, `props`는 없다. 만료 규칙과 기록 간격은 아래 "세션 수명"에 있다 | 설계 5.4의 행 모양을 한 번에 맞췄다 | 모델 `Session` |
 | **자기 비밀번호를 바꾸면 그 사용자의 다른 세션이 모두 끝난다.** 바꾼 세션은 남고 새 토큰을 받는다(H절). 다른 세션으로 인증한 WebSocket 연결도 닫는다 | 설계 5.4의 3번 (b). 비밀번호 변경과 세션 삭제가 한 트랜잭션이라 여기서 함께 했다 | `Store::change_user_password`, `Hub::close_other_sessions_of_user`, 테스트 `users::changing_the_password_ends_the_other_sessions_of_the_user` |
-| 가입·비밀번호 요청의 검증 오류가 `field`를 싣는다(`username`, `email`, `password`, `oldPassword`, `newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field` |
+| 가입·비밀번호 요청의 검증 오류가 `errors`에 칸의 자리를 싣는다(`/username`, `/email`, `/password`, `/oldPassword`, `/newPassword`) | 설계 1.2. 화면이 어느 칸의 오류인지 안다 | `AuthParamError::field`, `AppError::with_field` |
 
 **고정하는 것.** 회귀 시나리오 `auth`가 다른 기기에서의 로그인, 비밀번호 변경 뒤 그 기기의 401, 바꾼 세션의 200을 고정한다. 의존성은 `argon2` 0.6과 `sha2` 0.11을 더하고 `bcrypt`를 뺐다.
 
@@ -417,7 +417,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| **읽기 토큰은 서버가 만든다.** `POST /boards/{id}/sharing`의 본문은 `{"enabled": bool}`과 선택으로 `"regenerate": bool`이다. `token`이 있으면 400(`field: token`). `enabled`가 없거나 불리언이 아니면 400(`field: enabled`). 그 밖의 멤버(`id`, `modifiedBy` 등)는 보지 않는다. `null`인 멤버는 없는 멤버다 | 설계 3.8. 전에는 클라이언트가 정한 한 글자 토큰, 여러 보드에 같은 토큰, 빈 토큰이 저장됐다(S8 보안 결정 대기가 닫혔다) | `api/sharing.rs`의 `sharing_change` |
+| **읽기 토큰은 서버가 만든다.** `POST /boards/{id}/sharing`의 본문은 `{"enabled": bool}`과 선택으로 `"regenerate": bool`이다. `token`이 있으면 400(`errors`가 `token`의 자리를 가리킨다). `enabled`가 없거나 불리언이 아니면 400(`errors`가 `enabled`의 자리를 가리킨다). 그 밖의 멤버(`id`, `modifiedBy` 등)는 보지 않는다. `null`인 멤버는 없는 멤버다 | 설계 3.8. 전에는 클라이언트가 정한 한 글자 토큰, 여러 보드에 같은 토큰, 빈 토큰이 저장됐다(S8 보안 결정 대기가 닫혔다) | `api/sharing.rs`의 `sharing_change` |
 | 켤 때 토큰이 없으면 256비트 난수(43자)를 만든다. 이미 공유 중이면 토큰이 그대로다. `regenerate: true`면 새 토큰이고 옛 링크는 죽는다 | 설계 3.8 | `Store::set_sharing`, `SharingChange` |
 | **끄면 토큰을 지운다(안 A).** 다시 켜면 새 토큰이고 껐던 링크는 되살아나지 않는다 | 설계 3.8의 결정(설계의 결정 12) | 같은 곳 |
 | 응답과 `GET`은 `{"enabled", "token", "updateAt"}`이다. `token`은 공유 중일 때만, `updateAt`은 한 번이라도 바뀐 적이 있을 때만 있다. 공유한 적 없는 보드는 `{"enabled": false}`. `POST`의 응답이 빈 객체에서 이 상태로 바뀌었다. `id`, `modifiedBy`, `update_at`(밑줄 표기)은 응답에 없다 | 설계 3.8. 토큰을 서버가 만드니 응답이 알려 줘야 한다 | `fvoci_model::Sharing` |
@@ -430,14 +430,14 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| **설정은 계정의 것이고 닫힌 집합이다.** `GET /users/me/settings`가 일곱 설정을 모두 답한다(저장된 값이 없으면 기본값): `timeZone`(`"auto"` 또는 IANA 이름), `weekStart`(auto·sunday·monday·saturday), `hourCycle`(auto·h12·h23), `theme`(auto·light·dark), `cardOpen`(center·side·full, 기본 center), `density`(auto·compact·comfortable), `haptics`(불리언, 기본 true). 뒤의 넷은 사용자가 구현 중에 더했다 | 설계 5.8의 C | `fvoci_model::{UserSettings, UserSettingsPatch}`(`crates/model/src/settings.rs`) |
-| `PATCH /users/me/settings`: 보낸 멤버만 바꾸고 모든 설정을 답한다. `null`은 기본값으로 되돌린다. 모르는 멤버(`locale`, `timezone`)와 그 설정이 가질 수 없는 값은 400이고 `field`가 그 멤버다. 한 멤버라도 틀리면 아무것도 저장되지 않는다. 값은 대소문자를 구별한다 | 같은 곳. 계약이 설정을 전부 말한다 | `api/users.rs` |
+| **설정은 계정의 것이고 닫힌 집합이다.** `GET /users/me/settings`가 여덟 설정을 모두 답한다(저장된 값이 없으면 기본값): `timeZone`(`"auto"` 또는 IANA 이름), `weekStart`(auto·sunday·monday·saturday), `hourCycle`(auto·h12·h23), `theme`(auto·light·dark), `cardOpen`(center·side·full, 기본 center), `density`(auto·compact·comfortable), `haptics`(불리언, 기본 true), `language`(`"auto"` 또는 모양만 검사한 언어 태그). `theme`부터 넷은 사용자가 구현 중에, `language`는 2026-11-11에 더했다 | 설계 5.8의 C | `fvoci_model::{UserSettings, UserSettingsPatch}`(`crates/model/src/settings.rs`) |
+| `PATCH /users/me/settings`: 보낸 멤버만 바꾸고 모든 설정을 답한다. `null`은 기본값으로 되돌린다. 모르는 멤버(`locale`, `timezone`)와 그 설정이 가질 수 없는 값은 400이고 `errors`가 그 멤버를 가리킨다. 한 멤버라도 틀리면 아무것도 저장되지 않는다. 값은 대소문자를 구별한다 | 같은 곳. 계약이 설정을 전부 말한다 | `api/users.rs` |
 | 시간대 이름은 바이너리에 넣은 IANA DB로 본다(`chrono-tz` 0.10). 옛 별칭(`Asia/Calcutta`)은 받아서 받은 그대로 저장한다. `"auto"`는 풀지 않는다 | 설계 5.8의 B. 배치마다 답이 같다 | `fvoci_model::TimeZone` |
-| **화면 상태의 주머니에 한도가 있다.** 주머니의 라우트는 `GET`·`PATCH /users/me/client-state`다(L절에서 `GET /users/me/config`, `PUT /users/{id}/config`를 바꿨다). 키는 `[A-Za-z0-9_.-]` 1–64자, 값은 4 KiB까지, 사용자당 100개. 넘으면 400(`field: updatedFields`, 개수는 `limit: 100`). 개수는 변경과 같은 트랜잭션에서 센다. 답은 `{이름: 값}` 객체다 | 설계 5.8. 전에는 아무 이름, 아무 크기, 아무 개수가 들어갔다 | `UserPreferencesPatch::validate`, `StoreError::TooManyPreferences` |
+| **화면 상태의 주머니에 한도가 있다.** 주머니의 라우트는 `GET`·`PATCH /users/me/client-state`다(L절에서 `GET /users/me/config`, `PUT /users/{id}/config`를 바꿨다). 키는 `[A-Za-z0-9_.-]` 1–64자, 값은 4 KiB까지, 사용자당 100개. 넘으면 400(`errors`: `updatedFields`의 자리, 개수는 `limit: 100`). 개수는 변경과 같은 트랜잭션에서 센다. 답은 `{이름: 값}` 객체다 | 설계 5.8. 전에는 아무 이름, 아무 크기, 아무 개수가 들어갔다 | `UserPreferencesPatch::validate`, `StoreError::TooManyPreferences` |
 | 저장: 둘 다 `preferences` 테이블, `category`가 `settings`와 `client`다(전에는 하나, `fvoci`). 같은 이름의 설정과 주머니 항목은 서로 다른 것이다. 이 빌드가 모르는 설정 이름이나 읽지 못하는 값의 행은 건너뛰고 그 설정은 기본값이다 | 설계 5.8. 다른 빌드가 쓴 값이 설정 전체를 깨뜨리지 않는다 | `Store::{get_user_settings, patch_user_settings}` |
 | 오류 본문의 `limit`는 바이트(413)뿐 아니라 개수에도 쓴다 | 주머니의 한도를 알려 준다 | `AppError::with_limit` |
 
-**고정하는 것.** 회귀 시나리오 `settings`가 기본값, 일곱 설정의 변경과 되돌리기, 설정마다의 거절 문구, 주머니의 한도를 고정한다. 테스트는 모델 단위 `settings::tests`, API `users::settings_*`와 `client_state_*`, 스토어의 둘이다.
+**고정하는 것.** 회귀 시나리오 `settings`가 기본값, 여덟 설정의 변경과 되돌리기, 설정마다의 거절 문구, 주머니의 한도를 고정한다. 테스트는 모델 단위 `settings::tests`, API `users::settings_*`와 `client_state_*`, 스토어의 둘이다.
 
 #### 최소 역할에서 바뀐 것
 
@@ -486,7 +486,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | **없는 계정도 같다.** 같은 기록, 같은 응답(401 `invalid_credentials`), 같은 양의 일(아무도 모르는 값의 해시에 대해 한 번 검증)이다. 기록의 키는 계정을 찾기 전에, 요청이 적은 이름(사용자 이름과 이메일 각각)에서 만든다. 그래서 한 계정을 이름으로도 이메일로도 시도하면 실패 한도가 따로 센다 | 설계 5.2의 2번. 응답 시간이 계정의 존재를 드러냈다(J절의 리뷰 S6). 키를 사용자 ID로 두면 누가 기다리는지가 계정의 존재를 드러낸다(P절) | `app/auth.rs`의 `login`, `auth::password::verify_against_no_account` |
 | **주소의 제한.** 주소당 로그인·가입 시도 분당 20회(`login_address_attempts_per_minute`, 성공 포함), 한 번에 하나. IPv6는 /64로 묶는다. 0이면 주소별 제한을 끈다(모든 사용자가 한 주소에서 오고 그것을 풀어 줄 프록시가 없는 배치). 토큰이 없거나 틀려서 해시 전에 거절되는 가입은 시도로 세지 않는다 | 설계 5.2의 3번 | `LoginLimiter::{admit_login, admit_registration}` |
 | **해시 대기열.** 동시 4(`password_hash_concurrency`), 대기 16칸(`password_hash_queue`), 대기 5초(`password_hash_queue_seconds`). 자리가 없거나 차례가 제때 오지 않으면 해시하지 않고 429다. 로그인, 가입, 비밀번호 변경, 관리자 소켓의 재설정이 모두 이 대기열을 쓴다. 프로세스 전체의 정적 세마포어를 앱마다의 대기열로 바꿨다. 차례는 일이 끝날 때까지 잡고 있다(요청이 끊겨도) | 설계 5.2의 4번. J절의 리뷰 S13 | `auth::hash_queue::HashQueue` |
-| **거절은 429 `rate_limited`**, `Retry-After` 헤더와 본문의 `retry_after`(초, 올림, 1 이상) | 설계 5.2의 5번 | `AppError::rate_limited`, `fvoci_model::ErrorBody::retry_after` |
+| **거절은 429(`/problems/rate-limited`)**, `Retry-After` 헤더와 본문의 `retryAfter`(초, 올림, 1 이상) | 설계 5.2의 5번 | `AppError::rate_limited`, `fvoci_model::Problem::retry_after` |
 | **`trusted_proxies`.** 믿는 프록시의 주소·범위 목록. 연결의 상대가 목록에 있을 때만 `X-Forwarded-For`를 오른쪽부터 읽어 목록에 없는 첫 주소를 클라이언트로 본다. 비어 있으면 연결의 상대가 클라이언트다. 요청 로그와 로그인 제한이 같은 주소를 쓴다. `trust_forwarded_for`는 설정이 아니다(값이 있으면 시작 오류). 전에는 켜면 가장 왼쪽(클라이언트가 지어낼 수 있는 쪽)을 읽었다 | 설계 5.2의 6번 | `client_address::{TrustedProxies, ClientAddress}`, `request_log.rs` |
 | 기록은 메모리에 둔다. 종류마다 10만 개까지이고, 넘치면 더 말할 것이 없는 기록(대기가 끝나고 오래된 것)부터, 그래도 넘치면 가장 오래 건드리지 않은 10분의 1을 버린다(P절). 계정 이름은 SHA-256으로 줄여 둔다 | 설계 5.2의 7번 | `auth::limiter` |
 | **비밀번호 바꾸기도 같은 기록을 쓴다.** `changePassword`의 틀린 옛 비밀번호는 그 계정 이름의 로그인 실패로 센다. 넘으면 429와 `Retry-After`다 | 세션을 가진 쪽이 옛 비밀번호를 한도 없이 찍을 수 있었다(P절) | `App::change_password` |
@@ -652,7 +652,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 | 웹소켓 카테고리 보드 순서 | `CategoryId`, `BoardOrder` | `categoryId`, `boardOrder` |
 | 웹소켓 클라이언트 설정 | `clientconfig` | `clientConfig` |
 
-오류 본문의 `field`도 새 표기를 가리킨다(`userId`, `teamId`, `blockIds`, `perPage`). 오류 본문 자체의 `retry_after`, `request_id`는 설계 1.2가 정한 모양이라 그대로다.
+오류 본문의 `errors`도 새 표기를 가리킨다(`userId`, `teamId`, `blockIds`, `perPage`). 오류 본문 자체의 `retryAfter`, `requestId`도 camelCase다(2026-11-11에 `retry_after`, `request_id`에서 바꿨다).
 
 **내 판단으로 한 것.** 설계가 하나씩 정하지 않은 것이다. 모두 serde 속성 한 줄이나 라우트 한 줄로 되돌릴 수 있다.
 
@@ -776,7 +776,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 - 만들기와 고치기의 요청은 답과 모양이 달라 문서 전용 타입으로 따로 적었다(`api/contract/bodies.rs`의 `NewBoard`, `NewBlock`, `NewBoardsAndBlocks`, `NewCard`, `NewCategory`, `CategoryUpdate`, `NewMember`, `MemberRoles`, `SharingRequest`, `NewSubscription`, `AdminChange`, `SettingsChange`, `FileForm`). 서버는 이 타입으로 해석하지 않는다. **손으로 쓴 것이라 해석하는 쪽과 어긋날 수 있다**(남은 문제).
 - 멤버를 정하지 않은 객체(`fields`, `properties`, `cardProperties`의 항목, 팀의 `settings`)는 `additionalProperties: true`로 적는다. 아무 말도 없으면 타입 생성기가 "늘 빈 객체"로 읽는다.
 - 인증은 문서 전체의 기본이 `sessionCookie` 또는 `bearerToken`이다. 세션이 필요 없는 다섯(`login`, `register`, `getClientConfig`, `hello`, `ping`)은 `security: [{}]`, 읽기 토큰으로도 되는 넷(`getBoard`, `getBlocks`, `getFile`, `getFileInfo`)은 셋 가운데 하나다. CSRF 헤더와 `Origin` 규칙은 머리말에 글로 적었다.
-- 오류는 조작마다 4xx를 늘어놓지 않고 모든 조작의 `default`가 `ErrorBody`다. 429와 `Retry-After`만 `login`, `register`, `changePassword`에 따로 적었다.
+- 오류는 조작마다 4xx를 늘어놓지 않고 모든 조작의 `default`가 `Problem`이다. 429와 `Retry-After`만 `login`, `register`, `changePassword`에 따로 적었다.
 - 출력은 멤버 이름순, 두 칸 들여쓰기, 끝에 줄바꿈이다. 같은 서버는 늘 같은 바이트를 낸다.
 
 **수치.** 경로 56개, 조작 73개, 스키마 51개다. 경로는 모두 `/api/v1` 아래다(Q절). 메서드별로 GET 27, POST 26, PATCH 7, PUT 7, DELETE 6. 파일은 5,500줄 남짓이다.
@@ -785,7 +785,7 @@ G절의 변경을 rust-review로 검토했다. 하위 에이전트 둘(스토어
 
 **목록의 순서.** M절의 표가 조작의 설명(또는 답의 설명)에 그대로 있다. 계약 모듈의 테스트 `every_list_says_its_order`가 목록을 답하는 조작 21개마다 순서를 말하는 문구가 있는지와, 목록을 답하는 조작이 표에 빠짐없이 있는지를 본다. 순서 자체는 M절의 스토어 테스트와 회귀 스냅샷이 고정한다.
 
-**테스트.** 계약 모듈 11개(문서가 만들어진다, 모든 조작의 `default`가 `ErrorBody`, 세션 없는 조작의 표기, 답은 모든 멤버·패치는 없음, 구독 경로의 이름, 목록의 순서, 기본값 제거, 열린 객체, 없는 멤버를 필수로 둘 수 없음, 멤버 이름순), xtask 4개(첫 번째로 다른 줄).
+**테스트.** 계약 모듈 11개(문서가 만들어진다, 모든 조작의 `default`가 `Problem`, 세션 없는 조작의 표기, 답은 모든 멤버·패치는 없음, 구독 경로의 이름, 목록의 순서, 기본값 제거, 열린 객체, 없는 멤버를 필수로 둘 수 없음, 멤버 이름순), xtask 4개(첫 번째로 다른 줄).
 
 **바깥 도구로 본 것.** `openapi-typescript` 7.13.0이 이 파일에서 타입 4,654줄을 냈다(확인용으로 `target/` 아래에만 썼다. 타입 생성은 웹 트랙의 일이다). `@redocly/cli` 1의 `lint`는 "valid"이고 경고 70건이 남는다. 모두 `operation-4xx-response`(조작에 4xx 응답이 없다)이고 `default`로 적기로 한 결과다.
 
@@ -850,7 +850,7 @@ O절까지의 변경을 네 갈래로 검토했다. 모두 `general-purpose` 하
 
 **고정하는 것.**
 
-- 바뀐 기록은 한 단계다. `createBoardsAndBlocks`가 다른 보드의 블록을 거절하는 메시지가 `invalid BoardID … (not exists in the created boards)`에서 `invalid boardId … (no board of the request has that id)`로 바뀌고 `field: boardId`가 붙었다.
+- 바뀐 기록은 한 단계다. `createBoardsAndBlocks`가 다른 보드의 블록을 거절하는 메시지가 `invalid BoardID … (not exists in the created boards)`에서 `invalid boardId … (no board of the request has that id)`로 바뀌고 `errors`: `boardId`의 자리가 붙었다.
 - 새 회귀 단계: `blocks`에 넷(ID 없는 블록, 자식을 부모보다 먼저 적은 요청, 그 목록), `login_limits`에 둘(끝에 빈칸을 붙인 이름), 새 시나리오 `password_limits`.
 - 계약 파일은 설명이 바뀌었고 조작과 스키마의 수(경로 56, 조작 73, 스키마 51)는 그대로다. `getFile`에 412와 416이 더해졌고 설정의 낱말 집합이 소문자가 됐다.
 
@@ -881,7 +881,7 @@ tracer-bullet마다 올리기 전에, 구현하지 않은 새 하위 에이전�
 | tracer-bullet | 범위 | 지적 | 반영 |
 |---|---|---|---|
 | 0 WebSocket 문서 | `12c22af..0803dd6` | Must 4, Should 7, Consider 9 | Must 4와 Should 6, Consider 6을 문서·테스트에 반영. `deleteBoardsAndBlocks`가 읽기 토큰 연결을 닫지 않는 것은 코드의 결함이라 `docs/contract-pending.md` 8절에 올리고 남은 결함을 고치는 tracer-bullet(12)에서 고친다 |
-| 1 카드의 본문 | `8134dc2..233431d` | Must 1, Should 6, Consider 7 | Must와 Should 모두 반영: 같은 밀리초의 두 쓰기가 `readAt`을 지나가던 것(고칠 때마다 `updateAt`이 커진다), 블록 경로가 검사 없이 본문을 받던 것(400 `field: body`), 카드 목록이 본문을 모두 읽던 것(요약 열을 읽는다), 휴지통 복원이 본문을 요청의 검증기로 다시 읽던 것, 설계와 다른 열 타입(PostgreSQL `JSONB`, SQLite `TEXT`. 올리기 전이라 `0002`를 고쳤다), 낡은 문서, 빠진 테스트(본문 없는 `readAt`, 블록 경로, 휴지통과 복제, 옛 DB의 이전, 1 MiB의 경계, `body: null`, 두 DB의 `0002` 일치). Consider 가운데 둘(파일 중간의 `use`, 모호한 주석) 반영. 멘션의 사용자 ID가 익명 독자에게 가는 것은 "사용자 결정 필요"로 `docs/contract-pending.md` 1절에 |
+| 1 카드의 본문 | `8134dc2..233431d` | Must 1, Should 6, Consider 7 | Must와 Should 모두 반영: 같은 밀리초의 두 쓰기가 `readAt`을 지나가던 것(고칠 때마다 `updateAt`이 커진다), 블록 경로가 검사 없이 본문을 받던 것(400 `errors`: `body`의 자리), 카드 목록이 본문을 모두 읽던 것(요약 열을 읽는다), 휴지통 복원이 본문을 요청의 검증기로 다시 읽던 것, 설계와 다른 열 타입(PostgreSQL `JSONB`, SQLite `TEXT`. 올리기 전이라 `0002`를 고쳤다), 낡은 문서, 빠진 테스트(본문 없는 `readAt`, 블록 경로, 휴지통과 복제, 옛 DB의 이전, 1 MiB의 경계, `body: null`, 두 DB의 `0002` 일치). Consider 가운데 둘(파일 중간의 `use`, 모호한 주석) 반영. 멘션의 사용자 ID가 익명 독자에게 가는 것은 "사용자 결정 필요"로 `docs/contract-pending.md` 1절에 |
 | 1 반영분의 재검토 | `233431d..acc2030` | Must 1, Should 3, Consider 8 | Must와 Should 모두 반영: U+0000을 담은 본문이 PostgreSQL에서 500이던 것(검증이 거절하고 공유 벡터에 두 경우를 더함), 블록 경로가 빈 문서나 문서 아닌 본문을 `field` 없는 400으로 거절하던 것(디코딩 전에 원시 JSON에서 꺼내 거절), `updateAt`이 커지는 것과 저장된 할 일 수를 보는 테스트가 없던 것. Consider 가운데 넷 반영: 409보다 400이 먼저, 목록 열의 자리를 이름 붙인 상수와 테스트로, 블록용·패치용 거절 함수를 둘로, 계약의 `Block.body`·`BlockPatch.body` 설명. 128단보다 깊은 JSON이 `field` 없는 400인 것은 `docs/contract-pending.md` 1절에 적음 |
 | 1b 설정, 1 재검토분 | `acc2030..33d25e1` | Must 0, Should 5, Consider 6 | 모두 반영하되 하나는 빼고: 없앤 키를 환경 변수로 줄 때의 문서, 포트 0을 거절(`check`), 블록 경로의 테스트가 거절된 만들기와 보드 패치가 아무것도 남기지 않은 것을 봄, U+0000 벡터를 아는 속성의 값과 링크에(판 2의 벡터에 넣음), `serverRoot`의 경로와 `FVOCI_HTTP_SERVER_BASEPATH`, 400과 409의 순서를 실제대로 좁혀 적음, 객체가 아닌 `filess3config`를 거절, `signv2`와 음수 `maxfilesize`의 문서, 문서의 시각, 제목의 U+0000을 8절의 결함으로, 상수의 문서와 테스트의 복제 |
 | 2 허용 목록 판 2, 1b 반영분 | `33d25e1..d668618` | Must 0, Should 6, Consider 7 | Should 모두 반영: `1.0`처럼 쓴 정수를 웹앱처럼 받음(벡터에 넣음), 설계의 표에 `start`의 위 끝과 `fileId`의 길이(벡터에 경계), 행마다 거절하는 벡터(`taskList`, `hardBreak` 등), 평문의 설명을 실제대로(줄바꿈은 남는다, 벡터로 고정), 낡은 문서(결정 19번, 인수인계 6절, 고친 때), 웹앱에 알릴 차이에 `marks: null`. Consider 가운데 다섯 반영: 벡터 테스트가 `body`·`build` 중 하나, `text`는 받는 경우에만인지 봄, 겹친 벡터, 빈 `attrs`와 잎의 빈 `content`를 설계에 적고 벡터로, 크기를 직렬화 없이 셈, 설정 문서의 `null`과 공백·주석의 자리 |

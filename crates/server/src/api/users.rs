@@ -4,13 +4,16 @@ use std::collections::BTreeMap;
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use fvoci_model::{BoardMember, User, UserPreferencesPatch, UserSettings, UserSettingsPatch};
+use fvoci_model::{
+    BoardMember, RefusalReason, Refusals, User, UserPreferencesPatch, UserSettings,
+    UserSettingsPatch, display_name, shown_name,
+};
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::bodies::{AdminChange, SettingsChange};
+use super::contract::bodies::{AccountChange, AdminChange, SettingsChange};
 use super::contract::params::UserId;
 use super::contract::tag;
 
@@ -24,7 +27,7 @@ use crate::error::AppError;
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_users_list))
-        .routes(routes!(handle_get_me))
+        .routes(routes!(handle_get_me, handle_patch_me))
         .routes(routes!(handle_get_my_memberships))
         .routes(routes!(handle_get_client_state, handle_patch_client_state))
         .routes(routes!(
@@ -101,6 +104,60 @@ async fn handle_get_me(
 ) -> ApiResult {
     let mut user = app.user(&session.user_id).await.map_err(user_not_found)?;
 
+    crate::app::sanitize(&mut user);
+    Ok(json_response(&user))
+}
+
+/// Change the user's account
+///
+/// Changes what the body names of the user of the session: `displayName`, the name to
+/// be shown by. White space around it is dropped, and empty or `null` is none. At most
+/// 64 UTF-16 code units, without control characters and without characters that show
+/// nothing, break a line or turn the text around (U+00AD, U+200B–U+200F,
+/// U+2028–U+202E, U+2060–U+206F, U+FEFF, U+FFF9–U+FFFB). Not unique. A member that is
+/// no such thing, or a name that breaks these rules, is refused (400 naming it) and
+/// changes nothing. Answers the user as `getMe` does.
+#[utoipa::path(
+    patch,
+    path = "/users/me",
+    operation_id = "patchMe",
+    tag = tag::USERS,
+    request_body = AccountChange,
+    responses((status = 200, description = "The user as they are now.", body = User)),
+)]
+async fn handle_patch_me(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    body: Bytes,
+) -> ApiResult {
+    let members = json_object(decode_json(&body)?)?;
+    let mut requested = None;
+    // Every member that is refused, not the first alone.
+    let mut refused = Refusals::new();
+    for (name, value) in &members {
+        match (name.as_str(), value) {
+            ("displayName", serde_json::Value::Null) => requested = Some(String::new()),
+            ("displayName", serde_json::Value::String(name)) => match display_name(name) {
+                Ok(name) => requested = Some(name),
+                Err(error) => refused.push(error.into()),
+            },
+            ("displayName", _) => refused.refuse(
+                "displayName",
+                RefusalReason::Invalid,
+                "displayName must be a string or null",
+            ),
+            (other, _) => refused.refuse(
+                other,
+                RefusalReason::Unknown,
+                format!("there is no member {:?}", shown_name(other)),
+            ),
+        }
+    }
+    refused.into_result()?;
+    let mut user = match requested {
+        Some(name) => app.set_display_name(&session.user_id, &name).await?,
+        None => app.user(&session.user_id).await?,
+    };
     crate::app::sanitize(&mut user);
     Ok(json_response(&user))
 }
@@ -231,9 +288,7 @@ async fn handle_patch_client_state(
     body: Bytes,
 ) -> ApiResult {
     let patch: UserPreferencesPatch = decode_object(&body)?;
-    patch
-        .validate()
-        .map_err(|error| AppError::bad_request(error).with_field("updatedFields"))?;
+    patch.validate()?;
     let entries = app.update_user_config(&session.user_id, &patch).await?;
     Ok(json_response(&client_state(entries)))
 }
@@ -275,10 +330,7 @@ async fn handle_patch_user_settings(
     body: Bytes,
 ) -> ApiResult {
     let members = json_object(decode_json(&body)?)?;
-    let patch = UserSettingsPatch::from_members(&members).map_err(|error| {
-        let field = error.field().to_owned();
-        AppError::bad_request(error).with_field(&field)
-    })?;
+    let patch = UserSettingsPatch::from_members(&members)?;
     Ok(json_response(
         &app.patch_user_settings(&session.user_id, &patch).await?,
     ))

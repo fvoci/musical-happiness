@@ -89,7 +89,7 @@
     <p class="text-muted-foreground" role="status">{m.app_loading()}</p>
   </div>
 {:else if board.missing}
-  <div class="grid h-full place-items-center p-6 text-center">
+  <div class="grid h-full place-items-center p-6 text-center" data-testid="board-missing">
     <div>
       <p class="text-lg font-medium" role="alert">{m['error.board-not-found']()}</p>
       <p class="mt-1 text-muted-foreground">{m.app_board_not_found_hint()}</p>

@@ -3,7 +3,7 @@
 use std::net::IpAddr;
 use std::time::Instant;
 
-use fvoci_model::{MAXIMUM_PASSWORD_BYTES, Session, User, new_id};
+use fvoci_model::{MAXIMUM_PASSWORD_BYTES, RegisterRequest, Session, User, new_id};
 use fvoci_store::{StoreError, Taken};
 
 use super::App;
@@ -221,12 +221,12 @@ impl App {
     /// cannot be stored.
     pub async fn register_user(
         &self,
-        username: &str,
-        email: &str,
-        password: &str,
+        request: &RegisterRequest,
         admission: Admission,
         address: Option<IpAddr>,
     ) -> Result<User, AppError> {
+        let username = request.username.as_str();
+        let email = request.email.as_str();
         // A registration costs a hash like a login, and is counted against where it
         // comes from like one. The turn is held until the user is stored.
         let _attempt = self
@@ -254,7 +254,8 @@ impl App {
             id: new_id(),
             username: username.to_owned(),
             email: email.to_owned(),
-            password_hash: self.hash(password).await?,
+            display_name: request.display_name.clone(),
+            password_hash: self.hash(&request.password).await?,
             ..User::default()
         };
         let stored = match admission {

@@ -89,46 +89,77 @@
     "name": "create: for another user",
     "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 403,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "forbidden",
-      "field": "subscriberId",
-      "message": "a user subscribes for themselves only",
-      "request_id": "<request-id>"
+      "detail": "a user subscribes for themselves only",
+      "errors": [
+        {
+          "detail": "a user subscribes for themselves only",
+          "pointer": "/subscriberId",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 403,
+      "title": "Forbidden",
+      "type": "/problems/forbidden"
     }
   },
   {
     "name": "create: no block",
     "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "missing block id",
-      "request_id": "<request-id>"
+      "detail": "missing block id",
+      "errors": [
+        {
+          "detail": "missing block id",
+          "pointer": "/blockId",
+          "reason": "required"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: bad subscriber type",
     "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "subscriberType",
-      "message": "invalid subscriber type",
-      "request_id": "<request-id>"
+      "detail": "invalid subscriber type",
+      "errors": [
+        {
+          "detail": "invalid subscriber type",
+          "pointer": "/subscriberType",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "create: malformed body",
     "request": "POST /api/v1/subscriptions as subs-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "EOF while parsing an object at line 1 column 1",
-      "request_id": "<request-id>"
+      "detail": "EOF while parsing an object at line 1 column 1",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
@@ -152,22 +183,28 @@
     "name": "list: another user's",
     "request": "GET /api/v1/subscriptions/<id:1> as subs-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "subscriber not found",
-      "request_id": "<request-id>"
+      "detail": "subscriber not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "delete: another user's",
     "request": "DELETE /api/v1/subscriptions/<id:4>/<id:1> as subs-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "subscription not found",
-      "request_id": "<request-id>"
+      "detail": "subscription not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -180,11 +217,14 @@
     "name": "delete: again",
     "request": "DELETE /api/v1/subscriptions/<id:4>/<id:1> as subs-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "subscription not found",
-      "request_id": "<request-id>"
+      "detail": "subscription not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {

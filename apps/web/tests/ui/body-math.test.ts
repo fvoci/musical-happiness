@@ -168,7 +168,9 @@ describe('a formula in the view', () => {
       );
     }
     expect(deepest?.firstChild?.nodeValue).toBe(nested(80));
-  });
+    // Building the three trees takes the simulated page seconds on a busy machine:
+    // twice it ran past the default five while every core was taken.
+  }, 30_000);
 
   it('keeps a definition inside the formula that made it', async () => {
     const root = await show(

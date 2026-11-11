@@ -3,7 +3,7 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, CommentVersion,
     generate_block_ids, stamp_modification_metadata,
 };
 
@@ -24,11 +24,15 @@ use super::{
 };
 use super::{change_notification, duplicate_as, require_board_permission, user_is_guest};
 use super::{
-    decode_object_with, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
+    decode_object_with, element_pointer, objects_mut, put_patch_bodies, take_block_bodies,
+    take_patch_bodies,
+};
+use super::{
+    require_block_change_permission, require_block_patch_permission, require_comment_owner_or_admin,
 };
 use crate::app::App;
 use crate::auth::now_millis;
-use crate::error::{AppError, ErrorKind};
+use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
 
 pub(super) fn routes() -> OpenApiRouter<App> {
@@ -40,6 +44,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         ))
         .routes(routes!(handle_delete_block, handle_patch_block))
         .routes(routes!(handle_undelete_block))
+        .routes(routes!(handle_get_comment_versions))
         .routes(routes!(handle_duplicate_block))
 }
 
@@ -50,6 +55,14 @@ fn optional_query_param(query: Option<&str>, name: &str) -> Option<String> {
 
 /// The refusal to change what is on a board.
 const CHANGES_DENIED: &str = "access denied to make board changes";
+
+/// The JSON Pointers to the fields of a block and to the member of a patch that changes
+/// them.
+pub(super) const BLOCK_FIELDS: &str = "/fields";
+pub(super) const PATCH_FIELDS: &str = "/updatedFields";
+
+/// The JSON Pointer to the patches of a `BlockPatchBatch`.
+const PATCHES: &str = "/blockPatches";
 
 /// Returns the block if it belongs to the board. A block of another board is as missing
 /// as one that does not exist: the path names the board the request is about.
@@ -101,11 +114,12 @@ async fn require_source_board_access(
 ) -> Result<(), AppError> {
     // The same answer for a board that is not there and one the user may not read. A
     // store that failed is neither: it is answered as what it is.
-    let refused = |error: AppError| match error.kind() {
-        ErrorKind::NotFound | ErrorKind::Forbidden | ErrorKind::Unauthorized => {
+    let refused = |error: AppError| {
+        if error.is_refusal() {
             AppError::not_found("source board")
+        } else {
+            error
         }
-        _ => error,
     };
     let board = app.board(source_board_id).await.map_err(refused)?;
     require_read_access(app, user_id, &board)
@@ -116,9 +130,16 @@ async fn require_source_board_access(
 /// The blocks of a board
 ///
 /// For the board's members, and for an open template everyone in its team. With the
-/// board's read token no session is needed; who reads that way is not told who made a
-/// block or changed it last (`createdBy` and `modifiedBy` are empty), nor who is
-/// mentioned in a body (the `userId` of every mention is empty).
+/// board's read token no session is needed. Who reads with the token and is no member
+/// of the board, without a session or signed in, is told no user's identifier:
+/// `createdBy` and `modifiedBy` are empty, so is the `userId` of every mention in a
+/// body, and so is each user that the board's person properties (`person`,
+/// `multiPerson`, `createdBy`, `updatedBy`) name in a card's `fields.properties` and in
+/// the clauses of a view's `fields.filter`; a list keeps its length, so how many people
+/// a card has still shows. A card's values of properties the board does not define are
+/// left out, and a view grouped by a person property keeps of `visibleOptionIds`,
+/// `hiddenOptionIds`, `collapsedOptionIds` and `kanbanCalculations` only the group of
+/// the cards without a value (`""`).
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the
@@ -148,9 +169,12 @@ async fn handle_get_blocks(
         return Err(AppError::unauthorized("access denied to board"));
     }
     let board = app.board(&board_id).await?;
-    if !has_read_token {
+    let by_token_alone = if has_read_token {
+        !app.is_board_reader(user_id, &board_id).await?
+    } else {
         require_read_access(&app, user_id, &board).await?;
-    }
+        false
+    };
 
     let blocks = if !query_param(query, "all").is_empty() {
         app.blocks_for_board(&board_id).await?
@@ -166,9 +190,10 @@ async fn handle_get_blocks(
     };
     tracing::debug!(board_id, block_count = blocks.len(), "GetBlocks");
     let mut blocks = blocks;
-    if user_id.is_empty() {
+    if by_token_alone {
+        let people = board.person_properties();
         for block in &mut blocks {
-            block.hide_people();
+            block.hide_people(&people);
         }
     }
     Ok(json_response(&blocks))
@@ -212,9 +237,10 @@ async fn check_and_copy_body_files(
         require_source_board_access(app, user_id, &source_board_id).await?;
         &source_board_id
     };
-    for block in blocks.iter() {
+    for (index, block) in blocks.iter().enumerate() {
         app.check_body_files(files_board_id, block.body.as_ref())
-            .await?;
+            .await
+            .map_err(|error| error.under(&element_pointer(Some(""), index)))?;
     }
     if !source_board_id.is_empty() {
         // The blocks are not stored yet: each is pointed at its copy here, and stored
@@ -267,29 +293,35 @@ async fn handle_post_blocks(
     // A list first, so that a request that is none is refused as before, and the bodies
     // apart, so that one that may not be stored is refused as a body.
     let mut blocks: Vec<Value> = decode_json(&body)?;
-    let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut))?;
+    let bodies = take_block_bodies(blocks.iter_mut().map(Value::as_object_mut), Some(""))?;
     let mut blocks: Vec<Block> =
         serde_json::from_value(Value::Array(blocks)).map_err(AppError::bad_request)?;
-    for (block, body) in blocks.iter_mut().zip(bodies) {
+    // Where a block is in the request: the body is the list.
+    let place = |index: usize| element_pointer(Some(""), index);
+    for (index, (block, body)) in blocks.iter_mut().zip(bodies).enumerate() {
         // Refused before anything is copied for it.
         if body.is_some() && !block.block_type.has_body() {
-            return Err(BlockError::BodyNotAllowed.into());
+            return Err(AppError::from(BlockError::BodyNotAllowed).under(&place(index)));
         }
         block.body = body;
     }
 
     let mut has_comments = false;
     let mut has_contents = false;
-    for block in &blocks {
+    for (index, block) in blocks.iter().enumerate() {
         let id = &block.id;
+        let place = place(index);
         if block.block_type.is_empty() {
             return Err(
                 AppError::bad_request(format_args!("missing type for block id {id}"))
-                    .with_field("type"),
+                    .with_field("type")
+                    .under(&place),
             );
         }
         if !block.block_type.is_current() {
-            return Err(BlockError::type_not_current(&block.block_type).into());
+            return Err(
+                AppError::from(BlockError::type_not_current(&block.block_type)).under(&place),
+            );
         }
         if block.block_type == BlockType::Comment {
             has_comments = true;
@@ -299,19 +331,22 @@ async fn handle_post_blocks(
         if block.create_at < 1 {
             return Err(
                 AppError::bad_request(format_args!("invalid createAt for block id {id}"))
-                    .with_field("createAt"),
+                    .with_field("createAt")
+                    .under(&place),
             );
         }
         if block.update_at < 1 {
             return Err(
                 AppError::bad_request(format_args!("invalid updateAt for block id {id}"))
-                    .with_field("updateAt"),
+                    .with_field("updateAt")
+                    .under(&place),
             );
         }
         if block.board_id != board_id {
             return Err(
                 AppError::bad_request(format_args!("invalid boardId for block id {id}"))
-                    .with_field("boardId"),
+                    .with_field("boardId")
+                    .under(&place),
             );
         }
     }
@@ -341,8 +376,11 @@ async fn handle_post_blocks(
 
     check_and_copy_body_files(&app, user_id, &board_id, query, &mut blocks).await?;
 
+    // The store names a block it refuses by its identifier.
+    let ids: Vec<String> = blocks.iter().map(|block| block.id.clone()).collect();
     app.insert_blocks(&mut blocks, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| error.among_blocks(ids.iter().map(String::as_str), ""))?;
     tracing::debug!(block_count = blocks.len(), "POST Blocks");
     Ok(created(&blocks))
 }
@@ -378,16 +416,13 @@ async fn handle_delete_block(
     )
     .await?;
     let block = block_on_board(&app, &block_id, &board_id).await?;
-    if block.block_type == BlockType::Comment && block.created_by != user_id {
-        require_board_permission(
-            &app,
-            user_id,
-            &board_id,
-            BoardPermission::DeleteOthersComments,
-            "access denied to delete other users' comments",
-        )
-        .await?;
-    }
+    require_comment_owner_or_admin(
+        &app,
+        user_id,
+        &block,
+        "access denied to delete other users' comments",
+    )
+    .await?;
     app.delete_block(&block_id, user_id, notification).await?;
     tracing::debug!(board_id, block_id, "DELETE Block");
     Ok(no_content())
@@ -396,7 +431,12 @@ async fn handle_delete_block(
 /// Bring a deleted block back
 ///
 /// Restores a block of the board from the trash, with the blocks that went there with
-/// it. A block whose parent is gone has nowhere to come back to: 404. For editors.
+/// it. A block whose parent is gone has nowhere to come back to: 404. For who may
+/// delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
+/// else the board's admins only (403, `access denied to undelete other users'
+/// comments`). What decides is the block that was deleted, which took the others along:
+/// a block below somebody else's comment is brought back by the admins only, and a
+/// comment that went with its card by whoever may bring back the card.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks/{blockId}/undelete",
@@ -426,16 +466,81 @@ async fn handle_undelete_block(
         .await?
         .filter(|deleted| deleted.block.board_id == board.id)
         .ok_or_else(|| AppError::not_found("block"))?;
+    // Only who may delete it brings it back: what comes back is the whole deletion, so
+    // the block that was deleted, at its top, is what decides (a block below somebody
+    // else's comment brings that comment back).
+    if let Some(top) = app.deletion_top(&block_id).await? {
+        require_comment_owner_or_admin(
+            &app,
+            user_id,
+            &top.block,
+            "access denied to undelete other users' comments",
+        )
+        .await?;
+    }
 
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
     Ok(json_response(&undeleted))
 }
 
+/// What a comment said before
+///
+/// The earlier versions of a comment's body: every version but the one it has now, with
+/// who wrote it and when. The first one first; it is the text the comment was posted
+/// with, by its author. The server keeps the first version and the newest ones, up to
+/// its setting `max_comment_versions` in all, so the numbers of the versions may leave
+/// gaps. Empty for a comment whose body was never changed; the comment's `editedAt` says
+/// whether it was. For the board's members, also in the trash: the versions go only
+/// when the comment is gone for good. Not for a reader by the board's read token. A
+/// block that is no comment is not there (404).
+#[utoipa::path(
+    get,
+    path = "/boards/{boardId}/blocks/{blockId}/versions",
+    operation_id = "getCommentVersions",
+    tag = tag::BLOCKS,
+    params(BoardId, BlockId),
+    responses((status = 200, description = "The earlier versions, the first one first.", body = Vec<CommentVersion>)),
+)]
+async fn handle_get_comment_versions(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path((board_id, block_id)): Path<(String, String)>,
+) -> ApiResult {
+    let user_id = session.user_id.as_str();
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ViewBoard,
+        "access denied to board",
+    )
+    .await?;
+    let comment = match block_on_board(&app, &block_id, &board_id).await {
+        Ok(block) => block,
+        Err(error) if error.is_not_found() => app
+            .deleted_block(&block_id)
+            .await?
+            .map(|deleted| deleted.block)
+            .filter(|block| block.board_id == board_id)
+            .ok_or_else(|| AppError::not_found("comment"))?,
+        Err(error) => return Err(error),
+    };
+    if comment.block_type != BlockType::Comment {
+        return Err(AppError::not_found("comment"));
+    }
+    let versions = app.comment_versions(&block_id).await?;
+    Ok(json_response(&versions))
+}
+
 /// Change a block
 ///
-/// For editors, also for a comment: a commenter cannot change their own comment this
-/// way.
+/// For editors. A comment is changed by its author with the commenter's role, and the
+/// comment of somebody else by the board's admins only (as `deleteBlock` has it): an
+/// editor may not change it. The commenter's role changes a comment's text (its body);
+/// moving a comment to another card (`parentId`) or making it a block of another type
+/// is for editors, and making a block of somebody else a comment for the board's admins.
+/// The block's `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,
     path = "/boards/{boardId}/blocks/{blockId}",
@@ -454,23 +559,29 @@ async fn handle_patch_block(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
+    // Who cannot even comment changes nothing, whatever the block.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
-    block_on_board(&app, &block_id, &board_id).await?;
+    let block = block_on_board(&app, &block_id, &board_id).await?;
+    require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
     let (mut patch, changes): (BlockPatch, _) =
-        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)]))?;
-    put_patch_bodies([&mut patch], changes?)?;
+        decode_object_with(&body, |patch| take_patch_bodies([Some(patch)], None))?;
+    put_patch_bodies([&mut patch], changes?, None)?;
+    require_block_patch_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
     app.check_body_files(&board_id, patch.body.new_body())
         .await?;
 
+    // The store names what it refuses as a block has it; a patch has it under another
+    // name.
     app.patch_block(&block_id, &patch, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| error.moved(BLOCK_FIELDS, PATCH_FIELDS))?;
     tracing::debug!(board_id, block_id, "PATCH Block");
     Ok(no_content())
 }
@@ -478,7 +589,9 @@ async fn handle_patch_block(
 /// Change several blocks
 ///
 /// Applies a patch to each of several blocks of the board, all or none. A body that
-/// names no block changes nothing and is answered 204 too. For editors.
+/// names no block changes nothing and is answered 204 too. Each block needs what
+/// `patchBlock` needs: the editor's role, for a comment its author's commenter role or
+/// for the comment of somebody else the board's admin role.
 #[utoipa::path(
     patch,
     path = "/boards/{boardId}/blocks",
@@ -497,23 +610,20 @@ async fn handle_patch_blocks(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
+    // Who cannot even comment changes nothing, whatever the blocks.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
     let board = app.board(&board_id).await?;
     let (mut batch, changes): (BlockPatchBatch, _) = decode_object_with(&body, |batch| {
-        take_patch_bodies(objects_mut(batch, "blockPatches"))
+        take_patch_bodies(objects_mut(batch, "blockPatches"), Some(PATCHES))
     })?;
-    put_patch_bodies(&mut batch.block_patches, changes?)?;
-    for patch in &batch.block_patches {
-        app.check_body_files(&board_id, patch.body.new_body())
-            .await?;
-    }
+    put_patch_bodies(&mut batch.block_patches, changes?, Some(PATCHES))?;
     if batch.block_ids.len() != batch.block_patches.len() {
         return Err(
             AppError::bad_request("blockIds and blockPatches differ in length")
@@ -528,11 +638,25 @@ async fn handle_patch_blocks(
                     .with_field("blockIds"),
             );
         }
-        block_on_board(&app, block_id, &board_id).await?;
+    }
+    for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
+        let block = block_on_board(&app, block_id, &board_id).await?;
+        require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
+        require_block_patch_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
+    }
+    for (index, patch) in batch.block_patches.iter().enumerate() {
+        app.check_body_files(&board_id, patch.body.new_body())
+            .await
+            .map_err(|error| error.under(&element_pointer(Some(PATCHES), index)))?;
     }
 
     app.patch_blocks(&board.team_id, &batch, user_id, notification)
-        .await?;
+        .await
+        .map_err(|error| {
+            error
+                .moved(BLOCK_FIELDS, PATCH_FIELDS)
+                .among_blocks(batch.block_ids.iter().map(String::as_str), PATCHES)
+        })?;
     tracing::debug!(patches = batch.block_ids.len(), "PATCH Blocks");
     Ok(no_content())
 }

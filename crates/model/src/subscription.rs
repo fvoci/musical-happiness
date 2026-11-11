@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::block::BlockType;
+use crate::refusal::{RefusalReason, Refusals};
 use crate::serde_util::null_as_default;
 
 /// The kind of entity that subscribes.
@@ -26,10 +27,18 @@ impl SubscriberType {
     }
 }
 
-/// Reason a [`Subscription`] is rejected before it is stored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+/// Why a [`Subscription`] is rejected before it is stored: every member that is
+/// refused.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{0}")]
-pub struct SubscriptionError(&'static str);
+pub struct SubscriptionError(Refusals);
+
+impl SubscriptionError {
+    /// The members that were refused.
+    pub fn into_refusals(self) -> Refusals {
+        self.0
+    }
+}
 
 /// A subscription to the changes of a board or card.
 // `subscriberType` is required when decoding; every other member defaults to its empty
@@ -72,19 +81,24 @@ impl Subscription {
     ///
     /// # Errors
     ///
-    /// Returns a [`SubscriptionError`] if the block identifier, the block type or the
-    /// subscriber identifier is empty.
+    /// Returns a [`SubscriptionError`] with every one of the block identifier, the block
+    /// type and the subscriber identifier that is empty.
     pub fn validate(&self) -> Result<(), SubscriptionError> {
+        let mut refused = Refusals::new();
         if self.block_id.is_empty() {
-            return Err(SubscriptionError("missing block id"));
+            refused.refuse("blockId", RefusalReason::Required, "missing block id");
         }
         if self.block_type.is_empty() {
-            return Err(SubscriptionError("missing block type"));
+            refused.refuse("blockType", RefusalReason::Required, "missing block type");
         }
         if self.subscriber_id.is_empty() {
-            return Err(SubscriptionError("missing subscriber id"));
+            refused.refuse(
+                "subscriberId",
+                RefusalReason::Required,
+                "missing subscriber id",
+            );
         }
-        Ok(())
+        refused.into_result().map_err(SubscriptionError)
     }
 }
 

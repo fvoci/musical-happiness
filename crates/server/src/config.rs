@@ -20,6 +20,40 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 /// so every single valid block fits. Requests of the web app measured below 1 kB.
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Where the metrics listener listens: `prometheusaddress` read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricsAddress {
+    /// The host name or address; `None` for every interface.
+    pub host: Option<String>,
+    /// The port; zero for any free one.
+    pub port: u16,
+}
+
+impl MetricsAddress {
+    /// Reads `host:port`, `[ipv6]:port` or `:port`; `None` if the text is none of them.
+    fn parse(text: &str) -> Option<Self> {
+        let (host, port) = text.rsplit_once(':')?;
+        if port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()) {
+            return None;
+        }
+        let port: u16 = port.parse().ok()?;
+        let host = if host.is_empty() {
+            None
+        } else if let Some(inner) = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+            inner.parse::<std::net::Ipv6Addr>().ok()?;
+            Some(inner.to_owned())
+        } else if host
+            .chars()
+            .any(|c| matches!(c, ':' | '[' | ']' | '/' | '@') || c.is_whitespace())
+        {
+            return None;
+        } else {
+            Some(host.to_owned())
+        };
+        Some(Self { host, port })
+    }
+}
+
 /// The settings of the S3 file backend, the `filess3config` object.
 #[derive(Clone, Default, Deserialize)]
 #[cfg_attr(test, derive(serde::Serialize))]
@@ -114,7 +148,8 @@ pub struct Configuration {
     /// what an upload in parts carries (`upload_part_bytes` × 10,000).
     #[serde(rename = "maxfilesize")]
     pub max_file_size: i64,
-    /// The address of the metrics endpoint. Not supported; must be empty.
+    /// Where the Prometheus metrics are served, as `host:port`; empty for none. A
+    /// listener of their own, apart from the API's ([`Configuration::metrics_address`]).
     #[serde(rename = "prometheusaddress")]
     pub prometheus_address: String,
     /// URLs that receive a POST with every changed block.
@@ -184,6 +219,20 @@ pub struct Configuration {
     /// The largest archive an import takes, in bytes: 256 MiB unless set. At least 1,
     /// and at most what an upload in parts carries (`upload_part_bytes` × 10,000).
     pub max_import_bytes: u64,
+    /// How many earlier versions of a comment's body the server keeps: the first one,
+    /// with which the comment was posted, and the newest. At least 1.
+    pub max_comment_versions: u32,
+    /// How many exports (`exportBoardArchive`, `exportTeamArchive`) the server runs at
+    /// once; a user runs one at a time. An export runs until its archive is sent. At
+    /// least 1.
+    pub max_concurrent_exports: u32,
+    /// How long, in seconds, an export's download may send nothing before it is given
+    /// up: its place among the exports and its temporary file are given back, and the
+    /// connection is broken. At least 1.
+    pub export_stall_seconds: u64,
+    /// How many imports (`importArchive`) the server runs at once; a user runs one at a
+    /// time. At least 1.
+    pub max_concurrent_imports: u32,
     /// The addresses, and address ranges such as `10.0.0.0/8`, of the reverse proxies
     /// in front of the server. A request from one of them is taken to come from the
     /// address the proxy names in `X-Forwarded-For`; that header is believed from
@@ -256,6 +305,10 @@ impl Default for Configuration {
             tmp_path: String::new(),
             max_pending_upload_bytes: DEFAULT_MAX_PENDING_UPLOAD_BYTES,
             max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
+            max_comment_versions: DEFAULT_MAX_COMMENT_VERSIONS,
+            max_concurrent_exports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
+            export_stall_seconds: 60,
+            max_concurrent_imports: DEFAULT_MAX_CONCURRENT_ARCHIVES,
             trusted_proxies: Vec::new(),
             login_pair_free_failures: 5,
             login_pair_base_delay_seconds: 30,
@@ -311,6 +364,10 @@ impl std::fmt::Debug for Configuration {
             .field("tmp_path", &self.tmp_path)
             .field("max_pending_upload_bytes", &self.max_pending_upload_bytes)
             .field("max_import_bytes", &self.max_import_bytes)
+            .field("max_comment_versions", &self.max_comment_versions)
+            .field("max_concurrent_exports", &self.max_concurrent_exports)
+            .field("export_stall_seconds", &self.export_stall_seconds)
+            .field("max_concurrent_imports", &self.max_concurrent_imports)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("login_pair_free_failures", &self.login_pair_free_failures)
             .field(
@@ -358,7 +415,7 @@ enum EnvKind {
 /// example `FVOCI_SESSION_IDLE_DAYS` and `FVOCI_FILESS3CONFIG_BUCKET`. The S3 credentials
 /// have none: the S3 client reads them from the `AWS_*` variables when `accesskeyid` is
 /// empty.
-const ENV_KEYS: [(&str, EnvKind); 49] = [
+const ENV_KEYS: [(&str, EnvKind); 53] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -398,6 +455,10 @@ const ENV_KEYS: [(&str, EnvKind); 49] = [
     ("tmp_path", EnvKind::Text),
     ("max_pending_upload_bytes", EnvKind::Number),
     ("max_import_bytes", EnvKind::Number),
+    ("max_comment_versions", EnvKind::Number),
+    ("max_concurrent_exports", EnvKind::Number),
+    ("export_stall_seconds", EnvKind::Number),
+    ("max_concurrent_imports", EnvKind::Number),
     ("trusted_proxies", EnvKind::List),
     ("login_pair_free_failures", EnvKind::Number),
     ("login_pair_base_delay_seconds", EnvKind::Number),
@@ -422,6 +483,12 @@ const DEFAULT_MAX_PENDING_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// The largest archive an import takes unless configured (`docs/s6-design.md` 4.2).
 const DEFAULT_MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
+
+/// How many earlier versions of a comment the server keeps unless configured.
+const DEFAULT_MAX_COMMENT_VERSIONS: u32 = fvoci_store::DEFAULT_COMMENT_VERSIONS_KEPT;
+
+/// How many exports, and how many imports, the server runs at once unless configured.
+const DEFAULT_MAX_CONCURRENT_ARCHIVES: u32 = 2;
 
 /// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
 /// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
@@ -613,6 +680,12 @@ impl Configuration {
         }
     }
 
+    /// How long an export's download may send nothing before it is given up
+    /// (`export_stall_seconds`).
+    pub fn export_stall(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.export_stall_seconds)
+    }
+
     /// Checks the limits on uploads: none turns a limit off, and they fit together.
     fn check_upload_limits(&self) -> anyhow::Result<()> {
         // An S3 multipart upload takes no smaller part but the last, and none larger.
@@ -659,6 +732,21 @@ impl Configuration {
                 self.max_pending_upload_bytes
             );
         }
+        // Zero would keep not even the text a comment was posted with.
+        if self.max_comment_versions == 0 {
+            bail!("max_comment_versions must be at least 1");
+        }
+        // Zero would refuse every export or import.
+        if self.max_concurrent_exports == 0 {
+            bail!("max_concurrent_exports must be at least 1");
+        }
+        if self.max_concurrent_imports == 0 {
+            bail!("max_concurrent_imports must be at least 1");
+        }
+        // Zero would give up every download before its first piece.
+        if self.export_stall_seconds == 0 {
+            bail!("export_stall_seconds must be at least 1");
+        }
         Ok(())
     }
 
@@ -669,8 +757,9 @@ impl Configuration {
     /// # Errors
     ///
     /// Returns an error naming the first setting this server cannot honor: an
-    /// authentication mode other than `native`, a metrics address, port 0, a limit of
-    /// zero, an unknown file backend, or version 2 request signing for S3.
+    /// authentication mode other than `native`, a metrics address that is no `host:port`,
+    /// port 0, a limit of zero, an unknown file backend, or version 2 request signing for
+    /// S3.
     pub fn check(&self) -> anyhow::Result<Vec<String>> {
         if self.auth_mode != "native" {
             bail!(
@@ -703,9 +792,7 @@ impl Configuration {
             bail!("trash_retention_days must be at least 1");
         }
         self.check_upload_limits()?;
-        if !self.prometheus_address.is_empty() {
-            bail!("prometheusaddress is set, but this server has no metrics endpoint");
-        }
+        self.metrics_address()?;
         match self.files_driver.as_str() {
             "local" => {}
             "amazons3" => {
@@ -736,6 +823,34 @@ impl Configuration {
             );
         }
         Ok(warnings)
+    }
+
+    /// Where the metrics are served: `prometheusaddress` read as `host:port`, or `None`
+    /// if it is empty and no metrics are kept. Without a host it is every interface, or
+    /// `localhost` if `localOnly` is set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the address is not empty and no `host:port`: the host a name,
+    /// an IPv4 address, an IPv6 address in brackets, or nothing; the port a number up to
+    /// 65535.
+    pub fn metrics_address(&self) -> anyhow::Result<Option<MetricsAddress>> {
+        let text = self.prometheus_address.as_str();
+        if text.is_empty() {
+            return Ok(None);
+        }
+        let mut address = MetricsAddress::parse(text).ok_or_else(|| {
+            anyhow::anyhow!(
+                "prometheusaddress must be empty or host:port, such as 127.0.0.1:9092 or \
+                 :9092 for every interface (the loopback with localOnly), not {text:?}"
+            )
+        })?;
+        // A server that listens on the loopback only does so for its metrics too: the
+        // listener has no authentication.
+        if self.local_only && address.host.is_none() {
+            address.host = Some("localhost".to_owned());
+        }
+        Ok(Some(address))
     }
 
     /// Checks the settings of the login limits and of the queue of password work.
@@ -859,6 +974,11 @@ mod tests {
         assert_eq!(config.max_file_size, 100 * 1024 * 1024);
         assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(config.max_import_bytes, 256 * 1024 * 1024);
+        assert_eq!(config.max_comment_versions, 50);
+        assert_eq!(config.max_concurrent_exports, 2);
+        assert_eq!(config.export_stall_seconds, 60);
+        assert_eq!(config.export_stall(), std::time::Duration::from_secs(60));
+        assert_eq!(config.max_concurrent_imports, 2);
         assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");
         assert_eq!(config.teammate_name_display, "username");
@@ -1058,6 +1178,52 @@ mod tests {
     }
 
     #[test]
+    fn the_metrics_address_is_host_and_port() {
+        let address = |text: &str| {
+            Configuration {
+                prometheus_address: text.to_owned(),
+                ..Configuration::default()
+            }
+            .metrics_address()
+            .expect("a valid address")
+        };
+        assert_eq!(address(""), None, "no metrics");
+        let expected = |host: Option<&str>, port| {
+            Some(MetricsAddress {
+                host: host.map(str::to_owned),
+                port,
+            })
+        };
+        assert_eq!(address(":9092"), expected(None, 9092), "every interface");
+        assert_eq!(address("127.0.0.1:9092"), expected(Some("127.0.0.1"), 9092));
+        assert_eq!(address("[::1]:9092"), expected(Some("::1"), 9092));
+        assert_eq!(
+            address("metrics.internal:0"),
+            expected(Some("metrics.internal"), 0)
+        );
+    }
+
+    #[test]
+    fn metrics_without_a_host_listen_on_the_loopback_of_a_local_only_server() {
+        let address = |local_only: bool| {
+            Configuration {
+                prometheus_address: ":9092".to_owned(),
+                local_only,
+                ..Configuration::default()
+            }
+            .metrics_address()
+            .expect("a valid address")
+            .expect("metrics are kept")
+        };
+        assert_eq!(address(false).host, None, "every interface");
+        assert_eq!(
+            address(true).host.as_deref(),
+            Some("localhost"),
+            "the loopback only, as the API"
+        );
+    }
+
+    #[test]
     fn check_rejects_what_the_server_cannot_honor() {
         let parse = |text: &str| Configuration::parse(text, no_env).expect("valid JSON");
         let error = |text: &str| {
@@ -1067,7 +1233,21 @@ mod tests {
                 .to_string()
         };
         assert!(error(r#"{"authMode": "other"}"#).contains("authMode"));
-        assert!(error(r#"{"prometheusaddress": ":9092"}"#).contains("prometheusaddress"));
+        for address in [
+            "9092",
+            "localhost",
+            ":",
+            "host:port",
+            "::1:9092",
+            "host:70000",
+            "a b:1",
+        ] {
+            let text = format!(r#"{{"prometheusaddress": "{address}"}}"#);
+            assert!(
+                error(&text).contains("prometheusaddress"),
+                "{address} is refused"
+            );
+        }
         assert!(error(r#"{"filesdriver": "ftp"}"#).contains("filesdriver"));
         // Zero would not mean "no limit" to anyone who reads it as "nothing".
         assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
@@ -1095,6 +1275,20 @@ mod tests {
             error(r#"{"maxfilesize": 2000, "max_import_bytes": 3000, "max_pending_upload_bytes": 2500}"#)
                 .contains("max_import_bytes")
         );
+        assert!(
+            error(r#"{"max_comment_versions": 0}"#).contains("max_comment_versions"),
+            "a comment keeps at least the text it was posted with"
+        );
+        for key in [
+            "max_concurrent_exports",
+            "max_concurrent_imports",
+            "export_stall_seconds",
+        ] {
+            assert!(
+                error(&format!(r#"{{"{key}": 0}}"#)).contains(key),
+                "{key}: none at all would refuse every one"
+            );
+        }
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(

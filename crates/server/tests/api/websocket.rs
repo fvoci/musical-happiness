@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
-use fvoci_model::{Block, BlockType, Board, BoardType, Category, new_id};
+use fvoci_model::{Block, BlockType, Board, BoardPatch, BoardType, Category, new_id};
 use serde_json::{Value, json};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -552,7 +552,16 @@ async fn shared_board_with_a_card(th: &TestServer, user_id: &str) -> (Board, Blo
 /// Subscribes a connection without a session to a block with a read token and waits
 /// until a change of the block comes through; returns that message.
 async fn follow_block(th: &TestServer, block: &Block, read_token: &str) -> (Socket, Value) {
-    let mut reader = Socket::connect(th).await;
+    follow_block_on(th, Socket::connect(th).await, block, read_token).await
+}
+
+/// [`follow_block`] on the given connection.
+async fn follow_block_on(
+    th: &TestServer,
+    mut reader: Socket,
+    block: &Block,
+    read_token: &str,
+) -> (Socket, Value) {
     reader
         .send(json!({
             "action": "SUBSCRIBE_BLOCKS",
@@ -573,6 +582,57 @@ async fn follow_block(th: &TestServer, block: &Block, read_token: &str) -> (Sock
         }
     }
     panic!("the reader was never told about the block");
+}
+
+/// Why a connection ended is counted in the metrics: here the read token stopped
+/// opening its board, and a message over the limit broke a connection off.
+#[tokio::test]
+async fn why_a_connection_ended_is_counted() {
+    use crate::metrics::{sample, scrape_until};
+
+    let th = Setup::local_mode()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user1 = th.client.me().await;
+    let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (mut reader, _) = follow_block(&th, &block, &token).await;
+    th.app.ws().close_readers_of_board(&board.id);
+    assert_eq!(
+        reader.next(PATIENCE).await,
+        Event::Closed,
+        "the share ended"
+    );
+
+    let mut talker = Socket::connect(&th).await;
+    // The server may close before the whole message is written.
+    let _ = talker
+        .stream
+        .send(Message::Text("x".repeat(64 * 1024 + 1).into()))
+        .await;
+    assert_eq!(talker.next(PATIENCE).await, Event::Closed, "over the limit");
+
+    let ended = |body: &str, reason: &str| {
+        sample(
+            body,
+            "fvoci_websocket_disconnections_total",
+            &[("reason", reason)],
+        )
+    };
+    let body = scrape_until(&th, |body| {
+        ended(body, "share_ended") == Some(1.0) && ended(body, "read_error") == Some(1.0)
+    })
+    .await;
+    assert_eq!(ended(&body, "share_ended"), Some(1.0), "{body}");
+    assert_eq!(ended(&body, "read_error"), Some(1.0), "{body}");
+    assert_eq!(
+        ended(&body, "slow_consumer"),
+        Some(0.0),
+        "there from the start: {body}"
+    );
+    th.teardown().await;
 }
 
 /// Whoever follows a board by its read token alone is not told who made or changed a
@@ -623,6 +683,49 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         .expect("the reader is told too");
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
     assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
+
+    // A signed-in user who is no member of the board follows it as the token's reader:
+    // nor are they told who the values of the board's person properties name.
+    let definitions = json!([
+        {"id": "owner", "name": "Owner", "type": "person"},
+        {"id": "team", "name": "Team", "type": "multiPerson"},
+    ]);
+    let patch: BoardPatch = serde_json::from_value(json!({"updatedCardProperties": definitions}))
+        .expect("a board patch");
+    th.app
+        .store()
+        .patch_board(&block.board_id, &patch, &user1.id)
+        .await
+        .expect("the board is stored");
+    block.fields.insert(
+        "properties".to_owned(),
+        json!({"owner": user1.id, "team": [user1.id, user1.id]}),
+    );
+    let stranger = Socket::connect_as(&th.client2).await;
+    let (_stranger, message) = follow_block_on(&th, stranger, &block, &token).await;
+    assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
+    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
+    assert_eq!(
+        message["block"]["fields"]["properties"],
+        json!({"owner": "", "team": ["", ""]}),
+        "{message}"
+    );
+
+    // A member who follows the block by the token, with no team subscription, is told
+    // all of it.
+    let member = Socket::connect_as(&th.client).await;
+    let (_member, message) = follow_block_on(&th, member, &block, &token).await;
+    assert_eq!(message["block"]["createdBy"], json!(user1.id), "{message}");
+    assert_eq!(
+        message.pointer(mention),
+        Some(&json!(user1.id)),
+        "{message}"
+    );
+    assert_eq!(
+        message["block"]["fields"]["properties"],
+        json!({"owner": user1.id, "team": [user1.id, user1.id]}),
+        "{message}"
+    );
 
     th.teardown().await;
 }
@@ -1007,4 +1110,126 @@ async fn messages_match_the_websocket_contract() {
     );
 
     th.teardown().await;
+}
+
+/// A private board of the root team with the text properties `a`, `b` and `c`, in that
+/// order, and `admin` as its admin.
+async fn board_with_three_properties(th: &TestServer, admin: &str) -> Board {
+    let property = |id: &str| {
+        json!({"id": id, "name": id, "type": "text", "options": []})
+            .as_object()
+            .expect("an object")
+            .clone()
+    };
+    let mut board = Board {
+        id: new_id(),
+        team_id: ROOT_TEAM_ID.to_owned(),
+        board_type: BoardType::Private,
+        card_properties: vec![property("a"), property("b"), property("c")],
+        ..Board::default()
+    };
+    th.app
+        .store()
+        .insert_board_with_admin(&mut board, admin)
+        .await
+        .expect("the board is stored with the admin");
+    board
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The card properties of a
+/// board are put in a new order by naming all of them: the answer is the order, the
+/// board has it, and the listeners hear `UPDATE_BOARD`. An order that leaves one out,
+/// names one twice or names one the board does not have is 400 and changes nothing; a
+/// commenter may not, nor a stranger.
+#[tokio::test]
+async fn card_properties_are_put_in_order_and_the_board_is_told() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let user2 = th.client2.me().await;
+    let editor_client = th.add_user("editor").await;
+    let editor = editor_client.me().await;
+    let board = board_with_three_properties(&th, &user1.id).await;
+    for (user, role) in [(&user2.id, "commenter"), (&editor.id, "editor")] {
+        th.client
+            .add_member(&fvoci_model::BoardMember {
+                board_id: board.id.clone(),
+                user_id: user.clone(),
+                scheme_commenter: true,
+                scheme_editor: role == "editor",
+                ..fvoci_model::BoardMember::default()
+            })
+            .await
+            .check_ok();
+    }
+    let path = format!("/boards/{}/property-order", board.id);
+    let ids = |board: &Value| -> Vec<Value> {
+        board["cardProperties"]
+            .as_array()
+            .expect("properties")
+            .iter()
+            .map(|property| property["id"].clone())
+            .collect()
+    };
+    let mut socket = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut socket, ROOT_TEAM_ID, &user1.id).await;
+
+    let answered: Vec<String> = th.client.put(&path, &["c", "a", "b"]).await.ok_json();
+    assert_eq!(answered, ["c", "a", "b"]);
+    let message = socket
+        .next_json(PATIENCE)
+        .await
+        .expect("the board's listeners are told");
+    assert_eq!(message["action"], json!("UPDATE_BOARD"), "{message}");
+    assert_eq!(ids(&message["board"]), [json!("c"), json!("a"), json!("b")]);
+    let stored = th
+        .client
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .value();
+    assert_eq!(ids(&stored), [json!("c"), json!("a"), json!("b")]);
+    assert_eq!(stored["modifiedBy"], json!(user1.id), "{stored}");
+
+    // An editor may, as with patchBoard; the board is marked as changed by them.
+    let answered: Vec<String> = editor_client.put(&path, &["b", "c", "a"]).await.ok_json();
+    assert_eq!(answered, ["b", "c", "a"]);
+    let by_editor = th
+        .client
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .value();
+    assert_eq!(by_editor["modifiedBy"], json!(editor.id), "{by_editor}");
+    assert!(
+        by_editor["updateAt"].as_i64() >= stored["updateAt"].as_i64(),
+        "{by_editor}"
+    );
+    socket.next_json(PATIENCE).await.expect("told again");
+
+    for order in [
+        json!(["c", "a"]),
+        json!(["c", "a", "b", "b"]),
+        json!(["c", "a", "b", "d"]),
+        json!(["c", "a", "d"]),
+        json!({"order": ["a"]}),
+    ] {
+        th.client.put(&path, &order).await.check_bad_request();
+    }
+    th.client2
+        .put(&path, &["a", "b", "c"])
+        .await
+        .check_status(reqwest::StatusCode::FORBIDDEN);
+    let stranger = th.add_user("stranger").await;
+    stranger
+        .put(&path, &["a", "b", "c"])
+        .await
+        .check_status(reqwest::StatusCode::NOT_FOUND);
+    let stored = th
+        .client
+        .get(&format!("/boards/{}", board.id))
+        .await
+        .value();
+    assert_eq!(
+        ids(&stored),
+        [json!("b"), json!("c"), json!("a")],
+        "nothing refused changed it"
+    );
 }

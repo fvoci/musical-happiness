@@ -4,6 +4,8 @@
  */
 import { expect, test } from '@playwright/test';
 
+import { boardLink } from '../e2e/shell.support.ts';
+
 import {
   invitation,
   makeBoard,
@@ -16,7 +18,7 @@ import {
 
 test.use({ locale: 'en-US' });
 
-test('a new account signs in to an empty workspace and signs out again', async ({
+test('a new account starts on its own welcome board, made once, and signs out again', async ({
   page,
   baseURL,
 }) => {
@@ -33,13 +35,14 @@ test('a new account signs in to an empty workspace and signs out again', async (
   await form.getByLabel(/invitation/i).fill(code);
   await form.getByRole('button', { name: /^create account$/i }).click();
 
-  // Signed in at once, to a workspace with no boards.
+  // Signed in at once, on a copy of the welcome board of their own.
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  const welcome = boardLink(page, 'Welcome to fvoci!');
+  await expect(welcome).toHaveAttribute('aria-current', 'page');
 
-  // The session outlives a reload: it is the server's cookie.
+  // The session outlives a reload: it is the server's cookie. No second copy.
   await page.reload();
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  await expect(welcome).toHaveCount(1);
 
   await page.getByTestId('open-settings').click();
   const settings = page.getByTestId('settings-dialog');
@@ -52,7 +55,72 @@ test('a new account signs in to an empty workspace and signs out again', async (
   await expect(page.getByTestId('sign-in-form')).toBeVisible();
 
   await signInOnPage(page, who);
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  await expect(welcome).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test('a registration that is refused says what is wrong beside each field', async ({
+  page,
+  baseURL,
+}) => {
+  const errors = watchErrors(page);
+  const who = person('careless');
+  const taken = person('earlier');
+  await register(baseURL ?? '', taken);
+  const code = await invitation(baseURL ?? '');
+
+  await page.goto('/');
+  await page.getByRole('button', { name: /create one/i }).click();
+  const form = page.getByTestId('register-form');
+  const name = form.getByLabel(/^user name$/i);
+  const email = form.getByLabel(/email/i);
+  const password = form.getByLabel(/^password$/i);
+  const invitationCode = form.getByLabel(/invitation/i);
+  const submit = form.getByRole('button', { name: /^create account$/i });
+
+  // Three fields that the browser's own check lets through and the server
+  // refuses: a blank name, an address that is too long, a short password.
+  await name.fill(' ');
+  await email.fill(`${'a'.repeat(250)}@example.test`);
+  await password.fill('short');
+  await invitationCode.fill(code);
+  await submit.click();
+  // All three are told at once, each beside its field.
+  await expect(form.getByTestId('problem-username')).toHaveText('Fill this in.');
+  await expect(form.getByTestId('problem-email')).toHaveText('This is too long.');
+  await expect(form.getByTestId('problem-password')).toHaveText('Use at least 8 characters.');
+  await expect(form.getByRole('alert')).toHaveCount(3);
+  await expect(name).toHaveAttribute('aria-invalid', 'true');
+  await expect(name).toHaveAttribute('aria-describedby', 'account-username-problem');
+  // The first field that is wrong is where the reader goes on.
+  await expect(name).toBeFocused();
+  await expect(invitationCode).not.toHaveAttribute('aria-invalid');
+
+  // Two put right: the third is the only one still told.
+  await name.fill(who.username);
+  await email.fill(who.email);
+  await submit.click();
+  await expect(form.getByTestId('problem-password')).toHaveText('Use at least 8 characters.');
+  await expect(form.getByRole('alert')).toHaveCount(1);
+  await expect(name).not.toHaveAttribute('aria-invalid');
+  await expect(password).toBeFocused();
+
+  // What the server finds only when it looks things up is told beside its field too.
+  await password.fill(who.password);
+  await invitationCode.fill('not-the-code');
+  await submit.click();
+  await expect(form.getByTestId('problem-token')).toHaveText('The invitation code is wrong.');
+  await expect(form.getByRole('alert')).toHaveCount(1);
+  await invitationCode.fill(code);
+  await name.fill(taken.username);
+  await submit.click();
+  await expect(form.getByTestId('problem-username')).toHaveText('That user name is taken.');
+  await expect(form.getByRole('alert')).toHaveCount(1);
+
+  // With everything right the account is made and signed in.
+  await name.fill(who.username);
+  await submit.click();
+  await expect(page.getByTestId('app-shell')).toBeVisible();
   expect(errors).toEqual([]);
 });
 

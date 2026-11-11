@@ -12,7 +12,7 @@ use tokio::net::UnixListener;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::request_log::Peer;
+use crate::connection::Connection;
 
 /// The mode of the socket file: only the user the server runs as may connect
 /// (`server/server/server.go:398`).
@@ -46,7 +46,7 @@ impl AdminSocket {
         let stopped = stop.clone();
         let serving = tokio::spawn(async move {
             tracing::info!("starting unix socket server");
-            let service = router.into_make_service_with_connect_info::<Peer>();
+            let service = router.into_make_service_with_connect_info::<Connection>();
             let served = axum::serve(listener, service)
                 .with_graceful_shutdown(async move { stopped.cancelled().await })
                 .await;

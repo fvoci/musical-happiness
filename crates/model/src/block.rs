@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::JsonMap;
 use crate::body::{Body, BodyChange};
-use crate::card_property::{CardPropertyError, validate_block_properties};
+use crate::card_property::{CardPropertyError, PersonProperties, validate_block_properties};
 use crate::serde_util::null_as_default;
 
 /// Maximum number of characters in a block title.
@@ -297,6 +297,21 @@ pub struct Block {
     /// The identifier of the board the block belongs to.
     #[serde(deserialize_with = "null_as_default")]
     pub board_id: String,
+    /// For a comment whose body was changed: when that last happened, in milliseconds
+    /// since the Unix epoch. Absent for a comment never changed and for every other
+    /// block. The server sets it, and ignores a client's. What the body said before is
+    /// `getCommentVersions`'.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub edited_at: i64,
+}
+
+/// Whether a time is none: zero.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's skip_serializing_if passes a reference"
+)]
+fn is_zero(time: &i64) -> bool {
+    *time == 0
 }
 
 impl Block {
@@ -367,15 +382,24 @@ impl Block {
         malformed
     }
 
-    /// The block as it goes to whoever reads with a read token alone, who is nobody the
-    /// server knows (`docs/s6-design.md`, decision 7): no `createdBy` or `modifiedBy`, and
-    /// no user in the mentions of the body. A user's identifier tells when they signed
-    /// up. The values of person properties in `fields` go as they are.
-    pub fn hide_people(&mut self) {
+    /// The block as it goes to whoever reads by a read token alone without being a
+    /// member of the board, who is nobody the server knows (`docs/s6-design.md`,
+    /// decision 7): no `createdBy` or `modifiedBy`, no user in the mentions of the body,
+    /// and in `fields` none that the board's person properties name (`people`): in a
+    /// card's `properties` ([`PersonProperties::hide_values`]) and in a view's filter and
+    /// groups ([`PersonProperties::hide_view_fields`]). A user's identifier tells when
+    /// they signed up.
+    pub fn hide_people(&mut self, people: &PersonProperties) {
         self.created_by.clear();
         self.modified_by.clear();
         if let Some(body) = self.body.as_mut() {
             body.clear_mentions();
+        }
+        if let Some(Value::Object(values)) = self.fields.get_mut("properties") {
+            people.hide_values(values);
+        }
+        if self.block_type == BlockType::View {
+            people.hide_view_fields(&mut self.fields);
         }
     }
 

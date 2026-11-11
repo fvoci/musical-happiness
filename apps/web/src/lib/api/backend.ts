@@ -12,12 +12,14 @@ import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../l
 import { applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
+  refusedMember,
   type Account,
   type AccountSettings,
   type AccountSettingsPatch,
   type Attachment,
   type Backend,
   type BoardDraft,
+  type BoardRole,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
@@ -28,7 +30,11 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type DownloadedFile,
+  type DownloadOptions,
   type Registration,
+  type Sharing,
+  type SharingChange,
   type Team,
   type UploadedFile,
   type UploadOptions,
@@ -46,16 +52,19 @@ import {
   memberOf,
   newCardOf,
   settingsChangeOf,
+  rolesOf,
   settingsOf,
+  sharingOf,
   teamOf,
   userOf,
   viewOf,
   wireBody,
   type Schemas,
 } from './convert.ts';
+import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
-import { uploadInParts } from './upload.ts';
+import { importInParts, uploadInParts } from './upload.ts';
 
 /**
  * Refuses an operation that is not wired to the server yet. 405 is the
@@ -64,7 +73,7 @@ import { uploadInParts } from './upload.ts';
  */
 export function notWired(operation: string): never {
   throw new BackendError(405, {
-    message: `${operation} is not wired to the server yet`,
+    detail: `${operation} is not wired to the server yet`,
     reason: 'not_wired',
   });
 }
@@ -120,6 +129,12 @@ export class ServerBackend implements Backend, Account {
 
   async signOut(): Promise<void> {
     await this.#http.request('/api/v1/logout', {}, { method: 'POST' });
+  }
+
+  /** The session goes on under a new cookie, which the browser keeps by itself. */
+  async changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    const request: Schemas['ChangePasswordRequest'] = { oldPassword, newPassword };
+    await this.#http.request('/api/v1/users/me/password', {}, { method: 'POST', json: request });
   }
 
   // ------------------------------------------- the reader and their team
@@ -196,20 +211,139 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
-  createBoard(_teamId: string, _draft: BoardDraft): Promise<Board> {
-    return notWired('createBoard');
+  /**
+   * Makes the board and its first view in one request
+   * (`createBoardsAndBlocks`): all or none. The identifiers sent only tie
+   * the view to the board; the server makes the real ones.
+   */
+  async createBoard(
+    teamId: string,
+    draft: BoardDraft,
+    firstView: ViewDraft,
+  ): Promise<{ board: Board; view: BoardView }> {
+    const boardRef = 'new-board';
+    const request: Schemas['NewBoardsAndBlocks'] = {
+      boards: [
+        {
+          id: boardRef,
+          teamId,
+          type: draft.type ?? 'P',
+          title: draft.title,
+          description: draft.description ?? '',
+          icon: draft.icon ?? '',
+          cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
+        },
+      ],
+      blocks: [
+        {
+          id: 'new-view',
+          boardId: boardRef,
+          type: 'view',
+          title: firstView.title,
+          fields: firstView.fields,
+          createAt: 1,
+          updateAt: 1,
+        },
+      ],
+    };
+    const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
+      '/api/v1/boards-and-blocks',
+      {},
+      { method: 'POST', json: request },
+    );
+    const [board] = made.boards;
+    const view = made.blocks.find((block) => block.type === 'view');
+    if (!board || !view) throw new BackendError(500, { detail: 'the server made no board' });
+    return { board: boardOf(board), view: viewOf(view) };
   }
 
-  patchBoard(_boardId: string, _patch: BoardPatch): Promise<Board> {
-    return notWired('patchBoard');
+  /**
+   * Changes the board itself. A minimum role the contract does not have
+   * (none, or admin) is refused here as the server would refuse it.
+   */
+  async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
+    const { minimumRole, updatedCardProperties, ...rest } = patch;
+    if (minimumRole === '' || minimumRole === 'admin') {
+      throw new BackendError(400, {
+        detail: 'no such minimum role',
+        errors: [refusedMember('minimumRole', 'no such minimum role')],
+      });
+    }
+    const request: Schemas['BoardPatch'] = {
+      ...rest,
+      ...(minimumRole === undefined ? {} : { minimumRole }),
+      ...(updatedCardProperties === undefined
+        ? {}
+        : {
+            updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[],
+          }),
+    };
+    return boardOf(
+      await this.#http.request<Schemas['Board']>(
+        '/api/v1/boards/{boardId}',
+        { boardId },
+        { method: 'PATCH', json: request },
+      ),
+    );
   }
 
-  deleteBoard(_boardId: string): Promise<void> {
-    return notWired('deleteBoard');
+  /** `searchTeamBoards` by title (the server searches every team of the reader). */
+  async searchBoards(teamId: string, query: string): Promise<Board[]> {
+    const boards = await this.#http.request<Schemas['Board'][]>(
+      '/api/v1/teams/{teamId}/boards/search',
+      { teamId },
+      { query: { q: query } },
+    );
+    return boards.map(boardOf);
   }
 
-  restoreBoard(_boardId: string): Promise<Board> {
-    return notWired('restoreBoard');
+  async templates(teamId: string): Promise<Board[]> {
+    const boards = await this.#http.request<Schemas['Board'][]>(
+      '/api/v1/teams/{teamId}/templates',
+      { teamId },
+    );
+    return boards.map(boardOf);
+  }
+
+  /** `duplicateBoard` into the team (`toTeam`). The copy is the first board of the answer. */
+  async duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board> {
+    const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
+      '/api/v1/boards/{boardId}/duplicate',
+      { boardId },
+      { method: 'POST', query: { asTemplate: String(asTemplate), toTeam: teamId } },
+    );
+    const [board] = made.boards;
+    if (!board) throw new BackendError(500, { detail: 'the server made no copy' });
+    return boardOf(board);
+  }
+
+  async onboard(teamId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OnboardingStart']>(
+      '/api/v1/teams/{teamId}/onboard',
+      { teamId },
+      { method: 'POST' },
+    );
+    return started.boardId;
+  }
+
+  /** To the server's trash, with its blocks and members (`deleteBoard`, board admins only). */
+  async deleteBoard(boardId: string): Promise<void> {
+    await this.#http.request('/api/v1/boards/{boardId}', { boardId }, { method: 'DELETE' });
+  }
+
+  /**
+   * Out of the server's trash. Its place in the sidebar and its public link
+   * do not come back (`docs/contract-pending.md` 7): it shows at the end of
+   * the default category.
+   */
+  async restoreBoard(boardId: string): Promise<Board> {
+    return boardOf(
+      await this.#http.request<Schemas['Board']>(
+        '/api/v1/boards/{boardId}/undelete',
+        { boardId },
+        { method: 'POST' },
+      ),
+    );
   }
 
   async members(boardId: string): Promise<BoardMember[]> {
@@ -218,6 +352,68 @@ export class ServerBackend implements Backend, Account {
       { boardId },
     );
     return members.map(memberOf);
+  }
+
+  /** `addMember` with exactly the one role, as the server gives roles. */
+  async addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    const request: Schemas['NewMember'] = { userId, ...rolesOf(role) };
+    return memberOf(
+      await this.#http.request<Schemas['BoardMember']>(
+        '/api/v1/boards/{boardId}/members',
+        { boardId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  async setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    return memberOf(
+      await this.#http.request<Schemas['BoardMember']>(
+        '/api/v1/boards/{boardId}/members/{userId}',
+        { boardId, userId },
+        { method: 'PUT', json: rolesOf(role) },
+      ),
+    );
+  }
+
+  async removeMember(boardId: string, userId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/boards/{boardId}/members/{userId}',
+      { boardId, userId },
+      { method: 'DELETE' },
+    );
+  }
+
+  async sharing(boardId: string): Promise<Sharing> {
+    return sharingOf(
+      await this.#http.request<Schemas['Sharing']>('/api/v1/boards/{boardId}/sharing', {
+        boardId,
+      }),
+    );
+  }
+
+  async setSharing(boardId: string, change: SharingChange): Promise<Sharing> {
+    const request: Schemas['SharingRequest'] = {
+      enabled: change.enabled,
+      ...(change.regenerate ? { regenerate: true } : {}),
+    };
+    return sharingOf(
+      await this.#http.request<Schemas['Sharing']>(
+        '/api/v1/boards/{boardId}/sharing',
+        { boardId },
+        { method: 'POST', json: request },
+      ),
+    );
+  }
+
+  /** `getTeamUsers` with a search: ten at most, whatever the case (D2). */
+  async searchUsers(teamId: string, query: string): Promise<User[]> {
+    const users = await this.#http.request<Schemas['User'][]>(
+      '/api/v1/teams/{teamId}/users',
+      { teamId },
+      { query: { search: query } },
+    );
+    return users.map(userOf);
   }
 
   /** Joins an open board (`joinBoard`), with its minimum role. */
@@ -241,24 +437,150 @@ export class ServerBackend implements Backend, Account {
     return categories.map(categoryOf);
   }
 
-  createCategory(_teamId: string, _draft: CategoryDraft): Promise<Category> {
-    return notWired('createCategory');
+  /**
+   * The sidebar's writes of a team go one after another: a rename or a
+   * filing reads the category first and sends what it read, so a write
+   * begun before the last one ended would send what that one changed back.
+   */
+  #sidebarTurn<T>(teamId: string, write: () => Promise<T>): Promise<T> {
+    return this.#inTurn(`sidebar ${teamId}`, write);
   }
 
-  patchCategory(_categoryId: string, _patch: CategoryPatch): Promise<Category> {
-    return notWired('patchCategory');
+  /** A new category of the reader, first among theirs (the server puts it there). */
+  createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
+    return this.#sidebarTurn(teamId, () => this.#createCategory(teamId, draft));
   }
 
-  deleteCategory(_categoryId: string): Promise<void> {
-    return notWired('deleteCategory');
+  async #createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
+    // Read each time: another tab may have signed in as somebody else.
+    const { id: userId } = await this.me();
+    const request: Schemas['NewCategory'] = { name: draft.name, userId, teamId };
+    const made = await this.#http.request<Schemas['Category']>(
+      '/api/v1/teams/{teamId}/categories',
+      { teamId },
+      { method: 'POST', json: request },
+    );
+    return categoryOf({ ...made, boardMetadata: [] });
   }
 
-  reorderCategories(_teamId: string, _categoryIds: string[]): Promise<void> {
-    return notWired('reorderCategories');
+  /**
+   * Changes a category by `updateCategory`, which takes its name and its
+   * folding together: the one the patch leaves is read first. A default
+   * category keeps its name (the server answers 200 and leaves it).
+   */
+  patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
+    return this.#sidebarTurn(teamId, () => this.#patchCategory(teamId, categoryId, patch));
   }
 
-  moveBoardToCategory(_boardId: string, _categoryId: string, _index: number): Promise<void> {
-    return notWired('moveBoardToCategory');
+  async #patchCategory(
+    teamId: string,
+    categoryId: string,
+    patch: CategoryPatch,
+  ): Promise<Category> {
+    const before = await this.#category(teamId, categoryId);
+    const request: Schemas['CategoryUpdate'] = {
+      id: categoryId,
+      userId: before.userId,
+      teamId,
+      name: patch.name ?? before.name,
+      collapsed: patch.collapsed ?? before.collapsed,
+    };
+    const updated = await this.#http.request<Schemas['Category']>(
+      '/api/v1/teams/{teamId}/categories/{categoryId}',
+      { teamId, categoryId },
+      { method: 'PUT', json: request },
+    );
+    // The answer is the category alone; its boards are as they were read.
+    return {
+      ...categoryOf({ ...updated, boardMetadata: [] }),
+      boardIds: before.boardIds,
+      hiddenBoardIds: before.hiddenBoardIds,
+    };
+  }
+
+  deleteCategory(teamId: string, categoryId: string): Promise<void> {
+    return this.#sidebarTurn(teamId, async () => {
+      await this.#http.request(
+        '/api/v1/teams/{teamId}/categories/{categoryId}',
+        { teamId, categoryId },
+        { method: 'DELETE' },
+      );
+    });
+  }
+
+  reorderCategories(teamId: string, categoryIds: string[]): Promise<void> {
+    return this.#sidebarTurn(teamId, async () => {
+      await this.#http.request(
+        '/api/v1/teams/{teamId}/category-order',
+        { teamId },
+        { method: 'PUT', json: categoryIds },
+      );
+    });
+  }
+
+  /**
+   * Files a board under a category and puts it at its place: two requests,
+   * since the server files a board (`setBoardCategory`) without a place and
+   * orders a category's boards (`reorderCategoryBoards`) apart. The order is
+   * made from the category as it is after the filing, read again.
+   */
+  moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void> {
+    return this.#sidebarTurn(teamId, () =>
+      this.#moveBoardToCategory(teamId, boardId, categoryId, index),
+    );
+  }
+
+  async #moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void> {
+    await this.#http.request(
+      '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}',
+      { teamId, categoryId, boardId },
+      { method: 'POST' },
+    );
+    const filed = (await this.#category(teamId, categoryId)).boardIds.filter(
+      (id) => id !== boardId,
+    );
+    filed.splice(Math.max(0, Math.min(index, filed.length)), 0, boardId);
+    await this.#http.request(
+      '/api/v1/teams/{teamId}/categories/{categoryId}/board-order',
+      { teamId, categoryId },
+      { method: 'PUT', json: filed },
+    );
+  }
+
+  setBoardHidden(
+    teamId: string,
+    categoryId: string,
+    boardId: string,
+    hidden: boolean,
+  ): Promise<void> {
+    return this.#sidebarTurn(teamId, async () => {
+      await this.#http.request(
+        hidden
+          ? '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide'
+          : '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide',
+        { teamId, categoryId, boardId },
+        { method: 'PUT' },
+      );
+    });
+  }
+
+  /** One of the reader's categories as the server has it now: 404 for none. */
+  async #category(teamId: string, categoryId: string): Promise<Category> {
+    const found = (await this.categories(teamId)).find((category) => category.id === categoryId);
+    if (!found) {
+      throw new BackendError(404, { detail: 'no such category' });
+    }
+    return found;
   }
 
   // ------------------------------------------------------- views, cards
@@ -288,7 +610,7 @@ export class ServerBackend implements Backend, Account {
       { boardId },
       { method: 'POST', json: [block] },
     );
-    if (!made) throw new BackendError(500, { message: 'the server made no view' });
+    if (!made) throw new BackendError(500, { detail: 'the server made no view' });
     return viewOf(made);
   }
 
@@ -327,7 +649,7 @@ export class ServerBackend implements Backend, Account {
       { query: { blockId: viewId } },
     );
     if (view?.type !== 'view') {
-      throw new BackendError(404, { message: 'no such view on this board', reason: 'not_found' });
+      throw new BackendError(404, { detail: 'no such view on this board' });
     }
     return viewOf(view);
   }
@@ -355,7 +677,7 @@ export class ServerBackend implements Backend, Account {
   async #card(boardId: string, cardId: string): Promise<Schemas['Card']> {
     const card = await this.#http.request<Schemas['Card']>('/api/v1/cards/{cardId}', { cardId });
     if (card.boardId !== boardId) {
-      throw new BackendError(404, { message: 'no such card on this board', reason: 'not_found' });
+      throw new BackendError(404, { detail: 'no such card on this board' });
     }
     return card;
   }
@@ -463,7 +785,7 @@ export class ServerBackend implements Backend, Account {
       { boardId },
       { method: 'POST', json: [block] },
     );
-    if (!made) throw new BackendError(500, { message: 'the server made no comment' });
+    if (!made) throw new BackendError(500, { detail: 'the server made no comment' });
     return commentOf(made);
   }
 
@@ -477,7 +799,10 @@ export class ServerBackend implements Backend, Account {
     if (!write.body) {
       // The server would take it and leave a comment with no text.
       return Promise.reject(
-        new BackendError(400, { message: 'a comment needs a text', field: 'body' }),
+        new BackendError(400, {
+          detail: 'a comment needs a text',
+          errors: [refusedMember('body', 'a comment needs a text', 'required')],
+        }),
       );
     }
     return this.#inTurn(commentId, async () => {
@@ -507,10 +832,7 @@ export class ServerBackend implements Backend, Account {
       { query: { blockId: commentId } },
     );
     if (block?.type !== 'comment') {
-      throw new BackendError(404, {
-        message: 'no such comment on this board',
-        reason: 'not_found',
-      });
+      throw new BackendError(404, { detail: 'no such comment on this board' });
     }
     return commentOf(block);
   }
@@ -550,7 +872,7 @@ export class ServerBackend implements Backend, Account {
       { boardId },
       { method: 'POST', json: [block] },
     );
-    if (!made) throw new BackendError(500, { message: 'the server made no attachment' });
+    if (!made) throw new BackendError(500, { detail: 'the server made no attachment' });
     return attachmentOf(made);
   }
 
@@ -584,7 +906,7 @@ export class ServerBackend implements Backend, Account {
   async upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
     const limit = (await this.#clientConfig()).maxFileSize;
     if (file.size > limit) {
-      throw new BackendError(413, { message: 'the file is too large', limit });
+      throw new BackendError(413, { detail: 'the file is too large', limit });
     }
     // A few at a time: the server keeps only so many open uploads of a reader (429).
     await this.#uploadTurn(options?.signal);
@@ -623,6 +945,53 @@ export class ServerBackend implements Backend, Account {
     }
     signal?.throwIfAborted();
     this.#uploading += 1;
+  }
+
+  /** `exportBoardArchive`, read with its progress. */
+  exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    return downloadWithProgress(
+      this.#http,
+      '/api/v1/boards/{boardId}/archive/export',
+      { boardId },
+      'archive.boardarchive',
+      options,
+    );
+  }
+
+  /** `exportTeamArchive`, read with its progress. */
+  exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    return downloadWithProgress(
+      this.#http,
+      '/api/v1/teams/{teamId}/archive/export',
+      { teamId },
+      'archive.boardarchive',
+      options,
+    );
+  }
+
+  /**
+   * Imports an archive sent in parts (`upload.ts`). An archive over the
+   * server's `maxImportSize` is refused before anything is sent, with the
+   * limit, as the server would (413). It takes a turn among the uploads: it
+   * counts toward the same open uploads of the reader.
+   */
+  async importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void> {
+    const limit = (await this.#clientConfig()).maxImportSize;
+    if (file.size > limit) {
+      // The reason is this app's: the server's 413 may count entries, this one counts bytes.
+      throw new BackendError(413, {
+        detail: 'the archive is too large',
+        reason: 'over_import_limit',
+        limit,
+      });
+    }
+    await this.#uploadTurn(options?.signal);
+    try {
+      await importInParts(this.#http, teamId, file, options);
+    } finally {
+      this.#uploading -= 1;
+      this.#uploadWaiting.shift()?.();
+    }
   }
 
   /** The server's settings for clients, read once. */

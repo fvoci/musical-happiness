@@ -196,9 +196,22 @@ describe('grouping', () => {
 
 describe('the properties a view shows', () => {
   it('can be every property of the board, and nothing a view does not read', () => {
-    expect(propertyToggles(TEMPLATES).map((toggle) => toggle.id)).toEqual(
+    expect(propertyToggles(TEMPLATES, 'table').map((toggle) => toggle.id)).toEqual(
       TEMPLATES.map((template) => template.id),
     );
+  });
+
+  it('include a card relation in a table only: the face of a card does not show it', () => {
+    const withRelation: PropertyTemplate[] = [
+      ...TEMPLATES,
+      { id: 'after', name: 'After', type: 'relation', options: [] },
+    ];
+    expect(propertyToggles(withRelation, 'table').map((toggle) => toggle.id)).toContain('after');
+    for (const viewType of ['board', 'gallery', 'calendar'] as const) {
+      expect(propertyToggles(withRelation, viewType).map((toggle) => toggle.id)).toEqual(
+        TEMPLATES.map((template) => template.id),
+      );
+    }
   });
 
   it('get a newly shown one at the end, and lose a hidden one where it was', () => {
