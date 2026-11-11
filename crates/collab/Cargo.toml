@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# The steps of take_update one by one, for this crate's own tests.
+test-util = []
+
 [dependencies]
 fvoci-model.workspace = true
 serde_json.workspace = true
@@ -15,6 +19,7 @@ yrs.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
+fvoci-collab = { path = ".", features = ["test-util"] }
 
 [lints]
 workspace = true

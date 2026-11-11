@@ -2,7 +2,8 @@
 
 mod support;
 
-use fvoci_collab::{FIELD, Repair, from_body_by, repair, state_of, to_body, with_update};
+use fvoci_collab::testing::{repair, to_body, with_update};
+use fvoci_collab::{FIELD, Repair, from_body_by, state_of};
 use fvoci_model::{BODY_MAX_BYTES, BodyError};
 use serde_json::{Value, json};
 use support::{ROOMY, body_of, json_of};

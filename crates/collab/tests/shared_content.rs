@@ -6,7 +6,8 @@ mod support;
 
 use std::sync::Arc;
 
-use fvoci_collab::{FIELD, from_body, from_body_by, new_doc, repair, state_of, to_body};
+use fvoci_collab::testing::{repair, to_body};
+use fvoci_collab::{FIELD, from_body, from_body_by, new_doc, state_of};
 use fvoci_model::{BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BodyError};
 use serde_json::{Value, json};
 use support::{body_of, json_of};
@@ -208,7 +209,7 @@ fn a_repair_deletes_a_long_run_and_refuses_a_thousand_separate_ones() {
     let too_many = alternating(1001);
     let before = state_of(&too_many);
     assert_eq!(
-        fvoci_collab::repair(&too_many),
+        fvoci_collab::testing::repair(&too_many),
         Err(BodyError::InvalidNode {
             path: String::new(),
             problem: "more separate parts of the document fail than a repair deletes",
@@ -219,7 +220,7 @@ fn a_repair_deletes_a_long_run_and_refuses_a_thousand_separate_ones() {
 
 /// How many nodes a repair deleted, or why it did not repair.
 fn repair_of(doc: &Doc) -> Result<usize, BodyError> {
-    fvoci_collab::repair(doc).map(|repair| repair.deleted)
+    fvoci_collab::testing::repair(doc).map(|repair| repair.deleted)
 }
 
 /// Values where the children of a node belong have no JSON at all. An editor passes
@@ -283,7 +284,7 @@ fn letters_where_nodes_belong_are_refused_without_being_listed() {
     let mut under_root = vec![1, 1, 5, 0, 4, 1, 7];
     under_root.extend_from_slice(b"default");
     under_root.extend_from_slice(&[4, 0xf0, 0x9f, 0x98, 0x80, 0]);
-    let doc = fvoci_collab::with_update(&new_doc(), &under_root, &support::ROOMY)
+    let doc = fvoci_collab::testing::with_update(&new_doc(), &under_root, &support::ROOMY)
         .expect("the update is taken: it is the document it leaves that is refused");
     assert!(
         matches!(to_body(&doc), Err(BodyError::InvalidNode { .. })),
@@ -298,7 +299,7 @@ fn letters_where_nodes_belong_are_refused_without_being_listed() {
     // of the client that wrote the body, client 1.
     let body = from_body_by(&body_of(&document(&[text_paragraph("kept")])), 1);
     let under_paragraph = [1, 1, 5, 0, 4, 0, 1, 0, 4, 0xf0, 0x9f, 0x98, 0x80, 0];
-    let doc = fvoci_collab::with_update(&body, &under_paragraph, &support::ROOMY)
+    let doc = fvoci_collab::testing::with_update(&body, &under_paragraph, &support::ROOMY)
         .expect("the update is taken");
     assert!(
         matches!(to_body(&doc), Err(BodyError::InvalidNode { .. })),

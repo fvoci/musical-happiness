@@ -4,7 +4,8 @@
 
 mod support;
 
-use fvoci_collab::{new_doc, repair, state_of, to_body, with_update};
+use fvoci_collab::testing::{repair, to_body, with_update};
+use fvoci_collab::{new_doc, state_of};
 use support::random::Random;
 use support::{ROOMY, vectors};
 use yrs::Doc;

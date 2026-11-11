@@ -25,7 +25,7 @@ use crate::read::{self, Child, Content, Pushed};
 /// has no JSON at all (letters or a value where a node belongs, a fragment inside the
 /// document, something in a text that is no letter) is refused as
 /// [`BodyError::InvalidNode`].
-pub fn to_body(doc: &Doc) -> Result<Option<Body>, BodyError> {
+pub(crate) fn to_body(doc: &Doc) -> Result<Option<Body>, BodyError> {
     let txn = doc.transact();
     // A document nothing was ever written into has no root yet, and no body.
     txn.get_xml_fragment(FIELD)

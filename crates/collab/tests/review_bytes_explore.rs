@@ -2,9 +2,8 @@
 //!
 //! Without settings it runs the seeds 1 to 400, a few seconds. To search further:
 //! `FVOCI_EXPLORE_SECONDS` (how long), `FVOCI_EXPLORE_FROM` (the first seed),
-//! `FVOCI_EXPLORE_THREADS` (how many at once), `FVOCI_EXPLORE_KNOWN=0` (also make what
-//! is found already), `FVOCI_EXPLORE_TRACE=1` (name each seed before it runs, to find
-//! the one that ends the process).
+//! `FVOCI_EXPLORE_THREADS` (how many at once), `FVOCI_EXPLORE_TRACE=1` (name each seed
+//! before it runs, to find the one that ends the process).
 
 mod support;
 
@@ -13,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use support::explore::{Failure, Known, Slowest, note_panics, session};
+use support::explore::{Failure, Slowest, note_panics, session};
 
 fn setting(name: &str) -> Option<u64> {
     std::env::var(name).ok()?.parse().ok()
@@ -28,14 +27,6 @@ fn no_update_made_at_random_panics_or_leaves_what_the_server_relies_on_broken() 
     let from = setting("FVOCI_EXPLORE_FROM").unwrap_or(1);
     let threads = setting("FVOCI_EXPLORE_THREADS").unwrap_or(4);
     let trace = setting("FVOCI_EXPLORE_TRACE") == Some(1);
-    let known = if setting("FVOCI_EXPLORE_KNOWN") == Some(0) {
-        Known::default()
-    } else {
-        Known {
-            texts_of_json: true,
-            large_whole_numbers: true,
-        }
-    };
     let until = seconds.map_or(from + 400, |_| u64::MAX);
     let deadline = seconds.map(|seconds| Instant::now() + Duration::from_secs(seconds));
     let next = AtomicU64::new(from);
@@ -54,7 +45,7 @@ fn no_update_made_at_random_panics_or_leaves_what_the_server_relies_on_broken() 
                     if trace {
                         println!("seed {seed}");
                     }
-                    let (failure, slow) = session(seed, STEPS, known);
+                    let (failure, slow) = session(seed, STEPS);
                     if let Some(failure) = failure {
                         let mut failures = failures.lock().expect("the failures");
                         failures

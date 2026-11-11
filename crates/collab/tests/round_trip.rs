@@ -4,7 +4,8 @@
 
 mod support;
 
-use fvoci_collab::{FIELD, from_body, from_body_by, repair, state_of, to_body, with_update};
+use fvoci_collab::testing::{repair, to_body, with_update};
+use fvoci_collab::{FIELD, from_body, from_body_by, state_of};
 use serde_json::Value;
 use support::random::{Random, document};
 use support::{ROOMY, body_of, doc_of, json_of, stored_form};
@@ -134,16 +135,16 @@ fn a_document_with_children_deleted_at_random_is_repaired_to_a_body() {
             "seed {seed}: handed the deletions"
         );
         let own = doc_of(&before);
-        let theirs =
-            fvoci_collab::repair(&own).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
+        let theirs = fvoci_collab::testing::repair(&own)
+            .unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(theirs.body, repair.body, "seed {seed}: repaired on its own");
         // And both together: deleting what is deleted changes nothing.
         let both = with_update(&own, deletions, &ROOMY)
             .unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(to_body(&both), Ok(repair.body.clone()), "seed {seed}: both");
 
-        let again =
-            fvoci_collab::repair(&doc).unwrap_or_else(|error| panic!("seed {seed}: {error}"));
+        let again = fvoci_collab::testing::repair(&doc)
+            .unwrap_or_else(|error| panic!("seed {seed}: {error}"));
         assert_eq!(again.deleted, 0, "seed {seed}: once is enough");
     }
     assert!(

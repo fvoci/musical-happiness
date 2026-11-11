@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fvoci_collab::{UpdateLimits, new_doc, with_update};
+use fvoci_collab::testing::with_update;
+use fvoci_collab::{UpdateLimits, new_doc};
 use fvoci_model::Body;
 use serde_json::Value;
 use yrs::Doc;
@@ -23,6 +24,7 @@ use yrs::Doc;
 pub(crate) const ROOMY: UpdateLimits = UpdateLimits {
     update_bytes: 64 * 1024 * 1024,
     state_bytes: 64 * 1024 * 1024,
+    body_bytes: 64 * 1024 * 1024,
 };
 
 /// A file of the contracts both sides read.

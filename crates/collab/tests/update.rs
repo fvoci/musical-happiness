@@ -3,9 +3,8 @@
 
 mod support;
 
-use fvoci_collab::{
-    FIELD, UpdateError, UpdateLimits, copy_of, from_body, new_doc, state_of, to_body, with_update,
-};
+use fvoci_collab::testing::{copy_of, to_body, with_update};
+use fvoci_collab::{FIELD, UpdateError, UpdateLimits, from_body, new_doc, state_of};
 use serde_json::json;
 use support::{ROOMY, body_of, json_of};
 use yrs::updates::decoder::Decode;

@@ -11,21 +11,13 @@ use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::{Duration, Instant};
 
-use fvoci_collab::{from_body_by, new_doc, repair, state_of, to_body, with_update};
+use fvoci_collab::testing::{repair, to_body, with_update};
+use fvoci_collab::{TakeError, from_body_by, from_state, new_doc, state_of, take_update};
 use yrs::{Doc, ReadTxn, Transact};
 
 use super::random::{Random, document};
 use super::wire::{Change, Content, Id, Parent, Run, Update, value};
 use super::{ROOMY, body_of, to_base64, vectors};
-
-/// What the search leaves out, because it is found already and would be all it finds.
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct Known {
-    /// Texts of JSON (kind 2), which the library does not read back as it writes them.
-    pub(crate) texts_of_json: bool,
-    /// Whole numbers past 53 bits, which are written back in a form the walk refuses.
-    pub(crate) large_whole_numbers: bool,
-}
 
 /// What went wrong in a session.
 #[derive(Debug, Clone)]
@@ -87,56 +79,66 @@ pub(crate) fn note_panics() {
 }
 
 /// Everything the server does with an update, on a document that holds `base`: the
-/// document the update leaves, repaired, if it was taken.
+/// document [`take_update`] gives, if the update is taken.
 ///
 /// # Panics
 ///
-/// Panics if what a server relies on does not hold: a repaired document is its body, a
-/// repair of a body or one that fails changes nothing, the deletions of a repair bring
-/// another holder of the document to the same body, and the state is an update.
+/// Panics if what a server relies on does not hold: the document an update is given
+/// for is as it was, the document taken is its body, the deletions of a repair bring
+/// an editor that took the update to the same body, the state of the document taken
+/// is opened again to the same body, and a repair that fails deletes nothing.
 pub(crate) fn take(base: &Doc, update: &[u8]) -> Option<Doc> {
-    let with = with_update(base, update, &ROOMY).ok()?;
-    let first = to_body(&with);
-    let before = state_of(&with);
-    if let Ok(repaired) = repair(&with) {
+    let before = state_of(base);
+    let taken = take_update(base, update, &ROOMY);
+    assert_eq!(
+        state_of(base),
+        before,
+        "the document an update is given for is as it was"
+    );
+    let taken = match taken {
+        Ok(taken) => taken,
+        Err(TakeError::Body(_)) => {
+            // A repair of the document with the update failed: made in place, it
+            // deletes nothing.
+            let with = with_update(base, update, &ROOMY).expect("the update alone is taken");
+            let with_state = state_of(&with);
+            assert!(to_body(&with).is_err(), "a body needs no repair");
+            if repair(&with).is_err() {
+                assert_eq!(
+                    state_of(&with),
+                    with_state,
+                    "a repair that fails deletes nothing"
+                );
+            }
+            return None;
+        }
+        Err(_) => return None,
+    };
+    let body = taken.repair.body.clone();
+    assert_eq!(
+        to_body(&taken.doc),
+        Ok(body.clone()),
+        "the document taken is its body"
+    );
+    if let Some(deletions) = &taken.repair.update {
+        let editor = with_update(base, update, &ROOMY).expect("the update alone is taken");
+        let editor = with_update(&editor, deletions, &ROOMY)
+            .expect("the deletions of a repair are an update");
         assert_eq!(
-            to_body(&with),
-            Ok(repaired.body.clone()),
-            "a repaired document is its body"
+            to_body(&editor),
+            Ok(body.clone()),
+            "the deletions of a repair give an editor the same body"
         );
-        if first.is_ok() {
-            assert_eq!(
-                state_of(&with),
-                before,
-                "a repair of a body changes nothing"
-            );
-            assert_eq!(repaired.deleted, 0, "a repair of a body deletes nothing");
-        }
-        if let Some(deletions) = &repaired.update {
-            let other = with_update(&new_doc(), &before, &ROOMY)
-                .expect("the state before the repair is an update");
-            let other = with_update(&other, deletions, &ROOMY)
-                .expect("the deletions of a repair are an update");
-            assert_eq!(
-                to_body(&other),
-                Ok(repaired.body),
-                "the deletions of a repair give another holder the same body"
-            );
-        }
     } else {
-        assert!(first.is_err(), "a body needs no repair");
         assert_eq!(
-            state_of(&with),
-            before,
-            "a repair that fails deletes nothing"
+            taken.repair.deleted, 0,
+            "without deletions nothing was deleted"
         );
     }
-    let stored = state_of(&with);
-    assert!(
-        with_update(&new_doc(), &stored, &ROOMY).is_ok(),
-        "the state is an update"
-    );
-    Some(with)
+    let opened = from_state(&state_of(&taken.doc), &ROOMY).expect("the state is opened again");
+    assert_eq!(opened.repair.body, body, "the state opens to the same body");
+    assert_eq!(opened.repair.deleted, 0, "the state opens without a repair");
+    Some(taken.doc)
 }
 
 /// What a session knows of its document: how far each client's clock has run, and the
@@ -234,13 +236,12 @@ fn some_id(random: &mut Random, world: &World, own: &[Id]) -> Id {
     }
 }
 
-fn some_value(random: &mut Random, known: Known, depth: usize) -> Vec<u8> {
+fn some_value(random: &mut Random, depth: usize) -> Vec<u8> {
     match random.below(12) {
         0 | 1 => value::text(random.pick(&LETTERS)),
         2 => value::whole(i64::try_from(random.below(10)).expect("fits") - 3),
         3 => {
-            let bits = if known.large_whole_numbers { 53 } else { 62 };
-            let number = i64::try_from(random.next() >> (64 - bits)).expect("fits");
+            let number = i64::try_from(random.next() >> 2).expect("fits");
             value::whole(if random.chance(2) { -number } else { number })
         }
         4 => value::truth(),
@@ -260,7 +261,7 @@ fn some_value(random: &mut Random, known: Known, depth: usize) -> Vec<u8> {
         8 => vec![*random.pick(&[127, 121, 120])],
         9 | 10 if depth < 9 => {
             let items: Vec<Vec<u8>> = (0..random.below(3))
-                .map(|_| some_value(random, known, depth + 1))
+                .map(|_| some_value(random, depth + 1))
                 .collect();
             if random.chance(2) {
                 value::list(&items)
@@ -301,7 +302,7 @@ fn some_letters(random: &mut Random) -> Vec<u8> {
     bytes
 }
 
-fn some_content(random: &mut Random, known: Known) -> Content {
+fn some_content(random: &mut Random) -> Content {
     match random.below(40) {
         0..=7 => Content::element(random.pick(&NAMES)),
         8..=11 => Content::xml_text(),
@@ -309,7 +310,7 @@ fn some_content(random: &mut Random, known: Known) -> Content {
         13..=22 => Content::Text(some_letters(random)),
         23..=26 => {
             let values: Vec<Vec<u8>> = (0..=random.below(3))
-                .map(|_| some_value(random, known, 0))
+                .map(|_| some_value(random, 0))
                 .collect();
             let mut content = Content::values(values);
             if let (true, Content::Any { count, .. }) = (random.chance(20), &mut content) {
@@ -321,7 +322,7 @@ fn some_content(random: &mut Random, known: Known) -> Content {
         31..=33 => Content::Deleted(*random.pick(&[1, 1, 2, 5, 0, 0x7fff_0000, 0x3fff_ffff])),
         34 | 35 => Content::Embed(some_json(random)),
         36 => Content::Binary(random.bytes(4)),
-        37 if !known.texts_of_json => Content::Json {
+        37 => Content::Json {
             count: below(random, 3),
             texts: (0..random.below(4))
                 .map(|_| random.pick(&JSON).as_bytes().to_vec())
@@ -335,13 +336,7 @@ fn some_content(random: &mut Random, known: Known) -> Content {
     }
 }
 
-fn some_change(
-    random: &mut Random,
-    world: &World,
-    own: &[Id],
-    made_here: &[Id],
-    known: Known,
-) -> Change {
+fn some_change(random: &mut Random, world: &World, own: &[Id], made_here: &[Id]) -> Change {
     match random.below(40) {
         0 => return Change::Collected(*random.pick(&[1, 1, 3, 0, 0x7fff_0000])),
         1 if random.chance(3) => return Change::Skipped(1 + below(random, 3)),
@@ -369,13 +364,13 @@ fn some_change(
         right,
         parent,
         key,
-        content: some_content(random, known),
+        content: some_content(random),
     }
 }
 
 /// An update against the document a world describes, with the changes in it that make
 /// a shared type.
-fn some_update(random: &mut Random, world: &World, known: Known) -> (Update, Vec<Id>) {
+fn some_update(random: &mut Random, world: &World) -> (Update, Vec<Id>) {
     let mut update = Update::default();
     let mut made: Vec<Id> = Vec::new();
     let mut own: Vec<Id> = Vec::new();
@@ -400,7 +395,7 @@ fn some_update(random: &mut Random, world: &World, known: Known) -> (Update, Vec
         let begin = clock;
         let mut changes = Vec::new();
         for _ in 0..random.below(7) {
-            let change = some_change(random, world, &own, &made, known);
+            let change = some_change(random, world, &own, &made);
             if matches!(
                 &change,
                 Change::Item {
@@ -497,14 +492,14 @@ fn some_document(random: &mut Random) -> Doc {
     clippy::print_stdout,
     reason = "FVOCI_EXPLORE_SHOW prints each update, for the one who runs the search"
 )]
-pub(crate) fn session(seed: u64, steps: usize, known: Known) -> (Option<Failure>, Slowest) {
+pub(crate) fn session(seed: u64, steps: usize) -> (Option<Failure>, Slowest) {
     let mut random = Random::new(seed);
     let mut doc = some_document(&mut random);
     let mut world = World::default();
     let mut slowest = Slowest::default();
     for step in 0..steps {
         world.read(&doc);
-        let (update, made) = some_update(&mut random, &world, known);
+        let (update, made) = some_update(&mut random, &world);
         let bytes = damaged(&mut random, update.bytes());
         let before = state_of(&doc);
         if std::env::var_os("FVOCI_EXPLORE_SHOW").is_some() {

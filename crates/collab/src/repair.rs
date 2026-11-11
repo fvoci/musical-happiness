@@ -2,13 +2,10 @@
 
 use fvoci_model::{BODY_MAX_DEPTH, Body, BodyError};
 use serde_json::{Value, json};
-use yrs::updates::decoder::Decode;
-use yrs::{
-    Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, Update, XmlElementRef, XmlFragmentRef,
-};
+use yrs::{Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, XmlElementRef, XmlFragmentRef};
 
 use crate::FIELD;
-use crate::project::project;
+use crate::project::{project, to_body};
 use crate::read::{self, Child, Content};
 use crate::schema::{self, Place};
 use crate::update::copy_of;
@@ -27,8 +24,8 @@ pub struct Repair {
     pub body: Option<Body>,
 }
 
-/// Deletes from a Y document what keeps it from being a body, and gives the body that
-/// is left.
+/// Repairs a Y document: deletes from a copy of it what keeps it from being a body,
+/// and gives the body that is left.
 ///
 /// Two edits that are each valid can merge into a document that is not: two people each
 /// delete one of the last two entries of a list, and a list without entries is left.
@@ -49,8 +46,8 @@ pub struct Repair {
 /// an editor's binding throws. And a node that holds letters or values where its
 /// children belong, which an editor passes over, is deleted whole.
 ///
-/// The deletions are made on a copy of the document first, and made to `doc` only when
-/// the copy is a body with them: a repair that fails leaves `doc` as it was.
+/// The deletions are made on a copy of the document, which comes back with what the
+/// repair did; no copy if the document is a body already. `doc` is not changed.
 ///
 /// # Errors
 ///
@@ -66,32 +63,8 @@ pub struct Repair {
 /// its parent), or if the document cannot be copied, which nothing this crate takes
 /// leaves it unable to be. Any other error means the document would still be refused
 /// with the deletions.
-pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
-    let (repair, copy) = repaired(doc)?;
-    if let (Some(_), Some(deletions)) = (copy, &repair.update) {
-        // The copy was made from the state of `doc`, so its deletions are deletions of
-        // changes `doc` has, and leave it as they left the copy.
-        let deletions = Update::decode_v1(deletions).map_err(|_| uncopied())?;
-        doc.transact_mut()
-            .apply_update(deletions)
-            .map_err(|_| uncopied())?;
-    }
-    Ok(repair)
-}
-
-/// [`repair`] without changing `doc`: what the repair does, and the repaired copy of the
-/// document. No copy if the document is a body already.
-///
-/// # Errors
-///
-/// As [`repair`].
 pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
-    let as_it_is = {
-        let txn = doc.transact();
-        txn.get_xml_fragment(FIELD)
-            .map_or(Ok(None), |root| project(&txn, &root))
-    };
-    if let Ok(body) = as_it_is {
+    if let Ok(body) = to_body(doc) {
         let repair = Repair {
             deleted: 0,
             update: None,
@@ -99,6 +72,17 @@ pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
         };
         return Ok((repair, None));
     }
+    let (repair, copy) = deleting(doc)?;
+    Ok((repair, Some(copy)))
+}
+
+/// Repairs a copy of a document that is no body, and gives what the repair did with the
+/// repaired copy. `doc` is not changed.
+///
+/// # Errors
+///
+/// As [`repaired`].
+fn deleting(doc: &Doc) -> Result<(Repair, Doc), BodyError> {
     let copy = copy_of(doc).map_err(|_| uncopied())?;
     let root = copy.get_or_insert_xml_fragment(FIELD);
     let mut txn = copy.transact_mut();
@@ -126,7 +110,7 @@ pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
         update,
         body,
     };
-    Ok((repair, Some(copy)))
+    Ok((repair, copy))
 }
 
 /// The refusal of a document that cannot be copied to be repaired.

@@ -6,7 +6,8 @@
 
 mod support;
 
-use fvoci_collab::{UpdateError, new_doc, repair, state_of, to_body, with_update};
+use fvoci_collab::testing::{repair, to_body, with_update};
+use fvoci_collab::{TakeError, UpdateError, new_doc, state_of, take_update};
 use support::wire::{Change, Content, Parent, Update, value};
 use support::{ROOMY, from_base64};
 
@@ -127,4 +128,11 @@ fn a_repair_that_fails_leaves_the_document_as_it_was() {
     assert!(repair(&with).is_err(), "no repair mends it");
     assert_eq!(state_of(&with), state, "the repair deleted nothing");
     assert_eq!(to_body(&with), refused, "the same refusal");
+    // What the server calls refuses the update, and the document stays.
+    let state = state_of(&doc);
+    assert!(matches!(
+        take_update(&doc, &update, &ROOMY),
+        Err(TakeError::Body(_))
+    ));
+    assert_eq!(state_of(&doc), state, "the document is as it was");
 }

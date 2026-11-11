@@ -1029,6 +1029,7 @@ name = "fvoci-collab"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "fvoci-collab",
  "fvoci-model",
  "serde_json",
  "thiserror",

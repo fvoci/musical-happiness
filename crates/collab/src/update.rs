@@ -17,6 +17,9 @@ pub struct UpdateLimits {
     /// 1 update of the whole document). A Y document keeps a trace of what was deleted,
     /// so it grows with every edit even where the body does not.
     pub state_bytes: usize,
+    /// The largest body an update may leave, in bytes of its stored JSON. Every body is
+    /// held to [`fvoci_model::BODY_MAX_BYTES`] as well, so a larger value is that.
+    pub body_bytes: usize,
 }
 
 /// Why an update is refused.
@@ -79,7 +82,7 @@ pub fn state_of(doc: &Doc) -> Vec<u8> {
 ///
 /// Returns [`UpdateError::DocumentUnreadable`] if the document's own state cannot be
 /// read again as any update is read.
-pub fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
+pub(crate) fn copy_of(doc: &Doc) -> Result<Doc, UpdateError> {
     doc_of_state(&state_of(doc)).map_err(UpdateError::DocumentUnreadable)
 }
 
@@ -127,20 +130,14 @@ fn read(doc: &Doc, update: &[u8]) -> Result<Update, UpdateError> {
 /// The Y document as it would be with a client's update: a copy of `doc` with the
 /// update applied, read again from its state. `doc` itself is not changed.
 ///
-/// What comes back has still to be projected ([`crate::to_body`]) and, where that
-/// fails, repaired ([`crate::repair`]): this only refuses what cannot be taken at all.
+/// What comes back has still to be projected and, where that fails, repaired: this only
+/// refuses what cannot be taken at all. [`crate::take_update`] does all of it, and says
+/// what a server that calls it keeps in mind about time.
 ///
 /// Not everything an update may write is read by the projection: members of the root,
 /// attributes the schema does not have, attributes of a text. No editor reads them
 /// either. They stay in the document, and [`UpdateLimits::state_bytes`] is what bounds
 /// them.
-///
-/// How long this takes is not bounded by the size of the update alone. The library
-/// places a change among the others that claim the same place by looking at each of
-/// them, so an update made for it can take the square of its size: 112 kB of changes
-/// that all claim the end of a parent of 16,000 children took 29 seconds. What calls
-/// this for a client keeps [`UpdateLimits::update_bytes`] small and does not hold
-/// anything others wait for while it runs.
 ///
 /// # Errors
 ///
@@ -148,7 +145,11 @@ fn read(doc: &Doc, update: &[u8]) -> Result<Update, UpdateError> {
 /// applied, leaves a part of itself waiting for changes the document does not have,
 /// writes to another root than the body's, leaves the document too large or in a
 /// state that cannot be read again, or if `doc` itself cannot be read again.
-pub fn with_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Doc, UpdateError> {
+pub(crate) fn with_update(
+    doc: &Doc,
+    update: &[u8],
+    limits: &UpdateLimits,
+) -> Result<Doc, UpdateError> {
     if update.len() > limits.update_bytes {
         return Err(UpdateError::TooLarge {
             size: update.len(),
@@ -194,6 +195,7 @@ mod tests {
     const LIMITS: UpdateLimits = UpdateLimits {
         update_bytes: 1024,
         state_bytes: 1024,
+        body_bytes: 1024,
     };
 
     /// A document that holds what the library writes in a form the walk refuses: a
