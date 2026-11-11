@@ -155,6 +155,7 @@
     cardId={card.id}
     ids={parseRelationValue(value)}
     {cards}
+    {locale}
     {editable}
     placeholder={empty(m['PropertyValueElement.empty'])}
     {presentation}

@@ -87,7 +87,7 @@ function valueForClause(
     case 'relation': {
       // A card that is not there is not shown, and does not count.
       const { cardTitle } = context;
-      const ids = parseRelationValue(value);
+      const ids = parseRelationValue(value).filter((id) => id !== card.id);
       return {
         value: cardTitle ? ids.filter((id) => cardTitle(id) !== undefined) : ids,
         dateValue: undefined,

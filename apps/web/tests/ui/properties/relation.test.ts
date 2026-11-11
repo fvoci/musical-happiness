@@ -77,10 +77,19 @@ describe('a relation property, closed', () => {
 });
 
 describe('a relation property, opened', () => {
-  it('lists the other cards of the board, not the card itself, and marks the picked ones', async () => {
+  it('lists the other cards of the board by title, not the card itself', async () => {
+    mount('relation', [], { cards: CARDS });
+    await fireEvent.click(button());
+    expect(rows()).toEqual(['Build the form', 'Design the form', 'Untitled']);
+  });
+
+  it('lists the picked cards first, marked, and finds an untitled card by that word', async () => {
     mount('relation', ['card-2'], { cards: CARDS });
     await fireEvent.click(button());
     expect(rows()).toEqual(['Design the form', 'Build the form', 'Untitled']);
+    await type(search(), 'untit');
+    expect(rows()).toEqual(['Untitled']);
+    await type(search(), '');
     expect(within(list()).getByRole('option', { name: 'Design the form' })).toHaveAttribute(
       'aria-selected',
       'true',
@@ -136,7 +145,9 @@ describe('a relation property, opened', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       `No more than ${String(RELATION_LIMIT)} cards can be picked.`,
     );
+    // The cards that are not picked are not offered.
     await type(search(), `Card ${String(RELATION_LIMIT + 1)}`);
+    expect(rows()).toEqual([]);
     await press(search(), 'Enter');
     expect(onChange).not.toHaveBeenCalled();
     // Taking one out still works.
@@ -154,8 +165,32 @@ describe('a relation property, opened', () => {
     mount('relation', [], { cards: many });
     await fireEvent.click(button());
     expect(rows()).toHaveLength(50);
-    expect(screen.getByText('2950 more cards. Type to narrow the list.')).toBeInTheDocument();
+    expect(screen.getByText('More cards: 2950. Type to narrow the list.')).toBeInTheDocument();
     await type(search(), 'Task 2999');
     expect(rows()).toEqual(['Task 2999']);
+  });
+
+  it('keeps every card of a value that names more than the limit when one is taken out', async () => {
+    const many = cardsOf(
+      Object.fromEntries(
+        Array.from({ length: RELATION_LIMIT + 10 }, (_, at) => [
+          `c${String(at)}`,
+          `Card ${String(at)}`,
+        ]),
+      ),
+    );
+    const named = [...many.keys()];
+    const { onChange } = mount('relation', named, { cards: many });
+    await fireEvent.click(button());
+    await fireEvent.click(screen.getByRole('button', { name: 'Remove Card 0' }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(named.slice(1));
+  });
+
+  it('does not show the card itself when its value names it, and leaves it out when written', async () => {
+    const { container, onChange } = mount('relation', ['card-1', 'card-2'], { cards: CARDS });
+    expect(chips(container)).toEqual(['Design the form']);
+    await fireEvent.click(button());
+    await fireEvent.click(within(list()).getByRole('option', { name: 'Build the form' }));
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2', 'card-3']);
   });
 });

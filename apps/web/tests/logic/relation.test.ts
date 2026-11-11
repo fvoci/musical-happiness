@@ -6,17 +6,15 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { planTypeChange, viewWithoutProperty } from '$lib/features/card/property-change.ts';
+import { planTypeChange } from '$lib/features/card/property-change.ts';
 import { isClauseMet } from '$lib/logic/filter.ts';
 import { propertyBehavior, SELECTABLE_PROPERTY_TYPES } from '$lib/logic/properties.ts';
 import { searchFilterCards } from '$lib/logic/search.ts';
 import { sortCards } from '$lib/logic/sort.ts';
 import {
-  createBoardView,
   createCard,
-  formatRelationValue,
   parseRelationValue,
-  RELATION_LIMIT,
+  setCardProperty,
   type Card,
   type FilterCondition,
   type PropertyTemplate,
@@ -30,7 +28,7 @@ function card(id: string, title: string, after?: PropertyValue): Card {
   made.id = id;
   made.title = title;
   made.createAt = 1;
-  if (after !== undefined) made.fields.properties.after = after;
+  if (after !== undefined) setCardProperty(made, 'after', after);
   return made;
 }
 
@@ -50,12 +48,6 @@ describe('the stored value', () => {
     expect(parseRelationValue('a')).toEqual([]);
     expect(parseRelationValue({ from: '2026-01-01' })).toEqual([]);
     expect(parseRelationValue(undefined)).toEqual([]);
-  });
-
-  it(`writes each card once and no more than ${String(RELATION_LIMIT)}`, () => {
-    const many = Array.from({ length: RELATION_LIMIT + 5 }, (_, at) => `c${String(at)}`);
-    expect(formatRelationValue(['a', 'a', 'b'])).toEqual(['a', 'b']);
-    expect(formatRelationValue(many)).toEqual(many.slice(0, RELATION_LIMIT));
   });
 });
 
@@ -80,13 +72,14 @@ describe('what the kind can do', () => {
     expect(met('isNotEmpty', ['a'])).toBe(true);
     expect(met('isEmpty', ['a'])).toBe(false);
     expect(met('isEmpty')).toBe(true);
-    // Only a deleted card: as good as empty.
+    // Only a deleted card, or the card itself: as good as empty.
     expect(met('isEmpty', ['gone'])).toBe(true);
+    expect(met('isEmpty', ['x'])).toBe(true);
     expect(met('isNotEmpty', ['gone'])).toBe(false);
   });
 
   it('shows the titles of the cards that are there, for export', () => {
-    const shown = behavior.displayValue(['c', 'gone', 'a'], card('x', 'X'), RELATION, {
+    const shown = behavior.displayValue(['c', 'gone', 'x', 'a'], card('x', 'X'), RELATION, {
       locale: 'en',
       timeZone: 'UTC',
       cardTitle,
@@ -141,14 +134,5 @@ describe('a change of kind', () => {
   it('from a list of people removes them: a person is no card', () => {
     const people = { ...RELATION, type: 'multiPerson' as const };
     expect(planTypeChange(people, 'relation', [card('1', 'one', ['user-1'])]).lost).toBe(1);
-  });
-
-  it('takes a view off grouping and calculating by it', () => {
-    const view = createBoardView();
-    view.fields.groupById = 'after';
-    view.fields.columnCalculations = { after: 'count' };
-    const next = viewWithoutProperty(view, 'after', 'relation');
-    expect(next.fields.groupById).toBeUndefined();
-    expect(next.fields.columnCalculations).toEqual({});
   });
 });

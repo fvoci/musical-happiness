@@ -145,8 +145,8 @@ const displayMultiSelect: Display = (stored, card, template) => {
  * The titles of the cards a relation names. A card that is not there
  * (deleted) is left out; without a way to look titles up, the identifiers.
  */
-const displayRelation: Display = (value, _card, _template, context) => {
-  const ids = parseRelationValue(value);
+const displayRelation: Display = (value, card, _template, context) => {
+  const ids = parseRelationValue(value).filter((id) => id !== card.id);
   const { cardTitle } = context;
   if (!cardTitle) return ids;
   return ids.flatMap((id) => cardTitle(id) ?? []);

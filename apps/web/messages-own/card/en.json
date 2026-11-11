@@ -41,5 +41,6 @@
   "property_relation_search": "Search cards",
   "property_relation_open": "Open {title}",
   "property_relation_full": "No more than {count} cards can be picked.",
-  "property_relation_more": "{count} more cards. Type to narrow the list."
+  "property_relation_more": "More cards: {count}. Type to narrow the list.",
+  "property_relation_picked": "Picked cards"
 }

@@ -9,11 +9,14 @@
   the next change of the value leaves it out.
 
   The card itself cannot be picked, a card is picked once, and no more than
-  RELATION_LIMIT are picked. The list shows at most LIST_LIMIT cards at a
+  RELATION_LIMIT are picked (a value that names more, written some other
+  way, keeps them all until the reader takes some out). The list shows the
+  picked cards first, then the others by title, at most LIST_LIMIT at a
   time, so that a board of thousands of cards does not draw thousands of
   rows: typing narrows it.
 -->
 <script lang="ts">
+  import PencilIcon from '@lucide/svelte/icons/pencil';
   import XIcon from '@lucide/svelte/icons/x';
 
   import PickList from '$lib/components/pick-list/PickList.svelte';
@@ -21,7 +24,7 @@
   import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { foldCase } from '$lib/logic/text.ts';
-  import { formatRelationValue, RELATION_LIMIT, type Card } from '$lib/logic/wire.ts';
+  import { RELATION_LIMIT, type Card } from '$lib/logic/wire.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { cn } from '$lib/utils.js';
 
@@ -34,6 +37,8 @@
     ids: readonly string[];
     /** The board's cards that are there, by identifier. */
     cards: ReadonlyMap<string, Card>;
+    /** BCP 47 tag: the alphabetical order of the list. */
+    locale: string;
     /** Cards that may not be picked besides the card itself (they would close a loop). */
     excluded?: ReadonlySet<string>;
     editable: boolean;
@@ -53,6 +58,7 @@
     cardId,
     ids,
     cards,
+    locale,
     excluded,
     editable,
     placeholder,
@@ -70,29 +76,52 @@
   let open = $state(startOpen);
   let search = $state('');
 
-  /** The picked cards that are there, in the order they were picked. */
-  const shown = $derived(ids.filter((id) => cards.has(id)));
+  const untitled = (card: Card | undefined): string => card?.title || m['KanbanCard.untitled']();
+  const titleOf = (id: string): string => untitled(cards.get(id));
+
+  /** The picked cards that are there, in the order they were picked; never the card itself. */
+  const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
   const full = $derived(shown.length >= RELATION_LIMIT);
 
-  const titleOf = (id: string): string => cards.get(id)?.title || m['KanbanCard.untitled']();
+  /**
+   * The cards that can be picked, by title, each with the text it is found
+   * by. Worked out once per change of the cards, and only while the list is
+   * open: nothing reads it otherwise.
+   */
+  const candidates = $derived.by(() => {
+    const collator = new Intl.Collator(locale);
+    return [...cards.values()]
+      .filter((card) => card.id !== cardId)
+      .map((card) => ({ card, title: untitled(card), folded: foldCase(untitled(card)) }))
+      .sort(
+        (first, second) =>
+          collator.compare(first.title, second.title) || (first.card.id < second.card.id ? -1 : 1),
+      );
+  });
 
-  /** The cards that can be picked and match what was typed; the picked ones always can be taken out. */
+  /**
+   * What the list offers for what was typed: the picked cards first (they can
+   * always be taken out), then the others, less those that may not be picked.
+   * Once the value is full, only the picked ones.
+   */
   const matches = $derived.by(() => {
     const wanted = foldCase(search.trim());
-    const found: Card[] = [];
-    for (const card of cards.values()) {
-      if (card.id === cardId) continue;
-      if (excluded?.has(card.id) && !shown.includes(card.id)) continue;
-      if (wanted !== '' && !foldCase(card.title).includes(wanted)) continue;
-      found.push(card);
-    }
-    return found;
+    const picked = new Set(shown);
+    const found = candidates.filter(
+      (entry) =>
+        (wanted === '' || entry.folded.includes(wanted)) &&
+        (picked.has(entry.card.id) || (!full && !excluded?.has(entry.card.id))),
+    );
+    return [
+      ...found.filter((entry) => picked.has(entry.card.id)),
+      ...found.filter((entry) => !picked.has(entry.card.id)),
+    ].map((entry) => entry.card);
   });
   const listed = $derived(matches.slice(0, LIST_LIMIT));
 
-  /** Writes the value: only cards that are there, so that the identifiers of deleted ones go. */
+  /** Writes the value: only cards that are there, each once, so that the identifiers of deleted ones go. */
   function write(next: readonly string[]): void {
-    onChange?.(formatRelationValue(next.filter((id) => cards.has(id) && id !== cardId)));
+    onChange?.([...new Set(next.filter((id) => id !== cardId && cards.has(id)))]);
   }
 
   function pick(card: Card): void {
@@ -148,18 +177,27 @@
           {...props}
           type="button"
           data-slot="relation-edit"
-          class="flex min-h-8 min-w-8 flex-1 items-center rounded-md px-2 py-1 text-left hover:bg-muted aria-expanded:bg-muted roomy:min-h-touch"
+          title={name}
+          class={[
+            'flex min-h-8 items-center rounded-md px-2 py-1 text-left text-muted-foreground hover:bg-muted aria-expanded:bg-muted roomy:min-h-touch',
+            shown.length === 0 ? 'flex-1' : 'min-w-8 justify-center roomy:min-w-touch',
+          ]}
         >
           <span class="sr-only">{name}</span>
-          {#if shown.length === 0 && placeholder !== ''}
-            <span data-slot="property-empty" class="text-muted-foreground">{placeholder}</span>
+          {#if shown.length > 0}
+            <PencilIcon class="size-3.5" aria-hidden="true" />
+          {:else if placeholder !== ''}
+            <span data-slot="property-empty">{placeholder}</span>
           {/if}
         </button>
       {/snippet}
 
       <div class="flex flex-col gap-1">
         {#if shown.length > 0}
-          <ul class="m-0 flex list-none flex-wrap gap-1 p-1" aria-label={name}>
+          <ul
+            class="m-0 flex list-none flex-wrap gap-1 p-1"
+            aria-label={m.property_relation_picked()}
+          >
             {#each shown as id (id)}
               <li class={cn(chipClass, 'pr-0.5')}>
                 <span class="truncate">{titleOf(id)}</span>
@@ -180,7 +218,7 @@
         <PickList
           bind:search
           items={listed}
-          textOf={(card: Card) => card.title}
+          textOf={untitled}
           selected={shown}
           multiple
           label={name}
@@ -193,7 +231,7 @@
           }}
         >
           {#snippet row(card: Card)}
-            <span class="truncate">{card.title || m['KanbanCard.untitled']()}</span>
+            <span class="truncate">{untitled(card)}</span>
           {/snippet}
         </PickList>
         {#if matches.length > listed.length}
@@ -201,11 +239,10 @@
             {m.property_relation_more({ count: matches.length - listed.length })}
           </p>
         {/if}
-        {#if full}
-          <p class="px-2 py-1 text-sm text-muted-foreground" role="status">
-            {m.property_relation_full({ count: RELATION_LIMIT })}
-          </p>
-        {/if}
+        <!-- There from the start, so that the line said when the value fills up is heard. -->
+        <p class={['px-2 text-sm text-muted-foreground', full && 'py-1']} role="status">
+          {full ? m.property_relation_full({ count: RELATION_LIMIT }) : ''}
+        </p>
         {#if shown.length > 0}
           <Button
             variant="ghost"

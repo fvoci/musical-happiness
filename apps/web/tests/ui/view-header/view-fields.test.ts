@@ -149,6 +149,19 @@ describe('the properties a view shows', () => {
     );
   });
 
+  it('include a card relation in a table only: the face of a card does not show it', () => {
+    const withRelation: PropertyTemplate[] = [
+      ...TEMPLATES,
+      { id: 'after', name: 'After', type: 'relation', options: [] },
+    ];
+    expect(propertyToggles(withRelation, 'table').map((toggle) => toggle.id)).toContain('after');
+    for (const viewType of ['board', 'gallery', 'calendar'] as const) {
+      expect(propertyToggles(withRelation, viewType).map((toggle) => toggle.id)).toEqual(
+        TEMPLATES.map((template) => template.id),
+      );
+    }
+  });
+
   it('get a newly shown one at the end, and lose a hidden one where it was', () => {
     expect(withPropertyVisible(['a', 'b'], 'c', true)).toEqual(['a', 'b', 'c']);
     expect(withPropertyVisible(['a', 'b', 'c'], 'b', false)).toEqual(['a', 'c']);

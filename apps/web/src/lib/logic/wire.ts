@@ -724,16 +724,11 @@ export const RELATION_LIMIT = 50;
  * The cards a relation property names: a list of card identifiers, each
  * once, in the order they were picked. Whatever else is stored (text left by
  * another kind, a date) names no card. Identifiers of deleted cards are kept
- * here; what is shown leaves them out.
+ * here; what is shown leaves them out. Written as such a list too.
  */
 export function parseRelationValue(stored: PropertyValue | undefined): string[] {
   if (!Array.isArray(stored)) return [];
   return [...new Set(stored.filter((id) => typeof id === 'string' && id !== ''))];
-}
-
-/** The value to store for the cards picked: each once, no more than `RELATION_LIMIT`. */
-export function formatRelationValue(ids: readonly string[]): string[] {
-  return parseRelationValue([...ids]).slice(0, RELATION_LIMIT);
 }
 
 /** The day a date filter compares with: a filter stores it as `YYYY-MM-DD`. */
