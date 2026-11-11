@@ -20,6 +20,10 @@ pub struct LocalFiles {
     root: PathBuf,
 }
 
+/// The directory under the root, in which files are written before they are renamed
+/// into their place. No stored path begins with a dot.
+pub const WRITING_DIR: &str = ".tmp/writing";
+
 /// Writes everything `reader` yields to a new file at `path`, and returns the number of
 /// bytes written.
 async fn write_file(
@@ -29,6 +33,9 @@ async fn write_file(
     let mut file = fs::File::create(path).await?;
     let written = tokio::io::copy(reader, &mut file).await?;
     file.flush().await?;
+    // On the disk before the rename makes it the file: after a power loss the name does
+    // not point at nothing.
+    file.sync_all().await?;
     Ok(written)
 }
 
@@ -67,12 +74,13 @@ impl LocalFiles {
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).await?;
         }
-        // The file is written beside its place and renamed into it, which on one file
-        // system is atomic: a reader never finds half a file, and a write that fails
-        // leaves nothing at the path.
-        let mut partial = target.clone().into_os_string();
-        partial.push(format!(".{}.partial", crate::auth::secret::new_secret()));
-        let partial = PathBuf::from(partial);
+        // The file is written under the root and renamed into its place, which on one
+        // file system is atomic: a reader never finds half a file, and a write that fails
+        // leaves nothing at the path. What a crash leaves is in WRITING_DIR, which the
+        // server empties when it starts.
+        let writing = self.root.join(WRITING_DIR);
+        fs::create_dir_all(&writing).await?;
+        let partial = writing.join(crate::auth::secret::new_secret());
         let written = match write_file(&partial, reader).await {
             Ok(written) => fs::rename(&partial, &target).await.map(|()| written),
             Err(error) => Err(error),

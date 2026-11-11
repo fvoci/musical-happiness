@@ -5398,7 +5398,7 @@
     },
     "/api/v1/uploads/{uploadId}/parts/{partNumber}": {
       "put": {
-        "description": "Sends part `partNumber` of the upload as the body, `application/octet-stream`.\n`Content-Length` is required and must be the part's size: `partSize`, or the rest\nfor the last part; another length is refused with 400 before the body is looked at\n(what is sent of it is read and thrown away, so that the client reads the answer).\n`Content-Digest` carries the part's SHA-256. A part whose length or digest differs\nis 400 and is not kept; a part sent again replaces the one received. An upload that\nis being completed or abandoned is 409.",
+        "description": "Sends part `partNumber` of the upload as the body, `application/octet-stream`.\n`Content-Length` is required and must be the part's size: `partSize`, or the rest\nfor the last part; another length is refused with 400 before the body is looked at.\nWhat is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5\nseconds, so that the client reads the answer; a larger or slower body is cut off.\n(A browser sets `Content-Length` itself.)\n`Content-Digest` carries the part's SHA-256. A part whose length or digest differs\nis 400 and is not kept; a part sent again replaces the one received. An upload that\nis being completed or abandoned is 409.",
         "operationId": "putUploadPart",
         "parameters": [
           {
@@ -5414,16 +5414,6 @@
             "description": "The number of the part, from 1 to the `partCount` of the upload.",
             "in": "path",
             "name": "partNumber",
-            "required": true,
-            "schema": {
-              "format": "int64",
-              "type": "integer"
-            }
-          },
-          {
-            "description": "The length of the body: the size of the part.",
-            "in": "header",
-            "name": "Content-Length",
             "required": true,
             "schema": {
               "format": "int64",

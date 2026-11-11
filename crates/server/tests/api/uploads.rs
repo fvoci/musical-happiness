@@ -93,6 +93,14 @@ fn parts_dir(ts: &TestServer, upload_id: &str) -> PathBuf {
     ts.app.config().tmp_dir().join("uploads").join(upload_id)
 }
 
+/// The numbers of the parts kept in a directory of parts (`<number>.<random>`), sorted.
+fn part_numbers(directory: &Path) -> Vec<String> {
+    files_in(directory)
+        .iter()
+        .map(|name| name.split('.').next().unwrap_or_default().to_owned())
+        .collect()
+}
+
 /// The names of the files in a directory, sorted; none if it is not there.
 fn files_in(directory: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(directory) else {
@@ -151,7 +159,11 @@ async fn a_file_sent_in_parts_is_stored_whole() {
     put_part(&ts.client, &upload_id, 1, &data[..PART])
         .await
         .check_no_content();
-    assert_eq!(files_in(&parts_dir(&ts, &upload_id)), ["1", "2"]);
+    assert_eq!(
+        part_numbers(&parts_dir(&ts, &upload_id)),
+        ["1", "2"],
+        "the part that was replaced is gone"
+    );
 
     let response = ts
         .client
@@ -314,7 +326,7 @@ async fn an_abandoned_upload_leaves_nothing() {
     put_part(&ts.client, &upload_id, 1, b"abc")
         .await
         .check_no_content();
-    assert_eq!(files_in(&parts_dir(&ts, &upload_id)), ["1"]);
+    assert_eq!(part_numbers(&parts_dir(&ts, &upload_id)), ["1"]);
 
     ts.client
         .delete(&format!("/uploads/{upload_id}"))
@@ -411,7 +423,8 @@ async fn a_completion_without_the_permission_throws_the_upload_away() {
         .client2
         .post_empty(&format!("/uploads/{upload_id}/complete"))
         .await;
-    assert!(response.status.is_client_error(), "{}", response.status);
+    // The board is private, and the user no member of it any more.
+    response.check_not_found();
     assert!(!parts_dir(&ts, &upload_id).exists(), "the parts are gone");
     ts.client2
         .get(&format!("/uploads/{upload_id}"))
@@ -448,7 +461,7 @@ async fn a_closed_upload_is_left_to_whoever_closed_it() {
         assert_eq!(response.status, StatusCode::CONFLICT, "{}", response.text());
     }
     assert_eq!(
-        files_in(&parts_dir(&ts, &upload_id)),
+        part_numbers(&parts_dir(&ts, &upload_id)),
         ["1"],
         "what is there is left to whoever closed the upload"
     );
@@ -492,4 +505,48 @@ async fn a_part_that_ends_after_the_upload_closed_is_not_kept() {
         "nothing is left of the part: {:?}",
         files_in(&parts_dir(&ts, &upload_id))
     );
+}
+
+/// A part sent again that ends after the upload was closed leaves the part that was
+/// recorded as it was: a completion that closed the upload counts on it.
+#[tokio::test]
+async fn a_late_part_sent_again_leaves_the_recorded_part() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let upload_id = opened(&ts.client, &board.id, "a.txt", 3).await;
+    put_part(&ts.client, &upload_id, 1, b"abc")
+        .await
+        .check_no_content();
+    let me = ts.client.me().await;
+    let (upload, parts) = ts
+        .app
+        .upload(&upload_id, &me.id)
+        .await
+        .expect("the upload is there");
+    let recorded = parts_dir(&ts, &upload_id).join(&parts[0].part_id);
+
+    let app = &ts.app;
+    let id = upload.id.as_str();
+    let chunks = futures_util::stream::iter([&b"x"[..], &b"yz"[..]])
+        .enumerate()
+        .then(|(index, chunk)| async move {
+            if index == 1 {
+                let closed = app.store().close_upload(id, now_millis()).await;
+                assert_eq!(closed.ok(), Some(true), "the upload is closed in between");
+            }
+            Ok::<_, std::io::Error>(Bytes::from_static(chunk))
+        });
+    let digest: [u8; 32] = Sha256::digest(b"xyz").into();
+    let refused = ts
+        .app
+        .put_upload_part(&upload, 1, 3, &digest, Box::pin(chunks))
+        .await
+        .expect_err("the part is refused");
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        std::fs::read(&recorded).expect("the recorded part is there"),
+        b"abc",
+        "the recorded part is as it was"
+    );
+    assert_eq!(part_numbers(&parts_dir(&ts, &upload_id)), ["1"]);
 }

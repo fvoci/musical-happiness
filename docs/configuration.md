@@ -54,8 +54,8 @@
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `filesdriver` | `FVOCI_FILESDRIVER` | 문자열 | `"local"` | `local`(디스크) 또는 `amazons3`(S3와 S3 호환 저장소). 그 밖의 값이면 시작하지 않는다 |
-| `filespath` | `FVOCI_FILESPATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리 |
-| `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(바이트) | `0` | 올릴 수 있는 파일의 가장 큰 크기. 0 이하면 요청 하나로 올리는 파일(`uploadFile`)에는 한도가 없고, 청크로 올리는 파일(`createUpload`)은 `upload_part_bytes` × 10,000까지다 |
+| `filespath` | `FVOCI_FILESPATH` | 문자열 | `"./files"` | `local`일 때 파일을 두는 디렉터리. 파일은 그 아래 `.tmp/writing`에 다 쓴 뒤 제자리로 옮긴다(같은 파일시스템이라 원자적이다. `tmp_path`와 상관없다) |
+| `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(바이트) | `0` | 올릴 수 있는 파일의 가장 큰 크기. 0 이하면 요청 하나로 올리는 파일(`uploadFile`)에는 한도가 없다. 청크로 올리는 파일(`createUpload`)은 이 값과 `upload_part_bytes` × 10,000 가운데 작은 것까지다(0 이하면 뒤의 것) |
 | `filess3config.accesskeyid` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `filess3config.secretaccesskey` | — | 문자열 | `""` | 비밀 키. `accesskeyid`가 있을 때만 쓴다. 로그에 남기지 않는다 |
 | `filess3config.bucket` | — | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다 |

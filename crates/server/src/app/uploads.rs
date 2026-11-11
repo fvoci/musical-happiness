@@ -2,8 +2,9 @@
 //!
 //! A user opens a session for a file of a board, sends the file in numbered parts of a
 //! size the server sets, and completes the session, which makes the file. The parts are
-//! kept on the local disk under the temporary directory, `uploads/<session>/<number>`,
-//! until the session is completed or thrown away; nothing of them is a file before.
+//! kept on the local disk under the temporary directory, `uploads/<session>/`, each in a
+//! file of its own that the record of the part names (`<number>.<random>`), until the
+//! session is completed or thrown away; nothing of them is a file before.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
 use fvoci_model::{MAX_UPLOAD_PARTS, Upload, UploadPart};
+use fvoci_store::PartRecord;
 use sha2::{Digest as _, Sha256};
 use tokio::fs;
 use tokio::io::AsyncWriteExt as _;
@@ -175,40 +177,47 @@ impl App {
         fs::create_dir_all(&directory)
             .await
             .map_err(|error| part_error(&error))?;
-        // A name of its own: two requests for one number at once do not write into one
-        // file. What fails is not kept.
-        let partial = directory.join(format!("{number}.{}.partial", new_secret()));
-        if let Err(error) = receive_part(&partial, size, digest, body).await {
-            remove_quietly(&partial).await;
+        // Every part that comes in gets a file of its own, which the record names: a part
+        // sent again, or a request that is late, never touches a file that is recorded.
+        let name = format!("{number}.{}", new_secret());
+        let file = directory.join(&name);
+        if let Err(error) = receive_part(&file, size, digest, body).await {
+            remove_quietly(&file).await;
             return Err(error);
         }
-        let part = directory.join(number.to_string());
-        if let Err(error) = fs::rename(&partial, &part).await {
-            remove_quietly(&partial).await;
-            return Err(part_error(&error));
-        }
-        let recorded = self
+        let record = self
             .store()
             .put_upload_part(
                 &upload.id,
                 &UploadPart {
                     number,
                     size: i64::try_from(size).unwrap_or(i64::MAX),
-                    part_id: String::new(),
+                    part_id: name,
                 },
             )
-            .await?;
-        if recorded {
-            return Ok(());
+            .await;
+        match record {
+            Ok(PartRecord::Recorded { replaced }) => {
+                if let Some(replaced) = replaced.filter(|replaced| !replaced.is_empty()) {
+                    remove_quietly(&directory.join(replaced)).await;
+                }
+                Ok(())
+            }
+            Ok(PartRecord::Closed) => {
+                // The session was closed while the part came in. Whoever closed it owns
+                // the directory, or has moved it away and this request made it again.
+                remove_quietly(&file).await;
+                if let Err(error) = fs::remove_dir(&directory).await {
+                    // Not empty: what is left is the closer's, or another late part's.
+                    tracing::debug!(%error, "the directory of a closed upload is left");
+                }
+                Err(closed())
+            }
+            Err(error) => {
+                remove_quietly(&file).await;
+                Err(error.into())
+            }
         }
-        // The session was closed while the part came in, and whoever closed it owns what
-        // is left of the directory or has moved it away: this part must not stay behind.
-        remove_quietly(&part).await;
-        if let Err(error) = fs::remove_dir(&directory).await {
-            // Not empty: another part's request is in the same position, and removes it.
-            tracing::debug!(%error, "the directory of a closed upload is left to its last part");
-        }
-        Err(closed())
     }
 
     /// Completes an upload: checks that every part is there, makes the file of the
@@ -282,7 +291,7 @@ impl App {
     ) -> Result<String, AppError> {
         let mut paths = Vec::with_capacity(parts.len());
         for part in parts {
-            let path = directory.join(part.number.to_string());
+            let path = directory.join(&part.part_id);
             let on_disk = fs::metadata(&path)
                 .await
                 .map_err(|error| part_error(&error))?
@@ -347,9 +356,14 @@ async fn receive_part<E>(
 where
     E: std::fmt::Display,
 {
-    let mut file = fs::File::create(path)
-        .await
-        .map_err(|error| part_error(&error))?;
+    let mut file = fs::File::create(path).await.map_err(|error| {
+        // The directory went away under the request: the upload was closed meanwhile.
+        if error.kind() == io::ErrorKind::NotFound {
+            closed()
+        } else {
+            part_error(&error)
+        }
+    })?;
     let mut hasher = Sha256::new();
     let mut received: u64 = 0;
     while let Some(chunk) = body.next().await {

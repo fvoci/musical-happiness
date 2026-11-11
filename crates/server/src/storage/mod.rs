@@ -14,7 +14,7 @@ use futures_util::stream::BoxStream;
 use thiserror::Error;
 use tokio::io::AsyncRead;
 
-pub use local::LocalFiles;
+pub use local::{LocalFiles, WRITING_DIR};
 pub use s3::S3Files;
 
 use crate::config::Configuration;

@@ -15,7 +15,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, ContentDigest, ContentLength, PartNumber, UploadId};
+use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId};
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
@@ -218,8 +218,10 @@ async fn handle_get_upload(
 ///
 /// Sends part `partNumber` of the upload as the body, `application/octet-stream`.
 /// `Content-Length` is required and must be the part's size: `partSize`, or the rest
-/// for the last part; another length is refused with 400 before the body is looked at
-/// (what is sent of it is read and thrown away, so that the client reads the answer).
+/// for the last part; another length is refused with 400 before the body is looked at.
+/// What is sent of a refused part is read and thrown away, up to 8 MiB and for up to 5
+/// seconds, so that the client reads the answer; a larger or slower body is cut off.
+/// (A browser sets `Content-Length` itself.)
 /// `Content-Digest` carries the part's SHA-256. A part whose length or digest differs
 /// is 400 and is not kept; a part sent again replaces the one received. An upload that
 /// is being completed or abandoned is 409.
@@ -228,7 +230,7 @@ async fn handle_get_upload(
     path = "/uploads/{uploadId}/parts/{partNumber}",
     operation_id = "putUploadPart",
     tag = tag::FILES,
-    params(UploadId, PartNumber, ContentLength, ContentDigest),
+    params(UploadId, PartNumber, ContentDigest),
     request_body(content = inline(Binary), content_type = "application/octet-stream"),
     responses((status = 204, description = "The part is received.")),
 )]
@@ -293,7 +295,9 @@ async fn handle_complete_upload(
     .await
     {
         // The user left the board, or it is gone: the upload cannot be completed any
-        // more, and is thrown away (design 5.6, 2).
+        // more, and is thrown away (design 5.6, 2). Also if another completion has closed
+        // it and is under way: that one is refused for the same reason, or fails, and
+        // the user may not have the file either way.
         if refusal.status().is_client_error() {
             app.discard_upload(&upload).await;
         }

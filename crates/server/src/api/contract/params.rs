@@ -45,7 +45,6 @@ parameter!(PartNumber: Path "partNumber", i64, True, "The number of the part, fr
 
 // -- in the headers --------------------------------------------------------------------
 
-parameter!(ContentLength: Header "Content-Length", i64, True, "The length of the body: the size of the part.");
 parameter!(ContentDigest: Header "Content-Digest", String, True, "The SHA-256 digest of the part, as RFC 9530 writes it: `sha-256=:<base64 of the 32 bytes>:`. Other algorithms in the header are not looked at.");
 
 // -- in the query ----------------------------------------------------------------------

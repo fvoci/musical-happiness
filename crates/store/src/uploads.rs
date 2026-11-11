@@ -9,6 +9,19 @@ use crate::Store;
 use crate::db::{Id, Row};
 use crate::error::StoreError;
 
+/// What became of a part that was to be recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PartRecord {
+    /// The part is recorded, in place of the one recorded under its number before, whose
+    /// `part_id` this is.
+    Recorded {
+        /// The `part_id` of the part that was recorded under the number before, if any.
+        replaced: Option<String>,
+    },
+    /// The upload is closed or gone; nothing is recorded.
+    Closed,
+}
+
 const UPLOAD_COLUMNS: &str = "id, user_id, board_id, name, size, content_type, part_size, \
                               create_at, expires_at, closed_at, multipart_id";
 
@@ -100,7 +113,7 @@ impl Store {
     }
 
     /// Records a part of an upload that is open, replacing what was recorded under its
-    /// number. Returns `false`, and records nothing, if the upload is closed or gone.
+    /// number. Records nothing if the upload is closed or gone.
     ///
     /// # Errors
     ///
@@ -109,14 +122,23 @@ impl Store {
         &self,
         upload_id: &str,
         part: &UploadPart,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<PartRecord, StoreError> {
         self.transaction(async |scope| {
-            let mut sql = scope.sql("SELECT 1 FROM uploads WHERE closed_at = 0 AND id = ");
+            // The upload's row is held until the part is recorded: a close, or a
+            // deletion, waits for this, or this sees it. On SQLite a transaction that
+            // writes holds the whole database.
+            let mut sql =
+                scope.sql("UPDATE uploads SET closed_at = closed_at WHERE closed_at = 0 AND id = ");
             sql.bind(upload_id);
-            if scope.fetch_optional(sql).await?.is_none() {
-                return Ok(false);
+            if scope.execute(sql).await? == 0 {
+                return Ok(PartRecord::Closed);
             }
-            // Two requests for one number at once both get here; the later one wins.
+            let mut sql = scope.sql("SELECT part_id FROM upload_parts WHERE upload_id = ");
+            sql.bind(upload_id).push_bind(" AND number = ", part.number);
+            let replaced = match scope.fetch_optional(sql).await? {
+                Some(row) => Some(row.text(0)?),
+                None => None,
+            };
             let mut sql =
                 scope.sql("INSERT INTO upload_parts (upload_id, number, size, part_id) VALUES (");
             sql.bind(upload_id)
@@ -128,7 +150,7 @@ impl Store {
                      SET size = EXCLUDED.size, part_id = EXCLUDED.part_id",
                 );
             scope.execute(sql).await?;
-            Ok(true)
+            Ok(PartRecord::Recorded { replaced })
         })
         .await
     }
