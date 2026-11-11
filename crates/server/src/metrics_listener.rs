@@ -54,7 +54,8 @@ async fn require_token(
         }
         // A token was sent, and is not this one (RFC 6750, 3.1).
         Credentials::Bearer(_) => "Bearer realm=\"metrics\", error=\"invalid_token\"",
-        // More than one way of sending a token (RFC 6750, 3.1).
+        // The header repeated: the request is malformed (RFC 6750, 3.1). 401 rather than
+        // the 400 it suggests, so that every refusal of this listener is one status.
         Credentials::Several => "Bearer realm=\"metrics\", error=\"invalid_request\"",
         Credentials::None => "Bearer realm=\"metrics\"",
     };
@@ -65,10 +66,13 @@ async fn require_token(
     refused
 }
 
-/// What the `Authorization` headers of a scrape send.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the `Authorization` headers of a scrape send. No `Debug` but in tests: it holds
+/// the token presented, which may be the right one.
+#[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 enum Credentials<'h> {
-    /// No bearer token: no header, or one of another scheme or that is no text.
+    /// No bearer token: no header, or one of another scheme, with no space after the
+    /// scheme, or that is no text.
     None,
     /// One header with a bearer token (RFC 6750, 2.1): after the scheme, which is read
     /// without regard to case, and the spaces.
@@ -170,9 +174,9 @@ mod tests {
         }
     }
 
-    /// The status of a scrape that sends `authorization`, and the log of it at every
-    /// level.
-    async fn scraped(token: Option<&str>, authorization: Option<&str>) -> (StatusCode, String) {
+    /// The status of a scrape that sends an `Authorization` header with each value of
+    /// `authorization`, and the log of it at every level.
+    async fn scraped(token: Option<&str>, authorization: &[&str]) -> (StatusCode, String) {
         let captured = Captured::default();
         let writer = captured.clone();
         let subscriber = tracing_subscriber::fmt()
@@ -192,8 +196,8 @@ mod tests {
                 require_token,
             ));
         let mut request = Request::get(PATH);
-        if let Some(value) = authorization {
-            request = request.header(AUTHORIZATION, value);
+        for value in authorization {
+            request = request.header(AUTHORIZATION, *value);
         }
         let response = router
             .oneshot(request.body(Body::empty()).expect("a request"))
@@ -231,45 +235,68 @@ mod tests {
             (Some(&right[..]), StatusCode::OK),
             (Some(&format!("bearer  {TOKEN}")[..]), StatusCode::OK),
         ] {
-            let (got, log) = scraped(Some(TOKEN), authorization).await;
+            let (got, log) = scraped(Some(TOKEN), authorization.as_slice()).await;
             assert_eq!(got, status, "{authorization:?}");
             assert!(!log.contains(TOKEN), "the token is not logged: {log}");
             assert!(!log.contains("the-token"), "nor a guess: {log}");
         }
     }
 
+    /// The headers with each of `values`.
+    fn headers(values: &[&[u8]]) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(
+                AUTHORIZATION,
+                HeaderValue::from_bytes(value).expect("a value"),
+            );
+        }
+        headers
+    }
+
     #[test]
     fn more_than_one_authorization_header_sends_no_token() {
         let right = format!("Bearer {TOKEN}");
+        let right = right.as_bytes();
         for values in [
-            [&right[..], "Bearer wrong"],
-            ["Bearer wrong", &right[..]],
-            [&right[..], &right[..]],
-            ["", &right[..]],
+            [right, b"Bearer wrong"],
+            [b"Bearer wrong", right],
+            [right, right],
+            [b"", right],
         ] {
-            let mut headers = HeaderMap::new();
-            for value in values {
-                headers.append(
-                    AUTHORIZATION,
-                    HeaderValue::from_str(value).expect("a value"),
-                );
-            }
-            assert_eq!(credentials(&headers), Credentials::Several, "{values:?}");
+            assert_eq!(
+                credentials(&headers(&values)),
+                Credentials::Several,
+                "{values:?}"
+            );
         }
-        let mut headers = HeaderMap::new();
-        assert_eq!(credentials(&headers), Credentials::None);
-        headers.insert(AUTHORIZATION, HeaderValue::from_static("Basic abc"));
-        assert_eq!(credentials(&headers), Credentials::None, "another scheme");
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&right).expect("a value"),
-        );
-        assert_eq!(credentials(&headers), Credentials::Bearer(TOKEN));
+    }
+
+    #[test]
+    fn one_authorization_header_sends_its_bearer_token_if_it_has_one() {
+        let right = format!("Bearer {TOKEN}");
+        let joined = format!("Bearer {TOKEN}, Bearer wrong");
+        for (value, sent) in [
+            (&b""[..], Credentials::None),
+            (b"Basic abc", Credentials::None),
+            (b"Bearer", Credentials::None),
+            (b"Bearer \xff", Credentials::None),
+            (right.as_bytes(), Credentials::Bearer(TOKEN)),
+            // One header that names two: one token, which is not the right one.
+            (
+                joined.as_bytes(),
+                Credentials::Bearer(&joined["Bearer ".len()..]),
+            ),
+        ] {
+            assert_eq!(credentials(&headers(&[value])), sent, "{value:?}");
+        }
+        assert_eq!(credentials(&HeaderMap::new()), Credentials::None);
     }
 
     #[tokio::test]
     async fn without_a_token_every_scrape_is_answered() {
-        for authorization in [None, Some("Bearer anything")] {
+        let several = ["Bearer anything", "Bearer else"];
+        for authorization in [&[][..], &["Bearer anything"], &several] {
             let (status, _) = scraped(None, authorization).await;
             assert_eq!(status, StatusCode::OK, "{authorization:?}");
         }

@@ -137,13 +137,20 @@ async fn conflicting_authorization_headers_are_rejected_in_either_order() {
             .send()
             .await
             .expect("an answer to duplicate headers");
-        let challenge = response
-            .headers()
-            .get("www-authenticate")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_owned();
-        answers.push((response.status(), challenge));
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let (challenge, content_type) = (header("www-authenticate"), header("content-type"));
+        let status = response.status();
+        let body = response.text().await.expect("the answer text");
+        assert_eq!(content_type, "application/problem+json", "{body}");
+        assert!(!body.contains(TOKEN), "the token is never echoed");
+        answers.push((status, challenge));
     }
     server.teardown().await;
     let refused = (
