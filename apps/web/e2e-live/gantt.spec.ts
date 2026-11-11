@@ -201,6 +201,19 @@ test('the dependencies and the zoom chosen on the page are kept by the server', 
     .poll(async () => (await storedFields(api, board.boardId, viewId)).dependencyPropertyId)
     .toBe('after');
   await expect(arrows).toHaveCount(2);
+  // The choice taken back reaches the server too: the view names no relation, as before.
+  await page.getByTestId('undo').click();
+  await expect(arrows).toHaveCount(0);
+  await expect
+    .poll(async () => (await storedFields(api, board.boardId, viewId)).dependencyPropertyId)
+    .toBeUndefined();
+  await more.click();
+  await line.click();
+  await page.locator('[role="menuitem"][data-action="after"]').click();
+  await expect
+    .poll(async () => (await storedFields(api, board.boardId, viewId)).dependencyPropertyId)
+    .toBe('after');
+  await expect(arrows).toHaveCount(2);
   await expect(gantt).toHaveAttribute('data-edges', '2');
   await expect(page.getByTestId('gantt-late')).toHaveAccessibleName(
     'Out of order: 1. Show the next.',

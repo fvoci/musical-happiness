@@ -29,6 +29,7 @@ import {
   sortOffered,
   withPropertyVisible,
 } from '$lib/features/view-header/view-fields.ts';
+import { applyViewPatch, viewPatches } from '$lib/state/patches.ts';
 import {
   createBoardView,
   TITLE_COLUMN_ID,
@@ -166,7 +167,8 @@ describe('a Gantt chart', () => {
     const after: PropertyTemplate = { id: 'after', name: 'After', type: 'relation', options: [] };
     const other: PropertyTemplate = { id: 'see', name: 'See also', type: 'relation', options: [] };
     expect(newViewFields('gantt', [due, after, other]).dependencyPropertyId).toBe('after');
-    expect(newViewFields('gantt', [due]).dependencyPropertyId).toBeUndefined();
+    // Named only where there is one: a member with no value is not a missing member.
+    expect('dependencyPropertyId' in newViewFields('gantt', [due])).toBe(false);
     expect(newViewFields('calendar', [due, after]).dependencyPropertyId).toBeUndefined();
   });
 
@@ -201,6 +203,24 @@ describe('a Gantt chart', () => {
         { id: '', label: 'None', checked: true, write: true },
       ]);
     }
+  });
+
+  it('takes its first choice of dependencies back by dropping the member, not by emptying it', () => {
+    // A view that names no relation does not have the member at all.
+    const before = createBoardView(viewOf({ viewType: 'gantt' }));
+    expect('dependencyPropertyId' in before.fields).toBe(false);
+    expect('ganttZoom' in before.fields).toBe(false);
+    const after = { ...before, fields: { ...before.fields, dependencyPropertyId: 'after' } };
+    const [forward, backward] = viewPatches(createBoardView(after), before);
+    expect(forward.updatedFields).toEqual({ dependencyPropertyId: 'after' });
+    // What the server is sent for the undo: a name to drop. An empty value would be sent as nothing.
+    expect(backward.deletedFields).toEqual(['dependencyPropertyId']);
+    expect(JSON.parse(JSON.stringify(backward))).toMatchObject({
+      deletedFields: ['dependencyPropertyId'],
+    });
+    expect('dependencyPropertyId' in applyViewPatch(createBoardView(after), backward).fields).toBe(
+      false,
+    );
   });
 
   it('has "display by", a sort, and a grouping it can do without', () => {
@@ -377,6 +397,15 @@ describe('the lines of "…" for the tools without a button', () => {
   it('are "dependencies" alone in the whole row, where the other tools have buttons', () => {
     expect(ids({ ...gantt, row: true })).toEqual(['dependencies']);
     expect(ids({ ...gantt, row: true, dependencies: undefined })).toEqual([]);
+  });
+
+  it('cut a long name short: the menu does not, and the line has to say what it is', () => {
+    const long = 'The cards that have to be done before this one';
+    const [line] = asideTools({ ...gantt, row: true, dependencies: long }, open);
+    expect(line?.hint).toBe('The cards that have…');
+    expect(asideTools({ ...gantt, row: true, dependencies: '선행 카드' }, open)[0]?.hint).toBe(
+      '선행 카드',
+    );
   });
 
   it('open the tool they name', () => {

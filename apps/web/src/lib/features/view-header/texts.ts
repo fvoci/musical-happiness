@@ -116,6 +116,17 @@ export interface AsideOffer {
 }
 
 /**
+ * A name as the end of a line of a menu: cut short where it is long. The
+ * menu does not shorten what stands at the end of a line, and a long name
+ * there leaves no room for what the line is.
+ */
+function brief(name: string): string {
+  const letters = Array.from(name);
+  return letters.length > HINT_LETTERS ? `${letters.slice(0, HINT_LETTERS - 1).join('')}…` : name;
+}
+const HINT_LETTERS = 20;
+
+/**
  * The lines of "…" for the tools that have no button of their own: in the
  * folded row most of them; in the whole row "dependencies" alone (a fifth
  * tool with its word would leave no room for the tabs of the views).
@@ -125,7 +136,7 @@ export function asideTools(offer: AsideOffer, open: Record<AsideTool, () => void
     id,
     label,
     icon,
-    ...(hint === undefined ? {} : { hint }),
+    ...(hint === undefined ? {} : { hint: brief(hint) }),
     run: open[id],
   });
   const folded = !offer.row;

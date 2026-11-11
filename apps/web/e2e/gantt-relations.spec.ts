@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import {
   addRelation,
+  arrowEnds,
   arrows,
   bar,
   bars,
@@ -57,29 +58,35 @@ test('an arrow goes from the end of the card that comes first to the start of th
 }, info) => {
   await openRelated(page, info);
   await expect(arrows(page)).toHaveCount(3);
-  await bar(page, 'Share a board').scrollIntoViewIfNeeded();
-  /** The first and the last point of the line of an arrow, on the page. */
-  const line = await arrows(page)
-    .first()
-    .locator('path')
-    .first()
-    .evaluate((path) => {
-      const drawn = path as SVGPathElement;
-      const matrix = drawn.getScreenCTM();
-      if (!matrix) throw new Error('the arrow is not drawn');
-      const at = (length: number): { x: number; y: number } => {
-        const point = drawn.getPointAtLength(length).matrixTransform(matrix);
-        return { x: point.x, y: point.y };
-      };
-      return { start: at(0), end: at(drawn.getTotalLength()) };
-    });
-  const from = await bar(page, 'Create a new card').boundingBox();
-  const to = await bar(page, 'Share a board').boundingBox();
-  if (!from || !to) throw new Error('no bars to measure');
-  expect(Math.abs(line.start.x - (from.x + from.width))).toBeLessThan(1.5);
-  expect(Math.abs(line.start.y - (from.y + from.height / 2))).toBeLessThan(1.5);
-  expect(Math.abs(line.end.x - to.x)).toBeLessThan(1.5);
-  expect(Math.abs(line.end.y - (to.y + to.height / 2))).toBeLessThan(1.5);
+  /** The arrow between two cards leaves the end of the first bar and reaches the start of the second. */
+  async function joins(from: string, to: string): Promise<void> {
+    await bar(page, to).scrollIntoViewIfNeeded();
+    const line = await arrowEnds(page, from, to);
+    const first = await bar(page, from).boundingBox();
+    const second = await bar(page, to).boundingBox();
+    if (!first || !second) throw new Error('no bars to measure');
+    expect(Math.abs(line.start.x - (first.x + first.width)), `${from} → ${to}`).toBeLessThan(1.5);
+    expect(Math.abs(line.start.y - (first.y + first.height / 2))).toBeLessThan(1.5);
+    expect(Math.abs(line.end.x - second.x)).toBeLessThan(1.5);
+    expect(Math.abs(line.end.y - (second.y + second.height / 2))).toBeLessThan(1.5);
+  }
+  // One that turns back (the second card starts two days after the first ends, less than
+  // two gaps at this zoom), and one that goes straight in, two rows down.
+  await joins('Create a new card', 'Share a board');
+  await joins('Drag cards', 'Filter and sort cards');
+  // Closer in, with a heading of a group between the rows, the arrows still meet the bars.
+  await page.getByTestId('gantt-zoom-in').click();
+  await expect(gantt(page)).toHaveAttribute('data-zoom', 'day');
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const select = store.board.cardProperties.find((property) => property.type === 'select');
+    const view = store.views.find((each) => each.fields.viewType === 'gantt');
+    if (!select || !view) throw new Error('nothing to group by');
+    await store.setViewFields(view.id, { groupById: select.id });
+  });
+  await expect(gantt(page).locator('[data-group]').first()).toBeVisible();
+  await joins('Create a new card', 'Share a board');
+  await joins('Share a board', 'Filter and sort cards');
 });
 
 test('"dependencies" in the header turns the arrows off and on, and the view keeps the choice', async ({
@@ -87,14 +94,18 @@ test('"dependencies" in the header turns the arrows off and on, and the view kee
 }, info) => {
   await openRelated(page, info);
   await expect(arrows(page)).toHaveCount(3);
-  await chooseDependencies(page, 'none');
+  await chooseDependencies(page, '(none)');
   await expect(arrows(page)).toHaveCount(0);
   await expect(page.getByTestId('gantt-arrows')).toHaveCount(0);
   await expectDependencies(page, 'None');
-  expect((await storedFields(page)).dependencyPropertyId).toBe('');
+  await expect.poll(async () => (await storedFields(page)).dependencyPropertyId).toBe('');
   await chooseDependencies(page, 'after');
   await expect(arrows(page)).toHaveCount(3);
-  expect((await storedFields(page)).dependencyPropertyId).toBe('after');
+  await expect.poll(async () => (await storedFields(page)).dependencyPropertyId).toBe('after');
+  // One undo takes the last choice back.
+  await page.evaluate(() => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.undoLast());
+  await expect(arrows(page)).toHaveCount(0);
+  await expect.poll(async () => (await storedFields(page)).dependencyPropertyId).toBe('');
 });
 
 test('a Gantt view made on a board without a card relation has no arrows until one is chosen', async ({
@@ -109,6 +120,11 @@ test('a Gantt view made on a board without a card relation has no arrows until o
   await chooseDependencies(page, 'after');
   await expect(arrows(page)).toHaveCount(1);
   await expect(gantt(page)).toHaveAttribute('data-edges', '1');
+  // The first choice taken back: the view names no relation again, as before it.
+  await page.evaluate(() => (window as unknown as { fvociDev: Dev }).fvociDev.workspace.undoLast());
+  await expect(arrows(page)).toHaveCount(0);
+  await expectDependencies(page, 'None');
+  await expect.poll(async () => 'dependencyPropertyId' in (await storedFields(page))).toBe(false);
 });
 
 test('the arrows of a card go with it when it is deleted', async ({ page }, info) => {

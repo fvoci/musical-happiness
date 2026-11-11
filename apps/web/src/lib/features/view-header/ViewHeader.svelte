@@ -108,7 +108,7 @@
   let propertiesOpen = $state(false);
   let groupOpen = $state(false);
   let displayOpen = $state(false);
-  let dependenciesOpen = $state(false);
+  let dependenciesOpen = $derived<boolean>(dependencies && false); // closed when the tool goes
   let filterOpen = $state(false);
   let sortOpen = $state(false);
 
@@ -204,7 +204,7 @@
     return choices.map(({ write, ...line }) => ({
       ...line,
       // The line of "none" has the empty identifier, which names nothing in the markup.
-      id: line.id || 'none',
+      id: line.id || '(none)',
       run: () => {
         if (write) void board.setViewFields(view.id, { [member]: line.id }, member);
       },
@@ -383,7 +383,7 @@
           icon={GitForkIcon}
           title={m.viewheader_dependencies()}
           subtitle={viewTitle(view)}
-          word={m.viewheader_dependencies_by({ property: dependsOnName })}
+          word={m.viewheader_dependencies()}
           actions={dependenciesActions}
           aside="always"
           {tool}

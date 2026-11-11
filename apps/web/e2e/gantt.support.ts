@@ -32,11 +32,16 @@ export interface Store {
   cards: { id: string; title: string }[];
   views: { id: string; title: string; fields: Record<string, unknown> }[];
   setCardProperty(cardId: string, propertyId: string, value: unknown): Promise<void>;
+  setViewFields(viewId: string, fields: Record<string, unknown>): Promise<void>;
   changeBoard(change: (board: Store['board']) => Store['board']): Promise<void>;
   deleteCards(cardIds: string[]): Promise<void>;
 }
 export interface Dev {
-  workspace: { board: Store; changeSettings(patch: Record<string, string>): Promise<void> };
+  workspace: {
+    board: Store;
+    changeSettings(patch: Record<string, string>): Promise<void>;
+    undoLast(): Promise<void>;
+  };
   backend: {
     views(boardId: string): Promise<{ id: string; fields: Record<string, unknown> }[]>;
   };
@@ -145,12 +150,18 @@ export async function setAfter(page: Page, values: Record<string, string[]>): Pr
   }, values);
 }
 
-/** Chooses a line of "dependencies": the tool is behind "…" of the header, in either layout. */
+/**
+ * Chooses a line of "dependencies": the tool is behind "…" of the header, in
+ * either layout. The line of "none" is `(none)`. When the list has closed,
+ * the focus is back on "…", where the tool was opened from.
+ */
 export async function chooseDependencies(page: Page, action: string): Promise<void> {
-  await page.getByTestId('view-header').locator('[data-tool="more"]').click();
+  const more = page.getByTestId('view-header').locator('[data-tool="more"]');
+  await more.click();
   await page.locator('[role="menuitem"][data-action="dependencies"]').click();
   await page.locator(`[role="menuitem"][data-action="${action}"]`).click();
   await expect(page.locator('[role="menuitem"]')).toHaveCount(0);
+  await expect(more).toBeFocused();
 }
 
 /** What "dependencies" says it reads, on its line of "…". */
@@ -183,4 +194,29 @@ export async function openRelated(page: Page, info: TestInfo): Promise<void> {
   });
   await addGantt(page);
   await expect(bars(page)).toHaveCount(4);
+}
+
+/** The first and the last point of the line of the arrow between two cards, on the page. */
+export async function arrowEnds(
+  page: Page,
+  from: string,
+  to: string,
+): Promise<{ start: { x: number; y: number }; end: { x: number; y: number } }> {
+  const ids = await page.evaluate(() => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    return Object.fromEntries(store.cards.map((card) => [card.title, card.id]));
+  });
+  return gantt(page)
+    .locator(`[data-arrow][data-from="${ids[from] ?? ''}"][data-to="${ids[to] ?? ''}"] path`)
+    .first()
+    .evaluate((path) => {
+      const drawn = path as SVGPathElement;
+      const matrix = drawn.getScreenCTM();
+      if (!matrix) throw new Error('the arrow is not drawn');
+      const at = (length: number): { x: number; y: number } => {
+        const point = drawn.getPointAtLength(length).matrixTransform(matrix);
+        return { x: point.x, y: point.y };
+      };
+      return { start: at(0), end: at(drawn.getTotalLength()) };
+    });
 }

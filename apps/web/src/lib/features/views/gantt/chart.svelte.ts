@@ -20,7 +20,7 @@ import {
   rowsOf,
   scaleOf,
   type Axis,
-  type Bar,
+  type BarBox,
   type ChartRelations,
   type ChartRow,
   type RowList,
@@ -50,8 +50,11 @@ export interface ChartSource {
 export interface CardLine {
   kind: 'card';
   id: string;
-  row: number;
-  bar: Bar;
+  /**
+   * Where the bar lies across. Not which row it is in: the list puts a row
+   * in its place, and a card added above leaves the rows below as they were.
+   */
+  bar: BarBox;
   /** What the row and the bar show. */
   title: string;
   /**
@@ -69,7 +72,6 @@ export interface CardLine {
 export interface GroupLine {
   kind: 'group';
   id: string;
-  row: number;
   /** What the group is called: the option, the person, or "No Status". */
   name: string;
   /** The colour name of the option; undefined for a group that is not an option. */
@@ -149,9 +151,13 @@ export class GanttChart {
   readonly #groups = $derived.by<BoardGroup[] | undefined>(() => {
     if (!this.groupBy) return undefined;
     const dated = this.placed.spans.flatMap((span) => this.placed.card(span.id) ?? []);
-    return this.#board.groupsOf(this.#source.view(), dated, (property) =>
+    const groups = this.#board.groupsOf(this.#source.view(), dated, (property) =>
       m['BoardComponent.no-property']({ property }),
     ).visible;
+    // A view that names an option twice has it once: a card has one row.
+    return groups.filter(
+      (group, at) => groups.findIndex((other) => other.option.id === group.option.id) === at,
+    );
   });
 
   /** The cards that have days, as the lists between headings. */
@@ -171,7 +177,9 @@ export class GanttChart {
     const person = option.id !== '' && PERSON_KINDS.includes(this.groupBy.type);
     return [
       {
-        ...row,
+        kind: 'group',
+        id: row.id,
+        count: row.count,
         name: person
           ? (this.#board.workspace.userName(option.id) ?? m['centerPanel.unknown-user']())
           : option.value,
@@ -323,8 +331,7 @@ export class GanttChart {
         {
           kind: 'card',
           id: row.id,
-          row: row.row,
-          bar,
+          bar: { x: bar.x, width: bar.width, fromBefore: bar.fromBefore, toAfter: bar.toAfter },
           title: this.placed.title(card),
           name: this.#name(card),
           late: this.#lateBefore(row.id).length > 0,

@@ -113,10 +113,11 @@ export function newViewFields(
  * before what (none where the board has no card relation).
  */
 function ganttFields(templates: readonly PropertyTemplate[]): Partial<ViewFields> {
+  const relation = templates.find((template) => template.type === 'relation');
   return {
     ...groupingFields(undefined),
     ganttZoom: DEFAULT_GANTT_ZOOM,
-    dependencyPropertyId: templates.find((template) => template.type === 'relation')?.id,
+    ...(relation ? { dependencyPropertyId: relation.id } : {}),
   };
 }
 

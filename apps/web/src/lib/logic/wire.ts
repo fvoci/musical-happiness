@@ -334,8 +334,12 @@ export function createBoardView(source?: Block): BoardView {
       viewType: fields.viewType || 'board',
       groupById: fields.groupById,
       dateDisplayPropertyId: fields.dateDisplayPropertyId,
-      dependencyPropertyId: fields.dependencyPropertyId,
-      ganttZoom: fields.ganttZoom,
+      // Only where the view has them: a member that is there with no value is
+      // not "missing" to a patch, and taking it back (an undo) would send nothing.
+      ...(fields.dependencyPropertyId === undefined
+        ? {}
+        : { dependencyPropertyId: fields.dependencyPropertyId }),
+      ...(fields.ganttZoom === undefined ? {} : { ganttZoom: fields.ganttZoom }),
       sortOptions: (fields.sortOptions ?? []).map((option) => ({ ...option })),
       visiblePropertyIds: copyList(fields.visiblePropertyIds),
       visibleOptionIds: copyList(fields.visibleOptionIds),

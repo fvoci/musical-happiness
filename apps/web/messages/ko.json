@@ -326,7 +326,6 @@
   "viewheader_group_none": "없음",
   "viewheader_display_by": "표시 기준",
   "viewheader_dependencies": "선후 관계",
-  "viewheader_dependencies_by": "선후 관계: {property}",
   "viewheader_filter_property": "속성",
   "viewheader_filter_condition": "조건",
   "viewheader_filter_value_of": "{property}의 값",

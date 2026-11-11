@@ -15,7 +15,8 @@ export function same(a: unknown, b: unknown): boolean {
   const second = b as Record<string, unknown>;
   const keys = Object.keys(first);
   return (
-    keys.length === Object.keys(second).length && keys.every((key) => same(first[key], second[key]))
+    keys.length === Object.keys(second).length &&
+    keys.every((key) => key in second && same(first[key], second[key]))
   );
 }
 

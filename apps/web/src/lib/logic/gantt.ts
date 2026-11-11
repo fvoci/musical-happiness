@@ -366,12 +366,20 @@ const HEAD_LENGTH = 0.4;
 const HEAD_HALF = 0.14;
 
 /**
+ * How far from the edge of its own row an arrow runs where it turns back, in
+ * rows: under (or over) the bar it leaves, clear of the line between the
+ * rows. An arrow down out of one row and an arrow up out of the next would
+ * otherwise lie on that same line and read as one.
+ */
+export const TURN_INSET = 0.1;
+
+/**
  * The way of an arrow, in straight pieces across and down. Where the second
  * bar begins far enough after the first ends (two gaps, which is some days
  * at a far zoom): out, down (or up), in. Where it does not (it begins on
- * the day the first ends, or before, or just after): out, to the line
- * between the rows on the side of the second bar, back to before that bar,
- * on to its row, in.
+ * the day the first ends, or before, or just after): out, to the edge of
+ * its own row on the side of the second bar, back along it to before that
+ * bar, on to its row, in.
  *
  * No corner leaves the axis (`width`): out of a bar cut at the end of the
  * axis the arrow turns at the edge, and before a bar at its start it comes
@@ -393,12 +401,12 @@ export function arrowPoints(from: Bar, to: Bar, width = Infinity): Point[] {
     ];
   }
   const before = Math.max(0, to.x - ARROW_GAP);
-  const between = to.row > from.row ? from.row + 1 : from.row;
+  const along = to.row > from.row ? from.row + 1 - TURN_INSET : from.row + TURN_INSET;
   return [
     [startX, startY],
     [out, startY],
-    [out, between],
-    [before, between],
+    [out, along],
+    [before, along],
     [before, endY],
     [to.x, endY],
   ];

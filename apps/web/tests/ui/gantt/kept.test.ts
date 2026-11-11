@@ -26,6 +26,7 @@ describe('saying the same', () => {
   it('is not an object with a member more or less, or an object and nothing', () => {
     expect(same({ a: 1 }, { a: 1, b: undefined })).toBe(false);
     expect(same({ a: 1, b: 2 }, { a: 1 })).toBe(false);
+    expect(same({ a: undefined }, { b: 1 })).toBe(false);
     expect(same({ a: 1 }, null)).toBe(false);
     expect(same(undefined, { a: 1 })).toBe(false);
   });

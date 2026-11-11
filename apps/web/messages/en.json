@@ -326,7 +326,6 @@
   "viewheader_group_none": "None",
   "viewheader_display_by": "Display by",
   "viewheader_dependencies": "Dependencies",
-  "viewheader_dependencies_by": "Dependencies: {property}",
   "viewheader_filter_property": "Property",
   "viewheader_filter_condition": "Condition",
   "viewheader_filter_value_of": "Value for {property}",

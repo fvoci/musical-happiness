@@ -23,6 +23,7 @@ import {
   MIN_BAR_WIDTH,
   relationsOf,
   rowsOf,
+  TURN_INSET,
   type Bar,
 } from '$lib/logic/gantt.ts';
 import { createCard, setCardProperty, type Card, type PropertyTemplate } from '$lib/logic/wire.ts';
@@ -163,15 +164,18 @@ describe('an arrow', () => {
     expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 5, 3))).toEqual([
       [6, 0.5],
       [6 + ARROW_GAP, 0.5],
-      [6 + ARROW_GAP, 1],
-      [5 - ARROW_GAP, 1],
+      [6 + ARROW_GAP, 1 - TURN_INSET],
+      [5 - ARROW_GAP, 1 - TURN_INSET],
       [5 - ARROW_GAP, 1.5],
       [5, 1.5],
     ]);
-    // Upwards the turn is on the line above the first bar's row.
-    expect(arrowPoints(bar('a', 4, 2, 4), bar('b', 1, 1, 3))[2]).toEqual([6 + ARROW_GAP, 4]);
+    // Upwards the turn is at the top of the first bar's row.
+    expect(arrowPoints(bar('a', 4, 2, 4), bar('b', 1, 1, 3))[2]).toEqual([
+      6 + ARROW_GAP,
+      4 + TURN_INSET,
+    ]);
     // A bar at the very start of the axis: the arrow stays on the chart.
-    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 0, 3))[3]).toEqual([0, 1]);
+    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 0, 3))[3]).toEqual([0, 1 - TURN_INSET]);
   });
 
   it('goes straight in from two gaps of room on, and turns back with any less', () => {
@@ -181,9 +185,23 @@ describe('an arrow', () => {
     expect(arrowPoints(first, bar('b', 1, 6 + ARROW_GAP, 3))).toHaveLength(6);
   });
 
-  it('turns back on the line of its own row that faces the second bar, however far that is', () => {
-    expect(arrowPoints(bar('a', 1, 2, 4), bar('b', 5, 3, 3))[2]).toEqual([6 + ARROW_GAP, 2]);
-    expect(arrowPoints(bar('a', 5, 2, 4), bar('b', 1, 3, 3))[2]).toEqual([6 + ARROW_GAP, 5]);
+  it('turns back along the edge of its own row that faces the second bar, however far that is', () => {
+    expect(arrowPoints(bar('a', 1, 2, 4), bar('b', 5, 3, 3))[2]).toEqual([
+      6 + ARROW_GAP,
+      2 - TURN_INSET,
+    ]);
+    expect(arrowPoints(bar('a', 5, 2, 4), bar('b', 1, 3, 3))[2]).toEqual([
+      6 + ARROW_GAP,
+      5 + TURN_INSET,
+    ]);
+  });
+
+  it('does not share its way back with an arrow out of the next row', () => {
+    // One down out of row 3 and one up out of row 4: either side of the line between them.
+    const down = arrowPoints(bar('a', 3, 20, 10), bar('b', 5, 18, 3));
+    const up = arrowPoints(bar('c', 4, 20, 10), bar('d', 0, 18, 3));
+    expect(down[2]?.[1]).toBe(4 - TURN_INSET);
+    expect(up[2]?.[1]).toBe(4 + TURN_INSET);
   });
 
   it('stays on the axis at both edges', () => {
