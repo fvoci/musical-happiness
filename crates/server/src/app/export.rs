@@ -291,16 +291,25 @@ impl ArchiveWriter {
             .zip
             .take()
             .ok_or_else(|| AppError::internal("the archive writer failed before"))?;
-        let (zip, result) = tokio::task::spawn_blocking(move || {
-            let result = work(&mut zip);
-            (zip, result)
+        let zip = tokio::task::spawn_blocking(move || {
+            // A writer that failed is dropped here, off the runtime's workers: dropping
+            // one ends the archive, which writes.
+            work(&mut zip).map(|()| zip)
         })
         .await
-        .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?;
-        if result.is_ok() {
-            self.zip = Some(zip);
+        .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
+        self.zip = Some(zip);
+        Ok(())
+    }
+}
+
+impl Drop for ArchiveWriter {
+    /// A writer left unfinished, as when reading a file failed, ends its archive when it
+    /// is dropped, which writes: that is done off the runtime's workers.
+    fn drop(&mut self) {
+        if let Some(zip) = self.zip.take() {
+            drop(tokio::task::spawn_blocking(move || drop(zip)));
         }
-        result
     }
 }
 

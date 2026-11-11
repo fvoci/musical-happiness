@@ -672,3 +672,44 @@ async fn an_export_is_sent_with_its_length_and_leaves_nothing() {
     let left = std::fs::read_dir(&exports).map_or(0, Iterator::count);
     assert_eq!(left, 0, "the left-over archive is gone");
 }
+
+/// A file larger than what the archive writer gathers at a time is written across
+/// several pieces of its entry, and comes back whole.
+#[tokio::test]
+async fn a_large_file_is_whole_in_the_archive() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let data: Vec<u8> = (0..5 * 1024 * 1024 / 2)
+        .map(|index: usize| u8::try_from(index % 251).expect("below 251"))
+        .collect();
+    let response = crate::files::upload(&ts.client, &board.id, "large.bin", &data).await;
+    response.check_created();
+    let file_id = crate::files::uploaded_id(&response);
+    let attachment = Block {
+        id: new_id(),
+        parent_id: board.id.clone(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Attachment,
+        fields: serde_json::json!({"fileId": file_id})
+            .as_object()
+            .expect("an object")
+            .clone(),
+        create_at: 1,
+        update_at: 1,
+        ..Block::default()
+    };
+    ts.client
+        .insert_blocks(&board.id, std::slice::from_ref(&attachment))
+        .await
+        .check_created();
+
+    let exported = export_board(&ts.client, &board.id).await;
+    exported.check_ok();
+    let mut zip = zip::ZipArchive::new(Cursor::new(exported.body)).expect("the export is a ZIP");
+    let mut entry = zip
+        .by_name(&format!("{}/{file_id}", board.id))
+        .expect("the file has its entry");
+    let mut content = Vec::new();
+    entry.read_to_end(&mut content).expect("the entry is read");
+    assert!(content == data, "the file is whole in the archive");
+}

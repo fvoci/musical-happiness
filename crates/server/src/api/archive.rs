@@ -23,6 +23,9 @@ use crate::app::{App, ExportedArchive};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
+/// How much of an archive is read from its file at a time to be sent.
+const SEND_CHUNK_BYTES: usize = 256 * 1024;
+
 /// The multipart form field an imported archive is sent in.
 const UPLOAD_FIELD: &str = "file";
 
@@ -39,17 +42,26 @@ pub(super) fn upload_routes() -> OpenApiRouter<App> {
 /// Export a board
 ///
 /// An archive of the board with its blocks, its files and its members, offered as a
-/// download with its length. For the board's members. The archive is a ZIP of version 3: `version.json`,
-/// and per board a directory with `board.jsonl` (one `board`, `block` or `boardMember`
-/// per line, in the shapes of this contract, bodies included) and the files the blocks
-/// show, the images of bodies among them.
+/// download with its length. For the board's members. The archive is a ZIP of version
+/// 3: `version.json`, and per board a directory with `board.jsonl` (one `board`,
+/// `block` or `boardMember` per line, in the shapes of this contract, bodies included)
+/// and the files the blocks show, the images of bodies among them.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/archive/export",
     operation_id = "exportBoardArchive",
     tag = tag::ARCHIVES,
     params(BoardId),
-    responses((status = 200, description = "The archive.", body = inline(Binary), content_type = "application/octet-stream")),
+    responses((
+        status = 200,
+        description = "The archive.",
+        body = inline(Binary),
+        content_type = "application/octet-stream",
+        headers(
+            ("Content-Length" = u64, description = "The size of the archive in bytes."),
+            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC)."),
+        ),
+    )),
 )]
 async fn handle_export_board(
     State(app): State<App>,
@@ -77,15 +89,24 @@ async fn handle_export_board(
 /// Export the boards of a team
 ///
 /// An archive of all boards of the team that `getBoards` lists for the user, offered
-/// as a download with its length, in the format of `exportBoardArchive`. A team that is not there is not
-/// refused: its archive has no boards.
+/// as a download with its length, in the format of `exportBoardArchive`. A team that
+/// is not there is not refused: its archive has no boards.
 #[utoipa::path(
     get,
     path = "/teams/{teamId}/archive/export",
     operation_id = "exportTeamArchive",
     tag = tag::ARCHIVES,
     params(TeamId),
-    responses((status = 200, description = "The archive.", body = inline(Binary), content_type = "application/octet-stream")),
+    responses((
+        status = 200,
+        description = "The archive.",
+        body = inline(Binary),
+        content_type = "application/octet-stream",
+        headers(
+            ("Content-Length" = u64, description = "The size of the archive in bytes."),
+            ("Content-Disposition" = String, description = "`attachment; filename=archive-YYYY-MM-DD.boardarchive`, for the day (UTC)."),
+        ),
+    )),
 )]
 async fn handle_export_team(
     State(app): State<App>,
@@ -184,7 +205,8 @@ fn archive_response(archive: ExportedArchive) -> Response {
             ("content-transfer-encoding", "binary".to_owned()),
             ("content-length", archive.size.to_string()),
         ],
-        Body::from_stream(ReaderStream::new(archive.file)),
+        // Read in large pieces: each read of the file is a task of its own.
+        Body::from_stream(ReaderStream::with_capacity(archive.file, SEND_CHUNK_BYTES)),
     )
         .into_response()
 }
