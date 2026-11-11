@@ -224,7 +224,7 @@ export class Workspace {
       case 'boardDeleted':
         this.boards = this.boards.filter((board) => board.id !== change.boardId);
         // A deleted board leaves every category (no message says so). Brought
-        // back, it is filed nowhere: it shows at the end of the default category.
+        // back, it is filed again where it was, and the sidebar is told.
         this.categories = this.categories.map((category) => ({
           ...category,
           boardIds: category.boardIds.filter((id) => id !== change.boardId),
@@ -607,14 +607,20 @@ export class Workspace {
           await this.backend.deleteBoard(boardId);
           this.#apply({ kind: 'boardDeleted', boardId });
         },
-        async () => {
-          this.#apply({ kind: 'board', board: await this.backend.restoreBoard(boardId) });
-        },
+        () => this.restoreBoard(boardId),
         'deleteBoard',
       );
     } catch (error) {
       this.report('save', error);
     }
+  }
+
+  /**
+   * Brings a deleted board back. It shows where the reader had filed it
+   * once the sidebar is told (a category message). A refusal is thrown.
+   */
+  async restoreBoard(boardId: string): Promise<void> {
+    this.#apply({ kind: 'board', board: await this.backend.restoreBoard(boardId) });
   }
 
   // --------------------------------------------------------- categories

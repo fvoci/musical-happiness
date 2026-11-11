@@ -279,6 +279,22 @@ export interface BodyWrite {
   readAt: number;
 }
 
+/** A card or a board in the trash: enough to decide whether to bring it back. */
+export interface DeletedItem {
+  id: string;
+  /** Its title when it was deleted. */
+  title: string;
+  deletedAt: number;
+  /** Who deleted it, who may no longer exist; empty if not known. */
+  deletedBy: string;
+}
+
+/** A page of a list: `page` counts from 0, and a `perPage` of zero or less is all of it. */
+export interface Paging {
+  page: number;
+  perPage: number;
+}
+
 export interface UploadProgress {
   sentBytes: number;
   totalBytes: number;
@@ -441,8 +457,17 @@ export interface Backend {
   searchBoards(teamId: string, query: string): Promise<Board[]>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
-  /** Takes the board, its blocks and its members back out of the trash. */
+  /**
+   * Takes the board, its blocks and its members back out of the trash. For
+   * who was its admin. Each person who had filed it finds it where it was in
+   * their sidebar (their default category if that one went), and is told.
+   */
   restoreBoard(boardId: string): Promise<Board>;
+  /**
+   * The team's boards in the trash that the reader was an admin of (who may
+   * bring them back): a page, the last deleted first.
+   */
+  deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]>;
   members(boardId: string): Promise<BoardMember[]>;
   /**
    * Makes a person of the team a member of the board, with the role. For the
@@ -523,6 +548,12 @@ export interface Backend {
   deleteBlock(boardId: string, blockId: string): Promise<void>;
   /** Takes the block and what was deleted with it back out of the trash. */
   restoreBlock(boardId: string, blockId: string): Promise<void>;
+  /**
+   * The board's cards in the trash, for its editors: a page, the last deleted
+   * first. A card that went with the block it was on is not listed; it comes
+   * back with that block.
+   */
+  deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]>;
 
   // Files.
   /**

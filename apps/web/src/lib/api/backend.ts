@@ -30,8 +30,10 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type DeletedItem,
   type DownloadedFile,
   type DownloadOptions,
+  type Paging,
   type Registration,
   type Sharing,
   type SharingChange,
@@ -344,9 +346,9 @@ export class ServerBackend implements Backend, Account {
   }
 
   /**
-   * Out of the server's trash. Its place in the sidebar and its public link
-   * do not come back (`docs/contract-pending.md` 7): it shows at the end of
-   * the default category.
+   * Out of the server's trash. Its public link does not come back. Each
+   * person finds it where they had filed it; the server tells them with the
+   * category messages, which have the sidebar read again (`live.ts`).
    */
   async restoreBoard(boardId: string): Promise<Board> {
     return boardOf(
@@ -907,6 +909,22 @@ export class ServerBackend implements Backend, Account {
       '/api/v1/boards/{boardId}/blocks/{blockId}/undelete',
       { boardId, blockId },
       { method: 'POST' },
+    );
+  }
+
+  async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
+    return this.#http.request<Schemas['DeletedItem'][]>(
+      '/api/v1/boards/{boardId}/trash/cards',
+      { boardId },
+      { query: { ...paging } },
+    );
+  }
+
+  async deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]> {
+    return this.#http.request<Schemas['DeletedItem'][]>(
+      '/api/v1/teams/{teamId}/trash/boards',
+      { teamId },
+      { query: { ...paging } },
     );
   }
 

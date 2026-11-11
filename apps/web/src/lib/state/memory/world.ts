@@ -17,6 +17,8 @@ import type {
   User,
 } from '../backend.ts';
 
+import type { BoardPlace } from './trash.ts';
+
 /** A view, card, comment or attachment as the world stores it. */
 export interface StoredBlock extends Block {
   /** Cards and comments: their text. */
@@ -43,12 +45,18 @@ interface DeletedBlocks {
   boardId: string;
   /** The block that was deleted and everything that went with it. */
   blocks: StoredBlock[];
+  deletedAt: number;
+  deletedBy: string;
 }
 
 interface DeletedBoard {
   board: Board;
   members: BoardMember[];
   blocks: StoredBlock[];
+  deletedAt: number;
+  deletedBy: string;
+  /** Where each person had filed it. */
+  places: BoardPlace[];
 }
 
 interface Watcher {

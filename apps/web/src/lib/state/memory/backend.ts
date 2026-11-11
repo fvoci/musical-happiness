@@ -61,9 +61,11 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type DeletedItem,
   type DownloadedFile,
   type DownloadOptions,
   type ErrorStatus,
+  type Paging,
   type Sharing,
   type SharingChange,
   type Team,
@@ -75,6 +77,7 @@ import {
 
 import { applyBoardPatch, applyCardPatch, applyViewPatch } from '../patches.ts';
 
+import { deletedBoardsOf, deletedCardsOf, placesOf, putBack, wasAdmin } from './trash.ts';
 import type { StoredBlock, StoredCard, StoredView, World } from './world.ts';
 
 /** The limits of the server design: section 5.7 (bodies) and 4.2, 5.6 (files). */
@@ -485,7 +488,14 @@ export class MemoryBackend implements Backend {
     const board = this.#board(boardId);
     const members = this.world.members.get(boardId) ?? [];
     const blocks = this.world.blocksOf(boardId);
-    this.world.deletedBoards.set(boardId, { board, members, blocks });
+    this.world.deletedBoards.set(boardId, {
+      board,
+      members,
+      blocks,
+      deletedAt: this.world.now(),
+      deletedBy: this.userId,
+      places: placesOf(this.world, boardId),
+    });
     for (const block of blocks) this.world.blocks.delete(block.id);
     this.world.boards.delete(boardId);
     this.world.members.delete(boardId);
@@ -500,15 +510,30 @@ export class MemoryBackend implements Backend {
     this.world.tellUsers(userIds, { kind: 'boardDeleted', boardId });
   }
 
+  /** As the server: for who was its admin; to anybody who was no member, there is no such board. */
   async restoreBoard(boardId: string): Promise<Board> {
     await this.#enter('restoreBoard');
-    const deleted = this.world.deletedBoards.get(boardId) ?? fail(404, 'no such board');
+    const deleted = this.world.deletedBoards.get(boardId);
+    if (!deleted?.members.some((member) => member.userId === this.userId)) {
+      fail(404, 'no such board');
+    }
+    if (!wasAdmin(deleted.members, this.userId)) fail(403, 'access denied to undelete board');
     this.world.deletedBoards.delete(boardId);
     this.world.boards.set(boardId, deleted.board);
     this.world.members.set(boardId, deleted.members);
     for (const block of deleted.blocks) this.world.blocks.set(block.id, block);
     this.#tellBoard(deleted.board);
+    for (const userId of putBack(this.world, deleted.board, deleted.places)) {
+      const categories = this.world.categories.get(userId) ?? [];
+      this.world.tellUsers([userId], { kind: 'categories', categories: copy(categories) });
+    }
     return copy(deleted.board);
+  }
+
+  async deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedBoards');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    return deletedBoardsOf(this.world, this.userId, teamId, paging);
   }
 
   /**
@@ -1114,7 +1139,12 @@ export class MemoryBackend implements Backend {
     };
     collect(block);
     for (const each of gone) this.world.blocks.delete(each.id);
-    this.world.deletedBlocks.set(blockId, { boardId, blocks: gone });
+    this.world.deletedBlocks.set(blockId, {
+      boardId,
+      blocks: gone,
+      deletedAt: this.world.now(),
+      deletedBy: this.userId,
+    });
     this.world.tellBoard(boardId, {
       kind: 'blocksDeleted',
       boardId,
@@ -1135,6 +1165,17 @@ export class MemoryBackend implements Backend {
     this.world.deletedBlocks.delete(blockId);
     for (const block of deleted.blocks) this.world.blocks.set(block.id, block);
     this.#tellBlocks(boardId, deleted.blocks);
+  }
+
+  /** As the server: for the board's editors and admins. */
+  async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
+    await this.#enter('deletedCards');
+    this.#board(boardId);
+    const member = this.world.members.get(boardId)?.find((each) => each.userId === this.userId);
+    if (!member?.schemeAdmin && !member?.schemeEditor) {
+      fail(403, 'access denied to the trash of the board');
+    }
+    return deletedCardsOf(this.world, boardId, paging);
   }
 
   // -------------------------------------------------------------- files
