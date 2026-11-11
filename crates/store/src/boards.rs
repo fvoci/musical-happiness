@@ -137,6 +137,33 @@ impl Store {
             .await
     }
 
+    /// Puts the card properties of a board into the order of their identifiers in
+    /// `order`, which names each of them once, and returns the board, marked as modified
+    /// by `user_id` now. The board is held from before it is read.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if there is no such board, and
+    /// [`StoreError::InvalidBoard`], and nothing written, if `order` does not name each
+    /// property once ([`Board::reorder_card_properties`]).
+    pub async fn reorder_card_properties(
+        &self,
+        board_id: &str,
+        order: &[String],
+        user_id: &str,
+    ) -> Result<Board, StoreError> {
+        self.transaction(async |scope| {
+            if !lock_board(scope, board_id).await? {
+                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
+            }
+            let mut board = get_board(scope, board_id).await?;
+            board.reorder_card_properties(order)?;
+            insert_board(scope, &mut board, user_id).await?;
+            Ok(board)
+        })
+        .await
+    }
+
     /// Returns the board with the given identifier.
     ///
     /// # Errors

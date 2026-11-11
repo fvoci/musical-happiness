@@ -37,7 +37,7 @@ use std::time::Duration;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
-pub use blocks::{BlockFilter, DuplicateAs, ListedBlock, Paging};
+pub use blocks::{BlockFilter, BodyPreview, DuplicateAs, ListedBlock, Paging, Previews};
 pub use boards::{Joined, MemberChange, PublicBoards};
 pub use category_boards::{BoardPlace, BoardVisibility};
 pub use comment_versions::DEFAULT_COMMENT_VERSIONS_KEPT;

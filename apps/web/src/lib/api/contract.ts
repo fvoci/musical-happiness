@@ -313,8 +313,17 @@ export interface paths {
         };
         /**
          * The cards of a board
-         * @description One page of the board's cards, for the board's members. Oldest first; the pages cut
-         *     that order. A `page` or `perPage` that is no whole number is 400.
+         * @description One page of the board's cards, for the board's members, and with the board's read
+         *     token for whoever has it. Oldest first; the pages cut that order. A `page` or
+         *     `perPage` that is no whole number is 400. With `preview=true` each card has its
+         *     `preview` (the first image and the beginning of the text of its body), which a
+         *     list without it leaves out.
+         *
+         *     To a reader with the read token alone (no session, or a user who is no member of
+         *     the board) the cards name no users, as `getBlocks` gives them: `createdBy` and
+         *     `modifiedBy` are empty, the values of person properties are emptied, and values of
+         *     properties the board does not define are left out. The preview's text has no
+         *     mentions in it, and its image `getFile` gives with the same token.
          */
         get: operations["getCards"];
         put?: never;
@@ -532,6 +541,30 @@ export interface paths {
          *     answered 204 like a removal.
          */
         delete: operations["removeMember"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/boards/{boardId}/property-order": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put the card properties of a board in an order
+         * @description The body names every card property of the board (`cardProperties`, by `id`) once,
+         *     in the new order, as `reorderCategories` names categories; one left out, one named
+         *     twice or one the board does not have is 400, and nothing changes. For who may manage
+         *     the board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as
+         *     for any change of the board.
+         */
+        put: operations["reorderCardProperties"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1926,6 +1959,7 @@ export interface components {
             lastCommentAt: number;
             /** @description The identifier of the user who last modified the card. */
             modifiedBy: string;
+            preview?: components["schemas"]["CardPreview"] | null;
             /**
              * @description Property values keyed by property identifier: a string, a list of strings, or
              *     `null`, and for a property of the type `date` a date value (`{"from":
@@ -1986,6 +2020,23 @@ export interface components {
             updatedProperties?: {
                 [key: string]: unknown;
             };
+        };
+        /** @description What a gallery shows of a card's body. */
+        CardPreview: {
+            /**
+             * @description The file the body's first image shows (`getFile` gives it, also with the board's
+             *     read token); empty if the body has no image.
+             */
+            imageFileId: string;
+            /**
+             * @description The beginning of the body's text: its plain text as it is searched (a line per
+             *     paragraph, heading, code block and formula block, separated by `\n`; a formula
+             *     gives its source, an image and a mention nothing), at most 200 UTF-16 code units,
+             *     cut between characters as they are seen (a flag or a letter with its accent stays
+             *     whole), without white space at its end. Nothing says it was cut. Empty for a card
+             *     without text.
+             */
+            text: string;
         };
         /** @description A sidebar category of one user in one team. */
         Category: {
@@ -3405,6 +3456,10 @@ export interface operations {
                 page?: number;
                 /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
                 perPage?: number;
+                /** @description `true` gives each card its `preview`. Any other value does not, and the cards have none. */
+                preview?: boolean;
+                /** @description The read token of the board. With the token of a board that is shared, the request needs no session. */
+                readToken?: string;
             };
             header?: never;
             path: {
@@ -3841,6 +3896,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    reorderCardProperties: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": string[];
+            };
+        };
+        responses: {
+            /** @description The identifiers of the card properties in their new order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
+                };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server. */
             default: {

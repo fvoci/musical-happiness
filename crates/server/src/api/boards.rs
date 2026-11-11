@@ -36,6 +36,7 @@ pub(super) fn routes() -> OpenApiRouter<App> {
         ))
         .routes(routes!(handle_duplicate_board))
         .routes(routes!(handle_undelete_board))
+        .routes(routes!(handle_reorder_card_properties))
 }
 
 // -- what the handlers of this area share ----------------------------------------------
@@ -290,6 +291,48 @@ async fn handle_patch_board(
 
     let board = app.patch_board(&patch, &board_id, user_id).await?;
     Ok(json_response(&board))
+}
+
+/// Put the card properties of a board in an order
+///
+/// The body names every card property of the board (`cardProperties`, by `id`) once,
+/// in the new order, as `reorderCategories` names categories; one left out, one named
+/// twice or one the board does not have is 400, and nothing changes. For who may manage
+/// the board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as
+/// for any change of the board.
+#[utoipa::path(
+    put,
+    path = "/boards/{boardId}/property-order",
+    operation_id = "reorderCardProperties",
+    tag = tag::BOARDS,
+    params(BoardId),
+    request_body = Vec<String>,
+    responses((
+        status = 200,
+        description = "The identifiers of the card properties in their new order.",
+        body = Vec<String>,
+    )),
+)]
+async fn handle_reorder_card_properties(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path(board_id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    let user_id = &session.user_id;
+    require_board_permission(
+        &app,
+        user_id,
+        &board_id,
+        BoardPermission::ManageBoardProperties,
+        "access denied to modifying board properties",
+    )
+    .await?;
+    let order: Vec<String> = decode_json(&body)?;
+    let order = app
+        .reorder_card_properties(&board_id, &order, user_id)
+        .await?;
+    Ok(json_response(&order))
 }
 
 /// Delete a board
