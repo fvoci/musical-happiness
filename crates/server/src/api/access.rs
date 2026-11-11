@@ -1,10 +1,13 @@
 //! Checks that many handlers share: who may do what on a board or in a workspace.
+//!
+//! Every check of a board asks `App::board_access` once and decides by the grant it
+//! gives (`permissions::grant`).
 
-use fvoci_model::{Block, BlockPatch, BlockType, BoardType, Workspace};
+use fvoci_model::{Block, BlockPatch, BlockType, Workspace};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
-use crate::permissions::{BoardPermission, WorkspacePermission};
+use crate::permissions::{BoardPermission, Grant};
 
 /// Checks that the user is an administrator of the instance.
 ///
@@ -25,10 +28,9 @@ pub(crate) async fn require_admin(app: &App, user_id: &str) -> Result<(), AppErr
 /// Checks that the user has the permission on the board that the request names in its
 /// path.
 ///
-/// What a user without the permission is told depends on what they may know. A member
-/// of the board is refused (403, `denial`). So is a user of the workspace on an open board,
-/// which every user of its workspace can see. For anybody else the board does not exist
-/// (404), whether it does or not.
+/// What a user without the permission is told depends on what they may know. Who sees
+/// the board (`Grant::sees`) is refused (403, `denial`); for anybody else the board does
+/// not exist (404), whether it does or not.
 pub(crate) async fn require_board_permission(
     app: &App,
     user_id: &str,
@@ -36,30 +38,31 @@ pub(crate) async fn require_board_permission(
     permission: BoardPermission,
     denial: &str,
 ) -> Result<(), AppError> {
-    if app
-        .has_permission_to_board(user_id, board_id, permission)
-        .await?
-    {
+    let grant = app.board_grant(user_id, board_id).await?;
+    require_granted(grant, permission, denial)
+}
+
+/// Checks that the grant of the board named in the path has the permission: refused
+/// (403, `denial`) if the user sees the board, not found (404) if not.
+pub(crate) fn require_granted(
+    grant: Grant,
+    permission: BoardPermission,
+    denial: &str,
+) -> Result<(), AppError> {
+    if grant.allows(permission) {
         Ok(())
     } else {
-        Err(board_refusal(app, user_id, board_id, denial).await)
+        Err(refusal(grant, denial))
     }
 }
 
 /// What a user is told who may not do what they ask on the board named in the path:
-/// refused (403, `denial`) if they can see the board, not found (404) if they cannot.
-/// For handlers whose rule is more than one permission. If the store fails while this
-/// is found out, the answer is that failure.
-pub(crate) async fn board_refusal(
-    app: &App,
-    user_id: &str,
-    board_id: &str,
-    denial: &str,
-) -> AppError {
-    match sees_board(app, user_id, board_id).await {
-        Ok(true) => AppError::forbidden(denial),
-        Ok(false) => AppError::not_found("board"),
-        Err(error) => error,
+/// refused (403, `denial`) if they see the board, not found (404) if they do not.
+pub(crate) fn refusal(grant: Grant, denial: &str) -> AppError {
+    if grant.sees() {
+        AppError::forbidden(denial)
+    } else {
+        AppError::not_found("board")
     }
 }
 
@@ -100,7 +103,8 @@ pub(crate) async fn require_block_permission(
     denial: &str,
 ) -> Result<(), AppError> {
     let (permission, denial) = block_permission(user_id, block, action, denial);
-    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+    let grant = app.board_grant(user_id, &block.board_id).await?;
+    require_granted(grant, permission, denial)
 }
 
 /// The permission that doing `action` to the block needs, and the refusal without it.
@@ -135,15 +139,16 @@ pub(crate) async fn require_block_patch_permission(
         *parent_id != block.parent_id
             && !(block.parent_id.is_empty() && *parent_id == block.board_id)
     });
-    if block.block_type == BlockType::Comment && moves {
-        require_board_permission(
-            app,
-            user_id,
-            &block.board_id,
-            BoardPermission::ManageBoardCards,
-            denial,
-        )
-        .await?;
+    let changes_type = patch.block_type.as_ref().is_some_and(|new_type| {
+        (block.block_type == BlockType::Comment) != (*new_type == BlockType::Comment)
+    });
+    let moves_comment = block.block_type == BlockType::Comment && moves;
+    if !(changes_type || moves_comment) {
+        return Ok(());
+    }
+    let grant = app.board_grant(user_id, &block.board_id).await?;
+    if moves_comment {
+        require_granted(grant, BoardPermission::ManageBoardCards, denial)?;
     }
     let Some(new_type) = patch.block_type.as_ref() else {
         return Ok(());
@@ -154,7 +159,7 @@ pub(crate) async fn require_block_patch_permission(
         (_, BlockType::Comment) => comment_permission(user_id, block, BlockAction::Change, denial),
         _ => return Ok(()),
     };
-    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+    require_granted(grant, permission, denial)
 }
 
 /// Checks that the user may delete the block, of a board the request names, with what
@@ -179,7 +184,7 @@ pub(crate) async fn require_delete_permission(
 /// The top decides for a card, or any block that is no comment: the comments on a card
 /// go with it. A comment takes the replies below it, so who deletes it, or brings it
 /// back, must be allowed that for each of them too: nobody takes away the comment of
-/// somebody else by deleting their own. Each permission is asked once, the top's first.
+/// somebody else by deleting their own. The top's permission is asked first.
 /// For a comment this is a guard: the store keeps anything from being below one.
 pub(crate) async fn require_deletion_permission(
     app: &App,
@@ -194,13 +199,10 @@ pub(crate) async fn require_deletion_permission(
     } else {
         &[]
     };
-    let mut asked = Vec::new();
+    let grant = app.board_grant(user_id, &top.board_id).await?;
     for block in std::iter::once(top).chain(replies) {
         let (permission, denial) = block_permission(user_id, block, action, denial);
-        if !asked.contains(&permission) {
-            asked.push(permission);
-            require_board_permission(app, user_id, &top.board_id, permission, denial).await?;
-        }
+        require_granted(grant, permission, denial)?;
     }
     Ok(())
 }
@@ -229,7 +231,7 @@ fn comment_permission<'a>(
 ///
 /// A user who may not read the board's contents is told that `what` does not exist
 /// (404): the identifier in the request says nothing about a board, so not even an open
-/// board is given away. A member without the permission is refused (403, `denial`).
+/// board is given away. A reader without the permission is refused (403, `denial`).
 pub(crate) async fn require_permission_through(
     app: &App,
     user_id: &str,
@@ -238,65 +240,27 @@ pub(crate) async fn require_permission_through(
     denial: &str,
     what: &str,
 ) -> Result<(), AppError> {
-    if app
-        .has_permission_to_board(user_id, board_id, permission)
-        .await?
-    {
+    let grant = app.board_grant(user_id, board_id).await?;
+    if grant.allows(permission) {
         Ok(())
-    } else if reads_board(app, user_id, board_id).await? {
+    } else if grant.reads() {
         Err(AppError::forbidden(denial))
     } else {
         Err(AppError::not_found(what))
     }
 }
 
-/// Checks that the user can see the board at all: as a member, or because it is an open
-/// board of their workspace. For anybody else it does not exist (404).
+/// Checks that the user sees the board at all (`Grant::sees`). For anybody else it does
+/// not exist (404).
 pub(crate) async fn require_board_visible(
     app: &App,
     user_id: &str,
     board_id: &str,
 ) -> Result<(), AppError> {
-    if sees_board(app, user_id, board_id).await? {
+    if app.board_grant(user_id, board_id).await?.sees() {
         Ok(())
     } else {
         Err(AppError::not_found("board"))
-    }
-}
-
-/// Whether the user can see the board at all: as a member, or because it is an open
-/// board of their workspace.
-async fn sees_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-    Ok(reads_board(app, user_id, board_id).await?
-        || sees_open_board(app, user_id, board_id).await?)
-}
-
-/// Whether the user may read what is on the board: its members may.
-async fn reads_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-    app.has_permission_to_board(user_id, board_id, BoardPermission::ViewBoard)
-        .await
-}
-
-/// Whether the board is an open board of a workspace the user works in, or a built-in
-/// template, which is every user's to copy. Such a board is no secret to the user,
-/// though its contents are until they join. A board that is not there is seen by
-/// nobody; a store that fails is an error, not a "no".
-async fn sees_open_board(app: &App, user_id: &str, board_id: &str) -> Result<bool, AppError> {
-    if user_id.is_empty() {
-        return Ok(false);
-    }
-    match app.board(board_id).await {
-        Ok(board) => Ok(board.board_type == BoardType::Open
-            && (board.is_builtin
-                || app
-                    .has_permission_to_workspace(
-                        user_id,
-                        &board.workspace_id,
-                        WorkspacePermission::ViewWorkspace,
-                    )
-                    .await?)),
-        Err(error) if error.is_not_found() => Ok(false),
-        Err(error) => Err(error),
     }
 }
 

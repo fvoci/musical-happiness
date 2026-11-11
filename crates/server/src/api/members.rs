@@ -11,7 +11,7 @@ use super::contract::params::{BoardId, UserId};
 use super::contract::tag;
 
 use super::{ApiResult, RequiredSession, json_response, no_content};
-use super::{board_refusal, decode_object, require_board_permission, user_is_guest};
+use super::{decode_object, refusal, require_board_permission, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
@@ -106,23 +106,16 @@ async fn handle_add_member(
     body: Bytes,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let manages_roles = app
-        .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardRoles)
-        .await?;
-    let edits_board = app
-        .has_permission_to_board(user_id, &board_id, BoardPermission::ManageBoardProperties)
-        .await?;
-    // The board may be deleted between the two lookups; then it is gone for everybody.
-    let board = match app.board(&board_id).await {
-        Ok(board) => board,
-        Err(error) if error.is_not_found() && !manages_roles && !edits_board => {
-            return Err(board_refusal(&app, user_id, &board_id, MODIFY_MEMBERS_DENIED).await);
-        }
-        Err(error) => return Err(error),
-    };
+    let access = app
+        .board_access(user_id, &board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let (board, grant) = (access.board, access.grant);
+    let manages_roles = grant.allows(BoardPermission::ManageBoardRoles);
+    let edits_board = grant.allows(BoardPermission::ManageBoardProperties);
     let adds_to_open_board = edits_board && board.board_type == BoardType::Open;
     if !(manages_roles || adds_to_open_board) {
-        return Err(board_refusal(&app, user_id, &board_id, MODIFY_MEMBERS_DENIED).await);
+        return Err(refusal(grant, MODIFY_MEMBERS_DENIED));
     }
 
     let request: BoardMember = decode_object(&body)?;
@@ -199,18 +192,22 @@ async fn handle_join_board(
     Path(board_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
-    let board = app.board(&board_id).await?;
+    let access = app
+        .board_access(user_id, &board_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("board"))?;
+    let (board, grant) = (access.board, access.grant);
 
     // The original lets a workspace administrator join any board as its admin with the
-    // `allow_admin` parameter. Nobody administers the workspace of a standalone server.
+    // `allow_admin` parameter; here a workspace's administrator joins as anybody does.
     if board.board_type != BoardType::Open {
         // A private board exists only for its members, who have nothing to join.
-        return Err(board_refusal(&app, user_id, &board_id, "cannot join a non Open board").await);
+        return Err(refusal(grant, "cannot join a non Open board"));
     }
-    // An open board is there for who works in its workspace, and a built-in template for
-    // everybody. To anybody else, a guest of the workspace among them, it answers as
-    // a board that does not exist: joining is no way into a workspace.
-    if !board.is_builtin && !app.works_in_workspace(user_id, &board.workspace_id).await? {
+    // An open board is there for who works in its workspace and its members, and a
+    // built-in template for everybody. To anybody else it answers as a board that does
+    // not exist: joining is no way into a workspace.
+    if !grant.sees() {
         return Err(AppError::not_found("board"));
     }
     // An open template is for everybody to copy, and for its members to change. Joining
@@ -218,6 +215,12 @@ async fn handle_join_board(
     // user's first board is copied from.
     if board.is_template {
         return Err(AppError::forbidden("a template cannot be joined"));
+    }
+    // A guest of the workspace was invited to the open board and has no more to join:
+    // to them, as to anybody who does not work in the workspace, there is nothing to
+    // join, which joining would raise to the board's minimum role.
+    if !grant.allows(BoardPermission::JoinBoard) {
+        return Err(AppError::not_found("board"));
     }
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("guests not allowed to join boards"));

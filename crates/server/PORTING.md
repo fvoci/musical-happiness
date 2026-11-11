@@ -38,7 +38,7 @@
 | `server/auth/auth.go` `Auth` | `auth::Authenticator` | `get_session`, `is_valid_read_token` |
 | `server/services/auth/request_parser.go` | `auth::token::parse_auth_token` | |
 | `server/services/auth/password.go` | `auth::password` | |
-| `server/services/permissions/localpermissions` | `permissions::{has_permission_to_workspace, member_has_permission}`, `App::has_permission_to_board` | 권한은 enum(`WorkspacePermission`, `BoardPermission`) |
+| `server/services/permissions/localpermissions` | `permissions::grant`(순수 함수), 사실은 `App::board_access`·`App::actor` | 권한은 enum `BoardPermission`, 답은 `Grant` |
 | `server/api/api.go` `sessionRequired`, `attachSession` | 추출기 `api::RequiredSession`, `api::OptionalSession` | |
 | `server/api/api.go` `requireCSRFToken` | `api::router`의 route layer | |
 | `server/api/api.go` `errorResponse`, `server/model/errors.go` | `error::AppError` + `IntoResponse` | |
@@ -67,8 +67,7 @@
 
 | 원본 | Rust | 비고 |
 |---|---|---|
-| `localpermissions_test.go` `TestHasPermissionToTeam` | `permissions::tests::has_permission_to_workspace_cases` | nil 권한 케이스는 타입상 불가능 |
-| `localpermissions_test.go` `TestHasPermissionToBoard` (역할 4종) | `permissions::tests::has_permission_to_board_by_role` | "empty input", "nonexistent member"는 API 테스트에서 멤버 조회와 함께 확인 |
+| `localpermissions_test.go` `TestHasPermissionToTeam`, `TestHasPermissionToBoard` | `permissions::table` (역할 × 범위 × 할 일의 표) | "empty input", "nonexistent member"는 API 테스트에서 확인 |
 | `ws/server_test.go` `TestTeamSubscription` | `ws::tests::workspace_subscription`, `ws::tests::workspace_subscription_subscribe_users_to_workspace_retrieve_by_user` | |
 | `ws/server_test.go` `TestBlocksSubscription` | `ws::tests::blocks_subscription` | |
 | `ws/server_test.go` `TestGetUserIDForTokenInSingleUserMode` | `ws::tests::get_user_id_for_token_in_single_user_mode` | |

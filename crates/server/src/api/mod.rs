@@ -41,9 +41,9 @@ use serde::Serialize;
 use utoipa_axum::router::OpenApiRouter;
 
 pub(crate) use access::{
-    BlockAction, board_refusal, require_admin, require_block_patch_permission,
-    require_block_permission, require_board_permission, require_board_visible,
-    require_delete_permission, require_deletion_permission, require_permission_through,
+    BlockAction, refusal, require_admin, require_block_patch_permission, require_block_permission,
+    require_board_permission, require_board_visible, require_delete_permission,
+    require_deletion_permission, require_granted, require_permission_through,
     require_workspace_access, require_workspace_in_body, user_is_guest,
 };
 pub(crate) use body::{

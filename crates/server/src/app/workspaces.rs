@@ -112,14 +112,7 @@ impl App {
         user_id: &str,
         workspace_id: &str,
     ) -> Result<bool, AppError> {
-        if user_id.is_empty() || workspace_id.is_empty() {
-            return Ok(false);
-        }
-        let access = self
-            .store()
-            .resolve_workspace(user_id, workspace_id)
-            .await?;
-        Ok(access.is_some_and(|access| access.works_there()))
+        Ok(self.actor(user_id, workspace_id).await?.works_there())
     }
 
     /// Whether the user is in the workspace at all, as a guest too: who may be put on a
@@ -133,14 +126,7 @@ impl App {
         user_id: &str,
         workspace_id: &str,
     ) -> Result<bool, AppError> {
-        if user_id.is_empty() || workspace_id.is_empty() {
-            return Ok(false);
-        }
-        let access = self
-            .store()
-            .resolve_workspace(user_id, workspace_id)
-            .await?;
-        Ok(access.is_some())
+        Ok(self.actor(user_id, workspace_id).await?.workspace.is_some())
     }
 
     /// The workspaces the user is a member of, in every organization: by organization,

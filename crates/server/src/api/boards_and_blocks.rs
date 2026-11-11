@@ -29,7 +29,7 @@ use super::require_delete_permission;
 use super::{BlockAction, require_block_patch_permission, require_block_permission};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::{BoardPermission, WorkspacePermission};
+use crate::permissions::BoardPermission;
 
 /// The refusal of a change to a block of a board the user may not change cards on.
 const MODIFYING_CARDS_DENIED: &str = "access denied to modifying cards";
@@ -120,13 +120,8 @@ async fn handle_create_boards_and_blocks(
         }
     }
 
+    // Whoever works in the workspace makes boards in it.
     require_workspace_in_body(&app, user_id, workspace_id, "boards").await?;
-    if !app
-        .has_permission_to_workspace(user_id, workspace_id, WorkspacePermission::ViewWorkspace)
-        .await?
-    {
-        return Err(AppError::forbidden("access denied to board template"));
-    }
     if user_is_guest(&app, user_id).await? {
         return Err(AppError::forbidden("access denied to create board"));
     }

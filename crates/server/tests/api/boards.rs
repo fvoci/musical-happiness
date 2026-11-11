@@ -2434,12 +2434,12 @@ async fn update_member_should_correctly_update_a_member_for_a_valid_board() {
     let updated: BoardMember = update_member(&th.client, &update).await.ok_json();
 
     assert_eq!(updated, update, "the new roles are answered");
-    let stored = th
-        .app
-        .find_member_for_board(&board.id, &user2.id)
-        .await
-        .expect("the membership is read");
-    assert_eq!(stored, Some(update), "and stored");
+    let stored = th.app.store().get_member_for_board(&board.id, &user2.id);
+    assert_eq!(
+        stored.await.expect("the membership is read"),
+        update,
+        "and stored"
+    );
     th.teardown().await;
 }
 

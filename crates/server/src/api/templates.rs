@@ -2,7 +2,7 @@
 //!
 //! Ports `server/api/templates.go`.
 
-use fvoci_model::{Board, BoardType};
+use fvoci_model::Board;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -13,7 +13,6 @@ use super::workspace::WorksIn;
 use super::{ApiResult, json_response, user_is_guest};
 use crate::app::App;
 use crate::error::AppError;
-use crate::permissions::BoardPermission;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new().routes(routes!(handle_get_templates))
@@ -40,11 +39,7 @@ async fn handle_get_templates(WorksIn(ws): WorksIn) -> ApiResult {
     let boards = app.template_boards(workspace_id, user_id).await?;
     let mut results: Vec<Board> = Vec::with_capacity(boards.len());
     for board in boards {
-        let visible = board.board_type == BoardType::Open
-            || app
-                .has_permission_to_board(user_id, &board.id, BoardPermission::ViewBoard)
-                .await?;
-        if visible {
+        if app.board_grant(user_id, &board.id).await?.sees() {
             results.push(board);
         }
     }

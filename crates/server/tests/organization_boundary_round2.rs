@@ -287,13 +287,11 @@ async fn id_routes_after_removal(destination: AfterRemoval) {
 }
 
 #[tokio::test]
-#[ignore = "O4: a board role left after leaving the workspace still opens the identifier routes"]
 async fn identifier_routes_reject_a_user_removed_from_the_workspace() {
     id_routes_after_removal(AfterRemoval::NoOrganization).await;
 }
 
 #[tokio::test]
-#[ignore = "O4: a board role left after leaving the workspace still opens the identifier routes"]
 async fn identifier_routes_reject_a_user_who_now_belongs_only_to_another_org() {
     if db_type_of_the_tests() == DbType::Postgres {
         id_routes_after_removal(AfterRemoval::OtherOrganization).await;
@@ -301,7 +299,6 @@ async fn identifier_routes_reject_a_user_who_now_belongs_only_to_another_org() {
 }
 
 #[tokio::test]
-#[ignore = "O4: the trash's membership snapshot still lets a former workspace admin restore"]
 async fn a_former_workspace_admin_cannot_restore_its_deleted_board() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client2.me().await.id;

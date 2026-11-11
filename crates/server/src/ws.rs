@@ -24,7 +24,7 @@ use crate::app::Audience;
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
 use crate::metrics::{Disconnect, Metrics};
-use crate::permissions::{BoardPermission, member_has_permission};
+use crate::permissions::role_of;
 
 /// How many undelivered messages a connection may have queued before it is dropped. A
 /// client that reads this slowly has lost track of the board anyway and reloads on
@@ -604,10 +604,9 @@ impl Hub {
         // gets the message once per subscription.
         for (id, user_id) in followers {
             let reader = !user_id.is_empty()
-                && members.iter().any(|member| {
-                    member.user_id == user_id
-                        && member_has_permission(member, BoardPermission::ViewBoard)
-                });
+                && members
+                    .iter()
+                    .any(|member| member.user_id == user_id && role_of(member).is_some());
             if reader {
                 recipients.push(id);
             } else {

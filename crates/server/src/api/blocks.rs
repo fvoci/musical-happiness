@@ -3,7 +3,7 @@
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use fvoci_model::{
-    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, BoardType, CommentVersion,
+    Block, BlockError, BlockPatch, BlockPatchBatch, BlockType, Board, CommentVersion,
     generate_block_ids, stamp_modification_metadata,
 };
 
@@ -79,24 +79,14 @@ async fn block_on_board(app: &App, block_id: &str, board_id: &str) -> Result<Blo
 /// Checks that a signed-in user may read the blocks of a board: the members of the
 /// board, and for an open template everyone who works in its workspace besides.
 async fn require_read_access(app: &App, user_id: &str, board: &Board) -> Result<(), AppError> {
-    if board.is_template && board.board_type == BoardType::Open {
-        if !board.is_builtin
-            && !app.works_in_workspace(user_id, &board.workspace_id).await?
-            && !app.is_board_reader(user_id, &board.id).await?
-        {
-            // A template of a workspace the user does not work in is not there.
-            return Err(AppError::not_found("board"));
-        }
-    } else {
-        require_board_permission(
-            app,
-            user_id,
-            &board.id,
-            BoardPermission::ViewBoard,
-            "access denied to board",
-        )
-        .await?;
-    }
+    require_board_permission(
+        app,
+        user_id,
+        &board.id,
+        BoardPermission::ViewBoard,
+        "access denied to board",
+    )
+    .await?;
     if board.is_template && user_is_guest(app, user_id).await? {
         return Err(AppError::forbidden(
             "guest are not allowed to get board templates",

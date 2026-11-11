@@ -382,8 +382,9 @@ async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_templat
 }
 
 /// A board of a workspace the user is not in, where the user is still on the board,
-/// is visible to them; through a category of their own workspace it is not filed, and
-/// answers as a board that is not there.
+/// is not there for them: a board role opens nothing outside the workspace. Through a
+/// category of their own workspace it is not filed either, and answers as a board that
+/// is not there.
 #[tokio::test]
 async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_not_in() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -418,7 +419,11 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
         .post(&format!("{category}/{UNKNOWN_ID}"), &json!({}))
         .await;
     ts.teardown().await;
-    assert_eq!(seen, StatusCode::OK, "the user sees the board");
+    assert_eq!(
+        seen,
+        StatusCode::NOT_FOUND,
+        "a board role outside the workspace opens nothing"
+    );
     assert_eq!(
         answer(&filed),
         answer(&absent),
