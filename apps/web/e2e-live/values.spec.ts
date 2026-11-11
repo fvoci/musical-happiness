@@ -132,15 +132,18 @@ test('two people change two values of one card at about the same time, and both 
     await route.continue();
   });
 
-  await property(first, 'Status').locator('[data-slot="property-select"]').click();
-  await first.getByRole('option', { name: 'Done' }).click();
-  await expect.poll(() => held.length).toBe(1);
+  try {
+    await property(first, 'Status').locator('[data-slot="property-select"]').click();
+    await first.getByRole('option', { name: 'Done' }).click();
+    await expect.poll(() => held.length).toBe(1);
 
-  await property(second, 'Note').locator('input').fill('book the train');
-  await second.keyboard.press('Enter');
-  await expect.poll(async () => (await values()).note).toBe('book the train');
-
-  release();
+    await property(second, 'Note').locator('input').fill('book the train');
+    await second.keyboard.press('Enter');
+    await expect.poll(async () => (await values()).note).toBe('book the train');
+  } finally {
+    // A failure above must not leave the held request hanging the test.
+    release();
+  }
   await expect.poll(values).toEqual({ status: board.options.Done, note: 'book the train' });
   expect(held).toEqual([{ updatedProperties: { status: board.options.Done } }]);
 
