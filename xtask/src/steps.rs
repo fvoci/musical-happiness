@@ -83,7 +83,7 @@ pub(crate) fn catch_interrupts() -> Result<()> {
 }
 
 /// Whether the task was asked to stop.
-fn interrupted() -> bool {
+pub(crate) fn interrupted() -> bool {
     INTERRUPTED.load(Ordering::SeqCst)
 }
 
@@ -178,6 +178,10 @@ pub(crate) fn run(
 ) -> Result<()> {
     let program = program.as_ref();
     let shown = format!("{} {}", program.to_string_lossy(), arguments.join(" "));
+    // A Ctrl-C while the step prepared it reached no command that runs now.
+    if interrupted() {
+        bail!("interrupted before `{shown}`");
+    }
     say(&format!("    $ {shown}"));
     let status = Command::new(program)
         .args(arguments)

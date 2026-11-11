@@ -166,12 +166,16 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 ## 2. 이 기기의 상태
 
-**평소에 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 그 뒤로는 `cargo xtask test`가 둘을 만들고(PostgreSQL은 `postgres:18`), 스스로 시작하거나 만든 것은 끝날 때 멈춘다(tracer-bullet 11). 멈춘 채 남아 있는 것은 다음 `cargo xtask test`가 다시 시작한다. 이름은 2026-11-11에 `hafgufa-pg`, `hafgufa-s3`에서 `fvoci-test-pg`, `fvoci-test-s3`로 바뀌었다. 옛 이름의 둘은 멈춘 채 이 기기에 남아 있고 더 쓰이지 않는다(지울지는 사용자가 정한다. 같은 포트를 쓰므로 옛 것을 띄우면 새 것이 시작하지 못한다).
+**평소에 떠 있는 컨테이너는 없다.** 2026-11-11 03:28 KST에 사용자가 이 작업의 컨테이너 다섯(`hafgufa-pg`, `hafgufa-s3`, `focalboard-port-maria`, `focalboard-port-mysql`, `focalboard-port-pg`)과 다 쓴 볼륨을 모두 지웠다. 테스트가 PostgreSQL에 쌓아 둔 `t_*` 스키마도 함께 사라졌다. 그 뒤로는 `cargo xtask test`가 둘을 만들고(PostgreSQL은 `postgres:18`), 테스트 실행이 시작하거나 만든 것은 그것을 쓰는 마지막 실행이 끝날 때 멈춘다(tracer-bullet 11). 멈춘 채 남아 있는 것은 다음 `cargo xtask test`가 다시 시작한다. 이름은 2026-11-11 12:10 KST에 `hafgufa-pg`, `hafgufa-s3`에서 `fvoci-test-pg`, `fvoci-test-s3`로 바뀌었다. 옛 이름의 둘은 멈춘 채 이 기기에 남아 있고 더 쓰이지 않는다(지울지는 사용자가 정한다. 같은 포트를 쓰므로 옛 것을 띄우면 새 것이 시작하지 못한다).
 
 **컨테이너를 쓰는 규칙(사용자 결정).**
 
 - 컨테이너는 필요할 때 만들고 그 일이 끝나면 닫는다.
-- 테스트를 돌린 세션은 작업 묶음이 끝날 때 자기가 띄운 컨테이너와 프로세스를 멈춘다. `cargo xtask test`는 스스로 시작하거나 만든 컨테이너를 끝날 때(통과, 실패, Ctrl-C 모두) 멈추고, 그 전부터 떠 있던 것은 그대로 둔다. Ctrl-C를 받으면 돌던 단계가 끝나기를 기다린 뒤 나머지를 건너뛰고 멈춘다. 그 사이 다시 Ctrl-C를 눌러도 같다. 바로 끝내려면 프로세스를 죽이고, 그때는 컨테이너를 손으로 멈춘다.
+- 테스트를 돌린 세션은 작업 묶음이 끝날 때 자기가 띄운 컨테이너와 프로세스를 멈춘다. `cargo xtask test`가 이것을 스스로 한다.
+  - 이 기기의 워크트리들이 컨테이너를 함께 쓴다. 테스트 실행이 시작하거나 만든 컨테이너는 그것을 쓰는 마지막 실행이 끝날 때(통과, 실패, Ctrl-C 모두) 멈춘다. 다른 실행이 아직 쓰는 동안에는 멈추지 않는다. 테스트 실행이 띄우지 않은 것(손으로 띄운 것)은 그대로 둔다.
+  - 실행들은 시스템 임시 폴더의 `fvoci-xtask-containers/`에서 만난다. 컨테이너마다 쓰는 동안 잡는 잠금, 시작하고 멈추는 동안 잡는 잠금, 테스트 실행이 시작했다는 표시(`<이름>.started`)가 있다. 표시는 멈출 때 지운다.
+  - Ctrl-C를 받으면 돌던 단계가 끝나기를 기다린 뒤 나머지를 건너뛰고, 컨테이너를 놓는다. 컨테이너를 기다리던 중이면 기다림을 그만둔다. 그 사이 다시 Ctrl-C를 눌러도 같고, `docker stop`은 Ctrl-C를 받지 않는 제 프로세스 그룹에서 돈다.
+  - 터미널이 아니라 xtask 프로세스에만 보낸 `SIGTERM`은 돌던 `cargo test`에 닿지 않는다. xtask는 그 단계가 끝나기를 기다린다. `SIGKILL`로 죽이면 컨테이너가 떠 있는 채 남는다. 표시가 남아 있으므로, 그 컨테이너를 쓰는 다음 실행이 끝날 때 멈춘다.
 - `supabase-*`는 다른 작업의 것이다. 건드리지 않는다. 포트 8000의 서비스(`supabase-envoy`)도 그 작업의 것이다.
 
 `cargo xtask test`가 만드는 컨테이너는 둘이다. 값은 모두 테스트 전용이다. 떠 있는 동안에는 워크트리 여럿이 함께 쓴다.

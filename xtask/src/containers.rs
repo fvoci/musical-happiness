@@ -1,12 +1,17 @@
 //! The two containers the tests use: PostgreSQL and an S3-compatible object store.
 //!
-//! A container that runs is used as it is and left running; a stopped one is started and
-//! a missing one created, and those are stopped again when the test run ends, whether it
-//! passed, failed or was interrupted ([`Started`]). Nothing is ever removed here: the
-//! containers outlive the test run.
+//! A container that runs is used as it is; a stopped one is started and a missing one
+//! created. The test runs of every checkout on this machine share the containers: a
+//! container that a test run started is stopped by the last run that uses it, when it
+//! ends, whether it passed, failed or was interrupted, and one that ran before any test
+//! run started it is left running ([`Uses`]). Nothing is ever removed here: the
+//! containers outlive the test runs.
 
+use std::fs::{File, TryLockError};
 use std::io::{Read as _, Write as _};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, bail};
@@ -118,17 +123,19 @@ impl Container {
     }
 
     /// Makes sure the container runs: starts it if it is stopped, creates it if it does
-    /// not exist. One it started or created is noted in `started`, to be stopped at the
-    /// end of the run.
-    fn ensure_running(&self, started: &mut Started) -> Result<()> {
+    /// not exist. The run uses it from then on (`uses`); one a test run started is
+    /// marked, to be stopped by the last run that uses it.
+    fn ensure_running(&self, uses: &mut Uses) -> Result<()> {
+        // Held until the container runs: no other run starts or stops it meanwhile.
+        let _setup = uses.claim(&self.name)?;
         let state = self.state()?;
-        if state.is_started_by_this_run() {
-            // Noted before it is started: a start that fails half-way leaves it to stop.
-            started.names.push(self.name.clone());
+        if state != State::Running {
+            // Marked before it is started: a start that fails half-way leaves it to stop.
+            uses.mark_started(&self.name)?;
         }
         match state {
             State::Running => say(&format!(
-                "    {}: already running; it is left running",
+                "    {}: already running; used as it is",
                 self.name
             )),
             State::Stopped => {
@@ -198,24 +205,154 @@ impl Container {
     }
 }
 
-/// The containers this run started or created, stopped when it is dropped: at the end
-/// of the run, after a failure, and after Ctrl-C (`steps::catch_interrupts`), in the
-/// order opposite to the starting. Those that ran before are not in it.
-#[derive(Debug, Default)]
-pub(crate) struct Started {
-    names: Vec<String>,
+/// The containers this run uses, and where the runs of all checkouts on this machine
+/// meet to share them: per container, a lock that every run using it holds shared, a
+/// lock held while a run starts or stops it, and a mark saying a test run started it.
+///
+/// Dropped at the end of the run (after it passed or failed, after a panic, and after
+/// Ctrl-C, `steps::catch_interrupts`), it lets go of each container, the last first. A
+/// run that is the last to use a marked container stops it and takes the mark away; one
+/// that another run still uses is left to that run; one without the mark ran before any
+/// test run started it and is left running.
+#[derive(Debug)]
+pub(crate) struct Uses {
+    /// Where the locks and the marks are.
+    meeting: PathBuf,
+    /// The containers in use, with the shared lock this run holds on each.
+    held: Vec<(String, File)>,
+    /// Stops a container: `docker stop`, or what a test puts in its place.
+    stop: fn(&str) -> Result<()>,
 }
 
-impl Drop for Started {
-    /// Stops the containers. Waiting for `docker stop` is what this task does at its end
-    /// anyway; a container that cannot be stopped is reported.
+/// What a run did with a container it let go of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Release {
+    /// It was the last to use the container that a test run had started, and stopped it.
+    Stopped,
+    /// Another run still uses it, and stops it if it is the last.
+    LeftToOthers,
+    /// No test run started it: it ran before, and runs on.
+    LeftRunning,
+}
+
+impl Uses {
+    /// The uses of a run, meeting the other runs in a folder of the system's temporary
+    /// folder, which the checkouts on this machine share.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the folder cannot be made.
+    pub(crate) fn new() -> Result<Self> {
+        Self::meeting_in(std::env::temp_dir().join("fvoci-xtask-containers"), stop)
+    }
+
+    fn meeting_in(meeting: PathBuf, stop: fn(&str) -> Result<()>) -> Result<Self> {
+        std::fs::create_dir_all(&meeting)
+            .with_context(|| format!("making {}", meeting.display()))?;
+        Ok(Self {
+            meeting,
+            held: Vec::new(),
+            stop,
+        })
+    }
+
+    fn file(&self, name: &str, kind: &str) -> PathBuf {
+        self.meeting.join(format!("{name}.{kind}"))
+    }
+
+    /// Starts using the container `name`, and returns the lock of its starting and
+    /// stopping, held until it is dropped.
+    fn claim(&mut self, name: &str) -> Result<File> {
+        let setup = open_lock(&self.file(name, "setup"))?;
+        setup
+            .lock()
+            .with_context(|| format!("waiting for other runs to set up {name}"))?;
+        let used = open_lock(&self.file(name, "use"))?;
+        // Never long: a run takes this exclusively only while it holds `setup`.
+        used.lock_shared()
+            .with_context(|| format!("taking the use of {name}"))?;
+        self.held.push((name.to_owned(), used));
+        Ok(setup)
+    }
+
+    /// Marks the container `name` as started by a test run.
+    fn mark_started(&self, name: &str) -> Result<()> {
+        let mark = self.file(name, "started");
+        File::create(&mark).with_context(|| format!("marking {}", mark.display()))?;
+        Ok(())
+    }
+
+    /// Lets go of the container `name`, whose shared lock `used` is, and stops it if
+    /// this run is the last to use it and a test run started it.
+    fn release(&self, name: &str, used: &File) -> Result<Release> {
+        let setup = open_lock(&self.file(name, "setup"))?;
+        setup.lock()?;
+        // Turned into the exclusive lock if no other run holds it shared. Nobody takes
+        // it meanwhile: a run takes it only while it holds `setup`.
+        match used.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => return Ok(Release::LeftToOthers),
+            Err(TryLockError::Error(error)) => return Err(error.into()),
+        }
+        let mark = self.file(name, "started");
+        if !mark.exists() {
+            return Ok(Release::LeftRunning);
+        }
+        (self.stop)(name)?;
+        std::fs::remove_file(&mark).with_context(|| format!("removing {}", mark.display()))?;
+        Ok(Release::Stopped)
+    }
+}
+
+impl Drop for Uses {
+    /// Lets go of the containers. Waiting for `docker stop` is what this task does at
+    /// its end anyway; a container that cannot be stopped is reported.
     fn drop(&mut self) {
-        for name in self.names.drain(..).rev() {
-            say(&format!("    {name}: stopping it, as this run started it"));
-            if let Err(error) = docker(&["stop", &name]) {
-                say(&format!("    {name}: could not be stopped: {error:#}"));
+        let held = std::mem::take(&mut self.held);
+        for (name, used) in held.into_iter().rev() {
+            match self.release(&name, &used) {
+                Ok(Release::Stopped) => say(&format!(
+                    "    {name}: stopped, as a test run started it and this run used it last"
+                )),
+                Ok(Release::LeftToOthers) => say(&format!(
+                    "    {name}: another run still uses it; the last one stops it"
+                )),
+                Ok(Release::LeftRunning) => {
+                    say(&format!("    {name}: it ran before; left running"));
+                }
+                Err(error) => say(&format!("    {name}: could not be stopped: {error:#}")),
             }
         }
+    }
+}
+
+fn open_lock(path: &Path) -> Result<File> {
+    File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .with_context(|| format!("opening {}", path.display()))
+}
+
+/// Stops the container `name`; one that is not there is as good as stopped. In a group
+/// of its own, so that a Ctrl-C at the end of the run does not cut the stop off.
+fn stop(name: &str) -> Result<()> {
+    let mut command = Command::new("docker");
+    command.args(["stop", name]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        command.process_group(0);
+    }
+    let output = command
+        .output()
+        .with_context(|| format!("starting `docker stop {name}`"))?;
+    let error = String::from_utf8_lossy(&output.stderr);
+    if output.status.success() || error.to_lowercase().contains("no such") {
+        Ok(())
+    } else {
+        bail!("`docker stop {name}` failed: {}", error.trim())
     }
 }
 
@@ -228,11 +365,6 @@ enum State {
 }
 
 impl State {
-    /// Whether a container in this state before the run is started by it.
-    fn is_started_by_this_run(self) -> bool {
-        !matches!(self, Self::Running)
-    }
-
     /// Reads the result of `docker inspect --format {{.State.Running}}`.
     ///
     /// # Errors
@@ -292,6 +424,9 @@ fn port_from_env(variable: &str, default: u16) -> Result<u16> {
 fn wait_until(what: &str, mut probe: impl FnMut() -> Result<()>) -> Result<()> {
     let started = Instant::now();
     loop {
+        if crate::steps::interrupted() {
+            bail!("{what}: interrupted while waiting for it");
+        }
         match probe() {
             Ok(()) => return Ok(()),
             Err(error) if started.elapsed() >= READY_TIMEOUT => {
@@ -311,9 +446,9 @@ fn wait_until(what: &str, mut probe: impl FnMut() -> Result<()>) -> Result<()> {
 ///
 /// Fails if docker is missing, the container cannot be started, or the database does
 /// not accept connections in time.
-pub(crate) fn prepare_postgres(started: &mut Started) -> Result<String> {
+pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
     let container = Container::postgres()?;
-    container.ensure_running(started)?;
+    container.ensure_running(uses)?;
     wait_until(&container.name, || {
         // Over TCP: while the image initializes a new database it answers on the socket
         // only, and restarts once more before it is ready.
@@ -343,9 +478,9 @@ pub(crate) fn prepare_postgres(started: &mut Started) -> Result<String> {
 ///
 /// Fails if docker is missing, the container cannot be started, or the bucket cannot be
 /// created in time.
-pub(crate) fn prepare_object_store(started: &mut Started) -> Result<(String, &'static str)> {
+pub(crate) fn prepare_object_store(uses: &mut Uses) -> Result<(String, &'static str)> {
     let container = Container::object_store()?;
-    container.ensure_running(started)?;
+    container.ensure_running(uses)?;
     wait_until(&container.name, || {
         create_bucket(container.host_port, S3_BUCKET)
     })?;
@@ -455,12 +590,84 @@ mod tests {
         );
     }
 
-    /// Only a container that did not run before is stopped at the end.
+    /// The containers the tests below stop.
+    static STOPPED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "it stands in for the stopping, which can fail"
+    )]
+    fn note_stop(name: &str) -> Result<()> {
+        STOPPED.lock().expect("lock poisoned").push(name.to_owned());
+        Ok(())
+    }
+
+    fn stopped(prefix: &str) -> Vec<String> {
+        let stopped = STOPPED.lock().expect("lock poisoned");
+        stopped
+            .iter()
+            .filter(|name| name.starts_with(prefix))
+            .cloned()
+            .collect()
+    }
+
+    fn meeting(test: &str) -> PathBuf {
+        let path = std::env::temp_dir()
+            .join("fvoci-xtask-test")
+            .join(format!("{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        path
+    }
+
+    /// A container a test run started is stopped by the last run that uses it, not
+    /// under another run; the mark goes with it.
     #[test]
-    fn only_what_this_run_started_is_stopped() {
-        assert!(!State::Running.is_started_by_this_run(), "running before");
-        assert!(State::Stopped.is_started_by_this_run(), "started");
-        assert!(State::Missing.is_started_by_this_run(), "created");
+    fn the_last_run_stops_what_a_test_run_started() {
+        let place = meeting("last");
+        let mut first = Uses::meeting_in(place.clone(), note_stop).expect("a meeting");
+        let mut second = Uses::meeting_in(place.clone(), note_stop).expect("a meeting");
+        drop(first.claim("last-pg").expect("claimed"));
+        first.mark_started("last-pg").expect("marked");
+        drop(second.claim("last-pg").expect("claimed"));
+        let (name, lock) = first.held.pop().expect("held");
+        assert_eq!(
+            first.release(&name, &lock).expect("released"),
+            Release::LeftToOthers
+        );
+        drop(lock);
+        assert_eq!(
+            stopped("last-"),
+            Vec::<String>::new(),
+            "the second run still uses it"
+        );
+        drop(second);
+        assert_eq!(stopped("last-"), ["last-pg"]);
+        assert!(!place.join("last-pg.started").exists(), "the mark is gone");
+    }
+
+    /// A container that ran before any test run started it runs on.
+    #[test]
+    fn what_ran_before_runs_on() {
+        let mut run = Uses::meeting_in(meeting("before"), note_stop).expect("a meeting");
+        drop(run.claim("before-pg").expect("claimed"));
+        let (name, lock) = run.held.pop().expect("held");
+        assert_eq!(
+            run.release(&name, &lock).expect("released"),
+            Release::LeftRunning
+        );
+        assert_eq!(stopped("before-"), Vec::<String>::new());
+    }
+
+    /// The containers are let go of the last first.
+    #[test]
+    fn the_containers_are_stopped_the_last_first() {
+        let mut run = Uses::meeting_in(meeting("order"), note_stop).expect("a meeting");
+        for name in ["order-pg", "order-s3"] {
+            drop(run.claim(name).expect("claimed"));
+            run.mark_started(name).expect("marked");
+        }
+        drop(run);
+        assert_eq!(stopped("order-"), ["order-s3", "order-pg"]);
     }
 
     /// A daemon that cannot be reached is not a missing container: creating one would
