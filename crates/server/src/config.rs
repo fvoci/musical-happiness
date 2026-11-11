@@ -800,18 +800,6 @@ impl Configuration {
         }
 
         let mut warnings = Vec::new();
-        if self.local_only
-            && self
-                .metrics_address()?
-                .is_some_and(|address| address.host.is_none())
-        {
-            warnings.push(
-                "localOnly is set, but prometheusaddress has no host and serves the metrics, \
-                 which have no authentication, on every interface; give it a host such as \
-                 127.0.0.1"
-                    .to_owned(),
-            );
-        }
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
         // which address that is, all clients are one client to the login limits: one
@@ -832,7 +820,8 @@ impl Configuration {
     }
 
     /// Where the metrics are served: `prometheusaddress` read as `host:port`, or `None`
-    /// if it is empty and no metrics are kept.
+    /// if it is empty and no metrics are kept. Without a host it is every interface, or
+    /// `localhost` if `localOnly` is set.
     ///
     /// # Errors
     ///
@@ -844,12 +833,18 @@ impl Configuration {
         if text.is_empty() {
             return Ok(None);
         }
-        MetricsAddress::parse(text).map(Some).ok_or_else(|| {
+        let mut address = MetricsAddress::parse(text).ok_or_else(|| {
             anyhow::anyhow!(
                 "prometheusaddress must be empty or host:port, such as 127.0.0.1:9092 or \
                  :9092 for every interface, not {text:?}"
             )
-        })
+        })?;
+        // A server that listens on the loopback only does so for its metrics too: the
+        // listener has no authentication.
+        if self.local_only && address.host.is_none() {
+            address.host = Some("localhost".to_owned());
+        }
+        Ok(Some(address))
     }
 
     /// Checks the settings of the login limits and of the queue of password work.
@@ -1202,27 +1197,23 @@ mod tests {
     }
 
     #[test]
-    fn metrics_on_every_interface_of_a_local_only_server_are_warned_about() {
-        let warnings = |text: &str| {
-            Configuration::parse(text, no_env)
-                .expect("valid")
-                .check()
-                .expect("accepted")
+    fn metrics_without_a_host_listen_on_the_loopback_of_a_local_only_server() {
+        let address = |local_only: bool| {
+            Configuration {
+                prometheus_address: ":9092".to_owned(),
+                local_only,
+                ..Configuration::default()
+            }
+            .metrics_address()
+            .expect("a valid address")
+            .expect("metrics are kept")
         };
-        let warned = warnings(r#"{"localOnly": true, "prometheusaddress": ":9092"}"#);
-        assert!(
-            warned
-                .iter()
-                .any(|warning| warning.contains("prometheusaddress")),
-            "{warned:?}"
+        assert_eq!(address(false).host, None, "every interface");
+        assert_eq!(
+            address(true).host.as_deref(),
+            Some("localhost"),
+            "the loopback only, as the API"
         );
-        for quiet in [
-            r#"{"localOnly": true, "prometheusaddress": "127.0.0.1:9092"}"#,
-            r#"{"localOnly": false, "prometheusaddress": ":9092"}"#,
-            r#"{"localOnly": true}"#,
-        ] {
-            assert!(warnings(quiet).is_empty(), "{quiet}");
-        }
     }
 
     #[test]

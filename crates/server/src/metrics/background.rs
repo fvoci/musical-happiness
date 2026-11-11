@@ -104,6 +104,7 @@ pub(super) struct BackgroundMetrics {
     runs: IntCounterVec,
     failures: IntCounterVec,
     last_run: GaugeVec,
+    last_success: GaugeVec,
     /// The counter of each limit, in the order of [`LoginLimit::ALL`]: a refusal, which
     /// is counted while the login records are locked, is one atomic addition.
     login_refusals: [IntCounter; 4],
@@ -138,6 +139,16 @@ impl BackgroundMetrics {
             &["job"],
         )?;
         registry.register(Box::new(last_run.clone()))?;
+        let last_success = GaugeVec::new(
+            Opts::new(
+                "job_last_success_timestamp_seconds",
+                "When a background job last finished a run that did all its work, by job, \
+                 in seconds since 1970 (UTC); 0 if none has yet.",
+            )
+            .namespace(PREFIX),
+            &["job"],
+        )?;
+        registry.register(Box::new(last_success.clone()))?;
         let login_refusals = IntCounterVec::new(
             Opts::new(
                 "login_refusals_total",
@@ -153,6 +164,7 @@ impl BackgroundMetrics {
             runs.with_label_values(&[job.as_str()]).reset();
             failures.with_label_values(&[job.as_str()]).reset();
             last_run.with_label_values(&[job.as_str()]).set(0.0);
+            last_success.with_label_values(&[job.as_str()]).set(0.0);
         }
         let login_refusals = LoginLimit::ALL.map(|limit| {
             let counter = login_refusals.with_label_values(&[limit.as_str()]);
@@ -163,6 +175,7 @@ impl BackgroundMetrics {
             runs,
             failures,
             last_run,
+            last_success,
             login_refusals,
         })
     }
@@ -185,6 +198,9 @@ impl Metrics {
             .unwrap_or_default()
             .as_secs_f64();
         background.last_run.with_label_values(&[job]).set(now);
+        if outcome == JobOutcome::Done {
+            background.last_success.with_label_values(&[job]).set(now);
+        }
     }
 
     /// Counts an attempt `limit` refused.

@@ -541,6 +541,8 @@ async fn the_background_jobs_are_counted_from_their_first_run() {
         );
         let last = job(&body, "fvoci_job_last_run_timestamp_seconds", name).unwrap_or_default();
         assert!(last > 1.7e9, "{name} ran just now: {body}");
+        let success = job(&body, "fvoci_job_last_success_timestamp_seconds", name);
+        assert_eq!(success, Some(last), "{name} did all its work: {body}");
     }
     server.teardown().await;
 }
@@ -610,5 +612,18 @@ async fn attempts_the_login_limits_refuse_are_counted_by_limit() {
     let body = scrape(&server).await;
     assert_eq!(refusals(&body, "address_rate"), Some(1.0), "{body}");
     assert_eq!(refusals(&body, "pair_delay"), Some(0.0), "{body}");
+    server.teardown().await;
+}
+
+#[tokio::test]
+async fn a_local_only_server_serves_metrics_without_a_host_on_its_loopback() {
+    let server = Setup::native()
+        .metrics_at(":0")
+        .configure(|config| config.local_only = true)
+        .start()
+        .await;
+    let address = server.metrics_address.expect("the server keeps metrics");
+    assert!(address.ip().is_loopback(), "{address}");
+    scrape(&server).await;
     server.teardown().await;
 }
