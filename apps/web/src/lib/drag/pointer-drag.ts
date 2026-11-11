@@ -52,7 +52,12 @@ export const POINTER_DRAG_DEFAULTS: PointerDragOptions = {
   touchVibration: DRAG_SETTINGS.touchVibration,
 };
 
-/** What one drag does. `start` is called once; after it exactly one of `drop` and `cancel`. */
+/**
+ * What one drag does. `start` is called once; after it exactly one of `drop`
+ * and `cancel`. A press taken at once (`immediate`) starts at every press of
+ * a mouse, a click included, and a click then ends with `cancel`: `start`
+ * must not show anything a click would leave behind.
+ */
 export interface PointerDragSession {
   start(point: Point): void;
   move(point: Point): void;
@@ -63,8 +68,8 @@ export interface PointerDragSession {
 /**
  * Asked on every press of the primary button or first finger inside the
  * root. Returns the session for the thing under the pointer, or undefined
- * when there is nothing to drag there. Must not change anything yet: most
- * presses end as a click or a scroll.
+ * when there is nothing to drag there. Must not change anything itself:
+ * most presses end as a click or a scroll.
  */
 export type PointerDragSource = (event: PointerEvent) => PointerDragSession | undefined;
 
@@ -132,9 +137,9 @@ class PointerDragController {
     this.#source = source;
     this.#settings = {
       ...POINTER_DRAG_DEFAULTS,
-      immediate: false,
-      escapeCancels: true,
       ...options,
+      immediate: options.immediate ?? false,
+      escapeCancels: options.escapeCancels ?? true,
     };
     this.#root.addEventListener('pointerdown', this.#onPointerDown);
     this.#root.addEventListener('lostpointercapture', this.#onLostCapture);

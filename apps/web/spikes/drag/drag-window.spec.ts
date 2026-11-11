@@ -149,7 +149,7 @@ test.describe('the window changes size during a drag', () => {
 
 interface Timed {
   /** When the pointer had gone far enough to drag, and when the dragged card showed, in the page's time. */
-  dragTiming: { crossed?: number; shown?: number };
+  dragTiming: { crossed?: number; shown?: number; shownByNextTask?: boolean };
 }
 
 /** Notes in the page when the pressed pointer has gone the few pixels, and when the drag shows. */
@@ -169,7 +169,12 @@ async function recordDragStart(page: Page): Promise<void> {
       (event) => {
         if (!origin || timing.crossed !== undefined) return;
         const travelled = Math.hypot(event.clientX - origin.x, event.clientY - origin.y);
-        if (travelled >= distance) timing.crossed = performance.now();
+        if (travelled < distance) return;
+        timing.crossed = performance.now();
+        // After this move's own work and what it queued, before any timer of the page.
+        setTimeout(() => {
+          timing.shownByNextTask = document.querySelector('[data-drag-overlay]') !== null;
+        }, 0);
       },
       options,
     );
@@ -199,7 +204,8 @@ test.describe('how a drag begins follows the pointer, not the width of the windo
       // that how long the test runner takes between two steps does not count.
       const timing = await page.evaluate(() => (window as unknown as Timed).dragTiming);
       expect(timing.crossed).toBeDefined();
-      expect(timing.shown).toBeDefined();
+      // Begun by that move itself, not by a timer: the card shows before the page does anything else.
+      expect(timing.shownByNextTask).toBe(true);
       expect((timing.shown ?? Infinity) - (timing.crossed ?? 0)).toBeLessThan(
         DRAG_SETTINGS.touchDelay,
       );

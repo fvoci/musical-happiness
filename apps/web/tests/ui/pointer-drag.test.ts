@@ -121,6 +121,8 @@ describe('a mouse, taken at once', () => {
     attach({ immediate: true });
     pointer('pointerdown', { x: 0, y: 0 });
     pointer('pointermove', { x: far - 1, y: 0 });
+    // Not captured: the browser gives the click to what was pressed, not to the root.
+    expect(captured.has(1)).toBe(false);
     release({ x: far - 1, y: 0 });
     expect(heard).toEqual(['start 0', 'cancel']);
     expect(clicks).toBe(1);
@@ -163,6 +165,14 @@ describe('a mouse, taken at once', () => {
 });
 
 describe('Escape left alone', () => {
+  test('is the default only where asked for: left out, Escape cancels', () => {
+    attach({ immediate: true, escapeCancels: undefined });
+    pointer('pointerdown', { x: 0, y: 0 });
+    pointer('pointermove', { x: 10, y: 0 });
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+    expect(heard).toEqual(['start 0', 'move 10', 'cancel']);
+  });
+
   test('does not cancel a drag, and nothing else on the page hears it meanwhile', () => {
     attach({ immediate: true, escapeCancels: false });
     const elsewhere = vi.fn();
@@ -179,7 +189,10 @@ describe('Escape left alone', () => {
   });
 
   test('reaches the page again once the drag is over', () => {
-    attach({ escapeCancels: false });
+    attach({ immediate: true, escapeCancels: false });
+    pointer('pointerdown', { x: 0, y: 0 });
+    pointer('pointermove', { x: 10, y: 0 });
+    release({ x: 10, y: 0 });
     const elsewhere = vi.fn();
     document.addEventListener('keydown', elsewhere);
     item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
