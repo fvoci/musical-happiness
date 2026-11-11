@@ -41,9 +41,11 @@ test('a card without a date is given one from "No date" with the keys alone, and
 
   const picker = page.getByTestId('day-picker');
   await expect(picker).toContainText('The day picked becomes its Due Date.');
-  // The month of the picked day, the 10th; a week down is the 17th.
+  // The month of the picked day, the 10th, which has the focus in a popover; a sheet takes it
+  // itself, and Tab goes on to the month's arrows and then the day. A week down is the 17th.
   const tenth = picker.locator('[data-bits-day][data-value="2026-11-10"]');
-  await tabTo(page, tenth);
+  if (info.project.name === 'mobile') await tabTo(page, tenth);
+  await expect(tenth).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await expect(picker).toBeHidden();
@@ -72,14 +74,20 @@ test('"+N" opens every card of its day, each with its "…", reached by the keys
     'Add new properties',
     '@mention teammates',
   ].slice(0, lanes);
+  // The crowd has six cards: a cell of more rows would not overflow.
+  expect(crowd).toHaveLength(lanes);
   await setDates(page, Object.fromEntries(crowd.map((title) => [title, { from: '2026-11-12' }])));
   const more = grid(page).locator('[data-more="2026-11-12"]');
   await expect(more).toBeVisible();
-  if (touch(info)) {
-    await dayButton(page, '2026-11-12').focus();
-  } else {
-    // "+N" is a button of its own for a mouse, and a stop of the Tab key.
-    await more.focus();
+  const twelfth = dayButton(page, '2026-11-12');
+  await twelfth.click();
+  await page.keyboard.press('Escape');
+  await expect(twelfth).toBeFocused();
+  // Under a finger the day is the button, "+N" a picture in it. With a mouse "+N" is a
+  // button of its own and a stop of the Tab key, right after the day's.
+  if (!touch(info)) {
+    await page.keyboard.press('Tab');
+    await expect(more).toBeFocused();
   }
   await page.keyboard.press('Enter');
   const list = page.getByTestId('day-popover');

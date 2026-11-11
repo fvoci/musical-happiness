@@ -12,8 +12,9 @@
   menu was in has closed, and then opens it: a popover next to the picked
   day (or "No date", for a card without one), or a sheet on a compact page.
   In the popover the focus goes to the card's day (the picked day, for a
-  card without one), where the arrow keys walk the month; a sheet takes it itself, as every sheet does. Once closed, the
-  calendar puts the focus on the card's day, or on "No date" (`onclosed`).
+  card without one), where the arrow keys walk the month; a sheet takes it
+  itself, as every sheet does. Once closed, the calendar puts the focus on
+  the card's day, or on "No date" (`onclosed`).
   Once the board has kept the change, the calendar goes to the new day
   (`onmoved`) and a screen reader hears where the card went; a change the
   board refuses is put back by the board, and nothing moves or is said.
