@@ -226,7 +226,7 @@ mod tests {
             long("A-Z_0.9~+/"),
         ] {
             let config = Configuration {
-                prometheus_token: accepted.to_owned(),
+                prometheus_token: accepted,
                 ..Configuration::default()
             };
             config.check().expect("a bearer token");
