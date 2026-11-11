@@ -6,14 +6,19 @@
 //! live or in the trash, is marked with the time it became so, and a file marked longer
 //! ago than the grace period is removed by [`Store::collect_unreferenced_files`], and
 //! its object doomed.
+//!
+//! A write that makes a block show an image newly asks, in its transaction, that the
+//! board has the image's file, and holds its record until it commits
+//! ([`NewImages::Recorded`]): what a request checked before the write began is not
+//! collected under it. The collector takes no record that a block shows when it looks.
 
 use std::collections::BTreeSet;
 
-use fvoci_model::{Block, FileInfo};
+use fvoci_model::{Block, BlockError, FileInfo};
 
 use crate::Store;
 use crate::comment_versions;
-use crate::db::{Id, Scope, now_millis};
+use crate::db::{Dialect, Id, Scope, now_millis};
 use crate::error::StoreError;
 use crate::file_info::{FILE_INFO_COLUMN_COUNT, FILE_INFO_COLUMNS, file_info_from_row};
 use crate::loose_objects;
@@ -34,12 +39,16 @@ impl Store {
             // One statement decides and deletes: a file that a block shows again by the
             // time its row is deleted keeps its row (PostgreSQL checks the condition
             // again against the row as committed).
+            // A record that a block shows is not taken, whatever its mark says: a write
+            // that showed it while another took the mark away may have left one behind.
             let org = loose_objects::org_column(scope);
             let mut sql = scope.sql(
                 "DELETE FROM file_info WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
             );
             sql.bind(before).push(&format!(
-                " RETURNING {FILE_INFO_COLUMNS}{}",
+                " AND NOT EXISTS (SELECT 1 FROM file_refs r WHERE r.board_id = file_info.board_id \
+                 AND r.name = file_info.name{}) RETURNING {FILE_INFO_COLUMNS}{}",
+                scope.same_organization(&[("r", "file_info")]),
                 org.map_or(String::new(), |column| format!(", {column}"))
             ));
             let rows = scope.fetch_all(sql).await?;
@@ -58,10 +67,30 @@ impl Store {
     }
 }
 
+/// What a write of blocks asks of the files that the images of their bodies come to
+/// show: those a block did not show before the write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NewImages {
+    /// Each is a file of the block's board, asked in the write's transaction, and its
+    /// record is held until the write ends: the collector of unreferenced files
+    /// ([`Store::collect_unreferenced_files`]) waits for it, or took the record first
+    /// and the write is refused with [`BlockError::ImageWithoutFile`]. For what a
+    /// client writes.
+    Recorded,
+    /// Not asked: for a write that copies blocks and points their images at copies of
+    /// their files afterwards, as a duplicate and an import do.
+    Unchecked,
+}
+
 /// Puts down the files a block shows now, in place of those it showed, and marks the
 /// files of its board whose state that changes. A comment shows the files of its kept
-/// versions too, also while it is made a block of another type.
-pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), StoreError> {
+/// versions too, also while it is made a block of another type. What the images of
+/// the body newly show is asked as `new_images` says.
+pub(crate) async fn refresh(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    new_images: NewImages,
+) -> Result<(), StoreError> {
     let mut sql = scope.sql("DELETE FROM file_refs WHERE block_id = ");
     sql.bind(Id(&block.id)).push(" RETURNING name");
     let mut names = scope
@@ -70,6 +99,9 @@ pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), 
         .iter()
         .map(|row| row.text(0))
         .collect::<Result<Vec<_>, _>>()?;
+    if new_images == NewImages::Recorded {
+        hold_new_images(scope, block, &names).await?;
+    }
     // What the block shows, and what the kept versions of a comment show, also of one
     // that is no comment for now.
     let mut shown: BTreeSet<String> = block.shown_files().into_iter().collect();
@@ -89,6 +121,51 @@ pub(crate) async fn refresh(scope: &mut Scope<'_>, block: &Block) -> Result<(), 
     names.sort_unstable();
     names.dedup();
     mark(scope, Some((&block.board_id, &names))).await
+}
+
+/// Holds the records of the files that the images of a block's body show and that it
+/// did not show before (`before`), until the transaction ends; refuses the block if
+/// its board has no record of one. On PostgreSQL the lock keeps the collector from
+/// deleting a record while the write goes on, and a record it deleted is not found;
+/// on SQLite the transaction is the only writer.
+async fn hold_new_images(
+    scope: &mut Scope<'_>,
+    block: &Block,
+    before: &[String],
+) -> Result<(), StoreError> {
+    let Some(body) = &block.body else {
+        return Ok(());
+    };
+    let new: BTreeSet<&str> = body
+        .file_ids()
+        .into_iter()
+        .filter(|name| !before.iter().any(|shown| shown == name))
+        .collect();
+    if new.is_empty() {
+        return Ok(());
+    }
+    let mut sql = scope.sql("SELECT name FROM file_info WHERE board_id = ");
+    sql.bind(Id(&block.board_id))
+        .push(" AND name IN (")
+        .bind_list(new.iter().copied())
+        .push(")");
+    if scope.dialect() == Dialect::Postgres {
+        sql.push(" FOR KEY SHARE");
+    }
+    let recorded = scope
+        .fetch_all(sql)
+        .await?
+        .iter()
+        .map(|row| row.text(0))
+        .collect::<Result<BTreeSet<_>, _>>()?;
+    if new.iter().all(|name| recorded.contains(*name)) {
+        Ok(())
+    } else {
+        Err(StoreError::InvalidBlock {
+            id: block.id.clone(),
+            source: BlockError::ImageWithoutFile,
+        })
+    }
 }
 
 /// Forgets what the blocks that are gone for good showed: neither on a board nor in the

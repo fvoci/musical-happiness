@@ -19,7 +19,6 @@ file 1003 crates/server/src/ws.rs
 file 2909 crates/server/tests/api/blocks.rs
 file 3691 crates/server/tests/api/boards.rs
 file 2864 crates/server/tests/api/sidebar.rs
-file 1016 crates/store/src/blocks.rs
 file 1118 crates/store/src/boards.rs
 file 4159 crates/store/tests/store/blocks.rs
 file 4393 crates/store/tests/store/boards.rs

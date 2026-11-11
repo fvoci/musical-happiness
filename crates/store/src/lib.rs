@@ -9,6 +9,7 @@
 mod blocks;
 mod boards;
 mod boards_and_blocks;
+mod card_values;
 mod categories;
 mod category_boards;
 mod comment_places;
@@ -49,6 +50,7 @@ pub use connect::DbType;
 pub use db::Dialect;
 pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
 pub use error::{StoreError, Taken};
+pub use file_refs::NewImages;
 pub use loose_objects::{LooseCounts, LooseObject, LooseState};
 pub use observe::{Access, Call, Observer, Outcome};
 pub use sharing::SharingChange;
