@@ -154,7 +154,7 @@ fn generate_boards_and_blocks_ids_links_blocks_to_new_board_ids() {
         blocks: vec![
             block("block-id-1", "board-id-1", BlockType::Card),
             block("block-id-2", "board-id-2", BlockType::View),
-            block("block-id-3", "board-id-2", BlockType::Text),
+            block("block-id-3", "board-id-2", BlockType::Comment),
         ],
     };
 
@@ -197,7 +197,7 @@ fn generate_boards_and_blocks_ids_links_blocks_to_new_board_ids() {
     assert_ne!(block2.id, "block-id-2");
     assert_eq!(block2.board_id, board2.id);
 
-    let block3 = block_by_type(BlockType::Text);
+    let block3 = block_by_type(BlockType::Comment);
     assert!(!block3.id.is_empty(), "block3 has no id");
     assert_ne!(block3.id, "block-id-3");
     assert_eq!(block3.board_id, board2.id);

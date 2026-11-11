@@ -215,7 +215,7 @@ async fn a_file_is_found_through_its_own_board_only() {
     let mut image = Block {
         id: new_id(),
         board_id: other.clone(),
-        block_type: BlockType::Image,
+        block_type: BlockType::Attachment,
         created_by: user_id.clone(),
         fields: serde_json::from_value(json!({ "fileId": stored_name }))
             .expect("the fields are a JSON object"),
@@ -481,7 +481,7 @@ async fn a_file_no_block_shows_is_collected_after_the_grace_period() {
     let mut image = Block {
         id: new_id(),
         board_id: board_id.clone(),
-        block_type: BlockType::Image,
+        block_type: BlockType::Attachment,
         fields: serde_json::from_value(json!({ "fileId": "7image.png" }))
             .expect("the fields are a JSON object"),
         ..Block::default()

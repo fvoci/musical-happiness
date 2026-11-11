@@ -542,7 +542,7 @@ async fn resubscribing_keeps_the_stored_creation_time() {
     tokio::time::sleep(Duration::from_millis(5)).await;
     let second = store
         .create_subscription(Subscription {
-            block_type: BlockType::Text,
+            block_type: BlockType::Attachment,
             subscriber_type: SubscriberType::Channel,
             ..sub
         })
@@ -831,7 +831,7 @@ async fn deleting_a_block_ends_the_subscriptions_to_it_for_good() {
     let card = first_block(store, &author.id).await;
     let mut below = vec![Block {
         parent_id: card.id.clone(),
-        block_type: BlockType::Text,
+        block_type: BlockType::Attachment,
         ..card_on(&card.board_id, &author.id)
     }];
     common::insert_blocks(store, &mut below, &author.id).await;

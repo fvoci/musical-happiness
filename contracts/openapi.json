@@ -1920,7 +1920,7 @@
         "description": "What an upload answers: the name the file is asked for by.",
         "properties": {
           "fileId": {
-            "description": "The identifier of the file: what `getFile` and `getFileInfo` take, and what an\nimage or attachment block names in its `fileId` field.",
+            "description": "The identifier of the file: what `getFile` and `getFileInfo` take, and what an\nattachment block or an image of a body names in its `fileId`.",
             "type": "string"
           }
         },

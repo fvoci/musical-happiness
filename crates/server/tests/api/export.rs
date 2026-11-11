@@ -335,13 +335,12 @@ async fn import_of_a_traversing_entry_is_harmless() {
 
 /// Two blocks that name the same file: the original writes the file into the archive
 /// twice under one name; the port writes it once. Found when an export of such a board
-/// failed. One of the two is an image block, as a server stored them before a card's
-/// content became its body: its file is exported too.
+/// failed. A third block's own file is exported too.
 #[tokio::test]
 async fn export_of_a_board_whose_blocks_share_a_file() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_TEAM_ID).await;
-    let image = |file: &str| {
+    let attachment = |file: &str| {
         let mut fields = fvoci_model::JsonMap::new();
         fields.insert(
             "fileId".to_owned(),
@@ -359,28 +358,22 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
         }
     };
     ts.client
-        .insert_blocks(&board.id, &[image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")])
+        .insert_blocks(&board.id, &[attachment("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")])
         .await
         .check_created();
-    // The stored image block shares the file, and has one that only it shows.
-    let mut older = [
-        fvoci_model::Block {
-            block_type: fvoci_model::BlockType::Image,
-            ..image("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png")
-        },
-        fvoci_model::Block {
-            block_type: fvoci_model::BlockType::Image,
-            ..image("7bbbbbbbbbbbbbbbbbbbbbbbbbb.png")
-        },
+    // Another block shares the file, and a third has one that only it shows.
+    let mut others = [
+        attachment("7aaaaaaaaaaaaaaaaaaaaaaaaaa.png"),
+        attachment("7bbbbbbbbbbbbbbbbbbbbbbbbbb.png"),
     ];
     ts.app
         .insert_blocks(
-            &mut older,
+            &mut others,
             &ts.stranger().await,
             fvoci_server::app::ChangeNotification::Send,
         )
         .await
-        .expect("the older image block is stored");
+        .expect("the blocks are stored");
 
     let export = export_board(&ts.client, &board.id).await;
     export.check_ok();
@@ -399,7 +392,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
             "7aaaaaaaaaaaaaaaaaaaaaaaaaa.png",
             "7bbbbbbbbbbbbbbbbbbbbbbbbbb.png"
         ],
-        "the shared file has one entry, and the image block's own file one too"
+        "the shared file has one entry, and the third block's own file one too"
     );
     ts.teardown().await;
 }

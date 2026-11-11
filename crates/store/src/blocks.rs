@@ -767,7 +767,7 @@ pub(crate) async fn patch_block(
     // What the block was stored with before it was refused is not the patch's fault.
     block.drop_malformed_fields();
     patch
-        .check_type(&block.block_type)
+        .check_type()
         .map_err(|source| StoreError::InvalidBlock {
             id: block.id.clone(),
             source,

@@ -62,8 +62,6 @@ fn block_validate_limits_the_serialized_fields_by_type() {
         (BlockType::Comment, CARD_FIELDS_MAX_CHARS),
         (BlockType::Attachment, CARD_FIELDS_MAX_CHARS),
         (BlockType::View, BLOCK_FIELDS_MAX_CHARS),
-        // What an older server stored keeps the limit it had.
-        (BlockType::Text, BLOCK_FIELDS_MAX_CHARS),
     ];
     for (block_type, limit) in cases {
         assert_eq!(block_type.fields_max_chars(), limit, "{block_type}");
@@ -111,28 +109,26 @@ fn a_refused_type_is_shown_shortened() {
         );
     }
     assert_eq!(
-        BlockError::type_not_current(&BlockType::Text),
+        BlockError::type_not_current(&BlockType::from("text")),
         BlockError::TypeNotCurrent("text".to_owned())
     );
 }
 
-/// A patch may leave a block's type as it is, whatever it is, or change it to a current
-/// one; it may not make a block one of a type that no new block has.
+/// A patch may give a block a type that a new block may have, and no other.
 #[test]
 fn a_patch_does_not_give_a_block_a_type_that_is_not_current() {
     let to = |name: &str| BlockPatch {
         block_type: Some(BlockType::from(name)),
         ..BlockPatch::default()
     };
-    assert_eq!(BlockPatch::default().check_type(&BlockType::Text), Ok(()));
-    assert_eq!(to("text").check_type(&BlockType::Text), Ok(()), "kept");
-    assert_eq!(to("card").check_type(&BlockType::Text), Ok(()), "to a card");
+    assert_eq!(BlockPatch::default().check_type(), Ok(()), "no type");
+    assert_eq!(to("card").check_type(), Ok(()), "to a card");
     assert_eq!(
-        to("text").check_type(&BlockType::Card),
+        to("text").check_type(),
         Err(BlockError::TypeNotCurrent("text".to_owned()))
     );
     assert_eq!(
-        to("h1").check_type(&BlockType::Attachment),
+        to("h1").check_type(),
         Err(BlockError::TypeNotCurrent("h1".to_owned()))
     );
 }

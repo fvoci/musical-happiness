@@ -4,14 +4,29 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{date_property_ids, rewrite_previous_date_values};
+use fvoci_model::{BlockType, date_property_ids, rewrite_previous_date_values};
 
 use crate::Store;
 use crate::db::{Id, Param, Scope};
 use crate::error::StoreError;
+use crate::file_refs;
 
 /// The step of migration 4: date values to the shape of `docs/s6-design.md` 5.7 (B).
 const DATE_VALUES: &str = "date_values";
+
+/// The step of migration 8: the content blocks stored before a card's content became its
+/// body are deleted (user decision 2026-11-11 11:05 KST).
+const CONTENT_BLOCKS: &str = "content_blocks";
+
+/// The block types that stay: those a block may be given ([`BlockType::is_current`]),
+/// and the legacy board block of the original, which is no content block.
+const KEPT_TYPES: [BlockType; 5] = [
+    BlockType::Card,
+    BlockType::View,
+    BlockType::Comment,
+    BlockType::Attachment,
+    BlockType::Board,
+];
 
 /// Does the steps that are still to be done.
 ///
@@ -24,15 +39,60 @@ pub(crate) async fn run(store: &Store) -> Result<(), StoreError> {
         .transaction(async |scope| {
             // The step is claimed before it is done: of two servers that start at once,
             // the second waits here for the first and then finds nothing to do.
-            let mut sql = scope.sql("DELETE FROM data_steps WHERE name = ");
-            sql.bind(DATE_VALUES).push(" RETURNING name");
-            if !scope.fetch_all(sql).await?.is_empty() {
+            if claim(scope, DATE_VALUES).await? {
                 let changed = date_values(scope).await?;
                 tracing::info!(changed, "date values were changed to their new shape");
+            }
+            if claim(scope, CONTENT_BLOCKS).await? {
+                let deleted = content_blocks(scope).await?;
+                tracing::info!(
+                    deleted,
+                    "the content blocks stored before bodies were deleted"
+                );
             }
             Ok(())
         })
         .await
+}
+
+/// Takes the step's row: whether the step is still to be done.
+async fn claim(scope: &mut Scope<'_>, step: &str) -> Result<bool, StoreError> {
+    let mut sql = scope.sql("DELETE FROM data_steps WHERE name = ");
+    sql.bind(step).push(" RETURNING name");
+    Ok(!scope.fetch_all(sql).await?.is_empty())
+}
+
+/// Deletes the content blocks (every type but [`KEPT_TYPES`]), on the boards and in the
+/// trash, and the references to the files they showed. A file that no
+/// block shows any more is marked, to be collected after the grace period like any
+/// other. Returns how many blocks were deleted.
+async fn content_blocks(scope: &mut Scope<'_>) -> Result<u64, StoreError> {
+    let mut sql = scope.sql("DELETE FROM blocks WHERE type NOT IN (");
+    for (index, block_type) in KEPT_TYPES.iter().enumerate() {
+        sql.push_bind(if index == 0 { "" } else { ", " }, block_type.as_str());
+    }
+    sql.push(")");
+    let mut deleted = scope.execute(sql).await?;
+
+    // The trash keeps a block as JSON: its type is read here.
+    let sql = scope.sql("SELECT id, block FROM deleted_blocks");
+    let mut in_trash = Vec::new();
+    for row in scope.fetch_all(sql).await? {
+        let block = row.json(1, "block")?;
+        let block_type = BlockType::from(block["type"].as_str().unwrap_or_default());
+        if !KEPT_TYPES.contains(&block_type) {
+            in_trash.push(row.id(0)?);
+        }
+    }
+    for chunk in in_trash.chunks(500) {
+        let mut sql = scope.sql("DELETE FROM deleted_blocks WHERE id IN (");
+        sql.bind_list(chunk.iter().map(|id| Id(id))).push(")");
+        deleted += scope.execute(sql).await?;
+    }
+
+    file_refs::forget_gone_blocks(scope).await?;
+    file_refs::mark(scope, None).await?;
+    Ok(deleted)
 }
 
 /// The identifiers of each board's date properties, live boards and those in the trash.

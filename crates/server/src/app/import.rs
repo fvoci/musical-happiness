@@ -205,7 +205,7 @@ impl App {
     }
 
     /// Points every block of each imported board that shows a file at the newly stored
-    /// one: the `fileId` or `attachmentId` of an image or attachment block, and the
+    /// one: the `fileId` or `attachmentId` of an attachment block, and the
     /// images of a body. A name the archive brought no file for becomes the empty name
     /// in a block's fields, and its image in a body an empty paragraph. Failures are
     /// logged, as in the original.
@@ -378,8 +378,8 @@ async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<Pars
             .await
             .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))??;
 
-    // An archive of this server may hold blocks stored before a card's content became
-    // its body; none is made again (`docs/contract-pending.md` 1).
+    // An archive exported before a card's content became its body may hold content
+    // blocks; none is made again (`docs/contract-pending.md` 1).
     if let Some(block) = boards_and_blocks
         .blocks
         .iter()

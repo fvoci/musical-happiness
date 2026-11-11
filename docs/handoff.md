@@ -36,7 +36,7 @@
   | 4 | 날짜 속성 값(5.7의 B): 날짜 속성은 날짜 값이나 `null`만, 다른 속성은 날짜 값을 받지 않는다. 마이그레이션 4의 데이터 단계가 저장된 값과 날짜 필터를 바꾼다(휴지통 포함), 예전 아카이브도. 템플릿의 날짜 값이 새 모양이라 템플릿보다 먼저 한다 | 끝 |
   | 5 | 템플릿 받기: 산출물을 저장소에, 이미지 빼기, `onboarding` 표식, `onboard`의 500, Dockerfile에서 아카이브를 뺌 | 끝 |
   | 5b | 아카이브 판 3(계약의 타입 그대로, 본문의 이미지 파일까지), 옛 형식(판 1, 판 2) 가져오기를 걷음. 설계 결정 14번 | 끝 |
-  | 6 | 콘텐츠 블록 걷어 내기: 콘텐츠 블록 종류, `contentOrder`, `moveContentBlock`, 종류별 `fields` 한도. 저장된 콘텐츠 블록은 사용자 결정 필요(`docs/contract-pending.md` 1절) | 끝 |
+  | 6 | 콘텐츠 블록 걷어 내기: 콘텐츠 블록 종류, `contentOrder`, `moveContentBlock`, 종류별 `fields` 한도. 저장된 콘텐츠 블록은 16에서 지운다 | 끝 |
   | 7 | 파일 하나를 청크로 올리고 받는다(올리기 세션, 로컬 저장소): `createUpload`, `putUploadPart`, `getUpload`, `completeUpload`, `deleteUpload`, 설정 `upload_part_bytes`와 `tmp_path` | 끝 |
   | 8 | 업로드의 한도(429, 설정 `max_pending_upload_bytes`), 만료와 정리(한 시간마다와 시작할 때), 시작할 때 남은 임시 파일 지우기, `uploadFile`의 스트리밍과 부분 하나 한도(413 `upload_in_parts`), `maxfilesize` 기본 100 MiB | 끝 |
   | 8b | S3 멀티파트: S3 설정에서 부분을 S3에 바로 올리고(`MultipartStore`), 버리거나 끝나면 `abort_multipart`. 운영 문서에 버킷의 `AbortIncompleteMultipartUpload` 규칙(설계 5.6의 7) | 끝 |
@@ -48,8 +48,8 @@
   | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | 끝 |
   | 14 | 빌드 크기(디버그 정보 수준) | 끝 |
   | 15 | 사용자 결정 1(11:05 KST): `patchCard`가 바뀐 속성만 받아 합치고 지울 속성을 따로 받는다 | 끝 |
-  | 16 | 사용자 결정 2: 저장된 옛 콘텐츠 블록을 데이터 단계로 지우고(파일은 수거의 길로) 그것을 다루던 코드를 걷는다 | 다음 |
-  | 17 | 사용자 결정 3: 공유 링크의 익명 독자에게 나가는 본문의 멘션에서 사용자 ID를 비운다(HTTP와 WebSocket) | |
+  | 16 | 사용자 결정 2: 저장된 옛 콘텐츠 블록을 데이터 단계로 지우고(파일은 수거의 길로) 그것을 다루던 코드를 걷는다 | 끝 |
+  | 17 | 사용자 결정 3: 공유 링크의 익명 독자에게 나가는 본문의 멘션에서 사용자 ID를 비운다(HTTP와 WebSocket) | 다음 |
   | 18 | 사용자 결정 4: `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`를 없앤 키로 | |
   | 19 | 사용자 결정 5: S3의 비밀 아닌 설정을 `FVOCI_*` 환경 변수로도 받는다 | |
   | 끝 | 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | |

@@ -41,19 +41,13 @@ pub enum BlockType {
     Card,
     /// A board view.
     View,
-    /// A text content block.
-    Text,
-    /// A checkbox content block.
-    Checkbox,
     /// A comment on a card.
     Comment,
-    /// An image content block.
-    Image,
     /// A file attachment on a card.
     Attachment,
-    /// A divider content block.
-    Divider,
-    /// Any other type string, kept as sent. The empty string means "no type".
+    /// Any other type string, kept as sent, such as a content block type of the original
+    /// (`text`, `image`, ...): no block is stored with one. The empty string means "no
+    /// type".
     Other(String),
 }
 
@@ -65,10 +59,10 @@ impl BlockType {
         matches!(self, Self::Card | Self::Comment)
     }
 
-    /// Returns `true` for the types a new block may have: a card, a view, a comment and
-    /// an attachment (`docs/s6-design.md` 5.7). A block of another type was stored
-    /// before a card's content became its body; it stays as it is, but no block is
-    /// made one.
+    /// Returns `true` for the types a block may be given: a card, a view, a comment and
+    /// an attachment (`docs/s6-design.md` 5.7). The content blocks that were stored
+    /// before a card's content became its body were deleted by a data step of migration
+    /// 8.
     #[must_use]
     pub fn is_current(&self) -> bool {
         matches!(
@@ -83,15 +77,7 @@ impl BlockType {
     pub fn fields_max_chars(&self) -> usize {
         match self {
             Self::Card | Self::Comment | Self::Attachment => CARD_FIELDS_MAX_CHARS,
-            // A block stored before a card's content became its body keeps the limit it
-            // was stored under.
-            Self::View
-            | Self::Board
-            | Self::Text
-            | Self::Checkbox
-            | Self::Image
-            | Self::Divider
-            | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
+            Self::View | Self::Board | Self::Other(_) => BLOCK_FIELDS_MAX_CHARS,
         }
     }
 
@@ -101,12 +87,8 @@ impl BlockType {
             Self::Board => "board",
             Self::Card => "card",
             Self::View => "view",
-            Self::Text => "text",
-            Self::Checkbox => "checkbox",
             Self::Comment => "comment",
-            Self::Image => "image",
             Self::Attachment => "attachment",
-            Self::Divider => "divider",
             Self::Other(other) => other,
         }
     }
@@ -122,12 +104,8 @@ impl BlockType {
             "board" => Self::Board,
             "card" => Self::Card,
             "view" => Self::View,
-            "text" => Self::Text,
-            "checkbox" => Self::Checkbox,
             "comment" => Self::Comment,
-            "image" => Self::Image,
             "attachment" => Self::Attachment,
-            "divider" => Self::Divider,
             _ => return None,
         })
     }
@@ -175,7 +153,7 @@ pub struct ParseBlockTypeError(String);
 impl FromStr for BlockType {
     type Err = ParseBlockTypeError;
 
-    /// Parses one of the nine known block types, ignoring ASCII case.
+    /// Parses one of the five known block types, ignoring ASCII case.
     ///
     /// Unlike the `From<&str>` conversion, which keeps unknown strings, this rejects them.
     /// It is the strict form used for the `type` query parameter.
@@ -396,7 +374,7 @@ impl Block {
     /// (`0003_file_refs.sql`) copies this rule in SQL; the two change together.
     #[must_use]
     pub fn shown_files(&self) -> Vec<String> {
-        if self.block_type == BlockType::Image || self.block_type == BlockType::Attachment {
+        if self.block_type == BlockType::Attachment {
             return ["fileId", "attachmentId"]
                 .iter()
                 .find_map(|key| self.fields.get(*key).and_then(serde_json::Value::as_str))
@@ -525,17 +503,14 @@ impl BlockPatch {
         self.body.apply_to(&mut block.body);
     }
 
-    /// Checks the type the patch gives a block of the type `stored`: a block may keep
-    /// its type, whatever it is, or take one that a new block may have.
+    /// Checks the type the patch gives a block: none, or one a block may be given.
     ///
     /// # Errors
     ///
-    /// Returns [`BlockError::TypeNotCurrent`] for a change to another type.
-    pub fn check_type(&self, stored: &BlockType) -> Result<(), BlockError> {
+    /// Returns [`BlockError::TypeNotCurrent`] for another type.
+    pub fn check_type(&self) -> Result<(), BlockError> {
         match &self.block_type {
-            Some(new_type) if new_type != stored && !new_type.is_current() => {
-                Err(BlockError::type_not_current(new_type))
-            }
+            Some(new_type) if !new_type.is_current() => Err(BlockError::type_not_current(new_type)),
             _ => Ok(()),
         }
     }

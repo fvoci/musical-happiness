@@ -617,13 +617,14 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
     test.teardown().await;
 }
 
-/// An image and an attachment block, and two cards whose bodies show an image deep in
-/// the document; the second and the fourth go to the trash.
+/// Two attachment blocks that name their file by `fileId`, one by `attachmentId`, and
+/// two cards whose bodies show an image deep in the document; the second and the fourth
+/// go to the trash.
 fn blocks_showing(board_id: &str) -> [Block; 5] {
     let image = |name: &str| Block {
         id: new_id(),
         board_id: board_id.to_owned(),
-        block_type: BlockType::Image,
+        block_type: BlockType::Attachment,
         fields: serde_json::from_value(serde_json::json!({ "fileId": name }))
             .expect("the fields are a JSON object"),
         ..Block::default()
@@ -862,6 +863,103 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
         collected(crate::blocks::now_millis() + 3_600_000).await,
         ["7none.png"],
         "the image, the attachment, the bodies and the trash show theirs"
+    );
+    store.close().await;
+
+    test.teardown().await;
+}
+
+/// The step of migration 8 deletes the content blocks an older server stored, on the
+/// board and in the trash, and leaves the files that only they showed to be collected.
+/// The other blocks and their files stay.
+#[tokio::test]
+async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "migrated").await;
+    let team_id = common::team(&test).await;
+    let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
+    let board_id = &boards[0].id;
+    for name in ["7image.png", "7kept.png"] {
+        let file = fvoci_model::FileInfo {
+            id: new_id(),
+            board_id: board_id.clone(),
+            stored_name: name.to_owned(),
+            create_at: 1,
+            path: format!("{board_id}/{name}"),
+            ..fvoci_model::FileInfo::default()
+        };
+        test.save_file_info(&file).await.expect("a file is stored");
+    }
+    let block = |block_type: &str, fields: serde_json::Value| Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: BlockType::from(block_type),
+        fields: serde_json::from_value(fields).expect("the fields are a JSON object"),
+        ..Block::default()
+    };
+    let none = serde_json::json!({});
+    // A card, an attachment, a view and a legacy board block that stay; an image, a
+    // text, a heading in the trash and a checkbox that go. The image is stored as an
+    // attachment first, which puts down its file, and then made an image as an older
+    // server stored it.
+    let mut blocks = [
+        block("card", none.clone()),
+        block("attachment", serde_json::json!({"fileId": "7kept.png"})),
+        block("view", none.clone()),
+        block("board", none.clone()),
+        block("attachment", serde_json::json!({"fileId": "7image.png"})),
+        block("text", none.clone()),
+        block("h1", none.clone()),
+        block("checkbox", none),
+    ];
+    common::insert_blocks(&test, &mut blocks, &user_id).await;
+    test.delete_block(&blocks[6].id, &user_id)
+        .await
+        .expect("the heading goes to the trash");
+    test.store.close().await;
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!(
+            "UPDATE blocks SET type = 'image' WHERE id = '{}'",
+            blocks[4].id
+        ),
+    )
+    .await;
+    common::execute_raw(
+        &test.dbconfig(),
+        "INSERT INTO data_steps (name) VALUES ('content_blocks')",
+    )
+    .await;
+
+    let store = Store::connect(common::db_type(), &test.dbconfig())
+        .await
+        .expect("the store does the step");
+    for kept in &blocks[..4] {
+        store.get_block(&kept.id).await.expect("the block stays");
+    }
+    for gone in &blocks[4..] {
+        let error = store
+            .get_block(&gone.id)
+            .await
+            .expect_err("the content block is gone");
+        assert!(error.is_not_found(), "{error:?}");
+    }
+    let error = store
+        .undelete_block(&blocks[6].id, &user_id)
+        .await
+        .expect_err("nor in the trash");
+    assert!(error.is_not_found(), "{error:?}");
+    let collected: Vec<String> = store
+        .collect_unreferenced_files(crate::blocks::now_millis() + 3_600_000)
+        .await
+        .expect("the files no block shows are collected")
+        .into_iter()
+        .map(|file| file.stored_name)
+        .collect();
+    assert_eq!(
+        collected,
+        ["7image.png"],
+        "the image's file, not the attachment's"
     );
     store.close().await;
 

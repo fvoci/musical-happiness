@@ -1136,17 +1136,10 @@ async fn get_blocks_filters() {
         child_of(&card, BlockType::Comment, "comment"),
     ];
     insert(&th.client, &board.id, &children).await;
-    // A block of a type the server does not know, as an older server stored it: no new
-    // block is made one.
-    let mut heading = [child_of(&card, BlockType::from("h1"), "heading")];
-    th.app
-        .insert_blocks(&mut heading, &th.stranger().await, ChangeNotification::Send)
-        .await
-        .expect("the older block is stored");
     insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card 2")).await;
     let children_of_card = format!("parentId={}", card.id);
 
-    let everything = vec!["card", "card 2", "comment", "heading", "text"];
+    let everything = vec!["card", "card 2", "comment", "text"];
     let none: Vec<&str> = Vec::new();
     let cases = [
         ("no parameters", String::new(), everything.clone()),
@@ -1164,7 +1157,7 @@ async fn get_blocks_filters() {
         (
             "the children of the card",
             format!("?{children_of_card}"),
-            vec!["comment", "heading", "text"],
+            vec!["comment", "text"],
         ),
         ("by type", "?type=card".to_owned(), vec!["card", "card 2"]),
         (
@@ -1178,9 +1171,9 @@ async fn get_blocks_filters() {
             none.clone(),
         ),
         (
-            "a type the server does not know is matched as written",
+            "a type the server does not know is matched as written: no block has it",
             "?type=h1".to_owned(),
-            vec!["heading"],
+            none.clone(),
         ),
         ("the type is case-sensitive", "?type=Card".to_owned(), none),
         (
@@ -2744,16 +2737,14 @@ async fn a_new_block_of_another_type_is_refused() {
     th.teardown().await;
 }
 
-/// A patch, alone or in a batch, may not give a block one of those types. A block that
-/// an older server stored as one keeps its type and is changed like any other, also to
-/// a type that a new block may have.
+/// A patch, alone or in a batch, may not give a block one of those types.
 #[tokio::test]
 async fn a_patch_does_not_make_a_block_of_another_type() {
     let th = Setup::one_user().start().await;
     let board = create_board_in_store(&th, BoardType::Open).await;
     let card = insert_one(&th.client, &new_block(&board.id, BlockType::Card, "card")).await;
     let to_text = BlockPatch {
-        block_type: Some(BlockType::Text),
+        block_type: Some(BlockType::from("text")),
         ..BlockPatch::default()
     };
     let response = th
@@ -2775,34 +2766,6 @@ async fn a_patch_does_not_make_a_block_of_another_type() {
         "still a card"
     );
 
-    let mut older = [child_of(&card, BlockType::Text, "older")];
-    th.app
-        .insert_blocks(&mut older, &th.stranger().await, ChangeNotification::Send)
-        .await
-        .expect("the older block is stored");
-    let [older] = older;
-    let retitle = BlockPatch {
-        title: Some("retitled".to_owned()),
-        ..to_text
-    };
-    patch(&th.client, &older, &retitle).await;
-    let stored = th.app.block(&older.id).await.expect("the block is stored");
-    assert_eq!(
-        (stored.block_type, stored.title.as_str()),
-        (BlockType::Text, "retitled"),
-        "kept its type, changed its title"
-    );
-    let to_attachment = BlockPatch {
-        block_type: Some(BlockType::Attachment),
-        ..BlockPatch::default()
-    };
-    patch(&th.client, &older, &to_attachment).await;
-    let stored = th.app.block(&older.id).await.expect("the block is stored");
-    assert_eq!(
-        stored.block_type,
-        BlockType::Attachment,
-        "now an attachment"
-    );
     th.teardown().await;
 }
 

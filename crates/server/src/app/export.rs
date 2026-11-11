@@ -142,7 +142,7 @@ impl App {
         for block in &blocks {
             writer.write_line("block", block).await?;
             for filename in block.shown_files() {
-                // An image block names its file as a client wrote it. A name that cannot
+                // An attachment block names its file as a client wrote it. A name that cannot
                 // be a stored name would be read back as another entry of the archive,
                 // or clash with one.
                 if is_stored_name(&filename) && seen.insert(filename.clone()) {

@@ -2002,8 +2002,8 @@ impl FullBoard {
 
         let view = new_block(&board.id, "", BlockType::View);
         let card = new_block(&board.id, "", BlockType::Card);
-        let text = new_block(&board.id, &card.id, BlockType::Text);
-        let checkbox = new_block(&board.id, &text.id, BlockType::Checkbox);
+        let text = new_block(&board.id, &card.id, BlockType::Attachment);
+        let checkbox = new_block(&board.id, &text.id, BlockType::Attachment);
         let card_id = card.id.clone();
         let mut blocks = vec![view, card, text, checkbox];
         store
@@ -2421,7 +2421,7 @@ async fn undelete_board_restores_a_board_whose_creator_is_gone_as_made_by_nobody
     test.insert_block(&mut card, &creator_id)
         .await
         .expect("the creator's card is stored");
-    let mut paragraph = new_block(&board.id, &card.id, BlockType::Text);
+    let mut paragraph = new_block(&board.id, &card.id, BlockType::Attachment);
     test.insert_block(&mut paragraph, &editor_id)
         .await
         .expect("the editor's text is stored");
@@ -2495,7 +2495,7 @@ async fn undelete_block_restores_a_block_whose_creator_is_gone_as_made_by_nobody
     test.insert_block(&mut card, &author_id)
         .await
         .expect("the author's card is stored");
-    let mut paragraph = new_block(&board_id, &card.id, BlockType::Text);
+    let mut paragraph = new_block(&board_id, &card.id, BlockType::Attachment);
     test.insert_block(&mut paragraph, &owner_id)
         .await
         .expect("the owner's text is stored");
@@ -2557,8 +2557,8 @@ async fn a_block_deleted_before_its_board_stays_in_the_trash_when_the_board_is_r
     let board_id = stored_board(&test, &team_id, &user_id).await;
 
     let card = new_block(&board_id, "", BlockType::Card);
-    let paragraph = new_block(&board_id, &card.id, BlockType::Text);
-    let checkbox = new_block(&board_id, &paragraph.id, BlockType::Checkbox);
+    let paragraph = new_block(&board_id, &card.id, BlockType::Attachment);
+    let checkbox = new_block(&board_id, &paragraph.id, BlockType::Attachment);
     let (card_id, text_id, checkbox_id) =
         (card.id.clone(), paragraph.id.clone(), checkbox.id.clone());
     let mut blocks = [card, paragraph, checkbox];
@@ -2685,7 +2685,7 @@ async fn board_with_card_and_text(
 ) -> (String, String, String) {
     let board_id = stored_board(store, team_id, user_id).await;
     let card = new_block(&board_id, "", BlockType::Card);
-    let text = new_block(&board_id, &card.id, BlockType::Text);
+    let text = new_block(&board_id, &card.id, BlockType::Attachment);
     let (card_id, text_id) = (card.id.clone(), text.id.clone());
     store
         .insert_blocks(&mut [card, text], user_id)

@@ -244,7 +244,7 @@ impl App {
                 });
                 continue;
             }
-            if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
+            if block.block_type != BlockType::Attachment {
                 continue;
             }
             let Some(Value::String(file_id)) = block.fields.get("fileId") else {
@@ -312,7 +312,7 @@ impl App {
                 .body
                 .take()
                 .and_then(|body| rename_body_files(body, &new_file_names));
-            if block.block_type != BlockType::Image && block.block_type != BlockType::Attachment {
+            if block.block_type != BlockType::Attachment {
                 continue;
             }
             let Some(Value::String(file_id)) = block.fields.get("fileId") else {
@@ -334,7 +334,7 @@ impl App {
         }
     }
 
-    /// Copies each file referred to by an image or attachment block and returns a map
+    /// Copies each file referred to by an attachment block and returns a map
     /// from the original stored names to those of the copies. Only files of the source
     /// board are copied.
     async fn copy_card_files(

@@ -20,7 +20,7 @@ fn block_json_members() {
         created_by: "u1".to_owned(),
         modified_by: "u2".to_owned(),
         schema: 1,
-        block_type: BlockType::Text,
+        block_type: BlockType::Comment,
         title: "hello".to_owned(),
         fields: serde_json::from_value(json!({ "z": 1, "a": [true] })).expect("object"),
         body: None,
@@ -31,7 +31,7 @@ fn block_json_members() {
     };
     let want = json!({
         "id": "a1", "parentId": "c1", "createdBy": "u1", "modifiedBy": "u2", "schema": 1,
-        "type": "text", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
+        "type": "comment", "title": "hello", "fields": { "a": [true], "z": 1 }, "body": null,
         "createAt": 10, "updateAt": 20, "deleteAt": 0, "boardId": "b1"
     });
     assert_eq!(to_json(&block), want);
@@ -59,17 +59,7 @@ fn block_decodes_missing_and_null_members_as_empty() {
 
 #[test]
 fn block_type_keeps_unknown_strings_and_parses_strictly() {
-    for name in [
-        "board",
-        "card",
-        "view",
-        "text",
-        "checkbox",
-        "comment",
-        "image",
-        "attachment",
-        "divider",
-    ] {
+    for name in ["board", "card", "view", "comment", "attachment"] {
         let block_type = BlockType::from(name);
         assert!(
             !matches!(block_type, BlockType::Other(_)),
@@ -81,6 +71,8 @@ fn block_type_keeps_unknown_strings_and_parses_strictly() {
 
     // Decoding is exact: a different case is some other type, kept as sent.
     assert_eq!(BlockType::from("Card"), BlockType::Other("Card".to_owned()));
+    // The content block types of the original are no types of this server.
+    assert_eq!(BlockType::from("text"), BlockType::Other("text".to_owned()));
     assert_eq!(to_json(&BlockType::from("list-item")), json!("list-item"));
     assert_eq!(
         serde_json::from_value::<BlockType>(json!("h1")).expect("decodes"),
