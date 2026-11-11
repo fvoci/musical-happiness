@@ -144,6 +144,14 @@ describe('HTML from elsewhere', () => {
     });
   });
 
+  it('takes no mention that names no user: the server would refuse the body', () => {
+    const doc = load(
+      '<p>a <span data-mention data-user-id="u1">@Kim</span> b <span data-mention data-user-id="">@</span></p>',
+    );
+    expect(validateDoc(doc)).toEqual([]);
+    expect(JSON.stringify(doc)).not.toContain('mention');
+  });
+
   it('keeps marks off line breaks and mentions inside marked text', () => {
     const doc = load(
       '<p><strong>a<br>b <span data-mention data-user-id="01930000-0000-7000-8000-00000000c001"></span> c</strong></p><p><a href="/x"><em>d<br></em>e</a></p>',

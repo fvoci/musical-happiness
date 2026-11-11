@@ -47,6 +47,9 @@ export interface Upload {
   cancel: () => void;
 }
 
+/** How many times a body is sent on a newer version when only something else of the card changed. */
+const MAX_TRIES = 4;
+
 const sameDoc = (first: DocNode | null, second: DocNode | null): boolean =>
   JSON.stringify(first) === JSON.stringify(second);
 
@@ -179,7 +182,7 @@ export class CardStore {
       const { body } = this.#unsaved;
       this.#unsaved = undefined;
       try {
-        await this.#write(body, false);
+        await this.#write(body);
       } catch (error) {
         // Not stored: it stays unsaved, and the next `saveBody` sends it again.
         this.#unsaved ??= { body };
@@ -190,11 +193,12 @@ export class CardStore {
     this.dirty = this.#unsaved !== undefined || this.conflict !== undefined;
   }
 
-  async #write(body: DocNode | null, retried: boolean): Promise<void> {
+  async #write(body: DocNode | null, tries = 1): Promise<void> {
     // Always the version the body was read at, never a newer one the card
     // list has heard of: that one may carry somebody else's body. When the
-    // newer version is only the reader's own change of a property, the write
-    // is refused once and sent again below.
+    // newer version is only a change of something else (a property, the
+    // reader's own or not), the write is refused and sent again below, as
+    // long as the body stays what this store knows, a few times at most.
     const readAt = this.#readAt;
     try {
       const stored = await this.#backend.writeCardBody(this.#boardId, this.cardId, {
@@ -208,12 +212,12 @@ export class CardStore {
     } catch (error) {
       if (!isConflict(error)) throw error;
       const theirs = await this.#backend.card(this.#boardId, this.cardId);
-      if (!retried && sameDoc(theirs.body, this.body)) {
+      if (tries < MAX_TRIES && sameDoc(theirs.body, this.body)) {
         // Only something else about the card changed. Same body, new version: send again.
         const { body: _body, ...summary } = theirs;
         this.#readAt = theirs.updateAt;
         this.board.receiveCard(summary);
-        await this.#write(body, true);
+        await this.#write(body, tries + 1);
         return;
       }
       this.conflict = { mine: body, theirs };

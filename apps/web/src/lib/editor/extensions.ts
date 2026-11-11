@@ -50,7 +50,7 @@ import { IMAGE_ATTRIBUTES, LINK_ATTRIBUTES } from './drawing.ts';
 import { findEmojiTrigger } from './emoji-trigger.ts';
 import { fileUrl } from './files.ts';
 import { BlockMath, InlineMath } from './math-nodes.ts';
-import { isAllowedHref } from './schema.ts';
+import { isAllowedHref, isUserId } from './schema.ts';
 
 /** A link keeps its target and nothing else; how it opens is the app's business, not the document's. */
 const BodyLink = Link.extend({
@@ -186,7 +186,15 @@ export const Mention = Node.create<MentionOptions>({
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-mention][data-user-id]' }];
+    // A mention that names no user (pasted from elsewhere, or from a view an
+    // anonymous reader got) is not one: the server would refuse the body.
+    return [
+      {
+        tag: 'span[data-mention][data-user-id]',
+        getAttrs: (element: HTMLElement) =>
+          isUserId(element.getAttribute('data-user-id')) ? null : false,
+      },
+    ];
   },
 
   renderHTML({ node, HTMLAttributes }) {

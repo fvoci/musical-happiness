@@ -143,7 +143,9 @@ test('a body written while another value of the card changed is sent again on th
   await expect
     .poll(async () => lines((await stored(api, cardId)).body))
     .toEqual(['Ask about the loan']);
-  expect(answers).toEqual([409, 200]);
+  // Refused once on the old version, then stored (a slow typist may make more writes after).
+  await expect.poll(() => answers).toContain(200);
+  expect(answers.slice(0, 2)).toEqual([409, 200]);
   expect((await stored(api, cardId)).properties).toMatchObject({ note: 'ask for Kim' });
   await expect(page.getByTestId('body-conflict')).toHaveCount(0);
   await expect(page.locator('[data-problem]')).toHaveCount(0);

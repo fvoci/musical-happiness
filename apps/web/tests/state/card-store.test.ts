@@ -90,6 +90,26 @@ describe('an open card', () => {
     expect(stored.title).toBe('Alpha, renamed');
   });
 
+  it('keeps sending the body when something else changes again while it is sent again', async () => {
+    const { card, other, backend, board, cardId } = await openAlpha();
+    card.editBody(text('mine'));
+    await other.patchCard(board.boardId, cardId, { title: 'Renamed once' });
+    // Right after the store reads the card again, the title changes once more.
+    const read = backend.card.bind(backend);
+    let reads = 0;
+    vi.spyOn(backend, 'card').mockImplementation(async (...args) => {
+      const found = await read(...args);
+      reads += 1;
+      if (reads === 1) await other.patchCard(board.boardId, cardId, { title: 'Renamed twice' });
+      return found;
+    });
+    await card.saveBody();
+    expect(reads).toBe(2);
+    expect(card.conflict).toBeUndefined();
+    const stored = await read(board.boardId, cardId);
+    expect(stored).toMatchObject({ body: text('mine'), title: 'Renamed twice' });
+  });
+
   it('holds both sides when somebody else wrote the body, and overwrites nothing', async () => {
     const { card, other, backend, board, workspace, cardId } = await openAlpha();
     const theirs = await other.card(board.boardId, cardId);

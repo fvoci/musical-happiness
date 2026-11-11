@@ -215,7 +215,7 @@ export class MemoryBackend implements Backend {
     const problems = validateDoc(body);
     if (problems.length > 0) fail(400, problems[0] ?? 'invalid body', { field: 'body' });
     if (storedSize(body) > LIMITS.bodyBytes) {
-      fail(413, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
+      fail(400, 'the body is too large', { field: 'body', limit: LIMITS.bodyBytes });
     }
     for (const fileId of imageFileIds(body)) {
       if (this.world.files.get(fileId)?.boardId !== boardId) {

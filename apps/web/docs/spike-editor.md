@@ -58,7 +58,7 @@ node apps/web/tools/templates/convert.ts [--write <폴더>]
 | `horizontalRule` | 없음                                           | 없음                                  |                                                                                      |
 | `hardBreak`      | 없음                                           | 없음                                  | 인라인                                                                               |
 | `image`          | `fileId`: 1–100자, 필수. `alt`: 0–1000자, 선택 | 없음                                  | **블록이다**(문단 안에 올 수 없다). 주소는 문서에 없다                               |
-| `mention`        | `userId`: 1–100자, 필수                        | 없음                                  | 인라인. 이름(label)은 저장하지 않는다                                                |
+| `mention`        | `userId`: 사용자 ID(소문자 UUID), 필수         | 없음                                  | 인라인. 이름(label)은 저장하지 않는다                                                |
 | `inlineMath`     | `latex`: 1–4,000자, 필수                       | 없음                                  | **판 2.** 인라인. 문장 안의 수식. LaTeX 원문 하나이고 그린 결과는 저장하지 않는다    |
 | `blockMath`      | `latex`: 1–4,000자, 필수                       | 없음                                  | **판 2.** 블록. 한 줄을 차지하는 수식                                                |
 | `text`           | 없음                                           | 없음                                  | `text`는 비어 있지 않은 문자열. `marks`는 여기에만 온다                              |

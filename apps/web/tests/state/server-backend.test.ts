@@ -262,6 +262,42 @@ describe('changing a card on the server', () => {
   });
 });
 
+describe('writing a card’s body on the server', () => {
+  const body = {
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }],
+  };
+  const CARD = {
+    ...BLOCK,
+    id: 'c1',
+    title: 'Card',
+    icon: '',
+    isTemplate: false,
+    properties: {},
+    hasBody: true,
+    tasksTotal: 0,
+    tasksDone: 0,
+  };
+
+  it('sends the body with the version it was read at, and gives the stored card', async () => {
+    const sent = serve({ ...CARD, body, updateAt: 8 });
+    const stored = await new ServerBackend('').writeCardBody('b', 'c1', { body, readAt: 5 });
+    expect(sent.map((one) => [one.method, one.url, one.body])).toEqual([
+      ['PATCH', '/api/v1/cards/c1', { body, readAt: 5 }],
+    ]);
+    expect(stored).toMatchObject({ id: 'c1', body, updateAt: 8, hasBody: true });
+  });
+
+  it('sends no body as null, and lets a refusal for a stale version through as 409', async () => {
+    const sent = serve({ error: 'conflict', message: 'stale' }, 409);
+    const refused = await new ServerBackend('')
+      .writeCardBody('b', 'c1', { body: null, readAt: 5 })
+      .catch((error: unknown) => error);
+    expect(sent[0]?.body).toEqual({ body: null, readAt: 5 });
+    expect(isBackendError(refused) && refused.status).toBe(409);
+  });
+});
+
 describe('changing a view on the server', () => {
   it('patches its block without what the contract does not have, and reads it again', async () => {
     const sent = serve([
