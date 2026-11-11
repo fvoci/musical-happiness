@@ -3,14 +3,19 @@
 //! Two backends exist, selected by the `filesdriver` setting: a directory on the local
 //! disk and an S3-compatible object store. Both store a file under the same relative path
 //! the original server uses, so an existing files directory or bucket keeps working.
+//!
+//! A backend given the metrics (`FileBackend::measured`) measures every operation, by
+//! the backend and the operation, at this boundary.
 
 mod local;
 mod s3;
 
 use std::ops::Range;
+use std::time::Instant;
 
 use bytes::Bytes;
-use futures_util::stream::BoxStream;
+use futures_util::TryStreamExt as _;
+use futures_util::stream::{BoxStream, StreamExt as _};
 use thiserror::Error;
 use tokio::io::AsyncRead;
 
@@ -18,6 +23,7 @@ pub use local::{LocalFiles, WRITING_DIR};
 pub use s3::S3Files;
 
 use crate::config::Configuration;
+use crate::metrics::{FilesBackend, FilesOperation, FilesOutcome, Metrics};
 
 /// An error of a file backend.
 #[derive(Debug, Error)]
@@ -68,6 +74,37 @@ impl FileBackend {
         }
     }
 
+    /// The same backend, measuring its operations into `metrics`.
+    #[must_use]
+    pub(crate) fn measured(self, metrics: Metrics) -> Self {
+        metrics.files_known(match self {
+            Self::Local(_) => FilesBackend::Local,
+            Self::S3(_) => FilesBackend::S3,
+        });
+        match self {
+            Self::Local(files) => Self::Local(files.measured(metrics)),
+            Self::S3(files) => Self::S3(files.measured(metrics)),
+        }
+    }
+
+    /// The metrics the operations are measured into, and the backend they are of.
+    fn metrics(&self) -> (&Metrics, FilesBackend) {
+        match self {
+            Self::Local(files) => (&files.metrics, FilesBackend::Local),
+            Self::S3(files) => (&files.metrics, FilesBackend::S3),
+        }
+    }
+
+    /// Runs `work`, which is `operation` on this backend, measured.
+    async fn measure<T>(
+        &self,
+        operation: FilesOperation,
+        work: impl Future<Output = Result<T, StorageError>>,
+    ) -> Result<T, StorageError> {
+        let (metrics, backend) = self.metrics();
+        measured(metrics, backend, operation, work).await
+    }
+
     /// Stores everything `reader` yields at `path`, replacing any existing file, and
     /// returns the number of bytes written.
     ///
@@ -80,10 +117,13 @@ impl FileBackend {
         path: &str,
         reader: &mut (dyn AsyncRead + Send + Unpin),
     ) -> Result<u64, StorageError> {
-        match self {
-            Self::Local(files) => files.write(path, reader).await,
-            Self::S3(files) => files.write(path, reader).await,
-        }
+        self.measure(FilesOperation::Put, async {
+            match self {
+                Self::Local(files) => files.write(path, reader).await,
+                Self::S3(files) => files.write(path, reader).await,
+            }
+        })
+        .await
     }
 
     /// Returns the size in bytes of the file at `path`, or `None` if there is none.
@@ -93,10 +133,13 @@ impl FileBackend {
     /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
     /// root, or the backend's error if the lookup fails.
     pub async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {
-        match self {
-            Self::Local(files) => files.size(path).await,
-            Self::S3(files) => files.size(path).await,
-        }
+        self.measure(FilesOperation::Head, async {
+            match self {
+                Self::Local(files) => files.size(path).await,
+                Self::S3(files) => files.size(path).await,
+            }
+        })
+        .await
     }
 
     /// Returns `true` if a file exists at `path`.
@@ -109,6 +152,8 @@ impl FileBackend {
     }
 
     /// Opens the file at `path` and returns the given byte range of it, or all of it.
+    /// What is measured is the time until the bytes can be read; an error while they
+    /// are is counted as a failure of the same operation.
     ///
     /// The range must lie within the file.
     ///
@@ -122,10 +167,22 @@ impl FileBackend {
         path: &str,
         range: Option<Range<u64>>,
     ) -> Result<FileStream, StorageError> {
-        match self {
-            Self::Local(files) => files.read(path, range).await,
-            Self::S3(files) => files.read(path, range).await,
+        let stream = self
+            .measure(FilesOperation::Get, async {
+                match self {
+                    Self::Local(files) => files.read(path, range).await,
+                    Self::S3(files) => files.read(path, range).await,
+                }
+            })
+            .await?;
+        let (metrics, backend) = self.metrics();
+        if !metrics.is_kept() {
+            return Ok(stream);
         }
+        let metrics = metrics.clone();
+        Ok(stream
+            .inspect_err(move |_| metrics.files_failed_later(backend, FilesOperation::Get))
+            .boxed())
     }
 
     /// Copies the file at `from` to `to`, replacing any existing file.
@@ -135,10 +192,13 @@ impl FileBackend {
     /// Returns [`StorageError::NotFound`] if there is no file at `from`, or the backend's
     /// error if the copy fails.
     pub async fn copy(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        match self {
-            Self::Local(files) => files.copy(from, to).await,
-            Self::S3(files) => files.copy(from, to).await,
-        }
+        self.measure(FilesOperation::Copy, async {
+            match self {
+                Self::Local(files) => files.copy(from, to).await,
+                Self::S3(files) => files.copy(from, to).await,
+            }
+        })
+        .await
     }
 
     /// Removes the file at `path`. Removing a file that is not there succeeds.
@@ -148,10 +208,13 @@ impl FileBackend {
     /// Returns [`StorageError::InvalidPath`] for a path that could leave the storage
     /// root, and the backend's error if the file cannot be removed.
     pub async fn delete(&self, path: &str) -> Result<(), StorageError> {
-        match self {
-            Self::Local(files) => files.delete(path).await,
-            Self::S3(files) => files.delete(path).await,
-        }
+        self.measure(FilesOperation::Delete, async {
+            match self {
+                Self::Local(files) => files.delete(path).await,
+                Self::S3(files) => files.delete(path).await,
+            }
+        })
+        .await
     }
 
     /// Moves the file at `from` to `to`, replacing any existing file.
@@ -161,10 +224,13 @@ impl FileBackend {
     /// Returns [`StorageError::NotFound`] if there is no file at `from`, or the backend's
     /// error if the move fails.
     pub async fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        match self {
-            Self::Local(files) => files.rename(from, to).await,
-            Self::S3(files) => files.rename(from, to).await,
-        }
+        self.measure(FilesOperation::Rename, async {
+            match self {
+                Self::Local(files) => files.rename(from, to).await,
+                Self::S3(files) => files.rename(from, to).await,
+            }
+        })
+        .await
     }
 
     /// The object store that takes uploads part by part across requests, if the backend
@@ -175,4 +241,25 @@ impl FileBackend {
             Self::S3(files) => Some(files),
         }
     }
+}
+
+/// Runs `work`, which is `operation` on `backend`, and measures it into `metrics`: how
+/// long it took, and whether it failed. A file that is not there is an answer.
+async fn measured<T>(
+    metrics: &Metrics,
+    backend: FilesBackend,
+    operation: FilesOperation,
+    work: impl Future<Output = Result<T, StorageError>>,
+) -> Result<T, StorageError> {
+    if !metrics.is_kept() {
+        return work.await;
+    }
+    let started = Instant::now();
+    let result = work.await;
+    let outcome = match &result {
+        Ok(_) | Err(StorageError::NotFound(_)) => FilesOutcome::Answered,
+        Err(_) => FilesOutcome::Failed,
+    };
+    metrics.files_operated(backend, operation, outcome, started.elapsed());
+    result
 }

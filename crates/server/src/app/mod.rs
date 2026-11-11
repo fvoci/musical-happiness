@@ -183,6 +183,7 @@ impl App {
             ping_interval,
             metrics.clone(),
         );
+        let files = files.measured(metrics.clone());
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;

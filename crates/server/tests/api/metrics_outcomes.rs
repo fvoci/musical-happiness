@@ -1,9 +1,12 @@
-//! The metrics of what the server's work came to: the problems the API refused with, and
-//! the calls of the database.
+//! The metrics of what the server's work came to: the problems the API refused with, the
+//! calls of the database, and the operations on the file storage.
 
+use base64::Engine as _;
+use fvoci_model::BoardType;
 use reqwest::{Method, StatusCode};
+use sha2::Digest as _;
 
-use crate::common::{Client, Setup, TestServer};
+use crate::common::{Client, Setup, TEST_TEAM_ID, TestServer};
 use crate::metrics::{sample, scrape};
 
 /// A server that keeps metrics and serves them at a free local port.
@@ -183,4 +186,141 @@ impl fvoci_store::Observer for NoObserver {
     fn called(&self, _: fvoci_store::Call) {}
 
     fn waited_for_connection(&self, _: fvoci_store::DbType, _: std::time::Duration) {}
+}
+
+/// How many operations on the file storage were measured, and how many failed.
+fn files_operations(body: &str, backend: &str, operation: &str) -> (f64, f64) {
+    let labels = [("backend", backend), ("operation", operation)];
+    (
+        sample(
+            body,
+            "fvoci_files_operation_duration_seconds_count",
+            &labels,
+        )
+        .unwrap_or_default(),
+        sample(body, "fvoci_files_operation_failures_total", &labels).unwrap_or_default(),
+    )
+}
+
+#[tokio::test]
+async fn the_operations_on_the_local_disk_are_measured() {
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = server.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let response = crate::files::upload(&server.client, &board.id, "a.txt", b"abc").await;
+    let file_id = crate::files::uploaded_id(&response);
+    let download = server
+        .client
+        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .await;
+    download.check_ok();
+    let missing = server
+        .client
+        .get(&format!(
+            "/boards/{}/files/7{}.txt",
+            board.id,
+            fvoci_model::new_id()
+        ))
+        .await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
+    let body = scrape(&server).await;
+    let (puts, put_failures) = files_operations(&body, "local", "put");
+    assert!(puts >= 1.0, "the upload is stored: {body}");
+    assert_eq!(put_failures, 0.0, "{body}");
+    let (gets, get_failures) = files_operations(&body, "local", "get");
+    assert!(gets >= 1.0, "the download is read: {body}");
+    assert_eq!(
+        get_failures, 0.0,
+        "a file that is not there is no failure: {body}"
+    );
+    assert!(
+        series(&body, "fvoci_files_operation_duration_seconds_count")
+            .iter()
+            .all(|line| line.contains("backend=\"local\"")),
+        "one backend: {body}"
+    );
+    server.teardown().await;
+}
+
+/// With S3, every step of an upload in parts is measured on the object store.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_the_steps_of_an_upload_in_parts_are_measured() {
+    assert!(
+        std::env::var("FVOCI_S3_TEST_ENDPOINT").is_ok()
+            && std::env::var("FVOCI_S3_TEST_BUCKET").is_ok(),
+        "set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET to run this test"
+    );
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| {
+            let bucket = std::env::var("FVOCI_S3_TEST_BUCKET").unwrap_or_default();
+            crate::uploads::configure_s3(config, &bucket);
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = server.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let open = |name: &'static str| {
+        let client = &server.client;
+        let board_id = board.id.clone();
+        async move {
+            let response = client
+                .post(
+                    &format!("/boards/{board_id}/uploads"),
+                    &serde_json::json!({"name": name, "size": 3}),
+                )
+                .await;
+            response.check_created();
+            response.value()["uploadId"]
+                .as_str()
+                .expect("an upload has an identifier")
+                .to_owned()
+        }
+    };
+    let send_part = async |upload_id: &str| {
+        let bytes = b"abc";
+        let digest = format!(
+            "sha-256=:{}:",
+            base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(bytes))
+        );
+        let request = server
+            .client
+            .request(Method::PUT, &format!("/uploads/{upload_id}/parts/1"))
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Digest", digest)
+            .body(bytes.to_vec());
+        Client::send(request).await.check_no_content();
+    };
+    let completed = open("a.txt").await;
+    send_part(&completed).await;
+    server
+        .client
+        .post_empty(&format!("/uploads/{completed}/complete"))
+        .await
+        .check_created();
+    let abandoned = open("b.txt").await;
+    send_part(&abandoned).await;
+    server
+        .client
+        .delete(&format!("/uploads/{abandoned}"))
+        .await
+        .check_no_content();
+    let body = scrape(&server).await;
+    for operation in [
+        "multipart_create",
+        "multipart_part",
+        "multipart_complete",
+        "multipart_abort",
+    ] {
+        let (operations, failures) = files_operations(&body, "s3", operation);
+        assert!(operations >= 1.0, "{operation}: {body}");
+        assert_eq!(failures, 0.0, "{operation}: {body}");
+    }
+    server.teardown().await;
 }

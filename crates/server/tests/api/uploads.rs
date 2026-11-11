@@ -896,7 +896,7 @@ async fn a_single_upload_declared_too_large_is_refused_before_it_is_sent() {
 
 /// Files go to the S3-compatible server of `FVOCI_S3_TEST_ENDPOINT`, into `bucket`, as
 /// the storage tests use it (`tests/storage.rs`).
-fn configure_s3(config: &mut Configuration, bucket: &str) {
+pub(crate) fn configure_s3(config: &mut Configuration, bucket: &str) {
     let var = |name: &str| std::env::var(name).unwrap_or_default();
     let or = |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.to_owned());
     config.upload_part_bytes = 5 * 1024 * 1024;

@@ -17,12 +17,14 @@ use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
 
 mod background;
 mod database;
+mod files;
 mod requests;
 mod storage;
 mod websocket;
 
 pub(crate) use background::{Job, JobOutcome, LoginLimit};
 pub(crate) use database::{Database, DbAccess, DbOutcome};
+pub(crate) use files::{FilesBackend, FilesOperation, FilesOutcome};
 pub(crate) use requests::{ABANDONED, OTHER_METHOD, OTHER_PROBLEM, RequestMetrics, UNMATCHED};
 pub(crate) use storage::{OpenUploads, Pool};
 pub(crate) use websocket::Disconnect;
@@ -49,6 +51,7 @@ struct Kept {
     websocket: websocket::WebsocketMetrics,
     storage: storage::StorageMetrics,
     database: database::DatabaseMetrics,
+    files: files::FilesMetrics,
     background: background::BackgroundMetrics,
 }
 
@@ -87,6 +90,7 @@ impl Metrics {
         let websocket = websocket::WebsocketMetrics::register(&registry)?;
         let storage = storage::StorageMetrics::register(&registry)?;
         let database = database::DatabaseMetrics::register(&registry)?;
+        let files = files::FilesMetrics::register(&registry)?;
         let background = background::BackgroundMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
@@ -95,6 +99,7 @@ impl Metrics {
                 websocket,
                 storage,
                 database,
+                files,
                 background,
             })),
         })
