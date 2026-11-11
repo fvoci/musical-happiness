@@ -221,8 +221,6 @@ test('the cards without a date are counted above the chart and listed on asking'
   await expect(list).toHaveCount(0);
 });
 
-// --------------------------------------------------------- 2,000 cards
-
 const MANY = 2000;
 
 interface Backend {
@@ -234,6 +232,62 @@ interface Backend {
   createCard(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
   createView(boardId: string, draft: Record<string, unknown>): Promise<{ id: string }>;
 }
+
+/** Goes to an address of the app the way a link does: the data in memory stays as it is. */
+async function goTo(page: Page, address: string): Promise<void> {
+  await page.evaluate((path) => {
+    history.pushState(null, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }, address);
+}
+
+test('a reader who may not change the view zooms for the visit, and the view stays as it was', async ({
+  page,
+}, info) => {
+  await page.clock.setFixedTime(NOW);
+  await page.goto('/');
+  await expect(page.getByTestId('board-page')).toBeVisible();
+  await fitPane(page, paneOf(info));
+  // A Gantt view on the board the reader can only read, made by someone who may.
+  const made = await page.evaluate(async () => {
+    const dev = (
+      window as unknown as { fvociDev: { backend: Backend; someoneElse?: () => Backend } }
+    ).fvociDev;
+    const teams = await dev.backend.teams();
+    const boards = await dev.backend.boards(teams[0]?.id ?? '');
+    const boardId = boards.find((board) => board.title === 'Company Goals & OKRs')?.id ?? '';
+    const fields = {
+      viewType: 'gantt',
+      ganttZoom: 'week',
+      sortOptions: [],
+      visiblePropertyIds: ['__title'],
+      visibleOptionIds: [],
+      hiddenOptionIds: [],
+      collapsedOptionIds: [],
+      filter: { operation: 'and', filters: [] },
+      cardOrder: [],
+      columnWidths: {},
+      columnCalculations: {},
+      kanbanCalculations: {},
+      defaultTemplateId: '',
+    };
+    const author = dev.someoneElse?.() ?? dev.backend;
+    const view = await author.createView(boardId, { title: 'Read only', fields });
+    return { boardId, viewId: view.id };
+  });
+  await goTo(page, `/board/${made.boardId}/${made.viewId}`);
+  await expect(gantt(page)).toHaveAttribute('data-zoom', 'week');
+  // Nothing that changes the view for everyone is offered.
+  await expect(page.getByTestId('view-header').locator('[data-tool="more"]')).toHaveCount(0);
+  await page.getByTestId('gantt-zoom-in').click();
+  await expect(gantt(page)).toHaveAttribute('data-zoom', 'day');
+  await page.getByTestId('gantt-zoom-out').click();
+  await page.getByTestId('gantt-zoom-out').click();
+  await expect(gantt(page)).toHaveAttribute('data-zoom', 'month');
+  expect((await storedFields(page)).ganttZoom).toBe('week');
+});
+
+// --------------------------------------------------------- 2,000 cards
 
 /**
  * Gives a board the page is not showing 2,000 dated cards, each coming after
