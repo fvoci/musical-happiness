@@ -13,6 +13,7 @@ use tokio::io::AsyncWriteExt as _;
 
 use crate::common::{Setup, TEST_TEAM_ID, TestServer};
 use crate::files::{upload, uploaded_id};
+use crate::metrics::{sample, scrape};
 use crate::uploads::s3_server;
 
 const DAY_MILLIS: i64 = 24 * 60 * 60 * 1000;
@@ -613,5 +614,48 @@ async fn a_copied_file_is_marked_until_it_is_recorded() {
         "and removed once it has settled"
     );
     assert_eq!(all_listed(&ts).await, [], "nothing is left listed");
+    ts.teardown().await;
+}
+
+/// The metrics count the listed objects by state, and the doomed ones whose removal
+/// keeps failing by the kind of the error, after each run of the housekeeping.
+#[tokio::test]
+async fn the_metrics_count_the_list_and_the_failing_removals() {
+    let ts = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    uploaded(&ts, b"its removal fails").await;
+    ts.app
+        .housekeeping()
+        .store()
+        .collect_unreferenced_files(i64::MAX)
+        .await
+        .expect("collected");
+    let faults = ts
+        .app
+        .files()
+        .faults()
+        .expect("a test's storage takes faults");
+    faults.fail(FaultyOp::Delete, 1);
+    let now = now_millis();
+    remove_doomed(&ts, now).await;
+    let counted = |body: &str| {
+        (
+            sample(body, "fvoci_loose_objects", &[("state", "doomed")]),
+            sample(
+                body,
+                "fvoci_loose_object_removals_failing",
+                &[("error", "io")],
+            ),
+        )
+    };
+    let body = scrape(&ts).await;
+    assert_eq!(counted(&body), (Some(1.0), Some(1.0)), "{body}");
+    remove_doomed(&ts, now + 2 * 60 * 60 * 1000).await;
+    let body = scrape(&ts).await;
+    assert_eq!(counted(&body), (Some(0.0), Some(0.0)), "{body}");
     ts.teardown().await;
 }

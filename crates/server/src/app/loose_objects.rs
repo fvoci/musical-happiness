@@ -17,6 +17,7 @@ use super::App;
 use super::uploads::UPLOAD_LIFETIME_MILLIS;
 use crate::auth::now_millis;
 use crate::error::AppError;
+use crate::metrics::LooseObjects;
 use crate::storage::StorageError;
 
 /// How long writing an object may take: past it the housekeeping takes the writing for
@@ -87,8 +88,9 @@ enum Removal {
 
 impl App {
     /// Dooms the objects whose writing stopped long ago, then removes the doomed
-    /// objects that are due at `now`, up to 5,000 a run. What cannot be removed
-    /// is noted with the kind of its error and tried again later.
+    /// objects that are due at `now`, up to 5,000 a run, and counts what is listed
+    /// into the metrics. What cannot be removed is noted with the kind of its error and
+    /// tried again later.
     ///
     /// # Errors
     ///
@@ -156,7 +158,24 @@ impl App {
                 break;
             }
         }
+        self.count_loose_objects().await;
         Ok(done)
+    }
+
+    /// Counts the listed objects into the metrics. A count that cannot be read leaves
+    /// the metrics as they were.
+    async fn count_loose_objects(&self) {
+        if !self.metrics().is_kept() {
+            return;
+        }
+        match self.store().loose_object_counts().await {
+            Ok(counts) => self.metrics().loose_objects_counted(&LooseObjects {
+                writing: counts.writing,
+                doomed: counts.doomed,
+                failing: counts.failing,
+            }),
+            Err(error) => tracing::warn!(%error, "the listed objects could not be counted"),
+        }
     }
 
     /// Keeps a doomed object that something holds, and takes it off the list: whatever
