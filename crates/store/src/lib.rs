@@ -26,6 +26,7 @@ mod teams;
 #[cfg(feature = "test-util")]
 pub mod testing;
 mod trash;
+mod uploads;
 mod users;
 
 use std::sync::Arc;

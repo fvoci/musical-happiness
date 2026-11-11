@@ -181,6 +181,9 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
     ("Team", Members::AllBut(&["signupToken"])),
+    ("UploadOpened", Members::All),
+    ("UploadState", Members::All),
+    ("ReceivedPart", Members::All),
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
     ("UserSettings", Members::AsWritten),
@@ -209,6 +212,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("NewCategory", Members::AsWritten),
     ("NewMember", Members::AsWritten),
     ("NewSubscription", Members::AsWritten),
+    ("NewUpload", Members::Only(&["name", "size"])),
     (
         "PatchBoardsAndBlocks",
         Members::Only(&["boardIds", "boardPatches"]),

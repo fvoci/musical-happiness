@@ -28,6 +28,7 @@ mod sidebar;
 mod subscriptions;
 mod system;
 mod templates;
+mod uploads;
 mod users;
 mod visibility;
 mod websocket;

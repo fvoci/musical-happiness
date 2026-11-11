@@ -28,6 +28,7 @@ mod settings;
 mod sharing;
 mod subscription;
 mod team;
+mod upload;
 mod user;
 
 pub use archive::{ArchiveHeader, ArchiveLine};
@@ -79,6 +80,7 @@ pub use settings::{
 pub use sharing::Sharing;
 pub use subscription::{Subscriber, SubscriberType, Subscription, SubscriptionError};
 pub use team::Team;
+pub use upload::{MAX_UPLOAD_PARTS, Upload, UploadPart};
 pub use user::{Session, User, UserPreferencesPatch};
 
 /// A JSON object with free-form keys, as used for block fields and board properties.

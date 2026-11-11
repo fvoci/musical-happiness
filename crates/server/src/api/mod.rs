@@ -26,6 +26,7 @@ mod subscriptions;
 mod system;
 mod teams;
 mod templates;
+mod uploads;
 mod users;
 
 use axum::Json;
@@ -101,9 +102,11 @@ fn routes() -> Routes {
         .merge(subscriptions::routes())
         .merge(teams::routes())
         .merge(templates::routes())
+        .merge(uploads::routes())
         .merge(users::routes());
     let uploads = OpenApiRouter::new()
         .merge(files::upload_routes())
+        .merge(uploads::part_routes())
         .merge(archive::upload_routes());
     // What asks whether the server is there needs no session either.
     let unauthenticated = OpenApiRouter::new()
@@ -137,8 +140,8 @@ pub fn router(app: &App) -> Router<App> {
         middleware::from_fn_with_state(UNAUTHENTICATED_BODY_LIMIT, limit_request_body),
     );
     // Not behind the limits above. A file upload is bounded by `maxfilesize` where it
-    // is read, which is "no limit" at its default of 0; an archive import has no limit
-    // on the request yet. Both get limits with the chunked upload (design 5.6).
+    // is read, which is "no limit" at its default of 0, and a part of an upload by its
+    // size; an archive import has no limit on the request yet.
     let uploads = Router::from(routes.uploads);
 
     Router::new()

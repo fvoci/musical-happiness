@@ -123,6 +123,28 @@
 
 권한, 크기 검사, 체크섬, 만료의 규칙은 설계 5.6의 "세부 결정" 표(1–11번)에 있다.
 
+**들어간 것(tracer-bullet 7, 2026-11-11 09:20 KST).** 올리기 세션의 조작 다섯이 계약에 들어갔다. 모두 태그 `files`이고 세션이 있어야 한다.
+
+| 조작 | 경로 | 요청 | 답 |
+|---|---|---|---|
+| `createUpload` | `POST /boards/{boardId}/uploads` | `NewUpload` `{name, size, contentType?}` | 201 `UploadOpened` `{uploadId, partSize, partCount, expiresAt}` |
+| `putUploadPart` | `PUT /uploads/{uploadId}/parts/{partNumber}` | 부분의 바이트(`application/octet-stream`), 헤더 `Content-Digest: sha-256=:<base64>:` | 204 |
+| `getUpload` | `GET /uploads/{uploadId}` | 없음 | 200 `UploadState` `{uploadId, boardId, name, size, partSize, partCount, expiresAt, parts: [{number, size}]}` |
+| `completeUpload` | `POST /uploads/{uploadId}/complete` | 없음 | 201 `UploadedFile` `{fileId}`(`uploadFile`의 답과 같다) |
+| `deleteUpload` | `DELETE /uploads/{uploadId}` | 없음 | 204 |
+
+규칙은 이렇다.
+
+- **부분.** 부분은 1부터 `partCount`까지 번호가 붙는다. 마지막을 뺀 모든 부분이 `partSize`(설정 `upload_part_bytes`, 기본 8 MiB) 바이트이고, 마지막이 나머지다. 빈 파일은 부분이 없고(`partCount` 0) 바로 완료한다.
+- **부분 받기.** `Content-Length`가 그 부분의 크기와 다르면 본문을 읽기 전에 400이다. 본문이 그보다 길거나 짧아도, `Content-Digest`의 SHA-256이 다르거나 헤더가 없어도 400이고, 받던 것은 디스크에 남기지 않는다. 같은 번호를 다시 보내면 앞의 것을 바꾼다. 순서는 상관없다.
+- **완료.** 빠진 부분이 있으면 400이고 메시지가 번호를 든다(`parts missing: 1, 3`). 세션은 열린 채 남는다. 완료하면 세션과 부분이 없어진다.
+- **세션.** 세션은 연 사용자의 것이다. 다른 사용자의 세션과 없는 세션은 똑같이 404다. `uploadId`는 256비트 난수(URL-safe base64 43자)다. 세션은 연 때부터 24시간 뒤에 끝나고, 끝난 세션은 404다.
+- **권한.** 열 때와 완료할 때 그 보드에 `uploadFile`과 같은 권한(카드를 고칠 수 있는 역할)이 있어야 한다.
+- **크기.** `size`가 `maxfilesize`(0보다 클 때)를 넘으면 열 때 413이다. 이름은 1–255자, `contentType`은 255자까지다. 저장된 파일의 `fileId`는 `uploadFile`처럼 이름의 확장자로 끝난다.
+- **부분을 두는 곳.** 끝나지 않은 부분은 설정 `tmp_path`(기본 `filespath` 아래 `.tmp`)의 `uploads/<uploadId>/`에 둔다.
+
+세션 수와 대기 용량의 한도(429), 만료된 세션의 정리, S3 멀티파트, `uploadFile`의 8 MiB 한도와 기본 `maxfilesize` 100 MiB는 tracer-bullet 8에서 들어간다.
+
 **들어간 것(tracer-bullet 2c).** 올린 파일을 어느 블록도 가리키지 않으면(이미지·첨부 블록의 `fileId`, 카드 본문의 이미지. 휴지통의 블록까지 센다) 그렇게 된 지 `trash_retention_days`(기본 30일)가 지난 뒤 서버가 지운다. 그 뒤 `getFile`은 404다. 올리고 아직 어디에도 넣지 않은 파일도 올린 때부터 센다. 조작과 모양은 바뀌지 않았다.
 
 ## 5. 아카이브와 템플릿 (설계 3.10, 5.7)

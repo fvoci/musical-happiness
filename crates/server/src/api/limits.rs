@@ -151,7 +151,7 @@ fn byte_count(length: usize) -> u64 {
 /// finish sending and read the refusal. `discarded` is how much of it was thrown away
 /// already; what was read and kept before the body passed its limit does not count, so
 /// up to the limit plus [`DISCARD_LIMIT`] is read of one request.
-async fn discard(mut stream: BodyDataStream, mut discarded: u64) {
+pub(crate) async fn discard(mut stream: BodyDataStream, mut discarded: u64) {
     let reading = async {
         while discarded <= DISCARD_LIMIT {
             match stream.next().await {

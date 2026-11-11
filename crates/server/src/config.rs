@@ -179,6 +179,14 @@ pub struct Configuration {
     /// How many days a deleted board or block stays in the trash, where it can be
     /// restored from, before it is removed for good.
     pub trash_retention_days: u32,
+    /// The size in bytes of every part of an upload in parts but the last
+    /// (`docs/s6-design.md` 5.6). At least 5 MiB, the smallest part an S3 multipart
+    /// upload takes.
+    pub upload_part_bytes: u64,
+    /// The directory of the server's temporary files: the parts of uploads that are not
+    /// complete yet. Empty for `.tmp` under `filespath`. Not the system's temporary
+    /// directory, which may be held in memory.
+    pub tmp_path: String,
     /// The addresses, and address ranges such as `10.0.0.0/8`, of the reverse proxies
     /// in front of the server. A request from one of them is taken to come from the
     /// address the proxy names in `X-Forwarded-For`; that header is believed from
@@ -250,6 +258,8 @@ impl Default for Configuration {
             websocket_ping_seconds: 30,
             max_request_bytes: DEFAULT_MAX_REQUEST_BYTES,
             trash_retention_days: 30,
+            upload_part_bytes: DEFAULT_UPLOAD_PART_BYTES,
+            tmp_path: String::new(),
             trusted_proxies: Vec::new(),
             login_pair_free_failures: 5,
             login_pair_base_delay_seconds: 30,
@@ -300,6 +310,8 @@ impl std::fmt::Debug for Configuration {
             .field("websocket_ping_seconds", &self.websocket_ping_seconds)
             .field("max_request_bytes", &self.max_request_bytes)
             .field("trash_retention_days", &self.trash_retention_days)
+            .field("upload_part_bytes", &self.upload_part_bytes)
+            .field("tmp_path", &self.tmp_path)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("login_pair_free_failures", &self.login_pair_free_failures)
             .field(
@@ -344,7 +356,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
-const ENV_KEYS: [(&str, EnvKind); 40] = [
+const ENV_KEYS: [(&str, EnvKind); 42] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -375,6 +387,8 @@ const ENV_KEYS: [(&str, EnvKind); 40] = [
     ("websocket_ping_seconds", EnvKind::Number),
     ("max_request_bytes", EnvKind::Number),
     ("trash_retention_days", EnvKind::Number),
+    ("upload_part_bytes", EnvKind::Number),
+    ("tmp_path", EnvKind::Text),
     ("trusted_proxies", EnvKind::List),
     ("login_pair_free_failures", EnvKind::Number),
     ("login_pair_base_delay_seconds", EnvKind::Number),
@@ -388,6 +402,13 @@ const ENV_KEYS: [(&str, EnvKind); 40] = [
 ];
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
+
+/// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
+/// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
+const DEFAULT_UPLOAD_PART_BYTES: u64 = 8 * 1024 * 1024;
+
+/// The smallest part an S3 multipart upload takes, and so the smallest part size.
+pub const MIN_UPLOAD_PART_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Keys of the original server's configuration that this server no longer has, each with
 /// what to do instead. A file or an environment that sets one to something is refused:
@@ -502,6 +523,16 @@ impl Configuration {
         i64::from(self.trash_retention_days).saturating_mul(MILLIS_PER_DAY)
     }
 
+    /// The directory of the server's temporary files: `tmp_path`, or `.tmp` under
+    /// `filespath`.
+    pub fn tmp_dir(&self) -> std::path::PathBuf {
+        if self.tmp_path.is_empty() {
+            std::path::Path::new(&self.files_path).join(".tmp")
+        } else {
+            std::path::PathBuf::from(&self.tmp_path)
+        }
+    }
+
     /// Checks that the configuration only asks for what this server supports.
     ///
     /// Returns the warnings for settings that are accepted but have no effect.
@@ -541,6 +572,10 @@ impl Configuration {
         // Zero would empty the trash as it fills: deleting could not be undone.
         if self.trash_retention_days == 0 {
             bail!("trash_retention_days must be at least 1");
+        }
+        // An S3 multipart upload takes no smaller part but the last.
+        if self.upload_part_bytes < MIN_UPLOAD_PART_BYTES {
+            bail!("upload_part_bytes must be at least {MIN_UPLOAD_PART_BYTES} (5 MiB)");
         }
         if !self.prometheus_address.is_empty() {
             bail!("prometheusaddress is set, but this server has no metrics endpoint");
@@ -704,6 +739,8 @@ mod tests {
         assert_eq!(config.session_idle_millis(), 14 * 24 * 60 * 60 * 1000);
         assert_eq!(config.session_max_millis(), 90 * 24 * 60 * 60 * 1000);
         assert_eq!(config.trash_retention_days, 30);
+        assert_eq!(config.upload_part_bytes, 8 * 1024 * 1024);
+        assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");
         assert_eq!(config.teammate_name_display, "username");
         assert_eq!(
@@ -851,6 +888,7 @@ mod tests {
         // Zero would not mean "no limit" to anyone who reads it as "nothing".
         assert!(error(r#"{"max_request_bytes": 0}"#).contains("max_request_bytes"));
         assert!(error(r#"{"trash_retention_days": 0}"#).contains("trash_retention_days"));
+        assert!(error(r#"{"upload_part_bytes": 5242879}"#).contains("upload_part_bytes"));
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(

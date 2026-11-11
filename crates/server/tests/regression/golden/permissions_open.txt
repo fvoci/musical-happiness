@@ -44,6 +44,7 @@ subscriptions: delete                       401        404        204        204
 files: upload                               401        403        403        403        201        201
 files: download                             401        403        200        200        200        200
 files: info                                 401        403        200        200        200        200
+uploads: open                               401        403        403        403        201        201
 archive: export board                       401        403        200        200        200        200
 archive: import                             401        204        204        204        204        204
 archive: export team                        401        200        200        200        200        200

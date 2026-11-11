@@ -120,12 +120,14 @@ AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… fvoci-server --config config.jso
 |---|---|---|---|---|
 | `trusted_proxies` | `FVOCI_TRUSTED_PROXIES` | 문자열 목록 | `[]` | 서버 앞의 역방향 프록시의 주소나 주소 범위(`10.0.0.0/8` 꼴). 이 주소에서 온 요청만 `X-Forwarded-For`가 말하는 주소에서 온 것으로 본다. 비우면 클라이언트가 서버에 바로 닿는다고 본다. 읽을 수 없는 값이 있으면 시작하지 않는다. `serverRoot`가 https이고 `useSSL`이 거짓인데 이 목록이 비면 시작할 때 경고한다(모든 클라이언트가 프록시 하나로 보여 로그인 제한이 모두에게 한꺼번에 걸린다) |
 
-## 키: 한도와 휴지통
+## 키: 한도와 휴지통, 임시 파일
 
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `max_request_bytes` | `FVOCI_MAX_REQUEST_BYTES` | 정수(1 이상, 바이트) | `4194304` | JSON을 받는 API 요청 본문의 가장 큰 크기(4 MiB). 넘으면 413. 파일 올리기(`maxfilesize`)와 아카이브 가져오기에는 쓰지 않는다. 세션 없는 요청(64 KiB)과 WebSocket 메시지(64 KiB)의 한도는 설정이 아니다 |
 | `trash_retention_days` | `FVOCI_TRASH_RETENTION_DAYS` | 정수(1 이상) | `30` | 지운 보드와 블록이 휴지통에 남아 되살릴 수 있는 날. 지나면 영구히 지운다. 어느 블록도(휴지통의 것까지) 가리키지 않는 파일도 그렇게 된 지 이만큼 지나면 지운다 |
+| `upload_part_bytes` | `FVOCI_UPLOAD_PART_BYTES` | 정수(5242880 이상, 바이트) | `8388608` | 청크로 올릴 때(`createUpload`) 마지막을 뺀 부분 하나의 크기(8 MiB). S3 멀티파트가 받는 가장 작은 부분이 5 MiB라서 그보다 작으면 시작하지 않는다 |
+| `tmp_path` | `FVOCI_TMP_PATH` | 문자열 | `""` | 서버의 임시 파일을 두는 디렉터리. 지금은 끝나지 않은 업로드의 부분(`uploads/<uploadId>/`)을 둔다. 비우면 `filespath` 아래 `.tmp`다. 시스템의 임시 디렉터리는 메모리에 있을 수 있어 쓰지 않는다 |
 
 ## 키: 공유와 보이는 것
 

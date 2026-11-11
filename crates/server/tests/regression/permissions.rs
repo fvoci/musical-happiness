@@ -33,7 +33,7 @@ const ROLES: [&str; 6] = [
 const MEMBER_ROLES: [&str; 4] = ["viewer", "commenter", "editor", "admin"];
 
 /// The rows of the table, in order. [`request`] builds the request of each.
-const ROUTES: [&str; 52] = [
+const ROUTES: [&str; 53] = [
     "board: get",
     "board: patch title",
     "board: patch properties",
@@ -78,6 +78,7 @@ const ROUTES: [&str; 52] = [
     "files: upload",
     "files: download",
     "files: info",
+    "uploads: open",
     "archive: export board",
     "archive: import",
     "archive: export team",
@@ -469,6 +470,11 @@ async fn request(route: &str, fx: &Fixture<'_>, me: &str) -> Request {
                 format!("{API}/boards/{board}/files/{file}/info"),
             )
         }
+        "uploads: open" => Request::json(
+            Method::POST,
+            format!("{API}/boards/{board}/uploads"),
+            json!({"name": "pixel.png", "size": PNG.len()}),
+        ),
         "archive: export board" => {
             Request::new(Method::GET, format!("{board_path}/archive/export"))
         }
