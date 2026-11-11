@@ -160,13 +160,21 @@ struct Listeners {
 }
 
 impl Listeners {
-    /// The first of a user's listeners that is subscribed to the team.
-    fn first_for_user(&self, team_id: &str, user_id: &str) -> Option<ListenerId> {
-        self.by_team.get(team_id)?.iter().copied().find(|id| {
-            self.by_id
-                .get(id)
-                .is_some_and(|listener| listener.user_id == user_id)
-        })
+    /// The listeners of a user that are subscribed to the team: every tab of the user.
+    fn of_user(&self, team_id: &str, user_id: &str) -> Vec<ListenerId> {
+        self.by_team
+            .get(team_id)
+            .map(|ids| {
+                ids.iter()
+                    .copied()
+                    .filter(|id| {
+                        self.by_id
+                            .get(id)
+                            .is_some_and(|listener| listener.user_id == user_id)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     fn remove(&mut self, id: ListenerId) {
@@ -778,13 +786,11 @@ impl Hub {
             .collect()
     }
 
-    /// Sends a message to the first of the user's connections that is subscribed to the
-    /// team.
-    ///
-    /// Preserved quirk: a user's other connections (other browser tabs) are not told.
+    /// Sends a message to every connection of the user that is subscribed to the team:
+    /// every tab of the user is told. (The original tells the first one only.)
     fn send_to_user(&self, team_id: &str, user_id: &str, message: &impl Serialize) {
-        let recipient = self.listeners().first_for_user(team_id, user_id);
-        self.send(recipient.as_slice(), message);
+        let recipients = self.listeners().of_user(team_id, user_id);
+        self.send(&recipients, message);
     }
 
     /// Queues a message for the given listeners. A listener whose queue is full is
@@ -1006,8 +1012,8 @@ mod tests {
             "all in the team"
         );
 
-        let found = listeners.first_for_user(team_id, "fake-user-id");
-        assert_eq!(found, Some(user1), "the user's listener is found");
+        let found = listeners.of_user(team_id, "fake-user-id");
+        assert_eq!(found, [user1], "the user's listener is found");
 
         for id in [anonymous, user1, user2] {
             listeners.remove(id);
@@ -1018,8 +1024,8 @@ mod tests {
             "nor in the team"
         );
         assert_eq!(
-            listeners.first_for_user(team_id, "fake-user-id"),
-            None,
+            listeners.of_user(team_id, "fake-user-id"),
+            Vec::<ListenerId>::new(),
             "nobody to find"
         );
     }

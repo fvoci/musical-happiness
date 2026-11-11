@@ -109,6 +109,37 @@ async fn subscribe_to_team(th: &TestServer, socket: &mut Socket, team_id: &str, 
     panic!("the socket was never subscribed to team {team_id}");
 }
 
+/// The category messages go to every connection of the user that follows the team:
+/// another tab of the user hears them too, another user does not.
+#[tokio::test]
+async fn category_messages_reach_every_tab_of_the_user() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user1 = th.client.me().await;
+    let mut first = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut first, ROOT_TEAM_ID, &user1.id).await;
+    let mut second = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut second, ROOT_TEAM_ID, &user1.id).await;
+    while first.next_json(Duration::from_millis(150)).await.is_some() {}
+    let user2 = th.client2.me().await;
+    let mut other = Socket::connect_as(&th.client2).await;
+    subscribe_to_team(&th, &mut other, ROOT_TEAM_ID, &user2.id).await;
+
+    th.client
+        .post(
+            &format!("/teams/{ROOT_TEAM_ID}/categories"),
+            &json!({"name": "both tabs", "userId": user1.id, "teamId": ROOT_TEAM_ID}),
+        )
+        .await
+        .check_created();
+    for socket in [&mut first, &mut second] {
+        let message = socket.next_json(PATIENCE).await.expect("told");
+        assert_eq!(message["action"], json!("UPDATE_CATEGORY"), "{message}");
+        assert_eq!(message["category"]["name"], json!("both tabs"));
+    }
+    assert_eq!(other.next(QUIET).await, Event::Nothing, "another user");
+    th.teardown().await;
+}
+
 /// A connection of a session subscribes to a team and is told about the user's category
 /// changes; on a connection without a session the subscription is ignored.
 #[tokio::test]

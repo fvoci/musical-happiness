@@ -51,17 +51,17 @@
 | `UPDATE_BLOCK` | `teamId`, `block`(`Block` 전체) | 위와 같은 연결, 그리고 그 블록이나 그 블록의 부모를 `SUBSCRIBE_BLOCKS`로 따라가는 연결 |
 | `UPDATE_MEMBER` | `teamId`, `member`(`BoardMember`) | 그 팀을 구독한 연결 가운데 사용자가 보드의 멤버인 것 |
 | `DELETE_MEMBER` | `teamId`, `member`(`boardId`, `userId`만 뜻이 있고 역할은 모두 `false`) | 위와 같은 연결, 그리고 빠진 사용자의 연결 |
-| `UPDATE_CATEGORY` | `teamId`, `category`(`Category`) | 카테고리 주인의 연결 **하나**(아래) |
-| `UPDATE_BOARD_CATEGORY` | `teamId`, `boardCategories`(`{boardId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setBoardCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideBoard`·`unhideBoard`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 하나 |
-| `REORDER_CATEGORIES` | `teamId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 하나 |
-| `REORDER_CATEGORY_BOARDS` | `teamId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 하나 |
+| `UPDATE_CATEGORY` | `teamId`, `category`(`Category`) | 카테고리 주인의, 그 팀을 구독한 연결 모두(아래) |
+| `UPDATE_BOARD_CATEGORY` | `teamId`, `boardCategories`(`{boardId, categoryId, hidden}`의 목록). **목록은 바꾼 항목들이지 전체가 아니다**: `setBoardCategory`와 보드를 기본 카테고리에 넣는 조작은 그 카테고리의 보드 전부를, `hideBoard`·`unhideBoard`는 항목 하나를 싣는다. 받는 쪽은 항목마다 덮어쓴다(목록으로 갈아 끼우면 보드를 잃는다) | 그 사용자의 연결 모두 |
+| `REORDER_CATEGORIES` | `teamId`, `categoryOrder`(카테고리 ID의 새 순서) | 그 사용자의 연결 모두 |
+| `REORDER_CATEGORY_BOARDS` | `teamId`, `categoryId`, `boardOrder`(그 카테고리의 보드 ID의 새 순서) | 그 사용자의 연결 모두 |
 | `UPDATE_CLIENT_CONFIG` | `clientConfig` | 모든 연결. **지금은 보내는 곳이 없다**(서버 설정이 실행 중에 바뀌지 않는다) |
 
 ### 받는 사람의 규칙
 
 - "보드의 멤버"는 메시지를 보낼 때 저장소에서 읽은 멤버 목록이다. 팀을 구독하지 않은 연결은 멤버여도 받지 않는다.
 - 공개 보드라도 멤버가 아닌 사용자는 보드와 블록의 변경을 받지 않는다.
-- **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 팀을 먼저 구독한 하나에만 간다.** 같은 사용자의 다른 탭은 받지 않는다(원본에서 이어 온 동작. 5절 G1).
+- **카테고리의 네 메시지는 그 사용자의 연결 가운데 그 팀을 구독한 것 모두에 간다.** 같은 사용자의 다른 탭도 받는다(원본은 먼저 구독한 하나에만 보냈다).
 - 세션이 없는(익명) 연결이 받는 `UPDATE_BLOCK`에서는 `createdBy`, `modifiedBy`가 빈 문자열이다(HTTP의 익명 공유 응답과 같은 까닭: 사용자 ID가 가입 시각을 드러낸다). 로그인한 연결은 읽기 토큰으로 따라가도 그대로 받는다.
 - 한 연결이 팀 구독과 블록 구독을 함께 해서 두 길로 다 해당하면 같은 메시지를 두 번 받는다.
 - 쓴 사람 자신의 연결도 받는다. 서버는 보낸 사람을 빼지 않는다.
