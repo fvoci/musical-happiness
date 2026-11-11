@@ -53,7 +53,7 @@ import {
   viewPatches,
 } from './patches.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
-import { PendingWrites, put, take } from './write.ts';
+import { PendingWrites, put, reread, take } from './write.ts';
 
 function roleOf(member: BoardMember | undefined): MemberRole {
   if (!member) return '';
@@ -137,8 +137,22 @@ export class BoardStore {
   readonly canEdit = $derived(this.role === 'admin' || this.role === 'editor');
   readonly canComment = $derived(this.canEdit || this.role === 'commenter');
 
+  /**
+   * Whether the reader may delete a comment written by `createdBy`: an
+   * editor their own, an admin anyone's. A commenter cannot delete even
+   * their own (`deleteBlock` in `contracts/openapi.json`).
+   */
+  canDeleteComment(createdBy: string): boolean {
+    if (this.role === 'admin') return true;
+    return this.canEdit && createdBy === this.workspace.me?.id;
+  }
+
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
+  /** Readings again (`#refresh`) begun: the latest is the one that counts. */
+  #refreshing = 0;
+  /** Lists of members told by changes: a reading begun before the latest does not replace it. */
+  #membersTold = 0;
   #stopWatching: (() => void) | undefined;
 
   constructor(workspace: Workspace, boardId: string) {
@@ -170,6 +184,7 @@ export class BoardStore {
       this.cards = cards;
       this.members = members;
       this.status = 'ready';
+      void this.workspace.learnUsers(members.map((member) => member.userId));
     } catch (error) {
       this.status = 'failed';
       if (isBackendError(error) && error.status === 404) this.missing = true;
@@ -245,7 +260,9 @@ export class BoardStore {
         this.status = 'failed';
         break;
       case 'members':
+        this.#membersTold += 1;
         this.members = change.members;
+        void this.workspace.learnUsers(change.members.map((member) => member.userId));
         break;
       case 'blocks':
         for (const block of change.blocks) {
@@ -259,8 +276,60 @@ export class BoardStore {
         this.views = this.views.filter((view) => !change.blockIds.includes(view.id));
         this.openCard?.forget(change.blockIds);
         break;
+      case 'resync':
+        void this.#refresh();
+        break;
       default:
         break;
+    }
+  }
+
+  /**
+   * Reads the board again over what is shown, after changes may have been
+   * missed (`resync`). Unlike `load`, the board stays on screen meanwhile;
+   * what is read is merged with it (`reread`): a write under way, or a
+   * change that arrived while reading, is not taken back. Of two readings
+   * that overlap, the later one counts.
+   */
+  async #refresh(): Promise<void> {
+    if (this.status !== 'ready') return;
+    this.#refreshing += 1;
+    const reading = this.#refreshing;
+    const cardsBefore = this.cards.map((card) => card.id);
+    const viewsBefore = this.views.map((view) => view.id);
+    const membersTold = this.#membersTold;
+    try {
+      const [board, views, cards, members] = await Promise.all([
+        this.#backend.board(this.boardId),
+        this.#backend.views(this.boardId),
+        this.#backend.cards(this.boardId),
+        this.#backend.members(this.boardId),
+      ]);
+      // A newer reading has begun meanwhile: it is the one that counts.
+      if (reading !== this.#refreshing) return;
+      if (!this.board || board.updateAt >= this.board.updateAt) this.board = board;
+      this.views = reread(this.views, views, viewsBefore, (view) => this.#viewWrites.receive(view));
+      const shown = this.cards;
+      this.cards = reread(shown, cards, cardsBefore, (card) => this.#cardWrites.receive(card));
+      if (membersTold === this.#membersTold) {
+        this.members = members;
+        void this.workspace.learnUsers(members.map((member) => member.userId));
+      }
+      const open = this.openCard;
+      if (open) {
+        const card = this.card(open.cardId);
+        if (card) open.cardChanged(card);
+        else if (cardsBefore.includes(open.cardId)) open.forget([open.cardId]);
+        void open.refresh();
+      }
+    } catch (error) {
+      if (reading !== this.#refreshing) return;
+      if (isBackendError(error) && error.status === 404) {
+        this.missing = true;
+        this.status = 'failed';
+      } else {
+        this.workspace.report('load', error);
+      }
     }
   }
 
@@ -387,7 +456,7 @@ export class BoardStore {
         return card;
       },
       async (card) => {
-        await this.#backend.deleteBlock(this.boardId, card.id);
+        await this.#deleteForUndo(card.id);
         this.cards = this.cards.filter((existing) => existing.id !== card.id);
       },
       'createCard',
@@ -414,6 +483,18 @@ export class BoardStore {
     }
   }
 
+  /**
+   * Deletes a block to take back its making: one that somebody else has
+   * deleted meanwhile (404) is as good as deleted, so the undo goes on.
+   */
+  async #deleteForUndo(blockId: string): Promise<void> {
+    try {
+      await this.#backend.deleteBlock(this.boardId, blockId);
+    } catch (error) {
+      if (!isBackendError(error) || error.status !== 404) throw error;
+    }
+  }
+
   /** Deletes cards. Undo brings them back with their comments and attachments. */
   async deleteCards(cardIds: readonly string[]): Promise<void> {
     const groupId = newUndoGroup();
@@ -426,7 +507,13 @@ export class BoardStore {
         },
         async () => {
           await this.#backend.restoreBlock(this.boardId, cardId);
-          this.cards = take(this.cards, await this.#backend.card(this.boardId, cardId));
+          // Back: the undo is done even if reading the card fails (it cannot be
+          // restored twice). The server's message, or the next reading, shows it.
+          try {
+            this.cards = take(this.cards, await this.#backend.card(this.boardId, cardId));
+          } catch (error) {
+            this.workspace.report('load', error);
+          }
         },
         'deleteCard',
         groupId,
@@ -554,7 +641,7 @@ export class BoardStore {
         return view;
       },
       async (view) => {
-        await this.#backend.deleteBlock(this.boardId, view.id);
+        await this.#deleteForUndo(view.id);
         this.views = this.views.filter((existing) => existing.id !== view.id);
       },
       'createView',

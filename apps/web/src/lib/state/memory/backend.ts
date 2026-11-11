@@ -275,6 +275,15 @@ export class MemoryBackend implements Backend {
     });
   }
 
+  /** As strict as the server: no empty list, no identifier twice, every one a user's. */
+  async usersById(teamId: string, userIds: string[]): Promise<User[]> {
+    const users = await this.users(teamId);
+    if (userIds.length === 0) fail(400, 'no users asked for');
+    if (new Set(userIds).size !== userIds.length) fail(404, 'a user asked for twice');
+    if (userIds.some((id) => !this.world.users.has(id))) fail(404, 'no such user');
+    return users.filter((user) => userIds.includes(user.id));
+  }
+
   // ----------------------------------------------------------- settings
 
   #settings(): AccountSettings {

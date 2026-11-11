@@ -13,24 +13,24 @@ describe('reading the display settings', () => {
       expect(readDisplaySettings(stored)).toEqual(DEFAULT_DISPLAY_SETTINGS);
     }
     expect(DEFAULT_DISPLAY_SETTINGS).toEqual({
-      brightness: 'auto',
+      theme: 'auto',
       cardOpen: 'center',
       density: 'auto',
-      vibration: true,
+      haptics: true,
     });
   });
 
   it('keeps the values it knows and replaces the ones it does not', () => {
     expect(
       readDisplaySettings({
-        brightness: 'dark',
+        theme: 'dark',
         cardOpen: 'side',
         density: 'enormous',
-        vibration: 'yes',
+        haptics: 'yes',
         somethingNew: 1,
       }),
-    ).toEqual({ brightness: 'dark', cardOpen: 'side', density: 'auto', vibration: true });
-    expect(readDisplaySettings({ vibration: false }).vibration).toBe(false);
+    ).toEqual({ theme: 'dark', cardOpen: 'side', density: 'auto', haptics: true });
+    expect(readDisplaySettings({ haptics: false }).haptics).toBe(false);
   });
 });
 
@@ -40,21 +40,21 @@ describe('settling the display settings for a device', () => {
 
   it('follows the device where the setting is auto', () => {
     expect(resolveDisplay(DEFAULT_DISPLAY_SETTINGS, light)).toEqual({
-      brightness: 'light',
+      theme: 'light',
       cardOpen: 'center',
       density: 'compact',
-      vibration: true,
+      haptics: true,
     });
     expect(resolveDisplay(DEFAULT_DISPLAY_SETTINGS, darkTouch)).toMatchObject({
-      brightness: 'dark',
+      theme: 'dark',
       density: 'comfortable',
     });
   });
 
   it('lets a fixed choice win over the device', () => {
-    const fixed = { ...DEFAULT_DISPLAY_SETTINGS, brightness: 'light', density: 'compact' } as const;
+    const fixed = { ...DEFAULT_DISPLAY_SETTINGS, theme: 'light', density: 'compact' } as const;
     expect(resolveDisplay(fixed, darkTouch)).toMatchObject({
-      brightness: 'light',
+      theme: 'light',
       density: 'compact',
     });
   });

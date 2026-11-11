@@ -8,6 +8,7 @@
  * so they do not depend on how the sidebar or the header of a view is drawn.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { screensDir } from './screens.ts';
 
 interface StoredView {
   id: string;
@@ -1428,7 +1429,7 @@ test.describe('screenshots', () => {
     test(`the table, ${scheme}`, async ({ page }, testInfo) => {
       const stage = STAGES[testInfo.project.name] ?? testInfo.project.name;
       const shot = (name: string): Promise<Buffer> =>
-        page.screenshot({ path: `docs/screens/table/${name}-${stage}-${scheme}.png` });
+        page.screenshot({ path: `${screensDir('table')}/${name}-${stage}-${scheme}.png` });
       await page.emulateMedia({ colorScheme: scheme });
 
       await openView(page, 'Project Tasks', 'Task Overview');

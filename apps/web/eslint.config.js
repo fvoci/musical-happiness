@@ -20,6 +20,8 @@ export default ts.config(
       'dist-spikes/',
       'src/lib/i18n/paraglide/',
       'src/styles/fonts/',
+      // Made from the server's contract (`pnpm run api:types`).
+      'src/lib/api/contract.ts',
     ],
   },
   js.configs.recommended,
@@ -92,7 +94,7 @@ export default ts.config(
   },
   {
     // A test stands in for an asynchronous function with one that has nothing to wait for.
-    files: ['tests/**', 'e2e/**'],
+    files: ['tests/**', 'e2e/**', 'e2e-live/**'],
     rules: { '@typescript-eslint/require-await': 'off' },
   },
   {

@@ -147,7 +147,10 @@
               {:else}
                 <p class="truncate">{attachment.name}</p>
               {/if}
-              <p class="text-xs text-muted-foreground">{humanFileSize(attachment.size)}</p>
+              <!-- 0: the server's attachment says no size (\`contract-assumptions.md\`, B2). -->
+              {#if attachment.size > 0}
+                <p class="text-xs text-muted-foreground">{humanFileSize(attachment.size)}</p>
+              {/if}
             </div>
             {#if editable}
               <IconButton

@@ -234,6 +234,31 @@ export interface UploadedFile {
   contentType: string;
 }
 
+// ---------------------------------------------------------------- account
+
+/** What an account is made with. */
+export interface Registration {
+  /** The name to sign in with. */
+  username: string;
+  email: string;
+  password: string;
+  /** The team's invitation; the first account of a server needs none. */
+  token?: string;
+}
+
+/**
+ * Signing in and out, where a backend has accounts: the server has, the one
+ * in memory has not. Until somebody is signed in, every read of a backend
+ * with accounts is refused with 401.
+ */
+export interface Account {
+  /** `login` is the name to sign in with, or the email address. */
+  signIn(login: string, password: string): Promise<void>;
+  /** Makes an account. It does not sign in. */
+  register(registration: Registration): Promise<void>;
+  signOut(): Promise<void>;
+}
+
 // ---------------------------------------------------------------- changes
 
 /**
@@ -250,7 +275,12 @@ export type Change =
   | { kind: 'blocksDeleted'; boardId: string; blockIds: string[] }
   | { kind: 'members'; boardId: string; members: BoardMember[] }
   | { kind: 'categories'; categories: Category[] }
-  | { kind: 'settings'; settings: AccountSettings };
+  | { kind: 'settings'; settings: AccountSettings }
+  /**
+   * Changes may have been missed (the connection to the server dropped and
+   * is back): read again what is shown. The memory backend never sends it.
+   */
+  | { kind: 'resync' };
 
 export type ChangeListener = (change: Change) => void;
 
@@ -273,6 +303,12 @@ export interface Backend {
   teams(): Promise<Team[]>;
   /** The people of a team: who can be mentioned or set as a person. */
   users(teamId: string): Promise<User[]>;
+  /**
+   * The people of a team with these identifiers: for the names `users`
+   * did not bring (the server's list of a team is short). Every identifier
+   * must be a user's.
+   */
+  usersById(teamId: string, userIds: string[]): Promise<User[]>;
 
   // Account settings (server design 5.8) and the pocket of screen state.
   settings(): Promise<AccountSettings>;

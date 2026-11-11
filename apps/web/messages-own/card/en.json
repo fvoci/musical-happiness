@@ -6,7 +6,6 @@
   "card_not_saved": "Not saved",
   "card_loading": "Loading the card…",
   "card_missing_hint": "It may have been deleted. Close it to go back to the board.",
-  "card_delete_description": "The card “{title}” is deleted with its comments and attachments.",
   "card_icon_change": "Change icon",
   "card_property_menu": "Property “{name}”",
   "card_property_name": "Property name",

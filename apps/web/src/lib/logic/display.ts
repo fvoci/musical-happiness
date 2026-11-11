@@ -13,7 +13,7 @@
  * reduced transparency) are followed, not asked again.
  */
 
-export type BrightnessSetting = 'auto' | 'light' | 'dark';
+export type ThemeSetting = 'auto' | 'light' | 'dark';
 /**
  * How a card opens on a wide screen. Only `center` is built; `side` (a pane
  * beside the board) and `full` are places kept for later and are shown as
@@ -22,7 +22,7 @@ export type BrightnessSetting = 'auto' | 'light' | 'dark';
 export type CardOpenSetting = 'center' | 'side' | 'full';
 export type DensitySetting = 'auto' | 'compact' | 'comfortable';
 
-export const BRIGHTNESS_SETTINGS: readonly BrightnessSetting[] = ['auto', 'light', 'dark'];
+export const THEME_SETTINGS: readonly ThemeSetting[] = ['auto', 'light', 'dark'];
 export const CARD_OPEN_SETTINGS: readonly CardOpenSetting[] = ['center', 'side', 'full'];
 /** The ways a card can open that are built. */
 export const CARD_OPEN_BUILT: readonly CardOpenSetting[] = ['center'];
@@ -30,19 +30,19 @@ export const DENSITY_SETTINGS: readonly DensitySetting[] = ['auto', 'compact', '
 
 export interface DisplaySettings {
   /** `auto` follows the device's light or dark setting. */
-  brightness: BrightnessSetting;
+  theme: ThemeSetting;
   cardOpen: CardOpenSetting;
   /** `auto` follows the pointer: roomy for a finger, compact for a mouse. */
   density: DensitySetting;
   /** A short buzz when a long press picks something up. */
-  vibration: boolean;
+  haptics: boolean;
 }
 
 export const DEFAULT_DISPLAY_SETTINGS: DisplaySettings = {
-  brightness: 'auto',
+  theme: 'auto',
   cardOpen: 'center',
   density: 'auto',
-  vibration: true,
+  haptics: true,
 };
 
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -60,11 +60,11 @@ export function readDisplaySettings(stored: unknown): DisplaySettings {
     unknown
   >;
   return {
-    brightness: oneOf(source.brightness, BRIGHTNESS_SETTINGS, DEFAULT_DISPLAY_SETTINGS.brightness),
+    theme: oneOf(source.theme, THEME_SETTINGS, DEFAULT_DISPLAY_SETTINGS.theme),
     cardOpen: oneOf(source.cardOpen, CARD_OPEN_SETTINGS, DEFAULT_DISPLAY_SETTINGS.cardOpen),
     density: oneOf(source.density, DENSITY_SETTINGS, DEFAULT_DISPLAY_SETTINGS.density),
-    vibration:
-      typeof source.vibration === 'boolean' ? source.vibration : DEFAULT_DISPLAY_SETTINGS.vibration,
+    haptics:
+      typeof source.haptics === 'boolean' ? source.haptics : DEFAULT_DISPLAY_SETTINGS.haptics,
   };
 }
 
@@ -77,22 +77,17 @@ export interface DeviceTraits {
 }
 
 export interface Display {
-  brightness: 'light' | 'dark';
+  theme: 'light' | 'dark';
   /** The way a card opens, among those that are built. */
   cardOpen: CardOpenSetting;
   density: 'compact' | 'comfortable';
-  vibration: boolean;
+  haptics: boolean;
 }
 
 /** The settings with every `auto` settled for this device. */
 export function resolveDisplay(settings: DisplaySettings, device: DeviceTraits): Display {
   return {
-    brightness:
-      settings.brightness === 'auto'
-        ? device.prefersDark
-          ? 'dark'
-          : 'light'
-        : settings.brightness,
+    theme: settings.theme === 'auto' ? (device.prefersDark ? 'dark' : 'light') : settings.theme,
     cardOpen: CARD_OPEN_BUILT.includes(settings.cardOpen) ? settings.cardOpen : 'center',
     density:
       settings.density === 'auto'
@@ -100,12 +95,12 @@ export function resolveDisplay(settings: DisplaySettings, device: DeviceTraits):
           ? 'comfortable'
           : 'compact'
         : settings.density,
-    vibration: settings.vibration,
+    haptics: settings.haptics,
   };
 }
 
 /**
- * The colour of the page in each brightness, for the browser's own bars
+ * The colour of the page in each theme, for the browser's own bars
  * (`theme-color`). It has to be a plain colour: the element is read before
  * and without the style sheet. The same two values are in index.html; a test
  * holds all of them to the `--background` token.

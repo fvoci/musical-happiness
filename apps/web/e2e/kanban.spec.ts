@@ -36,6 +36,7 @@ import {
   touch,
   undo,
 } from './kanban.support.ts';
+import { screensDir } from './screens.ts';
 
 const TASKS = ['Project Tasks', 'Progress Tracker'] as const;
 const NOT_STARTED = ['Project budget approval', 'Requirements sign-off', 'Identify dependencies'];
@@ -414,9 +415,9 @@ test.describe('dragging with a finger', () => {
         window as unknown as {
           fvociDev: { workspace: { changeSettings(patch: object): Promise<void> } };
         }
-      ).fvociDev.workspace.changeSettings({ vibration: false }),
+      ).fvociDev.workspace.changeSettings({ haptics: false }),
     );
-    await expect(kanban(page)).toHaveAttribute('data-vibration', 'false');
+    await expect(kanban(page)).toHaveAttribute('data-haptics', 'false');
     await finger.rest(card(page, 'Identify dependencies'));
     await finger.up();
     await expectNoDrag(page);
@@ -941,7 +942,7 @@ test.describe('screens', () => {
       });
       await expect(boardPage(page)).toBeVisible();
       await expect.poll(() => inView(page, 'Not Started')).toBe(true);
-      await page.screenshot({ path: `docs/screens/kanban/board-${stage}-${scheme}.png` });
+      await page.screenshot({ path: `${screensDir('kanban')}/board-${stage}-${scheme}.png` });
 
       await cardMenu(page, 'Requirements sign-off', 'select');
       await page.getByRole('button', { name: 'Card menu: Project budget approval' }).click();
@@ -950,7 +951,7 @@ test.describe('screens', () => {
       await page.evaluate(() =>
         Promise.all(document.getAnimations().map((animation) => animation.finished)),
       );
-      await page.screenshot({ path: `docs/screens/kanban/card-menu-${stage}-${scheme}.png` });
+      await page.screenshot({ path: `${screensDir('kanban')}/card-menu-${stage}-${scheme}.png` });
       await page.keyboard.press('Escape');
 
       if (oneColumn(info)) return;
@@ -959,7 +960,7 @@ test.describe('screens', () => {
       await page.keyboard.press('Space');
       await page.keyboard.press('ArrowRight');
       await expect(notice(page)).toBeVisible();
-      await page.screenshot({ path: `docs/screens/kanban/sorted-drag-${stage}-${scheme}.png` });
+      await page.screenshot({ path: `${screensDir('kanban')}/sorted-drag-${stage}-${scheme}.png` });
     });
   }
 });

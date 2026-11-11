@@ -88,7 +88,7 @@
             {/snippet}
           </BodyView>
         </div>
-        {#if board.canComment && comment.createdBy === workspace.me?.id}
+        {#if board.canDeleteComment(comment.createdBy)}
           <IconButton
             label={m.card_comment_delete_from({
               when: displayDateTime(comment.createAt, context),
