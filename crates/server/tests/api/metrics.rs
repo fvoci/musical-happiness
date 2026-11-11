@@ -269,3 +269,114 @@ async fn the_base_path_is_not_part_of_the_route() {
     );
     server.teardown().await;
 }
+
+/// Scrapes until `holds` is true of the metrics, for ten seconds at most; returns the
+/// last scrape.
+async fn scrape_until(server: &TestServer, holds: impl Fn(&str) -> bool) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let body = scrape(server).await;
+        if holds(&body) || tokio::time::Instant::now() >= deadline {
+            return body;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A websocket connection's next text message, skipping pings; `None` if none comes
+/// within `wait` or the connection ends.
+async fn next_text(socket: &mut crate::common::WebSocket, wait: Duration) -> Option<String> {
+    use futures_util::StreamExt as _;
+    use tokio_tungstenite::tungstenite::Message;
+    loop {
+        match tokio::time::timeout(wait, socket.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => return Some(text.to_string()),
+            Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => {}
+            _ => return None,
+        }
+    }
+}
+
+#[tokio::test]
+async fn websocket_connections_messages_and_disconnections_are_counted() {
+    use futures_util::SinkExt as _;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user = server.client.me().await;
+    let mut socket = server.client.connect_websocket().await;
+    let mut other = server.client2.connect_websocket().await;
+    let connections = |body: &str| sample(body, "fvoci_websocket_connections", &[]);
+    let body = scrape_until(&server, |body| connections(body) == Some(2.0)).await;
+    assert_eq!(connections(&body), Some(2.0), "two open: {body}");
+
+    // Messages are counted as they are queued, one per connection they go to.
+    socket
+        .send(Message::Text(
+            serde_json::json!({"action": "SUBSCRIBE_TEAM", "teamId": crate::common::ROOT_TEAM_ID})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .expect("the command is sent");
+    let probe = fvoci_model::Category {
+        id: fvoci_model::new_id(),
+        name: "probe".to_owned(),
+        user_id: user.id.clone(),
+        team_id: crate::common::ROOT_TEAM_ID.to_owned(),
+        ..fvoci_model::Category::default()
+    };
+    let mut received = 0_u32;
+    for _ in 0..50 {
+        server.app.ws().broadcast_category_change(&probe);
+        if next_text(&mut socket, Duration::from_millis(100))
+            .await
+            .is_some()
+        {
+            received += 1;
+            break;
+        }
+    }
+    while next_text(&mut socket, Duration::from_millis(200))
+        .await
+        .is_some()
+    {
+        received += 1;
+    }
+    assert!(received > 0, "the socket was subscribed");
+    let sent = |body: &str| {
+        sample(
+            body,
+            "fvoci_websocket_messages_sent_total",
+            &[("action", "UPDATE_CATEGORY")],
+        )
+    };
+    let body = scrape(&server).await;
+    assert_eq!(sent(&body), Some(f64::from(received)), "{body}");
+
+    // The client closes one; the other's session ends.
+    other.close(None).await.expect("the close is sent");
+    server.client.post_empty("/logout").await.check_no_content();
+    assert_eq!(
+        next_text(&mut socket, Duration::from_secs(5)).await,
+        None,
+        "closed"
+    );
+    let disconnections = |body: &str, reason: &str| {
+        sample(
+            body,
+            "fvoci_websocket_disconnections_total",
+            &[("reason", reason)],
+        )
+    };
+    let body = scrape_until(&server, |body| connections(body) == Some(0.0)).await;
+    assert_eq!(connections(&body), Some(0.0), "none open: {body}");
+    assert_eq!(disconnections(&body, "client_closed"), Some(1.0), "{body}");
+    assert_eq!(disconnections(&body, "session_ended"), Some(1.0), "{body}");
+    server.teardown().await;
+}

@@ -141,7 +141,7 @@ impl App {
         );
         let ping_interval = (config.websocket_ping_seconds > 0)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
-        let ws = Hub::new(store.clone(), auth.clone(), ping_interval);
+        let ws = Hub::new(store.clone(), auth.clone(), ping_interval, metrics.clone());
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;
