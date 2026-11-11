@@ -7,7 +7,8 @@
 //! socket takes nothing more), so no timer inside it would fire. A watch beside it sees
 //! how far the sending got, and when nothing went out for the stall time it takes the
 //! file and the place away (the file is closed and removed, then the place is free) and
-//! breaks the connection ([`Breaker`]); a stream polled after that ends with an error.
+//! breaks the connection, with what the handler gave it for that; a stream polled after
+//! that ends with an error.
 //!
 //! What went out is what hyper took from the stream, which it takes as the kernel's send
 //! buffer and its own (a few MiB together) make room: a client must take about that much
@@ -26,7 +27,6 @@ use tokio::time::Instant;
 
 use super::Slot;
 use super::export::ExportedArchive;
-use crate::connection::Breaker;
 
 /// How much of the archive one poll of the stream sends.
 const PIECE_BYTES: usize = 64 * 1024;
@@ -68,13 +68,13 @@ struct Sending {
 }
 
 /// The body of an export's download: the archive in pieces. A watch takes the archive and
-/// `slot` away, and breaks the connection with `breaker`, when no piece went out for
-/// `stall`.
+/// `slot` away, and calls `cut`, which is to break the connection the download goes out
+/// on, when no piece went out for `stall`.
 pub(crate) fn download(
     archive: ExportedArchive,
     slot: Slot,
     stall: Duration,
-    breaker: Option<Breaker>,
+    cut: impl FnOnce() + Send + 'static,
 ) -> impl Stream<Item = io::Result<Bytes>> + Send + 'static {
     let sending = Arc::new(Sending {
         held: Mutex::new(Some(Held {
@@ -83,7 +83,7 @@ pub(crate) fn download(
         })),
         sent: AtomicU64::new(0),
     });
-    tokio::spawn(watch(Arc::downgrade(&sending), stall, breaker));
+    tokio::spawn(watch(Arc::downgrade(&sending), stall, cut));
     futures_util::stream::unfold(Some(sending), |sending| async move {
         let sending = sending?;
         let piece = next_piece(&sending).await;
@@ -125,8 +125,9 @@ async fn next_piece(sending: &Sending) -> io::Result<Option<Bytes>> {
 }
 
 /// Watches a download: when no byte went out for `stall`, takes what it holds away and
-/// breaks the connection. Ends when the download is sent, taken away or dropped.
-async fn watch(sending: Weak<Sending>, stall: Duration, breaker: Option<Breaker>) {
+/// breaks the connection, with `cut`. Ends when the download is sent, taken away or
+/// dropped.
+async fn watch(sending: Weak<Sending>, stall: Duration, cut: impl FnOnce()) {
     let tick = (stall / 4).max(Duration::from_millis(50));
     let mut last_sent = 0;
     let mut last_progress = Instant::now();
@@ -147,9 +148,7 @@ async fn watch(sending: Weak<Sending>, stall: Duration, breaker: Option<Breaker>
         }
         if last_progress.elapsed() >= stall {
             *held = None;
-            if let Some(breaker) = &breaker {
-                breaker.cut();
-            }
+            cut();
             tracing::info!(
                 sent,
                 "an export's download took nothing for too long and was given up"
@@ -161,6 +160,8 @@ async fn watch(sending: Weak<Sending>, stall: Duration, breaker: Option<Breaker>
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+
     use futures_util::StreamExt as _;
 
     use super::*;
@@ -178,6 +179,16 @@ mod tests {
             ExportedArchive::new(file, size, Doomed::file(path.clone())),
             path,
         )
+    }
+
+    /// A connection as the download knows it: whether it was cut, and what cuts it.
+    fn connection() -> (Arc<AtomicBool>, impl FnOnce() + Send + 'static) {
+        let is_cut = Arc::new(AtomicBool::new(false));
+        let cut = {
+            let is_cut = Arc::clone(&is_cut);
+            move || is_cut.store(true, Ordering::Release)
+        };
+        (is_cut, cut)
     }
 
     /// Waits, on the paused clock, until `done`.
@@ -201,9 +212,9 @@ mod tests {
         let (archive, path) = archive("slow").await;
         let size = archive.size;
         let slot = slots.take("user").expect("a place");
-        let breaker = Breaker::default();
+        let (is_cut, cut) = connection();
         let stall = Duration::from_secs(1);
-        let pieces = download(archive, slot, stall, Some(breaker.clone()));
+        let pieces = download(archive, slot, stall, cut);
         tokio::pin!(pieces);
 
         let started = Instant::now();
@@ -225,7 +236,7 @@ mod tests {
             started.elapsed() > stall * 2,
             "it took longer than the stall time"
         );
-        assert!(!breaker.is_cut(), "the connection stays");
+        assert!(!is_cut.load(Ordering::Acquire), "the connection stays");
         until("the place is given back", || slots.take("user").is_ok()).await;
         assert!(!path.exists(), "the file went before the place");
     }
@@ -264,21 +275,21 @@ mod tests {
         let slots = Slots::new(1);
         let (archive, path) = archive("stalled").await;
         let slot = slots.take("user").expect("a place");
-        let breaker = Breaker::default();
+        let (is_cut, cut) = connection();
         let stall = Duration::from_secs(1);
         let started = Instant::now();
-        let pieces = download(archive, slot, stall, Some(breaker.clone()));
+        let pieces = download(archive, slot, stall, cut);
         tokio::pin!(pieces);
         pieces.next().await.expect("a piece").expect("read");
 
         tokio::time::sleep_until(started + stall * 5 / 4 - Duration::from_millis(10)).await;
         assert!(slots.take("other").is_err(), "held until the watch's look");
-        assert!(!breaker.is_cut());
+        assert!(!is_cut.load(Ordering::Acquire));
         tokio::time::sleep_until(started + stall * 5 / 4 + Duration::from_millis(10)).await;
-        assert!(breaker.is_cut(), "cut at the watch's look");
+        assert!(is_cut.load(Ordering::Acquire), "cut at the watch's look");
         until("the place is given back", || slots.take("user").is_ok()).await;
         assert!(!path.exists(), "the file went before the place");
-        assert!(breaker.is_cut(), "the connection is cut");
+        assert!(is_cut.load(Ordering::Acquire), "the connection is cut");
         let error = pieces.next().await.expect("an end").expect_err("given up");
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
         assert!(pieces.next().await.is_none(), "and nothing after");

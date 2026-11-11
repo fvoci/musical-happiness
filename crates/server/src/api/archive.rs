@@ -268,7 +268,11 @@ fn archive_response(
             ("content-transfer-encoding", "binary".to_owned()),
             ("content-length", size.to_string()),
         ],
-        Body::from_stream(download(archive, slot, stall, breaker)),
+        Body::from_stream(download(archive, slot, stall, move || {
+            if let Some(breaker) = &breaker {
+                breaker.cut();
+            }
+        })),
     )
         .into_response()
 }
