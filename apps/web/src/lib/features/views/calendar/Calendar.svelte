@@ -214,11 +214,21 @@
   async function dropCard(cardId: string, grip: BarGrip, days: Days): Promise<void> {
     const card = placed.card(cardId);
     if (!card || !template || !datesWritable(template)) return;
-    void writeDays(board, card, template, grip, days, regional.timeZone);
+    writing += 1;
+    void writeDays(board, card, template, grip, days, regional.timeZone).finally(() => {
+      writing -= 1;
+    });
     // A card given a date leaves "No date", and the focus on its line with it.
     await tick();
     if (document.activeElement === document.body) undated.button?.focus();
   }
+
+  /**
+   * How many drops are being written. Until the backend has answered, a
+   * drop is not yet a step that undo takes back (the step before it is):
+   * the calendar says it is settling meanwhile (`data-settling`), as a board does.
+   */
+  let writing = $state(0);
 
   /** What the chip that follows a dragged card says: its title and the days it would go to. */
   const chip = $derived.by(() => {
@@ -304,6 +314,7 @@
 
 <div
   data-testid="calendar"
+  data-settling={writing > 0 ? '' : undefined}
   data-month="{month.year}-{String(month.month).padStart(2, '0')}"
   data-selected={selected}
   data-scale={scale}

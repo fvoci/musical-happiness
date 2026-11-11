@@ -10,7 +10,14 @@
  * The server does not check the kind of a view or the members of its
  * `fields`, so a Gantt chart is a view like any other to it.
  */
-import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+  type Response,
+} from '@playwright/test';
 
 import {
   makeBoard,
@@ -322,32 +329,56 @@ test('a bar dragged on the page, and an end of it, change the card on the server
   const week = await gantt.locator('[data-tick]').nth(1).boundingBox();
   if (!week) throw new Error('no marks on the axis');
   const day = week.width / 7;
-  /** Presses on `target`, moves `days` days across, and lets go. */
-  const dragBy = async (target: Locator, days: number): Promise<void> => {
+  /**
+   * The page's change of a card, once the server has answered it. The test
+   * goes by that answer, not by a while: on a busy machine a write may be
+   * answered after any while the test would pick.
+   */
+  const written = (cardId: string): Promise<Response> =>
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === 'PATCH' &&
+        new URL(response.url()).pathname.endsWith(`/api/v1/cards/${cardId}`),
+    );
+  /** Answers once the server has answered the page's change of `cardId`, which went well. */
+  const answered = async (cardId: string, change: () => Promise<void>): Promise<void> => {
+    const answer = written(cardId);
+    await change();
+    expect((await answer).ok()).toBe(true);
+  };
+  /**
+   * Presses on `target`, moves `days` days across, and lets go: the bar has
+   * to be taken first (a press that did not take it would be a click), and
+   * the change it makes to `cardId` answered by the server.
+   */
+  const dragBy = async (target: Locator, days: number, cardId: string): Promise<void> => {
     const box = await target.boundingBox();
     if (!box) throw new Error('nothing to drag');
     const from = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(from.x + days * day, from.y, { steps: 10 });
-    await page.mouse.up();
+    await expect(gantt.locator('[data-bar][data-dragged]')).toHaveCount(1);
+    await answered(cardId, () => page.mouse.up());
   };
 
   // Moved whole: six days still, from the 15th.
-  await dragBy(bar(page, 'Press cider'), 3);
-  await expect.poll(() => dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
+  await dragBy(bar(page, 'Press cider'), 3, cider);
+  expect(await dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
   // A moment keeps 08:00 on the reader's clock.
-  await dragBy(bar(page, 'Morning call'), 2);
-  await expect.poll(() => dueOf(call)).toEqual({ from: Date.parse('2026-11-11T23:00:00Z') });
+  await dragBy(bar(page, 'Morning call'), 2, call);
+  expect(await dueOf(call)).toEqual({ from: Date.parse('2026-11-11T23:00:00Z') });
   // The last day by its grip.
   const row = gantt.locator('[data-row]').filter({ hasText: 'Press cider' });
   await row.hover();
-  await dragBy(row.locator('[data-grip="end"]'), 2);
-  await expect.poll(() => dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-22' });
+  await dragBy(row.locator('[data-grip="end"]'), 2, cider);
+  expect(await dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-22' });
 
-  // One undo takes the last drag back, on the server too.
-  await page.keyboard.press('Control+z');
-  await expect.poll(() => dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
+  // One undo takes the last drag back, on the server too: once the page has
+  // taken the answer to the last drag in as a step to undo (`data-settling`).
+  await expect(page.locator('[data-settling]')).toHaveCount(0);
+  await answered(cider, () => page.keyboard.press('Control+z'));
+  expect(await dueOf(cider)).toEqual({ from: '2026-11-15', to: '2026-11-20' });
   await page.reload();
   await expect(bar(page, 'Press cider')).toHaveAccessibleName(
     'Press cider, November 15 – November 20',
