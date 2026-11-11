@@ -4,7 +4,8 @@
 //! Every write of a block puts down the files it shows. A block in the trash keeps them:
 //! undoing and restoring stay safe for the grace period. A file that no block shows,
 //! live or in the trash, is marked with the time it became so, and a file marked longer
-//! ago than the grace period is removed by [`Store::collect_unreferenced_files`].
+//! ago than the grace period is removed by [`Store::collect_unreferenced_files`], and
+//! its object doomed.
 
 use std::collections::BTreeSet;
 
@@ -14,12 +15,13 @@ use crate::Store;
 use crate::comment_versions;
 use crate::db::{Id, Scope, now_millis};
 use crate::error::StoreError;
-use crate::file_info::{FILE_INFO_COLUMNS, file_info_from_row};
+use crate::file_info::{FILE_INFO_COLUMN_COUNT, FILE_INFO_COLUMNS, file_info_from_row};
+use crate::loose_objects;
 
 impl Store {
     /// Removes the records of the files that no block has shown since before `before`
-    /// (milliseconds), and returns them: their files are to be removed from the file
-    /// storage.
+    /// (milliseconds), dooms their objects in the same transaction
+    /// ([`Store::due_doomed_objects`]), and returns the records.
     ///
     /// # Errors
     ///
@@ -28,21 +30,27 @@ impl Store {
         &self,
         before: i64,
     ) -> Result<Vec<FileInfo>, StoreError> {
-        self.with_conn(async |scope| {
+        self.transaction(async |scope| {
             // One statement decides and deletes: a file that a block shows again by the
             // time its row is deleted keeps its row (PostgreSQL checks the condition
             // again against the row as committed).
+            let org = loose_objects::org_column(scope);
             let mut sql = scope.sql(
                 "DELETE FROM file_info WHERE unreferenced_at IS NOT NULL AND unreferenced_at < ",
             );
-            sql.bind(before)
-                .push(&format!(" RETURNING {FILE_INFO_COLUMNS}"));
-            scope
-                .fetch_all(sql)
-                .await?
-                .iter()
-                .map(file_info_from_row)
-                .collect()
+            sql.bind(before).push(&format!(
+                " RETURNING {FILE_INFO_COLUMNS}{}",
+                org.map_or(String::new(), |column| format!(", {column}"))
+            ));
+            let rows = scope.fetch_all(sql).await?;
+            let mut files = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let file = file_info_from_row(row)?;
+                let org_id = org.map(|_| row.id(FILE_INFO_COLUMN_COUNT)).transpose()?;
+                loose_objects::doom(scope, &file.path, org_id.as_deref()).await?;
+                files.push(file);
+            }
+            Ok(files)
         })
         .await
     }

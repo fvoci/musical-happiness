@@ -221,14 +221,10 @@ impl App {
             .map_err(|error| {
                 AppError::from(error).context("cannot store the built-in templates")
             })?;
-        let Some(files) = replaced else {
+        // The records of the old templates' files went with them, and their objects
+        // are doomed: the housekeeping removes them.
+        if replaced.is_none() {
             return Ok(false);
-        };
-        // The records of the old templates' files went with them.
-        for file in &files {
-            if let Err(error) = self.files().delete(&file.path).await {
-                tracing::warn!(%error, path = file.path, "a file of a removed built-in template could not be removed");
-            }
         }
         system.announce_created(&templates, &[]).await;
         Ok(true)

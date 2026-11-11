@@ -28,6 +28,7 @@ use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_info;
 use crate::file_refs;
+use crate::loose_objects;
 use crate::users;
 
 /// A block in the trash.
@@ -291,21 +292,29 @@ impl Store {
 
     /// Removes for good what was deleted before `deleted_before` (milliseconds since
     /// the Unix epoch), and the deleted blocks of boards that are gone for good. Returns
-    /// how many boards and blocks went, and the file records of the boards that went:
-    /// nothing else says where their files are, so whoever keeps the files removes them
-    /// now or never.
+    /// how many boards and blocks went, and the file records of the boards that went,
+    /// whose objects are doomed in the same transaction ([`Store::due_doomed_objects`]).
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if a statement fails; nothing is removed then.
     pub async fn purge_trash(&self, deleted_before: i64) -> Result<Purged, StoreError> {
         self.transaction(async |scope| {
-            let mut sql = scope.sql("SELECT files FROM deleted_boards WHERE deleted_at < ");
+            let org = loose_objects::org_column(scope);
+            let mut sql = scope.sql(&format!(
+                "SELECT files{} FROM deleted_boards WHERE deleted_at < ",
+                org.map_or(String::new(), |column| format!(", {column}"))
+            ));
             sql.bind(deleted_before);
             let mut files = Vec::new();
             for row in scope.fetch_all(sql).await? {
                 let of_board: StoredFiles = from_json(&row, 0, "files")?;
-                files.extend(Vec::<FileInfo>::from(of_board));
+                let org_id = org.map(|_| row.id(1)).transpose()?;
+                for file in Vec::<FileInfo>::from(of_board) {
+                    // Nothing else says where the file is once the board is gone.
+                    loose_objects::doom(scope, &file.path, org_id.as_deref()).await?;
+                    files.push(file);
+                }
             }
 
             let mut records = 0;
@@ -337,8 +346,7 @@ impl Store {
 pub struct Purged {
     /// How many boards and blocks went.
     pub records: u64,
-    /// The file records of the boards that went. Their files belong to nothing any
-    /// more.
+    /// The file records of the boards that went. Their objects are doomed.
     pub files: Vec<FileInfo>,
 }
 

@@ -13,6 +13,9 @@ use crate::error::StoreError;
 pub(crate) const FILE_INFO_COLUMNS: &str =
     "id, board_id, name, original_name, extension, size, path, create_at";
 
+/// How many columns [`FILE_INFO_COLUMNS`] names: the index of a column read after them.
+pub(crate) const FILE_INFO_COLUMN_COUNT: usize = 8;
+
 impl Store {
     /// Returns the record of the file a board has under a stored name.
     ///

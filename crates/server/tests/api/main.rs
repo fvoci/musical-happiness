@@ -22,6 +22,7 @@ mod files;
 mod imports;
 mod limits;
 mod login_limits;
+mod loose_objects;
 mod metrics;
 mod onboarding;
 mod organizations;

@@ -9,11 +9,12 @@
 //!
 //! The two files of a migration describe one change and differ in the column types
 //! only, as the tests of the baselines hold them to. The migration of the organizations
-//! is the exception, and the only one, on two counts. PostgreSQL keeps the rows of the
-//! organizations apart with row-level security, which SQLite does not have: there the
-//! tables whose statements do not name the organization get the column `org_id`, with
-//! the organization of the transaction as its default, and every table of an
-//! organization gets its policy; SQLite holds one organization and gets neither. And
+//! is the exception on two counts, and a later table of an organization on the first.
+//! PostgreSQL keeps the rows of the organizations apart with row-level security, which
+//! SQLite does not have: there the tables whose statements do not name the organization
+//! get the column `org_id`, with the organization of the transaction as its default,
+//! and every table of an organization gets its policy; SQLite holds one organization
+//! and gets neither. And
 //! SQLite adds no column that both takes no NULL and refers to another table, so where
 //! PostgreSQL alters `teams`, SQLite makes the table again; and SQLite alone has the
 //! triggers that hold it to one organization.
@@ -34,7 +35,7 @@ struct Step {
 }
 
 /// Every migration, oldest first. Applied ones are never edited: add a new one.
-const STEPS: [Step; 14] = [
+const STEPS: [Step; 15] = [
     Step {
         version: 1,
         description: "baseline",
@@ -119,6 +120,13 @@ const STEPS: [Step; 14] = [
         sqlite: include_str!("../schema/sqlite/0014_organizations.sql"),
         postgres: include_str!("../schema/postgres/0014_organizations.sql"),
     },
+    // 15 is the work that runs beside this one (the keys of the organizations).
+    Step {
+        version: 16,
+        description: "loose objects",
+        sqlite: include_str!("../schema/sqlite/0016_loose_objects.sql"),
+        postgres: include_str!("../schema/postgres/0016_loose_objects.sql"),
+    },
 ];
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
@@ -143,7 +151,7 @@ pub(crate) const GLOBAL_TABLES: [&str; 6] = [
 /// policy `org_wall`. A test of the store reads the catalog to see that every table of
 /// the schema is in this list or in [`GLOBAL_TABLES`], and that it is so.
 #[cfg(any(test, feature = "test-util"))]
-pub(crate) const ORG_TABLES: [&str; 18] = [
+pub(crate) const ORG_TABLES: [&str; 19] = [
     "blocks",
     "board_members",
     "boards",
@@ -154,6 +162,7 @@ pub(crate) const ORG_TABLES: [&str; 18] = [
     "deleted_boards",
     "file_info",
     "file_refs",
+    "loose_objects",
     "organization_members",
     "organizations",
     "sharing",

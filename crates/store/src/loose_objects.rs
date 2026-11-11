@@ -1,0 +1,332 @@
+//! Objects of the file storage that may have no record: those being written, whose
+//! record is not there yet, and those whose record went, which are to be removed.
+//!
+//! A file's object is in the file storage and its record in the database, and no
+//! transaction holds both. So an object is listed here before it is written, and the
+//! transaction that records it takes it off; and the transaction that removes a record
+//! lists its object as doomed. The server's housekeeping removes the doomed objects,
+//! trying again after a failure, and dooms the objects whose writing has gone on for
+//! longer than any write takes. Whatever stops in between, the list says what is left
+//! to do.
+
+use fvoci_model::FileInfo;
+
+use crate::Store;
+use crate::db::{Dialect, Id, Row, Scope, now_millis};
+use crate::error::StoreError;
+use crate::file_info;
+
+/// What a listed object is waiting for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LooseState {
+    /// It is being written, and its record is not there yet.
+    Writing,
+    /// Its record went, or it never had one: it is to be removed.
+    Doomed,
+}
+
+impl LooseState {
+    /// The value of the `state` column.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Writing => "writing",
+            Self::Doomed => "doomed",
+        }
+    }
+
+    fn parse(text: &str) -> Result<Self, StoreError> {
+        match text {
+            "writing" => Ok(Self::Writing),
+            "doomed" => Ok(Self::Doomed),
+            other => Err(StoreError::Corrupt {
+                column: "state",
+                reason: format!("unknown state {other:?}"),
+            }),
+        }
+    }
+}
+
+/// An object of the file storage that is listed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LooseObject {
+    /// Its place in the file storage.
+    pub path: String,
+    /// What it is waiting for.
+    pub state: LooseState,
+    /// When it was listed, in milliseconds since the Unix epoch.
+    pub create_at: i64,
+    /// When the housekeeping next looks at it.
+    pub retry_at: i64,
+    /// How many of its removals failed.
+    pub attempts: i64,
+    /// When its last removal was tried; 0 before the first.
+    pub last_attempt_at: i64,
+    /// The kind of the error of its last removal; empty before the first failure.
+    pub last_error: String,
+}
+
+/// How many objects are listed, as the metrics count them.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LooseCounts {
+    /// Being written.
+    pub writing: i64,
+    /// Doomed.
+    pub doomed: i64,
+    /// The doomed ones whose removal failed at least once, by the kind of the error of
+    /// the last failure, in the order of the kinds.
+    pub failing: Vec<(String, i64)>,
+}
+
+const LOOSE_COLUMNS: &str =
+    "path, state, create_at, retry_at, attempts, last_attempt_at, last_error";
+
+impl Store {
+    /// Lists the object about to be written at `path`, with its record not there yet.
+    /// From `doom_at` on, the housekeeping takes the object for one whose writing
+    /// stopped, and dooms it unless it is recorded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails, as it does when the
+    /// path is listed already.
+    pub async fn mark_writing(&self, path: &str, doom_at: i64) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql =
+                scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at) VALUES (");
+            sql.bind(path)
+                .push_bind(", ", LooseState::Writing.as_str())
+                .push_bind(", ", now_millis())
+                .push_bind(", ", doom_at)
+                .push(")");
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Records a file whose object was written at the place it names, taking the mark
+    /// of [`Store::mark_writing`] away, in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::NotFound`] if the path is not being written, as when the
+    /// housekeeping doomed it: nothing is recorded then, and the object is the
+    /// housekeeping's to remove. And the errors of [`Store::save_file_info`].
+    pub async fn record_written_file(&self, file_info: &FileInfo) -> Result<(), StoreError> {
+        self.transaction(async |scope| {
+            let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
+            sql.bind(&file_info.path)
+                .push_bind(" AND state = ", LooseState::Writing.as_str());
+            if scope.execute(sql).await? == 0 {
+                return Err(StoreError::not_found("object being written"));
+            }
+            file_info::save_file_info(scope, file_info).await
+        })
+        .await
+    }
+
+    /// Dooms the object being written at `path`, for the writer that gave it up.
+    /// Returns whether it was being written: if it was not, it was recorded or doomed
+    /// already, and is none of the writer's.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn doom_writing(&self, path: &str) -> Result<bool, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE loose_objects SET state = ");
+            sql.bind(LooseState::Doomed.as_str())
+                .push_bind(", retry_at = ", now_millis())
+                .push_bind(" WHERE path = ", path)
+                .push_bind(" AND state = ", LooseState::Writing.as_str());
+            Ok(scope.execute(sql).await? > 0)
+        })
+        .await
+    }
+
+    /// Dooms the objects whose writing was to be over by `now`, and returns how many.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn doom_stale_writing(&self, now: i64) -> Result<u64, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE loose_objects SET state = ");
+            sql.bind(LooseState::Doomed.as_str())
+                .push_bind(" WHERE state = ", LooseState::Writing.as_str())
+                .push_bind(" AND retry_at <= ", now);
+            scope.execute(sql).await
+        })
+        .await
+    }
+
+    /// Returns up to `limit` doomed objects whose removal is due at `now`, those due
+    /// the longest first.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn due_doomed_objects(
+        &self,
+        now: i64,
+        limit: i64,
+    ) -> Result<Vec<LooseObject>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "SELECT {LOOSE_COLUMNS} FROM loose_objects WHERE state = "
+            ));
+            sql.bind(LooseState::Doomed.as_str())
+                .push_bind(" AND retry_at <= ", now)
+                .push_bind(" ORDER BY retry_at, path LIMIT ", limit);
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(loose_object_from_row)
+                .collect()
+        })
+        .await
+    }
+
+    /// Returns every listed object, by path: for the tests and the reconciliation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn loose_objects(&self) -> Result<Vec<LooseObject>, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql(&format!(
+                "SELECT {LOOSE_COLUMNS} FROM loose_objects ORDER BY path"
+            ));
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(loose_object_from_row)
+                .collect()
+        })
+        .await
+    }
+
+    /// Takes a doomed object off the list once it is removed, or found gone. One that
+    /// is not listed, or not doomed, is left as it is.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn forget_doomed_object(&self, path: &str) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
+            sql.bind(path)
+                .push_bind(" AND state = ", LooseState::Doomed.as_str());
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Notes a failed removal of a doomed object at `now`, with the kind of its error,
+    /// and when to try again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the statement fails.
+    pub async fn doomed_object_failed(
+        &self,
+        path: &str,
+        now: i64,
+        error_kind: &str,
+        retry_at: i64,
+    ) -> Result<(), StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("UPDATE loose_objects SET attempts = attempts + 1, ");
+            sql.push_bind("last_attempt_at = ", now)
+                .push_bind(", last_error = ", error_kind)
+                .push_bind(", retry_at = ", retry_at)
+                .push_bind(" WHERE path = ", path)
+                .push_bind(" AND state = ", LooseState::Doomed.as_str());
+            scope.execute(sql).await?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Counts the listed objects, for the metrics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn loose_object_counts(&self) -> Result<LooseCounts, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql(
+                "SELECT state, CASE WHEN attempts > 0 THEN last_error ELSE '' END, \
+                 CAST(COUNT(*) AS BIGINT) FROM loose_objects GROUP BY 1, 2 ORDER BY 1, 2",
+            );
+            let mut counts = LooseCounts::default();
+            for row in scope.fetch_all(sql).await? {
+                let state = LooseState::parse(&row.text(0)?)?;
+                let error = row.text(1)?;
+                let count = row.int(2)?;
+                match state {
+                    LooseState::Writing => counts.writing += count,
+                    LooseState::Doomed => {
+                        counts.doomed += count;
+                        if !error.is_empty() {
+                            counts.failing.push((error, count));
+                        }
+                    }
+                }
+            }
+            Ok(counts)
+        })
+        .await
+    }
+}
+
+/// Dooms the object of a record that is being removed, in the caller's transaction.
+/// `org_id` is the organization of the record, which a statement of a handle that
+/// reaches every organization names (PostgreSQL); one of an organization lists it as
+/// its own.
+pub(crate) async fn doom(
+    scope: &mut Scope<'_>,
+    path: &str,
+    org_id: Option<&str>,
+) -> Result<(), StoreError> {
+    let now = now_millis();
+    let named_org = org_id.filter(|_| scope.dialect() == Dialect::Postgres && !scope.has_org());
+    let mut sql = scope.sql("INSERT INTO loose_objects (path, state, create_at, retry_at");
+    sql.push(if named_org.is_some() { ", org_id" } else { "" })
+        .push_bind(") VALUES (", path)
+        .push_bind(", ", LooseState::Doomed.as_str())
+        .push_bind(", ", now)
+        .push_bind(", ", now);
+    if let Some(org_id) = named_org {
+        sql.push_bind(", ", Id(org_id));
+    }
+    // A mark of writing of the same place, which no record should outlive, gives way.
+    sql.push_bind(
+        ") ON CONFLICT (path) DO UPDATE SET state = ",
+        LooseState::Doomed.as_str(),
+    )
+    .push(", retry_at = excluded.retry_at");
+    scope.execute(sql).await?;
+    Ok(())
+}
+
+/// The organization of the rows a statement returns, where they carry it: the column
+/// to read after the others, on PostgreSQL by a handle that reaches every organization.
+pub(crate) fn org_column(scope: &Scope<'_>) -> Option<&'static str> {
+    (scope.dialect() == Dialect::Postgres && !scope.has_org()).then_some("org_id")
+}
+
+fn loose_object_from_row(row: &Row) -> Result<LooseObject, StoreError> {
+    Ok(LooseObject {
+        path: row.text(0)?,
+        state: LooseState::parse(&row.text(1)?)?,
+        create_at: row.int(2)?,
+        retry_at: row.int(3)?,
+        attempts: row.int(4)?,
+        last_attempt_at: row.int(5)?,
+        last_error: row.text(6)?,
+    })
+}

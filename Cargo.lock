@@ -1062,6 +1062,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "fvoci-model",
+ "fvoci-server",
  "fvoci-store",
  "getrandom 0.4.3",
  "httpdate",
