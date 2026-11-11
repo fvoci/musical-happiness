@@ -516,16 +516,7 @@ async fn purge_trash(app: &App) -> JobOutcome {
             "removed old boards and blocks from the trash"
         );
     }
-    outcome_of(files_left)
-}
-
-/// How a job ended that could not remove `files_left` files.
-fn outcome_of(files_left: usize) -> JobOutcome {
-    if files_left == 0 {
-        JobOutcome::Done
-    } else {
-        JobOutcome::Failed
-    }
+    JobOutcome::from_left(files_left)
 }
 
 /// Removes the files that no block, live or in the trash, has shown for as long as the
@@ -554,7 +545,7 @@ async fn collect_unreferenced_files(app: &App) -> JobOutcome {
             "removed the files no block has shown for the grace period"
         );
     }
-    outcome_of(files_left)
+    JobOutcome::from_left(files_left)
 }
 
 /// Starts the task that deletes the sessions that have ended. It runs once at the
@@ -578,12 +569,8 @@ fn start_trash_purge(app: &App) -> RecurringTask {
             let purged = purge_trash(&app).await;
             // After the purge: what it removed for good shows its files no more.
             let collected = collect_unreferenced_files(&app).await;
-            let outcome = if purged == JobOutcome::Done && collected == JobOutcome::Done {
-                JobOutcome::Done
-            } else {
-                JobOutcome::Failed
-            };
-            app.metrics().job_ran(Job::PurgeTrash, outcome);
+            app.metrics()
+                .job_ran(Job::PurgeTrash, purged.and(collected));
         }
     })
 }
@@ -591,10 +578,14 @@ fn start_trash_purge(app: &App) -> RecurringTask {
 /// Throws away the upload sessions that have ended, with their parts.
 async fn clean_up_uploads(app: &App) {
     let outcome = match app.clean_up_uploads(auth::now_millis()).await {
-        Ok(0) => JobOutcome::Done,
-        Ok(removed) => {
-            tracing::info!(removed, "threw away the upload sessions that ended");
-            JobOutcome::Done
+        Ok(cleaned) => {
+            if cleaned.removed > 0 {
+                tracing::info!(
+                    removed = cleaned.removed,
+                    "threw away the upload sessions that ended"
+                );
+            }
+            JobOutcome::from_left(cleaned.left)
         }
         Err(error) => {
             tracing::error!(%error, "unable to clean up the upload sessions");

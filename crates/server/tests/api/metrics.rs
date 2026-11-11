@@ -546,4 +546,34 @@ async fn attempts_the_login_limits_refuse_are_counted_by_limit() {
         assert_eq!(refusals(&body, limit), Some(0.0), "{limit}: {body}");
     }
     server.teardown().await;
+
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| config.login_address_attempts_per_minute = 1)
+        .start()
+        .await;
+    let attempt = async || {
+        server
+            .anonymous()
+            .post(
+                "/login",
+                &serde_json::json!({"type": "normal", "username": "nobody", "password": "a guess"}),
+            )
+            .await
+            .status
+    };
+    assert_eq!(
+        attempt().await,
+        StatusCode::UNAUTHORIZED,
+        "the first of the minute"
+    );
+    assert_eq!(
+        attempt().await,
+        StatusCode::TOO_MANY_REQUESTS,
+        "one a minute"
+    );
+    let body = scrape(&server).await;
+    assert_eq!(refusals(&body, "address_rate"), Some(1.0), "{body}");
+    assert_eq!(refusals(&body, "pair_delay"), Some(0.0), "{body}");
+    server.teardown().await;
 }

@@ -73,6 +73,15 @@ pub struct FileToUpload {
 pub type PartDigest = [u8; 32];
 
 /// The memory of [`PARTS_IN_MEMORY`] parts of `part_bytes`, in KiB.
+/// What a clean-up of the upload sessions did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CleanedUp {
+    /// The sessions thrown away.
+    pub removed: usize,
+    /// The sessions that could not wholly be thrown away.
+    pub left: usize,
+}
+
 pub(crate) fn part_memory_kib(part_bytes: u64) -> usize {
     let kib = part_bytes.div_ceil(1024).saturating_mul(PARTS_IN_MEMORY);
     usize::try_from(kib)
@@ -738,17 +747,20 @@ impl App {
     /// Throws a session away: its record, and the parts on the disk or in the object
     /// store. What is gone already is left gone; what cannot be removed is logged, and
     /// found again by the clean-up of the temporary directory, or by the bucket's rule
-    /// for incomplete multipart uploads (`docs/fvoci-cdn.md`).
-    pub async fn discard_upload(&self, upload: &Upload) {
+    /// for incomplete multipart uploads (`docs/fvoci-cdn.md`). Returns whether all of it
+    /// went: false if something was logged.
+    pub async fn discard_upload(&self, upload: &Upload) -> bool {
         let _turn = self.upload_turns().take(&upload.id).await;
-        self.discard_in_turn(upload).await;
+        self.discard_in_turn(upload).await
     }
 
     /// [`App::discard_upload`] in the session's turn, which the caller holds.
-    async fn discard_in_turn(&self, upload: &Upload) {
+    async fn discard_in_turn(&self, upload: &Upload) -> bool {
+        let mut settled = true;
         // Closed first: a part still coming in is refused rather than recorded.
         if let Err(error) = self.store().close_upload(&upload.id, now_millis()).await {
             tracing::warn!(%error, "an upload could not be closed before it was thrown away");
+            settled = false;
         }
         if !upload.multipart_id.is_empty()
             && let Some(files) = self.files().multipart()
@@ -757,12 +769,13 @@ impl App {
                 .await
         {
             tracing::warn!(%error, "the parts of an upload could not be thrown away in the files storage");
+            settled = false;
         }
         if !upload.multipart_id.is_empty() && !self.remove_if_unrecorded(upload).await {
             // Left closed for the clean-up to look at again, once its grace is over.
-            return;
+            return false;
         }
-        self.forget_upload(upload).await;
+        self.forget_upload(upload).await && settled
     }
 
     /// Removes the object at the place of a multipart upload unless a file's record names
@@ -785,12 +798,18 @@ impl App {
         }
     }
 
-    /// Removes the record of a closed session and its directory of parts.
-    async fn forget_upload(&self, upload: &Upload) {
-        if let Err(error) = self.store().delete_upload(&upload.id).await {
-            tracing::error!(%error, "the record of an upload could not be removed");
-        }
+    /// Removes the record of a closed session and its directory of parts. Returns
+    /// whether the record went.
+    async fn forget_upload(&self, upload: &Upload) -> bool {
+        let forgotten = match self.store().delete_upload(&upload.id).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::error!(%error, "the record of an upload could not be removed");
+                false
+            }
+        };
         remove_dir_quietly(&self.upload_dir(&upload.id)).await;
+        forgotten
     }
 
     /// The largest file a session takes: `maxfilesize`, which the configuration keeps
@@ -806,21 +825,26 @@ impl App {
     }
 
     /// Throws away the sessions that have ended at `now`, and those closed for longer
-    /// than [`CLOSED_UPLOAD_GRACE_MILLIS`] that are still there. Returns how many.
+    /// than [`CLOSED_UPLOAD_GRACE_MILLIS`] that are still there. Returns how many went,
+    /// and how many could not wholly go (logged; the next clean-up finds them again).
     ///
     /// # Errors
     ///
     /// Returns the store's error if the sessions cannot be read.
-    pub async fn clean_up_uploads(&self, now: i64) -> Result<usize, AppError> {
+    pub async fn clean_up_uploads(&self, now: i64) -> Result<CleanedUp, AppError> {
         let uploads = self
             .store()
             .uploads_to_clean_up(now, now.saturating_sub(CLOSED_UPLOAD_GRACE_MILLIS))
             .await?;
+        let mut cleaned = CleanedUp::default();
         for upload in &uploads {
-            // Closed first: a part still coming in is refused rather than recorded.
-            self.discard_upload(upload).await;
+            if self.discard_upload(upload).await {
+                cleaned.removed += 1;
+            } else {
+                cleaned.left += 1;
+            }
         }
-        Ok(uploads.len())
+        Ok(cleaned)
     }
 
     /// Removes what the temporary directories hold that nothing will use: the parts of

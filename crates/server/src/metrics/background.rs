@@ -3,7 +3,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use prometheus::{GaugeVec, IntCounterVec, Opts, Registry};
+use prometheus::{GaugeVec, IntCounter, IntCounterVec, Opts, Registry};
 
 use super::{Metrics, PREFIX};
 
@@ -34,9 +34,26 @@ impl Job {
 pub(crate) enum JobOutcome {
     /// It did all its work.
     Done,
-    /// It could not do some or all of it: the store could not be read, or a file
-    /// could not be removed. The log says what.
+    /// It could not do some or all of it: the store could not be read, or a file or
+    /// an upload session could not be removed. The log says what.
     Failed,
+}
+
+impl JobOutcome {
+    /// How a run ended that left `left` things it was to remove: done if none.
+    pub(crate) fn from_left(left: usize) -> Self {
+        if left == 0 { Self::Done } else { Self::Failed }
+    }
+
+    /// How a run of two parts ended: done if both were.
+    #[must_use]
+    pub(crate) fn and(self, other: Self) -> Self {
+        if self == Self::Done && other == Self::Done {
+            Self::Done
+        } else {
+            Self::Failed
+        }
+    }
 }
 
 /// A limit that refused an attempt to sign in, to register or to change a password.
@@ -69,6 +86,16 @@ impl LoginLimit {
             Self::AddressRate => "address_rate",
         }
     }
+
+    /// The limit's place in [`LoginLimit::ALL`].
+    fn index(self) -> usize {
+        match self {
+            Self::AccountLock => 0,
+            Self::PairDelay => 1,
+            Self::AddressBusy => 2,
+            Self::AddressRate => 3,
+        }
+    }
 }
 
 /// The metrics of the background jobs and the login limits.
@@ -77,7 +104,9 @@ pub(super) struct BackgroundMetrics {
     runs: IntCounterVec,
     failures: IntCounterVec,
     last_run: GaugeVec,
-    login_refusals: IntCounterVec,
+    /// The counter of each limit, in the order of [`LoginLimit::ALL`]: a refusal, which
+    /// is counted while the login records are locked, is one atomic addition.
+    login_refusals: [IntCounter; 4],
 }
 
 impl BackgroundMetrics {
@@ -125,9 +154,11 @@ impl BackgroundMetrics {
             failures.with_label_values(&[job.as_str()]).reset();
             last_run.with_label_values(&[job.as_str()]).set(0.0);
         }
-        for limit in LoginLimit::ALL {
-            login_refusals.with_label_values(&[limit.as_str()]).reset();
-        }
+        let login_refusals = LoginLimit::ALL.map(|limit| {
+            let counter = login_refusals.with_label_values(&[limit.as_str()]);
+            counter.reset();
+            counter
+        });
         Ok(Self {
             runs,
             failures,
@@ -159,10 +190,15 @@ impl Metrics {
     /// Counts an attempt `limit` refused.
     pub(crate) fn login_refused(&self, limit: LoginLimit) {
         if let Some(kept) = &self.kept {
-            kept.background
-                .login_refusals
-                .with_label_values(&[limit.as_str()])
-                .inc();
+            kept.background.login_refusals[limit.index()].inc();
         }
+    }
+
+    /// How many attempts `limit` refused, for tests.
+    #[cfg(test)]
+    pub(crate) fn login_refusals(&self, limit: LoginLimit) -> u64 {
+        self.kept.as_ref().map_or(0, |kept| {
+            kept.background.login_refusals[limit.index()].get()
+        })
     }
 }
