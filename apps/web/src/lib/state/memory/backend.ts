@@ -520,12 +520,14 @@ export class MemoryBackend implements Backend {
     return copy(category);
   }
 
-  async patchCategory(categoryId: string, patch: CategoryPatch): Promise<Category> {
+  async patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
     await this.#enter('patchCategory');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
     const category = this.#category(categoryId);
     if (patch.name !== undefined) {
       if (patch.name.trim() === '') fail(400, 'a category needs a name', { field: 'name' });
-      category.name = patch.name;
+      // The default category keeps its name, as the server's does.
+      if (category.type !== 'system') category.name = patch.name;
     }
     if (patch.collapsed !== undefined) category.collapsed = patch.collapsed;
     category.updateAt = this.world.now();
@@ -533,8 +535,9 @@ export class MemoryBackend implements Backend {
     return copy(category);
   }
 
-  async deleteCategory(categoryId: string): Promise<void> {
+  async deleteCategory(teamId: string, categoryId: string): Promise<void> {
     await this.#enter('deleteCategory');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
     const category = this.#category(categoryId);
     if (category.type === 'system') fail(400, 'the default category cannot be deleted');
     const mine = this.#categories();
@@ -556,8 +559,14 @@ export class MemoryBackend implements Backend {
     this.#tellCategories();
   }
 
-  async moveBoardToCategory(boardId: string, categoryId: string, index: number): Promise<void> {
+  async moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void> {
     await this.#enter('moveBoardToCategory');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
     this.#board(boardId);
     const target = this.#category(categoryId);
     for (const category of this.#categories()) {
@@ -565,6 +574,22 @@ export class MemoryBackend implements Backend {
     }
     const at = Math.max(0, Math.min(index, target.boardIds.length));
     target.boardIds.splice(at, 0, boardId);
+    this.#tellCategories();
+  }
+
+  async setBoardHidden(
+    teamId: string,
+    categoryId: string,
+    boardId: string,
+    hidden: boolean,
+  ): Promise<void> {
+    await this.#enter('setBoardHidden');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const category = this.#category(categoryId);
+    const others = category.hiddenBoardIds.filter((id) => id !== boardId);
+    // As the server: a board the category does not hold is no error.
+    category.hiddenBoardIds =
+      hidden && category.boardIds.includes(boardId) ? [...others, boardId] : others;
     this.#tellCategories();
   }
 

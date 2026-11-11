@@ -1,0 +1,170 @@
+/**
+ * The sidebar on the real server: categories made, renamed, folded, ordered
+ * and deleted, boards filed, placed and hidden. Every change is checked on
+ * the server, and shows in the reader's other tab without a reload (the
+ * server's four category messages).
+ */
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+
+import {
+  boardLink,
+  boardMenu,
+  boardsIn,
+  categories,
+  category,
+  categoryMenu,
+  categoryToggle,
+  chooseFromMenu,
+  sidebar,
+} from '../e2e/shell.support.ts';
+
+import {
+  makeBoard,
+  person,
+  register,
+  signedIn,
+  signInOnPage,
+  watchErrors,
+  type Schemas,
+} from './support.ts';
+
+test.use({ locale: 'en-US' });
+
+async function stored(
+  api: APIRequestContext,
+  teamId: string,
+): Promise<Schemas['CategoryBoards'][]> {
+  const answer = await api.get(`/api/v1/teams/${teamId}/categories`);
+  expect(answer.ok()).toBe(true);
+  return (await answer.json()) as Schemas['CategoryBoards'][];
+}
+
+/** The names of the reader's categories on the server, in their order. */
+async function storedNames(api: APIRequestContext, teamId: string): Promise<string[]> {
+  return (await stored(api, teamId))
+    .sort((first, second) => first.sortOrder - second.sortOrder)
+    .map((one) => one.name);
+}
+
+async function storedCategory(api: APIRequestContext, teamId: string, name: string) {
+  return (await stored(api, teamId)).find((one) => one.name === name);
+}
+
+async function nameCategory(page: Page, name: string, button: 'Create' | 'Update') {
+  const dialog = page.getByTestId('category-dialog');
+  await dialog.getByLabel('Category name').fill(name);
+  await dialog.getByRole('button', { name: button, exact: true }).click();
+  await expect(dialog).toBeHidden();
+}
+
+test('categories and the boards under them are kept on the server and show in the other tab', async ({
+  browser,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('sidebar');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const alpha = await makeBoard(api, { title: 'Alpha' });
+  const beta = await makeBoard(api, { title: 'Beta' });
+  const { teamId } = alpha;
+  // The default category the server made, with the two new boards in it (E3).
+  const [defaults] = await stored(api, teamId);
+  expect(defaults?.type).toBe('system');
+  const home = defaults?.name ?? '';
+  expect(defaults?.boardMetadata.map((entry) => entry.boardId).sort()).toEqual(
+    [alpha.boardId, beta.boardId].sort(),
+  );
+
+  // One reader, two tabs: the second shares the first one's session.
+  const context = await browser.newContext({ locale: 'en-US', baseURL: base });
+  const first = await context.newPage();
+  const second = await context.newPage();
+  const errors = [first, second].map(watchErrors);
+  await first.goto('/');
+  await signInOnPage(first, owner);
+  await second.goto('/');
+  await expect(boardLink(second, 'Beta')).toBeVisible();
+
+  // A new category goes first.
+  await sidebar(first).getByTestId('new-category').click();
+  await nameCategory(first, 'Work', 'Create');
+  await expect.poll(() => categories(second)).toEqual(['Work', home]);
+  expect(await storedNames(api, teamId)).toEqual(['Work', home]);
+
+  // Renamed.
+  await chooseFromMenu(first, categoryMenu(first, 'Work'), 'rename');
+  await nameCategory(first, 'Projects', 'Update');
+  await expect.poll(() => categories(second)).toEqual(['Projects', home]);
+  expect(await storedNames(api, teamId)).toEqual(['Projects', home]);
+
+  // The default category keeps its name: its menu has no renaming.
+  await categoryMenu(first, home).click();
+  await expect(first.locator('[data-action="move-up"]')).toBeVisible();
+  await expect(first.locator('[data-action="rename"]')).toHaveCount(0);
+  await first.keyboard.press('Escape');
+
+  // Boards filed under it from their menus, each last.
+  const projects = (await storedCategory(api, teamId, 'Projects'))?.id ?? '';
+  await chooseFromMenu(first, boardMenu(first, 'Beta'), `move-to-${projects}`);
+  await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Beta']);
+  await chooseFromMenu(first, boardMenu(first, 'Alpha'), `move-to-${projects}`);
+  await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Beta', 'Alpha']);
+  await expect
+    .poll(async () =>
+      (await storedCategory(api, teamId, 'Projects'))?.boardMetadata.map((entry) => entry.boardId),
+    )
+    .toEqual([beta.boardId, alpha.boardId]);
+
+  // Placed: Alpha goes up one, by the keyboard.
+  await boardLink(first, 'Alpha').focus();
+  await first.keyboard.press('Space');
+  await first.keyboard.press('ArrowUp');
+  await first.keyboard.press('Space');
+  await expect.poll(() => boardsIn(second, 'Projects')).toEqual(['Alpha', 'Beta']);
+  await expect
+    .poll(async () =>
+      (await storedCategory(api, teamId, 'Projects'))?.boardMetadata.map((entry) => entry.boardId),
+    )
+    .toEqual([alpha.boardId, beta.boardId]);
+
+  // The categories in another order.
+  await chooseFromMenu(first, categoryMenu(first, home), 'move-up');
+  await expect.poll(() => categories(second)).toEqual([home, 'Projects']);
+  expect(await storedNames(api, teamId)).toEqual([home, 'Projects']);
+
+  // Folded.
+  await categoryToggle(first, 'Projects').click();
+  await expect(categoryToggle(second, 'Projects')).toHaveAttribute('aria-expanded', 'false');
+  expect((await storedCategory(api, teamId, 'Projects'))?.collapsed).toBe(true);
+  await categoryToggle(second, 'Projects').click();
+  await expect(categoryToggle(first, 'Projects')).toHaveAttribute('aria-expanded', 'true');
+
+  // Hidden: gone from both tabs, still filed, hidden on the server.
+  await chooseFromMenu(first, boardMenu(first, 'Alpha'), 'hide');
+  await expect(boardLink(second, 'Alpha')).toHaveCount(0);
+  await expect(boardLink(first, 'Alpha')).toHaveCount(0);
+  await expect
+    .poll(async () => (await storedCategory(api, teamId, 'Projects'))?.boardMetadata)
+    .toEqual([
+      { boardId: alpha.boardId, hidden: true },
+      { boardId: beta.boardId, hidden: false },
+    ]);
+
+  // Deleted: its boards go back to the default category.
+  await chooseFromMenu(first, categoryMenu(first, 'Projects'), 'delete');
+  await first.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect.poll(() => categories(second)).toEqual([home]);
+  await expect.poll(() => boardsIn(second, home)).toEqual(['Beta']);
+  expect(await storedNames(api, teamId)).toEqual([home]);
+
+  // As it was left, after a reload.
+  await second.reload();
+  await expect.poll(() => boardsIn(second, home)).toEqual(['Beta']);
+  await expect(category(second, 'Projects')).toHaveCount(0);
+  await expect(first.locator('[data-problem]')).toHaveCount(0);
+
+  await api.dispose();
+  await context.close();
+  expect(errors.flat()).toEqual([]);
+});

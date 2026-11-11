@@ -104,6 +104,7 @@ export class ServerBackend implements Backend, Account {
   async signIn(login: string, password: string): Promise<void> {
     const request: Schemas['LoginRequest'] = { username: login, email: login, password };
     await this.#http.request('/api/v1/login', {}, { method: 'POST', json: request });
+    this.#me = undefined;
     // The page's connection was opened with the old cookie, or none.
     this.#live.restart();
   }
@@ -241,24 +242,122 @@ export class ServerBackend implements Backend, Account {
     return categories.map(categoryOf);
   }
 
-  createCategory(_teamId: string, _draft: CategoryDraft): Promise<Category> {
-    return notWired('createCategory');
+  /** A new category of the reader, first among theirs (the server puts it there). */
+  async createCategory(teamId: string, draft: CategoryDraft): Promise<Category> {
+    const me = await this.#myId();
+    const request: Schemas['NewCategory'] = { name: draft.name, userId: me, teamId };
+    const made = await this.#http.request<Schemas['Category']>(
+      '/api/v1/teams/{teamId}/categories',
+      { teamId },
+      { method: 'POST', json: request },
+    );
+    return categoryOf({ ...made, boardMetadata: [] });
   }
 
-  patchCategory(_categoryId: string, _patch: CategoryPatch): Promise<Category> {
-    return notWired('patchCategory');
+  /**
+   * Changes a category by `updateCategory`, which takes its name and its
+   * folding together: the one the patch leaves is read first. A default
+   * category keeps its name (the server answers 200 and leaves it).
+   */
+  async patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
+    const before = await this.#category(teamId, categoryId);
+    const request: Schemas['CategoryUpdate'] = {
+      id: categoryId,
+      userId: before.userId,
+      teamId,
+      name: patch.name ?? before.name,
+      collapsed: patch.collapsed ?? before.collapsed,
+    };
+    const updated = await this.#http.request<Schemas['Category']>(
+      '/api/v1/teams/{teamId}/categories/{categoryId}',
+      { teamId, categoryId },
+      { method: 'PUT', json: request },
+    );
+    // The answer is the category alone; its boards are as they were read.
+    return {
+      ...categoryOf({ ...updated, boardMetadata: [] }),
+      boardIds: before.boardIds,
+      hiddenBoardIds: before.hiddenBoardIds,
+    };
   }
 
-  deleteCategory(_categoryId: string): Promise<void> {
-    return notWired('deleteCategory');
+  async deleteCategory(teamId: string, categoryId: string): Promise<void> {
+    await this.#http.request(
+      '/api/v1/teams/{teamId}/categories/{categoryId}',
+      { teamId, categoryId },
+      { method: 'DELETE' },
+    );
   }
 
-  reorderCategories(_teamId: string, _categoryIds: string[]): Promise<void> {
-    return notWired('reorderCategories');
+  async reorderCategories(teamId: string, categoryIds: string[]): Promise<void> {
+    await this.#http.request(
+      '/api/v1/teams/{teamId}/category-order',
+      { teamId },
+      { method: 'PUT', json: categoryIds },
+    );
   }
 
-  moveBoardToCategory(_boardId: string, _categoryId: string, _index: number): Promise<void> {
-    return notWired('moveBoardToCategory');
+  /**
+   * Files a board under a category and puts it at its place: two requests,
+   * since the server files a board (`setBoardCategory`) without a place and
+   * orders a category's boards (`reorderCategoryBoards`) apart. The order is
+   * made from the category as it is after the filing, read again.
+   */
+  async moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void> {
+    await this.#http.request(
+      '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}',
+      { teamId, categoryId, boardId },
+      { method: 'POST' },
+    );
+    const filed = (await this.#category(teamId, categoryId)).boardIds.filter(
+      (id) => id !== boardId,
+    );
+    filed.splice(Math.max(0, Math.min(index, filed.length)), 0, boardId);
+    await this.#http.request(
+      '/api/v1/teams/{teamId}/categories/{categoryId}/board-order',
+      { teamId, categoryId },
+      { method: 'PUT', json: filed },
+    );
+  }
+
+  async setBoardHidden(
+    teamId: string,
+    categoryId: string,
+    boardId: string,
+    hidden: boolean,
+  ): Promise<void> {
+    await this.#http.request(
+      hidden
+        ? '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide'
+        : '/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide',
+      { teamId, categoryId, boardId },
+      { method: 'PUT' },
+    );
+  }
+
+  /** One of the reader's categories as the server has it now: 404 for none. */
+  async #category(teamId: string, categoryId: string): Promise<Category> {
+    const found = (await this.categories(teamId)).find((category) => category.id === categoryId);
+    if (!found) {
+      throw new BackendError(404, { message: 'no such category', reason: 'not_found' });
+    }
+    return found;
+  }
+
+  /** The reader's identifier, read once a session (`signIn` forgets it). */
+  #me: Promise<string> | undefined;
+
+  #myId(): Promise<string> {
+    this.#me ??= this.me().then((me) => me.id);
+    this.#me.catch(() => {
+      this.#me = undefined;
+    });
+    return this.#me;
   }
 
   // ------------------------------------------------------- views, cards

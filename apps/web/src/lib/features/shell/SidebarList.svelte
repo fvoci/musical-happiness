@@ -20,6 +20,7 @@
   import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
+  import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import FolderInputIcon from '@lucide/svelte/icons/folder-input';
   import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -139,14 +140,19 @@
     // Its place among all the categories, not among those a search has left.
     const at = workspace.sidebar.findIndex((entry) => entry.category.id === category.id);
     const actions: MenuAction[] = [
-      {
-        id: 'rename',
-        label: m['SidebarCategories.CategoryMenu.Update'](),
-        icon: PencilIcon,
-        run: () => {
-          onRenameCategory(category);
-        },
-      },
+      // The default category keeps its name: the server does not change it.
+      ...(category.type === 'system'
+        ? []
+        : [
+            {
+              id: 'rename',
+              label: m['SidebarCategories.CategoryMenu.Update'](),
+              icon: PencilIcon,
+              run: () => {
+                onRenameCategory(category);
+              },
+            },
+          ]),
       {
         id: 'move-up',
         label: m.shell_category_move_up(),
@@ -204,11 +210,18 @@
     return [
       ...moves,
       {
+        id: 'hide',
+        label: m['HideBoard.MenuOption'](),
+        icon: EyeOffIcon,
+        separated: moves.length > 0,
+        run: () => void workspace.hideBoard(board.id),
+      },
+      {
         id: 'delete',
         label: m['Sidebar.delete-board'](),
         icon: Trash2Icon,
         destructive: true,
-        separated: moves.length > 0,
+        separated: true,
         disabled: board.id === boardId && !canDeleteOpenBoard,
         run: () => {
           onDeleteBoard(board);

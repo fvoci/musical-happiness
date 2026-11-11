@@ -161,6 +161,33 @@ describe('the workspace', () => {
     expect(workspace.sidebar[1]?.boards.map((board) => board.title)[1]).toBe('Project Tasks');
     expect(workspace.sidebar[0]?.boards).toHaveLength(4);
   });
+
+  it('hides a board from the sidebar, and undo shows it again in its place', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const [team] = workspace.sidebar;
+    const hidden = team?.boards[1];
+    if (!team || !hidden) throw new Error('unexpected seed');
+    const before = team.boards.map((board) => board.id);
+    await workspace.hideBoard(hidden.id);
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(
+      before.filter((id) => id !== hidden.id),
+    );
+    const stored = await backend.categories(workspace.team?.id ?? '');
+    expect(stored.find((one) => one.id === team.category.id)?.hiddenBoardIds).toEqual([hidden.id]);
+    await workspace.undoLast();
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(before);
+  });
+
+  it('shows a hidden board again when hiding it is refused', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const shown = workspace.sidebar[0]?.boards.map((board) => board.id) ?? [];
+    backend.failNext('setBoardHidden', refused());
+    await workspace.hideBoard(shown[0] ?? '');
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).toEqual(shown);
+    expect(workspace.problems).toHaveLength(1);
+  });
 });
 
 describe('making and deleting boards', () => {

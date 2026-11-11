@@ -336,13 +336,31 @@ export interface Backend {
 
   // The reader's sidebar.
   categories(teamId: string): Promise<Category[]>;
+  /** A new category goes first. */
   createCategory(teamId: string, draft: CategoryDraft): Promise<Category>;
-  patchCategory(categoryId: string, patch: CategoryPatch): Promise<Category>;
-  deleteCategory(categoryId: string): Promise<void>;
+  /** The default category keeps its name whatever the patch says. */
+  patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category>;
+  /** Its boards go to the default category, which cannot be deleted. */
+  deleteCategory(teamId: string, categoryId: string): Promise<void>;
   /** The reader's order of all their categories. */
   reorderCategories(teamId: string, categoryIds: string[]): Promise<void>;
-  /** Files a board under a category, at a place among its boards. */
-  moveBoardToCategory(boardId: string, categoryId: string, index: number): Promise<void>;
+  /**
+   * Files a board under a category, at `index` in the category's own list
+   * (`Category.boardIds`, without the board).
+   */
+  moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void>;
+  /** Hides a board of a category from the reader's sidebar, or shows it again. */
+  setBoardHidden(
+    teamId: string,
+    categoryId: string,
+    boardId: string,
+    hidden: boolean,
+  ): Promise<void>;
 
   // Views.
   views(boardId: string): Promise<BoardView[]>;

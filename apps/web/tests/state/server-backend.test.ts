@@ -501,3 +501,144 @@ describe('the settings on the server', () => {
     expect(sent[0]?.body).toEqual({ theme: 'light', haptics: true });
   });
 });
+
+/** Answers each request by the first route whose `METHOD path` starts it, and keeps what was sent. */
+function serveRoutes(routes: [string, unknown, number?][]): Sent[] {
+  const sent: Sent[] = [];
+  vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+    const method = init.method ?? 'GET';
+    sent.push({
+      url,
+      method,
+      headers: init.headers as Record<string, string>,
+      body: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
+    });
+    const route = routes.find(([start]) => `${method} ${url}`.startsWith(start));
+    if (!route) throw new Error(`nothing serves ${method} ${url}`);
+    const [, answer, status = 200] = route;
+    return Promise.resolve(
+      new Response(status === 204 ? null : JSON.stringify(answer), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+  });
+  return sent;
+}
+
+const sentLines = (sent: Sent[]) => sent.map((one) => `${one.method} ${one.url}`);
+
+describe('the sidebar on the server', () => {
+  const CATEGORY = {
+    id: 'k1',
+    name: 'Work',
+    userId: 'me',
+    teamId: 't',
+    type: 'custom',
+    collapsed: true,
+    sortOrder: 10,
+    createAt: 1,
+    updateAt: 2,
+    deleteAt: 0,
+  };
+  const FILED = [
+    { boardId: 'b1', hidden: false },
+    { boardId: 'b2', hidden: true },
+    { boardId: 'b3', hidden: false },
+  ];
+  const CATEGORIES = [{ ...CATEGORY, boardMetadata: FILED }];
+
+  it('makes a category of the reader, under their identifier', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/users/me', { id: 'me', username: 'me', createAt: 1, updateAt: 1, deleteAt: 0 }],
+      ['POST /api/v1/teams/t/categories', CATEGORY, 201],
+    ]);
+    const made = await new ServerBackend('').createCategory('t', { name: 'Work' });
+    expect(sentLines(sent)).toEqual(['GET /api/v1/users/me', 'POST /api/v1/teams/t/categories']);
+    expect(sent[1]?.body).toEqual({ name: 'Work', userId: 'me', teamId: 't' });
+    expect(made).toMatchObject({ id: 'k1', boardIds: [], hiddenBoardIds: [] });
+  });
+
+  it('renames a category with its folding as it is, and keeps its boards', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/teams/t/categories', CATEGORIES],
+      ['PUT /api/v1/teams/t/categories/k1', { ...CATEGORY, name: 'Home' }],
+    ]);
+    const renamed = await new ServerBackend('').patchCategory('t', 'k1', { name: 'Home' });
+    expect(sentLines(sent)).toEqual([
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1',
+    ]);
+    expect(sent[1]?.body).toEqual({
+      id: 'k1',
+      userId: 'me',
+      teamId: 't',
+      name: 'Home',
+      collapsed: true,
+    });
+    expect(renamed).toMatchObject({ name: 'Home', boardIds: ['b1', 'b2', 'b3'] });
+    expect(renamed.hiddenBoardIds).toEqual(['b2']);
+  });
+
+  it('folds a category with its name as it is', async () => {
+    const sent = serveRoutes([
+      ['GET /api/v1/teams/t/categories', CATEGORIES],
+      ['PUT /api/v1/teams/t/categories/k1', { ...CATEGORY, collapsed: false }],
+    ]);
+    await new ServerBackend('').patchCategory('t', 'k1', { collapsed: false });
+    expect(sent[1]?.body).toMatchObject({ name: 'Work', collapsed: false });
+  });
+
+  it('says 404 for a category the reader does not have, and sends no change', async () => {
+    const sent = serveRoutes([['GET /api/v1/teams/t/categories', CATEGORIES]]);
+    const refused = await new ServerBackend('')
+      .patchCategory('t', 'k9', { name: 'X' })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(404);
+    expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/categories']);
+  });
+
+  it('deletes a category and orders the categories by their routes', async () => {
+    const sent = serveRoutes([
+      ['DELETE /api/v1/teams/t/categories/k1', undefined, 204],
+      ['PUT /api/v1/teams/t/category-order', ['k2', 'k1']],
+    ]);
+    const backend = new ServerBackend('');
+    await backend.deleteCategory('t', 'k1');
+    await backend.reorderCategories('t', ['k2', 'k1']);
+    expect(sentLines(sent)).toEqual([
+      'DELETE /api/v1/teams/t/categories/k1',
+      'PUT /api/v1/teams/t/category-order',
+    ]);
+    expect(sent[1]?.body).toEqual(['k2', 'k1']);
+  });
+
+  it('files a board under a category, then puts it at its place among the category’s boards', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/teams/t/categories/k1/boards/b9', undefined, 204],
+      [
+        'GET /api/v1/teams/t/categories',
+        [{ ...CATEGORY, boardMetadata: [...FILED, { boardId: 'b9', hidden: false }] }],
+      ],
+      ['PUT /api/v1/teams/t/categories/k1/board-order', ['b1', 'b9', 'b2', 'b3']],
+    ]);
+    await new ServerBackend('').moveBoardToCategory('t', 'b9', 'k1', 1);
+    expect(sentLines(sent)).toEqual([
+      'POST /api/v1/teams/t/categories/k1/boards/b9',
+      'GET /api/v1/teams/t/categories',
+      'PUT /api/v1/teams/t/categories/k1/board-order',
+    ]);
+    expect(sent[2]?.body).toEqual(['b1', 'b9', 'b2', 'b3']);
+  });
+
+  it('hides a board and shows it again by its routes', async () => {
+    const sent = serveRoutes([['PUT /api/v1/teams/t/categories/k1/boards/b1/', undefined, 204]]);
+    const backend = new ServerBackend('');
+    await backend.setBoardHidden('t', 'k1', 'b1', true);
+    await backend.setBoardHidden('t', 'k1', 'b1', false);
+    expect(sentLines(sent)).toEqual([
+      'PUT /api/v1/teams/t/categories/k1/boards/b1/hide',
+      'PUT /api/v1/teams/t/categories/k1/boards/b1/unhide',
+    ]);
+  });
+});

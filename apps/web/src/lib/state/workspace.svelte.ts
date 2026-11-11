@@ -391,26 +391,31 @@ export class Workspace {
   }
 
   async renameCategory(categoryId: string, name: string): Promise<void> {
+    const team = this.team;
+    if (!team) return;
     await this.#categoryWrite(
       this.categories.map((category) =>
         category.id === categoryId ? { ...category, name } : category,
       ),
-      () => this.backend.patchCategory(categoryId, { name }),
+      () => this.backend.patchCategory(team.id, categoryId, { name }),
     );
   }
 
   async setCategoryCollapsed(categoryId: string, collapsed: boolean): Promise<void> {
+    const team = this.team;
+    if (!team) return;
     await this.#categoryWrite(
       this.categories.map((category) =>
         category.id === categoryId ? { ...category, collapsed } : category,
       ),
-      () => this.backend.patchCategory(categoryId, { collapsed }),
+      () => this.backend.patchCategory(team.id, categoryId, { collapsed }),
     );
   }
 
   async deleteCategory(categoryId: string): Promise<void> {
+    const team = this.team;
     const gone = this.categories.find((category) => category.id === categoryId);
-    if (!gone) return;
+    if (!team || !gone) return;
     await this.#categoryWrite(
       this.categories
         .filter((category) => category.id !== categoryId)
@@ -419,7 +424,7 @@ export class Workspace {
             ? { ...category, boardIds: [...category.boardIds, ...gone.boardIds] }
             : category,
         ),
-      () => this.backend.deleteCategory(categoryId),
+      () => this.backend.deleteCategory(team.id, categoryId),
     );
   }
 
@@ -438,6 +443,8 @@ export class Workspace {
 
   /** Files a board under a category, at `index` among the boards shown there. */
   async moveBoard(boardId: string, categoryId: string, index: number): Promise<void> {
+    const team = this.team;
+    if (!team) return;
     await this.#categoryWrite(
       this.categories.map((category) => {
         const boardIds = category.boardIds.filter((id) => id !== boardId);
@@ -446,8 +453,56 @@ export class Workspace {
         }
         return { ...category, boardIds };
       }),
-      () => this.backend.moveBoardToCategory(boardId, categoryId, index),
+      () => this.backend.moveBoardToCategory(team.id, boardId, categoryId, index),
     );
+  }
+
+  /**
+   * Takes a board out of the sidebar, or puts it back: it stays in its
+   * category, hidden. Hiding can be undone.
+   */
+  async hideBoard(boardId: string): Promise<void> {
+    const entry = this.sidebar.find((shown) => shown.boards.some((board) => board.id === boardId));
+    if (!entry) return;
+    const categoryId = entry.category.id;
+    try {
+      await this.undo.perform(
+        () => this.#setBoardHidden(categoryId, boardId, true),
+        () => this.#setBoardHidden(categoryId, boardId, false),
+        'hideBoard',
+      );
+    } catch (error) {
+      this.report('save', error);
+    }
+  }
+
+  /** Shows a hidden board in the sidebar again, in the category that hides it. */
+  async unhideBoard(boardId: string): Promise<void> {
+    const category = this.categories.find((one) => one.hiddenBoardIds.includes(boardId));
+    if (!category) return;
+    try {
+      await this.#setBoardHidden(category.id, boardId, false);
+    } catch (error) {
+      this.report('save', error);
+    }
+  }
+
+  /** Shows the change at once; takes it back and rejects when the backend refuses it. */
+  async #setBoardHidden(categoryId: string, boardId: string, hidden: boolean): Promise<void> {
+    const team = this.team;
+    if (!team) return;
+    const before = this.categories;
+    this.categories = before.map((category) => {
+      if (category.id !== categoryId) return category;
+      const others = category.hiddenBoardIds.filter((id) => id !== boardId);
+      return { ...category, hiddenBoardIds: hidden ? [...others, boardId] : others };
+    });
+    try {
+      await this.backend.setBoardHidden(team.id, categoryId, boardId, hidden);
+    } catch (error) {
+      this.categories = before;
+      throw error;
+    }
   }
 
   // --------------------------------------------------------------- undo
