@@ -22,9 +22,9 @@ use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
 /// The page of cards a request without `page` gets.
-const DEFAULT_PAGE: i64 = 0;
+pub(super) const DEFAULT_PAGE: i64 = 0;
 /// The number of cards a page has in a request without `perPage`.
-const DEFAULT_PER_PAGE: i64 = 100;
+pub(super) const DEFAULT_PER_PAGE: i64 = 100;
 
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
@@ -34,7 +34,11 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 
 /// Reads a whole number from a query parameter; `default` if the parameter is absent
 /// or empty.
-fn int_query_param(query: Option<&str>, name: &str, default: i64) -> Result<i64, AppError> {
+pub(super) fn int_query_param(
+    query: Option<&str>,
+    name: &str,
+    default: i64,
+) -> Result<i64, AppError> {
     let text = query_param(query, name);
     if text.is_empty() {
         return Ok(default);

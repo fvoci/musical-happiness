@@ -139,9 +139,11 @@ export interface paths {
          *     and the files the blocks show, the images of bodies among them.
          *
          *     A user runs one export at a time, and the server as many as its setting
-         *     `max_concurrent_exports` (2 unless set); an export runs until its archive is written,
-         *     and its download does not count. Over either it is 429 with the reason `export_running` or `server_exports_busy`, and
-         *     is to be asked for again later.
+         *     `max_concurrent_exports` (2 unless set). Over either it is 429 with the reason
+         *     `export_running` or `server_exports_busy`, and is to be asked for again later. An
+         *     export runs until its archive is sent or the client goes away; a download that takes
+         *     nothing for `export_stall_seconds` (60 unless set) is given up, and its connection
+         *     broken before the archive's end.
          */
         get: operations["exportBoardArchive"];
         put?: never;
@@ -555,6 +557,30 @@ export interface paths {
          *     `sharing_disabled`, also one that stops sharing. For the board's admins.
          */
         post: operations["setSharing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/boards/{boardId}/trash/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted cards of a board
+         * @description One page of the board's cards that are in the trash, each with its identifier, its
+         *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
+         *     trash is emptied of it. A card that went with the block it was on (another card, a
+         *     view) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages
+         *     cut that order. A `page` or `perPage` that is no whole number is 400.
+         */
+        get: operations["getDeletedCards"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1248,6 +1274,30 @@ export interface paths {
          *     every team is offered. Each of the two oldest first.
          */
         get: operations["getTemplates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/teams/{teamId}/trash/boards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The deleted boards of a team
+         * @description One page of the team's boards that are in the trash and that the user was an admin
+         *     of when they were deleted, which is who `undeleteBoard` lets bring them back: each
+         *     with its identifier, its title, when it was deleted and by whom. The last deleted
+         *     first; the pages cut that order. A `page` or `perPage` that is no whole number is
+         *     400. For users of the team.
+         */
+        get: operations["getDeletedBoards"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2006,6 +2056,23 @@ export interface components {
             boards: string[];
         };
         /**
+         * @description A card or a board in the trash, with as much as it takes to decide whether to bring
+         *     it back (`undeleteBlock`, `undeleteBoard`).
+         */
+        DeletedItem: {
+            /**
+             * Format: int64
+             * @description When it was deleted, in milliseconds since the Unix epoch.
+             */
+            deletedAt: number;
+            /** @description The identifier of who deleted it, who may no longer exist; empty if not known. */
+            deletedBy: string;
+            /** @description The identifier of the card or the board. */
+            id: string;
+            /** @description Its title when it was deleted. */
+            title: string;
+        };
+        /**
          * @description How much room the interface gives each thing.
          * @enum {string}
          */
@@ -2429,6 +2496,12 @@ export interface components {
             /** @description Whether a device that can do so answers touches with a vibration. */
             haptics?: boolean | null;
             hourCycle?: components["schemas"]["HourCycle"] | null;
+            /**
+             * @description `auto`, for the language of the browser, or a language tag such as `ko` or
+             *     `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at most 64
+             *     characters; the server keeps no list of languages, and keeps a tag as given.
+             */
+            language?: string | null;
             theme?: components["schemas"]["Theme"] | null;
             /**
              * @description `auto`, for the time zone of the device, or the IANA name of a time zone, such
@@ -2662,6 +2735,13 @@ export interface components {
             haptics: boolean;
             /** @description How the hours of a day are written. */
             hourCycle: components["schemas"]["HourCycle"];
+            /**
+             * @description The language of the interface: `auto` for the browser's, or a language tag such
+             *     as `ko` or `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at
+             *     most 64 characters. The server keeps no list of languages, and answers a tag as
+             *     it was given, case and all: compare tags without regard to case.
+             */
+            language: string;
             /** @description The colors of the interface. */
             theme: components["schemas"]["Theme"];
             /** @description The time zone times are shown in. */
@@ -3287,7 +3367,7 @@ export interface operations {
             query?: {
                 /** @description The page, counted from 0. Left out, the first one. */
                 page?: number;
-                /** @description How many cards a page has. Left out, 100. Zero or less asks for all cards. */
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
                 perPage?: number;
             };
             header?: never;
@@ -3794,6 +3874,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Sharing"];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDeletedCards: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the board. */
+                boardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted cards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedItem"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
@@ -4880,6 +4997,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Board"][];
+                };
+            };
+            /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDeletedBoards: {
+        parameters: {
+            query?: {
+                /** @description The page, counted from 0. Left out, the first one. */
+                page?: number;
+                /** @description How many a page has. Left out, 100. Zero or less asks for all of them. */
+                perPage?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The identifier of the team. */
+                teamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deleted boards of the page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletedItem"][];
                 };
             };
             /** @description The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server. */

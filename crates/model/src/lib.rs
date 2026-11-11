@@ -21,6 +21,7 @@ mod category;
 mod client_config;
 mod comment_version;
 mod date_value;
+mod deleted_item;
 mod file_info;
 mod id;
 mod problem;
@@ -71,13 +72,14 @@ pub use comment_version::CommentVersion;
 pub use date_value::{
     DateValueError, check_date_value, date_property_ids, rewrite_previous_date_values,
 };
+pub use deleted_item::DeletedItem;
 pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
 pub use problem::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem, json_pointer, pointer_token};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
-    ClientStateError, Density, HourCycle, ParseSettingError, SettingName, SettingsError, Theme,
-    TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
+    ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,
+    Theme, TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
     check_client_state_value,
 };
 pub use sharing::Sharing;
