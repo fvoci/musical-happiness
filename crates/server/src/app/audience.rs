@@ -16,7 +16,7 @@ pub struct Audience {
 
 impl Audience {
     /// The audience of the boards in `store`.
-    pub(crate) fn new(store: Store) -> Self {
+    pub fn new(store: Store) -> Self {
         Self { store }
     }
 
