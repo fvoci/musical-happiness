@@ -15,9 +15,10 @@
  *   store holds both (`conflict`) and the screen asks the reader which to
  *   keep.
  */
-import type { DocNode } from '../editor/schema.ts';
+import { validateDoc, type DocNode } from '../editor/schema.ts';
 
 import {
+  BackendError,
   isBackendError,
   isConflict,
   type Attachment,
@@ -204,6 +205,12 @@ export class CardStore {
     // reader's own or not), the write is refused and sent again below, as
     // long as the body stays what this store knows, a few times at most.
     const readAt = this.#readAt;
+    // A body the server would refuse is not sent (one with a mention that
+    // names nobody, as a body read anonymously has them).
+    const problems = body ? validateDoc(body) : [];
+    if (problems.length > 0) {
+      throw new BackendError(400, { message: problems[0], field: 'body', reason: 'invalid_body' });
+    }
     try {
       const stored = await this.#backend.writeCardBody(this.#boardId, this.cardId, {
         body,

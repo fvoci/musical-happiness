@@ -35,7 +35,9 @@
 
   const uid = $props.id();
   const workspace = $derived(board.workspace);
-  const resolveUser = (userId: string): string | undefined => workspace.userName(userId);
+  // Somebody not known (gone, or a mention that names nobody, as an anonymous reader gets them).
+  const resolveUser = (userId: string): string =>
+    workspace.userName(userId) ?? m['centerPanel.unknown-user']();
 
   /** The current moment, for "3 minutes ago". Moves on once a minute. */
   let now = $state(Date.now());

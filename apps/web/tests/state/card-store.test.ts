@@ -110,6 +110,22 @@ describe('an open card', () => {
     expect(stored).toMatchObject({ body: text('mine'), title: 'Renamed twice' });
   });
 
+  it('does not send a body the server would refuse: a mention that names nobody', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    const write = vi.spyOn(backend, 'writeCardBody');
+    const anonymous = {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'mention', attrs: { userId: '' } }] }],
+    };
+    await card.saveBody(anonymous);
+    expect(write).not.toHaveBeenCalled();
+    expect(card.dirty).toBe(true);
+    expect(workspace.problems.at(-1)).toMatchObject({
+      action: 'save',
+      error: { status: 400, field: 'body' },
+    });
+  });
+
   it('holds both sides when somebody else wrote the body, and overwrites nothing', async () => {
     const { card, other, backend, board, workspace, cardId } = await openAlpha();
     const theirs = await other.card(board.boardId, cardId);
