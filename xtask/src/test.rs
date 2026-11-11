@@ -4,6 +4,8 @@
 //! The containers are prepared first unless the environment already names the services:
 //! `FVOCI_STORE_TEST_CONN_STRING` for PostgreSQL, `FVOCI_S3_TEST_ENDPOINT` together with
 //! `FVOCI_S3_TEST_BUCKET` for the object store (for CI, where the services are given).
+//! A PostgreSQL URL given so must name a role that is no superuser, has `NOBYPASSRLS`
+//! and has `CREATE` on the database: the tests refuse any other.
 
 use std::path::Path;
 
@@ -70,7 +72,10 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
         parts.push(Step::new("tests on PostgreSQL", || {
             let url = match env(CONN_STRING_ENV) {
                 Some(url) => {
-                    steps::say(&format!("    using the PostgreSQL of {CONN_STRING_ENV}"));
+                    steps::say(&format!(
+                        "    using the PostgreSQL of {CONN_STRING_ENV}; its role must be no \
+                         superuser, have NOBYPASSRLS and have CREATE on the database"
+                    ));
                     url
                 }
                 None => containers::prepare_postgres(&mut uses.borrow_mut())?,

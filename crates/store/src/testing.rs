@@ -3,6 +3,11 @@
 //! Tests run against SQLite by default. Set `FVOCI_STORE_TEST_DB_TYPE=postgres` and
 //! `FVOCI_STORE_TEST_CONN_STRING` to a PostgreSQL URL to run them against PostgreSQL;
 //! every [`TestDatabase`] is then a schema of its own in that database.
+//!
+//! The URL must name a role that is no superuser, is not exempt from row-level
+//! security (`NOBYPASSRLS`) and may make schemas in the database (`CREATE`): the
+//! policies of the schema pass a role that is either, and tests run as one would show
+//! nothing of them. A test database is not made for such a role.
 
 use std::path::{Path, PathBuf};
 
@@ -67,7 +72,9 @@ impl TestDatabase {
                     panic!("{CONN_STRING_ENV} must hold a PostgreSQL URL for PostgreSQL test runs")
                 });
                 let schema = format!("t_{name}");
-                run_admin(&url, format!("CREATE SCHEMA {schema}")).await;
+                let mut connection = connect(&url).await;
+                refuse_a_role_the_policies_pass(&mut connection).await;
+                run(&mut connection, format!("CREATE SCHEMA {schema}")).await;
                 let separator = if url.contains('?') { '&' } else { '?' };
                 Self {
                     db_type,
@@ -108,20 +115,40 @@ impl TestDatabase {
                 let _ = std::fs::remove_file(path);
             }
             Cleanup::PostgresSchema { url, schema } => {
-                run_admin(&url, format!("DROP SCHEMA {schema} CASCADE")).await;
+                let mut connection = connect(&url).await;
+                run(&mut connection, format!("DROP SCHEMA {schema} CASCADE")).await;
             }
         }
     }
 }
 
-/// Runs one statement on a connection of its own.
-async fn run_admin(url: &str, statement: String) {
-    let mut connection = PgConnection::connect(url)
+async fn connect(url: &str) -> PgConnection {
+    PgConnection::connect(url)
         .await
-        .unwrap_or_else(|error| panic!("connecting to the test PostgreSQL server: {error}"));
+        .unwrap_or_else(|error| panic!("connecting to the test PostgreSQL server: {error}"))
+}
+
+/// Runs one statement.
+async fn run(connection: &mut PgConnection, statement: String) {
     // The statement is built from a generated identifier, not from input.
     sqlx::raw_sql(sqlx::AssertSqlSafe(statement))
-        .execute(&mut connection)
+        .execute(connection)
         .await
         .unwrap_or_else(|error| panic!("preparing the test database: {error}"));
+}
+
+/// Panics if the tests connect as a role that the row-level security policies pass.
+async fn refuse_a_role_the_policies_pass(connection: &mut PgConnection) {
+    let (role, superuser, bypasses): (String, bool, bool) = sqlx::query_as(
+        "SELECT rolname::text, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user",
+    )
+    .fetch_one(connection)
+    .await
+    .unwrap_or_else(|error| panic!("reading the role of the test connection: {error}"));
+    assert!(
+        !superuser && !bypasses,
+        "{CONN_STRING_ENV} names the role {role} (superuser: {superuser}, BYPASSRLS: \
+         {bypasses}). The tests need a role that is no superuser, has NOBYPASSRLS and has \
+         CREATE on the database; `cargo xtask test` makes one in its container"
+    );
 }

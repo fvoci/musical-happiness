@@ -269,15 +269,22 @@ impl Uses {
     /// Starts using the container `name`, and returns the lock of its starting and
     /// stopping, held until it is dropped.
     fn claim(&mut self, name: &str) -> Result<File> {
-        let setup = open_lock(&self.file(name, "setup"))?;
-        setup
-            .lock()
-            .with_context(|| format!("waiting for other runs to set up {name}"))?;
+        let setup = self.lock_setup(name)?;
         let used = open_lock(&self.file(name, "use"))?;
         // Never long: a run takes this exclusively only while it holds `setup`.
         used.lock_shared()
             .with_context(|| format!("taking the use of {name}"))?;
         self.held.push((name.to_owned(), used));
+        Ok(setup)
+    }
+
+    /// Waits for the lock of the starting and stopping of the container `name`, held
+    /// until it is dropped: for what else must not be done to it by two runs at once.
+    fn lock_setup(&self, name: &str) -> Result<File> {
+        let setup = open_lock(&self.file(name, "setup"))?;
+        setup
+            .lock()
+            .with_context(|| format!("waiting for other runs to set up {name}"))?;
         Ok(setup)
     }
 
@@ -470,9 +477,10 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
             POSTGRES_DATABASE,
         ])
     })?;
-    // Repeated like the probe: another run that prepares the same container at this
-    // moment makes the statements fail once ("tuple concurrently updated").
-    wait_until(&container.name, || {
+    {
+        // One run at a time: two that alter the role at once fail ("tuple concurrently
+        // updated").
+        let _setup = uses.lock_setup(&container.name)?;
         docker(&[
             "exec",
             &container.name,
@@ -487,7 +495,8 @@ pub(crate) fn prepare_postgres(uses: &mut Uses) -> Result<String> {
             "--command",
             &test_role_statements(),
         ])
-    })?;
+        .with_context(|| format!("making the role {POSTGRES_TEST_ROLE} in {}", container.name))?;
+    }
     say(&format!(
         "    {}: accepting connections on port {}, the tests connect as {POSTGRES_TEST_ROLE}",
         container.name, container.host_port
@@ -739,18 +748,14 @@ mod tests {
     /// The role is made what it must be also where an older run left it otherwise.
     #[test]
     fn the_test_role_is_no_superuser_and_is_held_by_row_level_security() {
-        let statements = test_role_statements();
-        for word in [
-            "NOSUPERUSER",
-            "NOBYPASSRLS",
-            "LOGIN",
-            "GRANT CREATE ON DATABASE fvoci",
-        ] {
-            assert!(statements.contains(word), "{word}: {statements}");
-        }
-        assert!(
-            statements.contains("ALTER ROLE fvoci_app"),
-            "an existing role is altered: {statements}"
+        assert_eq!(
+            test_role_statements(),
+            "DO $$ BEGIN CREATE ROLE fvoci_app; \
+             EXCEPTION WHEN duplicate_object THEN NULL; END $$; \
+             ALTER ROLE fvoci_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB \
+             NOCREATEROLE PASSWORD 'fvoci-test'; \
+             GRANT CREATE ON DATABASE fvoci TO fvoci_app;",
+            "made if missing, altered if there, and let make schemas"
         );
     }
 
