@@ -397,6 +397,62 @@ async fn the_purge_forgets_a_row_whose_block_is_only_another_orgs() {
     );
 }
 
+/// 0014 gave the versions of a comment in the trash the one organization, and the
+/// comment in the trash the organization of its board: the system's, for a comment on
+/// a built-in template. 0015 gives the versions their comment's organization, so the
+/// purge, which matches them to their block in their own organization, keeps them.
+#[tokio::test]
+async fn the_versions_of_a_template_comment_in_the_trash_follow_it_into_its_organization() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let directory = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("store-tests");
+    let database = fvoci_store::testing::TestDatabase::create(&directory).await;
+    fvoci_store::testing::migrate_to_the_organizations(&database).await;
+    let (template, comment, one_org) = (new_id(), new_id(), new_id());
+    let mut conn = common::connect_past_the_store(database.dbconfig()).await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO deleted_boards (id, team_id, deleted_at, deletion_id, board, members, \
+         files, org_id) VALUES ('{template}', '{SYSTEM_WORKSPACE_ID}', {now}, '{deletion}', \
+         '{{}}', '[]', '[]', '{SYSTEM_ORG_ID}'); \
+         INSERT INTO deleted_blocks (id, board_id, deleted_at, deletion_id, block, org_id) \
+         VALUES ('{comment}', '{template}', {now}, '{deletion}', '{{\"type\": \"comment\"}}', \
+         '{SYSTEM_ORG_ID}'); \
+         INSERT INTO comment_versions (block_id, version, body, files, written_at, org_id) \
+         VALUES ('{comment}', 1, NULL, '[]', 0, '{one_org}')",
+        now = i64::MAX / 2,
+        deletion = new_id(),
+    )))
+    .execute(&mut conn)
+    .await
+    .expect("the trash as 0014 left it");
+    drop(conn);
+
+    let store = Store::connect(database.db_type(), database.dbconfig())
+        .await
+        .expect("the store migrates the database");
+    store
+        .system()
+        .purge_trash(0)
+        .await
+        .expect("the trash is purged");
+    let mut conn = common::connect_past_the_store(database.dbconfig()).await;
+    let kept: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT org_id::text FROM comment_versions WHERE block_id = '{comment}'"
+    )))
+    .fetch_all(&mut conn)
+    .await
+    .expect("the versions are read");
+    drop(conn);
+    store.close().await;
+    database.remove().await;
+    assert_eq!(
+        kept,
+        [SYSTEM_ORG_ID],
+        "the version is the system's, as its comment is"
+    );
+}
+
 /// An upload goes to a board of its organization, or an import to a workspace of it
 /// (`uploads.board_id` names either, and has no key: the board may go to the trash and
 /// for good while the upload's row stays for its clean-up). The schema checks it when

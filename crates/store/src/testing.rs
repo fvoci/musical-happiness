@@ -306,6 +306,23 @@ pub async fn migrate_to_before_organizations(database: &TestDatabase) {
     store.close().await;
 }
 
+/// Brings a test database to the schema as the server of the organizations left it,
+/// before the keys that name the organization (migration 15): every migration up to
+/// the organizations', and none of the changes of the data that follow the migrations.
+///
+/// # Panics
+///
+/// Panics if the database cannot be reached or migrated.
+pub async fn migrate_to_the_organizations(database: &TestDatabase) {
+    let store = Store::open(database.db_type(), database.dbconfig())
+        .await
+        .unwrap_or_else(|error| panic!("connecting to the test database: {error}"));
+    crate::schema::migrate(&store, Some(crate::schema::ORGANIZATIONS_VERSION))
+        .await
+        .unwrap_or_else(|error| panic!("migrating the test database: {error}"));
+    store.close().await;
+}
+
 impl Store {
     /// What the idle connections of a PostgreSQL store carry of an organization, read
     /// past the store's own transactions: for each connection the settings `fvoci.org`

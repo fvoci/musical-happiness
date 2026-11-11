@@ -391,10 +391,10 @@ async fn a_category_path_rejects_a_board_the_user_is_on_in_a_workspace_they_are_
 
 /// A board of another workspace that was filed under a category before the categories
 /// took the boards of their own workspace only does not keep the category from being
-/// deleted: it goes with the category, and the boards of the workspace move to the
-/// default category.
+/// deleted: the boards of the workspace move to its default category, and that board
+/// to the default category of its own workspace, which the user works in.
 #[tokio::test]
-async fn deleting_a_category_leaves_behind_a_board_of_another_workspace() {
+async fn deleting_a_category_files_a_board_of_another_workspace_in_its_own() {
     let ts = Setup::native().start().await.init_basic().await;
     let user_id = ts.client.me().await.id;
     let ours = ts.create_board(ROOT_TEAM_ID, BoardType::Open).await;
@@ -423,21 +423,29 @@ async fn deleting_a_category_leaves_behind_a_board_of_another_workspace() {
         .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", category.id))
         .await
         .status;
-    let after: Vec<CategoryBoards> = ts
-        .client
-        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
-        .await
-        .ok_json();
+    let mut filed = Vec::new();
+    for team_id in [ROOT_TEAM_ID, TEST_TEAM_ID] {
+        let sidebar: Vec<CategoryBoards> = ts
+            .client
+            .get(&format!("/teams/{team_id}/categories"))
+            .await
+            .ok_json();
+        let boards: Vec<String> = sidebar
+            .iter()
+            .flat_map(|entry| &entry.board_metadata)
+            .map(|metadata| metadata.board_id.clone())
+            .collect();
+        filed.push(boards);
+    }
     ts.teardown().await;
-    let filed: Vec<&str> = after
-        .iter()
-        .flat_map(|entry| &entry.board_metadata)
-        .map(|metadata| metadata.board_id.as_str())
-        .collect();
     assert_eq!(deleted, StatusCode::NO_CONTENT, "the category is deleted");
     assert!(
-        filed.contains(&ours.id.as_str()) && !filed.contains(&theirs.id.as_str()),
-        "the workspace's board moved, the other's went: {filed:?}"
+        filed[0].contains(&ours.id) && !filed[0].contains(&theirs.id),
+        "the workspace's board stayed in its sidebar, the other's left it: {filed:?}"
+    );
+    assert!(
+        filed[1].contains(&theirs.id),
+        "the other workspace's board is in its own sidebar: {filed:?}"
     );
 }
 

@@ -342,7 +342,7 @@ impl App {
         board_id: &str,
     ) -> Result<(), AppError> {
         let board = self.board(board_id).await?;
-        if is_filed_in(&board, team_id) {
+        if category_of_team_takes(&board, team_id) {
             Ok(())
         } else {
             Err(AppError::not_found("board"))
@@ -352,6 +352,6 @@ impl App {
 
 /// Whether a category of the team takes the board: one of the team, or a built-in
 /// template.
-pub(super) fn is_filed_in(board: &Board, team_id: &str) -> bool {
+pub(super) fn category_of_team_takes(board: &Board, team_id: &str) -> bool {
     board.team_id == team_id || board.is_builtin
 }

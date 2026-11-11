@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use fvoci_model::{Category, CategoryType};
 
 use super::App;
-use super::category_boards::{DEFAULT_CATEGORY_BOARDS, is_filed_in};
+use super::category_boards::{DEFAULT_CATEGORY_BOARDS, category_of_team_takes};
 use crate::auth::now_millis;
 use crate::error::AppError;
 
@@ -128,8 +128,9 @@ impl App {
 
     /// Moves the boards of a category to the user's default category, which is created
     /// if the user does not have it yet. A board of another team, filed here before the
-    /// categories took the boards of their own team only, is not moved: it goes with the
-    /// category, and is filed nowhere in the team.
+    /// categories took the boards of their own team only, goes to the user's default
+    /// category of its own team if the user works there, and is filed nowhere if not. A
+    /// board that is gone meanwhile is left out.
     async fn move_boards_to_default_category(
         &self,
         user_id: &str,
@@ -153,15 +154,30 @@ impl App {
         };
 
         let mut board_ids = Vec::with_capacity(source.board_metadata.len());
+        let mut elsewhere = Vec::new();
         for metadata in &source.board_metadata {
-            let board = self.board(&metadata.board_id).await?;
-            if is_filed_in(&board, team_id) {
+            let board = match self.board(&metadata.board_id).await {
+                Ok(board) => board,
+                Err(error) if error.is_not_found() => continue,
+                Err(error) => return Err(error),
+            };
+            if category_of_team_takes(&board, team_id) {
                 board_ids.push(board.id);
+            } else {
+                elsewhere.push(board);
             }
         }
         self.add_update_user_category_board(team_id, user_id, &default.category.id, &board_ids)
             .await
-            .map_err(|error| error.context("moveBoardsToDefaultCategory"))
+            .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
+        for board in elsewhere {
+            if self.works_in_team(user_id, &board.team_id).await? {
+                self.add_boards_to_default_category(user_id, &board.team_id, &[board.id])
+                    .await
+                    .map_err(|error| error.context("moveBoardsToDefaultCategory"))?;
+            }
+        }
+        Ok(())
     }
 
     /// Puts a user's categories in a team into the given order and tells the user's

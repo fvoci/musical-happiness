@@ -54,6 +54,16 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
     // Declared before the steps, so dropped after them: the containers the steps start
     // are stopped when the run ends, however it ends.
     let uses = std::cell::RefCell::new(containers::Uses::new()?);
+    // Found once and shared by the steps that need it: the container is claimed once.
+    let postgres = std::cell::RefCell::new(None);
+    let shared_postgres = || -> Result<containers::PostgresUrls> {
+        if let Some(urls) = postgres.borrow().clone() {
+            return Ok(urls);
+        }
+        let urls = postgres_urls(&mut uses.borrow_mut())?;
+        *postgres.borrow_mut() = Some(urls.clone());
+        Ok(urls)
+    };
     let mut parts = Vec::new();
 
     if databases == Databases::Postgres {
@@ -73,7 +83,7 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
 
     if matches!(databases, Databases::All | Databases::Postgres) {
         parts.push(Step::new("tests on PostgreSQL", || {
-            let urls = postgres_urls(&mut uses.borrow_mut())?;
+            let urls = shared_postgres()?;
             steps::run(
                 root,
                 &cargo,
@@ -102,7 +112,9 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
     }
     if databases == Databases::All {
         parts.push(Step::new("S3 storage test", || {
-            s3_tests(root, &cargo, &mut uses.borrow_mut())
+            // Before the object store's turn of `uses`: finding PostgreSQL may take it.
+            let postgres = shared_postgres()?;
+            s3_tests(root, &cargo, &mut uses.borrow_mut(), &postgres)
         }));
     }
 
@@ -136,7 +148,12 @@ fn postgres_urls(uses: &mut containers::Uses) -> Result<containers::PostgresUrls
 /// that go to S3 as multipart uploads, and the files of two organizations of one server
 /// in one bucket, which needs PostgreSQL too. Runs against the object store of the
 /// environment, or the container prepared for them.
-fn s3_tests(root: &Path, cargo: &std::ffi::OsStr, uses: &mut containers::Uses) -> Result<()> {
+fn s3_tests(
+    root: &Path,
+    cargo: &std::ffi::OsStr,
+    uses: &mut containers::Uses,
+    postgres: &containers::PostgresUrls,
+) -> Result<()> {
     let (endpoint, bucket) =
         if let (Some(endpoint), Some(bucket)) = (env(S3_ENDPOINT_ENV), env(S3_BUCKET_ENV)) {
             steps::say(&format!("    using the object store of {S3_ENDPOINT_ENV}"));
@@ -166,12 +183,11 @@ fn s3_tests(root: &Path, cargo: &std::ffi::OsStr, uses: &mut containers::Uses) -
     ignored("storage", None)?;
     ignored("api", Some("with_s3"))?;
 
-    let urls = postgres_urls(uses)?;
     let mut both = s3.to_vec();
     both.extend([
         (DB_TYPE_ENV, "postgres"),
-        (CONN_STRING_ENV, urls.tests.as_str()),
-        (SUPERUSER_CONN_STRING_ENV, urls.superuser.as_str()),
+        (CONN_STRING_ENV, postgres.tests.as_str()),
+        (SUPERUSER_CONN_STRING_ENV, postgres.superuser.as_str()),
     ]);
     steps::run(
         root,
