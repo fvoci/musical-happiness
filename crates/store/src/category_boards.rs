@@ -6,7 +6,10 @@
 
 use std::collections::HashSet;
 
-use fvoci_model::{CATEGORY_BOARDS_SORT_ORDER_GAP, CategoryBoardMetadata, CategoryBoards, new_id};
+use fvoci_model::{
+    CATEGORY_BOARDS_SORT_ORDER_GAP, CategoryBoardMetadata, CategoryBoards, DEFAULT_CATEGORY_NAME,
+    new_id,
+};
 
 use crate::Store;
 use crate::categories::get_user_categories;
@@ -218,9 +221,8 @@ pub(crate) async fn add_update_category_board(
 }
 
 /// Where a user filed a board: the category, the board's place in it, and whether it is
-/// hidden there. Kept in the trash with a deleted board, as JSON.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// hidden there.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoardPlace {
     /// The user who filed the board.
     pub user_id: String,
@@ -267,10 +269,13 @@ pub(crate) async fn places_of_board(
         .collect()
 }
 
-/// Files a restored board where `place` says: under its category if the user still has
-/// it in the board's team, else under the user's default category, at the end of none in
-/// particular (sort order 0, as a newly filed board). A user without a default category
-/// yet is filed nowhere: making that category files the boards the user is a member of.
+/// Files a restored board where `place` says. Under its category if the user still has
+/// it in the board's team, at its sort order, the boards from there on moving down by one
+/// so that it is between the ones it was between. Else under the user's default category
+/// (found by its name, as the app finds it) with sort order 0, as a newly filed board. A
+/// user without a default category yet is filed nowhere: making that category files the
+/// boards the user is a member of. A category of another team, where a board can be filed
+/// by naming it, counts as gone.
 pub(crate) async fn put_back(
     scope: &mut Scope<'_>,
     board_id: &str,
@@ -282,12 +287,19 @@ pub(crate) async fn put_back(
         .push_bind(" AND user_id = ", Id(&place.user_id))
         .push_bind(" AND team_id = ", Id(team_id));
     let (category_id, sort_order) = if let Some(row) = scope.fetch_optional(sql).await? {
-        (row.id(0)?, place.sort_order)
+        let category_id = row.id(0)?;
+        let mut sql = scope
+            .sql("UPDATE category_boards SET sort_order = sort_order + 1 WHERE category_id = ");
+        sql.bind(Id(&category_id))
+            .push_bind(" AND sort_order >= ", place.sort_order);
+        scope.execute(sql).await?;
+        (category_id, place.sort_order)
     } else {
-        let mut sql = scope.sql("SELECT id FROM categories WHERE type = 'system' AND user_id = ");
-        sql.bind(Id(&place.user_id))
+        let mut sql = scope.sql("SELECT id FROM categories WHERE name = ");
+        sql.bind(DEFAULT_CATEGORY_NAME)
+            .push_bind(" AND user_id = ", Id(&place.user_id))
             .push_bind(" AND team_id = ", Id(team_id))
-            .push(" ORDER BY create_at, id LIMIT 1");
+            .push(" ORDER BY sort_order, create_at, id LIMIT 1");
         match scope.fetch_optional(sql).await? {
             Some(row) => (row.id(0)?, 0),
             None => return Ok(()),

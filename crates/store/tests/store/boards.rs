@@ -4378,16 +4378,21 @@ async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
     test.teardown().await;
 }
 
-/// Stores a category of the user in the team and returns its identifier.
+/// Stores a category of the user in the team and returns its identifier; a system one is
+/// the default category, by its name.
 async fn stored_category(
     test: &Store,
     user_id: &str,
     team_id: &str,
     category_type: fvoci_model::CategoryType,
 ) -> String {
+    let name = match category_type {
+        fvoci_model::CategoryType::System => fvoci_model::DEFAULT_CATEGORY_NAME,
+        fvoci_model::CategoryType::Custom => "a category",
+    };
     let category = Category {
         id: new_id(),
-        name: "a category".to_owned(),
+        name: name.to_owned(),
         user_id: user_id.to_owned(),
         team_id: team_id.to_owned(),
         category_type,
@@ -4399,11 +4404,58 @@ async fn stored_category(
     category.id
 }
 
+/// Files the boards under the category, in this order.
+async fn filed_in_order(test: &Store, user_id: &str, category_id: &str, board_ids: &[String]) {
+    test.add_update_category_board(user_id, category_id, board_ids)
+        .await
+        .expect("the boards are filed");
+    test.reorder_category_boards(category_id, board_ids.to_vec())
+        .await
+        .expect("the boards are ordered");
+}
+
+/// The boards of the user's category, in their order.
+async fn category_order(
+    test: &Store,
+    user_id: &str,
+    team_id: &str,
+    category_id: &str,
+) -> Vec<String> {
+    test.get_user_category_boards(user_id, team_id)
+        .await
+        .expect("the categories")
+        .into_iter()
+        .find(|entry| entry.category.id == category_id)
+        .map(|entry| {
+            entry
+                .board_metadata
+                .into_iter()
+                .map(|board| board.board_id)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Stores a board of the team made by the user and returns its identifier.
+async fn stored_board_of(
+    test: &Store,
+    team_id: &str,
+    user_id: &str,
+    board_type: BoardType,
+) -> String {
+    let board_id = new_id();
+    let mut board = new_board(&board_id, team_id, board_type);
+    test.insert_board(&mut board, user_id)
+        .await
+        .expect("the board is inserted");
+    board_id
+}
+
 /// Not in the original (user decision 2026-11-11 14:25 KST). A deleted board keeps where
-/// each user had filed it, and comes back there: the same category, sort order and
-/// visibility; under the user's default category if that category went meanwhile, and
-/// nowhere for a user who has no default category yet. The places go with the board when
-/// the trash is emptied of it.
+/// each user had filed it, and comes back there: the same category, between the boards
+/// it was between, hidden as it was; under the user's default category, hidden as it
+/// was, if that category went meanwhile; nowhere for a user who has no default category
+/// yet. The places go with the board when the trash is emptied of it.
 #[tokio::test]
 async fn a_restored_board_is_filed_where_it_was() {
     let test = common::setup().await;
@@ -4413,44 +4465,56 @@ async fn a_restored_board_is_filed_where_it_was() {
         common::user(&test, "moved").await,
         common::user(&test, "unfiled").await,
     ];
-    let board_id = new_id();
-    let mut board = new_board(&board_id, &team_id, BoardType::Open);
-    test.insert_board(&mut board, &kept)
-        .await
-        .expect("the board is inserted");
+    // Made last, so that a tie of sort orders would put it after its neighbours.
+    let before = stored_board_of(&test, &team_id, &kept, BoardType::Open).await;
+    let after = stored_board_of(&test, &team_id, &kept, BoardType::Open).await;
+    let board_id = stored_board_of(&test, &team_id, &kept, BoardType::Open).await;
     let custom = fvoci_model::CategoryType::Custom;
     let kept_category = stored_category(&test, &kept, &team_id, custom).await;
     let moved_category = stored_category(&test, &moved, &team_id, custom).await;
     let moved_default =
         stored_category(&test, &moved, &team_id, fvoci_model::CategoryType::System).await;
     let unfiled_category = stored_category(&test, &unfiled, &team_id, custom).await;
-    for (user_id, category_id) in [
-        (&kept, &kept_category),
-        (&moved, &moved_category),
-        (&unfiled, &unfiled_category),
-    ] {
-        test.add_update_category_board(user_id, category_id, std::slice::from_ref(&board_id))
-            .await
-            .expect("the board is filed");
-    }
-    test.reorder_category_boards(&kept_category, vec![new_id(), board_id.clone()])
-        .await
-        .expect("the board is moved down");
-    test.set_board_visibility(
-        &kept,
-        &kept_category,
-        &board_id,
-        fvoci_store::BoardVisibility::Hidden,
+    let three = [before.clone(), board_id.clone(), after.clone()];
+    filed_in_order(&test, &kept, &kept_category, &three).await;
+    filed_in_order(
+        &test,
+        &moved,
+        &moved_category,
+        std::slice::from_ref(&board_id),
     )
-    .await
-    .expect("the board is hidden");
-    let before = test.get_board_places(&board_id).await.expect("the places");
+    .await;
+    filed_in_order(
+        &test,
+        &unfiled,
+        &unfiled_category,
+        std::slice::from_ref(&board_id),
+    )
+    .await;
+    for (user_id, category_id) in [(&kept, &kept_category), (&moved, &moved_category)] {
+        test.set_board_visibility(
+            user_id,
+            category_id,
+            &board_id,
+            fvoci_store::BoardVisibility::Hidden,
+        )
+        .await
+        .expect("the board is hidden");
+    }
 
     test.delete_board(&board_id, &kept)
         .await
         .expect("the board is deleted");
     let gone = test.get_board_places(&board_id).await.expect("the places");
     assert_eq!(gone, [], "not in any sidebar while in the trash");
+    // Meanwhile the user orders what is left, and two categories go.
+    filed_in_order(
+        &test,
+        &kept,
+        &kept_category,
+        &[before.clone(), after.clone()],
+    )
+    .await;
     for (user_id, category_id) in [(&moved, &moved_category), (&unfiled, &unfiled_category)] {
         test.delete_category(category_id, user_id, &team_id)
             .await
@@ -4460,25 +4524,24 @@ async fn a_restored_board_is_filed_where_it_was() {
         .await
         .expect("the board is restored");
 
+    assert_eq!(
+        category_order(&test, &kept, &team_id, &kept_category).await,
+        three,
+        "between the boards it was between"
+    );
     let places = test.get_board_places(&board_id).await.expect("the places");
-    let kept_place = places.iter().find(|place| place.user_id == kept);
-    assert_eq!(
-        kept_place,
-        before.iter().find(|place| place.user_id == kept)
-    );
-    let kept_place = kept_place.expect("filed again");
+    let place_of = |user_id: &str| places.iter().find(|place| place.user_id == user_id);
     assert!(
-        kept_place.hidden && kept_place.sort_order == 11,
-        "{kept_place:?}"
+        place_of(&kept).is_some_and(|place| place.hidden),
+        "{places:?}"
     );
-    let moved_place = places.iter().find(|place| place.user_id == moved);
     assert_eq!(
-        moved_place.map(|place| (place.category_id.as_str(), place.sort_order)),
-        Some((moved_default.as_str(), 0)),
-        "under the default category"
+        place_of(&moved).map(|place| (place.category_id.as_str(), place.sort_order, place.hidden)),
+        Some((moved_default.as_str(), 0, true)),
+        "under the default category, hidden as it was"
     );
     assert!(
-        places.iter().all(|place| place.user_id != unfiled),
+        place_of(&unfiled).is_none(),
         "nowhere without a default category"
     );
 
@@ -4490,6 +4553,54 @@ async fn a_restored_board_is_filed_where_it_was() {
         test.get_deleted_board(&board_id).await.is_err(),
         "the board and the places kept with it are gone"
     );
+
+    test.teardown().await;
+}
+
+/// A private board comes back in the sidebar only of those who are its members again: a
+/// user who had filed it and was no member when it went keeps no place to it.
+#[tokio::test]
+async fn a_restored_private_board_is_filed_for_its_members_only() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let admin = common::user(&test, "admin").await;
+    let former = common::user(&test, "former").await;
+    let board_id = stored_board_of(&test, &team_id, &admin, BoardType::Private).await;
+    test.save_member(&BoardMember {
+        board_id: board_id.clone(),
+        user_id: admin.clone(),
+        scheme_admin: true,
+        ..BoardMember::default()
+    })
+    .await
+    .expect("the admin is a member");
+    for user_id in [&admin, &former] {
+        let category_id =
+            stored_category(&test, user_id, &team_id, fvoci_model::CategoryType::Custom).await;
+        filed_in_order(
+            &test,
+            user_id,
+            &category_id,
+            std::slice::from_ref(&board_id),
+        )
+        .await;
+    }
+
+    test.delete_board(&board_id, &admin)
+        .await
+        .expect("the board is deleted");
+    test.undelete_board(&board_id, &admin)
+        .await
+        .expect("the board is restored");
+
+    let filed: Vec<String> = test
+        .get_board_places(&board_id)
+        .await
+        .expect("the places")
+        .into_iter()
+        .map(|place| place.user_id)
+        .collect();
+    assert_eq!(filed, [admin], "only the member");
 
     test.teardown().await;
 }

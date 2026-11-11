@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use fvoci_model::{Block, Board, BoardMember, Body, FileInfo, new_id};
+use fvoci_model::{Block, Board, BoardMember, BoardType, Body, FileInfo, new_id};
 use serde::de::DeserializeOwned;
 
 use crate::Store;
@@ -512,7 +512,11 @@ pub(crate) async fn delete_board(
     let files = file_info::file_infos_of_board(scope, board_id).await?;
     let board_blocks = blocks::get_blocks(scope, &blocks::BlockFilter::board(board_id)).await?;
     // Where users filed the board, to file it there again when it comes back.
-    let places = category_boards::places_of_board(scope, board_id).await?;
+    let places: Vec<StoredPlace> = category_boards::places_of_board(scope, board_id)
+        .await?
+        .into_iter()
+        .map(StoredPlace::from)
+        .collect();
 
     let now = now_millis();
     let deletion_id = new_id();
@@ -570,7 +574,7 @@ pub(crate) async fn undelete_board(
     let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
     let files: StoredFiles = from_json(&row, 2, "files")?;
     let deletion_id = row.id(3)?;
-    let places: Vec<BoardPlace> = from_json(&row, 4, "places")?;
+    let places: Vec<StoredPlace> = from_json(&row, 4, "places")?;
 
     let now = now_millis();
     board.delete_at = 0;
@@ -588,10 +592,14 @@ pub(crate) async fn undelete_board(
             boards::save_member(scope, member).await?;
         }
     }
-    // Each user who still exists finds the board where they had filed it.
-    for place in &places {
-        if known_users.has(scope, &place.user_id).await? {
-            category_boards::put_back(scope, board_id, &board.team_id, place).await?;
+    // Each user who still exists finds the board where they had filed it; a private
+    // board, only those who are its members again (a member removed earlier keeps the
+    // place but cannot see the board).
+    for place in places.into_iter().map(BoardPlace::from) {
+        let sees = board.board_type == BoardType::Open
+            || members.iter().any(|member| member.user_id == place.user_id);
+        if sees && known_users.has(scope, &place.user_id).await? {
+            category_boards::put_back(scope, board_id, &board.team_id, &place).await?;
         }
     }
     for file in Vec::<FileInfo>::from(files) {
@@ -647,6 +655,39 @@ impl KnownUsers {
 
 /// The file records of a board as they are kept with the board in the trash. A file
 /// record's own JSON form is the one for clients, which leaves out where the file is.
+/// A [`BoardPlace`] as the trash keeps it, in `deleted_boards.places`. Its own type, so
+/// that what is stored does not change with the store's interface.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredPlace {
+    user_id: String,
+    category_id: String,
+    sort_order: i64,
+    hidden: bool,
+}
+
+impl From<BoardPlace> for StoredPlace {
+    fn from(place: BoardPlace) -> Self {
+        Self {
+            user_id: place.user_id,
+            category_id: place.category_id,
+            sort_order: place.sort_order,
+            hidden: place.hidden,
+        }
+    }
+}
+
+impl From<StoredPlace> for BoardPlace {
+    fn from(place: StoredPlace) -> Self {
+        Self {
+            user_id: place.user_id,
+            category_id: place.category_id,
+            sort_order: place.sort_order,
+            hidden: place.hidden,
+        }
+    }
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct StoredFiles(Vec<StoredFile>);
 

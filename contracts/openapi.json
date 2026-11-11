@@ -3956,7 +3956,7 @@
     },
     "/api/v1/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it finds it where it was in the sidebar (the same category and place, hidden\nor not), or in the default category if that category was deleted since, and is told\nwith `UPDATE_BOARD_CATEGORY`. Its sharing and the subscriptions to its blocks ended\nwith the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody\nwho was no member there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted; to anybody\nwho was no member there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {

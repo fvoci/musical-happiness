@@ -2788,7 +2788,17 @@ async fn next_message(stream: &mut Stream, wait: Duration) -> Option<Value> {
 
 /// A socket of the first client's user, subscribed to the team.
 async fn subscribed_socket(th: &TestServer, team_id: &str, user_id: &str) -> Stream {
-    let mut stream = th.client.connect_websocket().await;
+    subscribed_socket_of(th, &th.client, team_id, user_id).await
+}
+
+/// A socket of the client's user, `user_id`, subscribed to the team.
+async fn subscribed_socket_of(
+    th: &TestServer,
+    client: &Client,
+    team_id: &str,
+    user_id: &str,
+) -> Stream {
+    let mut stream = client.connect_websocket().await;
     let command = json!({"action": "SUBSCRIBE_TEAM", "teamId": team_id});
     stream
         .send(Message::Text(command.to_string().into()))
@@ -3021,14 +3031,22 @@ async fn message_of(stream: &mut Stream, action: &str) -> Value {
 }
 
 /// Not in the original (user decision 2026-11-11 14:25 KST). A deleted board that comes
-/// back is where its user had filed it, hidden as it was, and the user's connection is
-/// told with the board's one entry.
+/// back is where each user had filed it, hidden as it was, or in the user's default
+/// category if that one went meanwhile; each such user's connection is told the board's
+/// entry and the category's order, and a user who had not filed it is told nothing.
 #[tokio::test]
-async fn a_restored_board_is_filed_where_it_was_and_the_user_is_told() {
+async fn a_restored_board_is_filed_where_it_was_and_the_users_are_told() {
     let th = Setup::native().start().await.init_basic().await;
     let user = th.client.me().await;
-    category_boards(&th.client, ROOT_TEAM_ID).await;
+    let other = th.client2.me().await;
+    let third = th.add_user("third").await;
+    let third_user = third.me().await;
+    let other_default = category_boards(&th.client2, ROOT_TEAM_ID).await[0]
+        .category
+        .id
+        .clone();
     let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let gone = create_category(&th.client2, &category(ROOT_TEAM_ID, &other.id, "Cat B")).await;
     let board: Board = th
         .client
         .create_board(&Board {
@@ -3039,6 +3057,7 @@ async fn a_restored_board_is_filed_where_it_was_and_the_user_is_told() {
         .await
         .created_json();
     file_board(&th.client, ROOT_TEAM_ID, &created.id, &board.id).await;
+    file_board(&th.client2, ROOT_TEAM_ID, &gone.id, &board.id).await;
     let category_path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
     put_empty(
         &th.client,
@@ -3047,9 +3066,15 @@ async fn a_restored_board_is_filed_where_it_was_and_the_user_is_told() {
     .await
     .check_no_content();
     let mut socket = subscribed_socket(&th, ROOT_TEAM_ID, &user.id).await;
+    let mut other_socket = subscribed_socket_of(&th, &th.client2, ROOT_TEAM_ID, &other.id).await;
+    let mut third_socket = subscribed_socket_of(&th, &third, ROOT_TEAM_ID, &third_user.id).await;
 
     th.client
         .delete(&format!("/boards/{}", board.id))
+        .await
+        .check_no_content();
+    th.client2
+        .delete(&format!("/teams/{ROOT_TEAM_ID}/categories/{}", gone.id))
         .await
         .check_no_content();
     th.client
@@ -3057,14 +3082,32 @@ async fn a_restored_board_is_filed_where_it_was_and_the_user_is_told() {
         .await
         .check_ok();
 
-    assert_eq!(
-        message_of(&mut socket, "UPDATE_BOARD_CATEGORY").await,
+    let entry = |category_id: &str, hidden: bool| {
         json!({
             "action": "UPDATE_BOARD_CATEGORY",
             "teamId": ROOT_TEAM_ID,
-            "boardCategories": [{"boardId": board.id, "categoryId": created.id, "hidden": true}],
-        }),
+            "boardCategories": [{"boardId": board.id, "categoryId": category_id, "hidden": hidden}],
+        })
+    };
+    assert_eq!(
+        message_of(&mut socket, "UPDATE_BOARD_CATEGORY").await,
+        entry(&created.id, true)
     );
+    let order = message_of(&mut socket, "REORDER_CATEGORY_BOARDS").await;
+    assert_eq!(order["categoryId"], json!(created.id), "{order}");
+    assert_eq!(order["boardOrder"], json!([board.id]), "{order}");
+    assert_eq!(
+        message_of(&mut other_socket, "UPDATE_BOARD_CATEGORY").await,
+        entry(&other_default, false),
+        "the other user's category went: the default one"
+    );
+    while let Some(message) = next_message(&mut third_socket, Duration::from_millis(500)).await {
+        assert_ne!(
+            message["action"],
+            json!("UPDATE_BOARD_CATEGORY"),
+            "{message}"
+        );
+    }
     let filed = category_boards(&th.client, ROOT_TEAM_ID)
         .await
         .into_iter()
