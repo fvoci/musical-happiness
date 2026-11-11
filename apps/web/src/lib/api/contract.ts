@@ -1870,6 +1870,17 @@ export interface components {
             id: string;
             /** @description Whether the card is a template. */
             isTemplate: boolean;
+            /**
+             * Format: int64
+             * @description When the card's last comment was posted (the `createAt` of the newest of its
+             *     comments, the blocks of the type `comment` directly on it), in milliseconds since
+             *     the Unix epoch; zero if it has none. Changing a comment does not change it; a
+             *     deleted comment does not count, and counts again with its time if restored. A
+             *     comment does not change the card's `updateAt`. A new comment comes as
+             *     `UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is
+             *     read again for it. A number sent here in a request is ignored.
+             */
+            lastCommentAt: number;
             /** @description The identifier of the user who last modified the card. */
             modifiedBy: string;
             /**
