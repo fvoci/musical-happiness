@@ -1,6 +1,6 @@
 /**
  * One person, picked from the people of the board. Typing narrows the list by
- * user name, nickname, first and last name.
+ * login name and display name.
  */
 import type { Meta, StoryObj } from '@storybook/svelte';
 

@@ -251,6 +251,42 @@ test('language: the page loads again in the chosen one, and the device remembers
   await expect(setting(page, 'language').getByRole('button')).toContainText('한국어');
 });
 
+test('display name: saved with its button, a refused one said beside the field, a failed save on the problem line', async ({
+  page,
+}) => {
+  await openApp(page);
+  await openSettings(page);
+  const field = setting(page, 'displayName').getByLabel('Display name');
+  const save = setting(page, 'displayName').getByRole('button', { name: 'Save name' });
+  await expect(field).toHaveValue('김하나');
+  await expect(save).toBeDisabled();
+
+  await field.fill('x'.repeat(65));
+  await save.click();
+  await expect(setting(page, 'displayName').getByTestId('problem-displayName')).toHaveText(
+    'A display name has at most 64 characters.',
+  );
+
+  await field.fill('  Hana Kim ');
+  await save.click();
+  await expect(setting(page, 'displayName').getByText('Saved.')).toBeVisible();
+  await expect(field).toHaveValue('Hana Kim');
+
+  // A failure that is no refusal of the name: the page's problem line, and the field keeps its text.
+  await page.evaluate(() => {
+    (
+      window as unknown as {
+        fvociDev: { backend: { failNext: (method: string, error: Error) => void } };
+      }
+    ).fvociDev.backend.failNext('patchMe', new Error('refused by the test'));
+  });
+  await field.fill('Hana');
+  await save.click();
+  await expect(page.getByTestId('problems')).toContainText('The change was not saved');
+  await expect(field).toHaveValue('Hana');
+  await expect(setting(page, 'displayName').getByTestId('problem-displayName')).toHaveCount(0);
+});
+
 test('the layout readout is switched on and off in the settings', async ({ page }) => {
   await openApp(page);
   const readout = page.getByTestId('dev-readout');

@@ -36,10 +36,16 @@ test('a display name is given at registration, changed in the settings, and a re
   await page.getByRole('button', { name: /create one/i }).click();
   const form = page.getByTestId('register-form');
   await form.getByLabel(/^user name$/i).fill(who.username);
-  await form.getByLabel(/^display name$/i).fill('  Ada Lovelace ');
+  // A name that turns the text around: the server's refusal is said beside the field.
+  const displayName = form.getByLabel(/^display name$/i);
+  await displayName.fill(`Ada${String.fromCharCode(0x202e)}`);
   await form.getByLabel(/email/i).fill(who.email);
   await form.getByLabel(/^password$/i).fill(who.password);
   await form.getByLabel(/invitation/i).fill(code);
+  await form.getByRole('button', { name: /^create account$/i }).click();
+  await expect(form.getByTestId('problem-displayName')).toHaveText(/turn the text around/);
+  await expect(displayName).toBeFocused();
+  await displayName.fill('  Ada Lovelace ');
   await form.getByRole('button', { name: /^create account$/i }).click();
   await expect(page.getByTestId('app-shell')).toBeVisible();
 

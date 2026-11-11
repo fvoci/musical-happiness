@@ -56,6 +56,7 @@
       id="{uid}-name"
       name="displayName"
       bind:value
+      readonly={working}
       autocomplete="name"
       oninput={() => {
         saved = false;
