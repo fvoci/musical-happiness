@@ -7,6 +7,7 @@
   "calendar_more": "+{count}",
   "calendar_more_on": "{day}의 카드 {count}개 더 보기",
   "calendar_card_days": "{title}, {days}",
+  "calendar_day_time": "{day} {time}",
   "calendar_no_cards": "이 날에는 카드가 없습니다.",
   "calendar_close_day": "그날의 목록 닫기",
   "calendar_day_of": "{count}일 중 {nth}일째"

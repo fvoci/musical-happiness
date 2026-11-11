@@ -8,7 +8,7 @@
 import { m } from '$lib/i18n/paraglide/messages.js';
 import { cardsByDay, spansOf, type Span } from '$lib/logic/calendar.ts';
 import type { CalendarDate } from '$lib/logic/dates.ts';
-import { displayDayRange, displayTime } from '$lib/logic/format.ts';
+import { displayDay, displayDayRange, displayTime } from '$lib/logic/format.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import { parseDateValue, type Card, type PropertyTemplate } from '$lib/logic/wire.ts';
 
@@ -83,11 +83,18 @@ export class Placed {
     return displayDayRange(span.first, span.last, this.locale);
   }
 
-  /** What a screen reader hears for a bar: the title, and the days when there are several. */
+  /**
+   * What a screen reader hears for a bar: the title, the day or the days,
+   * and the time where the value has one. A bar stands apart from the cells
+   * of its days, so it says them itself.
+   */
   name(card: Card): string {
-    const days = this.range(card);
+    const span = this.#spanOf.get(card.id);
     const title = this.title(card);
-    return days ? m.calendar_card_days({ title, days }) : title;
+    if (!span) return title;
+    const day = this.range(card) ?? displayDay(span.first, this.locale);
+    const time = this.time(card);
+    return m.calendar_card_days({ title, days: time ? m.calendar_day_time({ day, time }) : day });
   }
 
   /** What a screen reader hears for a day: its name and how many cards are on it. */

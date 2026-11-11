@@ -49,6 +49,7 @@
 {#if pressable}
   <a
     data-bar={cardId}
+    data-card={cardId}
     {href}
     aria-label={name}
     class={[

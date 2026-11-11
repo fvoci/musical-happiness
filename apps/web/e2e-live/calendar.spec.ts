@@ -32,12 +32,18 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await register(base, owner);
   const api = await signedIn(base, owner);
   const board = await makeBoard(api, { title: 'Harvest calendar' });
-  for (const [title, due] of [
-    ['Pick apples', { from: '2026-11-12' }],
-    ['Press cider', { from: '2026-11-12', to: '2026-11-17' }],
+  // A second date, after "Due": the one the page will choose. Not the first,
+  // which a view that names no date falls back to.
+  const added = await api.patch(`/api/v1/boards/${board.boardId}`, {
+    data: { updatedCardProperties: [{ id: 'start', name: 'Start', type: 'date', options: [] }] },
+  });
+  expect(added.ok()).toBe(true);
+  for (const [title, due, start] of [
+    ['Pick apples', { from: '2026-11-12' }, { from: '2026-11-03' }],
+    ['Press cider', { from: '2026-11-12', to: '2026-11-17' }, { from: '2026-11-04' }],
   ] as const) {
     const answer = await api.post(`/api/v1/boards/${board.boardId}/cards`, {
-      data: { title, properties: { due } },
+      data: { title, properties: { due, start } },
     });
     expect(answer.ok()).toBe(true);
   }
@@ -90,14 +96,18 @@ test('a calendar view of the server shows dated cards, and keeps its "display by
   await expect(tool).toHaveAccessibleName('Display by: Due');
   expect((await stored()).dateDisplayPropertyId).toBeUndefined();
   await tool.click();
-  await page.locator('[role="menuitem"][data-action="due"]').click();
-  await expect.poll(async () => (await stored()).dateDisplayPropertyId).toBe('due');
+  await page.locator('[role="menuitem"][data-action="start"]').click();
+  await expect.poll(async () => (await stored()).dateDisplayPropertyId).toBe('start');
+  const week = (date: string) => grid.locator(`[data-week="${date}"] [data-bar]`);
+  await expect(week('2026-11-01').filter({ hasText: 'Pick apples' })).toHaveCount(1);
 
-  // After a reload the view is still a calendar, placed by "Due".
+  // After a reload the view is still a calendar, placed by "Start" as the server keeps it.
   await page.reload();
   await expect(calendar).toHaveAttribute('data-layout', 'bars');
-  await expect(tool).toHaveAccessibleName('Display by: Due');
-  await expect(grid.locator('[data-bar]').filter({ hasText: 'Pick apples' })).toHaveCount(1);
+  await expect(tool).toHaveAccessibleName('Display by: Start');
+  await expect(week('2026-11-01').filter({ hasText: 'Pick apples' })).toHaveCount(1);
+  await expect(week('2026-11-01').filter({ hasText: 'Press cider' })).toHaveCount(1);
+  await expect(week('2026-11-08')).toHaveCount(0);
   expect((await stored()).viewType).toBe('calendar');
   expect(errors).toEqual([]);
   await api.dispose();

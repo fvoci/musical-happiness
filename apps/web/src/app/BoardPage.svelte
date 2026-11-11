@@ -140,7 +140,10 @@
       {:else if view.fields.viewType === 'gallery'}
         <Gallery {board} {view} {cards} {cardHref} onOpenCard={openCard} />
       {:else}
-        <Calendar {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+        <!-- Another calendar view starts at today: its month and day are not this one's. -->
+        {#key view.id}
+          <Calendar {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+        {/key}
       {/if}
     </div>
   </div>

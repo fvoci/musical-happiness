@@ -41,6 +41,7 @@
   import DayList from './DayList.svelte';
   import MiniMonth from './MiniMonth.svelte';
   import MonthGrid from './MonthGrid.svelte';
+  import { MinuteClock } from './clock.svelte.ts';
   import { Placed } from './placed.ts';
   import Toolbar from './Toolbar.svelte';
 
@@ -50,20 +51,27 @@
   const regional = $derived(board.workspace.regional);
   const templates = $derived(board.board?.cardProperties ?? []);
   const template = $derived(displayProperty(view.fields.dateDisplayPropertyId, templates));
+  const clock = new MinuteClock();
   /** Today, on the reader's calendar. */
-  const today = $derived(dateOfInstant(Date.now(), regional.timeZone));
+  const today = $derived(dateOfInstant(clock.now, regional.timeZone));
 
   let month = $state(monthOf(untrack(() => today)));
   let selected = $state(untrack(() => today));
-  /** The cards of the picked day are open over the grid of bars. */
-  let dayOpen = $state(false);
+  /** The box is wide enough for bars. */
+  const box = new PaneRoom();
+  const bars = $derived(box.columns);
+  /**
+   * The cards of the picked day are open over the grid of bars. Closed
+   * whenever the box goes from bars to the small grid or back, so that a box
+   * that widens again does not bring them back unasked.
+   */
+  let dayOpen = $derived<boolean>(bars && false);
+  /** A card chosen in the popover of a day, opened once the popover has closed. Not reactive. */
+  let chosenCard: string | undefined;
 
   const weeks = $derived(weeksOfMonth(month, regional.weekStart));
   const placed = $derived(new Placed(cards, template, regional, locale, weeks.flat()));
 
-  /** The box the calendar is drawn in: its width decides between bars and the small grid. */
-  const box = new PaneRoom();
-  const bars = $derived(box.columns);
   const finger = $derived(fingerPointer.current);
   const sheet = $derived(overlayPresentation(page.stage) === 'sheet');
 
@@ -129,6 +137,12 @@
   /** A card opened from the list of a day: the list closes behind it. */
   function openFromList(cardId: string): void {
     dayOpen = false;
+    chosenCard = cardId;
+  }
+
+  /** On a sheet the card opens at once; the sheet gives the focus back itself. */
+  function openFromSheet(cardId: string): void {
+    dayOpen = false;
     onOpenCard(cardId);
   }
 </script>
@@ -142,7 +156,11 @@
 >
   <Toolbar title={displayMonth(firstOf(month), locale)} onstep={step} ontoday={goToday} />
 
-  <div class="relative flex min-h-0 flex-1 flex-col" {@attach attachBody}>
+  <!-- A low window scrolls the small grid and its list together; the list keeps room for two cards. -->
+  <div
+    class={['relative flex min-h-0 flex-1 flex-col', !bars && 'overflow-y-auto']}
+    {@attach attachBody}
+  >
     {#if !box.measured}
       <!-- Measured first: what is drawn depends on the width. -->
     {:else if bars}
@@ -168,7 +186,7 @@
         onpick={select}
         onmove={(by: number) => void move(by)}
       />
-      <div class="flex min-h-0 flex-1 flex-col border-t pb-(--safe-bottom)">
+      <div class="flex min-h-36 flex-1 flex-col border-t pb-(--safe-bottom)">
         <DayList date={selected} {...lists} {onOpenCard} />
       </div>
     {/if}
@@ -177,7 +195,7 @@
 
 {#if bars && sheet}
   <BottomSheet bind:open={dayOpen} title={displayDayLong(selected, locale)}>
-    <DayList date={selected} {...lists} onOpenCard={openFromList} />
+    <DayList date={selected} {...lists} onOpenCard={openFromSheet} />
   </BottomSheet>
 {:else if bars}
   <Popover.Root bind:open={dayOpen}>
@@ -197,6 +215,12 @@
         // No trigger to go back to: the focus goes to the day the list was of.
         event.preventDefault();
         focusDay();
+        // A card chosen in the list opens now, with the focus on its day: that
+        // is where the card gives it back when it closes, unless the card has
+        // a bar to go back to (card/CardDialog.svelte, `data-card`).
+        const chosen = chosenCard;
+        chosenCard = undefined;
+        if (chosen) onOpenCard(chosen);
       }}
     >
       <DayList

@@ -112,11 +112,20 @@ test('a dated card is on its day, a range is a bar in each week it crosses', asy
   await openCalendar(page, info);
   // The phone is given room for bars: the grid is the same under a finger.
   if (!wide(info)) await fitPane(page, 700);
-  // "Drag cards" is on Thursday the 12th: the fifth column of the second week.
   const week = (date: string): Locator => grid(page).locator(`[data-week="${date}"]`);
-  await expect(
+  /** Whether a bar starts in the column of a day, as the cells lie on the page. */
+  async function startsOn(bar: Locator, date: string): Promise<void> {
+    const cell = await day(page, date).boundingBox();
+    const box = await bar.boundingBox();
+    if (!cell || !box) throw new Error(`no cell ${date} or no bar`);
+    expect(box.x).toBeGreaterThanOrEqual(cell.x - 1);
+    expect(box.x).toBeLessThan(cell.x + cell.width / 2);
+  }
+  // "Drag cards" is on Thursday the 12th: the fifth column of the second week.
+  await startsOn(
     week('2026-11-08').locator('[data-bar]').filter({ hasText: 'Drag cards' }),
-  ).toHaveCount(1);
+    '2026-11-12',
+  );
   // The range is three bars, cut square where it goes on.
   await expect(bars(page, 'Share a board')).toHaveCount(3);
   const [first, second, third] = await bars(page, 'Share a board').all();
@@ -131,10 +140,13 @@ test('a dated card is on its day, a range is a bar in each week it crosses', asy
   expect(Math.round(box2.width / column)).toBe(7);
   expect(Math.round(box3.width / column)).toBe(3);
   expect(box1.x + box1.width).toBeCloseTo(grid8.x + grid8.width, -1);
-  // A moment is on the reader's day, with its time.
-  await expect(
-    week('2026-11-08').locator('[data-bar]').filter({ hasText: 'Create a new card' }),
-  ).toContainText('8:00');
+  // A moment is on the reader's day (the 10th in Seoul; the 9th in UTC), with its time.
+  const moment = week('2026-11-08').locator('[data-bar]').filter({ hasText: 'Create a new card' });
+  await expect(moment).toContainText('8:00');
+  await startsOn(moment, '2026-11-10');
+  // A bar says its day and time for a screen reader.
+  if (!touch(info))
+    await expect(moment).toHaveAccessibleName('Create a new card, November 10, 8:00 AM');
   // A day says how many cards it has.
   await expect(
     calendar(page).getByRole('button', { name: 'Thursday, November 12, 2 cards' }),
@@ -146,20 +158,29 @@ test('a day with more cards than rows says "+N", and the day lists them all', as
 }, info) => {
   await openCalendar(page, info);
   if (!wide(info)) await fitPane(page, 700);
-  const crowd = ['Manage tasks with cards', 'Create your own board', 'Share cards on Channels'];
+  // As many more cards as the cells have rows: two cards on the day are already there.
+  const lanes = Number(await grid(page).getAttribute('data-lanes'));
+  const crowd = [
+    'Manage tasks with cards',
+    'Create your own board',
+    'Share cards on Channels',
+    'Create a new view',
+    'Add new properties',
+    '@mention teammates',
+  ].slice(0, lanes);
+  expect(crowd).toHaveLength(lanes);
   await setDates(page, Object.fromEntries(crowd.map((title) => [title, { from: '2026-11-12' }])));
   const more = grid(page).locator('[data-more="2026-11-12"]');
   await expect(more).toBeVisible();
-  const lanes = Number(await grid(page).getAttribute('data-lanes'));
   const hidden = Number((await more.textContent())?.replace('+', ''));
-  // Five cards: every row but the last has a bar, the last says how many more.
-  expect(hidden).toBe(5 - (lanes - 1));
+  // Every row but the last has a bar, the last says how many more.
+  expect(hidden).toBe(lanes + 2 - (lanes - 1));
 
   if (touch(info)) await day(page, '2026-11-12').click();
   else await more.click();
   const list = page.getByTestId('day-popover');
   await expect(list).toBeVisible();
-  await expect(list.locator('[data-card]')).toHaveCount(5);
+  await expect(list.locator('[data-card]')).toHaveCount(lanes + 2);
   await expect(list).toContainText('Thursday, November 12');
   // A card of several days says which of them this is.
   await expect(list.locator('[data-card]').filter({ hasText: 'Share a board' })).toContainText(
@@ -243,9 +264,11 @@ test('the days are one stop of Tab, and the arrows walk them into the next month
   page,
 }, info) => {
   await openCalendar(page, info);
-  const picked = calendar(page).locator('[data-day-button][tabindex="0"]');
-  await expect(picked).toHaveCount(1);
-  await picked.focus();
+  await expect(calendar(page).locator('[data-day-button][tabindex="0"]')).toHaveCount(1);
+  // From "Today", one Tab is on the picked day, past the other days of its week.
+  await page.getByTestId('calendar-today').focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator(':focus')).toHaveAccessibleName(/Tuesday, November 10/);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowRight');
   await expect(calendar(page)).toHaveAttribute('data-selected', '2026-11-18');
@@ -260,6 +283,30 @@ test('the days are one stop of Tab, and the arrows walk them into the next month
   }
   await expect(page.locator(':focus')).toHaveAccessibleName(/December 9/);
   await expect(calendar(page).locator('[data-day-button][tabindex="0"]')).toHaveCount(1);
+});
+
+test('a card opened from the cards of a day gives the focus back when it closes', async ({
+  page,
+}, info) => {
+  await openCalendar(page, info);
+  const button = day(page, '2026-11-12')
+    .locator('[data-day-button]')
+    .or(calendar(page).locator('[data-day="2026-11-12"][data-day-button]'));
+  await button.focus();
+  await page.keyboard.press('Enter');
+  const list = wide(info) ? page.getByTestId('day-popover') : dayList(page);
+  await expect(list).toHaveAttribute(
+    wide(info) ? 'data-testid' : 'data-date',
+    /day-popover|2026-11-12/,
+  );
+  const link = list.locator('[data-card]').filter({ hasText: 'Drag cards' }).locator('a');
+  await link.focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog(page)).toContainText('Drag cards');
+  await page.keyboard.press('Escape');
+  await expect(dialog(page)).toBeHidden();
+  // Back on the card's bar, or on the day where the card was listed.
+  await expect(page.locator(':focus')).toHaveAccessibleName(/^Drag cards|November 12/);
 });
 
 test('"display by" places the cards by another date', async ({ page }, info) => {

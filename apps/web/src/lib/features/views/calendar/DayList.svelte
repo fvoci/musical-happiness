@@ -5,7 +5,7 @@
   closes it; question C3, answer A).
 
   A line is a link that opens the card: its title, its time when its value
-  has one, and for a card of several days which of them this is ("November
+  has one (on its first day only: the time is the start's), and for a card of several days which of them this is ("November
   9 – 13 · Day 2 of 5"). Under it, the properties the view turned on (C5).
 -->
 <script lang="ts">
@@ -93,7 +93,7 @@
 
   <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
     {#each cards as card (card.id)}
-      {@const time = placed.time(card)}
+      {@const time = placed.span(card.id)?.first === date ? placed.time(card) : undefined}
       {@const range = placed.range(card)}
       {@const shown = faceProperties(card, templates, visiblePropertyIds)}
       <li data-card={card.id} class="rounded-lg hover:bg-muted">

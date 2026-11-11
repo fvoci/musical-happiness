@@ -176,8 +176,10 @@
               style:grid-row={lanes + 1}
             >
               {#if finger}
+                <!-- The cell's own name already says how many cards the day has. -->
                 <span
                   data-more={date}
+                  aria-hidden="true"
                   class="flex h-5.5 items-center px-1.5 text-xs text-muted-foreground"
                 >
                   {m.calendar_more({ count: hidden })}
@@ -217,7 +219,7 @@
                 cardId={card.id}
                 title={placed.title(card)}
                 name={placed.name(card)}
-                time={placed.time(card)}
+                time={segment.fromBefore ? undefined : placed.time(card)}
                 fromBefore={segment.fromBefore}
                 toAfter={segment.toAfter}
                 pressable={!finger}
