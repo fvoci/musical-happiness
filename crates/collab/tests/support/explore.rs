@@ -98,41 +98,38 @@ pub(crate) fn take(base: &Doc, update: &[u8]) -> Option<Doc> {
     let with = with_update(base, update, &ROOMY).ok()?;
     let first = to_body(&with);
     let before = state_of(&with);
-    match repair(&with) {
-        Ok(repaired) => {
-            assert_eq!(
-                to_body(&with),
-                Ok(repaired.body.clone()),
-                "a repaired document is its body"
-            );
-            if first.is_ok() {
-                assert_eq!(
-                    state_of(&with),
-                    before,
-                    "a repair of a body changes nothing"
-                );
-                assert_eq!(repaired.deleted, 0, "a repair of a body deletes nothing");
-            }
-            if let Some(deletions) = &repaired.update {
-                let other = with_update(&new_doc(), &before, &ROOMY)
-                    .expect("the state before the repair is an update");
-                let other = with_update(&other, deletions, &ROOMY)
-                    .expect("the deletions of a repair are an update");
-                assert_eq!(
-                    to_body(&other),
-                    Ok(repaired.body),
-                    "the deletions of a repair give another holder the same body"
-                );
-            }
-        }
-        Err(_) => {
-            assert!(first.is_err(), "a body needs no repair");
+    if let Ok(repaired) = repair(&with) {
+        assert_eq!(
+            to_body(&with),
+            Ok(repaired.body.clone()),
+            "a repaired document is its body"
+        );
+        if first.is_ok() {
             assert_eq!(
                 state_of(&with),
                 before,
-                "a repair that fails deletes nothing"
+                "a repair of a body changes nothing"
+            );
+            assert_eq!(repaired.deleted, 0, "a repair of a body deletes nothing");
+        }
+        if let Some(deletions) = &repaired.update {
+            let other = with_update(&new_doc(), &before, &ROOMY)
+                .expect("the state before the repair is an update");
+            let other = with_update(&other, deletions, &ROOMY)
+                .expect("the deletions of a repair are an update");
+            assert_eq!(
+                to_body(&other),
+                Ok(repaired.body),
+                "the deletions of a repair give another holder the same body"
             );
         }
+    } else {
+        assert!(first.is_err(), "a body needs no repair");
+        assert_eq!(
+            state_of(&with),
+            before,
+            "a repair that fails deletes nothing"
+        );
     }
     let stored = state_of(&with);
     assert!(
@@ -351,7 +348,6 @@ fn some_change(
         _ => {}
     }
     let parent = match random.below(20) {
-        0..=8 => Parent::body(),
         9..=13 if !made_here.is_empty() => Parent::Change(*random.pick(made_here)),
         14..=16 if !world.types.is_empty() => Parent::Change(*random.pick(&world.types)),
         17 => Parent::Root(
@@ -497,6 +493,10 @@ fn some_document(random: &mut Random) -> Doc {
 
 /// Runs the session of a seed: `steps` updates at most, to the first failure. Gives the
 /// failure, if any, and the update that took longest.
+#[expect(
+    clippy::print_stdout,
+    reason = "FVOCI_EXPLORE_SHOW prints each update, for the one who runs the search"
+)]
 pub(crate) fn session(seed: u64, steps: usize, known: Known) -> (Option<Failure>, Slowest) {
     let mut random = Random::new(seed);
     let mut doc = some_document(&mut random);

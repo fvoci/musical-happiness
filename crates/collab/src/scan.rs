@@ -13,9 +13,12 @@
 //! of the Y update encoding), and refused if a value in it nests deeper than any
 //! attribute of a body does, if it names more than it has bytes for, or if it holds
 //! anything this walk does not know: where the walk and the library could read the
-//! same bytes differently, the update does not reach the library. A body's update
-//! needs none of what is refused (a subdocument, a kind of content from another
-//! version of the encoding, a hole in a client's changes, a clock past 31 bits).
+//! same bytes differently, the update does not reach the library. Nor does what the
+//! library takes and then writes in a form it does not read again (texts of JSON, a
+//! whole number past 53 bits): the document that took it could not be stored. A
+//! body's update needs none of what is refused (a subdocument, a kind of content from
+//! another version of the encoding, a hole in a client's changes, a clock past 31
+//! bits, a number JavaScript does not keep).
 
 /// How deep a value in an update may nest. The values of a body are attributes:
 /// numbers, truths and texts, which do not nest at all.
@@ -25,6 +28,9 @@ const MAX_VALUE_DEPTH: usize = 8;
 const MAX_CLIENT: u64 = (1 << 53) - 1;
 
 const MAX_U32: u64 = 0xffff_ffff;
+
+/// The largest whole number of a value: 53 bits, as for a client.
+const MAX_SAFE_WHOLE: u64 = MAX_CLIENT;
 
 /// The furthest a clock may run. The library counts some distances between clocks as
 /// signed numbers of 32 bits.
@@ -208,16 +214,6 @@ impl Walk<'_> {
         match info & 0x0f {
             // Deleted content: its length.
             1 => return self.number(MAX_CLOCK),
-            // Texts of JSON: one more than the number says.
-            2 => {
-                let more = self.count()?;
-                if more >= 1 << 31 {
-                    return Err(Refusal::Number);
-                }
-                for _ in 0..=more {
-                    self.text()?;
-                }
-            }
             // Bytes, a text, an embedded value written as JSON.
             3..=5 => self.text()?,
             // Formatting: the name and the value written as JSON.
@@ -237,10 +233,42 @@ impl Walk<'_> {
                     self.value()?;
                 }
             }
-            // A subdocument (9), or what version 1 of the encoding does not have.
+            // Texts of JSON (2), a kind of content of older versions of the encoding
+            // that no editor writes: the library reads one text more than the number
+            // before them says and writes as many as it says, so that a document that
+            // took them could not be read again. A subdocument (9), and what version 1
+            // of the encoding does not have.
             _ => return Err(Refusal::Unknown),
         }
         Ok(0)
+    }
+
+    /// A whole number of a value: the sign and six bits, then seven bits a byte.
+    ///
+    /// One past 53 bits is refused. The library reads it, and writes it back as a
+    /// number of 64 bits, which this walk refuses, so that a document that took it
+    /// could not be read again; and JavaScript does not keep it. Nine bytes hold 62
+    /// bits; the library reads more, and a tenth could spell the one number that has
+    /// no negative, which it negates, so the number is refused by its length as well.
+    fn whole_number(&mut self) -> Result<(), Refusal> {
+        const MAX_BYTES: u32 = 9;
+        let first = self.byte()?;
+        let mut magnitude = u64::from(first & 0x3f);
+        let mut more = first & 0x80 != 0;
+        let mut shift = 6;
+        for _ in 1..MAX_BYTES {
+            if !more {
+                break;
+            }
+            let byte = self.byte()?;
+            magnitude |= u64::from(byte & 0x7f) << shift;
+            more = byte & 0x80 != 0;
+            shift += 7;
+        }
+        if more || magnitude > MAX_SAFE_WHOLE {
+            return Err(Refusal::Number);
+        }
+        Ok(())
     }
 
     /// One value, with all it holds, read without a call a level.
@@ -250,18 +278,7 @@ impl Walk<'_> {
             match self.byte()? {
                 // Undefined, null, false and true.
                 120 | 121 | 126 | 127 => {}
-                // A whole number: the sign and six bits, then seven bits a byte. Nine
-                // bytes hold 62 bits, more than JavaScript keeps; a tenth could spell
-                // the one number that has no negative, which the library negates.
-                125 => {
-                    let mut length = 1;
-                    while self.byte()? & 0x80 != 0 {
-                        length += 1;
-                        if length > 9 {
-                            return Err(Refusal::Number);
-                        }
-                    }
-                }
+                125 => self.whole_number()?,
                 124 => self.skip(4)?,
                 123 => self.skip(8)?,
                 // Bytes and a text.
@@ -331,6 +348,48 @@ mod tests {
         value.extend([117, 1].repeat(MAX_VALUE_DEPTH));
         value.push(120);
         assert_eq!(check(&of_values(&value, 1)), Err(Refusal::TooDeep));
+    }
+
+    /// A whole number of a value in the form `125` takes: the sign, then the
+    /// magnitude six bits and seven bits a byte.
+    fn whole(number: i64) -> Vec<u8> {
+        let magnitude = number.unsigned_abs();
+        let sign = if number < 0 { 0x40 } else { 0 };
+        let low = u8::try_from(magnitude & 0x3f).expect("six bits");
+        let mut rest = magnitude >> 6;
+        let mut bytes = vec![125, low | sign | if rest > 0 { 0x80 } else { 0 }];
+        while rest > 0 {
+            let seven = u8::try_from(rest & 0x7f).expect("seven bits");
+            rest >>= 7;
+            bytes.push(seven | if rest > 0 { 0x80 } else { 0 });
+        }
+        bytes
+    }
+
+    #[test]
+    fn a_whole_number_is_taken_up_to_53_bits() {
+        let safe = i64::try_from(MAX_SAFE_WHOLE).expect("53 bits");
+        for sign in [1, -1] {
+            for magnitude in [0, 63, 64, 0x7fff_ffff, safe] {
+                let value = whole(sign * magnitude);
+                assert!(check(&of_values(&value, 1)).is_ok(), "{value:?}");
+            }
+            for magnitude in [safe + 1, (1 << 62) - 1] {
+                let value = whole(sign * magnitude);
+                assert_eq!(
+                    check(&of_values(&value, 1)),
+                    Err(Refusal::Number),
+                    "{value:?}"
+                );
+            }
+        }
+        // Zero written long, in all the bytes there are and in one more.
+        let mut long = vec![125, 0x80];
+        long.extend([0x80; 7]);
+        long.push(0);
+        assert!(check(&of_values(&long, 1)).is_ok(), "nine bytes");
+        long.insert(2, 0x80);
+        assert_eq!(check(&of_values(&long, 1)), Err(Refusal::Number), "ten");
     }
 
     #[test]
@@ -422,6 +481,13 @@ mod tests {
             Err(Refusal::Unknown),
             "a whole number of 64 bits"
         );
+        // Texts of JSON, however many the number says.
+        for count in [0, 1] {
+            let mut json = vec![1, 1, 5, 0, 2, 1, 7];
+            json.extend_from_slice(b"default");
+            json.extend_from_slice(&[count, 1, b'1', 1, b'2', 0]);
+            assert_eq!(check(&json), Err(Refusal::Unknown), "{count}");
+        }
         // A subdocument.
         let mut subdocument = vec![1, 1, 5, 0, 9, 1, 7];
         subdocument.extend_from_slice(b"default");
