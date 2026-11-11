@@ -223,6 +223,7 @@
   - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`, `export_running`, `server_exports_busy`, `import_running`, `server_imports_busy`.
   - 429와 `Retry-After`는 `login`, `register`, `changePassword`에, 412와 416은 `getFile`에 따로 적었다. 모두 같은 `Problem`이다.
 - **관리자 소켓의 라우트**(`/api/v1/admin/...`). 로컬 유닉스 소켓에서만 받는다. 계약에 없다.
+- **Prometheus 지표**(`/metrics`). API와 다른 리스너(`prometheusaddress`)에서만 낸다. API의 리스너에는 없다(`docs/configuration.md`의 "키: 지표").
 - **응답 압축**(tracer-bullet 10, 2026-11-11 11:51 KST). 조작마다 적지 않는다. 모양과 뜻은 바뀌지 않는다.
   - API의 JSON 응답(`Content-Type: application/json`, 32바이트 이상인 것)은 요청의 `Accept-Encoding`에 따라 `zstd`, `br`, `gzip`으로 압축한다. 같은 가중치면 zstd, brotli, gzip 순이다. `deflate`만 받는 클라이언트에는 압축하지 않는다. 압축한 응답은 `Content-Encoding`을 달고 `Content-Length`가 없으며 `Vary: Accept-Encoding`이 붙는다. 브라우저는 스스로 푼다.
   - 내보내는 아카이브와 파일(`getFile`), 그 밖에 JSON이 아닌 응답과 오류 응답(`Problem`)은 압축하지 않는다. 그래서 내보내기의 `Content-Length`와 `getFile`의 범위 요청은 그대로다.

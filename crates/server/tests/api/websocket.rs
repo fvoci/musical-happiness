@@ -584,6 +584,57 @@ async fn follow_block_on(
     panic!("the reader was never told about the block");
 }
 
+/// Why a connection ended is counted in the metrics: here the read token stopped
+/// opening its board, and a message over the limit broke a connection off.
+#[tokio::test]
+async fn why_a_connection_ended_is_counted() {
+    use crate::metrics::{sample, scrape_until};
+
+    let th = Setup::local_mode()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user1 = th.client.me().await;
+    let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (mut reader, _) = follow_block(&th, &block, &token).await;
+    th.app.ws().close_readers_of_board(&board.id);
+    assert_eq!(
+        reader.next(PATIENCE).await,
+        Event::Closed,
+        "the share ended"
+    );
+
+    let mut talker = Socket::connect(&th).await;
+    // The server may close before the whole message is written.
+    let _ = talker
+        .stream
+        .send(Message::Text("x".repeat(64 * 1024 + 1).into()))
+        .await;
+    assert_eq!(talker.next(PATIENCE).await, Event::Closed, "over the limit");
+
+    let ended = |body: &str, reason: &str| {
+        sample(
+            body,
+            "fvoci_websocket_disconnections_total",
+            &[("reason", reason)],
+        )
+    };
+    let body = scrape_until(&th, |body| {
+        ended(body, "share_ended") == Some(1.0) && ended(body, "read_error") == Some(1.0)
+    })
+    .await;
+    assert_eq!(ended(&body, "share_ended"), Some(1.0), "{body}");
+    assert_eq!(ended(&body, "read_error"), Some(1.0), "{body}");
+    assert_eq!(
+        ended(&body, "slow_consumer"),
+        Some(0.0),
+        "there from the start: {body}"
+    );
+    th.teardown().await;
+}
+
 /// Whoever follows a board by its read token alone is not told who made or changed a
 /// block, over the websocket as over HTTP. A member is.
 #[tokio::test]

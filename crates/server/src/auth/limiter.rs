@@ -30,6 +30,7 @@ use std::time::{Duration, Instant};
 use sha2::{Digest as _, Sha256};
 
 use crate::config::Configuration;
+use crate::metrics::{LoginLimit, Metrics};
 
 /// How many records of each kind are kept at most.
 const MAX_RECORDS: usize = 100_000;
@@ -145,6 +146,8 @@ struct Records {
 pub struct LoginLimiter {
     limits: Limits,
     records: Arc<Mutex<Records>>,
+    /// Where the refusals are counted, by the limit that refused.
+    metrics: Metrics,
 }
 
 /// An attempt that may go ahead. Whoever holds it says how it ended; an attempt that is
@@ -167,7 +170,15 @@ impl LoginLimiter {
         Self {
             limits,
             records: Arc::default(),
+            metrics: Metrics::none(),
         }
+    }
+
+    /// This limiter, counting its refusals in `metrics`.
+    #[must_use]
+    pub fn with_metrics(mut self, metrics: Metrics) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     fn records(&self) -> std::sync::MutexGuard<'_, Records> {
@@ -203,13 +214,21 @@ impl LoginLimiter {
             let locked = records
                 .accounts
                 .get(account)
-                .and_then(|record| record.locked_until);
+                .and_then(|record| record.locked_until)
+                .map(|until| (until, LoginLimit::AccountLock));
             let blocked = address
                 .and_then(|address| records.pairs.get(&(*account, address)))
-                .map(|record| record.blocked_until);
+                .map(|record| (record.blocked_until, LoginLimit::PairDelay));
             [locked, blocked]
         });
-        if let Some(until) = waits.flatten().filter(|until| *until > now).max() {
+        // The longest wait is the one answered, and the limit counted; of two as long,
+        // the lock of the account.
+        if let Some((until, limit)) = waits
+            .flatten()
+            .filter(|(until, _)| *until > now)
+            .max_by_key(|(until, limit)| (*until, *limit == LoginLimit::AccountLock))
+        {
+            self.metrics.login_refused(limit);
             return Err(RetryAfter(until - now));
         }
         self.count_against_address(&mut records, address, now)?;
@@ -278,12 +297,14 @@ impl LoginLimiter {
             record.attempts.pop_front();
         }
         if record.busy {
+            self.metrics.login_refused(LoginLimit::AddressBusy);
             return Err(RetryAfter(BUSY_RETRY));
         }
         let allowed = usize::try_from(per_minute).unwrap_or(usize::MAX);
         if record.attempts.len() >= allowed {
             // Room again when the oldest attempt of the window is a minute old.
             let oldest = record.attempts.front().copied().unwrap_or(now);
+            self.metrics.login_refused(LoginLimit::AddressRate);
             return Err(RetryAfter(
                 ADDRESS_WINDOW.saturating_sub(now.duration_since(oldest)),
             ));
@@ -443,6 +464,52 @@ fn oldest<K: Copy, V>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_refusal_is_counted_under_its_limit() {
+        let metrics = Metrics::kept().expect("the metrics register");
+        let limiter = LoginLimiter::new(Limits {
+            pair_free_failures: 1,
+            account_max_failures: 3,
+            address_attempts_per_minute: Some(5),
+            ..LIMITS
+        })
+        .with_metrics(metrics.clone());
+        let now = Instant::now();
+        let count = |limit| metrics.login_refusals(limit);
+
+        // The second failure of a pair makes it wait.
+        fail(&limiter, "alice", "203.0.113.7", now);
+        fail(&limiter, "alice", "203.0.113.7", now);
+        assert!(wait_of(&limiter, "alice", "203.0.113.7", now).is_some());
+        assert_eq!(count(LoginLimit::PairDelay), 1);
+
+        // A third failure, from elsewhere, locks the account for every address.
+        fail(&limiter, "alice", "198.51.100.1", now);
+        assert!(wait_of(&limiter, "alice", "192.0.2.1", now).is_some());
+        assert_eq!(count(LoginLimit::AccountLock), 1);
+
+        // An attempt in progress holds its address up.
+        let attempt = limiter
+            .admit_login(&["bob"], Some(address("192.0.2.9")), now)
+            .expect("admitted");
+        assert!(wait_of(&limiter, "carol", "192.0.2.9", now).is_some());
+        assert_eq!(count(LoginLimit::AddressBusy), 1);
+        attempt.failed(now);
+
+        // Five attempts a minute from an address, then no more.
+        for name in ["d1", "d2", "d3", "d4"] {
+            fail(&limiter, name, "192.0.2.9", now);
+        }
+        assert!(wait_of(&limiter, "d5", "192.0.2.9", now).is_some());
+        assert_eq!(count(LoginLimit::AddressRate), 1);
+        assert_eq!(
+            count(LoginLimit::PairDelay),
+            1,
+            "nothing else counted twice"
+        );
+        assert_eq!(count(LoginLimit::AccountLock), 1);
+    }
 
     const LIMITS: Limits = Limits {
         pair_free_failures: 5,

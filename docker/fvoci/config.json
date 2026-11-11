@@ -11,5 +11,6 @@
     "session_max_days": 90,
     "localOnly": false,
     "enableLocalMode": true,
-    "localModeSocketLocation": "/var/tmp/fvoci_local.socket"
+    "localModeSocketLocation": "/var/tmp/fvoci_local.socket",
+    "prometheusaddress": ""
 }

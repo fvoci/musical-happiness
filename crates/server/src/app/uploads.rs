@@ -73,6 +73,15 @@ pub struct FileToUpload {
 /// The SHA-256 digest of a part, as the client sent it.
 pub type PartDigest = [u8; 32];
 
+/// What a clean-up of the upload sessions did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CleanedUp {
+    /// The sessions thrown away.
+    pub removed: usize,
+    /// The sessions that could not wholly be thrown away.
+    pub left: usize,
+}
+
 /// The memory of [`PARTS_IN_MEMORY`] parts of `part_bytes`, in KiB.
 pub(crate) fn part_memory_kib(part_bytes: u64) -> usize {
     let kib = part_bytes.div_ceil(1024).saturating_mul(PARTS_IN_MEMORY);
@@ -633,7 +642,7 @@ impl App {
         let place = FilePlace::at(&upload.path, &upload.name);
         let recorded = self.record_file(&upload.board_id, place, size).await;
         // A record whose answer was lost may be there all the same.
-        if recorded.is_err() && !self.remove_if_unrecorded(upload).await {
+        if recorded.is_err() && self.remove_if_unrecorded(upload).await.is_none() {
             // Left closed for the clean-up to look at again.
             return recorded;
         }
@@ -643,10 +652,14 @@ impl App {
     }
 
     /// Removes a file of the object store that has no record: one is given out through no
-    /// board, and only taking room.
-    async fn remove_unrecorded(&self, path: &str) {
-        if let Err(error) = self.files().delete(path).await {
-            tracing::warn!(%error, "an uploaded file without a record could not be removed");
+    /// board, and only taking room. Returns whether it went.
+    async fn remove_unrecorded(&self, path: &str) -> bool {
+        match self.files().delete(path).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(%error, "an uploaded file without a record could not be removed");
+                false
+            }
         }
     }
 
@@ -768,17 +781,20 @@ impl App {
     /// Throws a session away: its record, and the parts on the disk or in the object
     /// store. What is gone already is left gone; what cannot be removed is logged, and
     /// found again by the clean-up of the temporary directory, or by the bucket's rule
-    /// for incomplete multipart uploads (`docs/fvoci-cdn.md`).
-    pub async fn discard_upload(&self, upload: &Upload) {
+    /// for incomplete multipart uploads (`docs/fvoci-cdn.md`). Returns whether all of it
+    /// went: false if something was logged.
+    pub async fn discard_upload(&self, upload: &Upload) -> bool {
         let _turn = self.upload_turns().take(&upload.id).await;
-        self.discard_in_turn(upload).await;
+        self.discard_in_turn(upload).await
     }
 
     /// [`App::discard_upload`] in the session's turn, which the caller holds.
-    async fn discard_in_turn(&self, upload: &Upload) {
+    async fn discard_in_turn(&self, upload: &Upload) -> bool {
+        let mut settled = true;
         // Closed first: a part still coming in is refused rather than recorded.
         if let Err(error) = self.store().close_upload(&upload.id, now_millis()).await {
             tracing::warn!(%error, "an upload could not be closed before it was thrown away");
+            settled = false;
         }
         if !upload.multipart_id.is_empty()
             && let Some(files) = self.files().multipart()
@@ -787,40 +803,48 @@ impl App {
                 .await
         {
             tracing::warn!(%error, "the parts of an upload could not be thrown away in the files storage");
+            settled = false;
         }
-        if !upload.multipart_id.is_empty() && !self.remove_if_unrecorded(upload).await {
-            // Left closed for the clean-up to look at again, once its grace is over.
-            return;
+        if !upload.multipart_id.is_empty() {
+            match self.remove_if_unrecorded(upload).await {
+                // Left closed for the clean-up to look at again, once its grace is over.
+                None => return false,
+                Some(removed) => settled &= removed,
+            }
         }
-        self.forget_upload(upload).await;
+        self.forget_upload(upload).await && settled
     }
 
     /// Removes the object at the place of a multipart upload unless a file's record names
     /// it: a completion that took effect without its file being recorded, as when the
     /// answer was lost or the server stopped in between, leaves an object nothing gives
-    /// out. The place is the session's own, a new secret. Returns whether it is settled:
-    /// false if whether the record is there could not be read.
-    async fn remove_if_unrecorded(&self, upload: &Upload) -> bool {
+    /// out. The place is the session's own, a new secret. Returns `None` if it is not
+    /// settled, as whether the record is there could not be read; else whether all went
+    /// (false if the object is there and could not be removed, which is logged).
+    async fn remove_if_unrecorded(&self, upload: &Upload) -> Option<bool> {
         let stored_name = upload.path.rsplit('/').next().unwrap_or_default();
         match self.file_info(&upload.board_id, stored_name).await {
-            Ok(None) => {
-                self.remove_unrecorded(&upload.path).await;
-                true
-            }
-            Ok(Some(_)) => true,
+            Ok(None) => Some(self.remove_unrecorded(&upload.path).await),
+            Ok(Some(_)) => Some(true),
             Err(error) => {
                 tracing::warn!(%error, "whether an uploaded file has a record could not be read");
-                false
+                None
             }
         }
     }
 
-    /// Removes the record of a closed session and its directory of parts.
-    async fn forget_upload(&self, upload: &Upload) {
-        if let Err(error) = self.store().delete_upload(&upload.id).await {
-            tracing::error!(%error, "the record of an upload could not be removed");
-        }
-        remove_dir_quietly(&self.upload_dir(&upload.id)).await;
+    /// Removes the record of a closed session and its directory of parts. Returns
+    /// whether both went.
+    async fn forget_upload(&self, upload: &Upload) -> bool {
+        let forgotten = match self.store().delete_upload(&upload.id).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::error!(%error, "the record of an upload could not be removed");
+                false
+            }
+        };
+        let removed = remove_dir_quietly(&self.upload_dir(&upload.id)).await;
+        forgotten && removed
     }
 
     /// The largest file a session takes: `maxfilesize`, which the configuration keeps
@@ -836,21 +860,26 @@ impl App {
     }
 
     /// Throws away the sessions that have ended at `now`, and those closed for longer
-    /// than [`CLOSED_UPLOAD_GRACE_MILLIS`] that are still there. Returns how many.
+    /// than [`CLOSED_UPLOAD_GRACE_MILLIS`] that are still there. Returns how many went,
+    /// and how many could not wholly go (logged; the next clean-up finds them again).
     ///
     /// # Errors
     ///
     /// Returns the store's error if the sessions cannot be read.
-    pub async fn clean_up_uploads(&self, now: i64) -> Result<usize, AppError> {
+    pub async fn clean_up_uploads(&self, now: i64) -> Result<CleanedUp, AppError> {
         let uploads = self
             .store()
             .uploads_to_clean_up(now, now.saturating_sub(CLOSED_UPLOAD_GRACE_MILLIS))
             .await?;
+        let mut cleaned = CleanedUp::default();
         for upload in &uploads {
-            // Closed first: a part still coming in is refused rather than recorded.
-            self.discard_upload(upload).await;
+            if self.discard_upload(upload).await {
+                cleaned.removed += 1;
+            } else {
+                cleaned.left += 1;
+            }
         }
-        Ok(uploads.len())
+        Ok(cleaned)
     }
 
     /// Removes what the temporary directories hold that nothing will use: the parts of
@@ -1062,12 +1091,16 @@ async fn remove_entry(path: &Path) -> bool {
     }
 }
 
-/// Removes a directory of parts that is not to be kept, if it is there.
-async fn remove_dir_quietly(directory: &Path) {
+/// Removes a directory of parts that is not to be kept, if it is there. Returns false
+/// if it is there still, which is logged.
+async fn remove_dir_quietly(directory: &Path) -> bool {
     match fs::remove_dir_all(directory).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => tracing::error!(%error, "the parts of an upload could not be removed"),
+        Ok(()) => true,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+        Err(error) => {
+            tracing::error!(%error, "the parts of an upload could not be removed");
+            false
+        }
     }
 }
 
