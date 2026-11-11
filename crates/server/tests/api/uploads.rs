@@ -905,7 +905,7 @@ fn configure_s3(config: &mut Configuration, bucket: &str) {
 }
 
 /// A server whose files go to the bucket of `FVOCI_S3_TEST_BUCKET`.
-async fn s3_server() -> TestServer {
+pub(crate) async fn s3_server() -> TestServer {
     assert!(
         std::env::var("FVOCI_S3_TEST_ENDPOINT").is_ok()
             && std::env::var("FVOCI_S3_TEST_BUCKET").is_ok(),

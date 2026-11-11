@@ -275,3 +275,108 @@ async fn an_archive_over_its_limits_stores_nothing() {
     );
     ts.teardown().await;
 }
+
+/// The open uploads of a user hold back at most twice the larger of the two limits, a
+/// file's and an archive's, and an archive counts toward it as a file does.
+#[tokio::test]
+async fn the_share_of_a_user_is_twice_the_larger_limit() {
+    let ts = Setup::native()
+        .configure(|config| {
+            config.max_file_size = 1000;
+            config.max_import_bytes = 2000;
+            config.max_pending_upload_bytes = 100_000;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let open_file = |size: usize| {
+        let path = format!("/boards/{}/uploads", board.id);
+        let client = &ts.client;
+        async move {
+            client
+                .post(&path, &json!({"name": "a.bin", "size": size}))
+                .await
+        }
+    };
+    open_file(1000).await.check_created();
+    open_file(1000).await.check_created();
+    open_import(&ts.client, TEST_TEAM_ID, 2000)
+        .await
+        .check_created();
+    let response = open_file(1).await;
+    response.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.error_reason(), "uploads_pending");
+    let response = open_import(&ts.client, TEST_TEAM_ID, 1).await;
+    response.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.error_reason(), "uploads_pending");
+    ts.teardown().await;
+}
+
+/// With the files in S3, an archive's parts are still kept on the server's disk (the
+/// import reads it at random), and its files go to the bucket.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server: set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET"]
+async fn with_s3_an_archive_is_received_on_the_disk() {
+    let ts = crate::uploads::s3_server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let response = crate::files::upload(&ts.client, &board.id, "a.bin", b"in the bucket").await;
+    response.check_created();
+    let file_id = crate::files::uploaded_id(&response);
+    let attachment = Block {
+        id: new_id(),
+        parent_id: board.id.clone(),
+        board_id: board.id.clone(),
+        block_type: BlockType::Attachment,
+        fields: json!({"fileId": file_id})
+            .as_object()
+            .expect("an object")
+            .clone(),
+        create_at: 1,
+        update_at: 1,
+        ..Block::default()
+    };
+    ts.client
+        .insert_blocks(&board.id, std::slice::from_ref(&attachment))
+        .await
+        .check_created();
+    let archive = ts
+        .client
+        .get(&format!("/boards/{}/archive/export", board.id))
+        .await
+        .body;
+
+    let id = upload_id(&open_import(&ts.client, TEST_TEAM_ID, archive.len()).await);
+    let opened = ts
+        .app
+        .store()
+        .uploads_to_clean_up(i64::MAX, 0)
+        .await
+        .expect("the uploads are read")
+        .into_iter()
+        .find(|upload| upload.id == id)
+        .expect("the upload is open");
+    assert_eq!(opened.multipart_id, "", "no multipart upload in the bucket");
+    put_part(&ts.client, &id, 1, &archive)
+        .await
+        .check_status(StatusCode::NO_CONTENT);
+    assert_eq!(
+        entries(&uploads_dir(&ts).join(&id)).len(),
+        1,
+        "the part is on the disk"
+    );
+
+    let before = boards_of(&ts).await.len();
+    import_upload(&ts.client, TEST_TEAM_ID, &id)
+        .await
+        .check_no_content();
+    let boards = boards_of(&ts).await;
+    assert_eq!(boards.len(), before + 1, "the board is made");
+    assert_eq!(
+        entries(&uploads_dir(&ts)),
+        Vec::<String>::new(),
+        "nothing stays"
+    );
+    ts.teardown().await;
+}

@@ -574,13 +574,15 @@ fn config_error_and_request_json_members() {
     assert_eq!(
         to_json(&ClientConfig {
             max_file_size: 7,
+            max_import_size: 9,
             enable_public_shared_boards: true,
             teammate_name_display: "username".to_owned(),
             ..ClientConfig::default()
         }),
         json!({
             "enablePublicSharedBoards": true,
-            "teammateNameDisplay": "username", "featureFlags": {}, "maxFileSize": 7
+            "teammateNameDisplay": "username", "featureFlags": {}, "maxFileSize": 7,
+            "maxImportSize": 9
         })
     );
 

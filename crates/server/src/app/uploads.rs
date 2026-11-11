@@ -534,7 +534,8 @@ impl App {
         if upload.purpose != UploadPurpose::File {
             return Err(AppError::bad_request(
                 "the upload is of an archive; import it with importArchive",
-            ));
+            )
+            .with_field("uploadId"));
         }
         // Before the session is closed, so that a missing part leaves it open.
         self.check_parts(upload).await?;
@@ -896,15 +897,29 @@ async fn parts_reader(
     Ok(StreamReader::new(Box::pin(bytes)))
 }
 
-/// Joins the parts in `directory` into the file `to`.
+/// Joins the parts in `directory` into the file `to`, in order, removing each once it is
+/// in: the disk holds the archive and one part at most, not the archive twice.
 async fn join_parts(parts: &[UploadPart], directory: &Path, to: &Path) -> Result<(), AppError> {
-    let mut reader = parts_reader(parts, directory).await?;
     let mut file = fs::File::create(to)
         .await
         .map_err(|error| part_error(&error))?;
-    tokio::io::copy(&mut reader, &mut file)
-        .await
-        .map_err(|error| part_error(&error))?;
+    for part in parts {
+        let path = directory.join(&part.part_id);
+        let mut reader = fs::File::open(&path)
+            .await
+            .map_err(|error| part_error(&error))?;
+        let copied = tokio::io::copy(&mut reader, &mut file)
+            .await
+            .map_err(|error| part_error(&error))?;
+        if Some(copied) != u64::try_from(part.size).ok() {
+            return Err(AppError::internal(format_args!(
+                "part {} of an upload has {copied} bytes on the disk, not {}",
+                part.number, part.size
+            )));
+        }
+        drop(reader);
+        remove_quietly(&path).await;
+    }
     file.flush().await.map_err(|error| part_error(&error))?;
     Ok(())
 }
