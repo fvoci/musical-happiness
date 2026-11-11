@@ -34,3 +34,4 @@ mod uploads;
 mod users;
 mod visibility;
 mod websocket;
+mod workspaces;

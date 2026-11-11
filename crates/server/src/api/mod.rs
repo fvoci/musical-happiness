@@ -28,6 +28,7 @@ mod teams;
 mod templates;
 mod uploads;
 mod users;
+mod workspace;
 
 use axum::Json;
 use axum::Router;
@@ -104,7 +105,8 @@ fn routes() -> Routes {
         .merge(teams::routes())
         .merge(templates::routes())
         .merge(uploads::routes())
-        .merge(users::routes());
+        .merge(users::routes())
+        .merge(workspace::routes());
     let uploads = OpenApiRouter::new()
         .merge(files::upload_routes())
         .merge(uploads::part_routes());

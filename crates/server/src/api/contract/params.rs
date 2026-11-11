@@ -33,6 +33,7 @@ macro_rules! parameter {
 // -- in the path -----------------------------------------------------------------------
 
 parameter!(TeamId: Path "teamId", String, True, "The identifier of the team.");
+parameter!(WorkspaceId: Path "workspaceId", String, True, "The identifier of the workspace. 404 unless the user of the session is a member of it.");
 parameter!(BoardId: Path "boardId", String, True, "The identifier of the board.");
 parameter!(BlockId: Path "blockId", String, True, "The identifier of the block.");
 parameter!(CardId: Path "cardId", String, True, "The identifier of the card.");

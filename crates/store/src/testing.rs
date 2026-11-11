@@ -24,6 +24,21 @@ pub const DB_TYPE_ENV: &str = "FVOCI_STORE_TEST_DB_TYPE";
 /// The environment variable that holds the PostgreSQL URL for tests.
 pub const CONN_STRING_ENV: &str = "FVOCI_STORE_TEST_CONN_STRING";
 
+/// Which database the tests run against, as the environment says ([`DB_TYPE_ENV`]).
+///
+/// # Panics
+///
+/// Panics if the variable names no kind of database.
+pub fn db_type_of_the_tests() -> DbType {
+    match std::env::var(DB_TYPE_ENV) {
+        Ok(kind) if !kind.trim().is_empty() => kind
+            .trim()
+            .parse()
+            .unwrap_or_else(|error| panic!("{DB_TYPE_ENV}: {error}")),
+        _ => DbType::Sqlite,
+    }
+}
+
 /// An empty database that belongs to one test.
 #[derive(Debug)]
 pub struct TestDatabase {
@@ -50,13 +65,7 @@ impl TestDatabase {
     pub async fn create(directory: &Path) -> Self {
         // An identifier has hyphens; a file name takes them, a schema name does not.
         let name = new_id().replace('-', "_");
-        let db_type = match std::env::var(DB_TYPE_ENV) {
-            Ok(kind) if !kind.trim().is_empty() => kind
-                .trim()
-                .parse()
-                .unwrap_or_else(|error| panic!("{DB_TYPE_ENV}: {error}")),
-            _ => DbType::Sqlite,
-        };
+        let db_type = db_type_of_the_tests();
         match db_type {
             DbType::Sqlite => {
                 std::fs::create_dir_all(directory)

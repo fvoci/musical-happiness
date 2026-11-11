@@ -28,6 +28,7 @@ pub(crate) mod tag {
     pub(crate) const AUTH: &str = "auth";
     pub(crate) const USERS: &str = "users";
     pub(crate) const TEAMS: &str = "teams";
+    pub(crate) const WORKSPACES: &str = "workspaces";
     pub(crate) const BOARDS: &str = "boards";
     pub(crate) const MEMBERS: &str = "members";
     pub(crate) const SHARING: &str = "sharing";
@@ -40,7 +41,7 @@ pub(crate) mod tag {
 }
 
 /// The tags in the order the document lists them, each with what it is about.
-const TAGS: [(&str, &str); 13] = [
+const TAGS: [(&str, &str); 14] = [
     (
         tag::SYSTEM,
         "Whether the server is there, and what a client must know before it signs in.",
@@ -54,6 +55,10 @@ const TAGS: [(&str, &str); 13] = [
         "The user of the session, their settings, and other users.",
     ),
     (tag::TEAMS, "The team and its users."),
+    (
+        tag::WORKSPACES,
+        "The workspaces a user is a member of, and what is in a workspace.",
+    ),
     (tag::BOARDS, "Boards and templates."),
     (tag::MEMBERS, "Who is on a board, and with which role."),
     (tag::SHARING, "Sharing a board with whoever has its link."),
@@ -188,6 +193,8 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("UploadedFile", Members::AsWritten),
     ("User", Members::All),
     ("UserSettings", Members::AsWritten),
+    ("UserWorkspace", Members::All),
+    ("WorkspaceRole", Members::AsWritten),
     // What a request carries.
     ("AccountChange", Members::AsWritten),
     ("AdminChange", Members::AsWritten),
@@ -929,6 +936,9 @@ mod tests {
             ("BoardType", json!(fvoci_model::BoardType::Private)),
             ("MinimumRole", json!(fvoci_model::MinimumRole::default())),
             ("CategoryType", json!(fvoci_model::CategoryType::default())),
+            ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Admin)),
+            ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Member)),
+            ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Guest)),
         ] {
             let words = schemas[set]["enum"].as_array().expect("words");
             assert!(words.contains(&value), "{value} is none of {words:?}");
@@ -1067,6 +1077,7 @@ mod tests {
         ("getCommentVersions", "The first one first"),
         ("getMembers", "By the identifier of the user"),
         ("getMyMemberships", "By the identifier of the board"),
+        ("getMyWorkspaces", "the oldest workspace first"),
         (
             "getSubscriptions",
             "Oldest first, and by the identifier of the block",
@@ -1082,6 +1093,7 @@ mod tests {
             "getUsers",
             "Oldest account first, not in the order of the request",
         ),
+        ("getWorkspaceBoards", "Oldest first"),
         ("patchBoardsAndBlocks", "each in the order of the request"),
         ("reorderCategories", "in their new order"),
         ("reorderCategoryBoards", "in their new order"),

@@ -2100,6 +2100,34 @@
         ],
         "type": "object"
       },
+      "UserWorkspace": {
+        "description": "A workspace as one of its members finds it among theirs.",
+        "properties": {
+          "id": {
+            "description": "The workspace's identifier.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The workspace's name; empty if it was given none.",
+            "type": "string"
+          },
+          "orgId": {
+            "description": "The identifier of the organization the workspace belongs to.",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole",
+            "description": "What the user is in the workspace."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "orgId",
+          "role"
+        ],
+        "type": "object"
+      },
       "WeekStart": {
         "description": "The day a week starts on.",
         "enum": [
@@ -2107,6 +2135,15 @@
           "sunday",
           "monday",
           "saturday"
+        ],
+        "type": "string"
+      },
+      "WorkspaceRole": {
+        "description": "What a member of a workspace is in it.",
+        "enum": [
+          "admin",
+          "member",
+          "guest"
         ],
         "type": "string"
       }
@@ -6090,6 +6127,41 @@
         ]
       }
     },
+    "/api/v1/users/me/workspaces": {
+      "get": {
+        "description": "The workspaces the user of the session is a member of, in every organization, with\nwhat the user is in each. By organization, the oldest first, and in each the oldest\nworkspace first.",
+        "operationId": "getMyWorkspaces",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserWorkspace"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The workspaces."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The workspaces of the user",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/v1/users/{userId}": {
       "get": {
         "operationId": "getUser",
@@ -6184,6 +6256,52 @@
           "users"
         ]
       }
+    },
+    "/api/v1/w/{workspaceId}/boards": {
+      "get": {
+        "description": "The boards of the workspace that the user is a member of, and the workspace's open\nboards; a guest of the workspace gets only the former. Templates are not among\nthem. Oldest first. 404 unless the user is a member of the workspace.",
+        "operationId": "getWorkspaceBoards",
+        "parameters": [
+          {
+            "description": "The identifier of the workspace. 404 unless the user of the session is a member of it.",
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Board"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The boards."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "The boards of a workspace",
+        "tags": [
+          "workspaces"
+        ]
+      }
     }
   },
   "security": [
@@ -6216,6 +6334,10 @@
     {
       "description": "The team and its users.",
       "name": "teams"
+    },
+    {
+      "description": "The workspaces a user is a member of, and what is in a workspace.",
+      "name": "workspaces"
     },
     {
       "description": "Boards and templates.",
