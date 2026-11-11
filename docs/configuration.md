@@ -62,7 +62,7 @@
 | `maxfilesize` | `FVOCI_MAXFILESIZE` | 정수(1 이상, 바이트) | `104857600` | 올릴 수 있는 파일의 가장 큰 크기(100 MiB). 0이나 음수는 시작 오류다(예전에는 0이 "한도 없음"이었다). `upload_part_bytes` × 10,000(S3 멀티파트의 부분 수 한도)을 넘어도 시작 오류다. 요청 하나로 올리는 파일(`uploadFile`)은 그에 더해 `upload_part_bytes`까지다. 사용자 한 명이 열린 업로드에 걸어 둘 수 있는 크기는 이 한도와 `max_import_bytes` 가운데 큰 것의 두 배다 |
 | `filess3config.accesskeyid` | — | 문자열 | `""` | 액세스 키. **비워 두면 S3 클라이언트가 환경에서 자격을 읽는다**(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` 등. 아래 "S3의 예") |
 | `filess3config.secretaccesskey` | — | 문자열 | `""` | 비밀 키. `accesskeyid`가 있을 때만 쓴다. 로그에 남기지 않는다 |
-| `filess3config.bucket` | `FVOCI_FILESS3CONFIG_BUCKET` | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다. 자격에는 읽고 쓰고 지우는 것 말고 버킷을 나열하는 권한(`s3:ListBucket`)도 있어야 한다: 없는 파일을 물으면 그것 없이는 403이 오고, 준비 상태(`GET /api/v1/ready`)는 작은 파일(`.fvoci-ready`)을 써서 읽고 지워 본다 |
+| `filess3config.bucket` | `FVOCI_FILESS3CONFIG_BUCKET` | 문자열 | `""` | 버킷. `amazons3`이면 비어 있을 수 없다. 자격에는 읽고 쓰고 지우는 것 말고 버킷을 나열하는 권한(`s3:ListBucket`)도 있어야 한다: 없는 파일을 물으면 그것 없이는 403이 오고, 준비 상태(`GET /api/v1/ready`)는 작은 파일(`<pathprefix>/.fvoci-ready`)을 써서 읽고 지워 본다(5초에 한 번까지). 그래서 자격은 그 키에도 쓰고 읽고 지울 수 있어야 한다. 버전 관리가 켜진 버킷에서는 검사마다 그 키에 옛 판과 지움 표시가 쌓이므로, 그 키에 옛 판을 하루 뒤 지우는 수명 주기 규칙(NoncurrentVersionExpiration, ExpiredObjectDeleteMarker)을 건다 |
 | `filess3config.pathprefix` | `FVOCI_FILESS3CONFIG_PATHPREFIX` | 문자열 | `""` | 모든 객체 키 앞에 붙는 접두어. 앞뒤의 `/`는 떼고 쓴다. 버킷의 이 접두어 아래는 이 DB의 서버만 쓴다(`filespath`의 파일 대조와 같다) |
 | `filess3config.region` | `FVOCI_FILESS3CONFIG_REGION` | 문자열 | `""` | 버킷의 리전. 비우면 S3 클라이언트의 기본값이다 |
 | `filess3config.endpoint` | `FVOCI_FILESS3CONFIG_ENDPOINT` | 문자열 | `""` | AWS가 아닌 S3 호환 저장소의 호스트(포트 포함, 스킴 없이). 있으면 경로 방식(`호스트/버킷/키`)으로 부른다. 비우면 AWS다 |

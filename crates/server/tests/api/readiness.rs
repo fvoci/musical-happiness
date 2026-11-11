@@ -93,7 +93,7 @@ async fn a_files_directory_that_is_no_directory_is_not_ready() {
 
 /// A directory the server may not write in is not ready: that it is a directory says
 /// nothing of whether a file can be stored (`origin/fvoci/review-metrics`,
-/// `review_metrics_readiness.rs`). The check leaves no file behind.
+/// `review_metrics_readiness.rs`). A check that fails leaves no partial file behind.
 #[cfg(unix)]
 #[tokio::test]
 async fn readiness_refuses_a_files_directory_that_cannot_be_written() {
@@ -120,6 +120,7 @@ async fn readiness_refuses_a_files_directory_that_cannot_be_written() {
         "run as an unprivileged user so the write fails"
     );
     response.check_error(StatusCode::SERVICE_UNAVAILABLE, "not ready: files");
+    assert_nothing_left(directory);
     assert!(
         !response.text().contains(&server.app.config().files_path),
         "no path in the answer: {}",
@@ -128,26 +129,28 @@ async fn readiness_refuses_a_files_directory_that_cannot_be_written() {
     server.teardown().await;
 }
 
+/// The check left neither its file nor a partial one in `directory`.
+fn assert_nothing_left(directory: &std::path::Path) {
+    assert!(
+        !directory.join(".fvoci-ready").exists(),
+        "the file of the check"
+    );
+    let writing = directory.join(fvoci_server::storage::WRITING_DIR);
+    let partial: Vec<_> = std::fs::read_dir(&writing)
+        .map(|entries| {
+            entries
+                .map(|entry| entry.expect("an entry").path())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(partial.is_empty(), "nothing being written: {partial:?}");
+}
+
 #[tokio::test]
 async fn the_check_of_the_files_leaves_nothing_in_the_directory() {
     let server = Setup::native().start().await;
-    let directory = std::path::PathBuf::from(&server.app.config().files_path);
     ready(&server).await.check_ok();
-    let left: Vec<String> = std::fs::read_dir(&directory)
-        .expect("the check made the directory")
-        .map(|entry| {
-            entry
-                .expect("an entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .filter(|name| name != ".tmp")
-        .collect();
-    assert!(
-        left.is_empty(),
-        "nothing but the place of the writes: {left:?}"
-    );
+    assert_nothing_left(std::path::Path::new(&server.app.config().files_path));
     server.teardown().await;
 }
 
