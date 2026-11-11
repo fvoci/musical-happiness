@@ -44,15 +44,17 @@ impl Drop for Held {
         let (Some(archive), slot) = (self.archive.take(), self.slot.take()) else {
             return;
         };
-        let release = async move {
-            archive.remove().await;
-            drop(slot);
-        };
         // Without a runtime the archive's drop removes its file as it can.
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(release);
+            runtime.spawn(release(archive, slot));
         }
     }
+}
+
+/// Removes the archive's file, and then gives the place back.
+async fn release(archive: ExportedArchive, slot: Option<Slot>) {
+    archive.remove().await;
+    drop(slot);
 }
 
 /// A download, shared by its stream and its watch.
@@ -228,8 +230,35 @@ mod tests {
         assert!(!path.exists(), "the file went before the place");
     }
 
+    /// The file goes before the place: polled step by step, the release never has the
+    /// place free while the file is there.
+    #[tokio::test]
+    async fn the_file_goes_before_the_place() {
+        let slots = Slots::new(1);
+        let (archive, path) = archive("released").await;
+        let slot = slots.take("user").expect("a place");
+        let releasing = release(archive, Some(slot));
+        tokio::pin!(releasing);
+        loop {
+            let done = futures_util::poll!(releasing.as_mut()).is_ready();
+            let free = slots.take("user").is_ok();
+            assert!(
+                !free || !path.exists(),
+                "the place is free while the file is there"
+            );
+            if done {
+                assert!(free && !path.exists(), "both are given back");
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
     /// A download that takes nothing for the stall time is given up: the file goes, then
     /// the place, the connection is cut, and the stream, polled again, ends with an error.
+    /// On the paused clock the moment is exact: the watch looks every quarter of the stall
+    /// time, sees the piece at its first look, and gives up at its look a stall time
+    /// after that.
     #[tokio::test(start_paused = true)]
     async fn a_download_that_takes_nothing_is_given_up() {
         let slots = Slots::new(1);
@@ -237,13 +266,16 @@ mod tests {
         let slot = slots.take("user").expect("a place");
         let breaker = Breaker::default();
         let stall = Duration::from_secs(1);
+        let started = Instant::now();
         let pieces = download(archive, slot, stall, Some(breaker.clone()));
         tokio::pin!(pieces);
         pieces.next().await.expect("a piece").expect("read");
 
-        tokio::time::sleep(stall / 2).await;
-        assert!(slots.take("other").is_err(), "held before the stall time");
+        tokio::time::sleep_until(started + stall * 5 / 4 - Duration::from_millis(10)).await;
+        assert!(slots.take("other").is_err(), "held until the watch's look");
         assert!(!breaker.is_cut());
+        tokio::time::sleep_until(started + stall * 5 / 4 + Duration::from_millis(10)).await;
+        assert!(breaker.is_cut(), "cut at the watch's look");
         until("the place is given back", || slots.take("user").is_ok()).await;
         assert!(!path.exists(), "the file went before the place");
         assert!(breaker.is_cut(), "the connection is cut");

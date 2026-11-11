@@ -222,4 +222,53 @@ mod tests {
         far.write_all(b"abcd").await.expect("the peer writes");
         assert!(near.read(&mut buffer).await.is_err(), "and every read");
     }
+
+    /// A request served on a breakable listener has its connection's breaker in its
+    /// connect info, and cutting it ends the connection before any answer goes out.
+    #[tokio::test]
+    async fn a_request_can_break_its_connection() {
+        use axum::extract::ConnectInfo;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("a port");
+        let address = listener.local_addr().expect("its address");
+        let router = axum::Router::new().route(
+            "/",
+            axum::routing::get(
+                |ConnectInfo(connection): ConnectInfo<Connection>| async move {
+                    match &connection.breaker {
+                        Some(breaker) => {
+                            breaker.cut();
+                            "cut"
+                        }
+                        None => "no breaker",
+                    }
+                },
+            ),
+        );
+        let service = router.into_make_service_with_connect_info::<Connection>();
+        let server = tokio::spawn(axum::serve(BreakableListener(listener), service).into_future());
+
+        let mut stream = tokio::net::TcpStream::connect(address)
+            .await
+            .expect("connected");
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await
+            .expect("asked");
+        let mut answer = Vec::new();
+        let ended = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            stream.read_to_end(&mut answer),
+        )
+        .await
+        .expect("the connection ends");
+        server.abort();
+        assert!(
+            ended.is_err() || answer.is_empty(),
+            "no answer: {}",
+            String::from_utf8_lossy(&answer)
+        );
+    }
 }

@@ -758,7 +758,7 @@ async fn a_large_file_is_whole_in_the_archive() {
 /// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one export at a
 /// time and the server `max_concurrent_exports` (2): over either, an export of a board or
 /// of a team is 429 with a reason. An export holds its place until it is sent
-/// (`a_download_that_takes_nothing_is_given_up`).
+/// (`app::download`'s tests).
 #[tokio::test]
 async fn exports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -884,7 +884,6 @@ async fn a_download_that_takes_nothing_is_given_up() {
         .await;
     let board = board_with_large_archive(&ts).await;
     let me = ts.client.me().await;
-    let length = export_board(&ts.client, &board.id).await.body.len();
 
     // The head of the answer comes once the archive is written and its place taken.
     let mut stalled = stalled_download(&ts, &board.id).await;
@@ -901,11 +900,17 @@ async fn a_download_that_takes_nothing_is_given_up() {
         assert!(read > 0, "the answer has a head");
         head.extend_from_slice(&buffer[..read]);
     }
-    assert!(
-        head.starts_with(b"HTTP/1.1 200"),
-        "{}",
-        String::from_utf8_lossy(&head)
-    );
+    let head_text = String::from_utf8_lossy(&head).into_owned();
+    assert!(head_text.starts_with("HTTP/1.1 200"), "{head_text}");
+    let head_end = head_text.find("\r\n\r\n").expect("the end of the head") + 4;
+    let length: usize = head_text
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse().ok())?
+        })
+        .expect("the archive's length");
 
     until("the place is given back", || {
         ts.app.start_export(&me.id).is_ok()
@@ -913,7 +918,8 @@ async fn a_download_that_takes_nothing_is_given_up() {
     .await;
     assert_eq!(temporary_archives(&ts), 0, "the file went before the place");
 
-    let mut received = head.len();
+    // What came after the head is of the archive.
+    let mut received = head.len() - head_end;
     let ended = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             match tokio::io::AsyncReadExt::read(&mut stalled, &mut buffer).await {
@@ -926,6 +932,6 @@ async fn a_download_that_takes_nothing_is_given_up() {
     assert!(ended.is_ok(), "the connection is broken");
     assert!(
         received < length,
-        "{received} bytes of an answer of {length} and more"
+        "{received} bytes of an archive of {length}"
     );
 }
