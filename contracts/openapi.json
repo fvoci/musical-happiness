@@ -2957,7 +2957,7 @@
         ]
       },
       "post": {
-        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none, and they are\nlisted afterwards in the order the request had them in. Comments need the role of a\ncommenter, everything else that of an editor.",
+        "description": "Inserts blocks under identifiers the server makes; the identifiers of the request\nonly link its blocks to each other. All blocks are inserted or none, and they are\nlisted afterwards in the order the request had them in. Comments need the role of a\ncommenter, everything else that of an editor. A comment is on a card of the board,\nand no block is below a comment (400 at the block's `parentId`).",
         "operationId": "createBlocks",
         "parameters": [
           {
@@ -3086,7 +3086,7 @@
         ]
       },
       "patch": {
-        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. The commenter's role changes a comment's text (its body);\nmoving a comment to another card (`parentId`) or making it a block of another type\nis for editors, and making a block of somebody else a comment for the board's admins.\nThe block's `modifiedBy` and `updateAt` say who changed it and when.",
+        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. The commenter's role changes a comment's text (its body);\nmoving a comment to another card (`parentId`) or making it a block of another type\nis for editors, and making a block of somebody else a comment for the board's admins.\nA comment goes only on a card of the board, no block goes below a comment (400 at\n`parentId`), and a card with comments stays a card (400 at `type`). The block's\n`modifiedBy` and `updateAt` say who changed it and when.",
         "operationId": "patchBlock",
         "parameters": [
           {

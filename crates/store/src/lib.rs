@@ -11,6 +11,7 @@ mod boards;
 mod boards_and_blocks;
 mod categories;
 mod category_boards;
+mod comment_places;
 mod comment_versions;
 mod connect;
 mod data_steps;

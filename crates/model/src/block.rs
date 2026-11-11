@@ -174,6 +174,18 @@ pub enum BlockError {
     /// The block's new parent is the block itself or a block below it.
     #[error("the parent is the block itself or below it")]
     ParentBelowBlock,
+    /// A comment that is new, newly a comment or moved is not below a card of its
+    /// board: a comment is on a card.
+    #[error("the parent of a comment is a card of the board")]
+    CommentNotOnCard,
+    /// A block that is new or moved is below a comment: a comment has no blocks below
+    /// it.
+    #[error("a comment is the parent of no block")]
+    ParentIsComment,
+    /// A change of type that would leave a comment off a card: a block with blocks
+    /// below it becomes a comment, or a card with comments becomes another type.
+    #[error("the type would leave a comment off a card")]
+    TypeStrandsComments,
     /// The title is longer than [`BLOCK_TITLE_MAX_CHARS`].
     #[error("block title size limit exceeded")]
     TitleSizeLimitExceeded,

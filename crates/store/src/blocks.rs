@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use crate::Store;
 use crate::boards;
+use crate::comment_places;
 use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
@@ -624,18 +625,6 @@ pub(crate) async fn get_block(scope: &mut Scope<'_>, block_id: &str) -> Result<B
         .ok_or_else(|| StoreError::not_found(format_args!("block ID={block_id}")))
 }
 
-/// Whether the board has a block with the identifier.
-async fn is_block_of_board(
-    scope: &mut Scope<'_>,
-    block_id: &str,
-    board_id: &str,
-) -> Result<bool, StoreError> {
-    let mut sql = scope.sql("SELECT 1 FROM blocks WHERE id = ");
-    sql.bind(Id(block_id))
-        .push_bind(" AND board_id = ", Id(board_id));
-    Ok(scope.fetch_optional(sql).await?.is_some())
-}
-
 /// Whether the block `block_id` is `ancestor_id` or below it, at any depth.
 async fn is_below(
     scope: &mut Scope<'_>,
@@ -690,18 +679,21 @@ async fn insert_block_at(
     }
     // Asked here so that a parent that is none, or another board's, is the request's
     // mistake and not a constraint the database reports.
-    if !block.parent_id.is_empty()
-        && (block.parent_id == block.id
-            || !is_block_of_board(scope, &block.parent_id, &block.board_id).await?)
-    {
+    let parent_type = if block.parent_id.is_empty() {
+        None
+    } else if block.parent_id == block.id {
         return Err(invalid(block, BlockError::ParentNotOnBoard));
-    }
+    } else {
+        let found = comment_places::type_on_board(scope, &block.parent_id, &block.board_id).await?;
+        Some(found.ok_or_else(|| invalid(block, BlockError::ParentNotOnBoard))?)
+    };
     let now = at.unwrap_or_else(now_millis);
     block.update_at = now;
     block.delete_at = 0;
     user_id.clone_into(&mut block.modified_by);
 
     let existing = find_block(scope, &block.id).await?;
+    comment_places::check(scope, block, parent_type.as_ref(), existing.as_ref()).await?;
     check_written_kinds(scope, block, existing.as_ref()).await?;
     if let Some(existing) = existing {
         // Every change of a block moves its `updateAt` on, also within one millisecond

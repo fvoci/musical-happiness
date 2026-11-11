@@ -37,12 +37,12 @@ use tokio::task::JoinSet;
 
 use crate::common;
 
-/// `subtreeSampleBlocks` (`server/services/store/storetests/blocks.go:529`): the name of
-/// each block, the name of its parent and its type.
+/// `subtreeSampleBlocks` (`server/services/store/storetests/blocks.go:529`), the children
+/// cards to hold comments: the name of each block, the name of its parent and its type.
 const SUBTREE_SAMPLE: [(&str, &str, &str); 6] = [
     ("parent", "", "card"),
-    ("child1", "parent", ""),
-    ("child2", "parent", ""),
+    ("child1", "parent", "card"),
+    ("child2", "parent", "card"),
     ("grandchild1", "child1", ""),
     ("grandchild2", "child2", ""),
     ("greatgrandchild1", "grandchild1", ""),

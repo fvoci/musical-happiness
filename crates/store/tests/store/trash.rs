@@ -31,33 +31,33 @@ async fn a_deletion_is_the_block_with_all_below_it_the_block_first() {
     let board = common::create_test_boards(store, &team_id, &user_id, 1)
         .await
         .remove(0);
-    // The comment's identifier sorts after its reply's, so that the order of the
-    // deletion is not that of the identifiers.
+    // The middle block's identifier sorts after the one below it, so that the order of
+    // the deletion is not that of the identifiers.
     let mut pair = [new_id(), new_id()];
     pair.sort();
-    let [reply_id, comment_id] = pair;
+    let [leaf_id, middle_id] = pair;
     let card_id = new_id();
     let mut blocks = [
         block(&card_id, &board.id, "", BlockType::Card),
-        block(&comment_id, &board.id, &card_id, BlockType::Comment),
-        block(&reply_id, &board.id, &comment_id, BlockType::Comment),
+        block(&middle_id, &board.id, &card_id, BlockType::Attachment),
+        block(&leaf_id, &board.id, &middle_id, BlockType::Attachment),
     ];
     common::insert_blocks(store, &mut blocks, &user_id).await;
 
     let below = store.get_blocks_below(&card_id).await.expect("read");
     assert_eq!(ids(&below), sorted_ids(&blocks[1..]), "at any depth, by id");
-    for nothing in [reply_id.as_str(), "no-such-block"] {
+    for nothing in [leaf_id.as_str(), "no-such-block"] {
         let below = store.get_blocks_below(nothing).await.expect("read");
         assert!(below.is_empty(), "{nothing}: {below:?}");
     }
 
     store
-        .delete_block(&comment_id, &user_id)
+        .delete_block(&middle_id, &user_id)
         .await
         .expect("deleted");
-    for named in [&comment_id, &reply_id] {
+    for named in [&middle_id, &leaf_id] {
         let deletion = store.get_deletion(named).await.expect("in the trash");
-        assert_eq!(ids(&deletion), [comment_id.as_str(), reply_id.as_str()]);
+        assert_eq!(ids(&deletion), [middle_id.as_str(), leaf_id.as_str()]);
     }
     let error = store.get_deletion(&card_id).await.expect_err("not deleted");
     assert!(error.is_not_found(), "{error:?}");
@@ -69,6 +69,6 @@ async fn a_deletion_is_the_block_with_all_below_it_the_block_first() {
         .expect("deleted");
     let deletion = store.get_deletion(&card_id).await.expect("in the trash");
     assert_eq!(ids(&deletion), [card_id.as_str()]);
-    let deletion = store.get_deletion(&reply_id).await.expect("in the trash");
-    assert_eq!(ids(&deletion), [comment_id.as_str(), reply_id.as_str()]);
+    let deletion = store.get_deletion(&leaf_id).await.expect("in the trash");
+    assert_eq!(ids(&deletion), [middle_id.as_str(), leaf_id.as_str()]);
 }

@@ -667,6 +667,7 @@ async fn duplicate_board() {
             new_card(&block1, &board1),
             Block {
                 block_type: BlockType::Comment,
+                parent_id: block1.clone(),
                 ..new_card(&block1a, &board1)
             },
             new_card(&block2, &board2),
@@ -891,13 +892,32 @@ async fn duplicate_board_copies_a_board_without_blocks() {
 
     let empty_id = insert_new_board(&test, &team_id, &user_id).await;
     let only_comments_id = insert_new_board(&test, &team_id, &user_id).await;
+    let mut card = new_card(&new_id(), &only_comments_id);
+    test.insert_block(&mut card, &user_id)
+        .await
+        .expect("the card is inserted");
+    let card_id = card.id;
     let mut comment = Block {
         block_type: BlockType::Comment,
+        parent_id: card_id.clone(),
         ..new_card(&new_id(), &only_comments_id)
     };
     test.insert_block(&mut comment, &user_id)
         .await
         .expect("the comment is inserted");
+    // A comment stored before a comment had to be on a card: on the board itself, the
+    // card gone.
+    common::execute_raw(
+        &test.dbconfig(),
+        &format!(
+            "UPDATE blocks SET parent_id = NULL WHERE id = '{}'",
+            comment.id
+        ),
+    )
+    .await;
+    test.delete_block(&card_id, &user_id)
+        .await
+        .expect("the card is deleted");
 
     for (board_id, what) in [(&empty_id, "empty"), (&only_comments_id, "comments only")] {
         let (copy, members) = test

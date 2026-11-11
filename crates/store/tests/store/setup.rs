@@ -907,16 +907,16 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
         block("checkbox", none.clone()),
     ];
     common::insert_blocks(&test, &mut blocks, &user_id).await;
-    // A comment below the text and one below the heading, which takes it to the trash:
-    // they go with them.
+    // A block below the text and one below the heading, which takes it to the trash:
+    // they go with them. (Attachments: a comment is on a card.)
     let mut below = [
         Block {
             parent_id: blocks[5].id.clone(),
-            ..block("comment", none.clone())
+            ..block("attachment", none.clone())
         },
         Block {
             parent_id: blocks[6].id.clone(),
-            ..block("comment", none)
+            ..block("attachment", none)
         },
     ];
     common::insert_blocks(&test, &mut below, &user_id).await;
@@ -972,10 +972,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     let left = common::try_execute_raw(&test.dbconfig(), "DELETE FROM deleted_blocks")
         .await
         .expect("the trash is there");
-    assert_eq!(
-        left, 0,
-        "the heading and the comment below it left the trash"
-    );
+    assert_eq!(left, 0, "the heading and the block below it left the trash");
 
     test.teardown().await;
 }

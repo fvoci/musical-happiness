@@ -1664,15 +1664,15 @@ async fn post_blocks_without_blocks() {
 }
 
 /// Comments need the permission to comment, everything else the permission to manage
-/// cards.
+/// cards. The comments are on a card of the board.
 #[tokio::test]
 async fn post_blocks_permissions_by_block_type() {
     let th = Setup::native().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
     let board_id = &boards.board.id;
-    let outsider = &th.client2;
     let card = || new_block(board_id, BlockType::Card, "card");
-    let comment = || new_block(board_id, BlockType::Comment, "comment");
+    let on = insert_one(&th.client, &card()).await;
+    let comment = || child_of(&on, BlockType::Comment, "comment");
 
     let cases: [(&str, &Client, Vec<Block>, Option<&str>); 8] = [
         ("editor, card", &boards.editor, vec![card()], None),
@@ -1714,7 +1714,7 @@ async fn post_blocks_permissions_by_block_type() {
             None,
         ),
     ];
-    let mut expected_count = 0;
+    let mut expected_count = 1;
     for (case, client, blocks, refusal) in &cases {
         let response = client.insert_blocks(board_id, blocks).await;
         if let Some(message) = refusal {
@@ -1725,9 +1725,9 @@ async fn post_blocks_permissions_by_block_type() {
             expected_count += blocks.len();
         }
     }
-    // For who is no member of the private board there is no board to add to.
+    // For who is no member of the private board (the outsider) there is no board to add to.
     for blocks in [vec![card()], vec![comment()]] {
-        let response = outsider.insert_blocks(board_id, &blocks).await;
+        let response = th.client2.insert_blocks(board_id, &blocks).await;
         response.check_error(StatusCode::NOT_FOUND, NO_BOARD);
     }
     assert_eq!(

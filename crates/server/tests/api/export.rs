@@ -616,6 +616,59 @@ async fn an_imported_comment_with_an_image_is_not_edited() {
     ts.teardown().await;
 }
 
+/// Not in the original (decided 2026-11-11 by the coordinating session, as contract B1
+/// has it). A comment is on a card: an archive with a comment on the board itself, or
+/// on another comment, is refused and stores nothing.
+#[tokio::test]
+async fn an_archive_with_a_comment_off_a_card_stores_nothing() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let line = |kind: &str, data: serde_json::Value| {
+        format!("{}\n", serde_json::json!({"type": kind, "data": data}))
+    };
+    let block = |id: &str, parent: &str, kind: &str| {
+        line(
+            "block",
+            serde_json::json!({"id": id, "boardId": "b1", "parentId": parent, "type": kind,
+                               "title": id, "createAt": 1, "updateAt": 1}),
+        )
+    };
+    let board = line(
+        "board",
+        serde_json::json!({"id": "b1", "teamId": TEST_TEAM_ID, "type": "P", "title": "Comments",
+                           "createAt": 1, "updateAt": 1}),
+    );
+    let before = boards_of(&ts).await.len();
+    for blocks in [
+        block("c1", "b1", "comment"),
+        [
+            block("k1", "b1", "card"),
+            block("c1", "k1", "comment"),
+            block("c2", "c1", "comment"),
+        ]
+        .concat(),
+    ] {
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer.start_file("version.json", stored).expect("start");
+        writer
+            .write_all(br#"{"version":3,"date":1}"#)
+            .expect("write");
+        writer.start_file("b1/board.jsonl", stored).expect("start");
+        writer
+            .write_all(format!("{board}{blocks}").as_bytes())
+            .expect("write");
+        let bytes = writer.finish().expect("finish").into_inner();
+        let response = import(&ts.client, TEST_TEAM_ID, &bytes).await;
+        response.check_error(
+            StatusCode::BAD_REQUEST,
+            "the parent of a comment is a card of the board",
+        );
+        assert_eq!(boards_of(&ts).await.len(), before, "no board was made");
+    }
+    ts.teardown().await;
+}
+
 /// An archive with an entry that cannot be read (here its checksum does not match) is
 /// refused before anything of it is stored.
 #[tokio::test]
