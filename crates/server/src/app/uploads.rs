@@ -106,7 +106,8 @@ impl UploadTurns {
     }
 }
 
-/// The turn of a session, which is given up when this is dropped.
+/// The turn of a session, which is given up when this is dropped. The guard is an
+/// `Option` only so that the drop can look at the count while it still holds it.
 #[derive(Debug)]
 struct Turn<'turns> {
     turns: &'turns UploadTurns,
@@ -344,12 +345,10 @@ impl App {
         if !upload.multipart_id.is_empty() {
             // The part was received at the client's pace on the disk; the memory and the
             // turn are held only while it goes to the bucket.
+            // The directory stays for the other parts that come in; it goes with the
+            // session.
             let sent = self.send_multipart_part(upload, number, size, &file).await;
             remove_quietly(&file).await;
-            if let Err(error) = fs::remove_dir(&directory).await {
-                // Not empty: another part is being received.
-                tracing::debug!(%error, "the directory of an upload's parts is left");
-            }
             return sent;
         }
         let record = self
@@ -401,17 +400,25 @@ impl App {
                 "the upload is in an object store that is not configured",
             ));
         };
+        // The turn first: a part waiting for it holds no memory.
+        let _turn = self.upload_turns().take(&upload.id).await;
+        // Checked in the turn: a session closed meanwhile takes nothing more.
+        self.check_open(upload).await?;
         let kib = u32::try_from(size.div_ceil(1024))
             .expect("a part is at most 5 GiB, checked when the server starts");
         let _memory = Arc::clone(self.part_memory())
             .acquire_many_owned(kib)
             .await
             .map_err(|_| AppError::internal("the memory for parts is closed"))?;
-        let bytes = Bytes::from(fs::read(file).await.map_err(|error| part_error(&error))?);
-
-        let _turn = self.upload_turns().take(&upload.id).await;
-        // Checked in the turn: a session closed meanwhile takes nothing more.
-        self.check_open(upload).await?;
+        let bytes = fs::read(file).await.map_err(|error| {
+            // The session's directory went with it while the part came in.
+            if error.kind() == io::ErrorKind::NotFound {
+                closed()
+            } else {
+                part_error(&error)
+            }
+        })?;
+        let bytes = Bytes::from(bytes);
         // Numbers start at 1, the object store's indexes at 0.
         let index = usize::try_from(number.saturating_sub(1)).unwrap_or_default();
         let part_id = match files
@@ -544,8 +551,10 @@ impl App {
         let size = u64::try_from(upload.size).unwrap_or_default();
         let place = FilePlace::at(&upload.path, &upload.name);
         let recorded = self.record_file(&upload.board_id, place, size).await;
-        if recorded.is_err() {
-            self.remove_unrecorded(&upload.path).await;
+        // A record whose answer was lost may be there all the same.
+        if recorded.is_err() && !self.remove_if_unrecorded(upload).await {
+            // Left closed for the clean-up to look at again.
+            return recorded;
         }
         // The upload is the file now, or gone: there is nothing left to abort.
         self.forget_upload(upload).await;
@@ -658,8 +667,9 @@ impl App {
         {
             tracing::warn!(%error, "the parts of an upload could not be thrown away in the files storage");
         }
-        if !upload.multipart_id.is_empty() {
-            self.remove_if_unrecorded(upload).await;
+        if !upload.multipart_id.is_empty() && !self.remove_if_unrecorded(upload).await {
+            // Left closed for the clean-up to look at again, once its grace is over.
+            return;
         }
         self.forget_upload(upload).await;
     }
@@ -667,14 +677,19 @@ impl App {
     /// Removes the object at the place of a multipart upload unless a file's record names
     /// it: a completion that took effect without its file being recorded, as when the
     /// answer was lost or the server stopped in between, leaves an object nothing gives
-    /// out. The place is the session's own, a new secret.
-    async fn remove_if_unrecorded(&self, upload: &Upload) {
+    /// out. The place is the session's own, a new secret. Returns whether it is settled:
+    /// false if whether the record is there could not be read.
+    async fn remove_if_unrecorded(&self, upload: &Upload) -> bool {
         let stored_name = upload.path.rsplit('/').next().unwrap_or_default();
         match self.file_info(&upload.board_id, stored_name).await {
-            Ok(None) => self.remove_unrecorded(&upload.path).await,
-            Ok(Some(_)) => {}
+            Ok(None) => {
+                self.remove_unrecorded(&upload.path).await;
+                true
+            }
+            Ok(Some(_)) => true,
             Err(error) => {
                 tracing::warn!(%error, "whether an uploaded file has a record could not be read");
+                false
             }
         }
     }

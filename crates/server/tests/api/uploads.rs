@@ -956,9 +956,10 @@ async fn with_s3_the_parts_go_to_the_bucket() {
     put_part(&ts.client, &upload_id, 1, &data[..PART])
         .await
         .check_no_content();
-    assert!(
-        !parts_dir(&ts, &upload_id).exists(),
-        "nothing of the parts is on the disk"
+    assert_eq!(
+        files_in(&parts_dir(&ts, &upload_id)),
+        Vec::<String>::new(),
+        "nothing of the parts is left on the disk once sent"
     );
     let state = ts.client.get(&format!("/uploads/{upload_id}")).await;
     state.check_ok();
@@ -1210,4 +1211,43 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
         None,
         "the object without record is gone"
     );
+}
+
+/// With S3, the parts of one upload sent all at once are each taken, and complete into
+/// the file.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_parts_sent_at_once_are_all_taken() {
+    let ts = s3_server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let data = file_of(PART * 3 + 10);
+    let upload_id = opened(&ts.client, &board.id, "a.bin", data.len()).await;
+
+    // Each part twice, all at once.
+    let sends = (0..8).map(|send| {
+        let number = send % 4 + 1;
+        let start = (number - 1) * PART;
+        let end = (start + PART).min(data.len());
+        put_part(&ts.client, &upload_id, number, &data[start..end])
+    });
+    for response in futures_util::future::join_all(sends).await {
+        response.check_no_content();
+    }
+
+    let response = ts
+        .client
+        .post_empty(&format!("/uploads/{upload_id}/complete"))
+        .await;
+    response.check_created();
+    let file_id = response.value()["fileId"]
+        .as_str()
+        .expect("a file identifier")
+        .to_owned();
+    let download = ts
+        .client
+        .get(&format!("/boards/{}/files/{file_id}", board.id))
+        .await;
+    download.check_ok();
+    assert!(download.body == data, "the file is the parts in order");
+    assert!(!parts_dir(&ts, &upload_id).exists(), "the parts are gone");
 }
