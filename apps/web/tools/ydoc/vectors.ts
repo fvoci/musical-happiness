@@ -13,8 +13,11 @@
  * - `documents`: every body the shared vectors (`contracts/body-vectors.json`)
  *   say is accepted, as the update of the Y document made from it, and the
  *   JSON an editor reads from that document in the form that is stored.
- * - `readings`: shared content no editor writes but every editor keeps, and
- *   the JSON read from it (cases.ts).
+ * - `bodies`: the same for bodies written here (cases.ts), each with the body.
+ * - `readings`: shared content no editor writes, which every editor that did
+ *   not write it keeps as it is, and the JSON read from it.
+ * - `refused`: shared content the editors keep the same way though what they
+ *   read is no body; only the server's rules refuse it.
  * - `repairs`: shared content that does not fit the schema, and the JSON of
  *   what is left once an editor has deleted what fails.
  * - `schema`: the marks in the schema's order and the attributes each node
@@ -38,7 +41,7 @@ import {
   type DocNode,
 } from '../../src/lib/editor/schema.ts';
 
-import { READINGS, REPAIRS, type RawCase } from './cases.ts';
+import { BODIES, READINGS, REFUSED, REPAIRS, type RawCase } from './cases.ts';
 import { rawType, type RawNode } from './shape.ts';
 
 /** The shared type an editor is bound to: the collaboration extension's own name for it. */
@@ -54,13 +57,17 @@ const DESCRIPTION =
   "app's tests read it. Do not edit by hand. field is the name of the XML fragment at the root of " +
   'the Y document. An update is a whole Y document as a version 1 update in base64, and json is ' +
   'what an editor reads from it in the form that is stored (null for no body). documents: every ' +
-  'accepted case of body-vectors.json with a body (not those with a build), by its name; json is ' +
-  'that body as it comes back, which differs where the editor fills in an attribute (the start ' +
-  'of an ordered list) or orders marks. readings: shared content no editor writes and every ' +
-  'editor keeps, and how it is read. repairs: shared content that does not fit the schema; json ' +
-  'is what is left when an editor has deleted what fails, from the bottom up. schema: the marks ' +
-  'in the order the editor stores them, and the attributes of each mark and node with the value ' +
-  'given to one that is left out (null: none).';
+  'accepted case of body-vectors.json with a body (not those with a build), by its name. bodies: ' +
+  'more bodies, each with the body. In both, json is the body as it comes back: without an ' +
+  'empty content or attrs, with the marks of a text in the order of the schema, neighbouring ' +
+  'texts with the same marks as one, and an attribute the editor fills in (the start of an ' +
+  'ordered list). readings: shared content no editor writes, which every editor that did not ' +
+  'write it keeps as it is, and how it is read. refused: shared content the editors keep the ' +
+  "same way though what they read (json) is no body: the editor's schema checks no value, the " +
+  "server's rules do. repairs: shared content that does not fit the schema; json is what is left " +
+  'when an editor has deleted what fails. schema: the marks in the order the editor stores them, ' +
+  'and the attributes of each mark and node with the value given to one that is left out ' +
+  '(null: left out).';
 
 /**
  * The identifiers of the clients that write the documents. Whoever reads, or
@@ -77,6 +84,10 @@ export interface YdocVector {
   json: DocNode | null;
 }
 
+export interface BodyVector extends YdocVector {
+  body: DocNode;
+}
+
 export interface YdocVectors {
   description: string;
   bodyVersion: number;
@@ -86,7 +97,9 @@ export interface YdocVectors {
     nodes: Record<string, Record<string, unknown>>;
   };
   documents: YdocVector[];
+  bodies: BodyVector[];
   readings: YdocVector[];
+  refused: YdocVector[];
   repairs: YdocVector[];
 }
 
@@ -129,15 +142,24 @@ export function readerOf(update: Uint8Array): Y.Doc {
 const sameBytes = (one: Uint8Array, other: Uint8Array): boolean =>
   one.length === other.length && one.every((byte, index) => byte === other[index]);
 
-/** The vector of a Y document: its update and what an editor makes of it. */
-function vectorOf(name: string, written: Y.Doc, schema: Schema, deletes: boolean): YdocVector {
+/** What a case is filed under, which says what an editor does with it. */
+type Filed = 'kept' | 'refused' | 'repaired';
+
+/**
+ * The vector of a Y document: its update and what an editor makes of it.
+ * Fails if the editor does not do what the case is filed under: delete from
+ * what is repaired and from nothing else, and read a body from everything
+ * but what is refused.
+ */
+function vectorOf(name: string, written: Y.Doc, schema: Schema, filed: Filed): YdocVector {
   const update = Y.encodeStateAsUpdate(written);
   const reader = readerOf(update);
   const json = readStored(reader, schema);
   const after = Y.encodeStateAsUpdate(reader);
-  if (sameBytes(update, after) === deletes) {
+  const deleted = !sameBytes(update, after);
+  if (deleted !== (filed === 'repaired')) {
     throw new Error(
-      `${name}: the editor ${deletes ? 'deleted nothing' : 'deleted something'} when it read`,
+      `${name}: the editor ${deleted ? 'deleted something' : 'deleted nothing'} when it read`,
     );
   }
   const again = readStored(reader, schema);
@@ -147,8 +169,13 @@ function vectorOf(name: string, written: Y.Doc, schema: Schema, deletes: boolean
   )
     throw new Error(`${name}: reading a second time changed what was read`);
   const problems = json === null ? [] : validateDoc(json);
-  if (problems.length > 0)
-    throw new Error(`${name}: what the editor reads is not a body: ${problems.join('; ')}`);
+  if (filed === 'refused' ? problems.length === 0 : problems.length > 0) {
+    throw new Error(
+      filed === 'refused'
+        ? `${name}: what the editor reads is a body`
+        : `${name}: what the editor reads is not a body: ${problems.join('; ')}`,
+    );
+  }
   return { name, update: base64(update), json };
 }
 
@@ -173,17 +200,14 @@ function merged(
   schema: Schema,
   name: string,
 ): Y.Doc {
+  vectorOf(`${name} (before the edits)`, base, schema, 'kept');
   const result = fork(base, HOLDER);
   [first, second].forEach((edit, index) => {
     const side = fork(base, WRITER + 1 + index);
     edit(side.getXmlFragment(FIELD));
-    // Each edit alone leaves a document every editor keeps as it is.
-    const alone = Y.encodeStateAsUpdate(side);
-    const reader = readerOf(alone);
-    readStored(reader, schema);
-    if (!sameBytes(alone, Y.encodeStateAsUpdate(reader)))
-      throw new Error(`${name}: one of the two edits is not valid alone`);
-    Y.applyUpdate(result, alone);
+    // Each edit alone leaves a body, which every editor keeps as it is.
+    vectorOf(`${name} (edit ${index + 1} alone)`, side, schema, 'kept');
+    Y.applyUpdate(result, Y.encodeStateAsUpdate(side));
   });
   return result;
 }
@@ -247,30 +271,44 @@ function mergedRepairs(schema: Schema): YdocVector[] {
     ),
   ]);
 
-  return made.map(([name, doc]) => vectorOf(name, doc, schema, true));
+  return made.map(([name, doc]) => vectorOf(name, doc, schema, 'repaired'));
 }
 
 /** The attributes a kind of node or mark has, with the value given to one left out. */
 function attributesOf(
+  kind: string,
   attrs: Record<string, { default?: unknown }> | undefined,
 ): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(attrs ?? {}).map(([name, spec]) => [name, spec.default ?? null]),
+    Object.entries(attrs ?? {}).map(([name, spec]) => {
+      // Without a default a node that lacks the attribute could not be made
+      // at all, and an editor would delete it: another rule than the one here.
+      if (!('default' in spec)) throw new Error(`${kind}.${name} has no default`);
+      return [name, spec.default ?? null];
+    }),
   );
+}
+
+/** The Y document the binding makes of a body. */
+function docOfBody(schema: Schema, body: unknown): Y.Doc {
+  const doc = newDoc(WRITER);
+  prosemirrorToYXmlFragment(Node.fromJSON(schema, body), doc.getXmlFragment(FIELD));
+  return doc;
 }
 
 /** Everything the file holds, from the editor's schema and the accepted bodies. */
 export function buildVectors(schema: Schema, bodyCases: BodyCase[]): YdocVectors {
+  // That an editor keeps every one of them as it is, is checked as it is read.
   const documents = bodyCases
     .filter((one) => one.expect === 'accept' && one.body !== undefined)
-    .map((one) => {
-      const doc = newDoc(WRITER);
-      prosemirrorToYXmlFragment(Node.fromJSON(schema, one.body), doc.getXmlFragment(FIELD));
-      // That an editor keeps every one of them as it is, is checked as it is read.
-      return vectorOf(one.name, doc, schema, false);
-    });
-  const raw = (cases: RawCase[], deletes: boolean): YdocVector[] =>
-    cases.map((one) => vectorOf(one.name, rawDoc(one.root), schema, deletes));
+    .map((one) => vectorOf(one.name, docOfBody(schema, one.body), schema, 'kept'));
+  const bodies = BODIES.map((one) => {
+    const problems = validateDoc(one.body);
+    if (problems.length > 0) throw new Error(`${one.name}: no body: ${problems.join('; ')}`);
+    return { ...vectorOf(one.name, docOfBody(schema, one.body), schema, 'kept'), body: one.body };
+  });
+  const raw = (cases: RawCase[], filed: Filed): YdocVector[] =>
+    cases.map((one) => vectorOf(one.name, rawDoc(one.root), schema, filed));
   return {
     description: DESCRIPTION,
     bodyVersion: BODY_VERSION,
@@ -278,17 +316,19 @@ export function buildVectors(schema: Schema, bodyCases: BodyCase[]): YdocVectors
     schema: {
       marks: Object.entries(schema.marks).map(([name, type]) => ({
         name,
-        attrs: attributesOf(type.spec.attrs),
+        attrs: attributesOf(name, type.spec.attrs),
       })),
       nodes: Object.fromEntries(
         Object.entries(schema.nodes)
-          .map(([name, type]) => [name, attributesOf(type.spec.attrs)] as const)
+          .map(([name, type]) => [name, attributesOf(name, type.spec.attrs)] as const)
           .sort(([one], [other]) => (one < other ? -1 : 1)),
       ),
     },
     documents,
-    readings: raw(READINGS, false),
-    repairs: [...mergedRepairs(schema), ...raw(REPAIRS, true)],
+    bodies,
+    readings: raw(READINGS, 'kept'),
+    refused: raw(REFUSED, 'refused'),
+    repairs: [...mergedRepairs(schema), ...raw(REPAIRS, 'repaired')],
   };
 }
 

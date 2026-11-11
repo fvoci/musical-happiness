@@ -1,13 +1,30 @@
 /**
- * Shared content written by hand, for `contracts/ydoc-vectors.json`: what no
- * editor writes but a merge of two edits, an older binding or a client that
- * is not ours may leave in a Y document.
+ * Cases written by hand, for `contracts/ydoc-vectors.json`.
  *
- * `READINGS` are kept by the editors as they are, and read in a way the
- * shared content alone does not tell. `REPAIRS` do not fit the editor's
- * schema: every editor that sees one deletes what fails, and what the vectors
- * hold is what is left. Each case is the children of the root fragment.
+ * `BODIES` are bodies the shared vectors of a body do not have, where the
+ * conversion has something to get wrong: a text of several runs, letters
+ * outside the basic plane, an attribute the stored JSON leaves out.
+ *
+ * The rest is shared content no editor writes but a merge of two edits, an
+ * older binding or a client that is not ours may leave in a Y document, each
+ * as the children of the root fragment:
+ *
+ * - `READINGS` are kept as they are by every editor that did not write them,
+ *   and read in a way the shared content alone does not tell.
+ * - `REFUSED` are kept the same way, though what is read is no body: the
+ *   editor's schema checks no value. Only the server's rules refuse them.
+ * - `REPAIRS` do not fit the editor's schema: every editor that sees one
+ *   deletes what fails, and what the vectors hold is what is left.
+ *
+ * Not here, because no reading of the document alone shows it: a node at the
+ * root that the document may not hold is wrapped by a live editor, and a
+ * text at the root makes its binding throw (the collaboration spike has
+ * both). An editor also joins neighbouring texts that it wrote itself. And an
+ * element named `text` is kept or takes its line with it, depending on what
+ * stands beside it; the server deletes the element.
  */
+import type { DocNode } from '../../src/lib/editor/schema.ts';
+
 import type { RawNode } from './shape.ts';
 
 export interface RawCase {
@@ -24,6 +41,121 @@ const paragraph = (...children: RawNode[]): RawNode => ({ element: 'paragraph', 
 const listItem = (...children: RawNode[]): RawNode => ({ element: 'listItem', children });
 const bulletList = (...children: RawNode[]): RawNode => ({ element: 'bulletList', children });
 const blockquote = (...children: RawNode[]): RawNode => ({ element: 'blockquote', children });
+
+const run = (value: string, ...marks: string[]): DocNode =>
+  marks.length > 0
+    ? { type: 'text', text: value, marks: marks.map((type) => ({ type })) }
+    : { type: 'text', text: value };
+const lineOf = (...content: DocNode[]): DocNode => ({ type: 'paragraph', content });
+const bodyOf = (...content: DocNode[]): DocNode => ({ type: 'doc', content });
+const LINK = { type: 'link', attrs: { href: 'https://example.com/' } };
+
+export interface BodyCase {
+  name: string;
+  body: DocNode;
+}
+
+export const BODIES: BodyCase[] = [
+  {
+    name: 'a text of three runs: plain, bold, plain',
+    body: bodyOf(lineOf(run('plain '), run('bold', 'bold'), run(' plain'))),
+  },
+  {
+    name: 'runs whose marks overlap, begin and end one after another',
+    body: bodyOf(
+      lineOf(
+        run('a'),
+        run('b', 'bold'),
+        run('c', 'bold', 'italic'),
+        run('d', 'italic'),
+        run('e', 'italic', 'strike'),
+        { type: 'text', text: 'f', marks: [LINK, { type: 'strike' }] },
+        { type: 'text', text: 'g', marks: [LINK] },
+        run('h', 'code'),
+        run('i'),
+      ),
+    ),
+  },
+  {
+    name: 'marks written against the order of the schema',
+    body: bodyOf(
+      lineOf({
+        type: 'text',
+        text: 'x',
+        marks: [{ type: 'strike' }, { type: 'italic' }, { type: 'bold' }, LINK],
+      }),
+    ),
+  },
+  {
+    name: 'runs around a node that is no text',
+    body: bodyOf(
+      lineOf(
+        run('a', 'bold'),
+        run('b'),
+        { type: 'hardBreak' },
+        run('c', 'italic'),
+        { type: 'inlineMath', attrs: { latex: 'x' } },
+        { type: 'mention', attrs: { userId: ADA } },
+        run('d', 'bold'),
+        run('e', 'bold', 'italic'),
+      ),
+    ),
+  },
+  {
+    name: 'neighbouring texts with the same marks come back as one',
+    body: bodyOf(lineOf(run('a'), run('b'), run('c', 'bold'), run('d', 'bold'), run('e'))),
+  },
+  {
+    name: 'letters outside the basic plane between marks',
+    body: bodyOf(
+      lineOf(run('가😀', 'bold'), run('😀나'), run('👩‍👩‍👧‍👦', 'italic'), run('𝒳y', 'bold', 'italic')),
+      { type: 'heading', attrs: { level: 3 }, content: [run('한글 '), run('😀', 'strike')] },
+      { type: 'codeBlock', content: [run('𝒳 = "😀"\n\t끝')] },
+    ),
+  },
+  {
+    name: 'an ordered list without a start is given one',
+    body: bodyOf({
+      type: 'orderedList',
+      content: [{ type: 'listItem', content: [lineOf(run('n'))] }],
+    }),
+  },
+  {
+    name: 'lists inside lists, a quote and tasks',
+    body: bodyOf({
+      type: 'bulletList',
+      content: [
+        {
+          type: 'listItem',
+          content: [
+            lineOf(run('one')),
+            {
+              type: 'orderedList',
+              attrs: { start: 3 },
+              content: [{ type: 'listItem', content: [lineOf(), lineOf(run('deep', 'code'))] }],
+            },
+            {
+              type: 'blockquote',
+              content: [
+                {
+                  type: 'taskList',
+                  content: [
+                    { type: 'taskItem', attrs: { checked: false }, content: [lineOf()] },
+                    {
+                      type: 'taskItem',
+                      attrs: { checked: true },
+                      content: [lineOf(run('done')), { type: 'horizontalRule' }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }),
+  },
+];
 
 export const READINGS: RawCase[] = [
   {
@@ -104,6 +236,80 @@ export const READINGS: RawCase[] = [
   },
 ];
 
+const heading = (attrs: Record<string, unknown>): RawNode => ({
+  element: 'heading',
+  attrs: attrs as Record<string, string>,
+  children: [text('h')],
+});
+
+export const REFUSED: RawCase[] = [
+  { name: 'a heading of level 7', root: [heading({ level: 7 }), paragraph(text('a'))] },
+  { name: 'a heading whose level is a text', root: [heading({ level: '2' })] },
+  { name: 'a heading whose level is null', root: [heading({ level: null })] },
+  { name: 'an image without a file', root: [{ element: 'image' }, paragraph(text('a'))] },
+  { name: 'an image whose file is empty', root: [{ element: 'image', attrs: { fileId: '' } }] },
+  {
+    name: 'a mention of nobody, and of somebody who is no identifier',
+    root: [
+      paragraph({ element: 'mention' }),
+      paragraph({ element: 'mention', attrs: { userId: 'x' } }),
+    ],
+  },
+  {
+    name: 'formulas without a source and with an empty one',
+    root: [
+      { element: 'blockMath' },
+      { element: 'blockMath', attrs: { latex: '' } },
+      paragraph({ element: 'inlineMath' }, text('a')),
+    ],
+  },
+  { name: 'a link without a target', root: [paragraph(text('x', { link: {} }))] },
+  { name: 'a link whose value is true', root: [paragraph(text('x', { link: true }))] },
+  { name: 'a link whose value is a text', root: [paragraph(text('x', { link: '/boards' }))] },
+  {
+    name: 'a link that runs a script',
+    root: [paragraph(text('a'), text('x', { link: { href: 'javascript:alert(1)' } }))],
+  },
+  {
+    name: 'an ordered list that starts below zero',
+    root: [{ element: 'orderedList', attrs: { start: -1 }, children: [listItem(paragraph())] }],
+  },
+  {
+    name: 'a task item whose checked is a text',
+    root: [
+      {
+        element: 'taskList',
+        children: [{ element: 'taskItem', attrs: { checked: 'yes' }, children: [paragraph()] }],
+      },
+    ],
+  },
+  {
+    name: 'a code block whose language has a space',
+    root: [{ element: 'codeBlock', attrs: { language: 'c sharp' }, children: [text('x')] }],
+  },
+  { name: 'a text with the character U+0000', root: [paragraph(text('a\u0000b'))] },
+  {
+    name: 'a mark given twice, once under a name with a hash',
+    root: [paragraph({ text: [{ insert: 'x', attributes: { bold: {}, 'bold--abcdefgh': {} } }] })],
+  },
+  {
+    name: 'two links on one text, under names with a hash',
+    root: [
+      paragraph({
+        text: [
+          {
+            insert: 'x',
+            attributes: {
+              'link--abcdefgh': { href: '/one' },
+              'link--ABCDEFGH': { href: '/two' },
+            },
+          },
+        ],
+      }),
+    ],
+  },
+];
+
 export const REPAIRS: RawCase[] = [
   { name: 'a bullet list without entries', root: [paragraph(text('a')), bulletList()] },
   {
@@ -120,7 +326,7 @@ export const REPAIRS: RawCase[] = [
     root: [bulletList(listItem(), listItem(paragraph(text('kept'))))],
   },
   {
-    name: 'a list whose only entry has nothing in it: the entry, then the list',
+    name: 'a list whose only entry has nothing in it: the list goes with it',
     root: [paragraph(text('a')), bulletList(listItem())],
   },
   {
@@ -223,6 +429,47 @@ export const REPAIRS: RawCase[] = [
   {
     name: 'a list entry inside a blockquote',
     root: [paragraph(text('a')), blockquote(listItem(paragraph(text('b'))))],
+  },
+  {
+    name: 'a document inside a quote',
+    root: [
+      paragraph(text('a')),
+      blockquote(paragraph(text('q')), { element: 'doc', children: [paragraph(text('b'))] }),
+    ],
+  },
+  {
+    name: 'a task item with nothing in it, beside one that is whole',
+    root: [
+      {
+        element: 'taskList',
+        children: [
+          { element: 'taskItem', attrs: { checked: true } },
+          { element: 'taskItem', attrs: { checked: false }, children: [paragraph(text('kept'))] },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'a list entry that holds a text',
+    root: [paragraph(text('a')), bulletList(listItem(text('loose')))],
+  },
+  {
+    name: 'an ordered list that holds a paragraph',
+    root: [
+      paragraph(text('a')),
+      { element: 'orderedList', attrs: { start: 1 }, children: [paragraph(text('b'))] },
+    ],
+  },
+  {
+    name: 'an element where a text belongs, in a code block inside a list',
+    root: [
+      bulletList(
+        listItem(paragraph(text('kept')), {
+          element: 'codeBlock',
+          children: [{ element: 'mention', attrs: { userId: ADA } }],
+        }),
+      ),
+    ],
   },
   { name: 'nothing is left', root: [bulletList(), { element: 'video' }, blockquote(blockquote())] },
 ];

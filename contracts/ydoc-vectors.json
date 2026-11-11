@@ -1,5 +1,5 @@
 {
-  "description": "Bodies as Y documents, written by apps/web/tools/ydoc/vectors.ts from the editor's own binding (@tiptap/y-tiptap); the server's conversion (crates/collab) and the web app's tests read it. Do not edit by hand. field is the name of the XML fragment at the root of the Y document. An update is a whole Y document as a version 1 update in base64, and json is what an editor reads from it in the form that is stored (null for no body). documents: every accepted case of body-vectors.json with a body (not those with a build), by its name; json is that body as it comes back, which differs where the editor fills in an attribute (the start of an ordered list) or orders marks. readings: shared content no editor writes and every editor keeps, and how it is read. repairs: shared content that does not fit the schema; json is what is left when an editor has deleted what fails, from the bottom up. schema: the marks in the order the editor stores them, and the attributes of each mark and node with the value given to one that is left out (null: none).",
+  "description": "Bodies as Y documents, written by apps/web/tools/ydoc/vectors.ts from the editor's own binding (@tiptap/y-tiptap); the server's conversion (crates/collab) and the web app's tests read it. Do not edit by hand. field is the name of the XML fragment at the root of the Y document. An update is a whole Y document as a version 1 update in base64, and json is what an editor reads from it in the form that is stored (null for no body). documents: every accepted case of body-vectors.json with a body (not those with a build), by its name. bodies: more bodies, each with the body. In both, json is the body as it comes back: without an empty content or attrs, with the marks of a text in the order of the schema, neighbouring texts with the same marks as one, and an attribute the editor fills in (the start of an ordered list). readings: shared content no editor writes, which every editor that did not write it keeps as it is, and how it is read. refused: shared content the editors keep the same way though what they read (json) is no body: the editor's schema checks no value, the server's rules do. repairs: shared content that does not fit the schema; json is what is left when an editor has deleted what fails. schema: the marks in the order the editor stores them, and the attributes of each mark and node with the value given to one that is left out (null: left out).",
   "bodyVersion": 2,
   "field": "default",
   "schema": {
@@ -1297,6 +1297,942 @@
       }
     }
   ],
+  "bodies": [
+    {
+      "name": "a text of three runs: plain, bold, plain",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQZwbGFpbiCGAQcEYm9sZAJ7fYQBCARib2xkhgEMBGJvbGQEbnVsbIQBDQYgcGxhaW4A",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "plain "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ],
+                "text": "bold"
+              },
+              {
+                "type": "text",
+                "text": " plain"
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "plain "
+              },
+              {
+                "type": "text",
+                "text": "bold",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " plain"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "runs whose marks overlap, begin and end one after another",
+      "update": "AR8BAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhgECBGJvbGQCe32EAQMBYoYBBARib2xkBG51bGyGAQUEYm9sZAJ7fYYBBgZpdGFsaWMCe32EAQcBY4YBCARib2xkBG51bGyGAQkGaXRhbGljBG51bGyGAQoGaXRhbGljAnt9hAELAWSGAQwGaXRhbGljBG51bGyGAQ0GaXRhbGljAnt9hgEOBnN0cmlrZQJ7fYQBDwFlhgEQBml0YWxpYwRudWxshgERBnN0cmlrZQRudWxshgESBGxpbmsfeyJocmVmIjoiaHR0cHM6Ly9leGFtcGxlLmNvbS8ifYYBEwZzdHJpa2UCe32EARQBZoYBFQRsaW5rBG51bGyGARYGc3RyaWtlBG51bGyGARcEbGluax97ImhyZWYiOiJodHRwczovL2V4YW1wbGUuY29tLyJ9hAEYAWeGARkEbGluawRudWxshgEaBGNvZGUCe32EARsBaIYBHARjb2RlBG51bGyEAR0BaQA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ],
+                "text": "b"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  }
+                ],
+                "text": "c"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ],
+                "text": "d"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "italic"
+                  },
+                  {
+                    "type": "strike"
+                  }
+                ],
+                "text": "e"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/"
+                    }
+                  },
+                  {
+                    "type": "strike"
+                  }
+                ],
+                "text": "f"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/"
+                    }
+                  }
+                ],
+                "text": "g"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "code"
+                  }
+                ],
+                "text": "h"
+              },
+              {
+                "type": "text",
+                "text": "i"
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "text": "b",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "c",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "d",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "e",
+                "marks": [
+                  {
+                    "type": "italic"
+                  },
+                  {
+                    "type": "strike"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "f",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/"
+                    }
+                  },
+                  {
+                    "type": "strike"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "g",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "h",
+                "marks": [
+                  {
+                    "type": "code"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "i"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "marks written against the order of the schema",
+      "update": "AQsBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rH3siaHJlZiI6Imh0dHBzOi8vZXhhbXBsZS5jb20vIn2GAQIEYm9sZAJ7fYYBAwZpdGFsaWMCe32GAQQGc3RyaWtlAnt9hAEFAXiGAQYEbGluawRudWxshgEHBGJvbGQEbnVsbIYBCAZpdGFsaWMEbnVsbIYBCQZzdHJpa2UEbnVsbAA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/"
+                    }
+                  },
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  },
+                  {
+                    "type": "strike"
+                  }
+                ],
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "marks": [
+                  {
+                    "type": "strike"
+                  },
+                  {
+                    "type": "italic"
+                  },
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "runs around a node that is no text",
+      "update": "ARgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRib2xkAnt9hAECAWGGAQMEYm9sZARudWxshAEEAWKHAQEDCWhhcmRCcmVha4cBBgYGAAEHBml0YWxpYwJ7fYQBCAFjhgEJBml0YWxpYwRudWxshwEHAwppbmxpbmVNYXRoKAABCwVsYXRleAF3AXiHAQsDB21lbnRpb24oAAENBnVzZXJJZAF3JDAxOTMwMDAwLTAwMDAtNzAwMC04MDAwLTAwMDAwMDAwYzAwMocBDQYGAAEPBGJvbGQCe32EARABZIYBEQRib2xkBG51bGyGARIEYm9sZAJ7fYYBEwZpdGFsaWMCe32EARQBZYYBFQRib2xkBG51bGyGARYGaXRhbGljBG51bGwA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ],
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "text": "b"
+              },
+              {
+                "type": "hardBreak"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ],
+                "text": "c"
+              },
+              {
+                "type": "inlineMath",
+                "attrs": {
+                  "latex": "x"
+                }
+              },
+              {
+                "type": "mention",
+                "attrs": {
+                  "userId": "01930000-0000-7000-8000-00000000c002"
+                }
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ],
+                "text": "d"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  }
+                ],
+                "text": "e"
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "b"
+              },
+              {
+                "type": "hardBreak"
+              },
+              {
+                "type": "text",
+                "text": "c",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              },
+              {
+                "type": "inlineMath",
+                "attrs": {
+                  "latex": "x"
+                }
+              },
+              {
+                "type": "mention",
+                "attrs": {
+                  "userId": "01930000-0000-7000-8000-00000000c002"
+                }
+              },
+              {
+                "type": "text",
+                "text": "d",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "e",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "neighbouring texts with the same marks come back as one",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQJhYoYBAwRib2xkAnt9hAEEAmNkhgEGBGJvbGQEbnVsbIQBBwFlAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "ab"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ],
+                "text": "cd"
+              },
+              {
+                "type": "text",
+                "text": "e"
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "text": "b"
+              },
+              {
+                "type": "text",
+                "text": "c",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "d",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "e"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "letters outside the basic plane between marks",
+      "update": "ARgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRib2xkAnt9hAECB+qwgPCfmICGAQUEYm9sZARudWxshAEGB/CfmIDrgpiGAQkGaXRhbGljAnt9hAEKGfCfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkaaGARUGaXRhbGljBG51bGyGARYEYm9sZAJ7fYYBFwZpdGFsaWMCe32EARgF8J2Ss3mGARsEYm9sZARudWxshgEcBml0YWxpYwRudWxshwEAAwdoZWFkaW5nBwABHgYEAAEfB+2VnOq4gCCGASIGc3RyaWtlAnt9hAEjBPCfmICGASUGc3RyaWtlBG51bGwoAAEeBWxldmVsAX0DhwEeAwljb2RlQmxvY2sHAAEoBgQAASkS8J2SsyA9ICLwn5iAIgoJ64GdAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ],
+                "text": "가😀"
+              },
+              {
+                "type": "text",
+                "text": "😀나"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ],
+                "text": "👩‍👩‍👧‍👦"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  }
+                ],
+                "text": "𝒳y"
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 3
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "한글 "
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "strike"
+                  }
+                ],
+                "text": "😀"
+              }
+            ]
+          },
+          {
+            "type": "codeBlock",
+            "content": [
+              {
+                "type": "text",
+                "text": "𝒳 = \"😀\"\n\t끝"
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "가😀",
+                "marks": [
+                  {
+                    "type": "bold"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "😀나"
+              },
+              {
+                "type": "text",
+                "text": "👩‍👩‍👧‍👦",
+                "marks": [
+                  {
+                    "type": "italic"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "𝒳y",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 3
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "한글 "
+              },
+              {
+                "type": "text",
+                "text": "😀",
+                "marks": [
+                  {
+                    "type": "strike"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "codeBlock",
+            "content": [
+              {
+                "type": "text",
+                "text": "𝒳 = \"😀\"\n\t끝"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an ordered list without a start is given one",
+      "update": "AQYBAAcBB2RlZmF1bHQDC29yZGVyZWRMaXN0BwABAAMIbGlzdEl0ZW0HAAEBAwlwYXJhZ3JhcGgHAAECBgQAAQMBbigAAQAFc3RhcnQBfQEA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "orderedList",
+            "attrs": {
+              "start": 1
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "n"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "orderedList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "n"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "lists inside lists, a quote and tasks",
+      "update": "ARkBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbQcAAQEDCXBhcmFncmFwaAcAAQIGBAABAwNvbmWHAQIDC29yZGVyZWRMaXN0BwABBwMIbGlzdEl0ZW0HAAEIAwlwYXJhZ3JhcGiHAQkDCXBhcmFncmFwaAcAAQoGBgABCwRjb2RlAnt9hAEMBGRlZXCGARAEY29kZQRudWxsKAABBwVzdGFydAF9A4cBBwMKYmxvY2txdW90ZQcAARMDCHRhc2tMaXN0BwABFAMIdGFza0l0ZW0HAAEVAwlwYXJhZ3JhcGgoAAEVB2NoZWNrZWQBeYcBFQMIdGFza0l0ZW0HAAEYAwlwYXJhZ3JhcGgHAAEZBgQAARoEZG9uZYcBGQMOaG9yaXpvbnRhbFJ1bGUoAAEYB2NoZWNrZWQBeAA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "one"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "orderedList",
+                    "attrs": {
+                      "start": 3
+                    },
+                    "content": [
+                      {
+                        "type": "listItem",
+                        "content": [
+                          {
+                            "type": "paragraph"
+                          },
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "marks": [
+                                  {
+                                    "type": "code"
+                                  }
+                                ],
+                                "text": "deep"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "blockquote",
+                    "content": [
+                      {
+                        "type": "taskList",
+                        "content": [
+                          {
+                            "type": "taskItem",
+                            "attrs": {
+                              "checked": false
+                            },
+                            "content": [
+                              {
+                                "type": "paragraph"
+                              }
+                            ]
+                          },
+                          {
+                            "type": "taskItem",
+                            "attrs": {
+                              "checked": true
+                            },
+                            "content": [
+                              {
+                                "type": "paragraph",
+                                "content": [
+                                  {
+                                    "type": "text",
+                                    "text": "done"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "horizontalRule"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "body": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "one"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "orderedList",
+                    "attrs": {
+                      "start": 3
+                    },
+                    "content": [
+                      {
+                        "type": "listItem",
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": []
+                          },
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "deep",
+                                "marks": [
+                                  {
+                                    "type": "code"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "blockquote",
+                    "content": [
+                      {
+                        "type": "taskList",
+                        "content": [
+                          {
+                            "type": "taskItem",
+                            "attrs": {
+                              "checked": false
+                            },
+                            "content": [
+                              {
+                                "type": "paragraph",
+                                "content": []
+                              }
+                            ]
+                          },
+                          {
+                            "type": "taskItem",
+                            "attrs": {
+                              "checked": true
+                            },
+                            "content": [
+                              {
+                                "type": "paragraph",
+                                "content": [
+                                  {
+                                    "type": "text",
+                                    "text": "done"
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "horizontalRule"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "readings": [
     {
       "name": "a heading without a level is of level 1",
@@ -1653,6 +2589,417 @@
       }
     }
   ],
+  "refused": [
+    {
+      "name": "a heading of level 7",
+      "update": "AQcBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQEBaCgAAQAFbGV2ZWwBfQeHAQADCXBhcmFncmFwaAcAAQQGBAABBQFhAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 7
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "h"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a heading whose level is a text",
+      "update": "AQQBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQEBaCgAAQAFbGV2ZWwBdwEyAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": "2"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "h"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a heading whose level is null",
+      "update": "AQQBAAcBB2RlZmF1bHQDB2hlYWRpbmcHAAEABgQAAQEBaCgAAQAFbGV2ZWwBfgA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "heading",
+            "content": [
+              {
+                "type": "text",
+                "text": "h"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an image without a file",
+      "update": "AQQBAAcBB2RlZmF1bHQDBWltYWdlhwEAAwlwYXJhZ3JhcGgHAAEBBgQAAQIBYQA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "image"
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an image whose file is empty",
+      "update": "AQIBAAcBB2RlZmF1bHQDBWltYWdlKAABAAZmaWxlSWQBdwAA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "image",
+            "attrs": {
+              "fileId": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a mention of nobody, and of somebody who is no identifier",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQADB21lbnRpb26HAQADCXBhcmFncmFwaAcAAQIDB21lbnRpb24oAAEDBnVzZXJJZAF3AXgA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "mention"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "mention",
+                "attrs": {
+                  "userId": "x"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "formulas without a source and with an empty one",
+      "update": "AQcBAAcBB2RlZmF1bHQDCWJsb2NrTWF0aIcBAAMJYmxvY2tNYXRoKAABAQVsYXRleAF3AIcBAQMJcGFyYWdyYXBoBwABAwMKaW5saW5lTWF0aIcBBAYEAAEFAWEA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "blockMath"
+          },
+          {
+            "type": "blockMath",
+            "attrs": {
+              "latex": ""
+            }
+          },
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "inlineMath"
+              },
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a link without a target",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rAnt9hAECAXiGAQMEbGluawRudWxsAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link"
+                  }
+                ],
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a link whose value is true",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rBHRydWWEAQIBeIYBAwRsaW5rBG51bGwA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link"
+                  }
+                ],
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a link whose value is a text",
+      "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRsaW5rCSIvYm9hcmRzIoQBAgF4hgEDBGxpbmsEbnVsbAA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link"
+                  }
+                ],
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a link that runs a script",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEBBgYAAQMEbGluax57ImhyZWYiOiJqYXZhc2NyaXB0OmFsZXJ0KDEpIn2EAQQBeIYBBQRsaW5rBG51bGwA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "javascript:alert(1)"
+                    }
+                  }
+                ],
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an ordered list that starts below zero",
+      "update": "AQQBAAcBB2RlZmF1bHQDC29yZGVyZWRMaXN0BwABAAMIbGlzdEl0ZW0HAAEBAwlwYXJhZ3JhcGgoAAEABXN0YXJ0AX1BAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "orderedList",
+            "attrs": {
+              "start": -1
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a task item whose checked is a text",
+      "update": "AQQBAAcBB2RlZmF1bHQDCHRhc2tMaXN0BwABAAMIdGFza0l0ZW0HAAEBAwlwYXJhZ3JhcGgoAAEBB2NoZWNrZWQBdwN5ZXMA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": "yes"
+                },
+                "content": [
+                  {
+                    "type": "paragraph"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a code block whose language has a space",
+      "update": "AQQBAAcBB2RlZmF1bHQDCWNvZGVCbG9jawcAAQAGBAABAQF4KAABAAhsYW5ndWFnZQF3B2Mgc2hhcnAA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "codeBlock",
+            "attrs": {
+              "language": "c sharp"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a text with the character U+0000",
+      "update": "AQMBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQNhAGIA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a\u0000b"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a mark given twice, once under a name with a hash",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQRib2xkAnt9hgECDmJvbGQtLWFiY2RlZmdoAnt9hAEDAXiGAQQEYm9sZARudWxshgEFDmJvbGQtLWFiY2RlZmdoBG51bGwA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "bold"
+                  }
+                ],
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "two links on one text, under names with a hash",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBgABAQ5saW5rLS1hYmNkZWZnaA97ImhyZWYiOiIvb25lIn2GAQIObGluay0tQUJDREVGR0gPeyJocmVmIjoiL3R3byJ9hAEDAXiGAQQObGluay0tYWJjZGVmZ2gEbnVsbIYBBQ5saW5rLS1BQkNERUZHSARudWxsAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "/one"
+                    }
+                  },
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "/two"
+                    }
+                  }
+                ],
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
   "repairs": [
     {
       "name": "two people each delete one of the two entries of a list",
@@ -1783,7 +3130,7 @@
       }
     },
     {
-      "name": "a list whose only entry has nothing in it: the entry, then the list",
+      "name": "a list whose only entry has nothing in it: the list goes with it",
       "update": "AQUBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0BwABAwMIbGlzdEl0ZW0A",
       "json": {
         "type": "doc",
@@ -2121,6 +3468,119 @@
               {
                 "type": "text",
                 "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a document inside a quote",
+      "update": "AQsBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpibG9ja3F1b3RlBwABAwMJcGFyYWdyYXBoBwABBAYEAAEFAXGHAQQDA2RvYwcAAQcDCXBhcmFncmFwaAcAAQgGBAABCQFiAA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a task item with nothing in it, beside one that is whole",
+      "update": "AQgBAAcBB2RlZmF1bHQDCHRhc2tMaXN0BwABAAMIdGFza0l0ZW0oAAEBB2NoZWNrZWQBeIcBAQMIdGFza0l0ZW0HAAEDAwlwYXJhZ3JhcGgHAAEEBgQAAQUEa2VwdCgAAQMHY2hlY2tlZAF5AA==",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "taskList",
+            "content": [
+              {
+                "type": "taskItem",
+                "attrs": {
+                  "checked": false
+                },
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "kept"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a list entry that holds a text",
+      "update": "AQcBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwpidWxsZXRMaXN0BwABAwMIbGlzdEl0ZW0HAAEEBgQAAQUFbG9vc2UA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an ordered list that holds a paragraph",
+      "update": "AQgBAAcBB2RlZmF1bHQDCXBhcmFncmFwaAcAAQAGBAABAQFhhwEAAwtvcmRlcmVkTGlzdAcAAQMDCXBhcmFncmFwaAcAAQQGBAABBQFiKAABAwVzdGFydAF9AQA=",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "an element where a text belongs, in a code block inside a list",
+      "update": "AQgBAAcBB2RlZmF1bHQDCmJ1bGxldExpc3QHAAEAAwhsaXN0SXRlbQcAAQEDCXBhcmFncmFwaAcAAQIGBAABAwRrZXB0hwECAwljb2RlQmxvY2sHAAEIAwdtZW50aW9uKAABCQZ1c2VySWQBdyQwMTkzMDAwMC0wMDAwLTcwMDAtODAwMC0wMDAwMDAwMGMwMDIA",
+      "json": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "bulletList",
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "kept"
+                      }
+                    ]
+                  }
+                ]
               }
             ]
           }
