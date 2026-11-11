@@ -1,6 +1,19 @@
 {
   "components": {
     "schemas": {
+      "AccountChange": {
+        "description": "What a user changes of their account. A member that is left out stays as it is.",
+        "properties": {
+          "displayName": {
+            "description": "The name to be shown by: at most 64 UTF-16 code units without control\ncharacters. Empty or `null` for none, and the login name is shown.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "AdminChange": {
         "description": "Whether a user is to be an administrator of the instance.",
         "properties": {
@@ -1548,6 +1561,10 @@
       "RegisterRequest": {
         "description": "A request to register a new user.",
         "properties": {
+          "displayName": {
+            "description": "The name to be shown by; may be left out or empty for none.",
+            "type": "string"
+          },
           "email": {
             "description": "The email address.",
             "type": "string"
@@ -1984,6 +2001,10 @@
             "format": "int64",
             "type": "integer"
           },
+          "displayName": {
+            "description": "The name the user chose to be shown by; empty for none, and then the login name\nis shown. At most 64 UTF-16 code units, not unique.",
+            "type": "string"
+          },
           "id": {
             "description": "The user's identifier.",
             "type": "string"
@@ -2005,6 +2026,7 @@
         "required": [
           "createAt",
           "deleteAt",
+          "displayName",
           "id",
           "isAdmin",
           "updateAt",
@@ -5769,6 +5791,46 @@
           }
         },
         "summary": "The user of the session",
+        "tags": [
+          "users"
+        ]
+      },
+      "patch": {
+        "description": "Changes what the body names of the user of the session: `displayName`, the name to\nbe shown by (empty or `null` for none). A member that is no such thing, or a name\nthat is too long or holds a control character, is refused (400 naming it) and\nchanges nothing. Answers the user as `getMe` does.",
+        "operationId": "patchMe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            },
+            "description": "The user as they are now."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Change the user's account",
         "tags": [
           "users"
         ]

@@ -4,13 +4,15 @@ use std::collections::BTreeMap;
 
 use axum::body::Bytes;
 use axum::extract::{Path, State};
-use fvoci_model::{BoardMember, User, UserPreferencesPatch, UserSettings, UserSettingsPatch};
+use fvoci_model::{
+    BoardMember, User, UserPreferencesPatch, UserSettings, UserSettingsPatch, check_display_name,
+};
 use fvoci_store::{InstanceRole, Preference};
 use serde::Deserialize;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use super::contract::bodies::{AdminChange, SettingsChange};
+use super::contract::bodies::{AccountChange, AdminChange, SettingsChange};
 use super::contract::params::UserId;
 use super::contract::tag;
 
@@ -24,7 +26,7 @@ use crate::error::AppError;
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_get_users_list))
-        .routes(routes!(handle_get_me))
+        .routes(routes!(handle_get_me, handle_patch_me))
         .routes(routes!(handle_get_my_memberships))
         .routes(routes!(handle_get_client_state, handle_patch_client_state))
         .routes(routes!(
@@ -101,6 +103,56 @@ async fn handle_get_me(
 ) -> ApiResult {
     let mut user = app.user(&session.user_id).await.map_err(user_not_found)?;
 
+    crate::app::sanitize(&mut user);
+    Ok(json_response(&user))
+}
+
+/// Change the user's account
+///
+/// Changes what the body names of the user of the session: `displayName`, the name to
+/// be shown by (empty or `null` for none). A member that is no such thing, or a name
+/// that is too long or holds a control character, is refused (400 naming it) and
+/// changes nothing. Answers the user as `getMe` does.
+#[utoipa::path(
+    patch,
+    path = "/users/me",
+    operation_id = "patchMe",
+    tag = tag::USERS,
+    request_body = AccountChange,
+    responses((status = 200, description = "The user as they are now.", body = User)),
+)]
+async fn handle_patch_me(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    body: Bytes,
+) -> ApiResult {
+    let members = json_object(decode_json(&body)?)?;
+    let mut display_name = None;
+    for (name, value) in &members {
+        match (name.as_str(), value) {
+            ("displayName", serde_json::Value::Null) => display_name = Some(String::new()),
+            ("displayName", serde_json::Value::String(name)) => display_name = Some(name.clone()),
+            ("displayName", _) => {
+                return Err(
+                    AppError::bad_request("displayName must be a string or null")
+                        .with_field("displayName"),
+                );
+            }
+            (other, _) => {
+                return Err(
+                    AppError::bad_request(format_args!("there is no member {other:?}"))
+                        .with_field(other),
+                );
+            }
+        }
+    }
+    let mut user = match display_name {
+        Some(name) => {
+            check_display_name(&name)?;
+            app.set_display_name(&session.user_id, &name).await?
+        }
+        None => app.user(&session.user_id).await?,
+    };
     crate::app::sanitize(&mut user);
     Ok(json_response(&user))
 }

@@ -205,13 +205,7 @@ async fn handle_register(
     register.validate()?;
 
     let user = app
-        .register_user(
-            &register.username,
-            &register.email,
-            &register.password,
-            admission,
-            address_of(client),
-        )
+        .register_user(&register, admission, address_of(client))
         .await?;
     Ok(created(&user))
 }

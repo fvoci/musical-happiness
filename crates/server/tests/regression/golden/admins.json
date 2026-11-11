@@ -7,6 +7,7 @@
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
+      "displayName": "",
       "id": "<id:1>",
       "isAdmin": true,
       "updateAt": "<ts>",
@@ -21,6 +22,7 @@
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
+      "displayName": "",
       "id": "<id:2>",
       "isAdmin": false,
       "updateAt": "<ts>",
@@ -35,6 +37,7 @@
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
+      "displayName": "",
       "id": "<id:1>",
       "isAdmin": true,
       "updateAt": "<ts>",
@@ -299,6 +302,7 @@
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
+      "displayName": "",
       "id": "<id:6>",
       "isAdmin": true,
       "updateAt": "<ts>",
@@ -313,6 +317,7 @@
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
+      "displayName": "",
       "id": "<id:6>",
       "isAdmin": true,
       "updateAt": "<ts>",
@@ -341,6 +346,7 @@
     "body": {
       "createAt": "<ts>",
       "deleteAt": 0,
+      "displayName": "",
       "id": "<id:1>",
       "isAdmin": false,
       "updateAt": "<ts>",

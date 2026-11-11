@@ -13,6 +13,33 @@ pub const MINIMUM_PASSWORD_LENGTH: usize = 8;
 /// request from making the server hash megabytes.
 pub const MAXIMUM_PASSWORD_BYTES: usize = 1024;
 
+/// The longest display name, in UTF-16 code units as the web app counts text.
+pub const DISPLAY_NAME_MAX_LENGTH: usize = 64;
+
+/// Checks a display name a user chooses: empty for none, else at most
+/// [`DISPLAY_NAME_MAX_LENGTH`] UTF-16 code units without control characters (a line
+/// break or U+0000 has no place in a name, and PostgreSQL stores no U+0000).
+///
+/// # Errors
+///
+/// Returns an [`AuthParamError`] for `displayName` if the name is too long or holds a
+/// control character.
+pub fn check_display_name(name: &str) -> Result<(), AuthParamError> {
+    if name.encode_utf16().count() > DISPLAY_NAME_MAX_LENGTH {
+        return Err(AuthParamError::new(
+            "displayName",
+            format!("a display name has at most {DISPLAY_NAME_MAX_LENGTH} characters"),
+        ));
+    }
+    if name.chars().any(char::is_control) {
+        return Err(AuthParamError::new(
+            "displayName",
+            "a display name has no control characters",
+        ));
+    }
+    Ok(())
+}
+
 /// A request parameter of an authentication request is missing or malformed.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{message}")]
@@ -86,6 +113,9 @@ pub struct RegisterRequest {
     /// The team's signup token; may be empty while no user exists yet.
     #[serde(deserialize_with = "null_as_default")]
     pub token: String,
+    /// The name to be shown by; may be left out or empty for none.
+    #[serde(rename = "displayName", deserialize_with = "null_as_default")]
+    pub display_name: String,
 }
 
 impl RegisterRequest {
@@ -106,6 +136,7 @@ impl RegisterRequest {
         if !is_email_valid(&self.email) {
             return Err(AuthParamError::new("email", "invalid email format"));
         }
+        check_display_name(&self.display_name)?;
         check_new_password(&self.password)
     }
 }
@@ -116,6 +147,7 @@ impl fmt::Debug for RegisterRequest {
         f.debug_struct("RegisterRequest")
             .field("username", &self.username)
             .field("email", &self.email)
+            .field("display_name", &self.display_name)
             .finish_non_exhaustive()
     }
 }

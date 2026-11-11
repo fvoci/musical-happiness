@@ -15,6 +15,7 @@ fn registration(username: &str, token: &str) -> RegisterRequest {
         email: format!("{username}@sample.com"),
         password: PASSWORD.to_owned(),
         token: token.to_owned(),
+        display_name: String::new(),
     }
 }
 

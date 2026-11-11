@@ -189,6 +189,7 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("User", Members::All),
     ("UserSettings", Members::AsWritten),
     // What a request carries.
+    ("AccountChange", Members::AsWritten),
     ("AdminChange", Members::AsWritten),
     ("BlockPatch", Members::Only(&[])),
     (

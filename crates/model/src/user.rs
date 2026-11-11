@@ -19,6 +19,9 @@ pub struct User {
     pub id: String,
     /// The login name.
     pub username: String,
+    /// The name the user chose to be shown by; empty for none, and then the login name
+    /// is shown. At most 64 UTF-16 code units, not unique.
+    pub display_name: String,
     /// The email address.
     #[serde(skip)]
     pub email: String,
@@ -63,6 +66,7 @@ impl fmt::Debug for User {
         f.debug_struct("User")
             .field("id", &self.id)
             .field("username", &self.username)
+            .field("display_name", &self.display_name)
             .field("email", &self.email)
             .field("nickname", &self.nickname)
             .field("first_name", &self.first_name)

@@ -459,6 +459,7 @@ fn user_json_hides_credentials_and_what_nothing_stores() {
     let user = User {
         id: "u1".to_owned(),
         username: "alice".to_owned(),
+        display_name: "Alice A.".to_owned(),
         email: "alice@example.com".to_owned(),
         nickname: "al".to_owned(),
         first_name: "Alice".to_owned(),
@@ -476,8 +477,8 @@ fn user_json_hides_credentials_and_what_nothing_stores() {
     assert_eq!(
         to_json(&user),
         json!({
-            "id": "u1", "username": "alice", "createAt": 0, "updateAt": 5, "deleteAt": 0,
-            "isAdmin": true
+            "id": "u1", "username": "alice", "displayName": "Alice A.", "createAt": 0,
+            "updateAt": 5, "deleteAt": 0, "isAdmin": true
         })
     );
 
