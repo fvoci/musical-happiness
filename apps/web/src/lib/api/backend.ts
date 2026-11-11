@@ -196,20 +196,97 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
-  createBoard(_teamId: string, _draft: BoardDraft): Promise<Board> {
-    return notWired('createBoard');
+  /**
+   * Makes the board and its first view in one request
+   * (`createBoardsAndBlocks`): all or none. The identifiers sent only tie
+   * the view to the board; the server makes the real ones.
+   */
+  async createBoard(
+    teamId: string,
+    draft: BoardDraft,
+    firstView: ViewDraft,
+  ): Promise<{ board: Board; view: BoardView }> {
+    const boardRef = 'new-board';
+    const request: Schemas['NewBoardsAndBlocks'] = {
+      boards: [
+        {
+          id: boardRef,
+          teamId,
+          type: draft.type ?? 'P',
+          title: draft.title,
+          description: draft.description ?? '',
+          icon: draft.icon ?? '',
+          cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
+        },
+      ],
+      blocks: [
+        {
+          id: 'new-view',
+          boardId: boardRef,
+          type: 'view',
+          title: firstView.title,
+          fields: firstView.fields,
+          createAt: 1,
+          updateAt: 1,
+        },
+      ],
+    };
+    const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
+      '/api/v1/boards-and-blocks',
+      {},
+      { method: 'POST', json: request },
+    );
+    const [board] = made.boards;
+    const view = made.blocks.find((block) => block.type === 'view');
+    if (!board || !view) throw new BackendError(500, { message: 'the server made no board' });
+    return { board: boardOf(board), view: viewOf(view) };
   }
 
-  patchBoard(_boardId: string, _patch: BoardPatch): Promise<Board> {
-    return notWired('patchBoard');
+  /**
+   * Changes the board itself. A minimum role the contract does not have
+   * (none, or admin) is refused here as the server would refuse it.
+   */
+  async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
+    const { minimumRole, updatedCardProperties, ...rest } = patch;
+    if (minimumRole === '' || minimumRole === 'admin') {
+      throw new BackendError(400, { message: 'no such minimum role', field: 'minimumRole' });
+    }
+    const request: Schemas['BoardPatch'] = {
+      ...rest,
+      ...(minimumRole === undefined ? {} : { minimumRole }),
+      ...(updatedCardProperties === undefined
+        ? {}
+        : {
+            updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[],
+          }),
+    };
+    return boardOf(
+      await this.#http.request<Schemas['Board']>(
+        '/api/v1/boards/{boardId}',
+        { boardId },
+        { method: 'PATCH', json: request },
+      ),
+    );
   }
 
-  deleteBoard(_boardId: string): Promise<void> {
-    return notWired('deleteBoard');
+  /** To the server's trash, with its blocks and members (`deleteBoard`, board admins only). */
+  async deleteBoard(boardId: string): Promise<void> {
+    await this.#http.request('/api/v1/boards/{boardId}', { boardId }, { method: 'DELETE' });
   }
 
-  restoreBoard(_boardId: string): Promise<Board> {
-    return notWired('restoreBoard');
+  /**
+   * Out of the server's trash. Its place in the sidebar and its public link
+   * do not come back (`docs/contract-pending.md` 7): it shows at the end of
+   * the default category.
+   */
+  async restoreBoard(boardId: string): Promise<Board> {
+    return boardOf(
+      await this.#http.request<Schemas['Board']>(
+        '/api/v1/boards/{boardId}/undelete',
+        { boardId },
+        { method: 'POST' },
+      ),
+    );
   }
 
   async members(boardId: string): Promise<BoardMember[]> {
@@ -398,8 +475,24 @@ export class ServerBackend implements Backend, Account {
     return blocks.map(viewOf);
   }
 
-  createView(_boardId: string, _draft: ViewDraft): Promise<BoardView> {
-    return notWired('createView');
+  /** A view is a block of the board (`createBlocks`). */
+  async createView(boardId: string, draft: ViewDraft): Promise<BoardView> {
+    // A block right on its board has no parent (the server's way).
+    const block: Schemas['NewBlock'] = {
+      boardId,
+      type: 'view',
+      title: draft.title,
+      fields: draft.fields,
+      createAt: 1,
+      updateAt: 1,
+    };
+    const [made] = await this.#http.request<Schemas['Block'][]>(
+      '/api/v1/boards/{boardId}/blocks',
+      { boardId },
+      { method: 'POST', json: [block] },
+    );
+    if (!made) throw new BackendError(500, { message: 'the server made no view' });
+    return viewOf(made);
   }
 
   /**

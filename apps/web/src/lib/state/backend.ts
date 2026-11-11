@@ -320,7 +320,16 @@ export interface Backend {
   // Boards.
   boards(teamId: string): Promise<Board[]>;
   board(boardId: string): Promise<Board>;
-  createBoard(teamId: string, draft: BoardDraft): Promise<Board>;
+  /**
+   * Makes a board and its first view together, all or none: a board without
+   * a view has nothing to show. The reader becomes its admin, and a board
+   * that is no template is filed under their default category.
+   */
+  createBoard(
+    teamId: string,
+    draft: BoardDraft,
+    firstView: ViewDraft,
+  ): Promise<{ board: Board; view: BoardView }>;
   patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;

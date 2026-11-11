@@ -50,6 +50,14 @@ async function storedCategory(api: APIRequestContext, teamId: string, name: stri
   return (await stored(api, teamId)).find((one) => one.name === name);
 }
 
+/**
+ * The boards of this test a category shows. Open boards other tests made
+ * are in every reader's sidebar too.
+ */
+async function mine(page: Page, name: string): Promise<string[]> {
+  return (await boardsIn(page, name)).filter((title) => ['Alpha', 'Beta'].includes(title));
+}
+
 async function nameCategory(page: Page, name: string, button: 'Create' | 'Update') {
   const dialog = page.getByTestId('category-dialog');
   await dialog.getByLabel('Category name').fill(name);
@@ -173,9 +181,9 @@ test('categories and the boards under them are kept on the server and show in th
   await first.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
   // Alpha stays hidden there, in this tab too.
   expect(await categories(first)).toEqual([home]);
-  expect(await boardsIn(first, home)).toEqual(['Beta']);
+  expect(await mine(first, home)).toEqual(['Beta']);
   await expect.poll(() => categories(second)).toEqual([home]);
-  await expect.poll(() => boardsIn(second, home)).toEqual(['Beta']);
+  await expect.poll(() => mine(second, home)).toEqual(['Beta']);
   expect(await storedNames(api, teamId)).toEqual([home]);
 
   // The hidden boards are listed at the foot of the sidebar; one is shown again from there.
@@ -183,7 +191,7 @@ test('categories and the boards under them are kept on the server and show in th
   await hiddenList.getByRole('button', { name: 'Hidden boards (1)' }).click();
   await hiddenList.getByRole('button', { name: 'Show Alpha in the sidebar' }).click();
   await expect(hiddenList).toHaveCount(0);
-  await expect.poll(() => boardsIn(second, home)).toContain('Alpha');
+  await expect.poll(() => mine(second, home)).toContain('Alpha');
   await expect
     .poll(async () =>
       (await storedCategory(api, teamId, home))?.boardMetadata.find(
@@ -195,7 +203,7 @@ test('categories and the boards under them are kept on the server and show in th
 
   // As it was left, after a reload.
   await second.reload();
-  await expect.poll(() => boardsIn(second, home)).toEqual(['Beta']);
+  await expect.poll(() => mine(second, home)).toEqual(['Beta']);
   await expect(category(second, 'Projects')).toHaveCount(0);
   await expect(first.locator('[data-problem]')).toHaveCount(0);
 

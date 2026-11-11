@@ -666,3 +666,109 @@ describe('the sidebar on the server', () => {
     ]);
   });
 });
+
+describe('boards on the server', () => {
+  const BOARD = {
+    id: 'b1',
+    teamId: 't',
+    createdBy: 'me',
+    modifiedBy: 'me',
+    type: 'P',
+    minimumRole: 'editor',
+    title: 'Plan',
+    description: '',
+    icon: '',
+    showDescription: false,
+    isTemplate: false,
+    templateVersion: 0,
+    properties: {},
+    cardProperties: [],
+    createAt: 1,
+    updateAt: 2,
+    deleteAt: 0,
+  };
+  const VIEW = {
+    ...BLOCK,
+    id: 'v1',
+    boardId: 'b1',
+    parentId: '',
+    type: 'view',
+    title: 'Board view',
+  };
+
+  it('makes a board and its first view in one request, the view tied to the board', async () => {
+    const sent = serveRoutes([
+      ['POST /api/v1/boards-and-blocks', { boards: [BOARD], blocks: [VIEW] }, 201],
+    ]);
+    const made = await new ServerBackend('').createBoard(
+      't',
+      { title: 'Plan', cardProperties: [{ id: 's', name: 'Status', type: 'select', options: [] }] },
+      { title: 'Board view', fields: { viewType: 'board' } as never },
+    );
+    expect(sentLines(sent)).toEqual(['POST /api/v1/boards-and-blocks']);
+    const body = sent[0]?.body as { boards: { id: string }[]; blocks: { boardId: string }[] };
+    expect(body.boards).toEqual([
+      {
+        id: body.blocks[0]?.boardId,
+        teamId: 't',
+        type: 'P',
+        title: 'Plan',
+        description: '',
+        icon: '',
+        cardProperties: [{ id: 's', name: 'Status', type: 'select', options: [] }],
+      },
+    ]);
+    expect(body.blocks[0]).toMatchObject({ type: 'view', title: 'Board view' });
+    expect(body.blocks[0]).not.toHaveProperty('parentId');
+    expect(made.board.id).toBe('b1');
+    expect(made.view).toMatchObject({ id: 'v1', title: 'Board view' });
+  });
+
+  it('changes, deletes and brings back a board by its routes', async () => {
+    const sent = serveRoutes([
+      ['PATCH /api/v1/boards/b1', { ...BOARD, title: 'New' }],
+      ['DELETE /api/v1/boards/b1', undefined, 204],
+      ['POST /api/v1/boards/b1/undelete', BOARD],
+    ]);
+    const backend = new ServerBackend('');
+    expect((await backend.patchBoard('b1', { title: 'New', minimumRole: 'viewer' })).title).toBe(
+      'New',
+    );
+    await backend.deleteBoard('b1');
+    expect((await backend.restoreBoard('b1')).id).toBe('b1');
+    expect(sentLines(sent)).toEqual([
+      'PATCH /api/v1/boards/b1',
+      'DELETE /api/v1/boards/b1',
+      'POST /api/v1/boards/b1/undelete',
+    ]);
+    expect(sent[0]?.body).toEqual({ title: 'New', minimumRole: 'viewer' });
+  });
+
+  it('refuses a minimum role the contract does not have, sending nothing', async () => {
+    const sent = serveRoutes([]);
+    const refused = await new ServerBackend('')
+      .patchBoard('b1', { minimumRole: 'admin' })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(400);
+    expect(sent).toEqual([]);
+  });
+
+  it('makes a view as a block of the board', async () => {
+    const sent = serveRoutes([['POST /api/v1/boards/b1/blocks', [VIEW], 201]]);
+    const view = await new ServerBackend('').createView('b1', {
+      title: 'Table view',
+      fields: { viewType: 'table' } as never,
+    });
+    expect(sent[0]?.body).toEqual([
+      {
+        boardId: 'b1',
+        type: 'view',
+        title: 'Table view',
+        fields: { viewType: 'table' },
+        createAt: 1,
+        updateAt: 1,
+      },
+    ]);
+    expect(view.id).toBe('v1');
+  });
+});

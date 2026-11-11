@@ -373,7 +373,11 @@ export class MemoryBackend implements Backend {
     return copy(this.#board(boardId));
   }
 
-  async createBoard(teamId: string, draft: BoardDraft): Promise<Board> {
+  async createBoard(
+    teamId: string,
+    draft: BoardDraft,
+    firstView: ViewDraft,
+  ): Promise<{ board: Board; view: BoardView }> {
     await this.#enter('createBoard');
     if (teamId !== this.world.team.id) fail(404, 'no such team');
     const now = this.world.now();
@@ -394,8 +398,13 @@ export class MemoryBackend implements Backend {
     if (draft.cardProperties) board.cardProperties = copy(draft.cardProperties);
     this.world.boards.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
+    const view = this.#newBlock(board.id, board.id, 'view');
+    view.title = firstView.title;
+    view.fields = copy(firstView.fields);
+    this.world.blocks.set(view.id, view);
     this.#tellBoard(board);
-    return copy(board);
+    this.#tellBlocks(board.id, [view]);
+    return { board: copy(board), view: viewOf(view) };
   }
 
   async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {

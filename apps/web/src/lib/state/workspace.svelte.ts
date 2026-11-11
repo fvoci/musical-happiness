@@ -12,7 +12,7 @@ import { DEFAULT_DISPLAY_SETTINGS } from '../logic/display.ts';
 import { DEFAULT_REGIONAL_SETTINGS, resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
 import { SHOW_NICKNAME_FULL_NAME, userDisplayName } from '../logic/users.ts';
-import { createBoardView, type Board } from '../logic/wire.ts';
+import { createBoard as createEmptyBoard, createBoardView, type Board } from '../logic/wire.ts';
 import { browserTimeZone, setRegionalSettings } from '../regional.ts';
 
 import {
@@ -329,21 +329,24 @@ export class Workspace {
 
   /**
    * Makes a board and its first view, a kanban grouped by the board's first
-   * select property. `viewTitle` is the title of that view; the caller passes
-   * the translated word. A board without a view has nothing to show, so the
-   * two are made together (in two requests, until the contract says there is
-   * one for both).
+   * select property (a board without card properties is given a "Status"
+   * one). `viewTitle` is the title of that view; the caller passes the
+   * translated word. The two are made together.
    */
   async createBoard(draft: BoardDraft, viewTitle = ''): Promise<Board | undefined> {
     if (!this.team) return undefined;
     try {
-      const board = await this.backend.createBoard(this.team.id, draft);
-      const groupBy = board.cardProperties.find((template) => template.type === 'select');
+      const cardProperties = draft.cardProperties ?? createEmptyBoard().cardProperties;
+      const groupBy = cardProperties.find((template) => template.type === 'select');
       const fields = createBoardView().fields;
       fields.viewType = 'board';
       fields.groupById = groupBy?.id;
       fields.visibleOptionIds = [...(groupBy?.options.map((option) => option.id) ?? []), ''];
-      await this.backend.createView(board.id, { title: viewTitle, fields });
+      const { board } = await this.backend.createBoard(
+        this.team.id,
+        { ...draft, cardProperties },
+        { title: viewTitle, fields },
+      );
       this.#apply({ kind: 'board', board });
       return board;
     } catch (error) {
