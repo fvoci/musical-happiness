@@ -33,6 +33,10 @@ const OUTBOX_CAPACITY: usize = 512;
 /// way and the closing frame. A peer that has stopped reading gets neither.
 const WRITER_GRACE: Duration = Duration::from_secs(5);
 
+/// How often a connection's session is looked up again when the connections are not
+/// pinged; when they are, it is looked up at every ping.
+const SESSION_CHECK_WITHOUT_PING: Duration = Duration::from_mins(1);
+
 /// Whose connection a websocket is: the session its handshake came with, and the token
 /// that session was found under.
 #[derive(Clone)]
@@ -260,8 +264,8 @@ impl Hub {
         // that made this a connection of that user; the closing of the user's
         // connections would then have passed this one by. Looked up once more, now that
         // it is closable, the session is either still there or the connection ends.
-        if let Some(token) = token
-            && let Err(error) = self.inner.auth.find_session(&token).await
+        if let Some(token) = &token
+            && let Err(error) = self.inner.auth.find_session(token).await
         {
             if error.kind() != ErrorKind::Unauthorized {
                 tracing::warn!(%error, "a websocket connection ends: its session could not be read");
@@ -271,6 +275,7 @@ impl Hub {
         }
 
         let ping_interval = self.inner.ping_interval;
+        let session_check = ping_interval.unwrap_or(SESSION_CHECK_WITHOUT_PING);
         let mut writer = tokio::spawn(async move {
             let mut ping = ping_interval.map(|period| {
                 let mut interval = tokio::time::interval(period);
@@ -314,6 +319,9 @@ impl Hub {
             // The hub gave the connection up: it does not keep up, or its session or its
             // read token ended.
             () = closed.cancelled() => {}
+            // The session ended by its idle or absolute limit, which nobody announces:
+            // the sessions that ended so are deleted only by the hourly clean-up.
+            () = self.session_ends(token.as_deref(), session_check) => {}
         }
 
         // Removing the listener drops its outbox, which ends the writer once it has sent
@@ -324,6 +332,28 @@ impl Hub {
             .is_err()
         {
             writer.abort();
+        }
+    }
+
+    /// Returns once the session of `token` has ended, looked up every `period`; never
+    /// for a connection without a session. A store that cannot be read ends nothing.
+    async fn session_ends(&self, token: Option<&str>, period: Duration) {
+        let Some(token) = token else {
+            return std::future::pending().await;
+        };
+        let mut checks = tokio::time::interval(period);
+        checks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // The first tick is at once; the session was looked up just before.
+        checks.tick().await;
+        loop {
+            checks.tick().await;
+            match self.inner.auth.find_session(token).await {
+                Ok(_) => {}
+                Err(error) if error.kind() == ErrorKind::Unauthorized => return,
+                Err(error) => {
+                    tracing::warn!(%error, "a websocket connection's session could not be read");
+                }
+            }
         }
     }
 

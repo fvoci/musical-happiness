@@ -74,7 +74,7 @@
 | `importArchive` | 보드·블록의 `UPDATE_BOARD`·`UPDATE_BLOCK`이 멤버가 생기기 전에 나가 **아무도 받지 않는다**. 그 뒤 `UPDATE_MEMBER`, `UPDATE_BOARD_CATEGORY`, 이미지를 고친 블록의 `UPDATE_BLOCK` |
 | `patchBoard` | `UPDATE_BOARD`. **템플릿**의 패치에 `type`이 있으면(바뀌지 않았어도) 멤버가 아닌 팀 사용자마다: 비공개면 `DELETE_MEMBER`, 공개면 보기 역할의 `UPDATE_MEMBER`. 템플릿이 아닌 보드는 종류가 바뀌어도 `UPDATE_BOARD`뿐이다 |
 | `patchBoardsAndBlocks` | 바뀐 블록마다 `UPDATE_BLOCK`, 바뀐 보드마다 `UPDATE_BOARD` |
-| `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `teamId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. `deleteBoard`만 보드의 공유 토큰으로 따라가던 연결을 닫는다. `deleteBoardsAndBlocks`는 닫지 않는다(결함, `docs/contract-pending.md` 8절) |
+| `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `teamId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 연결을 닫는다 |
 | `undeleteBoard` | 돌아온 보드의 `UPDATE_BOARD` 하나. **함께 돌아온 블록과 멤버의 메시지는 없다** |
 | `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `moveContentBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
@@ -100,8 +100,8 @@
 | 관리자가 비밀번호를 재설정 | 그 사용자의 모든 연결 |
 | 자기 비밀번호를 바꿈 | 그 사용자의, 바꾼 세션이 아닌 세션의 연결 |
 | 핸드셰이크 직후, 연결을 등록하기 전에 세션이 끝나 있음 | 그 연결(닫는 프레임 없이) |
-| 세션이 한가함 한도나 절대 한도로 끝남 | 그 세션의 연결. 끝난 세션을 지우는 정리가 한 시간마다 돌 때 닫힌다(`docs/contract-pending.md` 8절) |
-| 공유를 끄거나 새 토큰을 내거나 `deleteBoard`로 보드를 지움 | 그 보드의 옛 읽기 토큰으로 블록을 따라가던 연결 |
+| 세션이 한가함 한도나 절대 한도로 끝남 | 그 세션의 연결. 서버가 Ping마다(`websocket_ping_seconds`, Ping이 꺼져 있으면 1분마다) 세션을 다시 보고 닫는다 |
+| 공유를 끄거나 새 토큰을 내거나 `deleteBoard`, `deleteBoardsAndBlocks`로 보드를 지움 | 그 보드의 옛 읽기 토큰으로 블록을 따라가던 연결 |
 | 보내지 못한 메시지가 512개 쌓임 | 그 연결(읽지 않는 클라이언트) |
 | 받은 메시지가 64 KiB를 넘음 | 그 연결 |
 | 서버가 멈춤 | 모든 연결 |

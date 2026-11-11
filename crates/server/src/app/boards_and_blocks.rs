@@ -199,6 +199,9 @@ impl App {
                 .map_or(&[][..], Vec::as_slice);
             self.ws()
                 .broadcast_board_delete(&team_id, board_id, members);
+            // The board's sharing went with it; so does whoever followed it by its link,
+            // as with `deleteBoard`.
+            self.ws().close_readers_of_board(board_id);
         }
         Ok(())
     }

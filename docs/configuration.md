@@ -39,7 +39,7 @@
 | `useSSL` | `FVOCI_USESSL` | 참·거짓 | `false` | 참이면 서버가 직접 HTTPS를 연다. 인증서는 작업 디렉터리의 `./cert/cert.pem`과 `./cert/key.pem`이다 |
 | `webpath` | `FVOCI_WEBPATH` | 문자열 | `"./pack"` | 웹앱의 빌드 산출물이 든 디렉터리(`index.html`과 `static/`) |
 | `allowed_origins` | `FVOCI_ALLOWED_ORIGINS` | 문자열 목록 | `[]` | `serverRoot`의 출처 말고도 바꾸는 요청과 WebSocket을 받아들일 출처. 개발할 때 웹앱을 다른 포트에서 띄우는 경우에 쓴다. 출처로 읽을 수 없는 값이 있으면 시작하지 않는다 |
-| `websocket_ping_seconds` | `FVOCI_WEBSOCKET_PING_SECONDS` | 정수(0 이상) | `30` | WebSocket마다 Ping을 보내는 간격(초). 0이면 보내지 않는다. 한가한 연결을 프록시가 끊지 않게 한다 |
+| `websocket_ping_seconds` | `FVOCI_WEBSOCKET_PING_SECONDS` | 정수(0 이상) | `30` | WebSocket마다 Ping을 보내는 간격(초). 0이면 보내지 않는다. 한가한 연결을 프록시가 끊지 않게 한다. Ping마다 연결의 세션도 다시 보고 끝났으면 닫는다(0이면 1분마다) |
 | `compress_responses` | `FVOCI_COMPRESS_RESPONSES` | 참·거짓 | `true` | 참이면 API의 JSON 응답을 클라이언트의 `Accept-Encoding`에 따라 zstd, brotli, gzip으로 압축한다(32바이트 미만과 오류 응답은 그대로). 압축하는 프록시나 CDN 뒤라면 거짓으로 둔다. 내보내는 아카이브와 파일은 이것과 관계없이 압축하지 않는다(길이를 그대로 보낸다). 웹앱의 정적 파일은 빌드가 만든 `.zst`, `.br`, `.gz`를 고르므로 이것과 관계없다 |
 
 ## 키: 데이터베이스

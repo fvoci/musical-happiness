@@ -625,6 +625,83 @@ async fn a_read_token_that_no_longer_opens_its_board_no_longer_feeds_a_connectio
         "the board is gone"
     );
 
+    // The board deleted with others at once, as `deleteBoardsAndBlocks` does.
+    let (board, block, token) = shared_board_with_a_card(&th, &user1.id).await;
+    let (mut reader, _) = follow_block(&th, &block, &token).await;
+    th.client
+        .delete_json(
+            "/boards-and-blocks",
+            &json!({"boards": [board.id], "blocks": [block.id]}),
+        )
+        .await
+        .check_no_content();
+    assert_eq!(
+        reader.next(PATIENCE).await,
+        Event::Closed,
+        "the board is gone with others"
+    );
+
+    th.teardown().await;
+}
+
+/// A session that ends by its idle limit, which nobody announces, takes its websocket
+/// connection with it at the next ping (the hourly clean-up of ended sessions is not
+/// waited for); a session in use keeps its connection.
+#[tokio::test]
+async fn a_session_that_runs_out_closes_its_websocket_connection() {
+    let th = Setup::native()
+        .configure(|config| {
+            config.websocket_ping_seconds = 1;
+            config.session_idle_days = 3;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let user1 = th.client.me().await;
+    let elsewhere = th
+        .login(crate::common::USER1_USERNAME, crate::common::PASSWORD)
+        .await;
+    let mut here = Socket::connect_as(&th.client).await;
+    subscribe_to_team(&th, &mut here, ROOT_TEAM_ID, &user1.id).await;
+    let mut there = Socket::connect_as(&elsewhere).await;
+    let session = th
+        .app
+        .store()
+        .get_session(
+            &fvoci_server::auth::secret::token_digest(&th.client.token),
+            0,
+            i64::MIN,
+        )
+        .await
+        .expect("the session is stored");
+    let three_days = 3 * 24 * 60 * 60 * 1000;
+    th.app
+        .store()
+        .set_session_last_used(
+            &session.id,
+            fvoci_server::auth::now_millis() - three_days - 60_000,
+        )
+        .await
+        .expect("the last use is moved back");
+
+    let until = std::time::Instant::now() + PATIENCE;
+    let mut ended = Event::Nothing;
+    while std::time::Instant::now() < until {
+        ended = here.next(PATIENCE).await;
+        if ended != Event::Ping {
+            break;
+        }
+    }
+    assert_eq!(ended, Event::Closed, "the session ran out");
+    let until = std::time::Instant::now() + Duration::from_millis(2500);
+    while std::time::Instant::now() < until {
+        assert_eq!(
+            there.next(PATIENCE).await,
+            Event::Ping,
+            "the user's other session stays connected"
+        );
+    }
     th.teardown().await;
 }
 
