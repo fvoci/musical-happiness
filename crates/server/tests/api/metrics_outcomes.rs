@@ -246,6 +246,25 @@ async fn the_operations_on_the_local_disk_are_measured() {
     server.teardown().await;
 }
 
+#[tokio::test]
+async fn an_upload_past_its_limit_is_no_failure_of_the_storage() {
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| config.max_file_size = 1)
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = server.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let response = crate::files::upload(&server.client, &board.id, "a.txt", b"test").await;
+    response.check_request_entity_too_large();
+    let body = scrape(&server).await;
+    let (puts, failures) = files_operations(&body, "local", "put");
+    assert_eq!(failures, 0.0, "the limit is the request's: {body}");
+    assert!(puts <= 1.0, "measured once at most, as given up: {body}");
+    server.teardown().await;
+}
+
 /// With S3, every step of an upload in parts is measured on the object store.
 #[tokio::test]
 #[ignore = "needs an S3-compatible server; see tests/storage.rs"]

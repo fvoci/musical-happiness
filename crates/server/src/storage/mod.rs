@@ -8,14 +8,13 @@
 //! the backend and the operation, at this boundary.
 
 mod local;
+mod measure;
 mod s3;
 
 use std::ops::Range;
-use std::time::Instant;
 
 use bytes::Bytes;
-use futures_util::TryStreamExt as _;
-use futures_util::stream::{BoxStream, StreamExt as _};
+use futures_util::stream::BoxStream;
 use thiserror::Error;
 use tokio::io::AsyncRead;
 
@@ -23,7 +22,7 @@ pub use local::{LocalFiles, WRITING_DIR};
 pub use s3::S3Files;
 
 use crate::config::Configuration;
-use crate::metrics::{FilesBackend, FilesOperation, FilesOutcome, Metrics};
+use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
 /// An error of a file backend.
 #[derive(Debug, Error)]
@@ -102,7 +101,7 @@ impl FileBackend {
         work: impl Future<Output = Result<T, StorageError>>,
     ) -> Result<T, StorageError> {
         let (metrics, backend) = self.metrics();
-        measured(metrics, backend, operation, work).await
+        measure::measured(metrics, backend, operation, work).await
     }
 
     /// Stores everything `reader` yields at `path`, replacing any existing file, and
@@ -117,13 +116,27 @@ impl FileBackend {
         path: &str,
         reader: &mut (dyn AsyncRead + Send + Unpin),
     ) -> Result<u64, StorageError> {
-        self.measure(FilesOperation::Put, async {
-            match self {
-                Self::Local(files) => files.write(path, reader).await,
-                Self::S3(files) => files.write(path, reader).await,
-            }
-        })
-        .await
+        let (metrics, backend) = self.metrics();
+        let Some(measuring) = measure::Measuring::start(metrics, backend, FilesOperation::Put)
+        else {
+            return self.store(path, reader).await;
+        };
+        let mut input = measure::WatchedInput::new(reader);
+        let result = self.store(path, &mut input).await;
+        measuring.end(input.outcome(&result));
+        result
+    }
+
+    /// Stores everything `reader` yields at `path`, unmeasured.
+    async fn store(
+        &self,
+        path: &str,
+        reader: &mut (dyn AsyncRead + Send + Unpin),
+    ) -> Result<u64, StorageError> {
+        match self {
+            Self::Local(files) => files.write(path, reader).await,
+            Self::S3(files) => files.write(path, reader).await,
+        }
     }
 
     /// Returns the size in bytes of the file at `path`, or `None` if there is none.
@@ -176,13 +189,7 @@ impl FileBackend {
             })
             .await?;
         let (metrics, backend) = self.metrics();
-        if !metrics.is_kept() {
-            return Ok(stream);
-        }
-        let metrics = metrics.clone();
-        Ok(stream
-            .inspect_err(move |_| metrics.files_failed_later(backend, FilesOperation::Get))
-            .boxed())
+        Ok(measure::counting_failures(stream, metrics, backend))
     }
 
     /// Copies the file at `from` to `to`, replacing any existing file.
@@ -241,25 +248,4 @@ impl FileBackend {
             Self::S3(files) => Some(files),
         }
     }
-}
-
-/// Runs `work`, which is `operation` on `backend`, and measures it into `metrics`: how
-/// long it took, and whether it failed. A file that is not there is an answer.
-async fn measured<T>(
-    metrics: &Metrics,
-    backend: FilesBackend,
-    operation: FilesOperation,
-    work: impl Future<Output = Result<T, StorageError>>,
-) -> Result<T, StorageError> {
-    if !metrics.is_kept() {
-        return work.await;
-    }
-    let started = Instant::now();
-    let result = work.await;
-    let outcome = match &result {
-        Ok(_) | Err(StorageError::NotFound(_)) => FilesOutcome::Answered,
-        Err(_) => FilesOutcome::Failed,
-    };
-    metrics.files_operated(backend, operation, outcome, started.elapsed());
-    result
 }

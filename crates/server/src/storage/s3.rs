@@ -15,7 +15,8 @@ use object_store::{
 };
 use tokio::io::{AsyncRead, AsyncWriteExt as _};
 
-use super::{FileStream, StorageError, measured};
+use super::measure::measured;
+use super::{FileStream, StorageError};
 use crate::config::AmazonS3Config;
 use crate::metrics::{FilesBackend, FilesOperation, Metrics};
 
@@ -205,7 +206,8 @@ impl S3Files {
 }
 
 /// Uploads made part by part across requests (`docs/s6-design.md` 5.6, 6). The object
-/// is not there until the upload is completed.
+/// is not there until the upload is completed. Each step is measured here, with
+/// `S3Files::measure`, as the operations of every backend are in `FileBackend`.
 impl S3Files {
     /// Starts an upload of the file at `path`, and returns its identifier.
     ///

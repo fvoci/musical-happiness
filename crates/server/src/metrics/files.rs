@@ -90,9 +90,12 @@ impl FilesOperation {
 pub(crate) enum FilesOutcome {
     /// It did, whatever the answer was: done, or no such file.
     Answered,
-    /// It failed: the disk or the object store gave an error, the path could not be
-    /// used, or what was to be stored stopped coming.
+    /// It failed: the disk or the object store gave an error, or the path the server
+    /// made could not be used.
     Failed,
+    /// It ended without an answer of the storage's: its request gave it up, or what a
+    /// put was to store stopped coming or was refused (a limit, a client gone).
+    Abandoned,
 }
 
 /// The upper bounds of the buckets of the durations, in seconds: from a look at the
@@ -114,11 +117,13 @@ impl FilesMetrics {
         let operations = HistogramVec::new(
             HistogramOpts::new(
                 "files_operation_duration_seconds",
-                "How long operations on the file storage took, by backend (local, s3) \
-                 and operation (put, get until the bytes can be read, head, copy, delete, \
-                 rename, and on s3 the steps of an upload in parts: multipart_create, \
-                 multipart_part, multipart_complete, multipart_abort); its count is the \
-                 number of operations.",
+                "How long operations on the file storage took, also those given up by \
+                 their request or whose bytes stopped coming, by backend (local, s3) and \
+                 operation (put, which includes the time the bytes take to come; get \
+                 until the bytes can be read; head, copy, delete, rename; and on s3 the \
+                 steps of an upload in parts: multipart_create, multipart_part, \
+                 multipart_complete, multipart_abort); its count is the number of \
+                 operations.",
             )
             .namespace(PREFIX)
             .buckets(BUCKETS.to_vec()),
@@ -129,8 +134,9 @@ impl FilesMetrics {
                 "files_operation_failures_total",
                 "How many operations on the file storage failed, by backend and \
                  operation: an error of the disk or the object store, also one while \
-                 the bytes of a get were read, and a put whose bytes stopped coming; a \
-                 file that is not there is an answer. The log says what.",
+                 the bytes of a get were read, or a path the server made that could not \
+                 be used. A file that is not there is an answer, and a put whose bytes \
+                 stopped coming or went past a limit is no failure. The log says what.",
             )
             .namespace(PREFIX),
             &["backend", "operation"],
@@ -193,6 +199,46 @@ impl Metrics {
                 .failures
                 .with_label_values(&[backend.as_str(), operation.as_str()])
                 .inc();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_labels_are_two_backends_and_ten_operations() {
+        let metrics = Metrics::kept().expect("the metrics register");
+        metrics.files_known(FilesBackend::Local);
+        metrics.files_known(FilesBackend::S3);
+        let text = String::from_utf8(
+            metrics
+                .render()
+                .expect("the metrics are kept")
+                .expect("the metrics encode"),
+        )
+        .expect("the text format is UTF-8");
+        let failures: Vec<&str> = text
+            .lines()
+            .filter(|line| line.starts_with("fvoci_files_operation_failures_total{"))
+            .collect();
+        assert_eq!(failures.len(), 6 + 10, "{text}");
+        let operations = FilesOperation::ON_EVERY_BACKEND
+            .iter()
+            .chain(&FilesOperation::MULTIPART)
+            .map(|operation| format!("operation=\"{}\"", operation.as_str()))
+            .collect::<Vec<_>>();
+        for line in failures {
+            assert!(
+                line.contains("backend=\"local\"") || line.contains("backend=\"s3\""),
+                "{line}"
+            );
+            assert!(
+                operations.iter().any(|operation| line.contains(operation)),
+                "{line}"
+            );
+            assert!(line.ends_with(" 0"), "from zero: {line}");
         }
     }
 }
