@@ -41,7 +41,7 @@ pub enum Unrecorded {
     Doom,
 }
 
-/// Places a comparison found: how many, and the first [`SHOWN`] of them.
+/// Places a comparison found: how many, and the first hundred of them.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Found {
     /// How many there are.
