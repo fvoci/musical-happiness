@@ -1060,47 +1060,135 @@ async fn get_blocks_of_templates() {
     th.teardown().await;
 }
 
-/// Whoever reads a shared board with its read token alone is not told who wrote a block
-/// or who its body mentions; a member reading with the token is.
+/// Fills the board with user identifiers: person properties, a card whose body mentions
+/// `me` and whose values name `me` and `editor`, and a view that filters and groups by
+/// them.
+async fn board_with_people(th: &TestServer, board_id: &str, me: &str, editor: &str) {
+    let people = json!([
+        {"id": "owner", "name": "Owner", "type": "person"},
+        {"id": "team", "name": "Team", "type": "multiPerson"},
+        {"id": "by", "name": "By", "type": "createdBy"},
+        {"id": "note", "name": "Note", "type": "text"},
+    ]);
+    th.client
+        .patch(
+            &format!("/boards/{board_id}"),
+            &json!({"updatedCardProperties": people}),
+        )
+        .await
+        .check_ok();
+    let mention = json!({"type": "mention", "attrs": {"userId": me}});
+    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [mention]}]});
+    th.client
+        .post(
+            &format!("/boards/{board_id}/cards"),
+            &json!({
+                "title": "mentions",
+                "body": body,
+                "properties": {"owner": me, "team": [me, editor], "note": me, "gone": me},
+            }),
+        )
+        .await
+        .check_created();
+    let mut view = new_block(board_id, BlockType::View, "view");
+    view.fields = fields(json!({
+        "filter": {"operation": "and", "filters": [
+            {"propertyId": "owner", "condition": "includes", "values": [me]},
+            {"operation": "or", "filters": [
+                {"propertyId": "by", "condition": "includes", "values": [me]},
+                {"propertyId": "note", "condition": "includes", "values": [me]},
+            ]},
+        ]},
+        "groupById": "owner",
+        "hiddenOptionIds": [me, ""],
+        "collapsedOptionIds": [editor],
+    }));
+    insert_one(&th.client, &view).await;
+}
+
+/// What the blocks of [`board_with_people`] say about people.
+fn people_in(blocks: &Value) -> Value {
+    let of_type = |block_type: &str| {
+        blocks
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|block| block["type"] == block_type)
+            .cloned()
+            .unwrap_or_else(|| panic!("a {block_type} is read: {blocks}"))
+    };
+    let card = of_type("card");
+    let view = of_type("view");
+    json!({
+        "createdBy": card["createdBy"],
+        "mention": card["body"]["content"][0]["content"][0]["attrs"]["userId"],
+        "properties": card["fields"]["properties"],
+        "filter": view["fields"]["filter"],
+        "hidden": view["fields"]["hiddenOptionIds"],
+        "collapsed": view["fields"]["collapsedOptionIds"],
+        "viewBy": view["modifiedBy"],
+    })
+}
+
+/// Whoever reads a shared board by its read token without being a member, without a
+/// session or signed in, is told no user's identifier: not who wrote a block, nor who
+/// its body mentions, nor whom person properties name in values, filters and the groups
+/// of views. A member reading with the token is.
 #[tokio::test]
 async fn a_reader_by_read_token_is_not_told_who_is_mentioned() {
     let th = Setup::local_mode().start().await.init_basic().await;
     let boards = boards_with_roles(&th).await;
     let me = th.client.me().await;
-    let mention = json!({"type": "mention", "attrs": {"userId": me.id}});
-    let body = json!({"type": "doc", "content": [{"type": "paragraph", "content": [mention]}]});
-    th.client
-        .post(
-            &format!("/boards/{}/cards", boards.board.id),
-            &json!({"title": "mentions", "body": body}),
-        )
-        .await
-        .check_created();
+    let editor = boards.editor.me().await;
+    board_with_people(&th, &boards.board.id, &me.id, &editor.id).await;
     let read_token = th.share(&boards.board.id).await;
-    let path = format!(
-        "{}?readToken={read_token}&type=card",
-        blocks_path(&boards.board.id)
-    );
-    let mentioned = |blocks: &Value| -> Vec<Value> {
-        blocks
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|block| block["body"]["content"][0]["content"][0]["attrs"]["userId"].clone())
-            .collect()
-    };
+    let path = format!("{}?readToken={read_token}", blocks_path(&boards.board.id));
+    let hidden = json!({
+        "createdBy": "",
+        "mention": "",
+        "properties": {"owner": "", "team": ["", ""], "note": me.id},
+        "filter": {"operation": "and", "filters": [
+            {"propertyId": "owner", "condition": "includes", "values": [""]},
+            {"operation": "or", "filters": [
+                {"propertyId": "by", "condition": "includes", "values": [""]},
+                {"propertyId": "note", "condition": "includes", "values": [me.id]},
+            ]},
+        ]},
+        "hidden": [""],
+        "collapsed": [],
+        "viewBy": "",
+    });
 
     // As JSON: the answer is a shape that is only sent, which the allowlist of a write
     // refuses.
     let blocks = th.anonymous().get(&path).await.value();
+    assert_eq!(people_in(&blocks), hidden, "nobody, to the token alone");
+    let blocks = th.client2.get(&path).await.value();
     assert_eq!(
-        mentioned(&blocks),
-        [json!("")],
-        "nobody, to the token alone"
+        people_in(&blocks),
+        hidden,
+        "nobody, to a user who is no member"
     );
-    assert_eq!(blocks[0]["createdBy"], json!(""), "nor who wrote it");
-    let blocks = th.client.get(&path).await.value();
-    assert_eq!(mentioned(&blocks), [json!(me.id)], "the user, to a member");
+    let shown = people_in(&th.client.get(&path).await.value());
+    assert_eq!(shown["mention"], json!(me.id), "the user, to a member");
+    assert_eq!(
+        shown["properties"]["team"],
+        json!([me.id, editor.id]),
+        "{shown}"
+    );
+    assert_eq!(shown["properties"]["gone"], json!(me.id), "{shown}");
+    assert_eq!(
+        shown["filter"]["filters"][0]["values"],
+        json!([me.id]),
+        "{shown}"
+    );
+    assert_eq!(shown["hidden"], json!([me.id, ""]), "{shown}");
+    let blocks = th.client.get(&blocks_path(&boards.board.id)).await.value();
+    assert_eq!(
+        people_in(&blocks),
+        shown,
+        "the token changes nothing for a member"
+    );
     th.teardown().await;
 }
 
@@ -1721,14 +1809,10 @@ async fn patch_block_refusals() {
     let board_id = &boards.board.id;
     let card_path = block_path(board_id, &content.card.id);
 
-    // Preserved quirk: a commenter may not patch anything, their own comment included.
+    // A commenter changes their own comment only
+    // (`a_comment_is_changed_by_its_author_or_an_admin`), a viewer nothing.
     for (who, client, path) in [
         ("commenter, card", &boards.commenter, card_path.clone()),
-        (
-            "commenter, own comment",
-            &boards.commenter,
-            block_path(board_id, &content.comment.id),
-        ),
         ("viewer", &boards.viewer, card_path.clone()),
     ] {
         let response = client.patch(&path, &title_patch("x")).await;
@@ -2733,6 +2817,216 @@ async fn delete_comment_by_its_author_or_by_an_admin_works() {
     );
 }
 
+/// A comment is changed by its author with the commenter's role, and the comment of
+/// somebody else by the board's admins only, as it is deleted; an editor may not change
+/// it. `patchBlock`, `patchBlocks` and `patchBoardsAndBlocks` alike. Who changed it and
+/// when is what its `modifiedBy` and `updateAt` say to the members.
+#[tokio::test]
+async fn a_comment_is_changed_by_its_author_or_an_admin() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let commenter = boards.commenter.me().await;
+    let admin = th.client.me().await;
+    let comment = &content.comment;
+    let path = block_path(board_id, &comment.id);
+    let many = format!("/boards/{board_id}/blocks");
+    let together = |patch: Value| {
+        json!({
+            "boardIds": [board_id], "boardPatches": [{}],
+            "blockIds": [comment.id], "blockPatches": [patch],
+        })
+    };
+    let others_refused = "access denied to change other users' comments";
+    let stored = |blocks: &[Block]| {
+        blocks
+            .iter()
+            .find(|block| block.id == comment.id)
+            .cloned()
+            .expect("the comment is there")
+    };
+
+    // The author, with no more than the commenter's role, on both routes.
+    let mut member = Socket::subscribed_to_team(&th, &th.client, TEST_TEAM_ID).await;
+    boards
+        .commenter
+        .patch(&path, &title_patch("by its author"))
+        .await
+        .check_no_content();
+    let told = member.next_block().await;
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(read.title, "by its author");
+    assert_eq!(read.modified_by, commenter.id, "who changed it");
+    assert!(read.update_at > comment.update_at, "and when: later");
+    assert_eq!(told["modifiedBy"], json!(commenter.id), "{told}");
+    assert_eq!(told["updateAt"], json!(read.update_at), "{told}");
+    boards
+        .commenter
+        .patch(&many, &batch(&[(comment, "again by its author")]))
+        .await
+        .check_no_content();
+    th.client
+        .patch(&many, &batch(&[(comment, "by the admin, many")]))
+        .await
+        .check_no_content();
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(
+        read.modified_by, admin.id,
+        "patchBlocks says who changed it"
+    );
+    boards
+        .commenter
+        .patch(&many, &batch(&[(comment, "again by its author")]))
+        .await
+        .check_no_content();
+
+    // An editor is refused, on every route, and nothing changes.
+    let response = boards
+        .editor
+        .patch(&path, &title_patch("by an editor"))
+        .await;
+    response.check_error(StatusCode::FORBIDDEN, others_refused);
+    let response = boards
+        .editor
+        .patch(&many, &batch(&[(comment, "by an editor")]))
+        .await;
+    response.check_error(StatusCode::FORBIDDEN, others_refused);
+    let response = boards
+        .editor
+        .patch(
+            "/boards-and-blocks",
+            &together(json!({"title": "by an editor"})),
+        )
+        .await;
+    response.check_error(StatusCode::FORBIDDEN, others_refused);
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(
+        read.title, "again by its author",
+        "the editors changed nothing"
+    );
+    assert_eq!(read.modified_by, commenter.id);
+
+    // The board's admin changes it, and is who changed it last.
+    while member.next_json(QUIET).await.is_some() {}
+    th.client
+        .patch(&path, &title_patch("by the admin"))
+        .await
+        .check_no_content();
+    let told = member.next_block().await;
+    assert_eq!(told["modifiedBy"], json!(admin.id), "{told}");
+    th.client
+        .patch(
+            "/boards-and-blocks",
+            &together(json!({"title": "by the admin again"})),
+        )
+        .await
+        .check_ok();
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(read.title, "by the admin again");
+    assert_eq!(read.modified_by, admin.id);
+}
+
+/// The commenter's role changes the commenter's own comment, not a card, and makes no
+/// card of a comment; a viewer changes nothing.
+#[tokio::test]
+async fn a_commenter_changes_no_card_and_makes_none() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let path = block_path(board_id, &content.comment.id);
+    let many = format!("/boards/{board_id}/blocks");
+
+    boards
+        .commenter
+        .patch(&path, &json!({"type": "card"}))
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    boards
+        .commenter
+        .patch(
+            &block_path(board_id, &content.card.id),
+            &title_patch("a card"),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    let own = insert_one(
+        &boards.commenter,
+        &child_of(&content.card, BlockType::Comment, "own"),
+    )
+    .await;
+    boards
+        .commenter
+        .patch(
+            &many,
+            &batch(&[(&own, "own, changed"), (&content.card, "x")]),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    boards
+        .commenter
+        .patch(
+            &many,
+            &json!({"blockIds": [own.id], "blockPatches": [{"type": "card"}]}),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    // A viewer changes nothing.
+    boards
+        .viewer
+        .patch(&block_path(board_id, &own.id), &title_patch("by a viewer"))
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"own") && titles(&read).contains(&"card"),
+        "nothing changed: {:?}",
+        titles(&read)
+    );
+}
+
+/// A block of somebody else is made a comment by the board's admins only: a comment
+/// says who wrote it, and an editor makes nobody else say anything. The author of a
+/// block makes it a comment with the editor's role.
+#[tokio::test]
+async fn a_block_of_somebody_else_is_made_a_comment_by_an_admin() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let into_comment = json!({"type": "comment", "title": "I approve"});
+    let refused = "access denied to change other users' comments";
+
+    boards
+        .editor
+        .patch(&block_path(board_id, &content.text.id), &into_comment)
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    boards
+        .editor
+        .patch(
+            &format!("/boards/{board_id}/blocks"),
+            &json!({"blockIds": [content.text.id], "blockPatches": [into_comment]}),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    let own = insert_one(
+        &boards.editor,
+        &child_of(&content.card, BlockType::Attachment, "the editor's"),
+    )
+    .await;
+    boards
+        .editor
+        .patch(&block_path(board_id, &own.id), &into_comment)
+        .await
+        .check_no_content();
+    th.client
+        .patch(&block_path(board_id, &content.text.id), &into_comment)
+        .await
+        .check_no_content();
+}
+
 // -- the types of new blocks and the limits of their fields ------------------------------
 
 /// A new block is a card, a view, a comment or an attachment: the content blocks went
@@ -2864,4 +3158,142 @@ async fn the_fields_of_a_block_are_limited_by_its_type() {
     let stored = th.app.block(&card.id).await.expect("the card is stored");
     assert!(!stored.fields.contains_key("more"), "the card is as it was");
     th.teardown().await;
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The deleted cards of a board
+/// are listed for its editors, the last deleted first, with what it takes to decide on
+/// bringing one back; a viewer is refused, and for anybody else the board is not there.
+#[tokio::test]
+async fn the_deleted_cards_of_a_board_are_listed_for_its_editors() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let board_id = &boards.board.id;
+    let editor = boards.editor.me().await;
+    let first = insert_one(&th.client, &new_block(board_id, BlockType::Card, "first")).await;
+    let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
+    insert_one(&th.client, &new_block(board_id, BlockType::Card, "kept")).await;
+    let view = insert_one(&th.client, &new_block(board_id, BlockType::View, "view")).await;
+    delete(&th.client, &first).await;
+    a_moment().await;
+    delete(&boards.editor, &second).await;
+    delete(&th.client, &view).await;
+    let trash = format!("/boards/{board_id}/trash/cards");
+
+    let listed = boards.editor.get(&trash).await.value();
+    let entries: Vec<(Value, Value)> = listed
+        .as_array()
+        .expect("a list")
+        .iter()
+        .map(|entry| (entry["title"].clone(), entry["deletedBy"].clone()))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (json!("second"), json!(editor.id)),
+            (json!("first"), json!(th.client.me().await.id)),
+        ],
+        "cards only, the last deleted first"
+    );
+    let members: Vec<&String> = listed[0].as_object().expect("an entry").keys().collect();
+    assert_eq!(members, ["deletedAt", "deletedBy", "id", "title"]);
+    assert_eq!(listed[0]["id"], json!(second.id));
+    assert!(listed[0]["deletedAt"].as_i64().unwrap_or(0) > 0, "{listed}");
+
+    let page: Vec<Value> = boards
+        .editor
+        .get(&format!("{trash}?page=1&perPage=1"))
+        .await
+        .ok_json();
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0]["title"], json!("first"), "the pages cut that order");
+
+    boards.viewer.get(&trash).await.check_error(
+        StatusCode::FORBIDDEN,
+        "access denied to the trash of the board",
+    );
+    th.client2
+        .get(&trash)
+        .await
+        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
+    th.anonymous().get(&trash).await.check_unauthorized();
+
+    // Brought back, a card is no longer listed.
+    th.client
+        .post_empty(&format!("{}/undelete", block_path(board_id, &second.id)))
+        .await
+        .check_ok();
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+}
+
+/// Two deletions a millisecond apart at least, so that their order is that of time.
+async fn a_moment() {
+    tokio::time::sleep(std::time::Duration::from_millis(3)).await;
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). The list of a board's deleted
+/// cards has each card that `undeleteBlock` brings back by itself: a card on another one
+/// deleted alone is there, a card that went with the card it was on comes back with that
+/// one and is not; no comment is a card. Paging as `getCards`; no list for a board in the
+/// trash.
+#[tokio::test]
+async fn the_deleted_cards_are_those_that_come_back_by_themselves() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let board_id = &board.id;
+    let outer = insert_one(&th.client, &new_block(board_id, BlockType::Card, "outer")).await;
+    let inner = insert_one(&th.client, &child_of(&outer, BlockType::Card, "inner")).await;
+    let alone = insert_one(&th.client, &new_block(board_id, BlockType::Card, "alone")).await;
+    let nested = insert_one(&th.client, &child_of(&alone, BlockType::Card, "nested")).await;
+    insert_one(&th.client, &child_of(&alone, BlockType::Comment, "comment")).await;
+    let comment = insert_one(&th.client, &child_of(&outer, BlockType::Comment, "said")).await;
+    delete(&th.client, &comment).await;
+    a_moment().await;
+    delete(&th.client, &nested).await;
+    a_moment().await;
+    delete(&th.client, &outer).await;
+    let trash = format!("/boards/{board_id}/trash/cards");
+    let titles = |listed: &[Value]| -> Vec<Value> {
+        listed.iter().map(|entry| entry["title"].clone()).collect()
+    };
+
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(titles(&listed), [json!("outer"), json!("nested")]);
+    for (query, expected) in [
+        ("?perPage=0", vec![json!("outer"), json!("nested")]),
+        ("?page=-1", vec![]),
+        ("?page=0&perPage=1", vec![json!("outer")]),
+        ("?page=5&perPage=1", vec![]),
+    ] {
+        let listed: Vec<Value> = th.client.get(&format!("{trash}{query}")).await.ok_json();
+        assert_eq!(titles(&listed), expected, "{query}");
+    }
+    for query in ["?page=one", "?perPage=1.5"] {
+        th.client
+            .get(&format!("{trash}{query}"))
+            .await
+            .check_bad_request();
+    }
+
+    // The inner card is not listed, and comes back with the outer one.
+    th.client
+        .post_empty(&format!("{}/undelete", block_path(board_id, &outer.id)))
+        .await
+        .check_ok();
+    let blocks = blocks_of(&th.client, board_id).await;
+    assert!(
+        blocks.iter().any(|block| block.id == inner.id),
+        "the inner card is back"
+    );
+    let listed: Vec<Value> = th.client.get(&trash).await.ok_json();
+    assert_eq!(titles(&listed), [json!("nested")]);
+
+    th.client
+        .delete(&format!("/boards/{board_id}"))
+        .await
+        .check_no_content();
+    th.client
+        .get(&trash)
+        .await
+        .check_error(StatusCode::NOT_FOUND, NO_BOARD);
 }

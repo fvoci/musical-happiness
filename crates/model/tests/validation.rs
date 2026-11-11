@@ -160,6 +160,7 @@ fn register(username: &str, email: &str, password: &str) -> Result<(), String> {
         email: email.to_owned(),
         password: password.to_owned(),
         token: String::new(),
+        display_name: String::new(),
     }
     .validate()
     .map_err(|error| error.to_string())

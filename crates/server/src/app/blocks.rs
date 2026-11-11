@@ -1,6 +1,6 @@
 //! Blocks: reading and changing them, and telling websocket listeners and webhooks.
 
-use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType};
+use fvoci_model::{Block, BlockPatch, BlockPatchBatch, BlockType, CommentVersion};
 use fvoci_store::{BlockFilter, DeletedBlock, DuplicateAs};
 
 use super::App;
@@ -286,6 +286,15 @@ impl App {
             Err(error) if error.is_not_found() => Ok(None),
             Err(error) => Err(error.into()),
         }
+    }
+
+    /// Returns the earlier versions of a comment's body, the first first.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if they cannot be read.
+    pub async fn comment_versions(&self, block_id: &str) -> Result<Vec<CommentVersion>, AppError> {
+        Ok(self.store().get_comment_versions(block_id).await?)
     }
 
     /// Restores a block from the trash, with everything that was deleted along with

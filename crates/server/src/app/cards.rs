@@ -12,7 +12,7 @@ use crate::error::AppError;
 
 /// Which cards of a board a `page` and `per_page` pair asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CardRange {
+pub(super) enum CardRange {
     /// Every card.
     All,
     /// One page of the cards.
@@ -30,7 +30,7 @@ impl CardRange {
     /// with a page size of zero or less is every card (the original's SQLite refuses an
     /// offset without a limit), and an offset beyond the range of the database's
     /// integers finds nothing (the original's arithmetic wraps around).
-    fn new(page: i64, per_page: i64) -> Self {
+    pub(super) fn new(page: i64, per_page: i64) -> Self {
         if per_page <= 0 {
             return Self::All;
         }
@@ -111,13 +111,16 @@ impl App {
         let now = now_millis();
         blocks
             .iter()
-            .map(|(block, summary)| {
+            .map(|listed| {
                 // The fields of a card that are not of their kind are left out
                 // (`card_from_stored_block`), so no stored card fails the list; an
                 // error here would be the server's.
                 // A list says whether a card has a body; the body is read with the card.
-                card_from_stored_block(block, now)
-                    .map(|card| card.listed(*summary))
+                card_from_stored_block(&listed.block, now)
+                    .map(|card| Card {
+                        last_comment_at: listed.last_comment_at,
+                        ..card.listed(listed.summary)
+                    })
                     .map_err(|error| AppError::from(error).context("Block2Card fail"))
             })
             .collect()
@@ -150,7 +153,8 @@ impl App {
             .patch_block(card_id, &block_patch, user_id, notification)
             .await
             .map_err(|error| error.context(format_args!("cannot patch card {card_id}")))?;
-        Ok(card_from_stored_block(&block, now_millis())?)
+        self.with_last_comment_at(card_from_stored_block(&block, now_millis())?)
+            .await
     }
 
     /// Returns the card with the given identifier.
@@ -161,7 +165,28 @@ impl App {
     /// an internal error if the block is not a card or cannot be read as one.
     pub async fn card(&self, card_id: &str) -> Result<Card, AppError> {
         let block = self.block(card_id).await?;
-        Ok(card_from_stored_block(&block, now_millis())?)
+        self.card_of_block(&block).await
+    }
+
+    /// Returns the card of a card block that was read before, with when its last
+    /// comment was posted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an internal error if the block cannot be read as a card, and the store's
+    /// error if its comments cannot be read.
+    pub async fn card_of_block(&self, block: &Block) -> Result<Card, AppError> {
+        self.with_last_comment_at(card_from_stored_block(block, now_millis())?)
+            .await
+    }
+
+    /// The card with when its last comment was posted.
+    async fn with_last_comment_at(&self, card: Card) -> Result<Card, AppError> {
+        let last_comment_at = self.store().get_last_comment_at(&card.id).await?;
+        Ok(Card {
+            last_comment_at,
+            ..card
+        })
     }
 }
 

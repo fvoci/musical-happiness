@@ -100,6 +100,14 @@ pub enum Reason {
     ServerUploadsPending,
     /// The file is larger than one request takes; it is to be sent in parts.
     UploadInParts,
+    /// The user has an export running.
+    ExportRunning,
+    /// The server runs as many exports as it may.
+    ServerExportsBusy,
+    /// The user has an import running.
+    ImportRunning,
+    /// The server runs as many imports as it may.
+    ServerImportsBusy,
 }
 
 impl Reason {
@@ -120,6 +128,10 @@ impl Reason {
             Self::UploadsPending => "uploads_pending",
             Self::ServerUploadsPending => "server_uploads_pending",
             Self::UploadInParts => "upload_in_parts",
+            Self::ExportRunning => "export_running",
+            Self::ServerExportsBusy => "server_exports_busy",
+            Self::ImportRunning => "import_running",
+            Self::ServerImportsBusy => "server_imports_busy",
         }
     }
 }
@@ -289,6 +301,15 @@ impl AppError {
     /// Returns `true` if this is a 404 error.
     pub fn is_not_found(&self) -> bool {
         self.kind == ErrorKind::NotFound
+    }
+
+    /// Returns `true` if this error refuses the requester (401, 403 or 404) rather than
+    /// failing: what an access check answers to a user who may not do what they ask.
+    pub fn is_refusal(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::NotFound | ErrorKind::Forbidden | ErrorKind::Unauthorized
+        )
     }
 
     /// The HTTP status this error is reported with.

@@ -15,6 +15,7 @@ use serde_json::Value;
 
 use crate::Store;
 use crate::boards;
+use crate::comment_versions::{self, EDITED_AT_COLUMN};
 use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 use crate::file_refs;
@@ -22,6 +23,16 @@ use crate::file_refs;
 /// The name of every block column, in the order rows are read and written.
 pub(crate) const BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"schema\", type, title, \
                              fields, create_at, update_at, board_id, body";
+
+/// The columns a block is read with: [`BLOCK_COLUMNS`], and when its body was last
+/// changed if it is a comment with versions.
+pub(crate) fn block_read_columns() -> String {
+    format!("{BLOCK_COLUMNS}, {EDITED_AT_COLUMN}")
+}
+
+/// The column of a block read with [`block_read_columns`] that says when its body was
+/// last changed.
+const EDITED_AT: usize = 12;
 
 /// The columns that [`BLOCK_COLUMNS`] does not read: what is worked out from the body
 /// when it is stored.
@@ -33,12 +44,22 @@ const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"sc
                              fields, create_at, update_at, board_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
+/// When the last comment on the block `blocks.id` was posted, zero for none: its
+/// comments (blocks of the type `comment` whose parent it is; deleted ones are in the
+/// trash) and their `create_at`, which writing a comment again does not change. Read
+/// after [`LISTED_BLOCK_COLUMNS`], at [`LISTED_LAST_COMMENT_AT`], and alone by
+/// [`Store::get_last_comment_at`]. `blocks_parent_type_create_at_idx` answers it.
+const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.create_at) FROM blocks c \
+                                      WHERE c.parent_id = blocks.id AND c.type = 'comment'), 0)";
+
 /// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
 const LISTED_HAS_BODY: usize = 12;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.
 const LISTED_TASKS_TOTAL: usize = 13;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's checked task items.
 const LISTED_TASKS_DONE: usize = 14;
+/// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
+const LISTED_LAST_COMMENT_AT: usize = 15;
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -103,6 +124,17 @@ pub enum DuplicateAs {
     Template,
 }
 
+/// A block as a list gives it: without its body, with what the list says about it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListedBlock {
+    /// The block, without its body.
+    pub block: Block,
+    /// What the list says about the body.
+    pub summary: BodySummary,
+    /// When the block's last comment was posted; zero if it has none.
+    pub last_comment_at: i64,
+}
+
 impl Store {
     /// Writes the fields of a block as they are, without any check: for tests that need
     /// a block as an older server stored it.
@@ -138,7 +170,7 @@ impl Store {
 
     /// Returns the blocks that match `filter` as [`Store::get_blocks`] does, but without
     /// their bodies: each comes with what a list says about its body instead, read from
-    /// what was worked out when the body was stored.
+    /// what was worked out when the body was stored, and when its last comment was posted.
     ///
     /// # Errors
     ///
@@ -147,9 +179,10 @@ impl Store {
     pub async fn get_listed_blocks(
         &self,
         filter: &BlockFilter,
-    ) -> Result<Vec<(Block, BodySummary)>, StoreError> {
+    ) -> Result<Vec<ListedBlock>, StoreError> {
         self.with_conn(async |scope| {
-            let sql = filtered_blocks(scope, filter, LISTED_BLOCK_COLUMNS);
+            let columns = format!("{LISTED_BLOCK_COLUMNS}, {LAST_COMMENT_AT_COLUMN}");
+            let sql = filtered_blocks(scope, filter, &columns);
             scope
                 .fetch_all(sql)
                 .await?
@@ -163,9 +196,32 @@ impl Store {
                         has_body: row.bool(LISTED_HAS_BODY)?,
                         tasks,
                     };
-                    Ok((block_from_row(row)?, summary))
+                    Ok(ListedBlock {
+                        block: block_from_row(row)?,
+                        summary,
+                        last_comment_at: row.int(LISTED_LAST_COMMENT_AT)?,
+                    })
                 })
                 .collect()
+        })
+        .await
+    }
+
+    /// Returns when the last comment on a block was posted (its `create_at`); zero if
+    /// it has none. Deleted comments are in the trash and do not count.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database's error.
+    pub async fn get_last_comment_at(&self, block_id: &str) -> Result<i64, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "SELECT {LAST_COMMENT_AT_COLUMN} FROM blocks WHERE id = "
+            ));
+            sql.bind(Id(block_id));
+            // No such block has no comments.
+            let row = scope.fetch_optional(sql).await?;
+            row.map_or(Ok(0), |row| row.int(0))
         })
         .await
     }
@@ -367,7 +423,7 @@ impl Store {
 
 /// Starts `SELECT <block columns> FROM blocks`.
 pub(crate) fn select_blocks(scope: &Scope<'_>) -> Sql {
-    scope.sql(&format!("SELECT {BLOCK_COLUMNS} FROM blocks"))
+    scope.sql(&format!("SELECT {} FROM blocks", block_read_columns()))
 }
 
 pub(crate) async fn fetch_blocks(
@@ -378,10 +434,16 @@ pub(crate) async fn fetch_blocks(
         .fetch_all(sql)
         .await?
         .iter()
-        .map(block_from_row)
+        .map(|row| {
+            let mut block = block_from_row(row)?;
+            block.edited_at = row.int(EDITED_AT)?;
+            Ok(block)
+        })
         .collect()
 }
 
+/// The block of a row read with [`BLOCK_COLUMNS`] or [`LISTED_BLOCK_COLUMNS`]: without
+/// [`Block::edited_at`].
 fn block_from_row(row: &Row) -> Result<Block, StoreError> {
     Ok(Block {
         id: row.id(0)?,
@@ -401,6 +463,7 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
             Value::Null => None,
             document => Some(Body::from_stored(document)),
         },
+        edited_at: 0,
     })
 }
 
@@ -408,7 +471,7 @@ pub(crate) async fn get_blocks(
     scope: &mut Scope<'_>,
     filter: &BlockFilter,
 ) -> Result<Vec<Block>, StoreError> {
-    let sql = filtered_blocks(scope, filter, BLOCK_COLUMNS);
+    let sql = filtered_blocks(scope, filter, &block_read_columns());
     fetch_blocks(scope, sql).await
 }
 
@@ -582,10 +645,17 @@ async fn insert_block_at(
                 block.id, block.board_id
             )));
         }
+        block.edited_at =
+            if comment_versions::record_change(scope, &existing, block, user_id).await? {
+                block.update_at
+            } else {
+                existing.edited_at
+            };
         file_refs::refresh(scope, block).await
     } else {
         user_id.clone_into(&mut block.created_by);
         block.create_at = now;
+        block.edited_at = 0;
         insert_block_row(scope, block).await
     }
 }
@@ -822,6 +892,13 @@ mod tests {
         assert_eq!(columns[LISTED_TASKS_TOTAL], "body_tasks_total");
         assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
         assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
+        assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
+    }
+
+    #[test]
+    fn edited_at_is_the_column_after_the_block_columns() {
+        assert_eq!(BLOCK_COLUMNS.split(", ").count(), EDITED_AT);
+        assert!(block_read_columns().ends_with(EDITED_AT_COLUMN));
     }
 
     #[test]

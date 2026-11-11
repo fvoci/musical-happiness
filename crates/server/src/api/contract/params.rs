@@ -59,7 +59,7 @@ parameter!(OneBlockId: Query "blockId", String, False, "Asks for the one block w
 parameter!(ParentId: Query "parentId", String, False, "Narrows the list to the blocks with this parent. With the identifier of the board, to the blocks directly on the board.");
 parameter!(BlockTypeFilter: Query "type", String, False, "Narrows the list to the blocks of this type. The word `unknown` narrows nothing.");
 parameter!(Page: Query "page", i64, False, "The page, counted from 0. Left out, the first one.");
-parameter!(PerPage: Query "perPage", i64, False, "How many cards a page has. Left out, 100. Zero or less asks for all cards.");
+parameter!(PerPage: Query "perPage", i64, False, "How many a page has. Left out, 100. Zero or less asks for all of them.");
 parameter!(SearchTerm: Query "q", String, False, "What to look for. Without it nothing is found.");
 parameter!(SearchField: Query "field", String, False, "What the term is matched against: `title` (also when left out), or `property_name`, for the boards whose own `properties` object has a member named exactly as the term. Anything else is 400.");
 parameter!(UserSearch: Query "search", String, False, "Narrows the list to users whose name has this text in it. In the text `%` stands for any text and `_` for any one character. Whether the case of letters counts depends on the database the server runs on.");

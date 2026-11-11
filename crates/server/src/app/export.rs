@@ -18,6 +18,7 @@ use tokio::fs;
 use zip::write::{SimpleFileOptions, ZipWriter};
 
 use super::App;
+use super::doomed::Doomed;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
@@ -31,14 +32,37 @@ pub(crate) const EXPORTS_DIR: &str = "exports";
 /// How much of an entry is gathered before it is handed to the archive writer.
 const WRITE_CHUNK_BYTES: usize = 1024 * 1024;
 
-/// An archive written to a temporary file, ready to be sent: the file is open, and gone
-/// from its directory.
+/// An archive written to a temporary file, ready to be sent. The file is removed when
+/// this is dropped.
 #[derive(Debug)]
 pub struct ExportedArchive {
     /// The archive, read from its start.
     pub file: fs::File,
     /// Its size in bytes.
     pub size: u64,
+    /// Where the file is; held only to remove it. After `file`, so that the file is
+    /// closed before it is removed.
+    _path: Doomed,
+}
+
+impl ExportedArchive {
+    /// An archive in the file at `path`, open from its start, of `size` bytes.
+    pub(crate) fn new(file: fs::File, size: u64, path: Doomed) -> Self {
+        Self {
+            file,
+            size,
+            _path: path,
+        }
+    }
+
+    /// Closes the file and removes it, and waits for that.
+    pub(crate) async fn remove(self) {
+        let Self {
+            file, _path: path, ..
+        } = self;
+        drop(file);
+        path.remove().await;
+    }
 }
 
 impl App {
@@ -47,9 +71,9 @@ impl App {
     ///
     /// Each board is written with its blocks and members; a file a block shows is added
     /// if it exists and left as an empty entry if it is missing, as the original does.
-    /// The file is removed from its directory once it is open, so that nothing of it is
-    /// left however the sending ends; what a stopped server leaves is removed when it
-    /// starts again.
+    /// The file stays in its directory while it is sent and is removed with the
+    /// [`ExportedArchive`] (sent, given up, or the client gone); what a stopped server
+    /// leaves is removed when it starts again.
     ///
     /// # Errors
     ///
@@ -71,26 +95,19 @@ impl App {
         fs::create_dir_all(&directory)
             .await
             .map_err(|error| io_error(&error))?;
-        let path = directory.join(format!("{}.boardarchive", new_secret()));
-        let written = self.write_archive(&path, team_id, &boards).await;
-        let opened = match written {
-            Ok(()) => fs::File::open(&path)
-                .await
-                .map_err(|error| io_error(&error)),
-            Err(error) => Err(error),
-        };
-        if let Err(error) = fs::remove_file(&path).await
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            tracing::warn!(%error, "a temporary archive could not be removed");
-        }
-        let file = opened?;
+        // Removed however the export ends, also when its request is dropped meanwhile: the
+        // file stays while it is sent, and goes with the archive.
+        let path = Doomed::file(directory.join(format!("{}.boardarchive", new_secret())));
+        self.write_archive(path.path(), team_id, &boards).await?;
+        let file = fs::File::open(path.path())
+            .await
+            .map_err(|error| io_error(&error))?;
         let size = file
             .metadata()
             .await
             .map_err(|error| io_error(&error))?
             .len();
-        Ok(ExportedArchive { file, size })
+        Ok(ExportedArchive::new(file, size, path))
     }
 
     /// Writes the archive of `boards` to a new file at `path`.

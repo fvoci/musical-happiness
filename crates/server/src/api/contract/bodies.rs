@@ -229,6 +229,15 @@ pub(crate) struct AdminChange {
     is_admin: bool,
 }
 
+/// What a user changes of their account. A member that is left out stays as it is.
+#[derive(Debug, ToSchema)]
+#[schema(rename_all = "camelCase")]
+pub(crate) struct AccountChange {
+    /// The name to be shown by: at most 64 UTF-16 code units without control
+    /// characters. Empty or `null` for none, and the login name is shown.
+    display_name: Option<String>,
+}
+
 /// The settings to change. A member that is left out stays as it is; one that is `null`
 /// goes back to its default.
 #[derive(Debug, ToSchema)]
@@ -249,6 +258,11 @@ pub(crate) struct SettingsChange {
     density: Option<Density>,
     /// Whether a device that can do so answers touches with a vibration.
     haptics: Option<bool>,
+    /// `auto`, for the language of the browser, or a language tag such as `ko` or
+    /// `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at most 64
+    /// characters; the server keeps no list of languages, and keeps a tag as given.
+    #[schema(max_length = 64)]
+    language: Option<String>,
 }
 
 /// The bytes of a file, as the body of an answer.

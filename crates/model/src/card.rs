@@ -87,6 +87,15 @@ pub struct Card {
     /// Deletion time in milliseconds since the Unix epoch; zero if not deleted.
     #[serde(deserialize_with = "null_as_default")]
     pub delete_at: i64,
+    /// When the card's last comment was posted (the `createAt` of the newest of its
+    /// comments, the blocks of the type `comment` directly on it), in milliseconds since
+    /// the Unix epoch; zero if it has none. Changing a comment does not change it; a
+    /// deleted comment does not count, and counts again with its time if restored. A
+    /// comment does not change the card's `updateAt`. A new comment comes as
+    /// `UPDATE_BLOCK`, so a client can keep the newer time; after a deletion the card is
+    /// read again for it. A number sent here in a request is ignored.
+    #[serde(deserialize_with = "null_as_default")]
+    pub last_comment_at: i64,
 }
 
 impl Card {
@@ -142,7 +151,9 @@ impl Card {
 
     /// Builds a card from a block of type `card`.
     ///
-    /// Missing fields take their empty value, and a zero timestamp becomes `now`.
+    /// Missing fields take their empty value, and a zero timestamp becomes `now`. Its
+    /// `last_comment_at` is zero: a block does not know its comments, and whoever gives
+    /// the card out reads them (the app's `card_of_block`, the card list).
     ///
     /// # Errors
     ///
@@ -198,6 +209,8 @@ impl Card {
             create_at: block.create_at,
             update_at: block.update_at,
             delete_at: block.delete_at,
+            // A block does not know its comments.
+            last_comment_at: 0,
         };
         card.populate(now);
         Ok(card)
@@ -227,6 +240,7 @@ impl From<Card> for Block {
             update_at: card.update_at,
             delete_at: card.delete_at,
             board_id: card.board_id,
+            edited_at: 0,
         }
     }
 }

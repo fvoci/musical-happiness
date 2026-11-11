@@ -94,7 +94,7 @@ fvoci 서버 전체에 걸친 사실을 적는 문서다. 서버는 `crates/` �
 | 세션 | `HttpOnly` 쿠키나 `Authorization: Bearer`로 전한다. 한가함 14일, 절대 90일에 끝난다 | G, H |
 | 관리자 | 처음 가입한 사용자가 관리자다. 가입 토큰은 관리자만 본다 | G |
 | 공유 | 읽기 토큰은 서버가 만든다. 공유를 끄면 토큰을 지운다 | G |
-| 사용자 설정 | 계정의 표시 설정 일곱과, 한도가 있는 화면 상태의 주머니 | G |
+| 사용자 설정 | 계정의 표시 설정 여덟과, 한도가 있는 화면 상태의 주머니 | G |
 | 최소 역할 | 모든 보드에 있다. 참여와 추가가 그 역할을 준다 | G |
 | 로그인 제한 | 이름과 주소의 쌍마다 점점 길어지는 대기, 이름마다의 잠금, 주소마다의 분당 횟수, 해시 대기열. 거절은 429다 | I |
 | 이름 | 경로, 질의 매개변수, JSON 멤버가 한 표기다 | L |
@@ -326,7 +326,7 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 | **내장 템플릿은 표식 열로 구분한다.** `boards.is_builtin`(와이어 `isBuiltin`). 만든 사용자가 없는(`createdBy`가 빈) 템플릿이다. 루트 팀에 속하고 모든 팀에 제공된다: `GET /teams/{team}/templates`가 그 팀의 템플릿과 내장 템플릿을 함께 답한다. `system`이라는 사용자와 내장 템플릿의 관리자 멤버십은 없다. 클라이언트가 보낸 `isBuiltin`은 무시한다. 사용자가 루트 팀에 만든 템플릿은 `trackingTemplateId`를 받지 않는다(전에는 팀 `0`의 템플릿이면 받았다) | 설계의 결정 6. 온보딩(S18)이 "시스템이 만든 보드"를 `createdBy`의 글자가 아니라 이 열로 본다 | `Store::{get_builtin_templates, remove_builtin_templates}`, `app/templates.rs` |
 | **채널이 없다.** 보드와 패치의 `channelId` 멤버, 채널 열, 채널 권한 검사가 없다. 패치에 `channelId`가 와도 무시한다 | 설계의 결정 4에서 이 단계로 미뤄 둔 것 | 모델 `Board`, `BoardPatch` |
 | **파일.** 저장 이름은 비밀 값 + 확장자다(템플릿 보드에 올려도 같다. 전에는 클라이언트의 이름을 그대로 썼다). 파일 기록(`file_info`)에 기본 키, `board_id`, 저장 이름(`name`), 올린 이름(`original_name`)이 있고, 파일은 `(보드, 저장 이름)`으로 찾는다. 기록이 없는 파일은 어느 보드로도 나가지 않는다. 정보 JSON은 `id`, `createAt`, `name`, `extension`, `size`다. 쓰이지 않던 채움 멤버 여섯과 삭제 표시(`delete_at`, `archived`)는 없다 | 설계 3.2·3.9. S16의 "파일은 한 보드의 것"이 경로 문자열이 아니라 열이 됐다. 이름의 첫 글자를 떼어 기록을 찾던 규칙이 없어졌다 | `app/files.rs`, `store/file_info.rs` |
-| 읽기 토큰만으로(세션 없이) 읽은 보드와 블록의 `createdBy`·`modifiedBy`는 빈 값이다 | 설계의 결정 7. UUIDv7이 그 사용자의 가입 시각을 드러낸다 | `api/boards.rs`, `api/blocks.rs` |
+| 읽기 토큰만으로(세션 없이, 또는 토큰 없이는 읽지 못하는 사용자가) 읽은 보드와 블록에는 사용자 ID가 없다(`createdBy`·`modifiedBy`, 멘션, 사람 속성과 뷰 필터의 값) | 설계의 결정 7. UUIDv7이 그 사용자의 가입 시각을 드러낸다 | `Board::hide_people`, `Block::hide_people` |
 | 사용자 이름과 이메일은 대소문자와 무관하게 하나뿐이다(유일 색인 `lower(…)`). 조회도 대소문자를 무시한다. 동시에 온 가입 둘 가운데 하나는 409다(전에는 둘 다 들어갔다) | 설계 3.9. SQLite의 `lower()`는 ASCII만 접는다(PostgreSQL은 DB의 로케일을 따른다). 두 DB의 차이로 적어 둔다 | `store/users.rs`, `StoreError::Conflict` |
 | 보드에 바로 달린 블록에는 부모가 없다. 복제와 가져오기에서 "부모 = 보드 ID"는 빈 `parentId`가 된다(전에는 복사본이 **원본** 보드의 ID를 부모로 들고 있었다). 가져오기는 부모가 아카이브에 없는 블록을 건너뛴다(내장 템플릿의 주인 없는 블록 38개가 이제 저장되지 않는다. 어느 카드에도 속하지 않아 화면에 보인 적이 없다) | UUID 열에는 옛 형식의 ID가 들어갈 수 없다. 부모의 외래 키와 그 규칙은 아래 "삭제와 복원에서 바뀐 것"의 "부모" 행에 있다 | `fvoci_model::renew_boards_and_blocks_ids`, `app/import.rs`의 `drop_orphans` |
 | 스키마에서 뺀 것: `blocks.root_id`·`channel_id`, `boards.channel_id`, `categories.channel_id`, `sharing.workspace_id`, `subscriptions.workspace_id`, `board_members.roles`, `users.mfa_secret`·`auth_service`·`auth_data`·`props`, 테이블 `notification_hints`·`system_settings`·`board_members_history`. 길이 제한이 붙은 `VARCHAR`는 `TEXT`로, 대부분의 열은 `NOT NULL`로 | 설계 3.1. 쓰이지 않거나 값이 하나뿐이었다. 저장소의 쓰이지 않는 함수(`get_board_count`, `get_active_user_count`, `update_user`, `update_session`, 시스템 설정 등)도 함께 지웠다 | `crates/store/schema/` |
@@ -430,14 +430,14 @@ D절의 변경과, A절·C절의 변경을 `beautiful-rust:rust-review`로 검�
 
 | 지금의 동작 | 왜 | 어디 |
 |---|---|---|
-| **설정은 계정의 것이고 닫힌 집합이다.** `GET /users/me/settings`가 일곱 설정을 모두 답한다(저장된 값이 없으면 기본값): `timeZone`(`"auto"` 또는 IANA 이름), `weekStart`(auto·sunday·monday·saturday), `hourCycle`(auto·h12·h23), `theme`(auto·light·dark), `cardOpen`(center·side·full, 기본 center), `density`(auto·compact·comfortable), `haptics`(불리언, 기본 true). 뒤의 넷은 사용자가 구현 중에 더했다 | 설계 5.8의 C | `fvoci_model::{UserSettings, UserSettingsPatch}`(`crates/model/src/settings.rs`) |
+| **설정은 계정의 것이고 닫힌 집합이다.** `GET /users/me/settings`가 여덟 설정을 모두 답한다(저장된 값이 없으면 기본값): `timeZone`(`"auto"` 또는 IANA 이름), `weekStart`(auto·sunday·monday·saturday), `hourCycle`(auto·h12·h23), `theme`(auto·light·dark), `cardOpen`(center·side·full, 기본 center), `density`(auto·compact·comfortable), `haptics`(불리언, 기본 true), `language`(`"auto"` 또는 모양만 검사한 언어 태그). `theme`부터 넷은 사용자가 구현 중에, `language`는 2026-11-11에 더했다 | 설계 5.8의 C | `fvoci_model::{UserSettings, UserSettingsPatch}`(`crates/model/src/settings.rs`) |
 | `PATCH /users/me/settings`: 보낸 멤버만 바꾸고 모든 설정을 답한다. `null`은 기본값으로 되돌린다. 모르는 멤버(`locale`, `timezone`)와 그 설정이 가질 수 없는 값은 400이고 `field`가 그 멤버다. 한 멤버라도 틀리면 아무것도 저장되지 않는다. 값은 대소문자를 구별한다 | 같은 곳. 계약이 설정을 전부 말한다 | `api/users.rs` |
 | 시간대 이름은 바이너리에 넣은 IANA DB로 본다(`chrono-tz` 0.10). 옛 별칭(`Asia/Calcutta`)은 받아서 받은 그대로 저장한다. `"auto"`는 풀지 않는다 | 설계 5.8의 B. 배치마다 답이 같다 | `fvoci_model::TimeZone` |
 | **화면 상태의 주머니에 한도가 있다.** 주머니의 라우트는 `GET`·`PATCH /users/me/client-state`다(L절에서 `GET /users/me/config`, `PUT /users/{id}/config`를 바꿨다). 키는 `[A-Za-z0-9_.-]` 1–64자, 값은 4 KiB까지, 사용자당 100개. 넘으면 400(`field: updatedFields`, 개수는 `limit: 100`). 개수는 변경과 같은 트랜잭션에서 센다. 답은 `{이름: 값}` 객체다 | 설계 5.8. 전에는 아무 이름, 아무 크기, 아무 개수가 들어갔다 | `UserPreferencesPatch::validate`, `StoreError::TooManyPreferences` |
 | 저장: 둘 다 `preferences` 테이블, `category`가 `settings`와 `client`다(전에는 하나, `fvoci`). 같은 이름의 설정과 주머니 항목은 서로 다른 것이다. 이 빌드가 모르는 설정 이름이나 읽지 못하는 값의 행은 건너뛰고 그 설정은 기본값이다 | 설계 5.8. 다른 빌드가 쓴 값이 설정 전체를 깨뜨리지 않는다 | `Store::{get_user_settings, patch_user_settings}` |
 | 오류 본문의 `limit`는 바이트(413)뿐 아니라 개수에도 쓴다 | 주머니의 한도를 알려 준다 | `AppError::with_limit` |
 
-**고정하는 것.** 회귀 시나리오 `settings`가 기본값, 일곱 설정의 변경과 되돌리기, 설정마다의 거절 문구, 주머니의 한도를 고정한다. 테스트는 모델 단위 `settings::tests`, API `users::settings_*`와 `client_state_*`, 스토어의 둘이다.
+**고정하는 것.** 회귀 시나리오 `settings`가 기본값, 여덟 설정의 변경과 되돌리기, 설정마다의 거절 문구, 주머니의 한도를 고정한다. 테스트는 모델 단위 `settings::tests`, API `users::settings_*`와 `client_state_*`, 스토어의 둘이다.
 
 #### 최소 역할에서 바뀐 것
 

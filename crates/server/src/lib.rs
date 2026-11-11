@@ -43,6 +43,7 @@ use crate::app::App;
 use crate::auth::token::Credential;
 use crate::client_address::TrustedProxies;
 use crate::config::Configuration;
+use crate::connection::{BreakableListener, Connection};
 use crate::error::{AppError, ErrorKind, ReportedError};
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
@@ -243,18 +244,20 @@ impl Server {
         let purge = start_trash_purge(&self.app);
         let uploads = start_upload_clean_up(&self.app);
 
-        let service = self.router().into_make_service_with_connect_info::<Peer>();
+        let service = self
+            .router()
+            .into_make_service_with_connect_info::<Connection>();
         let stop = CancellationToken::new();
         let stopped = stop.clone().cancelled_owned();
         let serving = async move {
             if let Some(tls) = tls {
                 tracing::info!(%address, "https server started");
-                axum::serve(TlsListener::new(listener, tls), service)
+                axum::serve(BreakableListener(TlsListener::new(listener, tls)), service)
                     .with_graceful_shutdown(stopped)
                     .await
             } else {
                 tracing::info!(%address, "http server started");
-                axum::serve(listener, service)
+                axum::serve(BreakableListener(listener), service)
                     .with_graceful_shutdown(stopped)
                     .await
             }
@@ -733,6 +736,7 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
     })
 }
 
+pub mod connection;
 mod request_log;
 
 mod tls;

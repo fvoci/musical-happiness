@@ -13,7 +13,7 @@ use super::category::CATEGORY;
 use crate::error::AppError;
 
 /// The name of the category every user has, which collects the boards filed nowhere else.
-pub const DEFAULT_CATEGORY_BOARDS: &str = "Boards";
+pub const DEFAULT_CATEGORY_BOARDS: &str = fvoci_model::DEFAULT_CATEGORY_NAME;
 
 fn has_default_category(category_boards: &[CategoryBoards]) -> bool {
     category_boards
