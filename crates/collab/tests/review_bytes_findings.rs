@@ -6,9 +6,9 @@
 
 mod support;
 
-use fvoci_collab::{UpdateError, new_doc, state_of, to_body, with_update};
-use support::ROOMY;
+use fvoci_collab::{UpdateError, new_doc, repair, state_of, to_body, with_update};
 use support::wire::{Change, Content, Parent, Update, value};
+use support::{ROOMY, from_base64};
 
 /// A paragraph under the body's root by client 5, and the update that makes it.
 fn paragraph() -> Update {
@@ -95,4 +95,36 @@ fn an_update_with_a_large_whole_number_leaves_a_state_that_is_taken_again() {
         Ok::<(), UpdateError>(()),
         "the update was taken, and the state it leaves is refused"
     );
+}
+
+/// The first case the search found (seed 111): an update leaves a text that holds
+/// something that is no text, and with what fails deleted the root would hold
+/// something that is neither a node nor a text. No repair mends that: the repair
+/// fails, and deletes nothing, where it used to make its deletions first.
+#[test]
+fn a_repair_that_fails_leaves_the_document_as_it_was() {
+    let before = from_base64(concat!(
+        "ASQHAAcBB2RlZmF1bHQDC29yZGVyZWRMaXN0BwAHAAMIbGlzdEl0ZW0HAAcBAwlwYXJhZ3JhcGgHAAcC",
+        "BgQABwMHd29yZAkiXIQHChvDqfCfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkaZGBwQEbGluaxR7ImhyZWYi",
+        "OiIvYm9hcmRzLzUifcYHCgcLBGxpbmsEbnVsbCgABwAFc3RhcnQBfQFHBwADCXBhcmFncmFwaAcABxoG",
+        "BAAHGwEKhAccBQk8Yj5hRgccBGxpbmsUeyJocmVmIjoiL2JvYXJkcy8wIn3GBxwHHQRsaW5rBG51bGxG",
+        "ByIGaXRhbGljAnt9wQcjBx0BRgckBnN0cmlrZQJ7fcEHJQcdAUYHJgRjb2RlAnt9wQcnBx0BhgchBml0",
+        "YWxpYwRudWxshgcqBnN0cmlrZQRudWxshgcrBGNvZGUEbnVsbEcHGwMKaW5saW5lTWF0aCgABy0FbGF0",
+        "ZXgBdxwJ8J+RqeKAjfCfkanigI3wn5Gn4oCN8J+RpsOpRwctBgQABy8cCSJc8J+RqeKAjfCfkanigI3w",
+        "n5Gn4oCN8J+RpkYHMARib2xkAnt9hgc9BGJvbGQEbnVsbEYHPgZpdGFsaWMCe32GBz8GaXRhbGljBG51",
+        "bGxGB0AGc3RyaWtlAnt9hgdBBnN0cmlrZQRudWxsRgdCBGNvZGUCe32GB0MEY29kZQRudWxsAQcDJQEn",
+        "ASkB",
+    ));
+    let update = from_base64(concat!(
+        "AwAHRgYDAIEHMQEGAQdkZWZhdWx0DmJvbGQtLWFiY2RlZmdoC1sxLFsyLFszXV1dgQMHAIcCAQYBAQdk",
+        "ZWZhdWx0/////wMHAAMCBgMCAIQHFAZhd29yZCAHAQdkZWZhdWx0Awh0YXNrSXRlbUQHOwLDqQA=",
+    ));
+    let doc = with_update(&new_doc(), &before, &ROOMY).expect("a body");
+    let with = with_update(&doc, &update, &ROOMY).expect("taken");
+    let refused = to_body(&with);
+    assert!(refused.is_err(), "no body as it is");
+    let state = state_of(&with);
+    assert!(repair(&with).is_err(), "no repair mends it");
+    assert_eq!(state_of(&with), state, "the repair deleted nothing");
+    assert_eq!(to_body(&with), refused, "the same refusal");
 }

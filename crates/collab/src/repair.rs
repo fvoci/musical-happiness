@@ -2,12 +2,16 @@
 
 use fvoci_model::{BODY_MAX_DEPTH, Body, BodyError};
 use serde_json::{Value, json};
-use yrs::{Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, XmlElementRef, XmlFragmentRef};
+use yrs::updates::decoder::Decode;
+use yrs::{
+    Array, ArrayRef, Doc, ReadTxn, Transact, TransactionMut, Update, XmlElementRef, XmlFragmentRef,
+};
 
 use crate::FIELD;
 use crate::project::project;
 use crate::read::{self, Child, Content};
 use crate::schema::{self, Place};
+use crate::update::copy_of;
 
 /// What a repair did.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,30 +49,59 @@ pub struct Repair {
 /// an editor's binding throws. And a node that holds letters or values where its
 /// children belong, which an editor passes over, is deleted whole.
 ///
+/// The deletions are made on a copy of the document first, and made to `doc` only when
+/// the copy is a body with them: a repair that fails leaves `doc` as it was.
+///
 /// # Errors
 ///
-/// Nothing is deleted when an error is returned, but for the last one named here.
+/// Nothing is deleted when an error is returned.
 ///
 /// Returns [`BodyError::TooLarge`], [`BodyError::TooDeep`] or
 /// [`BodyError::TooManyNodes`] if what would be left is past a limit, or a node that is
 /// judged is past one by itself: deleting what fails is not meant to bring a document
 /// under a limit. Returns [`BodyError::InvalidNode`] with an empty path if the root
-/// itself holds letters or values (there is no node to delete in their place), or if
-/// more than a thousand separate stretches of children would have to be deleted: a
+/// itself holds letters or values (there is no node to delete in their place), if
+/// more than a thousand separate stretches of children would have to be deleted (a
 /// repair is for what a merge of edits leaves, and each stretch costs a walk through
-/// its parent. Any
-/// other error means the repaired document was still refused, which is a defect of
-/// this crate; the deletions were made.
+/// its parent), or if the document cannot be copied, which nothing this crate takes
+/// leaves it unable to be. Any other error means the document would still be refused
+/// with the deletions.
 pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
-    let root = doc.get_or_insert_xml_fragment(FIELD);
-    let mut txn = doc.transact_mut();
-    if let Ok(body) = project(&txn, &root) {
-        return Ok(Repair {
+    let (repair, copy) = repaired(doc)?;
+    if let (Some(_), Some(deletions)) = (copy, &repair.update) {
+        // The copy was made from the state of `doc`, so its deletions are deletions of
+        // changes `doc` has, and leave it as they left the copy.
+        let deletions = Update::decode_v1(deletions).map_err(|_| uncopied())?;
+        doc.transact_mut()
+            .apply_update(deletions)
+            .map_err(|_| uncopied())?;
+    }
+    Ok(repair)
+}
+
+/// [`repair`] without changing `doc`: what the repair does, and the repaired copy of the
+/// document. No copy if the document is a body already.
+///
+/// # Errors
+///
+/// As [`repair`].
+pub(crate) fn repaired(doc: &Doc) -> Result<(Repair, Option<Doc>), BodyError> {
+    let as_it_is = {
+        let txn = doc.transact();
+        txn.get_xml_fragment(FIELD)
+            .map_or(Ok(None), |root| project(&txn, &root))
+    };
+    if let Ok(body) = as_it_is {
+        let repair = Repair {
             deleted: 0,
             update: None,
             body,
-        });
+        };
+        return Ok((repair, None));
     }
+    let copy = copy_of(doc).map_err(|_| uncopied())?;
+    let root = copy.get_or_insert_xml_fragment(FIELD);
+    let mut txn = copy.transact_mut();
     let found = Survey { txn: &txn }.root(&root)?;
     // What would be left is judged whole, for the limits, before anything is deleted.
     let left = found.content.into_nodes();
@@ -87,11 +120,21 @@ pub fn repair(doc: &Doc) -> Result<Repair, BodyError> {
     }
     let body = project(&txn, &root)?;
     let update = (deleted > 0).then(|| txn.encode_update_v1());
-    Ok(Repair {
+    drop(txn);
+    let repair = Repair {
         deleted,
         update,
         body,
-    })
+    };
+    Ok((repair, Some(copy)))
+}
+
+/// The refusal of a document that cannot be copied to be repaired.
+fn uncopied() -> BodyError {
+    BodyError::InvalidNode {
+        path: String::new(),
+        problem: "the document cannot be read again to be repaired",
+    }
 }
 
 /// How many stretches of neighbouring children a repair deletes at most. The library
