@@ -1400,7 +1400,7 @@
   - 실패하면 알리지 않는다(401만 로그인 화면으로). 서버는 한 사람이라도 없거나 비활성이면 묶음 전체를 404로 거절하므로, 그때는 이름을 모두 모른다. 사용자를 비활성으로 만드는 조작이 아직 없어 그대로 뒀다.
   - 메모리 구현도 서버만큼 엄격하다: 빈 목록은 400, 같은 식별자 둘은 404.
   - 바꾸려면: `state/backend.ts`의 `usersById`, `workspace.svelte.ts`의 `learnUsers`와 `load`, `board.svelte.ts`의 `load`와 `#apply`.
-- **연결 10.** 보드의 카드는 한 번에 다 읽는다(`getCards`의 `perPage` 0). 카드 상세는 `getCard`이고 본문을 싣는다. 본문 쓰기는 `patchCard`의 `body`와 `readAt`(그 카드를 읽은 판)이고, 카드의 다른 고치기와 같은 차례(연결 12)에 선다. 409를 받으면 카드 저장소가 다시 읽어, 본문이 아는 것과 같으면 새 판으로 다시 보내고(네 번까지) 다르면 읽는 사람에게 묻는다(`state/card.svelte.ts`).
+- **연결 10.** 보드의 카드는 한 번에 다 읽는다(`getCards`의 `perPage` 0). 카드 상세는 `getCard`이고 본문을 싣는다. 본문 쓰기는 `patchCard`의 `body`와 `readAt`(그 카드를 읽은 판)이고, 카드의 다른 고치기와 같은 차례(연결 12)에 선다. 409를 받으면 카드 저장소가 다시 읽어, 본문이 아는 것과 같으면 새 판으로 다시 보내고(모두 네 번까지 보낸다) 다르면 읽는 사람에게 묻는다(`state/card.svelte.ts`).
   - 왜: 화면의 저장소가 보드의 카드를 모두 들고 거르고 묶는다. 쪽을 나눠 읽으면 그 가정이 깨진다.
   - 카드 하나를 읽는 라우트(`GET /cards/{cardId}`)는 읽을 수 있는 어느 보드의 카드든 준다. 다른 보드의 카드면 404로 바꾼다(메모리 구현과 같다): 주소에 남의 보드의 카드가 있어도 이 보드에 섞이지 않게.
   - 바꾸려면: `lib/api/backend.ts`의 `cards`, `card`.
@@ -1473,7 +1473,7 @@
 
 **겹친 것 가운데 동작이 걸린 것** (정할 것이 있어 묶어 두지 않았다)
 
-- ✔ **선택지 편집이 두 벌이다**: 카드 상세(`features/card/property-actions.ts`, `property-change.ts`)와 칸반(`features/views/kanban/board-data.ts`). 새 선택지의 id를 만드는 방식도 다르다(`createId('none')`과 `createId('block')`). 표의 칸에서는 선택지를 새로 만들지 못한다(테이블 절의 6번). 하나로 모으려면 `lib/state`에 "속성 정의를 고치는 쓰기"를 두어야 하고, 그 쓰기가 서버에서 한 번의 요청인지(속성 종류를 바꿀 때 카드 값까지) 적을 때는 몰랐다(`contract-assumptions.md`의 "카드 상세"에 있는 질문 1). 그 뒤 계약이 나왔고 여러 블록을 한 번에 고치는 조작(`boards-and-blocks`)이 거기 있다. 아직 모으지 않았다.
+- ✔ **선택지 편집이 두 벌이다**: 카드 상세(`features/card/property-actions.ts`, `property-change.ts`)와 칸반(`features/views/kanban/board-data.ts`). 새 선택지의 id를 만드는 방식도 다르다(`createId('none')`과 `createId('block')`). 표의 칸에서는 선택지를 새로 만들지 못한다(테이블 절의 6번). 하나로 모으려면 `lib/state`에 "속성 정의를 고치는 쓰기"를 두어야 하고, 그 쓰기가 서버에서 한 번의 요청인지(속성 종류를 바꿀 때 카드 값까지) 적을 때는 몰랐다(지금은 `contract-assumptions.md` 4절의 A7). 그 뒤 계약이 나왔고 여러 블록을 한 번에 고치는 조작(`boards-and-blocks`)이 거기 있다. 아직 모으지 않았다.
 - ✔ **카드를 지울 때 묻는 곳과 묻지 않는 곳**: 카드 상세는 묻고(`CardHeader.svelte`의 `ConfirmDialog`), 칸반·갤러리·표의 메뉴는 묻지 않고 지운다(실행 취소로 되돌린다). 취향이 갈리는 동작이라 그대로 두고 물었다. **답이 났다: 어디서나 묻지 않는다**(사용자 결정, 2026-11-11 02:12 KST). 카드 상세 쪽을 고쳤다(웹 연결의 tracer-bullet 8). 묻지 않는 쪽의 자리는 `kanban/CardMenu.svelte`의 `delete`, `table/table.svelte.ts`의 `#deleteCard`다.
 - **"링크 복사"가 세 가지 방식이다**(카드 메뉴 셋). 주소를 만드는 것은 조립(`src/app`)이 넘긴 `cardHref` 하나라 결과는 같다. 확인을 보이는 방식만 다르다. 틀에 알림 자리가 생기면 그리로 모은다(칸반 절의 "링크 복사" 줄).
 - **뷰의 필터에 맞는 새 카드의 속성 값을 정하는 코드가 네 곳**(`src/app/BoardPage.svelte`, `Gallery.svelte`, 칸반의 `propertiesForColumn`, 표의 `addCard`). 계산은 `lib/logic/filter.ts`의 한 함수이고 네 곳은 그 위에 그룹의 값을 얹는 방식이 뷰마다 다르다. "보이는 열에 만들기"(Q16)를 만들 때 함께 정리한다.

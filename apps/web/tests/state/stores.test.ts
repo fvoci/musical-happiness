@@ -114,6 +114,34 @@ describe('the workspace', () => {
     expect(workspace.problems).toEqual([]);
   });
 
+  it('stops listening when the session is over, and listens again once read afresh', async () => {
+    const { workspace, backend } = setup();
+    const stopped = vi.fn();
+    const listen = backend.watchSelf.bind(backend);
+    const watchSelf = vi.spyOn(backend, 'watchSelf').mockImplementation((listener) => {
+      const stop = listen(listener);
+      return () => {
+        stopped();
+        stop();
+      };
+    });
+    await workspace.load();
+    const first = workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const board = await workspace.openBoard(first.id);
+    const stopBoard = vi.spyOn(board, 'close');
+
+    workspace.report('save', new BackendError(401, { message: 'session over' }));
+    expect(workspace.status).toBe('signedOut');
+    expect(stopped).toHaveBeenCalledOnce();
+    expect(stopBoard).toHaveBeenCalled();
+    expect(workspace.board).toBeUndefined();
+
+    await workspace.load();
+    expect(workspace.status).toBe('ready');
+    expect(watchSelf).toHaveBeenCalledTimes(2);
+  });
+
   it('reads the names of people the list of the team did not bring, once', async () => {
     const { workspace } = setup();
     await workspace.load();
