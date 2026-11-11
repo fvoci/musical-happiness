@@ -108,7 +108,9 @@ impl FileBackend {
             #[cfg(feature = "test-util")]
             Self::Faulty(inner, faults) => {
                 faults.check(FaultyOp::Write, path)?;
-                Box::pin(inner.write(path, reader)).await
+                let written = Box::pin(inner.write(path, reader)).await?;
+                faults.check(FaultyOp::WriteAnswerLost, path)?;
+                Ok(written)
             }
         }
     }

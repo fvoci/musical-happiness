@@ -129,18 +129,18 @@ impl Store {
         .await
     }
 
-    /// Dooms the object being written at `path`, for the writer that gave it up.
-    /// Returns whether it was being written: if it was not, it was recorded or doomed
-    /// already, and is none of the writer's.
+    /// Dooms the object being written at `path`, for the writer that gave it up, to be
+    /// removed from `remove_at` on. Returns whether it was being written: if it was not,
+    /// it was recorded or doomed already, and is none of the writer's.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn doom_writing(&self, path: &str) -> Result<bool, StoreError> {
+    pub async fn doom_writing(&self, path: &str, remove_at: i64) -> Result<bool, StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("UPDATE loose_objects SET state = ");
             sql.bind(LooseState::Doomed.as_str())
-                .push_bind(", retry_at = ", now_millis())
+                .push_bind(", retry_at = ", remove_at)
                 .push_bind(" WHERE path = ", path)
                 .push_bind(" AND state = ", LooseState::Writing.as_str());
             Ok(scope.execute(sql).await? > 0)

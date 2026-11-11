@@ -124,9 +124,9 @@ async fn a_written_file_is_recorded_only_while_it_is_marked() {
     test.mark_writing(&doomed_path, i64::MAX)
         .await
         .expect("marked");
-    assert!(test.doom_writing(&doomed_path).await.expect("doomed"));
+    assert!(test.doom_writing(&doomed_path, 0).await.expect("doomed"));
     assert!(
-        !test.doom_writing(&doomed_path).await.expect("read"),
+        !test.doom_writing(&doomed_path, 0).await.expect("read"),
         "a doomed object is none of the writer's"
     );
     test.forget_doomed_object(&doomed_path)
@@ -247,7 +247,7 @@ async fn the_list_of_one_organization_is_not_anothers() {
         ["boards/ours", "boards/theirs"]
     );
     assert!(
-        !test.doom_writing("boards/theirs").await.expect("read"),
+        !test.doom_writing("boards/theirs", 0).await.expect("read"),
         "theirs is not ours to doom"
     );
     assert_eq!(

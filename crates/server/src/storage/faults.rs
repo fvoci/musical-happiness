@@ -8,8 +8,11 @@ use super::StorageError;
 /// An operation of a file backend that can be made to fail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FaultyOp {
-    /// [`FileBackend::write`](super::FileBackend::write).
+    /// [`FileBackend::write`](super::FileBackend::write), failing before it writes.
     Write,
+    /// [`FileBackend::write`](super::FileBackend::write), failing after it wrote: as
+    /// when the object store took the object and its answer was lost.
+    WriteAnswerLost,
     /// [`FileBackend::copy`](super::FileBackend::copy).
     Copy,
     /// [`FileBackend::delete`](super::FileBackend::delete).

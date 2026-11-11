@@ -46,10 +46,37 @@ pub struct RemovedObjects {
     /// The objects that could not be removed, or taken off the list, and wait for
     /// another try.
     pub failed: usize,
-    /// The doomed objects that a record or an upload session holds, which are kept and
-    /// taken off the list: something doomed what it should not have, an error.
+    /// The doomed objects that a record, a write or an upload session holds, which are
+    /// kept and taken off the list: something doomed what it should not have, an error.
     pub kept: usize,
 }
+
+/// A doomed object to remove: its place, and how many of its removals failed.
+#[derive(Debug, Clone, Copy)]
+struct Doomed<'a> {
+    path: &'a str,
+    attempts: i64,
+}
+
+/// How far a write that is given up got: whether its object may yet appear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Written {
+    /// The write is over, and what is there is all there will be: the record failed.
+    Settled,
+    /// The write failed, and the storage may have taken it all the same, its answer
+    /// lost; an object may yet appear.
+    Unsettled,
+}
+
+/// How long the object of a write that failed is left before it is removed: what the
+/// storage took with its answer lost is there by then.
+const WRITE_SETTLE_MILLIS: i64 = 60 * 60 * 1000;
+
+/// The longest a write or a copy of an object may take before it is given up: an upload
+/// session's life, well within [`WRITING_GRACE_MILLIS`], so that no write goes on
+/// after the housekeeping took it for stopped.
+pub(crate) const WRITE_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(UPLOAD_LIFETIME_MILLIS.unsigned_abs());
 
 /// What became of one doomed object.
 enum Removal {
@@ -107,8 +134,11 @@ impl App {
                 let removal = if held.contains(&object.path) {
                     self.keep_held(&object.path).await
                 } else {
-                    self.remove_doomed_object(&object.path, object.attempts, now)
-                        .await
+                    let doomed = Doomed {
+                        path: &object.path,
+                        attempts: object.attempts,
+                    };
+                    self.remove_doomed_object(doomed, now).await
                 };
                 match removal {
                     Removal::Removed => done.removed += 1,
@@ -142,7 +172,8 @@ impl App {
 
     /// Removes one doomed object that nothing holds and takes it off the list. If it
     /// cannot go, the failure is noted on its row, or the row is left as it is.
-    async fn remove_doomed_object(&self, path: &str, attempts: i64, now: i64) -> Removal {
+    async fn remove_doomed_object(&self, doomed: Doomed<'_>, now: i64) -> Removal {
+        let Doomed { path, attempts } = doomed;
         let error_kind = match self.files().delete(path).await {
             // Gone already is removed: a run cut off after the removal comes here.
             Ok(()) => {
@@ -189,26 +220,36 @@ impl App {
         Ok(self.store().mark_writing(path, doom_at).await?)
     }
 
-    /// Gives up the object being written at `path`, which will not be recorded: dooms
-    /// it and removes it now, unless something holds it. What cannot be removed now
-    /// stays doomed for the housekeeping; a mark that cannot be doomed is doomed by the
+    /// Gives up the object being written at `path`, which will not be recorded, and
+    /// dooms it. One whose write is [`Written::Settled`] is removed now, unless
+    /// something holds it; one that may yet appear is left to the housekeeping, which
+    /// removes it once what the storage took with its answer lost is there. What cannot
+    /// be removed now stays doomed; a mark that cannot be doomed is doomed by the
     /// housekeeping once its writing is to be over. A place that is no longer marked is
     /// left alone: it was recorded, with the answer lost, or doomed already.
-    pub(crate) async fn give_up_writing(&self, path: &str) {
-        match self.store().doom_writing(path).await {
-            Ok(true) => match self.store().held_objects(&[path], None).await {
-                Ok(held) if held.is_empty() => {
-                    self.remove_doomed_object(path, 0, now_millis()).await;
+    pub(crate) async fn give_up_writing(&self, path: &str, written: Written) {
+        let now = now_millis();
+        let remove_at = match written {
+            Written::Settled => now,
+            Written::Unsettled => now.saturating_add(WRITE_SETTLE_MILLIS),
+        };
+        match self.store().doom_writing(path, remove_at).await {
+            Ok(true) if written == Written::Settled => {
+                match self.store().held_objects(&[path], None).await {
+                    Ok(held) if held.is_empty() => {
+                        let doomed = Doomed { path, attempts: 0 };
+                        self.remove_doomed_object(doomed, now).await;
+                    }
+                    Ok(_) => {
+                        self.keep_held(path).await;
+                    }
+                    // Doomed: the housekeeping asks again.
+                    Err(error) => {
+                        tracing::warn!(%error, "whether a given-up object is held could not be read");
+                    }
                 }
-                Ok(_) => {
-                    self.keep_held(path).await;
-                }
-                // Doomed: the housekeeping asks again.
-                Err(error) => {
-                    tracing::warn!(%error, "whether a given-up object is held could not be read");
-                }
-            },
-            Ok(false) => {}
+            }
+            Ok(_) => {}
             Err(error) => {
                 tracing::warn!(%error, "an object that will not be recorded could not be doomed");
             }

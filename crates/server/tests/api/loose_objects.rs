@@ -370,7 +370,7 @@ async fn slow_write(
         .expect("the write takes them");
     let mut path = None;
     for _ in 0..500 {
-        let listed = ts.app.store().loose_objects().await.expect("listed");
+        let listed = all_listed(ts).await;
         if let Some(object) = listed.into_iter().find(|o| o.state == LooseState::Writing) {
             path = Some(object.path);
             break;
@@ -395,7 +395,8 @@ async fn finish(
 }
 
 /// A file whose record cannot be written, as its board went to the trash while it was
-/// sent, leaves no object and nothing listed; nor does one the storage fails to write.
+/// sent, leaves no object and nothing listed. One the storage fails to write is doomed
+/// and removed by the housekeeping once what the storage may have taken is there.
 async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
     let (board_id, path, writer, write) = slow_write(ts).await;
     ts.client
@@ -406,11 +407,7 @@ async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
         .await
         .expect_err("the record of a board that went fails");
     assert!(!exists(ts, &path).await, "the object went with the failure");
-    assert_eq!(
-        ts.app.store().loose_objects().await.expect("listed"),
-        [],
-        "and nothing is left listed"
-    );
+    assert_eq!(all_listed(ts).await, [], "and nothing is left listed");
 
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
     let faults = ts
@@ -423,11 +420,59 @@ async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
         .save_file(&mut &b"never written"[..], &board.id, "a.txt")
         .await
         .expect_err("the storage fails");
+    let listed = all_listed(ts).await;
+    assert_eq!(listed.len(), 1, "the place is doomed: {listed:?}");
+    let now = now_millis();
+    let settled = now + 2 * 60 * 60 * 1000;
     assert_eq!(
-        ts.app.store().loose_objects().await.expect("listed"),
-        [],
-        "a write that failed leaves nothing listed"
+        remove_doomed(ts, settled).await,
+        RemovedObjects {
+            removed: 1,
+            failed: 0,
+            kept: 0,
+        },
+        "and removed by the housekeeping, with nothing there"
     );
+
+    // The storage took the object and its answer was lost: the object is left until
+    // the housekeeping removes it, by when a late write is there.
+    faults.fail(FaultyOp::WriteAnswerLost, 1);
+    ts.app
+        .save_file(&mut &b"taken, answer lost"[..], &board.id, "b.txt")
+        .await
+        .expect_err("the storage answers a failure");
+    let listed = all_listed(ts).await;
+    let [doomed] = listed.as_slice() else {
+        panic!("one place is doomed: {listed:?}");
+    };
+    assert_eq!(doomed.state, LooseState::Doomed, "{doomed:?}");
+    assert!(doomed.retry_at > now, "not removed at once: {doomed:?}");
+    assert!(exists(ts, &doomed.path).await, "the object is there");
+    assert_eq!(
+        remove_doomed(ts, now).await,
+        RemovedObjects::default(),
+        "not before the write has settled"
+    );
+    assert_eq!(
+        remove_doomed(ts, settled).await,
+        RemovedObjects {
+            removed: 1,
+            failed: 0,
+            kept: 0,
+        },
+        "then it goes"
+    );
+    assert!(!exists(ts, &doomed.path).await, "the object is gone");
+}
+
+/// Every listed object, of every organization.
+async fn all_listed(ts: &TestServer) -> Vec<fvoci_store::LooseObject> {
+    ts.app
+        .housekeeping()
+        .store()
+        .loose_objects()
+        .await
+        .expect("listed")
 }
 
 /// The housekeeping leaves a write that is under way alone, however long it takes
@@ -448,11 +493,7 @@ async fn the_housekeeping_leaves_a_slow_write_alone(ts: &TestServer) {
         .get_file_info(&board_id, &stored_name)
         .await
         .expect("and recorded");
-    assert_eq!(
-        ts.app.store().loose_objects().await.expect("listed"),
-        [],
-        "the record took the mark away"
-    );
+    assert_eq!(all_listed(ts).await, [], "the record took the mark away");
 
     let (board_id, path, writer, write) = slow_write(ts).await;
     let past_the_grace = now_millis() + WRITING_GRACE_MILLIS + 60_000;
@@ -460,7 +501,7 @@ async fn the_housekeeping_leaves_a_slow_write_alone(ts: &TestServer) {
     finish(writer, write)
         .await
         .expect_err("a write doomed while it went on is not recorded");
-    let listed = ts.app.store().loose_objects().await.expect("listed");
+    let listed = all_listed(ts).await;
     assert_eq!(
         paths_of(&listed, LooseState::Doomed),
         [path.as_str()],
@@ -510,8 +551,8 @@ async fn with_s3_a_write_is_marked_until_it_is_recorded() {
 }
 
 /// A file copied with a card is marked while it is copied and recorded with the mark
-/// taken away; a copy the storage fails leaves nothing listed, and the copied block
-/// names no file.
+/// taken away; a copy the storage fails is doomed and removed once it has settled, and
+/// the copied block names no file.
 #[tokio::test]
 async fn a_copied_file_is_marked_until_it_is_recorded() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -545,11 +586,7 @@ async fn a_copied_file_is_marked_until_it_is_recorded() {
         .await
         .expect("the copy is recorded");
     assert!(exists(&ts, &record.path).await, "and there");
-    assert_eq!(
-        ts.app.store().loose_objects().await.expect("listed"),
-        [],
-        "the record took the mark away"
-    );
+    assert_eq!(all_listed(&ts).await, [], "the record took the mark away");
 
     let faults = ts
         .app
@@ -560,10 +597,21 @@ async fn a_copied_file_is_marked_until_it_is_recorded() {
     let mut failed = [attachment()];
     ts.app.copy_card_files_into(&board_id, &mut failed).await;
     assert_eq!(file_of(&failed[0]), "", "the block names no file");
+    let listed = all_listed(&ts).await;
     assert_eq!(
-        ts.app.store().loose_objects().await.expect("listed"),
-        [],
-        "a copy that failed leaves nothing listed"
+        paths_of(&listed, LooseState::Doomed).len(),
+        1,
+        "a copy that failed is doomed: {listed:?}"
     );
+    assert_eq!(
+        remove_doomed(&ts, now_millis() + 2 * 60 * 60 * 1000).await,
+        RemovedObjects {
+            removed: 1,
+            failed: 0,
+            kept: 0,
+        },
+        "and removed once it has settled"
+    );
+    assert_eq!(all_listed(&ts).await, [], "nothing is left listed");
     ts.teardown().await;
 }

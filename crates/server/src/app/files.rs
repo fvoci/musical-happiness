@@ -16,6 +16,7 @@ use serde_json::Value;
 use tokio::io::AsyncRead;
 
 use super::App;
+use super::loose_objects::{WRITE_TIMEOUT, Written};
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
 use crate::error::AppError;
@@ -85,7 +86,9 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns a server error if the file or its record cannot be written.
+    /// Returns a server error if the place cannot be marked, if the file cannot be
+    /// written within a day or its record cannot be written, and if the housekeeping
+    /// gave the write up meanwhile.
     pub async fn save_file(
         &self,
         reader: &mut (dyn AsyncRead + Send + Unpin),
@@ -94,11 +97,16 @@ impl App {
     ) -> Result<String, AppError> {
         let place = FilePlace::new(board_id, filename);
         self.mark_writing(&place.path).await?;
-        let size = match self.files().write(&place.path, reader).await {
-            Ok(size) => size,
-            Err(error) => {
+        let write = self.files().write(&place.path, reader);
+        let size = match tokio::time::timeout(WRITE_TIMEOUT, write).await {
+            Ok(Ok(size)) => size,
+            failed => {
                 // The object store may have taken it with its answer lost.
-                self.give_up_writing(&place.path).await;
+                self.give_up_writing(&place.path, Written::Unsettled).await;
+                let error = match failed {
+                    Ok(Err(error)) => error.to_string(),
+                    _ => "it took longer than a write may take".to_owned(),
+                };
                 return Err(AppError::internal(format_args!(
                     "unable to store the file in the files storage: {error}"
                 )));
@@ -120,7 +128,7 @@ impl App {
                 "the file was given up while it was written",
             )),
             Err(error) => {
-                self.give_up_writing(&info.path).await;
+                self.give_up_writing(&info.path, Written::Settled).await;
                 Err(error.into())
             }
         }
@@ -397,18 +405,28 @@ impl App {
             // the mark away. A file that could not be copied gets no record and no
             // name: the block that pointed at it ends up naming no file, not a file
             // that is not there.
-            self.mark_writing(&copy.path).await?;
-            if let Err(error) = self.files().copy(&source.path, &copy.path).await {
+            if let Err(error) = self.mark_writing(&copy.path).await {
+                tracing::error!(%error, "CopyCardFiles could not mark a copy");
+                continue;
+            }
+            let copied = self.files().copy(&source.path, &copy.path);
+            if let Err(error) = tokio::time::timeout(WRITE_TIMEOUT, copied)
+                .await
+                .unwrap_or_else(|_| Err(StorageError::Io(std::io::ErrorKind::TimedOut.into())))
+            {
                 tracing::error!(
                     %error,
                     source_path = source.path,
                     destination_path = copy.path,
                     "CopyCardFiles failed to copy file"
                 );
-                self.give_up_writing(&copy.path).await;
+                self.give_up_writing(&copy.path, Written::Unsettled).await;
                 continue;
             }
-            self.record_written(&copy).await?;
+            if let Err(error) = self.record_written(&copy).await {
+                tracing::error!(%error, "CopyCardFiles could not record a copy");
+                continue;
+            }
             new_file_names.insert(file_id, stored_name);
         }
         Ok(new_file_names)
