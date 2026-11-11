@@ -930,3 +930,50 @@ describe('searching boards', () => {
     expect(await workspace.searchBoards('   ')).toEqual([]);
   });
 });
+
+describe('the sidebar across the steps', () => {
+  it('hides a board brought back from the trash, filing it first, and it stays hidden', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const gone = workspace.sidebar[0]?.boards[0];
+    if (!gone) throw new Error('unexpected seed');
+    await workspace.deleteBoard(gone.id);
+    await workspace.undoLast();
+    await settle();
+    await workspace.hideBoard(gone.id);
+    await settle();
+    const shown = workspace.sidebar.flatMap((entry) => entry.boards.map((board) => board.id));
+    expect(shown).not.toContain(gone.id);
+    const stored = await backend.categories(workspace.team?.id ?? '');
+    const home = stored.find((category) => category.type === 'system');
+    expect(home?.boardIds).toContain(gone.id);
+    expect(home?.hiddenBoardIds).toContain(gone.id);
+  });
+
+  it('does not show a reading of the sidebar over a write under way, and reads again after it', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const [team, research] = workspace.sidebar;
+    const moved = team?.boards[0];
+    if (!moved || !research) throw new Error('unexpected seed');
+    backend.latency = 30;
+    const moving = workspace.moveBoard(moved.id, research.category.id, 0);
+    // A message has the sidebar read while the move is on its way.
+    backend.world.tellUsers([workspace.me?.id ?? ''], { kind: 'resync' });
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    expect(workspace.sidebar[1]?.boards[0]?.id).toBe(moved.id);
+    await moving;
+    backend.latency = 0;
+    await vi.waitFor(() => {
+      expect(workspace.sidebar[1]?.boards[0]?.id).toBe(moved.id);
+    });
+  });
+
+  it('files a new board under the default category, in memory as on the server', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const made = await workspace.createBoard({ title: 'Fresh' });
+    const stored = await backend.categories(workspace.team?.id ?? '');
+    expect(stored.find((category) => category.type === 'system')?.boardIds).toContain(made?.id);
+  });
+});

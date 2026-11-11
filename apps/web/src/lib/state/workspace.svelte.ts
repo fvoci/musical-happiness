@@ -254,6 +254,7 @@ export class Workspace {
     this.#refreshing += 1;
     const reading = this.#refreshing;
     const before = this.boards.map((board) => board.id);
+    const begun = this.#sidebarBegun;
     try {
       const [boards, categories] = await Promise.all([
         this.backend.boards(team.id),
@@ -261,7 +262,10 @@ export class Workspace {
       ]);
       if (reading !== this.#refreshing) return;
       this.boards = reread(this.boards, boards, before);
-      this.categories = categories;
+      // Not over a sidebar write under way, or one begun since this reading was.
+      if (this.#sidebarWrites > 0) this.#sidebarStale = true;
+      else if (begun !== this.#sidebarBegun) void this.#refresh();
+      else this.categories = categories;
     } catch (error) {
       // A reading in the background: only a session that is over is told
       // (as signing out). The next message, or the next load, brings the rest.
@@ -568,7 +572,7 @@ export class Workspace {
     if (!team) return false;
     const done = await this.#transfer(
       'import',
-      `import ${file.name}`,
+      `import ${file.name} ${file.size} ${file.lastModified}`,
       file.name,
       async (options) => {
         await this.backend.importArchive(team.id, file, options);
@@ -608,12 +612,38 @@ export class Workspace {
   async #categoryWrite(optimistic: Category[], send: () => Promise<unknown>): Promise<void> {
     const before = this.categories;
     this.categories = optimistic;
+    this.#sidebarWriting();
     try {
       await send();
     } catch (error) {
       this.#sidebarRefused(before);
       this.report('save', error);
+    } finally {
+      this.#sidebarWritten();
     }
+  }
+
+  /**
+   * Sidebar writes under way. A reading of the sidebar meanwhile may be
+   * older than what they show (a filing is two requests, and the first one's
+   * message has the sidebar read between them): it is not shown, and the
+   * sidebar is read again once the last write has ended.
+   */
+  #sidebarWrites = 0;
+  /** Sidebar writes ever begun: a reading begun before one of them is older than it. */
+  #sidebarBegun = 0;
+  #sidebarStale = false;
+
+  #sidebarWriting(): void {
+    this.#sidebarWrites += 1;
+    this.#sidebarBegun += 1;
+  }
+
+  #sidebarWritten(): void {
+    this.#sidebarWrites -= 1;
+    if (this.#sidebarWrites > 0 || !this.#sidebarStale) return;
+    this.#sidebarStale = false;
+    void this.#refresh();
   }
 
   #sidebarRefused(before: Category[]): void {
@@ -624,6 +654,7 @@ export class Workspace {
   /** A new category goes first, as the backend puts it. */
   async createCategory(name: string): Promise<void> {
     if (!this.team) return;
+    this.#sidebarWriting();
     try {
       const category = await this.backend.createCategory(this.team.id, { name });
       if (this.categories.some((existing) => existing.id === category.id)) return;
@@ -636,6 +667,8 @@ export class Workspace {
       ];
     } catch (error) {
       this.report('save', error);
+    } finally {
+      this.#sidebarWritten();
     }
   }
 
@@ -749,16 +782,35 @@ export class Workspace {
     const team = this.team;
     if (!team) return;
     const before = this.categories;
-    this.categories = before.map((category) => {
-      if (category.id !== categoryId) return category;
-      const others = category.hiddenBoardIds.filter((id) => id !== boardId);
-      return { ...category, hiddenBoardIds: hidden ? [...others, boardId] : others };
+    const category = before.find((one) => one.id === categoryId);
+    // A board no category files (one brought back from the trash) is shown in
+    // the default category but cannot be hidden there until it is filed there.
+    const loose = hidden && category !== undefined && !category.boardIds.includes(boardId);
+    this.categories = before.map((one) => {
+      if (one.id !== categoryId) return one;
+      const others = one.hiddenBoardIds.filter((id) => id !== boardId);
+      return {
+        ...one,
+        boardIds: loose ? [...one.boardIds, boardId] : one.boardIds,
+        hiddenBoardIds: hidden ? [...others, boardId] : others,
+      };
     });
+    this.#sidebarWriting();
     try {
+      if (loose) {
+        await this.backend.moveBoardToCategory(
+          team.id,
+          boardId,
+          categoryId,
+          category.boardIds.length,
+        );
+      }
       await this.backend.setBoardHidden(team.id, categoryId, boardId, hidden);
     } catch (error) {
       this.#sidebarRefused(before);
       throw error;
+    } finally {
+      this.#sidebarWritten();
     }
   }
 

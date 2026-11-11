@@ -406,6 +406,7 @@ export class MemoryBackend implements Backend {
     if (draft.cardProperties) board.cardProperties = copy(draft.cardProperties);
     this.world.boards.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
+    this.#fileAsNew(this.userId, board);
     const view = this.#newBlock(board.id, board.id, 'view');
     view.title = firstView.title;
     view.fields = copy(firstView.fields);
@@ -437,6 +438,7 @@ export class MemoryBackend implements Backend {
     for (const categories of this.world.categories.values()) {
       for (const category of categories) {
         category.boardIds = category.boardIds.filter((id) => id !== boardId);
+        category.hiddenBoardIds = category.hiddenBoardIds.filter((id) => id !== boardId);
       }
     }
     const userIds = members.map((member) => member.userId);
@@ -561,6 +563,7 @@ export class MemoryBackend implements Backend {
     };
     this.world.boards.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
+    this.#fileAsNew(this.userId, board);
     for (const block of blocks) {
       const made = copy(block);
       const fields: Record<string, unknown> = made.fields;
@@ -686,6 +689,7 @@ export class MemoryBackend implements Backend {
     if (existing) return copy(existing);
     const member = memberOf(boardId, userId, role);
     this.#setMembers(boardId, [...members, member]);
+    this.#fileAsNew(userId, this.#board(boardId));
     this.world.tellUsers([userId], { kind: 'board', board: copy(this.#board(boardId)) });
     return copy(member);
   }
@@ -768,6 +772,19 @@ export class MemoryBackend implements Backend {
       this.#categories().find((category) => category.id === categoryId) ??
       fail(404, 'no such category')
     );
+  }
+
+  /**
+   * Files a board under a user's default category, as the server does for a
+   * new board (not a template) and for a new member of one.
+   */
+  #fileAsNew(userId: string, board: Board): void {
+    if (board.isTemplate) return;
+    const theirs = this.world.categories.get(userId) ?? [];
+    const fallback = theirs.find((category) => category.type === 'system');
+    if (!fallback || theirs.some((category) => category.boardIds.includes(board.id))) return;
+    fallback.boardIds.push(board.id);
+    this.world.tellUsers([userId], { kind: 'categories', categories: copy(theirs) });
   }
 
   #tellCategories(): void {

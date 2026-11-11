@@ -86,6 +86,21 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await expect(page.getByTestId('board-missing')).toHaveCount(0);
   expect((await api.get(`/api/v1/boards/${boardId}`)).status()).toBe(200);
   expect(await views(api, boardId)).toHaveLength(2);
+
+  // Brought back, it is filed nowhere; hidden, it is filed first and stays hidden.
+  await chooseFromMenu(page, boardMenu(page, 'Launch plan'), 'hide');
+  await expect
+    .poll(async () => {
+      const categories = (await (
+        await api.get(`/api/v1/teams/${board.teamId}/categories`)
+      ).json()) as Schemas['CategoryBoards'][];
+      return categories
+        .flatMap((one) => one.boardMetadata)
+        .find((entry) => entry.boardId === boardId);
+    })
+    .toEqual({ boardId, hidden: true });
+  await page.waitForTimeout(500);
+  await expect(boardLink(page, 'Launch plan')).toHaveCount(0);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
 
   await api.dispose();
