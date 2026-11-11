@@ -483,6 +483,7 @@ pub(crate) async fn settings(s: &mut Session) {
         .json(json!({
             "timeZone": "Asia/Seoul", "weekStart": "monday", "hourCycle": "h23",
             "theme": "dark", "cardOpen": "side", "density": "compact", "haptics": false,
+            "language": "ko",
         }))
         .user(&alice)
         .await;

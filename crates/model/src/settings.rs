@@ -178,6 +178,61 @@ impl FromStr for TimeZone {
     }
 }
 
+/// The language of the interface: that of the browser, or one by its language tag.
+///
+/// The server keeps no list of languages; it checks that a tag has the shape of one
+/// (BCP 47): subtags of 1 to 8 letters and digits joined by `-`, the first of 2 to 8
+/// letters, at most [`Language::MAX_LENGTH`] characters (`ko`, `en-US`,
+/// `zh-Hant-TW`). A tag is kept as given; which ones the interface has is the client's.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct Language(Option<String>);
+
+impl Language {
+    /// The word for "the language of the browser".
+    pub const AUTO: &'static str = "auto";
+    /// The longest tag.
+    pub const MAX_LENGTH: usize = 35;
+
+    /// The setting as it is written: `auto` or the tag.
+    pub fn as_str(&self) -> &str {
+        self.0.as_deref().unwrap_or(Self::AUTO)
+    }
+}
+
+impl FromStr for Language {
+    type Err = ParseSettingError;
+
+    fn from_str(text: &str) -> Result<Self, ParseSettingError> {
+        if text == Self::AUTO {
+            return Ok(Self(None));
+        }
+        let mut subtags = text.split('-');
+        let first = subtags.next().unwrap_or_default();
+        let first_fits =
+            (2..=8).contains(&first.len()) && first.bytes().all(|b| b.is_ascii_alphabetic());
+        let rest_fits = subtags.all(|subtag| {
+            (1..=8).contains(&subtag.len()) && subtag.bytes().all(|b| b.is_ascii_alphanumeric())
+        });
+        if text.len() <= Self::MAX_LENGTH && first_fits && rest_fits {
+            Ok(Self(Some(text.to_owned())))
+        } else {
+            Err(ParseSettingError)
+        }
+    }
+}
+
+impl fmt::Debug for Language {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Language({})", self.as_str())
+    }
+}
+
+impl Serialize for Language {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 impl fmt::Debug for TimeZone {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TimeZone({})", self.as_str())
@@ -210,6 +265,10 @@ pub struct UserSettings {
     pub density: Density,
     /// Whether a device that can do so answers touches with a vibration.
     pub haptics: bool,
+    /// The language of the interface: `auto` for the browser's, or a language tag
+    /// (BCP 47 in shape, such as `ko` or `en-US`; the server keeps no list of them).
+    #[schema(value_type = String)]
+    pub language: Language,
 }
 
 impl Default for UserSettings {
@@ -222,6 +281,7 @@ impl Default for UserSettings {
             card_open: CardOpen::default(),
             density: Density::default(),
             haptics: true,
+            language: Language::default(),
         }
     }
 }
@@ -243,11 +303,13 @@ pub enum SettingName {
     Density,
     /// `haptics`
     Haptics,
+    /// `language`
+    Language,
 }
 
 impl SettingName {
     /// Every setting there is.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::TimeZone,
         Self::WeekStart,
         Self::HourCycle,
@@ -255,6 +317,7 @@ impl SettingName {
         Self::CardOpen,
         Self::Density,
         Self::Haptics,
+        Self::Language,
     ];
 
     /// The name as it is written.
@@ -267,6 +330,7 @@ impl SettingName {
             Self::CardOpen => "cardOpen",
             Self::Density => "density",
             Self::Haptics => "haptics",
+            Self::Language => "language",
         }
     }
 
@@ -288,6 +352,7 @@ impl SettingName {
             Self::CardOpen => words(CardOpen::WORDS),
             Self::Density => words(Density::WORDS),
             Self::Haptics => "true or false".to_owned(),
+            Self::Language => "\"auto\" or a language tag such as \"ko\" or \"en-US\"".to_owned(),
         }
     }
 }
@@ -320,6 +385,7 @@ impl UserSettings {
             SettingName::Haptics => {
                 self.haptics = value.parse().map_err(|_| ParseSettingError)?;
             }
+            SettingName::Language => self.language = value.parse()?,
         }
         Ok(())
     }
@@ -492,6 +558,7 @@ mod tests {
             json!({
                 "timeZone": "auto", "weekStart": "auto", "hourCycle": "auto",
                 "theme": "auto", "cardOpen": "center", "density": "auto", "haptics": true,
+                "language": "auto",
             })
         );
     }
@@ -640,5 +707,30 @@ mod tests {
             check_client_state_value(&"v".repeat(4097)),
             Err(ClientStateError::ValueTooLong)
         );
+    }
+
+    #[test]
+    fn a_language_is_auto_or_has_the_shape_of_a_tag() {
+        for tag in ["auto", "ko", "en-US", "zh-Hant-TW", "es-419", "de-CH-1901"] {
+            let read: Language = tag.parse().expect(tag);
+            assert_eq!(read.as_str(), tag, "kept as given");
+        }
+        for tag in [
+            "",
+            "k",
+            "-",
+            "ko-",
+            "-ko",
+            "ko--KR",
+            "ko_KR",
+            "한국어",
+            "ko KR",
+            "toolongtag",
+            "en-toolongsub",
+            "1a",
+            &format!("en{}", "-abcdefgh".repeat(4)),
+        ] {
+            assert!(tag.parse::<Language>().is_err(), "{tag:?} is no tag");
+        }
     }
 }

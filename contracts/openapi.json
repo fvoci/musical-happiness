@@ -2105,6 +2105,10 @@
             "$ref": "#/components/schemas/HourCycle",
             "description": "How the hours of a day are written."
           },
+          "language": {
+            "description": "The language of the interface: `auto` for the browser's, or a language tag\n(BCP 47 in shape, such as `ko` or `en-US`; the server keeps no list of them).",
+            "type": "string"
+          },
           "theme": {
             "$ref": "#/components/schemas/Theme",
             "description": "The colors of the interface."
@@ -2125,7 +2129,8 @@
           "theme",
           "cardOpen",
           "density",
-          "haptics"
+          "haptics",
+          "language"
         ],
         "type": "object"
       },

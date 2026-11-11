@@ -78,8 +78,8 @@ pub use file_info::FileInfo;
 pub use id::{is_id, new_id};
 pub use settings::{
     CLIENT_STATE_MAX_ENTRIES, CLIENT_STATE_MAX_NAME_LENGTH, CLIENT_STATE_MAX_VALUE_BYTES, CardOpen,
-    ClientStateError, Density, HourCycle, ParseSettingError, SettingName, SettingsError, Theme,
-    TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
+    ClientStateError, Density, HourCycle, Language, ParseSettingError, SettingName, SettingsError,
+    Theme, TimeZone, UserSettings, UserSettingsPatch, WeekStart, check_client_state_name,
     check_client_state_value,
 };
 pub use sharing::Sharing;
