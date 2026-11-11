@@ -450,6 +450,72 @@ export class MemoryBackend implements Backend {
     return copy(deleted.board);
   }
 
+  async templates(teamId: string): Promise<Board[]> {
+    await this.#enter('templates');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    return [...this.world.boards.values()].filter((board) => board.isTemplate).map(copy);
+  }
+
+  async duplicateBoard(boardId: string, asTemplate: boolean): Promise<Board> {
+    await this.#enter('duplicateBoard');
+    return this.#copyBoard(this.#board(boardId), asTemplate);
+  }
+
+  async onboard(teamId: string): Promise<string> {
+    await this.#enter('onboard');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const welcome =
+      [...this.world.boards.values()].find(
+        (board) => board.isTemplate && board.properties.onboarding !== undefined,
+      ) ?? fail(404, 'no welcome board');
+    return this.#copyBoard(welcome, false).id;
+  }
+
+  /**
+   * A copy of a board with its views, cards and attachments (comments stay
+   * behind), every identifier new and every reference among them following.
+   */
+  #copyBoard(source: Board, asTemplate: boolean): Board {
+    const now = this.world.now();
+    const ids = new Map<string, string>([[source.id, this.world.newId()]]);
+    const blocks = this.world.blocksOf(source.id).filter((block) => block.type !== 'comment');
+    for (const block of blocks) ids.set(block.id, this.world.newId());
+    const renamed = (value: unknown): unknown =>
+      JSON.parse(
+        JSON.stringify(value).replace(/"([^"\\]+)"/g, (whole, id: string) => {
+          const next = ids.get(id);
+          return next === undefined ? whole : `"${next}"`;
+        }),
+      );
+    const board: Board = {
+      ...copy(source),
+      id: ids.get(source.id) ?? '',
+      createdBy: this.userId,
+      modifiedBy: this.userId,
+      type: 'P',
+      isTemplate: asTemplate,
+      isBuiltin: false,
+      // The server's titles: a copy of the same kind is "… copy", a template
+      // made from a board "New board template", a board from a template keeps it.
+      title:
+        source.isTemplate === asTemplate
+          ? `${source.title} copy`
+          : asTemplate
+            ? 'New board template'
+            : source.title,
+      createAt: now,
+      updateAt: now,
+    };
+    this.world.boards.set(board.id, board);
+    this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
+    for (const block of blocks) {
+      const made = renamed(block) as StoredBlock;
+      this.world.blocks.set(made.id, { ...made, createAt: now, updateAt: now });
+    }
+    this.#tellBoard(board);
+    return copy(board);
+  }
+
   async joinBoard(boardId: string): Promise<BoardMember> {
     await this.#enter('joinBoard');
     const board = this.#board(boardId);

@@ -537,6 +537,8 @@ test.describe('boards in the sidebar', () => {
     const first = page.url();
     await showSidebar(page);
     await sidebar(page).getByTestId('add-board').click();
+    // It asks first: an empty board, or one from a template.
+    await page.getByTestId('template-picker').getByTestId('empty-board').click();
 
     await expect(page).not.toHaveURL(first);
     await expect(page).toHaveURL(/\/board\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/);

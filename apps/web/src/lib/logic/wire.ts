@@ -541,6 +541,8 @@ export interface Board {
   icon?: string;
   showDescription: boolean;
   isTemplate: boolean;
+  /** A template the server offers every team; nobody's to change. */
+  isBuiltin?: boolean;
   templateVersion: number;
   properties: Record<string, string | string[]>;
   cardProperties: PropertyTemplate[];

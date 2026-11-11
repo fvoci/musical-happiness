@@ -29,6 +29,8 @@
 
   let workspace = $state.raw<Workspace | undefined>(undefined);
   let account = $state.raw<Account | undefined>(undefined);
+  /** An account was just made on this page: its first sign-in copies the welcome board. */
+  let registered = false;
 
   onMount(() => {
     void startBackend().then(async (started) => {
@@ -105,9 +107,16 @@
           message: 'the session was not kept',
         });
       }
+      // A new account starts on its own copy of the welcome board, made once.
+      if (registered && workspace?.status === 'ready') {
+        registered = false;
+        const welcome = await workspace.onboard();
+        if (welcome) router.openBoard(welcome);
+      }
     }}
     onRegister={async (registration: Registration) => {
       await account?.register(registration);
+      registered = true;
     }}
   />
 {:else if workspace.status === 'failed' || workspace.status === 'signedOut'}

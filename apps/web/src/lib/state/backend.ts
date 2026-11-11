@@ -354,6 +354,19 @@ export interface Backend {
     firstView: ViewDraft,
   ): Promise<{ board: Board; view: BoardView }>;
   patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
+  /**
+   * The templates the reader may make a board from: the team's they may
+   * see, then the built-in ones every team is offered.
+   */
+  templates(teamId: string): Promise<Board[]>;
+  /**
+   * Copies a board with its views and cards (not its comments): a board from
+   * a template, or a template from a board. The reader is the copy's admin,
+   * and it is private.
+   */
+  duplicateBoard(boardId: string, asTemplate: boolean): Promise<Board>;
+  /** Copies the welcome board for the reader; answers its identifier. Each call makes another copy. */
+  onboard(teamId: string): Promise<string>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
   /** Takes the board, its blocks and its members back out of the trash. */

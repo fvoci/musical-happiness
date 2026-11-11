@@ -827,3 +827,32 @@ describe('sharing a board', () => {
     expect(workspace.teamUsers).toEqual(workspace.users);
   });
 });
+
+describe('templates', () => {
+  it('makes a template from a board, offers it, and makes a board from it', async () => {
+    const { workspace, backend } = setup(await loadTemplates());
+    await workspace.load();
+    const source = workspace.sidebar[0]?.boards[0];
+    if (!source) throw new Error('unexpected seed');
+    const template = await workspace.createTemplateFromBoard(source.id);
+    expect(template).toMatchObject({ isTemplate: true, title: 'New board template' });
+    // No board of the sidebar.
+    expect(workspace.boards.map((board) => board.id)).not.toContain(template?.id);
+    expect((await workspace.templates()).map((one) => one.id)).toContain(template?.id);
+
+    const made = await workspace.createBoardFromTemplate(template?.id ?? '');
+    expect(made).toMatchObject({ isTemplate: false, title: 'New board template' });
+    expect(workspace.boards.map((board) => board.id)).toContain(made?.id);
+    const [sourceCards, madeCards] = await Promise.all([
+      backend.cards(source.id),
+      backend.cards(made?.id ?? ''),
+    ]);
+    expect(madeCards.map((card) => card.title).sort()).toEqual(
+      sourceCards.map((card) => card.title).sort(),
+    );
+    expect(madeCards.some((card) => sourceCards.some((other) => other.id === card.id))).toBe(false);
+    expect((await backend.views(made?.id ?? '')).length).toBe(
+      (await backend.views(source.id)).length,
+    );
+  });
+});

@@ -24,6 +24,7 @@
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import FolderInputIcon from '@lucide/svelte/icons/folder-input';
   import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
+  import LayoutTemplateIcon from '@lucide/svelte/icons/layout-template';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
@@ -199,6 +200,12 @@
     return actions;
   }
 
+  /** Makes a template of the board and opens it, to be changed there. */
+  async function templateFrom(boardId: string): Promise<void> {
+    const made = await workspace.createTemplateFromBoard(boardId);
+    if (made) onOpenBoard(made.id);
+  }
+
   function boardActions(board: Board, home: Category): MenuAction[] {
     const moves = workspace.sidebar
       .filter((entry) => entry.category.id !== home.id)
@@ -214,10 +221,16 @@
     return [
       ...moves,
       {
+        id: 'template-from-board',
+        label: m['Sidebar.template-from-board'](),
+        icon: LayoutTemplateIcon,
+        separated: moves.length > 0,
+        run: () => void templateFrom(board.id),
+      },
+      {
         id: 'hide',
         label: m['HideBoard.MenuOption'](),
         icon: EyeOffIcon,
-        separated: moves.length > 0,
         run: () => void workspace.hideBoard(board.id),
       },
       {

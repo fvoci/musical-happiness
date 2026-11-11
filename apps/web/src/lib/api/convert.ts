@@ -75,6 +75,7 @@ export function boardOf(board: Schemas['Board']): Board {
     icon: board.icon,
     showDescription: board.showDescription,
     isTemplate: board.isTemplate,
+    isBuiltin: board.isBuiltin,
     templateVersion: board.templateVersion,
     properties: board.properties as Board['properties'],
     cardProperties: board.cardProperties as unknown as PropertyTemplate[],

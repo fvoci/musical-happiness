@@ -866,3 +866,49 @@ describe('sharing a board on the server', () => {
     expect(sentLines(sent)).toEqual(['GET /api/v1/teams/t/users?search=ann+lee']);
   });
 });
+
+describe('templates on the server', () => {
+  const BOARD = {
+    id: 'b2',
+    teamId: 't',
+    createdBy: 'me',
+    modifiedBy: 'me',
+    type: 'P',
+    minimumRole: 'editor',
+    title: 'Project Tasks',
+    description: '',
+    icon: '',
+    showDescription: false,
+    isTemplate: false,
+    isBuiltin: false,
+    templateVersion: 0,
+    properties: {},
+    cardProperties: [],
+    createAt: 1,
+    updateAt: 2,
+    deleteAt: 0,
+  };
+
+  it('reads the templates, copies a board either way, and starts the welcome board', async () => {
+    const sent = serveRoutes([
+      [
+        'GET /api/v1/teams/t/templates',
+        [{ ...BOARD, id: 'tp', isTemplate: true, isBuiltin: true }],
+      ],
+      ['POST /api/v1/boards/', { boards: [BOARD], blocks: [] }, 201],
+      ['POST /api/v1/teams/t/onboard', { teamId: 't', boardId: 'w1' }],
+    ]);
+    const backend = new ServerBackend('');
+    const [template] = await backend.templates('t');
+    expect(template).toMatchObject({ id: 'tp', isTemplate: true, isBuiltin: true });
+    expect((await backend.duplicateBoard('tp', false)).id).toBe('b2');
+    await backend.duplicateBoard('b2', true);
+    expect(await backend.onboard('t')).toBe('w1');
+    expect(sentLines(sent)).toEqual([
+      'GET /api/v1/teams/t/templates',
+      'POST /api/v1/boards/tp/duplicate?asTemplate=false',
+      'POST /api/v1/boards/b2/duplicate?asTemplate=true',
+      'POST /api/v1/teams/t/onboard',
+    ]);
+  });
+});

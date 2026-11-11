@@ -280,6 +280,35 @@ export class ServerBackend implements Backend, Account {
     );
   }
 
+  async templates(teamId: string): Promise<Board[]> {
+    const boards = await this.#http.request<Schemas['Board'][]>(
+      '/api/v1/teams/{teamId}/templates',
+      { teamId },
+    );
+    return boards.map(boardOf);
+  }
+
+  /** `duplicateBoard`, into the board's own team. The copy is the first board of the answer. */
+  async duplicateBoard(boardId: string, asTemplate: boolean): Promise<Board> {
+    const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
+      '/api/v1/boards/{boardId}/duplicate',
+      { boardId },
+      { method: 'POST', query: { asTemplate: String(asTemplate) } },
+    );
+    const [board] = made.boards;
+    if (!board) throw new BackendError(500, { message: 'the server made no copy' });
+    return boardOf(board);
+  }
+
+  async onboard(teamId: string): Promise<string> {
+    const started = await this.#http.request<Schemas['OnboardingStart']>(
+      '/api/v1/teams/{teamId}/onboard',
+      { teamId },
+      { method: 'POST' },
+    );
+    return started.boardId;
+  }
+
   /** To the server's trash, with its blocks and members (`deleteBoard`, board admins only). */
   async deleteBoard(boardId: string): Promise<void> {
     await this.#http.request('/api/v1/boards/{boardId}', { boardId }, { method: 'DELETE' });

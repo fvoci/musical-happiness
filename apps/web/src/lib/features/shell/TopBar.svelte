@@ -91,6 +91,16 @@
         {/if}
       </h1>
     </div>
+    {#if board.isTemplate}
+      <span
+        data-testid="template-note"
+        title={m['Workspace.editing-board-template']()}
+        class="shrink-0 rounded-md border border-dashed px-1.5 py-0.5 text-xs text-muted-foreground"
+      >
+        <span aria-hidden="true">{m.shell_template_note()}</span>
+        <span class="sr-only">{m['Workspace.editing-board-template']()}</span>
+      </span>
+    {/if}
     {#if store && !store.canEdit}
       <span
         data-testid="read-only"

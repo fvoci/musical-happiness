@@ -387,6 +387,59 @@ export class Workspace {
     }
   }
 
+  /** The templates a board can be made from; none when they cannot be read (told). */
+  async templates(): Promise<Board[]> {
+    if (!this.team) return [];
+    try {
+      return await this.backend.templates(this.team.id);
+    } catch (error) {
+      this.report('load', error);
+      return [];
+    }
+  }
+
+  /** Makes a board from a template; it keeps the template's title, views and cards. */
+  async createBoardFromTemplate(templateId: string): Promise<Board | undefined> {
+    try {
+      const board = await this.backend.duplicateBoard(templateId, false);
+      this.#apply({ kind: 'board', board });
+      return board;
+    } catch (error) {
+      this.report('save', error);
+      return undefined;
+    }
+  }
+
+  /** Makes a template of the team from a board. A template is no board of the sidebar. */
+  async createTemplateFromBoard(boardId: string): Promise<Board | undefined> {
+    try {
+      return await this.backend.duplicateBoard(boardId, true);
+    } catch (error) {
+      this.report('save', error);
+      return undefined;
+    }
+  }
+
+  /**
+   * The welcome board of a new account, copied for them: called once, right
+   * after the account is made (each call makes another copy). Undefined when
+   * it could not be made; the reader starts with an empty workspace then.
+   */
+  async onboard(): Promise<string | undefined> {
+    if (!this.team) return undefined;
+    try {
+      const boardId = await this.backend.onboard(this.team.id);
+      this.boards = [
+        ...this.boards.filter((board) => board.id !== boardId),
+        await this.backend.board(boardId),
+      ];
+      return boardId;
+    } catch (error) {
+      this.report('load', error);
+      return undefined;
+    }
+  }
+
   /** Deletes a board. It can be brought back with undo. */
   async deleteBoard(boardId: string): Promise<void> {
     try {

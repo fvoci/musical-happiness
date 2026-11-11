@@ -4,6 +4,8 @@
  */
 import { expect, test } from '@playwright/test';
 
+import { boardLink } from '../e2e/shell.support.ts';
+
 import {
   invitation,
   makeBoard,
@@ -16,7 +18,7 @@ import {
 
 test.use({ locale: 'en-US' });
 
-test('a new account signs in to an empty workspace and signs out again', async ({
+test('a new account starts on its own welcome board, made once, and signs out again', async ({
   page,
   baseURL,
 }) => {
@@ -33,13 +35,14 @@ test('a new account signs in to an empty workspace and signs out again', async (
   await form.getByLabel(/invitation/i).fill(code);
   await form.getByRole('button', { name: /^create account$/i }).click();
 
-  // Signed in at once, to a workspace with no boards.
+  // Signed in at once, on a copy of the welcome board of their own.
   await expect(page.getByTestId('app-shell')).toBeVisible();
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  const welcome = boardLink(page, 'Welcome to fvoci!');
+  await expect(welcome).toHaveAttribute('aria-current', 'page');
 
-  // The session outlives a reload: it is the server's cookie.
+  // The session outlives a reload: it is the server's cookie. No second copy.
   await page.reload();
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  await expect(welcome).toHaveCount(1);
 
   await page.getByTestId('open-settings').click();
   const settings = page.getByTestId('settings-dialog');
@@ -52,7 +55,7 @@ test('a new account signs in to an empty workspace and signs out again', async (
   await expect(page.getByTestId('sign-in-form')).toBeVisible();
 
   await signInOnPage(page, who);
-  await expect(page.getByText('You have no boards yet.')).toBeVisible();
+  await expect(welcome).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 
