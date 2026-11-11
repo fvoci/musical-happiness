@@ -26,7 +26,9 @@ use super::{change_notification, duplicate_as, require_board_permission, user_is
 use super::{
     decode_object_with, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
 };
-use super::{require_block_change_permission, require_block_type_change_permission};
+use super::{
+    require_block_change_permission, require_block_patch_permission, require_comment_owner_or_admin,
+};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -392,16 +394,13 @@ async fn handle_delete_block(
     )
     .await?;
     let block = block_on_board(&app, &block_id, &board_id).await?;
-    if block.block_type == BlockType::Comment && block.created_by != user_id {
-        require_board_permission(
-            &app,
-            user_id,
-            &board_id,
-            BoardPermission::ManageOthersComments,
-            "access denied to delete other users' comments",
-        )
-        .await?;
-    }
+    require_comment_owner_or_admin(
+        &app,
+        user_id,
+        &block,
+        "access denied to delete other users' comments",
+    )
+    .await?;
     app.delete_block(&block_id, user_id, notification).await?;
     tracing::debug!(board_id, block_id, "DELETE Block");
     Ok(no_content())
@@ -410,7 +409,12 @@ async fn handle_delete_block(
 /// Bring a deleted block back
 ///
 /// Restores a block of the board from the trash, with the blocks that went there with
-/// it. A block whose parent is gone has nowhere to come back to: 404. For editors.
+/// it. A block whose parent is gone has nowhere to come back to: 404. For who may
+/// delete what comes back, as `deleteBlock` has it: editors, and a comment of somebody
+/// else the board's admins only (403, `access denied to undelete other users'
+/// comments`). What decides is the block that was deleted, which took the others along:
+/// a block below somebody else's comment is brought back by the admins only, and a
+/// comment that went with its card by whoever may bring back the card.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/blocks/{blockId}/undelete",
@@ -440,6 +444,18 @@ async fn handle_undelete_block(
         .await?
         .filter(|deleted| deleted.block.board_id == board.id)
         .ok_or_else(|| AppError::not_found("block"))?;
+    // Only who may delete it brings it back: what comes back is the whole deletion, so
+    // the block that was deleted, at its top, is what decides (a block below somebody
+    // else's comment brings that comment back).
+    if let Some(top) = app.deletion_top(&block_id).await? {
+        require_comment_owner_or_admin(
+            &app,
+            user_id,
+            &top.block,
+            "access denied to undelete other users' comments",
+        )
+        .await?;
+    }
 
     let undeleted = app.undelete_block(&block_id, user_id).await?;
     tracing::debug!(block_id, "UNDELETE Block");
@@ -499,8 +515,9 @@ async fn handle_get_comment_versions(
 ///
 /// For editors. A comment is changed by its author with the commenter's role, and the
 /// comment of somebody else by the board's admins only (as `deleteBlock` has it): an
-/// editor may not change it. Making a comment a block of another type is for editors,
-/// and making a block of somebody else a comment for the board's admins.
+/// editor may not change it. The commenter's role changes a comment's text (its body);
+/// moving a comment to another card (`parentId`) or making it a block of another type
+/// is for editors, and making a block of somebody else a comment for the board's admins.
 /// The block's `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,
@@ -534,7 +551,7 @@ async fn handle_patch_block(
     let (mut patch, changes): (BlockPatch, _) =
         decode_object_with(&body, |patch| take_patch_bodies([Some(patch)]))?;
     put_patch_bodies([&mut patch], changes?)?;
-    require_block_type_change_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
+    require_block_patch_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
     app.check_body_files(&board_id, patch.body.new_body())
         .await?;
 
@@ -600,7 +617,7 @@ async fn handle_patch_blocks(
     for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
         let block = block_on_board(&app, block_id, &board_id).await?;
         require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
-        require_block_type_change_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
+        require_block_patch_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
     }
     for patch in &batch.block_patches {
         app.check_body_files(&board_id, patch.body.new_body())

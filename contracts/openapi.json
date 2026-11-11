@@ -2942,7 +2942,7 @@
         ]
       },
       "patch": {
-        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. Making a comment a block of another type is for editors,\nand making a block of somebody else a comment for the board's admins.\nThe block's `modifiedBy` and `updateAt` say who changed it and when.",
+        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. The commenter's role changes a comment's text (its body);\nmoving a comment to another card (`parentId`) or making it a block of another type\nis for editors, and making a block of somebody else a comment for the board's admins.\nThe block's `modifiedBy` and `updateAt` say who changed it and when.",
         "operationId": "patchBlock",
         "parameters": [
           {
@@ -3070,7 +3070,7 @@
     },
     "/api/v1/boards/{boardId}/blocks/{blockId}/undelete": {
       "post": {
-        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404. For editors.",
+        "description": "Restores a block of the board from the trash, with the blocks that went there with\nit. A block whose parent is gone has nowhere to come back to: 404. For who may\ndelete what comes back, as `deleteBlock` has it: editors, and a comment of somebody\nelse the board's admins only (403, `access denied to undelete other users'\ncomments`). What decides is the block that was deleted, which took the others along:\na block below somebody else's comment is brought back by the admins only, and a\ncomment that went with its card by whoever may bring back the card.",
         "operationId": "undeleteBlock",
         "parameters": [
           {

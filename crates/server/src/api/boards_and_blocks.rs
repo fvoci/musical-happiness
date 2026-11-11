@@ -20,7 +20,7 @@ use super::decode_object_with;
 use super::{ApiResult, RequiredSession, json_response, no_content};
 use super::{decode_object, require_board_permission, require_team_in_body, user_is_guest};
 use super::{objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies};
-use super::{require_block_change_permission, require_block_type_change_permission};
+use super::{require_block_change_permission, require_block_patch_permission};
 use crate::app::App;
 use crate::error::AppError;
 use crate::permissions::{BoardPermission, TeamPermission};
@@ -299,8 +299,7 @@ async fn require_block_patches(
     for (block_id, patch) in patches.block_ids.iter().zip(&patches.block_patches) {
         let block = block_of_boards(app, block_id, board_ids).await?;
         require_block_change_permission(app, user_id, &block, MODIFYING_CARDS_DENIED).await?;
-        require_block_type_change_permission(app, user_id, &block, patch, MODIFYING_CARDS_DENIED)
-            .await?;
+        require_block_patch_permission(app, user_id, &block, patch, MODIFYING_CARDS_DENIED).await?;
     }
     Ok(())
 }
