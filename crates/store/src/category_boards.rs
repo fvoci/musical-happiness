@@ -284,8 +284,8 @@ pub(crate) async fn places_of_board(
 /// so that it is between the ones it was between. Else under the user's default category
 /// (found by its name, as the app finds it) with sort order 0, as a newly filed board. A
 /// user without a default category yet is filed nowhere: making that category files the
-/// boards the user is a member of. A category of another team, where a board can be filed
-/// by naming it, counts as gone.
+/// boards the user is a member of. A category of another team, where a board could be
+/// filed by naming it before the routes compared the workspaces, counts as gone.
 pub(crate) async fn put_back(
     scope: &mut Scope<'_>,
     board_id: &str,

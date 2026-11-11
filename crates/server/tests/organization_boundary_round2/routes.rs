@@ -222,7 +222,6 @@ async fn every_team_route_hides_the_workspace_from_nonmembers_guests_and_other_o
 }
 
 #[tokio::test]
-#[ignore = "o1-follow 3: the category routes do not compare the workspaces yet"]
 async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
@@ -266,6 +265,82 @@ async fn a_category_path_rejects_a_normal_board_from_another_workspace() {
         (answer(&hidden), filed),
         (answer(&absent), false),
         "a board of another workspace must not be filed through this workspace's path"
+    );
+}
+
+/// Hiding and showing a board through a category compare the workspaces as filing
+/// does: a board of another workspace the user works in answers as one that is not
+/// there. A built-in template, the system organization's, is in no workspace of the
+/// user's and is filed, hidden and shown in any.
+#[tokio::test]
+async fn a_category_path_hides_no_board_of_another_workspace_but_takes_a_template() {
+    let ts = Setup::native().start().await.init_basic().await;
+    ts.app
+        .init_templates()
+        .await
+        .expect("the built-in templates are installed");
+    let template = ts
+        .app
+        .store()
+        .get_builtin_templates()
+        .await
+        .expect("the built-in templates")
+        .remove(0);
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let categories: Vec<CategoryBoards> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await
+        .ok_json();
+    let category = format!(
+        "/teams/{ROOT_TEAM_ID}/categories/{}/boards",
+        categories[0].category.id
+    );
+    let mut answers = Vec::new();
+    for change in ["hide", "unhide"] {
+        let hidden = ts
+            .client
+            .put(&format!("{category}/{}/{change}", board.id), &json!({}))
+            .await;
+        let absent = ts
+            .client
+            .put(&format!("{category}/{UNKNOWN_ID}/{change}"), &json!({}))
+            .await;
+        answers.push((change, answer(&hidden) == answer(&absent), absent.status));
+    }
+    let filed = ts
+        .client
+        .post(&format!("{category}/{}", template.id), &json!({}))
+        .await
+        .status;
+    let hidden = ts
+        .client
+        .put(&format!("{category}/{}/hide", template.id), &json!({}))
+        .await
+        .status;
+    let after: Vec<CategoryBoards> = ts
+        .client
+        .get(&format!("/teams/{ROOT_TEAM_ID}/categories"))
+        .await
+        .ok_json();
+    let template_hidden = after
+        .iter()
+        .flat_map(|entry| &entry.board_metadata)
+        .find(|metadata| metadata.board_id == template.id)
+        .map(|metadata| metadata.hidden);
+    ts.teardown().await;
+    assert_eq!(
+        answers,
+        [
+            ("hide", true, StatusCode::NOT_FOUND),
+            ("unhide", true, StatusCode::NOT_FOUND),
+        ],
+        "a board of another workspace answers as one that is not there"
+    );
+    assert_eq!(
+        (filed, hidden, template_hidden),
+        (StatusCode::NO_CONTENT, StatusCode::NO_CONTENT, Some(true)),
+        "a built-in template is filed and hidden in the workspace's category"
     );
 }
 

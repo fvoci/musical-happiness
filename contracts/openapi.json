@@ -5521,7 +5521,7 @@
     },
     "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}": {
       "post": {
-        "description": "Puts a board the user may see under one of the user's categories; it leaves the\ncategory it was under.",
+        "description": "Puts a board the user may see under one of the user's categories; it leaves the\ncategory it was under. A category takes the boards of its own workspace and the\nbuilt-in templates: a board of another workspace answers as one that is not there.",
         "operationId": "setBoardCategory",
         "parameters": [
           {
@@ -5575,7 +5575,7 @@
     },
     "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide": {
       "put": {
-        "description": "Hides a board of one of the user's categories from the user's sidebar. The board\nstays where it is filed, and nothing changes for anybody else. For a board that is\nnot filed under the category nothing changes, and the answer is 204 all the same.",
+        "description": "Hides a board of one of the user's categories from the user's sidebar. The board\nstays where it is filed, and nothing changes for anybody else. For a board that is\nnot filed under the category nothing changes, and the answer is 204 all the same; a\nboard of another workspace than the category's answers as one that is not there.",
         "operationId": "hideBoard",
         "parameters": [
           {
@@ -5629,7 +5629,7 @@
     },
     "/api/v1/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide": {
       "put": {
-        "description": "Ends the hiding of a board of one of the user's categories. For a board that is not\nfiled under the category nothing changes, and the answer is 204 all the same.",
+        "description": "Ends the hiding of a board of one of the user's categories. For a board that is not\nfiled under the category nothing changes, and the answer is 204 all the same; a\nboard of another workspace than the category's answers as one that is not there.",
         "operationId": "unhideBoard",
         "parameters": [
           {
