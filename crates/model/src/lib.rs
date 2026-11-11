@@ -58,7 +58,7 @@ pub use body::{
     BODY_MAX_BYTES, BODY_MAX_DEPTH, BODY_MAX_NODES, BODY_VERSION, Body, BodyChange, BodyError,
     BodySummary, TaskCount,
 };
-pub use card::{Card, CardError, CardPatch};
+pub use card::{CARD_PREVIEW_TEXT_LENGTH, Card, CardError, CardPatch, CardPreview};
 pub use card_property::{
     CardPropertyError, DATE_PROPERTY_TYPE, PersonProperties, clear_values_of_another_kind,
     validate_block_properties, validate_card_property_definitions, validate_card_property_kinds,

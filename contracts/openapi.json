@@ -529,6 +529,17 @@
             "description": "The identifier of the user who last modified the card.",
             "type": "string"
           },
+          "preview": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CardPreview",
+                "description": "What a gallery shows of the card's body: only in a list asked for it\n(`getCards` with `preview=true`), and left out otherwise. A request need not send\nit; what it sends is not stored."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "properties": {
             "additionalProperties": true,
             "description": "Property values keyed by property identifier: a string, a list of strings, or\n`null`, and for a property of the type `date` a date value (`{\"from\":\n\"2026-03-05\"}`, `{\"from\": \"2026-03-05\", \"to\": \"2026-03-09\"}` or `{\"from\":\n1772703000000}`) or `null`.",
@@ -634,6 +645,24 @@
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "CardPreview": {
+        "description": "What a gallery shows of a card's body.",
+        "properties": {
+          "imageFileId": {
+            "description": "The file the body's first image shows (`getFile` gives it, also with the board's\nread token); empty if the body has no image.",
+            "type": "string"
+          },
+          "text": {
+            "description": "The beginning of the body's text: its plain text as it is searched (a line per\nparagraph, heading, code block and formula block, separated by `\\n`; a formula\ngives its source, an image and a mention nothing), at most 200 UTF-16 code units,\ncut between characters as they are seen (a flag or a letter with its accent stays\nwhole), without white space at its end. Nothing says it was cut. Empty for a card\nwithout text.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "imageFileId",
+          "text"
+        ],
         "type": "object"
       },
       "Category": {
@@ -3292,7 +3321,7 @@
     },
     "/api/v1/boards/{boardId}/cards": {
       "get": {
-        "description": "One page of the board's cards, for the board's members. Oldest first; the pages cut\nthat order. A `page` or `perPage` that is no whole number is 400.",
+        "description": "One page of the board's cards, for the board's members, and with the board's read\ntoken for whoever has it. Oldest first; the pages cut that order. A `page` or\n`perPage` that is no whole number is 400. With `preview=true` each card has its\n`preview` (the first image and the beginning of the text of its body), which a\nlist without it leaves out.\n\nTo a reader with the read token alone (no session, or a user who is no member of\nthe board) the cards name no users, as `getBlocks` gives them: `createdBy` and\n`modifiedBy` are empty, the values of person properties are emptied, and values of\nproperties the board does not define are left out. The preview's text has no\nmentions in it, and its image `getFile` gives with the same token.",
         "operationId": "getCards",
         "parameters": [
           {
@@ -3323,6 +3352,24 @@
               "format": "int64",
               "type": "integer"
             }
+          },
+          {
+            "description": "`true` gives each card its `preview`. Any other value does not, and the cards have none.",
+            "in": "query",
+            "name": "preview",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The read token of the board. With the token of a board that is shared, the request needs no session.",
+            "in": "query",
+            "name": "readToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3350,6 +3397,15 @@
             "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server."
           }
         },
+        "security": [
+          {},
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerToken": []
+          }
+        ],
         "summary": "The cards of a board",
         "tags": [
           "cards"
@@ -3985,6 +4041,65 @@
         "summary": "Change the roles of a member",
         "tags": [
           "members"
+        ]
+      }
+    },
+    "/api/v1/boards/{boardId}/property-order": {
+      "put": {
+        "description": "The body names every card property of the board (`cardProperties`, by `id`) once,\nin the new order, as `reorderCategories` names categories; one left out, one named\ntwice or one the board does not have is 400, and nothing changes. For who may manage\nthe board's properties, as `patchBoard`. The board's listeners get `UPDATE_BOARD`, as\nfor any change of the board.",
+        "operationId": "reorderCardProperties",
+        "parameters": [
+          {
+            "description": "The identifier of the board.",
+            "in": "path",
+            "name": "boardId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The identifiers of the card properties in their new order."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Put the card properties of a board in an order",
+        "tags": [
+          "boards"
         ]
       }
     },

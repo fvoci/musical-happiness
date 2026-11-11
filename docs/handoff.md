@@ -1,6 +1,6 @@
 # 서버 인수인계
 
-고친 때: 2026-11-11 14:50 KST(작업 묶음 `fvoci/server-decide`가 맨 앞 "지금 상태"를 고쳐 간다). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
+고친 때: 2026-11-11 20:25 KST(작업 묶음 `fvoci/server-decide`의 끝). 2026-11-11 03:52 KST에 웹앱과 한 브랜치(`master`)로 합치면서 맨 앞의 절을 더하고 브랜치를 가리키는 말을 고쳤다. 앞선 판(S5 시점, 401줄)은 `git show 3c2a474:docs/handoff-s5.md`로 본다(이 저장소의 해시다).
 
 ## 저장소가 하나로 합쳐졌다
 
@@ -22,7 +22,7 @@
 ## 지금 상태
 
 - **서버.** 설계(`docs/s6-design.md`)의 "구현 순서" 1–9단계가 끝났다. 1–7단계는 오류 응답과 경로 규칙, 요청 크기 한도, 새 기준 스키마, 쿠키 인증, 로그인 시도 제한, 접두어 `/api/v1`, 계약 파일이고, 8단계(본문, 날짜 값, 템플릿)와 9단계(청크 업로드, 스트리밍, 한도)는 아래 목록의 tracer-bullet들로 들어갔다.
-- **지금의 작업 묶음(브랜치 `fvoci/server-decide`, 2026-11-11 14:43 KST에 시작).** 지시는 보관 폴더의 `PROMPT-server-decide.md`다: 사용자가 2026-11-11 14:25–14:46 KST에 정한 것들을 넣는다. 일을 tracer-bullet 하나씩으로 끊고, 올리기 전마다 새 하위 에이전트가 그 diff를 검토한다. 리뷰의 지적과 받아들이지 않은 까닭은 커밋 메시지의 본문에 있다. 지난 묶음(`fvoci/server-next`)의 목록은 `git log`에 있다.
+- **마지막 작업 묶음(브랜치 `fvoci/server-decide`, 2026-11-11 14:43–20:30 KST).** 사용자가 2026-11-11 14:25–14:46 KST에 정한 것들을 넣었다. 리뷰의 지적과 받아들이지 않은 까닭은 커밋 메시지의 본문에 있다. 웹앱이 알 것은 `docs/contract-pending.md` 9절이다.
 
   | # | tracer-bullet | 상태 |
   |---|---|---|
@@ -35,9 +35,9 @@
   | 7 | 계정 설정의 언어 | 끝 |
   | 8 | 되살린 보드가 구성원마다 원래 카테고리의 원래 자리로 | 끝 |
   | 9 | 카드 목록과 `getCard`의 마지막 댓글 시각 | 끝 |
-  | 10 | 카드 목록의 갤러리 미리보기(청할 때만) | |
-  | 11 | 보드의 속성 순서를 바꾸는 요청 | |
-  | 끝 | `docs/contract-pending.md` 9절, 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | |
+  | 10 | 카드 목록의 갤러리 미리보기(청할 때만) | 끝 |
+  | 11 | 보드의 속성 순서를 바꾸는 요청 | 끝 |
+  | 끝 | `docs/contract-pending.md` 9절, 웹앱의 만든 타입(`contract.ts`), 묶음 전체의 리뷰, 마지막 `cargo xtask check`·`test` | 끝 |
 
 - **설정.** 키 전부는 `docs/configuration.md`에 있고, `config.rs`의 테스트가 문서와 코드(키, 기본값, 환경 변수, 없앤 키)를 견준다. 키를 더하면 같은 커밋에서 문서에 넣는다. 예시 파일 `docker/fvoci/config.json`은 테스트가 읽고 검사한다. `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`는 없앤 키다(사용자 결정 11:05 KST). `authmode`는 예약된 키다(사용자 결정, 05:04 KST). `prometheusaddress`는 지표를 따로 연 리스너에서 낸다(`fvoci/metrics`). S3의 키 가운데 자격이 아닌 것은 `FVOCI_FILESS3CONFIG_*` 환경 변수로도 받고, 자격은 `AWS_*`로만 받는다(사용자 결정 11:05 KST).
 
@@ -77,7 +77,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 무엇 | 결과 |
 |---|---|
 | `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮기기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이다. 손으로 더한 줄이나 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
-| `cargo xtask test` | SQLite 1,095건, PostgreSQL 956건, S3 7건, 실패 0(2026-11-11, `fvoci/server-next`) |
+| `cargo xtask test` | SQLite 1,129건, PostgreSQL 984건, S3 7건, 실패 0(2026-11-11, `fvoci/server-decide`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
 

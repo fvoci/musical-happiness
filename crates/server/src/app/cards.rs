@@ -3,8 +3,8 @@
 //! A card has no storage of its own. It is created, read and patched as its block, so
 //! every change is announced the way block changes are.
 
-use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, new_id};
-use fvoci_store::{BlockFilter, Paging};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, CardPreview, new_id};
+use fvoci_store::{BlockFilter, Paging, Previews};
 
 use super::{App, ChangeNotification};
 use crate::auth::now_millis;
@@ -88,7 +88,7 @@ impl App {
 
     /// Returns cards of a board, in no particular order: page number `page`, counted
     /// from zero, of pages of `per_page` cards. A `per_page` of zero or less asks for
-    /// all cards, whatever the page.
+    /// all cards, whatever the page. With [`Previews::With`] each card has its preview.
     ///
     /// # Errors
     ///
@@ -99,6 +99,7 @@ impl App {
         board_id: &str,
         page: i64,
         per_page: i64,
+        previews: Previews,
     ) -> Result<Vec<Card>, AppError> {
         let mut filter = BlockFilter::board(board_id).with_type(BlockType::Card);
         match CardRange::new(page, per_page) {
@@ -106,7 +107,7 @@ impl App {
             CardRange::Page(paging) => filter.paging = Some(paging),
             CardRange::Nothing => return Ok(Vec::new()),
         }
-        let blocks = self.store().get_listed_blocks(&filter).await?;
+        let blocks = self.store().get_listed_blocks(&filter, previews).await?;
 
         let now = now_millis();
         blocks
@@ -119,6 +120,12 @@ impl App {
                 card_from_stored_block(&listed.block, now)
                     .map(|card| Card {
                         last_comment_at: listed.last_comment_at,
+                        preview: listed.preview.as_ref().map(|preview| {
+                            CardPreview::new(
+                                preview.first_image.clone().unwrap_or_default(),
+                                &preview.text,
+                            )
+                        }),
                         ..card.listed(listed.summary)
                     })
                     .map_err(|error| AppError::from(error).context("Block2Card fail"))
