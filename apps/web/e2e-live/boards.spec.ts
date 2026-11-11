@@ -78,8 +78,12 @@ test('a board is made with its first view, changed, deleted and brought back', a
   await page.getByRole('alertdialog').getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(boardLink(page, 'Launch plan')).toHaveCount(0);
   await expect.poll(async () => (await api.get(`/api/v1/boards/${boardId}`)).status()).toBe(404);
+  await expect(page.getByTestId('board-missing')).toBeVisible();
   await page.getByTestId('undo').click();
   await expect(boardLink(page, 'Launch plan')).toBeVisible();
+  // The page, which showed it as gone, shows it again.
+  await expect(title).toHaveValue('Launch plan');
+  await expect(page.getByTestId('board-missing')).toHaveCount(0);
   expect((await api.get(`/api/v1/boards/${boardId}`)).status()).toBe(200);
   expect(await views(api, boardId)).toHaveLength(2);
   await expect(page.locator('[data-problem]')).toHaveCount(0);

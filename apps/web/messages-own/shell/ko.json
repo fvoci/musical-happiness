@@ -8,6 +8,7 @@
   "shell_find_board_clear": "검색어 지우기",
   "shell_no_boards_found": "제목에 그 글자가 든 보드가 없습니다.",
   "shell_add_board": "보드 추가",
+  "shell_new_board_status": "상태",
   "shell_account_of": "{name}: 계정과 설정",
   "shell_category_menu": "{name} 카테고리 메뉴",
   "shell_category_move_up": "위로 이동",

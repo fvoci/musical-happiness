@@ -8,6 +8,7 @@
   "shell_find_board_clear": "Clear the search",
   "shell_no_boards_found": "No board has that in its title.",
   "shell_add_board": "Add board",
+  "shell_new_board_status": "Status",
   "shell_account_of": "{name}: account and settings",
   "shell_category_menu": "Menu of the category {name}",
   "shell_category_move_up": "Move up",

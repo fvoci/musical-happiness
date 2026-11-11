@@ -314,6 +314,11 @@ export class BoardStore {
   #apply(change: Change): void {
     switch (change.kind) {
       case 'board':
+        // Deleted and brought back: everything of it is read again.
+        if (this.missing) {
+          void this.load();
+          break;
+        }
         if (!this.board || change.board.updateAt >= this.board.updateAt) this.board = change.board;
         break;
       case 'boardDeleted':

@@ -266,6 +266,37 @@ describe('making and deleting boards', () => {
     expect(workspace.boards).toHaveLength(1);
     expect(await backend.cards(first?.id ?? '')).toHaveLength(3);
   });
+
+  it('brings a deleted board back at the end of the default category, and the open board with it', async () => {
+    const { workspace } = setup(await loadTemplates());
+    await workspace.load();
+    const [team] = workspace.sidebar;
+    const gone = team?.boards[0];
+    if (!team || !gone) throw new Error('unexpected seed');
+    const open = await workspace.openBoard(gone.id);
+    await workspace.deleteBoard(gone.id);
+    await settle();
+    expect(open.missing).toBe(true);
+    expect(workspace.categories.some((category) => category.boardIds.includes(gone.id))).toBe(
+      false,
+    );
+    await workspace.undoLast();
+    await settle();
+    expect(workspace.sidebar.at(-1)?.boards.at(-1)?.id).toBe(gone.id);
+    expect(workspace.sidebar[0]?.boards.map((board) => board.id)).not.toContain(gone.id);
+    await vi.waitFor(() => {
+      expect(open.status).toBe('ready');
+    });
+    expect(open.missing).toBe(false);
+    expect(await workspace.openBoard(gone.id)).toBe(open);
+  });
+
+  it('names the property of a new board in the words it is given', async () => {
+    const { workspace } = setup();
+    await workspace.load();
+    const made = await workspace.createBoard({ title: 'Neu' }, 'Board view', 'Zustand');
+    expect(made?.cardProperties.map((template) => template.name)).toEqual(['Zustand']);
+  });
 });
 
 describe('a board', () => {

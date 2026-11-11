@@ -185,7 +185,11 @@
    * page goes to it. The template picker of the original is not built.
    */
   async function addBoard(): Promise<void> {
-    const made = await workspace.createBoard({ title: '' }, m['View.NewBoardTitle']());
+    const made = await workspace.createBoard(
+      { title: '' },
+      m['View.NewBoardTitle'](),
+      m.shell_new_board_status(),
+    );
     if (made) openBoard(made.id);
   }
 

@@ -198,6 +198,13 @@ export class Workspace {
       }
       case 'boardDeleted':
         this.boards = this.boards.filter((board) => board.id !== change.boardId);
+        // A deleted board leaves every category (no message says so). Brought
+        // back, it is filed nowhere: it shows at the end of the default category.
+        this.categories = this.categories.map((category) => ({
+          ...category,
+          boardIds: category.boardIds.filter((id) => id !== change.boardId),
+          hiddenBoardIds: category.hiddenBoardIds.filter((id) => id !== change.boardId),
+        }));
         break;
       case 'categories':
         this.categories = change.categories;
@@ -314,7 +321,8 @@ export class Workspace {
    * that was open is closed. The returned store is also `this.board`.
    */
   async openBoard(boardId: string): Promise<BoardStore> {
-    if (this.board?.boardId === boardId) return this.board;
+    // A board that went missing is read anew: it may have been brought back.
+    if (this.board?.boardId === boardId && !this.board.missing) return this.board;
     this.board?.close();
     const store = new BoardStore(this, boardId);
     this.board = store;
@@ -329,14 +337,19 @@ export class Workspace {
 
   /**
    * Makes a board and its first view, a kanban grouped by the board's first
-   * select property (a board without card properties is given a "Status"
-   * one). `viewTitle` is the title of that view; the caller passes the
-   * translated word. The two are made together.
+   * select property (a board without card properties is given one named
+   * `statusName`). `viewTitle` is the title of that view. The caller passes
+   * both in the reader's language. The two are made together.
    */
-  async createBoard(draft: BoardDraft, viewTitle = ''): Promise<Board | undefined> {
+  async createBoard(
+    draft: BoardDraft,
+    viewTitle = '',
+    statusName = 'Status',
+  ): Promise<Board | undefined> {
     if (!this.team) return undefined;
     try {
-      const cardProperties = draft.cardProperties ?? createEmptyBoard().cardProperties;
+      const cardProperties =
+        draft.cardProperties ?? createEmptyBoard(undefined, statusName).cardProperties;
       const groupBy = cardProperties.find((template) => template.type === 'select');
       const fields = createBoardView().fields;
       fields.viewType = 'board';
