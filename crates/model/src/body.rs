@@ -377,7 +377,6 @@ fn check_size(value: &Value) -> Result<(), BodyError> {
     serde_json::to_writer(ByteCount::default(), value).map_err(|_| BodyError::TooLarge)
 }
 
-/// Calls `f` for every node of the document, the document first.
 /// The file of the first image at or below `node`, in document order.
 fn first_image(node: &Value) -> Option<&str> {
     image_file(node).or_else(|| {
@@ -388,6 +387,7 @@ fn first_image(node: &Value) -> Option<&str> {
     })
 }
 
+/// Calls `f` for every node of the document, the document first.
 fn visit<'v>(node: &'v Value, f: &mut impl FnMut(&'v Value)) {
     f(node);
     if let Some(children) = node.get("content").and_then(Value::as_array) {

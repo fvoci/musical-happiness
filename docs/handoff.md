@@ -76,7 +76,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 무엇 | 결과 |
 |---|---|
 | `cargo xtask check` | 일곱 단계 PASS |
-| `cargo xtask test` | SQLite 1,129건, PostgreSQL 984건, S3 7건, 실패 0(2026-11-11, `fvoci/server-decide`) |
+| `cargo xtask test` | SQLite 1,131건, PostgreSQL 986건, S3 7건, 실패 0(2026-11-11, `fvoci/server-decide`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
 

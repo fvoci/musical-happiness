@@ -4048,7 +4048,7 @@
     },
     "/api/v1/boards/{boardId}/trash/cards": {
       "get": {
-        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages\ncut that order. A `page` or `perPage` that is no whole number is 400.",
+        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The\nlast deleted first; the pages cut that order. A `page` or `perPage` that is no whole\nnumber is 400.",
         "operationId": "getDeletedCards",
         "parameters": [
           {
@@ -4114,7 +4114,7 @@
     },
     "/api/v1/boards/{boardId}/undelete": {
       "post": {
-        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted; to anybody\nwho was no member there is no such board.",
+        "description": "Restores a board from the trash with its blocks and its members. Each user who had\nfiled it, and can see it again, finds it where it was in the sidebar (the same\ncategory and place, hidden or not) or in the default category if that one was\ndeleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's\n`REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with\nthe deletion and stay ended. For who was an admin of the board when it was deleted;\nto anybody who was no member there is no such board.",
         "operationId": "undeleteBoard",
         "parameters": [
           {
@@ -5752,7 +5752,7 @@
     },
     "/api/v1/teams/{teamId}/users": {
       "get": {
-        "description": "Up to ten users: with `search` those whose login name or display name has that text\nin it, whatever the case of the letters, without it the ten oldest accounts. Oldest account first.",
+        "description": "Up to ten users: with `search` those whose login name or display name has that text\nin it, whatever the case of the letters, without it the ten oldest accounts. Oldest\naccount first.",
         "operationId": "getTeamUsers",
         "parameters": [
           {

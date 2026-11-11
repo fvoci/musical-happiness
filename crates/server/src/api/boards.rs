@@ -442,8 +442,8 @@ async fn handle_duplicate_board(
 /// category and place, hidden or not) or in the default category if that one was
 /// deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
 /// `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-/// the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody
-/// who was no member there is no such board.
+/// the deletion and stay ended. For who was an admin of the board when it was deleted;
+/// to anybody who was no member there is no such board.
 #[utoipa::path(
     post,
     path = "/boards/{boardId}/undelete",

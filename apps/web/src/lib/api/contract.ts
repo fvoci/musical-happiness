@@ -610,8 +610,9 @@ export interface paths {
          * @description One page of the board's cards that are in the trash, each with its identifier, its
          *     title, when it was deleted and by whom; `undeleteBlock` brings one back until the
          *     trash is emptied of it. A card that went with the block it was on (another card, a
-         *     view) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages
-         *     cut that order. A `page` or `perPage` that is no whole number is 400.
+         *     view) comes back with that block, and is not listed. For the board's editors. The
+         *     last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
+         *     number is 400.
          */
         get: operations["getDeletedCards"];
         put?: never;
@@ -638,8 +639,8 @@ export interface paths {
          *     category and place, hidden or not) or in the default category if that one was
          *     deleted since, and is told with `UPDATE_BOARD_CATEGORY` and the category's
          *     `REORDER_CATEGORY_BOARDS`. Its sharing and the subscriptions to its blocks ended with
-         *     the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody
-         *     who was no member there is no such board.
+         *     the deletion and stay ended. For who was an admin of the board when it was deleted;
+         *     to anybody who was no member there is no such board.
          */
         post: operations["undeleteBoard"];
         delete?: never;
@@ -1354,7 +1355,8 @@ export interface paths {
         /**
          * The users of a team
          * @description Up to ten users: with `search` those whose login name or display name has that text
-         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest account first.
+         *     in it, whatever the case of the letters, without it the ten oldest accounts. Oldest
+         *     account first.
          */
         get: operations["getTeamUsers"];
         put?: never;

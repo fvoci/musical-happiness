@@ -531,6 +531,76 @@ async fn an_archive_carries_the_images_of_bodies() {
     ts.teardown().await;
 }
 
+/// Not in the original (user decision 2026-11-11 14:46 KST). An imported comment whose
+/// body shows an image is pointed at the new board's file without being edited: it says
+/// no `editedAt` and has no versions, as the archive carries none.
+#[tokio::test]
+async fn an_imported_comment_with_an_image_is_not_edited() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Private).await;
+    let file_id = crate::files::uploaded_id(
+        &crate::files::upload(&ts.client, &board.id, "picture.png", b"png").await,
+    );
+    let card: serde_json::Value = ts
+        .client
+        .post(
+            &format!("/boards/{}/cards", board.id),
+            &serde_json::json!({"title": "Card"}),
+        )
+        .await
+        .created_json();
+    let body = serde_json::json!({"type": "doc", "content": [
+        {"type": "image", "attrs": {"fileId": file_id}},
+    ]});
+    ts.client
+        .post(
+            &format!("/boards/{}/blocks", board.id),
+            &serde_json::json!([{"boardId": board.id, "parentId": card["id"], "type": "comment",
+                                 "createAt": 1, "updateAt": 1, "body": body}]),
+        )
+        .await
+        .check_created();
+
+    let exported = export_board(&ts.client, &board.id).await;
+    exported.check_ok();
+    import(&ts.client, TEST_TEAM_ID, &exported.body)
+        .await
+        .check_no_content();
+    let imported = boards_of(&ts)
+        .await
+        .into_iter()
+        .find(|other| other.id != board.id)
+        .expect("the imported board");
+    let comments: Vec<serde_json::Value> = ts
+        .client
+        .get(&format!("/boards/{}/blocks?type=comment", imported.id))
+        .await
+        .ok_json();
+    let [comment] = comments.as_slice() else {
+        panic!("one comment: {comments:?}");
+    };
+    let new_file = comment["body"]["content"][0]["attrs"]["fileId"]
+        .as_str()
+        .expect("the image names a file");
+    assert_ne!(new_file, file_id, "a file of the new board");
+    assert_eq!(comment.get("editedAt"), None, "not edited: {comment}");
+    let versions = ts
+        .client
+        .get(&format!(
+            "/boards/{}/blocks/{}/versions",
+            imported.id,
+            comment["id"].as_str().expect("an id")
+        ))
+        .await
+        .value();
+    assert_eq!(versions, serde_json::json!([]));
+    ts.client
+        .get(&format!("/boards/{}/files/{new_file}", imported.id))
+        .await
+        .check_ok();
+    ts.teardown().await;
+}
+
 /// An archive with an entry that cannot be read (here its checksum does not match) is
 /// refused before anything of it is stored.
 #[tokio::test]

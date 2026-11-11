@@ -228,43 +228,51 @@ impl App {
                 }
             };
 
+            let mut bodies = Vec::new();
             let mut block_ids = Vec::new();
             let mut block_patches = Vec::new();
             for block in blocks {
-                let patch = if let Some(body) =
-                    block.body.filter(|body| !body.file_ids().is_empty())
-                {
+                if let Some(body) = block.body.filter(|body| !body.file_ids().is_empty()) {
                     let body = body.with_files_renamed(|old| {
                         file_map.get(&(board.id.clone(), old.to_owned())).cloned()
                     });
-                    fvoci_model::BlockPatch {
-                        body: body
-                            .map_or(fvoci_model::BodyChange::Clear, fvoci_model::BodyChange::Set),
-                        ..fvoci_model::BlockPatch::default()
+                    bodies.push((block.id, body));
+                    continue;
+                }
+                if block.block_type != BlockType::Attachment {
+                    continue;
+                }
+                let mut updated_fields = JsonMap::new();
+                for key in ["fileId", "attachmentId"] {
+                    if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
+                        let new_name = file_map
+                            .get(&(board.id.clone(), old.to_owned()))
+                            .cloned()
+                            .unwrap_or_default();
+                        updated_fields.insert(key.to_owned(), Value::String(new_name));
                     }
-                } else if block.block_type == BlockType::Attachment {
-                    let mut updated_fields = JsonMap::new();
-                    for key in ["fileId", "attachmentId"] {
-                        if let Some(old) = block.fields.get(key).and_then(Value::as_str) {
-                            let new_name = file_map
-                                .get(&(board.id.clone(), old.to_owned()))
-                                .cloned()
-                                .unwrap_or_default();
-                            updated_fields.insert(key.to_owned(), Value::String(new_name));
-                        }
-                    }
-                    if updated_fields.is_empty() {
-                        continue;
-                    }
-                    fvoci_model::BlockPatch {
+                }
+                if !updated_fields.is_empty() {
+                    block_ids.push(block.id);
+                    block_patches.push(fvoci_model::BlockPatch {
                         updated_fields,
                         ..fvoci_model::BlockPatch::default()
-                    }
-                } else {
-                    continue;
-                };
-                block_ids.push(block.id);
-                block_patches.push(patch);
+                    });
+                }
+            }
+            // The bodies as the archive wrote them, with the new files: part of the
+            // import, not a change of them (a comment gets no version).
+            if !bodies.is_empty()
+                && let Err(error) = self
+                    .store()
+                    .replace_bodies_as_written(&board.id, bodies)
+                    .await
+            {
+                tracing::error!(
+                    %error,
+                    board_id = board.id,
+                    "the imported bodies could not be pointed at their files"
+                );
             }
             if block_ids.is_empty() {
                 continue;
