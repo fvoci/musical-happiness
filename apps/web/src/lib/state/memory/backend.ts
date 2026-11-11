@@ -125,17 +125,17 @@ export class MemoryBackend implements Backend {
     this.#failures.set(method, error);
   }
 
-  /**
-   * The wait every call starts with, and the failure a test asked for. A call
-   * that was given up while it waited (`signal`) ends here as given up: it
-   * does not take the failure meant for the next call.
-   */
   /** `#enter`, then 404 unless `workspaceId` names the reader's workspace. */
   async #enterWorkspace(method: MethodName, workspaceId: string): Promise<void> {
     await this.#enter(method);
     if (workspaceId !== this.world.workspace.id) fail(404, 'no such workspace');
   }
 
+  /**
+   * The wait every call starts with, and the failure a test asked for. A call
+   * that was given up while it waited (`signal`) ends here as given up: it
+   * does not take the failure meant for the next call.
+   */
   async #enter(method: MethodName, signal?: AbortSignal): Promise<void> {
     if (this.latency > 0) {
       await new Promise((resolve) => {

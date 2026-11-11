@@ -422,18 +422,18 @@ mod tests {
     fn the_users_of_person_properties_are_emptied_one_by_one() {
         let people = PersonProperties::of(&[
             object(json!({"id": "owner", "type": "person"})),
-            object(json!({"id": "workspace", "type": "multiPerson"})),
+            object(json!({"id": "people", "type": "multiPerson"})),
             object(json!({"id": "by", "type": "createdBy"})),
             object(json!({"id": "note", "type": "text"})),
             object(json!({"type": "person"})),
         ]);
         let mut values = object(json!({
-            "owner": "u1", "workspace": ["u1", "u2"], "note": "u1", "deleted": "u1", "by": null,
+            "owner": "u1", "people": ["u1", "u2"], "note": "u1", "deleted": "u1", "by": null,
         }));
         people.hide_values(&mut values);
         assert_eq!(
             Value::Object(values),
-            json!({"owner": "", "workspace": ["", ""], "note": "u1", "by": null}),
+            json!({"owner": "", "people": ["", ""], "note": "u1", "by": null}),
             "the count of people stays, who they are goes, and so do undefined values"
         );
 

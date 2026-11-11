@@ -172,8 +172,8 @@ async fn an_archive_in_parts_is_imported_and_leaves_nothing() {
 }
 
 /// An archive written before the workspaces were named so names a board's workspace
-/// `teamId`: it is imported all the same, into the workspace it is imported into, as
-/// one that names it `workspaceId` is (whatever either names).
+/// `teamId`: it is read as `workspaceId` is, imported into the workspace it is imported
+/// into whatever it names, and refused if it is no identifier.
 #[tokio::test]
 async fn an_archive_that_names_the_workspace_teamid_is_imported() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -192,6 +192,19 @@ async fn an_archive_that_names_the_workspace_teamid_is_imported() {
         .collect();
     assert_eq!(imported.len(), 1, "{imported:?}");
     assert_eq!(imported[0].workspace_id, TEST_WORKSPACE_ID);
+    for workspace in ["teamId", "workspaceId"] {
+        let board = json!({"type": "board", "data": {
+            "id": "b2", workspace: 5, "type": "P", "title": "Numbered", "createAt": 1, "updateAt": 1,
+        }});
+        let archive = archive_of(&board, &[], zip::CompressionMethod::Deflated);
+        let refused = import(&ts.client, TEST_WORKSPACE_ID, &archive).await;
+        refused.check_bad_request();
+        let detail = refused.value()["detail"].as_str().unwrap_or("").to_owned();
+        assert!(
+            detail.starts_with("invalid board in archive line 1"),
+            "{workspace}: {detail}"
+        );
+    }
     ts.teardown().await;
 }
 

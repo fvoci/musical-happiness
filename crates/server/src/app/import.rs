@@ -511,18 +511,18 @@ fn parse_archive_lines(
         })?;
         match archive_line.line_type.as_str() {
             "board" => {
-                let mut board: Board =
-                    serde_json::from_value(archive_line.data).map_err(|error| {
-                        AppError::bad_request(format_args!(
-                            "invalid board in archive line {line_number}: {error}"
-                        ))
-                    })?;
+                let mut board: Board = serde_json::from_value(with_workspace_named(
+                    archive_line.data,
+                ))
+                .map_err(|error| {
+                    AppError::bad_request(format_args!(
+                        "invalid board in archive line {line_number}: {error}"
+                    ))
+                })?;
                 modifier_user.clone_into(&mut board.modified_by);
                 board.update_at = now;
-                // The workspace the archive names is not read: `workspaceId`, or
-                // `teamId` in an archive written before the workspaces were named so,
-                // which is left over as a member the board does not have. Both go to
-                // the workspace imported into.
+                // The workspace the archive names is not read: the boards go to the
+                // workspace imported into.
                 workspace_id.clone_into(&mut board.workspace_id);
                 board_id.clone_from(&board.id);
                 boards_and_blocks.boards.push(board);
@@ -865,6 +865,18 @@ fn clear_values_of_another_kind(boards_and_blocks: &mut BoardsAndBlocks) {
             fvoci_model::clear_values_of_another_kind(values, definitions);
         }
     }
+}
+
+/// A board of an archive with its workspace under the name it has now: an archive written
+/// before the workspaces were named so names it `teamId`.
+fn with_workspace_named(mut data: Value) -> Value {
+    if let Value::Object(board) = &mut data
+        && !board.contains_key("workspaceId")
+        && let Some(workspace) = board.remove("teamId")
+    {
+        board.insert("workspaceId".to_owned(), workspace);
+    }
+    data
 }
 
 #[cfg(test)]

@@ -62,7 +62,7 @@ export class ServerRequests implements TrashReads {
   async deletedBoards(workspaceId: string, paging?: Paging): Promise<DeletedItem[]> {
     return this.#http.request<Schemas['DeletedItem'][]>(
       '/api/v1/w/{workspaceId}/trash/boards',
-      { workspaceId: workspaceId },
+      { workspaceId },
       { query: { ...paging } },
     );
   }

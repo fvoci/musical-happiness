@@ -169,8 +169,8 @@ impl App {
             .await
     }
 
-    /// Returns the root workspace: the oldest workspace of the organization, its first workspace,
-    /// which is made with the organization.
+    /// Returns the root workspace: the oldest workspace of the organization, made with
+    /// the organization.
     ///
     /// # Errors
     ///

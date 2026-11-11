@@ -346,7 +346,7 @@ fn card_patch_rejects_an_icon_of_two_graphemes() {
 fn a_card_hides_its_people() {
     let definitions: Vec<JsonMap> = [
         json!({"id": "owner", "type": "person"}),
-        json!({"id": "workspace", "type": "multiPerson"}),
+        json!({"id": "people", "type": "multiPerson"}),
         json!({"id": "status", "type": "select"}),
     ]
     .into_iter()
@@ -359,7 +359,7 @@ fn a_card_hides_its_people() {
     let mut card = Card {
         created_by: "u1".to_owned(),
         modified_by: "u2".to_owned(),
-        properties: match json!({"owner": "u1", "workspace": ["u1", "u2"], "status": "done", "gone": "u3"})
+        properties: match json!({"owner": "u1", "people": ["u1", "u2"], "status": "done", "gone": "u3"})
         {
             Value::Object(map) => map,
             _ => unreachable!("an object"),
@@ -375,7 +375,7 @@ fn a_card_hides_its_people() {
     );
     assert_eq!(
         Value::Object(card.properties),
-        json!({"owner": "", "workspace": ["", ""], "status": "done"})
+        json!({"owner": "", "people": ["", ""], "status": "done"})
     );
 }
 

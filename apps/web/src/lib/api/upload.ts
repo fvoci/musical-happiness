@@ -163,14 +163,14 @@ export function importInParts(
     () =>
       http.request<Schemas['UploadOpened']>(
         '/api/v1/w/{workspaceId}/archive/uploads',
-        { workspaceId: workspaceId },
+        { workspaceId },
         { method: 'POST', json: newUploadOf(file) },
       ),
     async (uploadId, signal) => {
       const request: Schemas['ImportRequest'] = { uploadId };
       await http.request(
         '/api/v1/w/{workspaceId}/archive/import',
-        { workspaceId: workspaceId },
+        { workspaceId },
         { method: 'POST', json: request, signal },
       );
     },
