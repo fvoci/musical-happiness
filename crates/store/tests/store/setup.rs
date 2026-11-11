@@ -869,6 +869,21 @@ async fn the_file_reference_migration_finds_what_the_blocks_show() {
     test.teardown().await;
 }
 
+/// Stores a record of a file of the board for each name.
+async fn save_files(store: &Store, board_id: &str, names: &[&str]) {
+    for name in names {
+        let file = fvoci_model::FileInfo {
+            id: new_id(),
+            board_id: board_id.to_owned(),
+            stored_name: (*name).to_owned(),
+            create_at: 1,
+            path: format!("{board_id}/{name}"),
+            ..fvoci_model::FileInfo::default()
+        };
+        store.save_file_info(&file).await.expect("a file is stored");
+    }
+}
+
 /// The step of migration 8 deletes the content blocks an older server stored, with what
 /// is below them, on the board and in the trash, and leaves the files that only they
 /// showed to be collected. The other blocks and their files stay.
@@ -879,17 +894,7 @@ async fn the_content_block_step_deletes_them_and_leaves_their_files_to_collect()
     let team_id = common::team(&test).await;
     let boards = common::create_test_boards(&test, &team_id, &user_id, 1).await;
     let board_id = &boards[0].id;
-    for name in ["7image.png", "7kept.png"] {
-        let file = fvoci_model::FileInfo {
-            id: new_id(),
-            board_id: board_id.clone(),
-            stored_name: name.to_owned(),
-            create_at: 1,
-            path: format!("{board_id}/{name}"),
-            ..fvoci_model::FileInfo::default()
-        };
-        test.save_file_info(&file).await.expect("a file is stored");
-    }
+    save_files(&test, board_id, &["7image.png", "7kept.png"]).await;
     let block = |block_type: &str, fields: serde_json::Value| Block {
         id: new_id(),
         board_id: board_id.clone(),
