@@ -78,14 +78,27 @@ export function currentLocale(): Locale {
 /**
  * Follows the account's setting once it is read: the device keeps it, and
  * when the page is in another language it loads again in this one. Answers
- * whether it does.
+ * whether it does. A device that cannot keep the setting would start the
+ * next page in the language of before, and follow again, and again: it
+ * stays in the language it is in.
  */
 export function followAccountLanguage(setting: string): boolean {
   remember(setting);
   const locale = localeOfSetting(setting);
-  if (locale === getLocale()) return false;
+  if (locale === getLocale() || remembered() !== setting) return false;
   void setLocale(locale, { reload: true });
   return true;
+}
+
+/**
+ * What the language picker shows as chosen: the language the page is in,
+ * or `auto` when the account says so and the page is in the browser's. A
+ * setting changed on another device since the page was loaded is not shown
+ * until the page follows it, so that it can be chosen here again.
+ */
+export function shownLanguage(setting: string): string {
+  const locale = getLocale();
+  return setting === AUTO_LANGUAGE && locale === browserLocale() ? AUTO_LANGUAGE : locale;
 }
 
 export { locales };

@@ -29,3 +29,21 @@ describe('the language setting', () => {
     expect(readLanguageSettings(null)).toEqual({ language: 'auto' });
   });
 });
+
+describe('the shape of a tag, as the server reads it', () => {
+  it('takes extensions Intl may not, and refuses repeats and an empty extension', () => {
+    for (const taken of ['en-u-12', 'en-t-12', 'en-x-a', 'sr-Latn-RS', 'es-419', 'de-DE-1996']) {
+      expect(isLanguageSetting(taken)).toBe(true);
+    }
+    for (const refused of [
+      'de-1996-1996',
+      'en-u',
+      'en-u-ca-u-nu',
+      'en-x',
+      'en--US',
+      'en-US-x-a-b-',
+    ]) {
+      expect(isLanguageSetting(refused)).toBe(false);
+    }
+  });
+});

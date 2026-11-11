@@ -25,8 +25,8 @@
     browserLocale,
     currentLocale,
     followAccountLanguage,
-    localeOfSetting,
     locales,
+    shownLanguage,
   } from './locale.ts';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
@@ -172,9 +172,7 @@
       router.openBoard(boardId);
     }}
     {locales}
-    language={workspace.settings.language === 'auto'
-      ? 'auto'
-      : localeOfSetting(workspace.settings.language)}
+    language={shownLanguage(workspace.settings.language)}
     autoLocale={browserLocale()}
     onChooseLanguage={(setting: string) => void chooseLanguage(setting)}
     onSignOut={account ? () => void signOut() : undefined}
