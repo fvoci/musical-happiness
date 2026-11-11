@@ -132,6 +132,7 @@ export class CardStore {
   close(): void {
     this.#closed = true;
     for (const upload of this.uploads) upload.cancel();
+    for (const upload of this.#imageUploads) upload.abort();
   }
 
   #takeDetail(detail: CardDetail): void {
@@ -258,11 +259,11 @@ export class CardStore {
     // A card that was deleted and is back (restored) is read again whatever its time.
     const back = this.missing;
     if (card.id !== this.cardId || (!back && card.updateAt <= this.#readAt)) return;
-    if (this.dirty || this.saving || this.#closed) return;
+    if (this.dirty || this.saving || this.#closed || this.#imageUploads.length > 0) return;
     void this.#backend
       .card(this.#boardId, this.cardId)
       .then((detail) => {
-        if (this.dirty || this.saving || this.#closed) return;
+        if (this.dirty || this.saving || this.#closed || this.#imageUploads.length > 0) return;
         if (!back && detail.updateAt <= this.#readAt) return;
         this.#takeDetail(detail);
       })
@@ -442,12 +443,32 @@ export class CardStore {
     }
   }
 
-  /** Uploads an image for the body and gives the identifier an image node names. */
+  /**
+   * Uploads an image for the body and gives the identifier an image node
+   * names. The editor shows its place meanwhile (not the list of uploads),
+   * and that place is no part of the body: so while an image goes up, the
+   * body is not replaced by somebody else's (`cardChanged`), which would take
+   * the place away and lose the image. A body written meanwhile meets the
+   * reader's when the image is in (409, then the reader chooses).
+   */
   async uploadImage(file: File): Promise<string> {
-    const uploaded = await this.#upload(file);
-    if (!uploaded) throw new Error('the image was not uploaded');
-    return uploaded.fileId;
+    const controller = new AbortController();
+    this.#imageUploads.push(controller);
+    try {
+      const uploaded = await this.#backend.upload(this.#boardId, file, {
+        signal: controller.signal,
+      });
+      return uploaded.fileId;
+    } catch (error) {
+      if (!controller.signal.aborted) this.board.workspace.report('upload', error);
+      throw error;
+    } finally {
+      this.#imageUploads = this.#imageUploads.filter((other) => other !== controller);
+    }
   }
+
+  /** The uploads of images for the body under way (no state: nothing shows them). */
+  #imageUploads: AbortController[] = [];
 
   /** The bytes of a file of this board; undefined (and told) when they could not be read. */
   async fileBytes(fileId: string): Promise<Blob | undefined> {

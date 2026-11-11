@@ -290,6 +290,38 @@ describe('images given to the editor as files', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('takes no picture the server would not have drawn (an SVG)', () => {
+    const uploadImage = vi.fn((_file: File) => Promise.resolve('file-1'));
+    const { container } = render(BodyEditor, { doc: null, uploadImage });
+    expect(
+      give(editorIn(container), [new File(['<svg/>'], 'a.svg', { type: 'image/svg+xml' })]),
+    ).toBe(false);
+    expect(uploadImage).not.toHaveBeenCalled();
+  });
+
+  it('puts no picture into an editor that was locked while it went up', async () => {
+    let finish: (fileId: string) => void = () => undefined;
+    const uploadImage = vi.fn(
+      (_file: File) =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const onChange = vi.fn<(body: DocNode | null) => void>();
+    const { container, rerender } = render(BodyEditor, {
+      doc: doc(paragraph(text('before'))),
+      onChange,
+      uploadImage,
+    });
+    expect(give(editorIn(container), [picture()])).toBe(true);
+    await rerender({ doc: doc(paragraph(text('before'))), onChange, uploadImage, editable: false });
+    finish('file-1');
+    await vi.waitFor(() => {
+      expect(container.querySelector('.doc-upload')).toBeNull();
+    });
+    expect(JSON.stringify(editorIn(container).getJSON())).not.toContain('file-1');
+  });
+
   it('uploads a pasted picture, holds its place meanwhile, and stores only the identifier', async () => {
     const previous = setFileUrlResolver((fileId) => `/files/board-1/${fileId}`);
     let finish: (fileId: string) => void = () => undefined;

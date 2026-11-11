@@ -237,6 +237,32 @@ describe('comments and attachments', () => {
     expect(card.fileUrl(card.attachments[1]?.fileId ?? '')).toMatch(/^blob:/);
   });
 
+  it('uploads an image for the body out of the list, and keeps the body while it goes up', async () => {
+    const { card, other, backend, board, cardId } = await openAlpha();
+    backend.latency = 5;
+    const uploading = card.uploadImage(new File(['png'], 'a.png', { type: 'image/png' }));
+    expect(card.uploads).toHaveLength(0);
+    // Somebody else writes the body meanwhile: it does not replace the one shown.
+    const theirs = await other.card(board.boardId, cardId);
+    await other.writeCardBody(board.boardId, cardId, {
+      body: text('theirs'),
+      readAt: theirs.updateAt,
+    });
+    await settle();
+    expect(card.body).toEqual(text('first body'));
+    expect(await uploading).toMatch(/./);
+  });
+
+  it('gives up an image upload when the card is closed, telling nothing', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    backend.latency = 5;
+    const told = workspace.problems.length;
+    const uploading = card.uploadImage(new File(['png'], 'a.png', { type: 'image/png' }));
+    card.close();
+    await expect(uploading).rejects.toThrow();
+    expect(workspace.problems).toHaveLength(told);
+  });
+
   it('keeps a failed upload in the list until it is dismissed, and drops one that was given up', async () => {
     const { card, backend, workspace } = await openAlpha();
     backend.failNext('upload', new BackendError(413, { limit: 10 }));
