@@ -1,7 +1,8 @@
 //! Boards and their members.
 
 use fvoci_model::{
-    Board, BoardMember, BoardPatch, BoardType, BoardsAndBlocks, DeleteBoardsAndBlocks, new_id,
+    Board, BoardCategoryWebsocketData, BoardMember, BoardPatch, BoardType, BoardsAndBlocks,
+    DeleteBoardsAndBlocks, new_id,
 };
 use fvoci_store::{DeletedBoard, DuplicateAs, Joined, MemberChange, PublicBoards};
 
@@ -271,8 +272,8 @@ impl App {
     }
 
     /// Restores a board from the trash, with its blocks, its file records and the
-    /// memberships of the users who still exist, tells the board's members and returns
-    /// the board.
+    /// memberships and places in the sidebar of the users who still exist, tells the
+    /// board's members and each user it is filed for, and returns the board.
     ///
     /// # Errors
     ///
@@ -289,12 +290,27 @@ impl App {
             Err(error) => return Err(error.into()),
         };
 
+        // Read after the restore: where the board is filed now, for each user.
+        let places = self.store().get_board_places(board_id).await?;
+
         let app = self.clone();
         let restored = board.clone();
         self.spawn_background(async move {
             app.ws()
                 .broadcast_board_change(&restored.team_id, &restored)
                 .await;
+            for place in places {
+                let filed = BoardCategoryWebsocketData {
+                    board_id: restored.id.clone(),
+                    category_id: place.category_id,
+                    hidden: place.hidden,
+                };
+                app.ws().broadcast_category_board_change(
+                    &restored.team_id,
+                    &place.user_id,
+                    std::slice::from_ref(&filed),
+                );
+            }
         });
         Ok(board)
     }

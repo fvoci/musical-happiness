@@ -2063,25 +2063,27 @@ impl FullBoard {
         }
     }
 
-    /// The board is not shared, no user has it in a category and nobody subscribes to
-    /// its blocks.
-    async fn assert_sharing_filing_and_subscriptions_are_gone(&self, store: &Store) {
-        let error = store
-            .get_sharing(&self.board.id)
-            .await
-            .expect_err("the board is not shared");
-        assert!(error.is_not_found(), "got {error:?}");
-
+    /// The boards the editor has filed in their one category.
+    async fn filed_by_editor(&self, store: &Store) -> Vec<String> {
         let categories = store
             .get_user_category_boards(&self.editor_id, &self.team_id)
             .await
             .expect("the categories are read");
         assert_eq!(categories.len(), 1, "the category stays: {categories:?}");
-        assert!(
-            categories[0].board_metadata.is_empty(),
-            "the board is filed nowhere: {:?}",
-            categories[0].board_metadata
-        );
+        categories[0]
+            .board_metadata
+            .iter()
+            .map(|metadata| metadata.board_id.clone())
+            .collect()
+    }
+
+    /// The board is not shared and nobody subscribes to its blocks.
+    async fn assert_sharing_and_subscriptions_are_gone(&self, store: &Store) {
+        let error = store
+            .get_sharing(&self.board.id)
+            .await
+            .expect_err("the board is not shared");
+        assert!(error.is_not_found(), "got {error:?}");
 
         let subscribed = subscribed_block_ids(store, &self.editor_id).await;
         assert!(subscribed.is_empty(), "got {subscribed:?}");
@@ -2210,8 +2212,12 @@ async fn delete_board_ends_sharing_category_filing_and_subscriptions() {
         .await
         .expect("the board is deleted");
 
-    full.assert_sharing_filing_and_subscriptions_are_gone(&test)
-        .await;
+    full.assert_sharing_and_subscriptions_are_gone(&test).await;
+    assert_eq!(
+        full.filed_by_editor(&test).await,
+        Vec::<String>::new(),
+        "the board is filed nowhere while in the trash"
+    );
 
     test.teardown().await;
 }
@@ -2293,8 +2299,10 @@ async fn undelete_board_brings_back_the_board_its_blocks_files_and_members() {
     test.teardown().await;
 }
 
+/// The places in the sidebars come back with the board (user decision 2026-11-11 14:25
+/// KST); its sharing and the subscriptions to its blocks do not.
 #[tokio::test]
-async fn undelete_board_does_not_bring_back_sharing_category_filing_or_subscriptions() {
+async fn undelete_board_brings_back_category_filing_but_not_sharing_or_subscriptions() {
     let test = common::setup().await;
     let full = FullBoard::store(&test).await;
 
@@ -2308,8 +2316,12 @@ async fn undelete_board_does_not_bring_back_sharing_category_filing_or_subscript
     test.get_block(&full.card_id)
         .await
         .expect("the card is back");
-    full.assert_sharing_filing_and_subscriptions_are_gone(&test)
-        .await;
+    full.assert_sharing_and_subscriptions_are_gone(&test).await;
+    assert_eq!(
+        full.filed_by_editor(&test).await,
+        std::slice::from_ref(&full.board.id),
+        "the editor has it where it was"
+    );
 
     test.teardown().await;
 }
@@ -4363,5 +4375,121 @@ async fn replacements_of_the_built_in_templates_at_once_store_them_once() {
         1,
         "and they are there once"
     );
+    test.teardown().await;
+}
+
+/// Stores a category of the user in the team and returns its identifier.
+async fn stored_category(
+    test: &Store,
+    user_id: &str,
+    team_id: &str,
+    category_type: fvoci_model::CategoryType,
+) -> String {
+    let category = Category {
+        id: new_id(),
+        name: "a category".to_owned(),
+        user_id: user_id.to_owned(),
+        team_id: team_id.to_owned(),
+        category_type,
+        ..Category::default()
+    };
+    test.create_category(&category)
+        .await
+        .expect("the category is stored");
+    category.id
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). A deleted board keeps where
+/// each user had filed it, and comes back there: the same category, sort order and
+/// visibility; under the user's default category if that category went meanwhile, and
+/// nowhere for a user who has no default category yet. The places go with the board when
+/// the trash is emptied of it.
+#[tokio::test]
+async fn a_restored_board_is_filed_where_it_was() {
+    let test = common::setup().await;
+    let team_id = common::team(&test).await;
+    let [kept, moved, unfiled] = [
+        common::user(&test, "kept").await,
+        common::user(&test, "moved").await,
+        common::user(&test, "unfiled").await,
+    ];
+    let board_id = new_id();
+    let mut board = new_board(&board_id, &team_id, BoardType::Open);
+    test.insert_board(&mut board, &kept)
+        .await
+        .expect("the board is inserted");
+    let custom = fvoci_model::CategoryType::Custom;
+    let kept_category = stored_category(&test, &kept, &team_id, custom).await;
+    let moved_category = stored_category(&test, &moved, &team_id, custom).await;
+    let moved_default =
+        stored_category(&test, &moved, &team_id, fvoci_model::CategoryType::System).await;
+    let unfiled_category = stored_category(&test, &unfiled, &team_id, custom).await;
+    for (user_id, category_id) in [
+        (&kept, &kept_category),
+        (&moved, &moved_category),
+        (&unfiled, &unfiled_category),
+    ] {
+        test.add_update_category_board(user_id, category_id, std::slice::from_ref(&board_id))
+            .await
+            .expect("the board is filed");
+    }
+    test.reorder_category_boards(&kept_category, vec![new_id(), board_id.clone()])
+        .await
+        .expect("the board is moved down");
+    test.set_board_visibility(
+        &kept,
+        &kept_category,
+        &board_id,
+        fvoci_store::BoardVisibility::Hidden,
+    )
+    .await
+    .expect("the board is hidden");
+    let before = test.get_board_places(&board_id).await.expect("the places");
+
+    test.delete_board(&board_id, &kept)
+        .await
+        .expect("the board is deleted");
+    let gone = test.get_board_places(&board_id).await.expect("the places");
+    assert_eq!(gone, [], "not in any sidebar while in the trash");
+    for (user_id, category_id) in [(&moved, &moved_category), (&unfiled, &unfiled_category)] {
+        test.delete_category(category_id, user_id, &team_id)
+            .await
+            .expect("the category is deleted");
+    }
+    test.undelete_board(&board_id, &kept)
+        .await
+        .expect("the board is restored");
+
+    let places = test.get_board_places(&board_id).await.expect("the places");
+    let kept_place = places.iter().find(|place| place.user_id == kept);
+    assert_eq!(
+        kept_place,
+        before.iter().find(|place| place.user_id == kept)
+    );
+    let kept_place = kept_place.expect("filed again");
+    assert!(
+        kept_place.hidden && kept_place.sort_order == 11,
+        "{kept_place:?}"
+    );
+    let moved_place = places.iter().find(|place| place.user_id == moved);
+    assert_eq!(
+        moved_place.map(|place| (place.category_id.as_str(), place.sort_order)),
+        Some((moved_default.as_str(), 0)),
+        "under the default category"
+    );
+    assert!(
+        places.iter().all(|place| place.user_id != unfiled),
+        "nowhere without a default category"
+    );
+
+    test.delete_board(&board_id, &kept)
+        .await
+        .expect("deleted again");
+    test.purge_trash(i64::MAX).await.expect("purged");
+    assert!(
+        test.get_deleted_board(&board_id).await.is_err(),
+        "the board and the places kept with it are gone"
+    );
+
     test.teardown().await;
 }

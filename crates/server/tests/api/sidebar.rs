@@ -3009,3 +3009,75 @@ async fn the_default_category_is_created_once_by_concurrent_requests() {
     );
     th.teardown().await;
 }
+
+/// The first message of the action that arrives, passing over the others.
+async fn message_of(stream: &mut Stream, action: &str) -> Value {
+    loop {
+        let message = expect_message(stream, action).await;
+        if message["action"] == json!(action) {
+            return message;
+        }
+    }
+}
+
+/// Not in the original (user decision 2026-11-11 14:25 KST). A deleted board that comes
+/// back is where its user had filed it, hidden as it was, and the user's connection is
+/// told with the board's one entry.
+#[tokio::test]
+async fn a_restored_board_is_filed_where_it_was_and_the_user_is_told() {
+    let th = Setup::native().start().await.init_basic().await;
+    let user = th.client.me().await;
+    category_boards(&th.client, ROOT_TEAM_ID).await;
+    let created = create_category(&th.client, &category(ROOT_TEAM_ID, &user.id, "Cat A")).await;
+    let board: Board = th
+        .client
+        .create_board(&Board {
+            team_id: ROOT_TEAM_ID.to_owned(),
+            board_type: BoardType::Open,
+            ..Board::default()
+        })
+        .await
+        .created_json();
+    file_board(&th.client, ROOT_TEAM_ID, &created.id, &board.id).await;
+    let category_path = format!("/teams/{ROOT_TEAM_ID}/categories/{}", created.id);
+    put_empty(
+        &th.client,
+        &format!("{category_path}/boards/{}/hide", board.id),
+    )
+    .await
+    .check_no_content();
+    let mut socket = subscribed_socket(&th, ROOT_TEAM_ID, &user.id).await;
+
+    th.client
+        .delete(&format!("/boards/{}", board.id))
+        .await
+        .check_no_content();
+    th.client
+        .post_empty(&format!("/boards/{}/undelete", board.id))
+        .await
+        .check_ok();
+
+    assert_eq!(
+        message_of(&mut socket, "UPDATE_BOARD_CATEGORY").await,
+        json!({
+            "action": "UPDATE_BOARD_CATEGORY",
+            "teamId": ROOT_TEAM_ID,
+            "boardCategories": [{"boardId": board.id, "categoryId": created.id, "hidden": true}],
+        }),
+    );
+    let filed = category_boards(&th.client, ROOT_TEAM_ID)
+        .await
+        .into_iter()
+        .find(|entry| entry.category.id == created.id)
+        .expect("the category");
+    assert_eq!(
+        filed.board_metadata,
+        [CategoryBoardMetadata {
+            board_id: board.id.clone(),
+            hidden: true,
+        }],
+        "the sidebar has it where it was"
+    );
+
+    th.teardown().await;
+}

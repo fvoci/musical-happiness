@@ -21,6 +21,7 @@ use serde::de::DeserializeOwned;
 use crate::Store;
 use crate::blocks::{self, Paging, parents_first};
 use crate::boards;
+use crate::category_boards::{self, BoardPlace};
 use crate::comment_versions;
 use crate::db::{Dialect, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
@@ -139,8 +140,8 @@ impl Store {
     }
 
     /// Deletes a board with all its blocks: moves them to the trash, together with the
-    /// board's memberships and file records. The board's sharing, the places users
-    /// filed it under and the subscriptions to its blocks end.
+    /// board's memberships, file records and the places users filed it under. The
+    /// board's sharing and the subscriptions to its blocks end.
     ///
     /// # Errors
     ///
@@ -223,8 +224,10 @@ impl Store {
     }
 
     /// Restores a board from the trash and returns it: the board, the blocks that were
-    /// deleted with it, its file records, and the memberships of the users who still
-    /// exist. The board is marked as modified by `user_id` now. Its sharing does not
+    /// deleted with it, its file records, and the memberships and places in the sidebar
+    /// of the users who still exist: under the category the user had filed it under, or
+    /// the user's default category if that category is gone since. The board is marked
+    /// as modified by `user_id` now. Its sharing does not
     /// come back: a restored board is not shared until someone shares it again.
     ///
     /// # Errors
@@ -508,6 +511,8 @@ pub(crate) async fn delete_board(
     let members = boards::get_members_for_board(scope, board_id).await?;
     let files = file_info::file_infos_of_board(scope, board_id).await?;
     let board_blocks = blocks::get_blocks(scope, &blocks::BlockFilter::board(board_id)).await?;
+    // Where users filed the board, to file it there again when it comes back.
+    let places = category_boards::places_of_board(scope, board_id).await?;
 
     let now = now_millis();
     let deletion_id = new_id();
@@ -518,7 +523,8 @@ pub(crate) async fn delete_board(
     };
     let mut sql = scope.sql(
         "INSERT INTO deleted_boards \
-         (id, team_id, deleted_at, deleted_by, deletion_id, board, members, files) VALUES (",
+         (id, team_id, deleted_at, deleted_by, deletion_id, board, members, files, places) \
+         VALUES (",
     );
     sql.bind(Id(board_id))
         .push_bind(", ", Id(&in_trash.team_id))
@@ -528,11 +534,12 @@ pub(crate) async fn delete_board(
         .push_bind(", ", Param::json(&in_trash)?)
         .push_bind(", ", Param::json(&members)?)
         .push_bind(", ", Param::json(&StoredFiles::from(files))?)
+        .push_bind(", ", Param::json(&places)?)
         .push(")");
     scope.execute(sql).await?;
 
     // The blocks first: a board does not go while it has any. With the board go its
-    // memberships, its sharing, its file records and where users filed it.
+    // memberships, its sharing, its file records and where users filed it (kept above).
     let mut sql = scope.sql("DELETE FROM blocks WHERE board_id = ");
     sql.bind(Id(board_id));
     scope.execute(sql).await?;
@@ -547,8 +554,8 @@ pub(crate) async fn undelete_board(
     board_id: &str,
     user_id: &str,
 ) -> Result<Board, StoreError> {
-    let mut sql =
-        scope.sql("SELECT board, members, files, deletion_id FROM deleted_boards WHERE id = ");
+    let mut sql = scope
+        .sql("SELECT board, members, files, deletion_id, places FROM deleted_boards WHERE id = ");
     sql.bind(Id(board_id));
     // Of two requests that restore the board at once, the second waits here and then
     // finds the trash without it.
@@ -563,6 +570,7 @@ pub(crate) async fn undelete_board(
     let members: Vec<BoardMember> = from_json(&row, 1, "members")?;
     let files: StoredFiles = from_json(&row, 2, "files")?;
     let deletion_id = row.id(3)?;
+    let places: Vec<BoardPlace> = from_json(&row, 4, "places")?;
 
     let now = now_millis();
     board.delete_at = 0;
@@ -578,6 +586,12 @@ pub(crate) async fn undelete_board(
         // A membership of a user whose row is gone since does not come back.
         if known_users.has(scope, &member.user_id).await? {
             boards::save_member(scope, member).await?;
+        }
+    }
+    // Each user who still exists finds the board where they had filed it.
+    for place in &places {
+        if known_users.has(scope, &place.user_id).await? {
+            category_boards::put_back(scope, board_id, &board.team_id, place).await?;
         }
     }
     for file in Vec::<FileInfo>::from(files) {

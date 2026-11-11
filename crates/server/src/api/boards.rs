@@ -387,9 +387,11 @@ async fn handle_duplicate_board(
 
 /// Bring a deleted board back
 ///
-/// Restores a board from the trash with its blocks and its members. Its sharing, its
-/// places in the sidebars and the subscriptions to its blocks ended with the deletion
-/// and stay ended. For who was an admin of the board when it was deleted; to anybody
+/// Restores a board from the trash with its blocks and its members. Each user who had
+/// filed it finds it where it was in the sidebar (the same category and place, hidden
+/// or not), or in the default category if that category was deleted since, and is told
+/// with `UPDATE_BOARD_CATEGORY`. Its sharing and the subscriptions to its blocks ended
+/// with the deletion and stay ended. For who was an admin of the board when it was deleted; to anybody
 /// who was no member there is no such board.
 #[utoipa::path(
     post,
