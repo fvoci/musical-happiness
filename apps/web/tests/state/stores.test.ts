@@ -580,6 +580,26 @@ describe('an open board the reader is no member of', () => {
     expect(board.members.some((member) => member.userId === readerId)).toBe(true);
   });
 
+  it('is gone when joining finds it no longer open, and is not read once left', async () => {
+    const made = setup();
+    await made.workspace.load();
+    const first = made.workspace.sidebar.flatMap((entry) => entry.boards)[0];
+    if (!first) throw new Error('the seed has no board');
+    const board = await made.workspace.openBoard(first.id);
+    board.joinable = true;
+    made.backend.failNext('joinBoard', new BackendError(404));
+    expect(await board.join()).toBe(false);
+    expect(board).toMatchObject({ joinable: false, missing: true, joining: false });
+
+    const again = await made.workspace.openBoard(first.id);
+    const load = vi.spyOn(again, 'load');
+    made.backend.latency = 5;
+    const joining = again.join();
+    again.close();
+    expect(await joining).toBe(false);
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it('is not offered to join when the board refused is a private one', async () => {
     const made = setup();
     await made.workspace.load();

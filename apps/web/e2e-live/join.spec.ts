@@ -57,6 +57,8 @@ test('an open board is joined from its page, not by opening it', async ({ page, 
 
   await join.getByRole('button', { name: 'Join this board' }).click();
   await expect(page.getByTestId('board-page')).toBeVisible();
+  // The focus is on the board, where the button was.
+  await expect(page.getByTestId('board-page')).toBeFocused();
   await expect(page.getByText('Water the plants')).toBeVisible();
   expect(await memberNames()).toEqual([owner.username, visitor.username].sort());
 

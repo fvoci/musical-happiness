@@ -226,18 +226,33 @@ export class BoardStore {
 
   /** Joins the open board shown (`joinable`) and opens it. False (and told) when that failed. */
   async join(): Promise<boolean> {
+    if (this.joining) return false;
+    this.joining = true;
     try {
       await this.#backend.joinBoard(this.boardId);
     } catch (error) {
-      this.workspace.report('save', error);
+      // Made private or deleted meanwhile: there is nothing to join.
+      if (isBackendError(error) && error.status === 404) {
+        this.joinable = false;
+        this.missing = true;
+      } else this.workspace.report('save', error);
       return false;
+    } finally {
+      this.joining = false;
     }
+    // Left meanwhile (the address changed): the board is not read for nobody.
+    if (this.#closed) return false;
     // The sidebar hears of it from the server (a member message reads it again).
     await this.load();
     return this.status === 'ready';
   }
 
+  /** The reader asked to join (`join`) and the answer has not come. */
+  joining = $state(false);
+  #closed = false;
+
   close(): void {
+    this.#closed = true;
     this.#stopWatching?.();
     this.#stopWatching = undefined;
     this.openCard?.close();

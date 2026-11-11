@@ -92,7 +92,6 @@
 - **C1.** 보드를 만든 사람이 관리자다. **첫 뷰는 화면이 이어서 만든다.** 요청이 둘이라 생기는 일은 6절 "작업 공간의 틀"의 3번에 있다.
 - **C3.** 뷰의 `fields`가 싣는 멤버는 `viewType`, `groupById`, `sortOptions`, `visiblePropertyIds`, `visibleOptionIds`, `hiddenOptionIds`, `collapsedOptionIds`, `filter`, `cardOrder`, `columnWidths`, `columnCalculations`, `kanbanCalculations`, `defaultTemplateId`, `dateDisplayPropertyId`다. 설계 5.7은 `cardOrder`를 뷰 밖으로 떼는 것을 "따로 볼 일"로 적었다. 뗀다면 인터페이스가 바뀐다(`dropCards`).
 - **C4.** 화면은 관리자와 편집자만 고치게 하고, 댓글 작성자까지 댓글을 쓰게 한다. **권한에 관한 판단은 화면에서 새로 하지 않았다.**
-- **C5.** 화면은 셋을 "찾을 수 없음" 하나로 보여 준다.
 
 ### 사람과 팀
 

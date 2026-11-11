@@ -441,7 +441,8 @@ export class MemoryBackend implements Backend {
   async joinBoard(boardId: string): Promise<BoardMember> {
     await this.#enter('joinBoard');
     const board = this.#board(boardId);
-    if (board.type !== 'O' || board.isTemplate) fail(404, 'no such open board');
+    if (board.isTemplate) fail(403, 'a template cannot be joined');
+    if (board.type !== 'O') fail(404, 'no such open board');
     const members = this.world.members.get(boardId) ?? [];
     const existing = members.find((member) => member.userId === this.userId);
     if (existing) return copy(existing);
