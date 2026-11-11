@@ -149,7 +149,8 @@ const displayRelation: Display = (value, card, _template, context) => {
   const ids = parseRelationValue(value).filter((id) => id !== card.id);
   const { cardTitle } = context;
   if (!cardTitle) return ids;
-  return ids.flatMap((id) => cardTitle(id) ?? []);
+  // An untitled card adds no text, as in a sort.
+  return ids.flatMap((id) => cardTitle(id) || []);
 };
 
 /** A day as a date, a moment as a date with its time. */

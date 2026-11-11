@@ -144,7 +144,7 @@ describe('grouping', () => {
 
 describe('the properties a view shows', () => {
   it('can be every property of the board, and nothing a view does not read', () => {
-    expect(propertyToggles(TEMPLATES).map((toggle) => toggle.id)).toEqual(
+    expect(propertyToggles(TEMPLATES, 'table').map((toggle) => toggle.id)).toEqual(
       TEMPLATES.map((template) => template.id),
     );
   });

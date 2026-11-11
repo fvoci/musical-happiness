@@ -109,7 +109,7 @@ export interface PropertyToggle {
  */
 export function propertyToggles(
   templates: readonly PropertyTemplate[],
-  viewType: ViewType = 'table',
+  viewType: ViewType,
 ): PropertyToggle[] {
   return templates
     .filter((template) => viewType === 'table' || template.type !== 'relation')

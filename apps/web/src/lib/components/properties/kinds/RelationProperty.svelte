@@ -105,9 +105,9 @@
   });
 
   /**
-   * What the list offers for what was typed: the picked cards first (they can
-   * always be taken out), then the others, less those that may not be picked.
-   * Once the value is full, only the picked ones.
+   * What the list offers for what was typed: the cards that can be added
+   * first (Enter on the field adds the first), then the picked ones, which
+   * can always be taken out. Once the value is full, only the picked ones.
    */
   const matches = $derived.by(() => {
     const wanted = foldCase(search.trim());
@@ -118,8 +118,8 @@
         (picked.has(entry.card.id) || (!full && !excluded?.has(entry.card.id))),
     );
     return [
-      ...found.filter((entry) => picked.has(entry.card.id)),
       ...found.filter((entry) => !picked.has(entry.card.id)),
+      ...found.filter((entry) => picked.has(entry.card.id)),
     ].map((entry) => entry.card);
   });
   const listed = $derived(matches.slice(0, LIST_LIMIT));
@@ -143,6 +143,21 @@
         ? m.property_relation_loop({ count: leftOut })
         : '',
   );
+
+  /**
+   * The line about held-back cards goes into its live region only after the
+   * region is on the page: one that appears holding its text is not read.
+   */
+  let regionReady = $state(false);
+  const announceLater = (): (() => void) => {
+    const frame = requestAnimationFrame(() => {
+      regionReady = true;
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      regionReady = false;
+    };
+  };
 
   /** A picked card on a loop that is there already. */
   const onLoop = (id: string): boolean => excluded?.has(id) ?? false;
@@ -289,13 +304,13 @@
             {m.property_relation_more({ count: matches.length - listed.length })}
           </p>
         {/if}
-        <!-- There from the start, so that what it comes to say is heard. -->
         <p
-          class={['px-2 text-sm text-muted-foreground', heldBack !== '' && 'py-1']}
+          class={['px-2 text-sm text-muted-foreground', regionReady && heldBack !== '' && 'py-1']}
           role="status"
           data-slot="relation-held-back"
+          {@attach announceLater}
         >
-          {heldBack}
+          {regionReady ? heldBack : ''}
         </p>
         {#if shown.length > 0}
           <Button

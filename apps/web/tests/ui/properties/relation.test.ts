@@ -3,11 +3,33 @@
  * title, shown as chips that open the card. A card that is not there (deleted)
  * is not shown and is left out of the next value written.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { tick } from 'svelte';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createCard, RELATION_LIMIT, setCardProperty, type Card } from '$lib/logic/wire.ts';
 
 import { fireEvent, mount, press, screen, type, valueButton, within } from './support.ts';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+/**
+ * Holds the animation frames back until the returned function lets them run.
+ * (Waiting for a real frame is no use here: a picker of the simulated page
+ * closes by itself once time passes.)
+ */
+function holdFrames(): () => Promise<void> {
+  const waiting: FrameRequestCallback[] = [];
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+    waiting.push(callback),
+  );
+  vi.stubGlobal('cancelAnimationFrame', () => undefined);
+  return async () => {
+    for (const callback of waiting.splice(0)) callback(0);
+    await tick();
+  };
+}
 
 function cardsOf(titles: Record<string, string>): Map<string, Card> {
   return new Map(
@@ -83,10 +105,17 @@ describe('a relation property, opened', () => {
     expect(rows()).toEqual(['Build the form', 'Design the form', 'Untitled']);
   });
 
-  it('lists the picked cards first, marked, and finds an untitled card by that word', async () => {
+  it('lists the picked cards last, marked, and Enter on the empty field adds a card', async () => {
+    const { onChange } = mount('relation', ['card-2'], { cards: CARDS });
+    await fireEvent.click(button());
+    expect(rows()).toEqual(['Build the form', 'Untitled', 'Design the form']);
+    await press(search(), 'Enter');
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(['card-2', 'card-3']);
+  });
+
+  it('finds an untitled card by that word', async () => {
     mount('relation', ['card-2'], { cards: CARDS });
     await fireEvent.click(button());
-    expect(rows()).toEqual(['Design the form', 'Build the form', 'Untitled']);
     await type(search(), 'untit');
     expect(rows()).toEqual(['Untitled']);
     await type(search(), '');
@@ -140,8 +169,12 @@ describe('a relation property, opened', () => {
       ),
     );
     const picked = [...many.keys()].slice(0, RELATION_LIMIT);
+    const frames = holdFrames();
     const { onChange } = mount('relation', picked, { cards: many });
     await fireEvent.click(button());
+    // Said once the live region is on the page, so that it is heard.
+    expect(screen.getByRole('status')).toHaveTextContent(/^$/);
+    await frames();
     expect(screen.getByRole('status')).toHaveTextContent(
       `No more than ${String(RELATION_LIMIT)} cards can be picked.`,
     );
@@ -221,9 +254,13 @@ describe('a relation read as an order', () => {
   }
 
   it('does not offer a card that would close a loop, however far, and says how many', async () => {
+    const frames = holdFrames();
     mount('relation', [], { cards: ordered(), preventLoops: true });
     await fireEvent.click(button());
     expect(rows()).toEqual(['Ship it']);
+    // The region is there empty first, and says it a frame later: that is what is heard.
+    expect(heldBack()).toHaveTextContent(/^$/);
+    await frames();
     expect(heldBack()).toHaveTextContent('Not offered: 2. Picking them would make a loop.');
     // Counted among what was typed: the card looked for is there, and held back.
     await type(search(), 'design');
@@ -243,8 +280,10 @@ describe('a relation read as an order', () => {
       cards.set(extra.id, extra);
     }
     const picked = [...cards.keys()].filter((id) => id.startsWith('extra-'));
+    const frames = holdFrames();
     mount('relation', picked, { cards, preventLoops: true });
     await fireEvent.click(button());
+    await frames();
     expect(heldBack()).toHaveTextContent(
       `No more than ${String(RELATION_LIMIT)} cards can be picked.`,
     );

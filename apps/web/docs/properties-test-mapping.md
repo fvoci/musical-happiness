@@ -117,14 +117,13 @@
 | `tests/ui/properties/number.test.ts`      |     15 |
 | `tests/ui/properties/person.test.ts`      |     19 |
 | `tests/ui/properties/phone.test.ts`       |      9 |
+| `tests/ui/properties/relation.test.ts`    |     21 |
 | `tests/ui/properties/select.test.ts`      |     38 |
 | `tests/ui/properties/surface.test.ts`     |      8 |
 | `tests/ui/properties/text.test.ts`        |     20 |
 | `tests/ui/properties/updatedBy.test.ts`   |      6 |
 | `tests/ui/properties/updatedTime.test.ts` |      7 |
 | `tests/ui/properties/url.test.ts`         |     22 |
-| 합계                                      |    294 |
+| 합계                                      |    315 |
 
-`surface.test.ts`는 종류가 아니라 겉(팝오버와 시트)을 본다. 순수 로직의 테스트는 `tests/logic/date-entry.test.ts`(날짜 편집, 서머타임)와 `tests/logic/property-entry.test.ts`(숫자·이메일·주소의 형식)에 있다.
-
-원본에 대응하는 케이스가 없는 새 케이스(시각 포함, 계정의 시간대, 서머타임, 주의 시작, 선택지 이름 바꾸기, 키보드 조작, 입력기 조합 중의 Enter, 시트 등)는 이 표에 없다.
+`surface.test.ts`는 종류가 아니라 겉(팝오버와 시트)을 본다. 순수 로직의 테스트는 `tests/logic/date-entry.test.ts`(날짜 편집, 서머타임)와 `tests/logic/property-entry.test.ts`(숫자·이메일·주소의 형식)에 있다. 카드 관계(`relation`)는 원본에 없는 종류다. 원본에 대응하는 케이스가 없는 새 케이스(시각 포함, 계정의 시간대, 서머타임, 주의 시작, 선택지 이름 바꾸기, 키보드 조작, 입력기 조합 중의 Enter, 시트 등)는 이 표에 없다.

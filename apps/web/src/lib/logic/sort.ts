@@ -159,9 +159,17 @@ function optionComparator(
     diagnostics.report(`sortCards: no template for property ${option.propertyId}`);
     return undefined;
   }
+  // A key is worked out once per card and sort: a relation's key looks up titles.
+  const keys = new Map<Card, SortKey>();
+  const keyOf = (card: Card): SortKey => {
+    if (keys.has(card)) return keys.get(card);
+    const key = sortKey(card, template, context);
+    keys.set(card, key);
+    return key;
+  };
   return (first, second) => {
-    const a = sortKey(first, template, context);
-    const b = sortKey(second, template, context);
+    const a = keyOf(first);
+    const b = keyOf(second);
     if (a === undefined || b === undefined)
       return Number(a === undefined) - Number(b === undefined);
     if (typeof a === 'number' && typeof b === 'number') return direction * Math.sign(a - b);
