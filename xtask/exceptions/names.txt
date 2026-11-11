@@ -26,13 +26,17 @@ crates/store/src/schema.rs | `teams` (the table of the workspaces before migrati
 # The test of migration 17, and tests that fill a database as it was before it.
 crates/store/tests/store/workspace_rename.rs
 crates/store/tests/store/tenancy.rs | INSERT INTO teams
-crates/store/tests/store/tenancy.rs | team_id
-crates/store/tests/organization_boundary_round2.rs | team_id
+crates/store/tests/store/tenancy.rs | (id, team_id,
+crates/store/tests/store/tenancy.rs | user_id, team_id,
+crates/store/tests/organization_boundary_round2.rs | (id, team_id,
 
 # An archive written before the rename names a board's workspace teamId; the import
 # reads it as workspaceId.
-crates/server/src/app/import.rs | teamId
-crates/server/tests/api/imports.rs | teamId
+crates/server/src/app/import.rs | `teamId`
+crates/server/src/app/import.rs | "teamId"
+crates/server/tests/api/imports.rs | `teamId`
+crates/server/tests/api/imports.rs | "teamId"
+crates/server/tests/api/imports.rs | _teamid_is_imported
 
 # The original's routes, which are not routes here: tests pin that they are not found.
 crates/server/tests/api/admin.rs | /teams/

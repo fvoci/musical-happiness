@@ -194,7 +194,7 @@
   "ShareBoard.copiedLink": "Copiato!",
   "ShareBoard.copyLink": "Copia link",
   "ShareBoard.regenerate": "Rigenera token",
-  "ShareBoard.teamPermissionsText": "Tutti nel team {teamName}",
+  "ShareBoard.workspacePermissionsText": "Tutti nel team {teamName}",
   "ShareBoard.tokenRegenrated": "Token rigenerato",
   "ShareBoard.userPermissionsRemoveMemberText": "Rimuovi utente",
   "ShareBoard.userPermissionsYouText": "(Tu)",

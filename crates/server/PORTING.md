@@ -38,7 +38,7 @@
 | `server/auth/auth.go` `Auth` | `auth::Authenticator` | `get_session`, `is_valid_read_token` |
 | `server/services/auth/request_parser.go` | `auth::token::parse_auth_token` | |
 | `server/services/auth/password.go` | `auth::password` | |
-| `server/services/permissions/localpermissions` | `permissions::{has_permission_to_team, member_has_permission}`, `App::has_permission_to_board` | 권한은 enum(`TeamPermission`, `BoardPermission`) |
+| `server/services/permissions/localpermissions` | `permissions::{has_permission_to_workspace, member_has_permission}`, `App::has_permission_to_board` | 권한은 enum(`WorkspacePermission`, `BoardPermission`) |
 | `server/api/api.go` `sessionRequired`, `attachSession` | 추출기 `api::RequiredSession`, `api::OptionalSession` | |
 | `server/api/api.go` `requireCSRFToken` | `api::router`의 route layer | |
 | `server/api/api.go` `errorResponse`, `server/model/errors.go` | `error::AppError` + `IntoResponse` | |

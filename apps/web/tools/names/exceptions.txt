@@ -13,14 +13,6 @@
 # teammates".
 ** | teammate
 
-# The original's messages that came over with their translations under the original's
-# ids, which the app does not show (docs/i18n-conversion.md).
-messages/*.json | "AdminBadge.TeamAdmin"
-messages/*.json | "ShareBoard.teamPermissionsText"
-messages/*.json | "error.back-to-team"
-messages/*.json | "error.team-undefined"
-messages/*.json | "shareBoard.confirm-change-team-role.
-
 # The names and keywords of the emoji, as CLDR gives them: steam.
 src/lib/editor/emoji/en.json
 

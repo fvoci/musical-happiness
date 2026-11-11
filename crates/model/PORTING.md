@@ -31,9 +31,9 @@
 | `User`, `UserPreferencesPatch`, `Session` | 같은 이름 | `Session`은 와이어에 나가지 않아 serde 구현 없음 |
 | `LoginRequest`, `LoginResponse`, `RegisterRequest`, `ChangePasswordRequest` | 같은 이름, `validate` → `AuthParamError` | |
 | `auth.IsEmailValid` | `is_email_valid` | 정규식 대신 같은 규칙을 직접 검사 |
-| `Team`, `Sharing`, `Subscription`, `Subscriber`, `ClientConfig`, `ArchiveHeader`, `ArchiveLine`, `ErrorResponse` | 같은 이름 | |
+| `Team`, `Sharing`, `Subscription`, `Subscriber`, `ClientConfig`, `ArchiveHeader`, `ArchiveLine`, `ErrorResponse` | `Workspace`, 나머지는 같은 이름 | |
 | 호스트 애플리케이션의 파일 정보 구조체 (`GetFileInfo`가 돌려주는 값) | `FileInfo` | 원본 SQL이 읽고 쓰는 멤버와 `model.NewFileInfo`가 채우는 멤버만: `id`, `user_id`, `create_at`, `update_at`, `delete_at`, `name`, `extension`, `size`, `mime_type`, `archived`. `path`는 직렬화하지 않는다 |
-| `SingleUser`, `GlobalTeamID`, `SystemUserID` | `SINGLE_USER_ID`, `GLOBAL_TEAM_ID`, `SYSTEM_USER_ID` | |
+| `SingleUser`, `GlobalTeamID`, `SystemUserID` | 없다 | 단일 사용자 모드와 시스템 사용자가 없다. 내장 템플릿의 워크스페이스는 `fvoci-store`의 `SYSTEM_WORKSPACE_ID`다 |
 
 옮기지 않은 것:
 

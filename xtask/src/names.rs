@@ -21,7 +21,7 @@ const FORMER: &str = concat!("te", "am");
 pub(crate) const EXCEPTIONS: &str = "xtask/exceptions/names.txt";
 
 /// The folder the web app's own check covers.
-const WEB_APP: &str = "apps/";
+const WEB_APP: &str = "apps/web/";
 
 /// An entry of [`EXCEPTIONS`]: the files it is for and, unless it lets a whole file
 /// keep the name, the text within which a line may.
@@ -50,11 +50,16 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let mut used = vec![false; exceptions.len()];
     let mut hits = Vec::new();
     for file in tracked_files(root)? {
-        if file.starts_with(WEB_APP) || file == EXCEPTIONS {
+        if !is_checked(&file) {
             continue;
         }
-        // A file that is not text has no lines to read; its name is still checked.
-        let text = std::fs::read_to_string(root.join(&file)).unwrap_or_default();
+        let text = match std::fs::read(root.join(&file)) {
+            // Read as text whatever its encoding, as the web app's check reads.
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            // Tracked and deleted from the working tree: its name is still checked.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(error) => return Err(error).with_context(|| format!("reading {file}")),
+        };
         hits.extend(check_file(&file, &text, &exceptions, &mut used));
     }
     let stale: Vec<String> = exceptions
@@ -82,10 +87,16 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         "    a workspace is a workspace; what keeps the original's name is listed in {EXCEPTIONS} with its reason"
     ));
     bail!(
-        "{} lines use {FORMER}, {} exceptions are stale",
+        "{} places have {FORMER}, {} exceptions are stale",
         hits.len(),
         stale.len()
     )
+}
+
+/// Whether this check covers the file: not the web app's, which has its own, nor the
+/// list of exceptions.
+fn is_checked(file: &str) -> bool {
+    !file.starts_with(WEB_APP) && file != EXCEPTIONS
 }
 
 /// The entries of the file of exceptions. Each stands in a paragraph that begins with
@@ -218,6 +229,14 @@ mod tests {
 
     fn exceptions(listed: &str) -> Vec<Exception> {
         parse(listed).expect("the exceptions are read")
+    }
+
+    #[test]
+    fn the_web_app_and_the_exceptions_are_left_to_their_own_check() {
+        assert!(!is_checked("apps/web/src/a.ts"));
+        assert!(!is_checked(EXCEPTIONS));
+        assert!(is_checked("apps/another/a.ts"));
+        assert!(is_checked("crates/a.rs"));
     }
 
     #[test]
