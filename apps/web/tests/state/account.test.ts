@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ServerBackend } from '$lib/api/backend.ts';
-import { BackendError } from '$lib/state/index.ts';
+import { BackendError, changeDisplayName } from '$lib/state/index.ts';
 
 import { setup } from './support.ts';
 
@@ -57,10 +57,10 @@ describe('the display name, in memory', () => {
     const { workspace } = setup();
     await workspace.load();
     const meId = workspace.me?.id ?? '';
-    await workspace.changeDisplayName('Ada');
+    await changeDisplayName(workspace, 'Ada');
     expect(workspace.me?.displayName).toBe('Ada');
     expect(workspace.userName(meId)).toBe(`Ada (@${workspace.me?.username ?? ''})`);
-    await workspace.changeDisplayName('');
+    await changeDisplayName(workspace, '');
     expect(workspace.userName(meId)).toBe(workspace.me?.username);
   });
 });

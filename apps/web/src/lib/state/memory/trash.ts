@@ -7,6 +7,7 @@
 import type { Board, BoardMember } from '../../logic/wire.ts';
 import type { Category, DeletedItem, Paging } from '../backend.ts';
 
+import { fail } from './refuse.ts';
 import type { World } from './world.ts';
 
 /** Where a board was filed for one person: the category, the place in it, hidden or not. */
@@ -116,4 +117,50 @@ export function putBack(world: World, board: Board, places: readonly BoardPlace[
     told.push(place.userId);
   }
   return told;
+}
+
+/** Who deletes and when, as the trash keeps it with what was deleted. */
+export function deletion(by: { world: World; userId: string }): {
+  deletedAt: number;
+  deletedBy: string;
+} {
+  return { deletedAt: by.world.now(), deletedBy: by.userId };
+}
+
+/**
+ * As the server: the trash of a board's cards, and bringing one back, are
+ * for its editors and admins; a private board the user is no member of is
+ * not there for them.
+ */
+export function mayManageCards(
+  world: World,
+  userId: string,
+  boardId: string,
+  refusal: string,
+): void {
+  const board = world.boards.get(boardId) ?? fail(404, 'no such board');
+  const member = world.members.get(boardId)?.find((each) => each.userId === userId);
+  if (!member && board.type !== 'O') fail(404, 'no such board');
+  if (!member?.schemeAdmin && !member?.schemeEditor) fail(403, refusal);
+}
+
+/**
+ * Takes a board, its blocks and its members out of the trash, as the server
+ * does: for who was its admin (403 otherwise), and no such board for who
+ * was no member (404). Each person who had filed it finds it where it was,
+ * and is told. Answers the board.
+ */
+export function takeBoardBack(world: World, userId: string, boardId: string): Board {
+  const deleted = world.deletedBoards.get(boardId);
+  if (!deleted?.members.some((member) => member.userId === userId)) fail(404, 'no such board');
+  if (!wasAdmin(deleted.members, userId)) fail(403, 'access denied to undelete board');
+  world.deletedBoards.delete(boardId);
+  world.boards.set(boardId, deleted.board);
+  world.members.set(boardId, deleted.members);
+  for (const block of deleted.blocks) world.blocks.set(block.id, block);
+  for (const person of putBack(world, deleted.board, deleted.places)) {
+    const categories = structuredClone(world.categories.get(person) ?? []);
+    world.tellUsers([person], { kind: 'categories', categories });
+  }
+  return deleted.board;
 }

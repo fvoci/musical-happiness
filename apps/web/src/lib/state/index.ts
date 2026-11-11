@@ -34,6 +34,7 @@ export {
 } from './backend.ts';
 export { BoardStore, newUndoGroup, type CardDrop } from './board.svelte.ts';
 export { CardStore, type BodyConflict, type CommentEdit, type Upload } from './card.svelte.ts';
+export { changeDisplayName } from './account.ts';
 export { byCreation, byTitle, type SidebarCategory } from './order.ts';
 export { boardTrash, cardTrash, Trash, type TrashStatus } from './trash.svelte.ts';
 export {

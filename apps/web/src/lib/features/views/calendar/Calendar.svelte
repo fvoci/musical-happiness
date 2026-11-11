@@ -161,7 +161,6 @@
     templates,
     visiblePropertyIds: view.fields.visiblePropertyIds,
     users: board.workspace.users,
-    nameFormat: board.workspace.nameFormat,
     cardHref,
   });
   const lists = $derived({ ...rows, today });

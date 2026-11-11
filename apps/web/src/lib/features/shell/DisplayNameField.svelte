@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
   import { m } from '$lib/i18n/paraglide/messages.js';
-  import { isBackendError, type Workspace } from '$lib/state/index.ts';
+  import { changeDisplayName, isBackendError, type Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
   import { Input } from '$lib/ui/input/index.js';
   import { Label } from '$lib/ui/label/index.js';
@@ -35,7 +35,7 @@
     problem = undefined;
     saved = false;
     try {
-      await workspace.changeDisplayName(value);
+      await changeDisplayName(workspace, value);
       // As the server keeps it: without the white space around it.
       value = workspace.me?.displayName ?? '';
       saved = true;

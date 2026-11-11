@@ -52,6 +52,7 @@ import {
   viewPatches,
 } from './patches.ts';
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
+import { restoreCard } from './trash.svelte.ts';
 import { PendingWrites, put, reread, take } from './write.ts';
 
 function roleOf(member: BoardMember | undefined): MemberRole {
@@ -591,24 +592,10 @@ export class BoardStore {
           this.cards = this.cards.filter((card) => card.id !== cardId);
           if (this.openCard?.cardId === cardId) this.closeCard();
         },
-        () => this.restoreCard(cardId),
+        () => restoreCard(this, cardId),
         'deleteCard',
         groupId,
       );
-    }
-  }
-
-  /**
-   * Brings a deleted card back (undo, or the trash) and shows it. It is back
-   * even if reading it fails (it cannot be restored twice): the server's
-   * message, or the next reading, shows it then. A refused restore is thrown.
-   */
-  async restoreCard(cardId: string): Promise<void> {
-    await this.#backend.restoreBlock(this.boardId, cardId);
-    try {
-      this.cards = take(this.cards, await this.#backend.card(this.boardId, cardId));
-    } catch (error) {
-      this.workspace.report('load', error);
     }
   }
 

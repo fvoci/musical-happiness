@@ -8,9 +8,8 @@
  * to tell the reader.
  */
 import { setDisplaySettings } from '../display.svelte.ts';
-import { DEFAULT_DISPLAY_SETTINGS } from '../logic/display.ts';
-import { DEFAULT_LANGUAGE_SETTINGS } from '../logic/language.ts';
-import { DEFAULT_REGIONAL_SETTINGS, resolveRegional, type Regional } from '../logic/regional.ts';
+import { DEFAULT_ACCOUNT_SETTINGS } from '../logic/account-settings.ts';
+import { resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
 import { userDisplayName } from '../logic/users.ts';
 import { createBoard as createEmptyBoard, createBoardView, type Board } from '../logic/wire.ts';
@@ -67,11 +66,7 @@ export interface WorkspaceOptions {
 /** How long a finished transfer stays in sight, in milliseconds. */
 const TRANSFER_STAYS = 6000;
 
-const DEFAULT_SETTINGS: AccountSettings = {
-  ...DEFAULT_REGIONAL_SETTINGS,
-  ...DEFAULT_DISPLAY_SETTINGS,
-  ...DEFAULT_LANGUAGE_SETTINGS,
-};
+const DEFAULT_SETTINGS: AccountSettings = DEFAULT_ACCOUNT_SETTINGS;
 
 export class Workspace {
   readonly backend: Backend;
@@ -137,10 +132,7 @@ export class Workspace {
     return this.#usersById[userId];
   }
 
-  /**
-   * The name to show for a user, "Display name (@login)" or the login name
-   * alone; undefined for someone the reader cannot see.
-   */
+  /** The name to show for a user ("Display name (@login)"); undefined for someone unknown. */
   userName(userId: string): string | undefined {
     const user = this.#usersById[userId];
     return user ? userDisplayName(user) : undefined;
@@ -342,19 +334,6 @@ export class Workspace {
   }
 
   // ----------------------------------------------------------- settings
-
-  /**
-   * Changes the reader's display name; empty is none. A refusal is thrown,
-   * for the field to say what is wrong (`errors` at `/displayName`).
-   */
-  async changeDisplayName(displayName: string): Promise<void> {
-    const changed = await this.backend.patchMe({ displayName });
-    const replace = (users: User[]): User[] =>
-      users.map((user) => (user.id === changed.id ? changed : user));
-    this.me = changed;
-    this.users = this.#usersById[changed.id] ? replace(this.users) : [...this.users, changed];
-    this.teamUsers = replace(this.teamUsers);
-  }
 
   /** Changes settings. They apply at once and go back if the server refuses them. */
   async changeSettings(patch: AccountSettingsPatch): Promise<void> {
@@ -615,11 +594,7 @@ export class Workspace {
     }
   }
 
-  /**
-   * Brings a deleted board back. The sidebar is read before it shows, so
-   * that it shows where the reader had filed it, not first unfiled. A
-   * refusal is thrown.
-   */
+  /** Brings a deleted board back, the sidebar read first so it shows where it was filed. */
   async restoreBoard(boardId: string): Promise<void> {
     const board = await this.backend.restoreBoard(boardId);
     await this.#refresh();

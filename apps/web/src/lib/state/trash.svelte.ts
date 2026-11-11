@@ -11,6 +11,7 @@
 import { isBackendError, type DeletedItem, type Paging } from './backend.ts';
 import type { BoardStore } from './board.svelte.ts';
 import type { Workspace } from './workspace.svelte.ts';
+import { take } from './write.ts';
 
 /** How many a reading adds. */
 export const TRASH_PAGE = 50;
@@ -130,6 +131,22 @@ export function cardTrash(board: BoardStore): Trash {
   return new Trash(
     board.workspace,
     (paging) => board.workspace.backend.deletedCards(board.boardId, paging),
-    (cardId) => board.restoreCard(cardId),
+    (cardId) => restoreCard(board, cardId),
   );
+}
+
+/**
+ * Brings a deleted card back (the undo of a deletion, or the trash) and shows
+ * it. It is back even if reading it fails (it cannot be restored twice): the
+ * server's message, or the next reading, shows it then. A refused restore is
+ * thrown.
+ */
+export async function restoreCard(board: BoardStore, cardId: string): Promise<void> {
+  const { backend } = board.workspace;
+  await backend.restoreBlock(board.boardId, cardId);
+  try {
+    board.cards = take(board.cards, await backend.card(board.boardId, cardId));
+  } catch (error) {
+    board.workspace.report('load', error);
+  }
 }

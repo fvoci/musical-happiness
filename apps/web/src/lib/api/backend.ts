@@ -30,11 +30,8 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
-  type DeletedItem,
   type DownloadedFile,
   type DownloadOptions,
-  type Paging,
-  type Registration,
   type Sharing,
   type SharingChange,
   type Team,
@@ -66,6 +63,7 @@ import {
 import { downloadWithProgress } from './download.ts';
 import { Http } from './http.ts';
 import { LiveChanges } from './live.ts';
+import { ServerRequests } from './requests.ts';
 import { importInParts, uploadInParts } from './upload.ts';
 
 /**
@@ -83,7 +81,7 @@ export function notWired(operation: string): never {
 /** How many files go up at once; the server allows a reader 8 open uploads. */
 const UPLOADS_AT_ONCE = 3;
 
-export class ServerBackend implements Backend, Account {
+export class ServerBackend extends ServerRequests implements Backend, Account {
   readonly #http: Http;
   /** The last change of each card or view on its way, settled either way (`#inTurn`). */
   readonly #writes = new Map<string, Promise<void>>();
@@ -92,7 +90,9 @@ export class ServerBackend implements Backend, Account {
   readonly #live: LiveChanges;
 
   constructor(basePath: string) {
-    this.#http = new Http(basePath);
+    const http = new Http(basePath);
+    super(http);
+    this.#http = http;
     // The page's own origin: the browser sends the session's cookie with it.
     const socket = new URL(`${basePath}/ws`, location.href);
     socket.protocol = socket.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -119,17 +119,6 @@ export class ServerBackend implements Backend, Account {
     this.#live.restart();
   }
 
-  async register(registration: Registration): Promise<void> {
-    const request: Schemas['RegisterRequest'] = {
-      username: registration.username,
-      email: registration.email,
-      password: registration.password,
-      ...(registration.displayName ? { displayName: registration.displayName } : {}),
-      ...(registration.token ? { token: registration.token } : {}),
-    };
-    await this.#http.request('/api/v1/register', {}, { method: 'POST', json: request });
-  }
-
   async signOut(): Promise<void> {
     await this.#http.request('/api/v1/logout', {}, { method: 'POST' });
   }
@@ -144,17 +133,6 @@ export class ServerBackend implements Backend, Account {
 
   async me(): Promise<User> {
     return userOf(await this.#http.request<Schemas['User']>('/api/v1/users/me'));
-  }
-
-  async patchMe(patch: { displayName: string | null }): Promise<User> {
-    const change: Schemas['AccountChange'] = patch;
-    return userOf(
-      await this.#http.request<Schemas['User']>(
-        '/api/v1/users/me',
-        {},
-        { method: 'PATCH', json: change },
-      ),
-    );
   }
 
   async teams(): Promise<Team[]> {
@@ -345,11 +323,7 @@ export class ServerBackend implements Backend, Account {
     await this.#http.request('/api/v1/boards/{boardId}', { boardId }, { method: 'DELETE' });
   }
 
-  /**
-   * Out of the server's trash. Its public link does not come back. Each
-   * person finds it where they had filed it; the server tells them with the
-   * category messages, which have the sidebar read again (`live.ts`).
-   */
+  /** Out of the server's trash, filed where each person had it (the category messages tell). */
   async restoreBoard(boardId: string): Promise<Board> {
     return boardOf(
       await this.#http.request<Schemas['Board']>(
@@ -909,22 +883,6 @@ export class ServerBackend implements Backend, Account {
       '/api/v1/boards/{boardId}/blocks/{blockId}/undelete',
       { boardId, blockId },
       { method: 'POST' },
-    );
-  }
-
-  async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
-    return this.#http.request<Schemas['DeletedItem'][]>(
-      '/api/v1/boards/{boardId}/trash/cards',
-      { boardId },
-      { query: { ...paging } },
-    );
-  }
-
-  async deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]> {
-    return this.#http.request<Schemas['DeletedItem'][]>(
-      '/api/v1/teams/{teamId}/trash/boards',
-      { teamId },
-      { query: { ...paging } },
     );
   }
 

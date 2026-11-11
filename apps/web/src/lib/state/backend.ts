@@ -31,6 +31,11 @@ import type {
   Card,
 } from '../logic/wire.ts';
 
+import type { TrashReads } from './trash-reads.ts';
+
+export type { Account, Registration } from './account-types.ts';
+export type { DeletedItem, Paging, TrashReads } from './trash-reads.ts';
+
 // ----------------------------------------------------------------- errors
 
 /** The statuses the server answers an error with (server design 1.3). */
@@ -279,22 +284,6 @@ export interface BodyWrite {
   readAt: number;
 }
 
-/** A card or a board in the trash: enough to decide whether to bring it back. */
-export interface DeletedItem {
-  id: string;
-  /** Its title when it was deleted. */
-  title: string;
-  deletedAt: number;
-  /** Who deleted it, who may no longer exist; empty if not known. */
-  deletedBy: string;
-}
-
-/** A page of a list: `page` counts from 0, and a `perPage` of zero or less is all of it. */
-export interface Paging {
-  page: number;
-  perPage: number;
-}
-
 export interface UploadProgress {
   sentBytes: number;
   totalBytes: number;
@@ -323,39 +312,6 @@ export interface UploadedFile {
   name: string;
   size: number;
   contentType: string;
-}
-
-// ---------------------------------------------------------------- account
-
-/** What an account is made with. */
-export interface Registration {
-  /** The name to sign in with. */
-  username: string;
-  email: string;
-  password: string;
-  /** The name to be shown by; empty or left out for none. */
-  displayName?: string;
-  /** The team's invitation; the first account of a server needs none. */
-  token?: string;
-}
-
-/**
- * Signing in and out, where a backend has accounts: the server has, the one
- * in memory has not. Until somebody is signed in, every read of a backend
- * with accounts is refused with 401.
- */
-export interface Account {
-  /** `login` is the name to sign in with, or the email address. */
-  signIn(login: string, password: string): Promise<void>;
-  /** Makes an account. It does not sign in. */
-  register(registration: Registration): Promise<void>;
-  signOut(): Promise<void>;
-  /**
-   * Changes the reader's password; `oldPassword` proves they know it. Their
-   * other sessions end, this one goes on. A wrong old password is 400 with
-   * the reason `invalid_credentials`, too many tries 429.
-   */
-  changePassword(oldPassword: string, newPassword: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------- changes
@@ -396,14 +352,10 @@ export function isViewBlock(block: ChangedBlock): block is BoardView {
 
 // ---------------------------------------------------------------- backend
 
-export interface Backend {
+export interface Backend extends TrashReads {
   // The reader and the people around them.
   me(): Promise<User>;
-  /**
-   * Changes the reader's display name; empty or `null` is none. The name is
-   * kept without the white space around it. One that is too long or holds a
-   * character that shows nothing is refused (400, `errors` at `/displayName`).
-   */
+  /** Changes the reader's display name, as the server reads it (`patchMe`); `null` is none. */
   patchMe(patch: { displayName: string | null }): Promise<User>;
   teams(): Promise<Team[]>;
   /** The people of a team: who can be mentioned or set as a person. */
@@ -457,17 +409,8 @@ export interface Backend {
   searchBoards(teamId: string, query: string): Promise<Board[]>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
-  /**
-   * Takes the board, its blocks and its members back out of the trash. For
-   * who was its admin. Each person who had filed it finds it where it was in
-   * their sidebar (their default category if that one went), and is told.
-   */
+  /** Takes the board back out of the trash, filed where each person had it (`TrashReads`). */
   restoreBoard(boardId: string): Promise<Board>;
-  /**
-   * The team's boards in the trash that the reader was an admin of (who may
-   * bring them back): a page, the last deleted first.
-   */
-  deletedBoards(teamId: string, paging?: Paging): Promise<DeletedItem[]>;
   members(boardId: string): Promise<BoardMember[]>;
   /**
    * Makes a person of the team a member of the board, with the role. For the
@@ -548,12 +491,6 @@ export interface Backend {
   deleteBlock(boardId: string, blockId: string): Promise<void>;
   /** Takes the block and what was deleted with it back out of the trash. */
   restoreBlock(boardId: string, blockId: string): Promise<void>;
-  /**
-   * The board's cards in the trash, for its editors: a page, the last deleted
-   * first. A card that went with the block it was on is not listed; it comes
-   * back with that block.
-   */
-  deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]>;
 
   // Files.
   /**
