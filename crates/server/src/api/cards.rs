@@ -15,8 +15,8 @@ use super::contract::tag;
 
 use super::change_notification;
 use super::{
-    ApiResult, OptionalSession, RequiredSession, created, has_valid_read_token, json_response,
-    query_param,
+    ApiResult, OptionalSession, RequiredSession, TRUE, created, has_valid_read_token,
+    json_response, query_param,
 };
 use super::{decode_with_document, require_board_permission, require_permission_through};
 use crate::app::App;
@@ -146,6 +146,8 @@ async fn handle_create_card(
     operation_id = "getCards",
     tag = tag::CARDS,
     params(BoardId, Page, PerPage, Preview, ReadToken),
+    // With a read token no session is needed.
+    security((), ("sessionCookie" = []), ("bearerToken" = [])),
     responses((status = 200, description = "The cards of the page.", body = Vec<Card>)),
 )]
 async fn handle_get_cards(
@@ -160,10 +162,11 @@ async fn handle_get_cards(
     if user_id.is_empty() && !has_read_token {
         return Err(AppError::unauthorized("access denied to fetch cards"));
     }
-    let by_token_alone = if has_read_token {
+    // The board's person properties, for a reader with the token alone.
+    let hidden_people = if has_read_token {
         // A board that is shared exists; one that went since is not there.
-        app.board(&board_id).await?;
-        !app.is_board_reader(user_id, &board_id).await?
+        let board = app.board(&board_id).await?;
+        (!app.is_board_reader(user_id, &board_id).await?).then(|| board.person_properties())
     } else {
         require_board_permission(
             &app,
@@ -173,12 +176,12 @@ async fn handle_get_cards(
             "access denied to fetch cards",
         )
         .await?;
-        false
+        None
     };
 
     let page = int_query_param(query, "page", DEFAULT_PAGE)?;
     let per_page = int_query_param(query, "perPage", DEFAULT_PER_PAGE)?;
-    let previews = if query_param(query, "preview") == "true" {
+    let previews = if query_param(query, "preview") == TRUE {
         Previews::With
     } else {
         Previews::Without
@@ -187,10 +190,9 @@ async fn handle_get_cards(
     let mut cards = app
         .cards_for_board(&board_id, page, per_page, previews)
         .await?;
-    if by_token_alone {
-        let people = app.board(&board_id).await?.person_properties();
+    if let Some(people) = &hidden_people {
         for card in &mut cards {
-            card.hide_people(&people);
+            card.hide_people(people);
         }
     }
     tracing::debug!(

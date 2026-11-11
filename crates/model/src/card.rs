@@ -98,8 +98,8 @@ pub struct Card {
     #[serde(deserialize_with = "null_as_default")]
     pub last_comment_at: i64,
     /// What a gallery shows of the card's body: only in a list asked for it
-    /// (`getCards` with `preview=true`), and left out otherwise. What a request sends
-    /// here is ignored.
+    /// (`getCards` with `preview=true`), and left out otherwise. A request need not send
+    /// it; what it sends is not stored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<CardPreview>,
 }
@@ -113,9 +113,10 @@ pub struct CardPreview {
     pub image_file_id: String,
     /// The beginning of the body's text: its plain text as it is searched (a line per
     /// paragraph, heading, code block and formula block, separated by `\n`; a formula
-    /// gives its source, an image and a mention nothing), at most
-    /// [`CARD_PREVIEW_TEXT_LENGTH`] UTF-16 code units, cut between characters. Empty for
-    /// a card without text.
+    /// gives its source, an image and a mention nothing), at most 200 UTF-16 code units,
+    /// cut between characters as they are seen (a flag or a letter with its accent stays
+    /// whole), without white space at its end. Nothing says it was cut. Empty for a card
+    /// without text.
     pub text: String,
 }
 
@@ -129,9 +130,9 @@ impl CardPreview {
     pub fn new(image_file_id: String, text: &str) -> Self {
         let mut units = 0;
         let end = text
-            .char_indices()
-            .find(|&(_, c)| {
-                units += c.len_utf16();
+            .grapheme_indices(true)
+            .find(|&(_, grapheme)| {
+                units += grapheme.encode_utf16().count();
                 units > CARD_PREVIEW_TEXT_LENGTH
             })
             .map_or(text.len(), |(at, _)| at);

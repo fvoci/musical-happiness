@@ -60,9 +60,11 @@ const LISTED_TASKS_TOTAL: usize = 13;
 const LISTED_TASKS_DONE: usize = 14;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
 const LISTED_LAST_COMMENT_AT: usize = 15;
-/// The columns a list reads for previews, after the last comment's time: the plain text
-/// of the body, worked out when it was stored, and the body.
-const PREVIEW_COLUMNS: &str = "body_text, body";
+/// The columns a list reads for previews, after the last comment's time: the beginning
+/// of the plain text of the body, worked out when it was stored (characters, each of one
+/// or two UTF-16 code units, so the 200 units a preview shows are among them), and the
+/// body.
+const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 200), body";
 /// The column of the plain text of the body, read for previews.
 const LISTED_BODY_TEXT: usize = 16;
 /// The column of the body, read for previews.
@@ -147,7 +149,8 @@ pub struct ListedBlock {
 /// What a list asked for previews reads of a block's body.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BodyPreview {
-    /// The body's plain text, as it is searched (a line per paragraph), whole.
+    /// The beginning of the body's plain text, as it is searched (a line per paragraph):
+    /// its first 200 characters.
     pub text: String,
     /// The stored name of the file of the body's first image, if it has one.
     pub first_image: Option<String>,
@@ -507,9 +510,8 @@ fn preview_from_row(row: &Row) -> Result<BodyPreview, StoreError> {
     let first_image = match row.json(LISTED_BODY, "body")? {
         Value::Null => None,
         document => Body::from_stored(document)
-            .file_ids()
-            .first()
-            .map(|&name| name.to_owned()),
+            .first_file_id()
+            .map(str::to_owned),
     };
     Ok(BodyPreview {
         text: row.text(LISTED_BODY_TEXT)?,
@@ -943,12 +945,10 @@ mod tests {
         assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
         assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
         assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
-        let previews: Vec<&str> = PREVIEW_COLUMNS.split(", ").collect();
-        assert_eq!(
-            previews[LISTED_BODY_TEXT - LISTED_LAST_COMMENT_AT - 1],
-            "body_text"
-        );
-        assert_eq!(previews[LISTED_BODY - LISTED_LAST_COMMENT_AT - 1], "body");
+        // The text, then the body, right after the last comment's time.
+        assert_eq!(PREVIEW_COLUMNS, "SUBSTR(body_text, 1, 200), body");
+        assert_eq!(LISTED_BODY_TEXT, LISTED_LAST_COMMENT_AT + 1);
+        assert_eq!(LISTED_BODY, LISTED_BODY_TEXT + 1);
     }
 
     #[test]

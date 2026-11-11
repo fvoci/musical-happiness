@@ -378,3 +378,37 @@ fn a_card_hides_its_people() {
         json!({"owner": "", "team": ["", ""], "status": "done"})
     );
 }
+
+/// A preview's text is at most 200 UTF-16 code units, cut between characters as they are
+/// seen, without white space at its end.
+#[test]
+fn a_preview_is_cut_between_characters() {
+    use fvoci_model::CardPreview;
+    let text = |text: &str| CardPreview::new(String::new(), text).text;
+    assert_eq!(text(""), "");
+    assert_eq!(text("short  "), "short");
+    let exact = "a".repeat(200);
+    assert_eq!(text(&exact), exact, "200 units are whole");
+    assert_eq!(text(&format!("{exact}b")), exact, "the 201st goes");
+    let letters = "가".repeat(199);
+    assert_eq!(
+        text(&format!("{letters}🎉")),
+        letters,
+        "an emoji of two units is not split"
+    );
+    assert_eq!(
+        text(&format!("{}🇰🇷", "a".repeat(198))),
+        "a".repeat(198),
+        "a flag is not split"
+    );
+    assert_eq!(
+        text(&format!("{}e\u{301}", "a".repeat(199))),
+        "a".repeat(199),
+        "nor a letter and its accent"
+    );
+    assert_eq!(
+        text(&format!("{} more", "a".repeat(199))),
+        "a".repeat(199),
+        "no space at the end"
+    );
+}

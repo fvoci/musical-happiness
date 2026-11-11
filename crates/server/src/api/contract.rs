@@ -712,7 +712,13 @@ mod tests {
     /// The operations that need no session at all.
     const NO_SESSION: [&str; 5] = ["getClientConfig", "hello", "login", "ping", "register"];
     /// The operations that are read with a session or with the read token of a board.
-    const READ_TOKEN: [&str; 4] = ["getBlocks", "getBoard", "getFile", "getFileInfo"];
+    const READ_TOKEN: [&str; 5] = [
+        "getBlocks",
+        "getBoard",
+        "getCards",
+        "getFile",
+        "getFileInfo",
+    ];
 
     #[test]
     fn what_needs_no_session_says_so() {
