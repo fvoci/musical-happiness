@@ -32,9 +32,10 @@ const DOOMED_PER_BATCH: i64 = 200;
 /// The most doomed objects a run tries to remove; the rest wait for the next run.
 const DOOMED_PER_RUN: usize = 5_000;
 
-/// How long after its first failure a removal is tried again; each further failure
-/// doubles it, up to [`RETRY_CAP_MILLIS`].
-const RETRY_BASE_MILLIS: i64 = 15 * 60 * 1000;
+/// How long after its first failure a removal is tried again: the interval of the
+/// housekeeping, so that each further try, which doubles it up to [`RETRY_CAP_MILLIS`],
+/// is a later run.
+const RETRY_BASE_MILLIS: i64 = 60 * 60 * 1000;
 
 /// The longest a doomed object waits between two tries.
 const RETRY_CAP_MILLIS: i64 = 24 * 60 * 60 * 1000;
@@ -134,7 +135,7 @@ impl App {
                 .filter(|object| seen.insert(object.path.as_str()))
             {
                 let removal = if held.contains(&object.path) {
-                    self.keep_held(&object.path).await
+                    self.keep_held(&object.path, now).await
                 } else {
                     let doomed = Doomed {
                         path: &object.path,
@@ -182,9 +183,12 @@ impl App {
 
     /// Keeps a doomed object that something holds, and takes it off the list: whatever
     /// doomed it was wrong, which is logged as an error.
-    async fn keep_held(&self, path: &str) -> Removal {
-        tracing::error!("a doomed object is held by a record, a write or an upload; it is kept");
-        if self.forget(path).await {
+    async fn keep_held(&self, path: &str, now: i64) -> Removal {
+        tracing::error!(
+            path,
+            "a doomed object is held by a record, a write or an upload; it is kept"
+        );
+        if self.forget(path, now).await {
             Removal::Kept
         } else {
             Removal::Failed
@@ -198,7 +202,7 @@ impl App {
         let error_kind = match self.files().delete(path).await {
             // Gone already is removed: a run cut off after the removal comes here.
             Ok(()) => {
-                return if self.forget(path).await {
+                return if self.forget(path, now).await {
                     Removal::Removed
                 } else {
                     Removal::Failed
@@ -208,7 +212,7 @@ impl App {
             // for ever.
             Err(error @ StorageError::InvalidPath(_)) => {
                 tracing::error!(%error, "a doomed object has a place no storage takes; it is taken off the list");
-                return if self.forget(path).await {
+                return if self.forget(path, now).await {
                     Removal::Removed
                 } else {
                     Removal::Failed
@@ -228,6 +232,17 @@ impl App {
             tracing::warn!(%error, "a failed removal could not be noted");
         }
         Removal::Failed
+    }
+
+    /// Removes now an object just doomed at `path`, which nothing holds, and takes it
+    /// off the list. Returns whether it went; if not, it stays doomed for the
+    /// housekeeping.
+    pub(crate) async fn remove_doomed_now(&self, path: &str) -> bool {
+        let doomed = Doomed { path, attempts: 0 };
+        matches!(
+            self.remove_doomed_object(doomed, now_millis()).await,
+            Removal::Removed
+        )
     }
 
     /// Marks the object about to be written at `path`, until it is recorded
@@ -262,7 +277,7 @@ impl App {
                         self.remove_doomed_object(doomed, now).await;
                     }
                     Ok(_) => {
-                        self.keep_held(path).await;
+                        self.keep_held(path, now).await;
                     }
                     // Doomed: the housekeeping asks again.
                     Err(error) => {
@@ -277,9 +292,10 @@ impl App {
         }
     }
 
-    /// Takes a doomed object off the list. Returns whether it went.
-    async fn forget(&self, path: &str) -> bool {
-        match self.store().forget_doomed_object(path).await {
+    /// Takes a doomed object off the list, unless it was doomed again to be removed
+    /// after `now`. Returns whether nothing was left to do.
+    async fn forget(&self, path: &str, now: i64) -> bool {
+        match self.store().forget_doomed_object(path, now).await {
             Ok(()) => true,
             Err(error) => {
                 tracing::warn!(%error, "a doomed object could not be taken off the list");
@@ -338,7 +354,7 @@ mod tests {
         assert_eq!(retry_delay(1), RETRY_BASE_MILLIS, "after the first failure");
         assert_eq!(retry_delay(2), 2 * RETRY_BASE_MILLIS, "then twice as long");
         assert_eq!(retry_delay(3), 4 * RETRY_BASE_MILLIS, "and so on");
-        assert_eq!(retry_delay(8), RETRY_CAP_MILLIS, "up to a day");
+        assert_eq!(retry_delay(6), RETRY_CAP_MILLIS, "up to a day");
         assert_eq!(retry_delay(i64::MAX), RETRY_CAP_MILLIS, "however many");
         assert_eq!(retry_delay(0), RETRY_BASE_MILLIS, "never sooner");
     }

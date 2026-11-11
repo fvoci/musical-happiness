@@ -659,14 +659,14 @@ async fn the_metrics_count_the_list_and_the_failing_removals() {
         (Some(1.0), Some(0.0)),
         "failed once, not yet tried again: {body}"
     );
-    remove_doomed(&ts, now + 20 * 60 * 1000).await;
+    remove_doomed(&ts, now + 90 * 60 * 1000).await;
     let body = scrape(&ts).await;
     assert_eq!(
         counted(&body),
         (Some(1.0), Some(1.0)),
         "failed again when tried again: {body}"
     );
-    remove_doomed(&ts, now + 2 * 60 * 60 * 1000).await;
+    remove_doomed(&ts, now + DAY_MILLIS).await;
     let body = scrape(&ts).await;
     assert_eq!(counted(&body), (Some(0.0), Some(0.0)), "{body}");
     ts.teardown().await;

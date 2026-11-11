@@ -17,6 +17,7 @@ use subtle::ConstantTimeEq as _;
 use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
+use crate::loose_objects::LooseState;
 use crate::teams;
 use crate::uploads::{OpenUploads, UploadUsage};
 
@@ -303,7 +304,7 @@ impl Store {
                     .bind_list(paths.iter().copied())
                     .push(") UNION SELECT path FROM loose_objects WHERE path IN (")
                     .bind_list(paths.iter().copied())
-                    .push_bind(") AND state = ", "writing")
+                    .push_bind(") AND state = ", LooseState::Writing.as_str())
                     .push(" UNION SELECT path FROM uploads WHERE path IN (")
                     .bind_list(paths.iter().copied())
                     .push(")");

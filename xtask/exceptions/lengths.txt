@@ -15,7 +15,7 @@
 # function <lines> <path> <name>
 
 file 1008 crates/server/src/app/import.rs
-file 1108 crates/server/src/app/uploads.rs
+file 1107 crates/server/src/app/uploads.rs
 file 1230 crates/server/src/ws.rs
 file 3043 crates/server/tests/api/blocks.rs
 file 3962 crates/server/tests/api/boards.rs

@@ -129,7 +129,7 @@ async fn a_written_file_is_recorded_only_while_it_is_marked() {
         !test.doom_writing(&doomed_path, 0).await.expect("read"),
         "a doomed object is none of the writer's"
     );
-    test.forget_doomed_object(&doomed_path)
+    test.forget_doomed_object(&doomed_path, i64::MAX)
         .await
         .expect("removed by the housekeeping before the writer is done");
     assert!(
@@ -208,10 +208,18 @@ async fn stale_marks_are_doomed_and_failed_removals_wait() {
         "failed again when tried again, by the last error: {counts:?}"
     );
 
-    test.forget_doomed_object("boards/b")
+    test.forget_doomed_object("boards/b", i64::MAX)
         .await
         .expect("a mark of writing is not forgotten so");
-    test.forget_doomed_object("boards/a")
+    test.forget_doomed_object("boards/a", 1_999)
+        .await
+        .expect("read");
+    assert_eq!(
+        test.loose_objects().await.expect("listed").len(),
+        2,
+        "a doom due after the run's time is left"
+    );
+    test.forget_doomed_object("boards/a", 2_000)
         .await
         .expect("forgotten");
     let listed = test.loose_objects().await.expect("listed");

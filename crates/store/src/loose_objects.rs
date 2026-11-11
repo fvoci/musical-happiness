@@ -28,7 +28,7 @@ pub enum LooseState {
 
 impl LooseState {
     /// The value of the `state` column.
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Writing => "writing",
             Self::Doomed => "doomed",
@@ -213,17 +213,20 @@ impl Store {
         .await
     }
 
-    /// Takes a doomed object off the list once it is removed, or found gone. One that
-    /// is not listed, or not doomed, is left as it is.
+    /// Takes a doomed object off the list once it is removed, or found gone, by a run
+    /// that read it due at `due_by`. One that is not listed, not doomed, or doomed to
+    /// be removed after `due_by` (doomed again meanwhile, as by a writer that wrote at
+    /// last) is left as it is.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails.
-    pub async fn forget_doomed_object(&self, path: &str) -> Result<(), StoreError> {
+    pub async fn forget_doomed_object(&self, path: &str, due_by: i64) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
             let mut sql = scope.sql("DELETE FROM loose_objects WHERE path = ");
             sql.bind(path)
-                .push_bind(" AND state = ", LooseState::Doomed.as_str());
+                .push_bind(" AND state = ", LooseState::Doomed.as_str())
+                .push_bind(" AND retry_at <= ", due_by);
             scope.execute(sql).await?;
             Ok(())
         })
@@ -256,11 +259,12 @@ impl Store {
         .await
     }
 
-    /// Dooms objects of the file storage that nothing names, which a comparison of the
-    /// storage with the records found, and returns how many it listed: one listed
-    /// already is left as it is. Each is listed as the organization's whose board its
-    /// place names (`boards/<day>/<board>/<name>`), live or in the trash; one whose
-    /// board is none is the system organization's.
+    /// Dooms objects of the file storage that nothing names, due at once, and returns
+    /// how many it listed: one listed already is left as it is. By a handle of an
+    /// organization each is the organization's; by one that reaches every organization
+    /// (PostgreSQL), each is the organization's whose board its place names
+    /// (`boards/<day>/<board>/<name>`), live or in the trash, and the system
+    /// organization's when it names none.
     ///
     /// # Errors
     ///

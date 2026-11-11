@@ -803,21 +803,20 @@ impl App {
         self.forget_upload(upload).await && settled
     }
 
-    /// Removes the object at the place of a multipart upload unless something else holds
-    /// it, as asked of every board and organization (`Store::held_objects`): a completion
-    /// that took effect without its file being recorded, as when the answer was lost or
-    /// the server stopped in between, leaves an object nothing gives out. Returns `None`
-    /// if it is not settled, as whether it is held could not be read; else whether all
-    /// went (false if the object is there and could not be removed, which is logged).
+    /// Removes the object at the place of a multipart upload unless something of any
+    /// organization holds it (`Store::held_objects`): a completion that took effect
+    /// without its record, as when the answer was lost, leaves an object nothing gives
+    /// out. Doomed first, it is removed by the housekeeping if not now. Returns `None`
+    /// if that is not settled (the holds or the doom failed); else whether it went now.
     async fn remove_if_unrecorded(&self, upload: &Upload) -> Option<bool> {
         let paths = [upload.path.as_str()];
         match self.store().held_objects(&paths, Some(&upload.id)).await {
             Ok(held) if !held.is_empty() => Some(true),
-            Ok(_) => match self.files().delete(&upload.path).await {
-                Ok(()) => Some(true),
+            Ok(_) => match self.store().doom_unrecorded(&paths).await {
+                Ok(_) => Some(self.remove_doomed_now(&upload.path).await),
                 Err(error) => {
-                    tracing::warn!(%error, "an uploaded file without a record could not be removed");
-                    Some(false)
+                    tracing::warn!(%error, "an uploaded file without a record could not be doomed");
+                    None
                 }
             },
             Err(error) => {

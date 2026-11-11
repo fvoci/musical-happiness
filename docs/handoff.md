@@ -77,11 +77,11 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 무엇 | 결과 |
 |---|---|
 | `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮기기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이다. 손으로 더한 줄이나 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
-| `cargo xtask test` | SQLite 1,220건, PostgreSQL 1,021건, S3 7건, 실패 0(2026-11-11 20:50 KST, `fvoci/checks`) |
+| `cargo xtask test` | SQLite 1,367건, PostgreSQL 1,113건, S3 10건, 실패 0(2026-11-12 02:36 KST, `fvoci/files-fix`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
 
-- 앞 두 실행의 `ignored` 7건은 S3 테스트다. 세 번째 단계가 그것을 돌린다.
+- 앞 두 실행의 `ignored` 12건 가운데 10건은 S3 테스트다. 세 번째 단계가 그것을 돌린다. 나머지 2건은 `organization_boundary_review.rs`에서 꺼 둔 것이다.
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
