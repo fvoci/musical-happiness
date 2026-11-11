@@ -132,11 +132,15 @@ export function axisOf(source: AxisSource): Axis {
     ahead = Math.min(ahead, cap - 1 - short);
     back = Math.min(back, cap - 1 - ahead);
   }
-  const first = unitStart(shift(today, -back), zoom, weekStart);
+  let first = unitStart(shift(today, -back), zoom, weekStart);
   let last = unitEnd(shift(today, ahead), zoom, weekStart);
   const wanted = Math.min(source.minDays ?? 0, cap);
   if (daysBetween(first, last) + 1 < wanted) {
     last = unitEnd(shift(first, wanted - 1), zoom, weekStart);
+  }
+  // The last year that can be written leaves no room after: the room is taken before.
+  if (daysBetween(first, last) + 1 < wanted) {
+    first = unitStart(shift(last, 1 - wanted), zoom, weekStart);
   }
   const days = daysBetween(first, last) + 1;
   const dayWidth = DAY_WIDTH[zoom];
@@ -150,7 +154,9 @@ export function xOfDay(axis: Axis, date: CalendarDate): number {
 
 /** The day that lies at `x`; the first or the last day for a place outside the axis. */
 export function dayAt(axis: Axis, x: number): CalendarDate {
-  const at = Math.floor(x / axis.dayWidth);
+  // A day is 0.2 rem at the zoom `month`, which no binary fraction is: the
+  // start of a day divided by it can come out a hair under the whole number.
+  const at = Math.floor(x / axis.dayWidth + 1e-6);
   return addDays(axis.first, Math.min(axis.days - 1, Math.max(0, at)));
 }
 
@@ -288,18 +294,20 @@ export interface ChartRelations {
 }
 
 /**
- * The edges a chart draws. `drawn` are the cards that have a bar; `all` are
- * the cards of the board, so that a loop is found even where one of its
- * cards is filtered out of the view or has no date. A card of the loop that
- * is not drawn has no arrow, but the arrows between the others are marked.
+ * The edges a chart draws: those between two cards of `shown` (the cards of
+ * the view's rows) that both have days, and so a bar. `all` are the cards of
+ * the board, so that a loop is found even where one of its cards is filtered
+ * out of the view or has no date. A card of the loop that is not drawn has
+ * no arrow, but the arrows between the others are marked.
  */
 export function relationsOf(
-  drawn: readonly Card[],
+  shown: readonly Card[],
   all: Iterable<Card>,
   propertyId: string | undefined,
   daysOf: (cardId: string) => Days | undefined,
 ): ChartRelations {
   if (!propertyId) return { edges: [], late: new Set(), loops: new Set() };
+  const drawn = shown.filter((card) => daysOf(card.id) !== undefined);
   const edges = relationEdges(drawn, propertyId);
   const onLoops = new Set(edgesOnLoops(relationEdges(all, propertyId)).map(edgeKey));
   return {
@@ -329,16 +337,24 @@ const HEAD_HALF = 0.14;
 
 /**
  * The way of an arrow, in straight pieces across and down. Where the second
- * bar begins far enough after the first ends: out, down (or up), in. Where
- * it does not (it begins on the day the first ends, or before): out, to the
- * line between the rows, back to before the second bar, on to its row, in.
+ * bar begins far enough after the first ends (two gaps, which is some days
+ * at a far zoom): out, down (or up), in. Where it does not (it begins on
+ * the day the first ends, or before, or just after): out, to the line
+ * between the rows on the side of the second bar, back to before that bar,
+ * on to its row, in.
+ *
+ * No corner leaves the axis (`width`): out of a bar cut at the end of the
+ * axis the arrow turns at the edge, and before a bar at its start it comes
+ * down the edge. The tip is the start of the second bar; for a bar cut at
+ * the start of the axis that is the edge itself, and the head lies off the
+ * chart with the days that are cut.
  */
-export function arrowPoints(from: Bar, to: Bar): Point[] {
+export function arrowPoints(from: Bar, to: Bar, width = Infinity): Point[] {
   const startX = from.x + from.width;
   const startY = from.row + 0.5;
   const endY = to.row + 0.5;
-  const out = startX + ARROW_GAP;
-  if (to.x - ARROW_GAP >= out) {
+  const out = Math.min(width, startX + ARROW_GAP);
+  if (to.x - ARROW_GAP >= startX + ARROW_GAP) {
     return [
       [startX, startY],
       [out, startY],
@@ -346,7 +362,6 @@ export function arrowPoints(from: Bar, to: Bar): Point[] {
       [to.x, endY],
     ];
   }
-  // A bar at the very start of the axis has no room before it.
   const before = Math.max(0, to.x - ARROW_GAP);
   const between = to.row > from.row ? from.row + 1 : from.row;
   return [
@@ -360,7 +375,12 @@ export function arrowPoints(from: Bar, to: Bar): Point[] {
 }
 
 /** One arrow for each edge whose two cards have a bar. */
-export function arrowsOf(relations: ChartRelations, bars: ReadonlyMap<string, Bar>): Arrow[] {
+export function arrowsOf(
+  relations: ChartRelations,
+  bars: ReadonlyMap<string, Bar>,
+  /** The width of the axis: no arrow leaves it. */
+  width = Infinity,
+): Arrow[] {
   return relations.edges.flatMap((edge) => {
     const from = bars.get(edge.from);
     const to = bars.get(edge.to);
@@ -368,7 +388,7 @@ export function arrowsOf(relations: ChartRelations, bars: ReadonlyMap<string, Ba
     const key = edgeKey(edge);
     return {
       ...edge,
-      points: arrowPoints(from, to),
+      points: arrowPoints(from, to, width),
       late: relations.late.has(key),
       loop: relations.loops.has(key),
     };

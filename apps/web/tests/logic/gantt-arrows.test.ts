@@ -1,0 +1,238 @@
+/**
+ * The relations a Gantt view draws (lib/logic/gantt.ts): which edges, which
+ * of them are out of order or on a loop, and the way an arrow takes from
+ * the end of one bar to the start of another.
+ */
+import fc from 'fast-check';
+import { describe, expect, it } from 'vitest';
+
+import type { CalendarDate } from '$lib/logic/dates.ts';
+import type { Days } from '$lib/logic/dependencies.ts';
+import {
+  ARROW_GAP,
+  arrowHead,
+  arrowPath,
+  arrowPoints,
+  arrowsOf,
+  axisOf,
+  barBox,
+  barsOf,
+  edgeKey,
+  MIN_BAR_WIDTH,
+  relationsOf,
+  rowsOf,
+  type Bar,
+} from '$lib/logic/gantt.ts';
+import { createCard, setCardProperty, type Card } from '$lib/logic/wire.ts';
+
+const day = (text: string): CalendarDate => text as CalendarDate;
+const days = (first: string, last = first): Days => ({ first: day(first), last: day(last) });
+const TODAY = day('2026-11-10');
+const SUNDAY = 7;
+
+const AFTER = 'after';
+
+function card(id: string, after?: string[]): Card {
+  const made = createCard();
+  made.id = id;
+  if (after) setCardProperty(made, AFTER, after);
+  return made;
+}
+
+describe('the relations a chart draws', () => {
+  const spans: Record<string, Days> = {
+    a: days('2026-11-02', '2026-11-05'),
+    b: days('2026-11-05', '2026-11-06'),
+    c: days('2026-11-04'),
+  };
+  const daysOf = (id: string): Days | undefined => spans[id];
+
+  it('are none without a property', () => {
+    const cards = [card('a'), card('b', ['a'])];
+    expect(relationsOf(cards, cards, undefined, daysOf).edges).toEqual([]);
+    expect(relationsOf(cards, cards, '', daysOf).edges).toEqual([]);
+  });
+
+  it('go from the card named to the card that names it, among the cards drawn', () => {
+    const all = [card('a'), card('b', ['a', 'gone']), card('c', ['a', 'hidden']), card('hidden')];
+    const drawn = all.slice(0, 3);
+    const relations = relationsOf(drawn, all, AFTER, daysOf);
+    expect(relations.edges).toEqual([
+      { from: 'a', to: 'b' },
+      { from: 'a', to: 'c' },
+    ]);
+  });
+
+  it('are out of order where the later card starts before the day the earlier ends', () => {
+    const cards = [card('a'), card('b', ['a']), card('c', ['a'])];
+    const relations = relationsOf(cards, cards, AFTER, daysOf);
+    // b starts on the day a ends: in order. c starts the day before.
+    expect([...relations.late]).toEqual([edgeKey({ from: 'a', to: 'c' })]);
+    expect(relations.loops.size).toBe(0);
+  });
+
+  it('are only between cards that have days: a card without a date has no bar to reach', () => {
+    const cards = [card('a'), card('undated', ['a']), card('b', ['undated', 'a'])];
+    const relations = relationsOf(cards, cards, AFTER, daysOf);
+    expect(relations.edges).toEqual([{ from: 'a', to: 'b' }]);
+  });
+
+  it('are never out of order with a card that has no date', () => {
+    const cards = [card('a'), card('undated', ['a']), card('b', ['undated'])];
+    const relations = relationsOf(cards, cards, AFTER, daysOf);
+    expect(relations.late.size).toBe(0);
+  });
+
+  it('are marked on a loop, one that goes through a card that is not drawn too', () => {
+    // a → b → hidden → a, and b → c beside the loop.
+    const all = [card('a', ['hidden']), card('b', ['a']), card('hidden', ['b']), card('c', ['b'])];
+    const drawn = all.filter((each) => each.id !== 'hidden');
+    const relations = relationsOf(drawn, all, AFTER, daysOf);
+    expect(relations.edges).toHaveLength(2);
+    expect([...relations.loops]).toEqual([edgeKey({ from: 'a', to: 'b' })]);
+  });
+});
+
+describe('an arrow', () => {
+  const bar = (id: string, row: number, x: number, width: number): Bar => ({
+    id,
+    row,
+    x,
+    width,
+    fromBefore: false,
+    toAfter: false,
+  });
+
+  it('goes out of the end of the first bar, down, and into the start of the second', () => {
+    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 2, 10, 3))).toEqual([
+      [6, 0.5],
+      [6 + ARROW_GAP, 0.5],
+      [6 + ARROW_GAP, 2.5],
+      [10, 2.5],
+    ]);
+  });
+
+  it('goes up to a card in a row above', () => {
+    const points = arrowPoints(bar('a', 3, 2, 4), bar('b', 1, 10, 3));
+    expect(points.at(0)).toEqual([6, 3.5]);
+    expect(points.at(-1)).toEqual([10, 1.5]);
+    expect(points).toHaveLength(4);
+  });
+
+  it('turns back between the rows where the second bar starts no later than the first ends', () => {
+    // The second starts on the day the first ends: no room to go straight in.
+    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 5, 3))).toEqual([
+      [6, 0.5],
+      [6 + ARROW_GAP, 0.5],
+      [6 + ARROW_GAP, 1],
+      [5 - ARROW_GAP, 1],
+      [5 - ARROW_GAP, 1.5],
+      [5, 1.5],
+    ]);
+    // Upwards the turn is on the line above the first bar's row.
+    expect(arrowPoints(bar('a', 4, 2, 4), bar('b', 1, 1, 3))[2]).toEqual([6 + ARROW_GAP, 4]);
+    // A bar at the very start of the axis: the arrow stays on the chart.
+    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 0, 3))[3]).toEqual([0, 1]);
+  });
+
+  it('goes straight in from two gaps of room on, and turns back with any less', () => {
+    const first = bar('a', 0, 2, 4); // ends at 6
+    expect(arrowPoints(first, bar('b', 1, 6 + 2 * ARROW_GAP, 3))).toHaveLength(4);
+    expect(arrowPoints(first, bar('b', 1, 6 + 2 * ARROW_GAP - 0.01, 3))).toHaveLength(6);
+    expect(arrowPoints(first, bar('b', 1, 6 + ARROW_GAP, 3))).toHaveLength(6);
+  });
+
+  it('turns back on the line of its own row that faces the second bar, however far that is', () => {
+    expect(arrowPoints(bar('a', 1, 2, 4), bar('b', 5, 3, 3))[2]).toEqual([6 + ARROW_GAP, 2]);
+    expect(arrowPoints(bar('a', 5, 2, 4), bar('b', 1, 3, 3))[2]).toEqual([6 + ARROW_GAP, 5]);
+  });
+
+  it('stays on the axis at both edges', () => {
+    // Cards so far apart that the axis is a window: one a stub at each edge.
+    const made = axisOf({
+      zoom: 'day',
+      weekStart: SUNDAY,
+      today: TODAY,
+      spans: [days('0001-01-01'), days('9999-12-31')],
+    });
+    const early: Bar = { id: 'early', row: 0, ...barBox(made, days('0001-01-01')) };
+    const now: Bar = { id: 'now', row: 1, ...barBox(made, days('2026-11-10', '2026-11-12')) };
+    const late: Bar = { id: 'late', row: 2, ...barBox(made, days('9999-12-31')) };
+    for (const [from, to] of [
+      [late, now],
+      [now, early],
+      [late, early],
+      [early, late],
+    ] as const) {
+      const points = arrowPoints(from, to, made.width);
+      for (const [x] of points) {
+        expect(x).toBeGreaterThanOrEqual(0);
+        expect(x).toBeLessThanOrEqual(made.width);
+      }
+      expect(points.at(-1)).toEqual([to.x, to.row + 0.5]);
+    }
+    // Out of the stub at the end of the axis the arrow turns at the edge.
+    expect(arrowPoints(late, now, made.width)[1]).toEqual([made.width, 2.5]);
+  });
+
+  it('always ends at the start of the second bar, pointing into it', () => {
+    const place = fc.record({
+      x: fc.double({ min: 0, max: 500, noNaN: true }),
+      width: fc.double({ min: MIN_BAR_WIDTH, max: 100, noNaN: true }),
+    });
+    fc.assert(
+      fc.property(place, place, fc.nat(50), fc.nat(50), (a, b, rowA, rowB) => {
+        fc.pre(rowA !== rowB);
+        const points = arrowPoints(bar('a', rowA, a.x, a.width), bar('b', rowB, b.x, b.width));
+        expect(points[0]).toEqual([a.x + a.width, rowA + 0.5]);
+        expect(points.at(-1)).toEqual([b.x, rowB + 0.5]);
+        // The last piece runs to the right, along the middle of the second row.
+        const before = points.at(-2);
+        expect(before?.[1]).toBe(rowB + 0.5);
+        expect(before?.[0]).toBeLessThanOrEqual(b.x);
+        // Every piece is straight across or straight down.
+        points.slice(1).forEach((point, at) => {
+          const from = points[at];
+          expect(point[0] === from?.[0] || point[1] === from?.[1]).toBe(true);
+        });
+      }),
+    );
+  });
+
+  it('is drawn once for each edge whose two cards have a bar, with its marks', () => {
+    const cards = [card('a'), card('b', ['a']), card('c', ['a', 'b']), card('undated', ['a'])];
+    const spans: Record<string, Days> = {
+      a: days('2026-11-04', '2026-11-06'),
+      b: days('2026-11-05'),
+      c: days('2026-11-09'),
+    };
+    const daysOf = (id: string): Days | undefined => spans[id];
+    const made = axisOf({ zoom: 'day', weekStart: SUNDAY, today: TODAY, spans: [] });
+    const rows = rowsOf([{ cardIds: cards.map((each) => each.id) }]);
+    const relations = relationsOf(cards, cards, AFTER, daysOf);
+    const arrows = arrowsOf(relations, barsOf(made, rows, daysOf));
+    expect(arrows.map(({ from, to, late, loop }) => ({ from, to, late, loop }))).toEqual([
+      { from: 'a', to: 'b', late: true, loop: false },
+      { from: 'a', to: 'c', late: false, loop: false },
+      { from: 'b', to: 'c', late: false, loop: false },
+    ]);
+    expect(arrows).toHaveLength(relations.edges.length);
+    // An edge to a card whose bar is not among those given draws nothing.
+    const fewer = barsOf(made, rowsOf([{ cardIds: ['a', 'b'] }]), daysOf);
+    expect(arrowsOf(relations, fewer).map(({ from, to }) => [from, to])).toEqual([['a', 'b']]);
+  });
+
+  it('is written as the path of its line and of its head', () => {
+    const points = arrowPoints(bar('a', 0, 2, 4), bar('b', 2, 10, 3));
+    expect(arrowPath(points)).toBe('M6 0.5L6.5 0.5L6.5 2.5L10 2.5');
+    expect(arrowHead(points)).toBe('M10 2.5L9.6 2.36L9.6 2.64Z');
+    expect(arrowHead([])).toBe('');
+    // To a thousandth of a rem and of a row, no further.
+    expect(
+      arrowPath([
+        [1.23456, 0.5],
+        [2, 0.5],
+      ]),
+    ).toBe('M1.235 0.5L2 0.5');
+  });
+});

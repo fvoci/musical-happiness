@@ -1,8 +1,8 @@
 /**
  * The arithmetic of the Gantt view (lib/logic/gantt.ts): the axis for each
  * zoom and first day of the week, across the ends of months and years, its
- * marks, the rows, where a bar lies, which edges are drawn and marked, and
- * the way an arrow takes.
+ * marks, the rows, and where a bar lies. The edges and the arrows are in
+ * gantt-arrows.test.ts.
  *
  * The suite runs with the process in three time zones (tools/test-zones.ts);
  * nothing here asks the machine for its own, so every result is the same.
@@ -14,36 +14,26 @@ import { spansOf, weekdayOf } from '$lib/logic/calendar.ts';
 import { addDays, calendarDate, daysBetween, type CalendarDate } from '$lib/logic/dates.ts';
 import type { Days } from '$lib/logic/dependencies.ts';
 import {
-  ARROW_GAP,
-  arrowHead,
-  arrowPath,
-  arrowPoints,
-  arrowsOf,
   axisOf,
   barBox,
   barsOf,
   DAY_WIDTH,
   dayAt,
-  edgeKey,
   GANTT_ZOOMS,
   MAX_AXIS_DAYS,
   MIN_BAR_WIDTH,
-  relationsOf,
   rowsOf,
   scaleOf,
   xOfDay,
   zoomOf,
   type Axis,
-  type Bar,
 } from '$lib/logic/gantt.ts';
 import type { Weekday } from '$lib/logic/regional.ts';
 import {
   createCard,
   setCardProperty,
-  type Card,
   type GanttZoom,
   type PropertyTemplate,
-  type PropertyValue,
 } from '$lib/logic/wire.ts';
 
 const day = (text: string): CalendarDate => text as CalendarDate;
@@ -111,11 +101,48 @@ describe('the axis', () => {
     expect(made.days).toBe(31 + 29 + 31);
   });
 
-  it('is as long as the page has room for', () => {
-    const made = axisOf({ zoom: 'day', weekStart: SUNDAY, today: TODAY, spans: [], minDays: 60 });
-    expect(made.first).toBe('2026-11-01');
+  it('is as long as the page has room for, out to a whole week and no longer', () => {
+    const room = (minDays: number, spans: Days[] = []): Axis =>
+      axisOf({ zoom: 'day', weekStart: SUNDAY, today: TODAY, spans, minDays });
+    // 60 days from 1 November end on 30 December, a Wednesday: on to Saturday 2 January.
+    expect(room(60)).toMatchObject({ first: '2026-11-01', last: '2027-01-02', days: 63 });
+    // Room for less than there is changes nothing.
+    expect(room(10)).toEqual(axis('day'));
+    const long = [days('2026-11-03', '2027-03-01')];
+    expect(room(60, long)).toEqual(axis('day', long));
+    // Room for more than can be drawn is the most that can be drawn.
+    expect(room(1_000_000).days).toBe(MAX_AXIS_DAYS.day);
+  });
+
+  it('takes the room before today where the years that can be written end', () => {
+    const made = axisOf({
+      zoom: 'day',
+      weekStart: SUNDAY,
+      today: day('9999-12-30'),
+      spans: [],
+      minDays: 60,
+    });
+    expect(made.last).toBe('9999-12-31');
     expect(made.days).toBeGreaterThanOrEqual(60);
-    expect(made.days % 7).toBe(0);
+    expect(made.days).toBeLessThan(67);
+    expect(weekdayOf(made.first)).toBe(SUNDAY);
+  });
+
+  it('keeps a month of margin at the zoom `month`, to the day', () => {
+    // 31 days after 30 November is 31 December: the axis ends with the year.
+    expect(axis('month', [days('2026-11-30')]).last).toBe('2026-12-31');
+    // One day more is in January.
+    expect(axis('month', [days('2026-12-01')]).last).toBe('2027-01-31');
+  });
+
+  it('is a window only when the cards and the margins are more than can be drawn', () => {
+    const margin = 7;
+    const fits = MAX_AXIS_DAYS.day - 2 * margin - 1;
+    const whole = axis('day', [{ first: TODAY, last: addDays(TODAY, fits) }]);
+    expect(whole.last >= addDays(TODAY, fits + margin)).toBe(true);
+    const cut = axis('day', [{ first: TODAY, last: addDays(TODAY, fits + 400) }]);
+    expect(cut.last < addDays(TODAY, fits + 400)).toBe(true);
+    expect(cut.days).toBeLessThanOrEqual(MAX_AXIS_DAYS.day + 12);
   });
 
   it('is a window around today when the cards are too far apart to draw', () => {
@@ -164,6 +191,18 @@ describe('the axis', () => {
     expect(dayAt(made, 10 * DAY_WIDTH.day - 0.01)).toBe(TODAY);
     expect(dayAt(made, -5)).toBe(made.first);
     expect(dayAt(made, made.width + 5)).toBe(made.last);
+  });
+
+  it('finds every day at the place it begins, at every zoom', () => {
+    // A day is 0.2 rem at `month`: the division must not come out a day short.
+    for (const zoom of GANTT_ZOOMS) {
+      const made = axis(zoom, [days('2024-01-01', '2029-12-31')]);
+      for (let at = 0; at < made.days; at += 1) {
+        const date = addDays(made.first, at);
+        expect(dayAt(made, xOfDay(made, date))).toBe(date);
+        expect(dayAt(made, xOfDay(made, date) + made.dayWidth / 2)).toBe(date);
+      }
+    }
   });
 });
 
@@ -316,6 +355,25 @@ describe('a bar', () => {
     });
   });
 
+  it('that begins on the first day of the axis or ends on its last is not cut', () => {
+    expect(barBox(made, { first: made.first, last: made.first })).toEqual({
+      x: 0,
+      width: DAY_WIDTH.day,
+      fromBefore: false,
+      toAfter: false,
+    });
+    expect(barBox(made, { first: made.last, last: made.last })).toEqual({
+      x: made.width - DAY_WIDTH.day,
+      width: DAY_WIDTH.day,
+      fromBefore: false,
+      toAfter: false,
+    });
+    expect(barBox(made, { first: addDays(made.first, -1), last: made.first }).fromBefore).toBe(
+      true,
+    );
+    expect(barBox(made, { first: made.last, last: addDays(made.last, 1) }).toAfter).toBe(true);
+  });
+
   it('wholly off the axis keeps a stub at the edge it is beyond', () => {
     expect(barBox(made, days('2025-03-01', '2025-03-09'))).toEqual({
       x: 0,
@@ -363,158 +421,5 @@ describe('a bar', () => {
     expect([...bars.keys()]).toEqual(['a', 'b']);
     expect(bars.get('a')).toMatchObject({ id: 'a', row: 1, x: 2 * DAY_WIDTH.day });
     expect(bars.get('b')?.row).toBe(3);
-  });
-});
-
-const AFTER = 'after';
-
-function card(id: string, after?: string[], other?: PropertyValue): Card {
-  const made = createCard();
-  made.id = id;
-  if (after) setCardProperty(made, AFTER, after);
-  if (other !== undefined) setCardProperty(made, 'other', other);
-  return made;
-}
-
-describe('the relations a chart draws', () => {
-  const spans: Record<string, Days> = {
-    a: days('2026-11-02', '2026-11-05'),
-    b: days('2026-11-05', '2026-11-06'),
-    c: days('2026-11-04'),
-  };
-  const daysOf = (id: string): Days | undefined => spans[id];
-
-  it('are none without a property', () => {
-    const cards = [card('a'), card('b', ['a'])];
-    expect(relationsOf(cards, cards, undefined, daysOf).edges).toEqual([]);
-    expect(relationsOf(cards, cards, '', daysOf).edges).toEqual([]);
-  });
-
-  it('go from the card named to the card that names it, among the cards drawn', () => {
-    const all = [card('a'), card('b', ['a', 'gone']), card('c', ['a', 'hidden']), card('hidden')];
-    const drawn = all.slice(0, 3);
-    const relations = relationsOf(drawn, all, AFTER, daysOf);
-    expect(relations.edges).toEqual([
-      { from: 'a', to: 'b' },
-      { from: 'a', to: 'c' },
-    ]);
-  });
-
-  it('are out of order where the later card starts before the day the earlier ends', () => {
-    const cards = [card('a'), card('b', ['a']), card('c', ['a'])];
-    const relations = relationsOf(cards, cards, AFTER, daysOf);
-    // b starts on the day a ends: in order. c starts the day before.
-    expect([...relations.late]).toEqual([edgeKey({ from: 'a', to: 'c' })]);
-    expect(relations.loops.size).toBe(0);
-  });
-
-  it('are never out of order with a card that has no date', () => {
-    const cards = [card('a'), card('undated', ['a']), card('b', ['undated'])];
-    const relations = relationsOf(cards, cards, AFTER, daysOf);
-    expect(relations.late.size).toBe(0);
-  });
-
-  it('are marked on a loop, one that goes through a card that is not drawn too', () => {
-    // a → b → hidden → a, and b → c beside the loop.
-    const all = [card('a', ['hidden']), card('b', ['a']), card('hidden', ['b']), card('c', ['b'])];
-    const drawn = all.filter((each) => each.id !== 'hidden');
-    const relations = relationsOf(drawn, all, AFTER, daysOf);
-    expect(relations.edges).toHaveLength(2);
-    expect([...relations.loops]).toEqual([edgeKey({ from: 'a', to: 'b' })]);
-  });
-});
-
-describe('an arrow', () => {
-  const bar = (id: string, row: number, x: number, width: number): Bar => ({
-    id,
-    row,
-    x,
-    width,
-    fromBefore: false,
-    toAfter: false,
-  });
-
-  it('goes out of the end of the first bar, down, and into the start of the second', () => {
-    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 2, 10, 3))).toEqual([
-      [6, 0.5],
-      [6 + ARROW_GAP, 0.5],
-      [6 + ARROW_GAP, 2.5],
-      [10, 2.5],
-    ]);
-  });
-
-  it('goes up to a card in a row above', () => {
-    const points = arrowPoints(bar('a', 3, 2, 4), bar('b', 1, 10, 3));
-    expect(points.at(0)).toEqual([6, 3.5]);
-    expect(points.at(-1)).toEqual([10, 1.5]);
-    expect(points).toHaveLength(4);
-  });
-
-  it('turns back between the rows where the second bar starts no later than the first ends', () => {
-    // The second starts on the day the first ends: no room to go straight in.
-    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 5, 3))).toEqual([
-      [6, 0.5],
-      [6 + ARROW_GAP, 0.5],
-      [6 + ARROW_GAP, 1],
-      [5 - ARROW_GAP, 1],
-      [5 - ARROW_GAP, 1.5],
-      [5, 1.5],
-    ]);
-    // Upwards the turn is on the line above the first bar's row.
-    expect(arrowPoints(bar('a', 4, 2, 4), bar('b', 1, 1, 3))[2]).toEqual([6 + ARROW_GAP, 4]);
-    // A bar at the very start of the axis: the arrow stays on the chart.
-    expect(arrowPoints(bar('a', 0, 2, 4), bar('b', 1, 0, 3))[3]).toEqual([0, 1]);
-  });
-
-  it('always ends at the start of the second bar, pointing into it', () => {
-    const place = fc.record({
-      x: fc.double({ min: 0, max: 500, noNaN: true }),
-      width: fc.double({ min: MIN_BAR_WIDTH, max: 100, noNaN: true }),
-    });
-    fc.assert(
-      fc.property(place, place, fc.nat(50), fc.nat(50), (a, b, rowA, rowB) => {
-        fc.pre(rowA !== rowB);
-        const points = arrowPoints(bar('a', rowA, a.x, a.width), bar('b', rowB, b.x, b.width));
-        expect(points[0]).toEqual([a.x + a.width, rowA + 0.5]);
-        expect(points.at(-1)).toEqual([b.x, rowB + 0.5]);
-        // The last piece runs to the right, along the middle of the second row.
-        const before = points.at(-2);
-        expect(before?.[1]).toBe(rowB + 0.5);
-        expect(before?.[0]).toBeLessThanOrEqual(b.x);
-        // Every piece is straight across or straight down.
-        points.slice(1).forEach((point, at) => {
-          const from = points[at];
-          expect(point[0] === from?.[0] || point[1] === from?.[1]).toBe(true);
-        });
-      }),
-    );
-  });
-
-  it('is drawn once for each edge whose two cards have a bar, with its marks', () => {
-    const cards = [card('a'), card('b', ['a']), card('c', ['a', 'b']), card('undated', ['a'])];
-    const spans: Record<string, Days> = {
-      a: days('2026-11-04', '2026-11-06'),
-      b: days('2026-11-05'),
-      c: days('2026-11-09'),
-    };
-    const daysOf = (id: string): Days | undefined => spans[id];
-    const made = axis('day');
-    const drawn = cards.filter((each) => daysOf(each.id));
-    const rows = rowsOf([{ cardIds: drawn.map((each) => each.id) }]);
-    const relations = relationsOf(drawn, cards, AFTER, daysOf);
-    const arrows = arrowsOf(relations, barsOf(made, rows, daysOf));
-    expect(arrows.map(({ from, to, late, loop }) => ({ from, to, late, loop }))).toEqual([
-      { from: 'a', to: 'b', late: true, loop: false },
-      { from: 'a', to: 'c', late: false, loop: false },
-      { from: 'b', to: 'c', late: false, loop: false },
-    ]);
-    expect(arrows).toHaveLength(relations.edges.length);
-  });
-
-  it('is written as the path of its line and of its head', () => {
-    const points = arrowPoints(bar('a', 0, 2, 4), bar('b', 2, 10, 3));
-    expect(arrowPath(points)).toBe('M6 0.5L6.5 0.5L6.5 2.5L10 2.5');
-    expect(arrowHead(points)).toBe('M10 2.5L9.6 2.36L9.6 2.64Z');
-    expect(arrowHead([])).toBe('');
   });
 });
