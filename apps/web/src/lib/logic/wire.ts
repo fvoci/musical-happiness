@@ -512,6 +512,7 @@ export type PropertyType =
   | 'createdBy'
   | 'updatedTime'
   | 'updatedBy'
+  | 'relation'
   | 'unknown';
 
 export interface PropertyOption {
@@ -541,6 +542,8 @@ export interface Board {
   icon?: string;
   showDescription: boolean;
   isTemplate: boolean;
+  /** A template the server offers every team; nobody's to change. */
+  isBuiltin?: boolean;
   templateVersion: number;
   properties: Record<string, string | string[]>;
   cardProperties: PropertyTemplate[];
@@ -714,6 +717,20 @@ export function plainPropertyValue(
   const stored = formatDateValue(parseDateValue(value));
   if (!stored) return undefined;
   return stored.to === undefined ? String(stored.from) : `${stored.from}/${stored.to}`;
+}
+
+/** The most cards one relation value names. */
+export const RELATION_LIMIT = 50;
+
+/**
+ * The cards a relation property names: a list of card identifiers, each
+ * once, in the order they were picked. Whatever else is stored (text left by
+ * another kind, a date) names no card. Identifiers of deleted cards are kept
+ * here; what is shown leaves them out. Written as such a list too.
+ */
+export function parseRelationValue(stored: PropertyValue | undefined): string[] {
+  if (!Array.isArray(stored)) return [];
+  return [...new Set(stored.filter((id) => typeof id === 'string' && id !== ''))];
 }
 
 /** The day a date filter compares with: a filter stores it as `YYYY-MM-DD`. */

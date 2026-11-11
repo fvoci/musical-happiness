@@ -21,7 +21,7 @@
   import type { BoardStore, CardStore, Upload } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
 
-  import { saveBlob } from './download.ts';
+  import { saveBlob } from '$lib/save.ts';
 
   interface Props {
     board: BoardStore;

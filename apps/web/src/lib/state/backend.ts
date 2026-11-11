@@ -187,6 +187,24 @@ export interface Category {
   updateAt: number;
 }
 
+/** A role on a board: one of them, the highest a member has. */
+export type BoardRole = 'admin' | 'editor' | 'commenter' | 'viewer';
+
+/**
+ * A board's public link: whether it is on, and the token a reader without
+ * an account reads the board with (empty while it is off and was never on).
+ */
+export interface Sharing {
+  enabled: boolean;
+  token: string;
+}
+
+export interface SharingChange {
+  enabled: boolean;
+  /** Makes a new token: the old link stops working. */
+  regenerate?: boolean;
+}
+
 export interface CategoryDraft {
   name: string;
 }
@@ -271,6 +289,18 @@ export interface UploadOptions {
   signal?: AbortSignal;
 }
 
+export interface DownloadOptions {
+  /** `sentBytes` counts what has arrived; `totalBytes` is 0 when the length is not known. */
+  onProgress?: (progress: UploadProgress) => void;
+  signal?: AbortSignal;
+}
+
+/** Bytes to be saved, under the name they come with. */
+export interface DownloadedFile {
+  bytes: Blob;
+  name: string;
+}
+
 export interface UploadedFile {
   fileId: string;
   name: string;
@@ -301,6 +331,12 @@ export interface Account {
   /** Makes an account. It does not sign in. */
   register(registration: Registration): Promise<void>;
   signOut(): Promise<void>;
+  /**
+   * Changes the reader's password; `oldPassword` proves they know it. Their
+   * other sessions end, this one goes on. A wrong old password is 400 with
+   * the reason `invalid_credentials`, too many tries 429.
+   */
+  changePassword(oldPassword: string, newPassword: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------- changes
@@ -364,13 +400,56 @@ export interface Backend {
   // Boards.
   boards(teamId: string): Promise<Board[]>;
   board(boardId: string): Promise<Board>;
-  createBoard(teamId: string, draft: BoardDraft): Promise<Board>;
+  /**
+   * Makes a board and its first view together, all or none: a board without
+   * a view has nothing to show. The reader becomes its admin, and a board
+   * that is no template is filed under their default category.
+   */
+  createBoard(
+    teamId: string,
+    draft: BoardDraft,
+    firstView: ViewDraft,
+  ): Promise<{ board: Board; view: BoardView }>;
   patchBoard(boardId: string, patch: BoardPatch): Promise<Board>;
+  /**
+   * The templates the reader may make a board from: the team's they may
+   * see, then the built-in ones every team is offered.
+   */
+  templates(teamId: string): Promise<Board[]>;
+  /**
+   * Copies a board with its views and cards (not its comments) into the
+   * team: a board from a template, or a template from a board. The reader is
+   * the copy's admin, and it is private. The team is said because a built-in
+   * template belongs to none of the reader's.
+   */
+  duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board>;
+  /** Copies the welcome board for the reader; answers its identifier. Each call makes another copy. */
+  onboard(teamId: string): Promise<string>;
+  /**
+   * The boards the reader may find whose title has every word of `query` in
+   * it, whatever the case: those of `boards`, hidden ones too. No templates.
+   */
+  searchBoards(teamId: string, query: string): Promise<Board[]>;
   /** Moves the board to the trash. */
   deleteBoard(boardId: string): Promise<void>;
   /** Takes the board, its blocks and its members back out of the trash. */
   restoreBoard(boardId: string): Promise<Board>;
   members(boardId: string): Promise<BoardMember[]>;
+  /**
+   * Makes a person of the team a member of the board, with the role. For the
+   * board's admins. Someone who is a member already keeps their role.
+   */
+  addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  /** Gives a member another role. The board's last admin stays one (409, `last_admin`). */
+  setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember>;
+  /** Takes a member off the board. Not its last admin (409, `last_admin`). */
+  removeMember(boardId: string, userId: string): Promise<void>;
+  /** The board's public link. For the board's admins. */
+  sharing(boardId: string): Promise<Sharing>;
+  /** Turns the public link on or off, or makes it anew. */
+  setSharing(boardId: string, change: SharingChange): Promise<Sharing>;
+  /** People of the team whose name has `query` in it, whatever the case; ten at most. */
+  searchUsers(teamId: string, query: string): Promise<User[]>;
   /**
    * Makes the reader a member of an open board of their team, with the
    * board's minimum role. Until then such a board is readable but its views,
@@ -380,13 +459,31 @@ export interface Backend {
 
   // The reader's sidebar.
   categories(teamId: string): Promise<Category[]>;
+  /** A new category goes first. */
   createCategory(teamId: string, draft: CategoryDraft): Promise<Category>;
-  patchCategory(categoryId: string, patch: CategoryPatch): Promise<Category>;
-  deleteCategory(categoryId: string): Promise<void>;
+  /** The default category keeps its name whatever the patch says. */
+  patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category>;
+  /** Its boards go to the default category, which cannot be deleted. */
+  deleteCategory(teamId: string, categoryId: string): Promise<void>;
   /** The reader's order of all their categories. */
   reorderCategories(teamId: string, categoryIds: string[]): Promise<void>;
-  /** Files a board under a category, at a place among its boards. */
-  moveBoardToCategory(boardId: string, categoryId: string, index: number): Promise<void>;
+  /**
+   * Files a board under a category, at `index` in the category's own list
+   * (`Category.boardIds`, without the board).
+   */
+  moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void>;
+  /** Hides a board of a category from the reader's sidebar, or shows it again. */
+  setBoardHidden(
+    teamId: string,
+    categoryId: string,
+    boardId: string,
+    hidden: boolean,
+  ): Promise<void>;
 
   // Views.
   views(boardId: string): Promise<BoardView[]>;
@@ -429,6 +526,19 @@ export interface Backend {
   fileBytes(boardId: string, fileId: string): Promise<Blob>;
   /** Where the bytes of a file can be fetched by an `<img>` or a link. */
   fileUrl(boardId: string, fileId: string): string | undefined;
+
+  // Archives of boards.
+  /** An archive of the board with its blocks, files and members. For its members. */
+  exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  /** An archive of every board of the team the reader may see. */
+  exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile>;
+  /**
+   * Makes the boards of an archive in the team, the reader their admin. An
+   * archive over the server's limit is refused before anything is sent (413,
+   * with the limit); one that is no archive of this app is 400. The boards
+   * are made one after the other: a failure keeps those before it.
+   */
+  importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void>;
 
   // Changes as they happen.
   /** Listens to the changes of one board. Returns the function that stops listening. */

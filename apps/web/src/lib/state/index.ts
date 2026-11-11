@@ -15,6 +15,7 @@ export {
   type Attachment,
   type Backend,
   type BoardDraft,
+  type BoardRole,
   type CardDetail,
   type CardDraft,
   type CardPatch,
@@ -24,6 +25,7 @@ export {
   type Comment,
   type InvalidInput,
   type Registration,
+  type Sharing,
   type Team,
   type UploadedFile,
   type User,
@@ -37,5 +39,6 @@ export {
   type LoadStatus,
   type Problem,
   type ProblemAction,
+  type Transfer,
   type WorkspaceOptions,
 } from './workspace.svelte.ts';

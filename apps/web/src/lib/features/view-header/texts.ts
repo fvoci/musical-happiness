@@ -37,6 +37,7 @@ export const VIEW_KIND_NAMES: Record<AddableViewType, () => string> = {
   board: m['View.Board'],
   table: m['View.Table'],
   gallery: m['View.Gallery'],
+  calendar: m.viewheader_kind_calendar,
 };
 
 /** The line that adds a view of a kind, where it stands among other lines. */
@@ -44,6 +45,7 @@ export const ADD_VIEW_LABELS: Record<AddableViewType, () => string> = {
   board: m.viewheader_add_board_view,
   table: m.viewheader_add_table_view,
   gallery: m.viewheader_add_gallery_view,
+  calendar: m.viewheader_add_calendar_view,
 };
 
 /** The title a new view of a kind starts with. */
@@ -51,6 +53,7 @@ export const NEW_VIEW_TITLES: Record<AddableViewType, () => string> = {
   board: m['View.NewBoardTitle'],
   table: m['View.NewTableTitle'],
   gallery: m['View.NewGalleryTitle'],
+  calendar: m['View.NewCalendarTitle'],
 };
 
 /** The names of the conditions of a filter. */

@@ -33,6 +33,8 @@
     "@tiptap/extension-bold": "3.33.0",
     "@tiptap/extension-code": "3.33.0",
     "@tiptap/extension-code-block": "3.33.0",
+    "@tiptap/extension-collaboration": "3.33.0",
+    "@tiptap/extension-collaboration-caret": "3.33.0",
     "@tiptap/extension-document": "3.33.0",
     "@tiptap/extension-hard-break": "3.33.0",
     "@tiptap/extension-heading": "3.33.0",
@@ -46,9 +48,12 @@
     "@tiptap/extensions": "3.33.0",
     "@tiptap/pm": "3.33.0",
     "@tiptap/suggestion": "3.33.0",
+    "@tiptap/y-tiptap": "3.2.0",
     "katex": "0.19.1",
     "marked": "18.1.3",
-    "mermaid": "12.3.0"
+    "mermaid": "12.3.0",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

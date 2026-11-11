@@ -15,7 +15,9 @@
 
   let { board, view }: { board: BoardStore; view: BoardView } = $props();
 
-  const toggles = $derived(propertyToggles(board.board?.cardProperties ?? []));
+  const toggles = $derived(
+    propertyToggles(board.board?.cardProperties ?? [], view.fields.viewType),
+  );
 
   function nameOf(toggle: PropertyToggle): string {
     return toggle.template.name;

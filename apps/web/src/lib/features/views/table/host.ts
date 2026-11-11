@@ -27,8 +27,10 @@ export interface RowHost {
   readonly reader: TableReader;
   /** The reader may change cards. */
   readonly canEdit: boolean;
+  /** The board's cards that are there, by identifier: what a relation names. */
+  readonly cards: ReadonlyMap<string, Card>;
   cardHref(cardId: string): string;
-  open(cardId: string): void;
+  open: (cardId: string) => void;
   /** A cell was pressed (or Enter on it): edit it, or for a checkbox change it. */
   activate(card: Card, template: PropertyTemplate): void;
   /** The title cell was pressed. */
@@ -52,6 +54,7 @@ const EDITABLE: ReadonlySet<PropertyType> = new Set<PropertyType>([
   'person',
   'multiPerson',
   'checkbox',
+  'relation',
 ]);
 
 export function isEditableKind(type: PropertyType): boolean {

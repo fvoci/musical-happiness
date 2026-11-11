@@ -1,0 +1,339 @@
+<!--
+  The value of a card relation property: other cards of the same board,
+  picked by their titles. Each picked card is a chip with its title; pressing
+  the chip opens that card.
+
+  A card is shown only when it is in `cards` (the board's cards that are
+  there). The identifier of a deleted card stays in the stored value, so that
+  bringing the card back brings the relation back, but it is not drawn, and
+  the next change of the value leaves it out.
+
+  The card itself cannot be picked, a card is picked once, and no more than
+  RELATION_LIMIT are picked (a value that names more, written some other
+  way, keeps them all until the reader takes some out). The list shows the
+  picked cards first, then the others by title, at most LIST_LIMIT at a
+  time, so that a board of thousands of cards does not draw thousands of
+  rows: typing narrows it.
+-->
+<script lang="ts">
+  import PencilIcon from '@lucide/svelte/icons/pencil';
+  import RepeatIcon from '@lucide/svelte/icons/repeat';
+  import XIcon from '@lucide/svelte/icons/x';
+
+  import PickList from '$lib/components/pick-list/PickList.svelte';
+  import PickerSurface from '$lib/components/picker-surface/PickerSurface.svelte';
+  import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import { foldCase } from '$lib/logic/text.ts';
+  import { RELATION_LIMIT, type Card } from '$lib/logic/wire.ts';
+  import { Button } from '$lib/ui/button/index.js';
+  import { cn } from '$lib/utils.js';
+
+  interface Props {
+    /** The name of the property. */
+    name: string;
+    /** The card the value belongs to: it cannot name itself. */
+    cardId: string;
+    /** The identifiers in the stored value, each once. */
+    ids: readonly string[];
+    /** The board's cards that are there, by identifier. */
+    cards: ReadonlyMap<string, Card>;
+    /** BCP 47 tag: the alphabetical order of the list. */
+    locale: string;
+    /**
+     * Cards that may not be picked besides the card itself (they would close
+     * a loop). A picked card among them is on a loop that is there already:
+     * it is marked, and can be taken out.
+     */
+    excluded?: ReadonlySet<string>;
+    editable: boolean;
+    /** Shown where there is no value; empty for nothing. */
+    placeholder: string;
+    presentation?: Presentation;
+    startOpen?: boolean;
+    onChange?: (value: string[]) => void;
+    /** Opens a card; without it the chips are only text. */
+    onOpenCard?: (cardId: string) => void;
+    /** See PropertyValueProps. */
+    innerTabindex?: 0 | -1;
+  }
+
+  let {
+    name,
+    cardId,
+    ids,
+    cards,
+    locale,
+    excluded,
+    editable,
+    placeholder,
+    presentation = 'popover',
+    startOpen = false,
+    onChange,
+    onOpenCard,
+    innerTabindex,
+  }: Props = $props();
+
+  /** How many cards the list draws at a time. */
+  const LIST_LIMIT = 50;
+
+  // svelte-ignore state_referenced_locally (only where editing starts)
+  let open = $state(startOpen);
+  let search = $state('');
+
+  const untitled = (card: Card | undefined): string => card?.title || m['KanbanCard.untitled']();
+  const titleOf = (id: string): string => untitled(cards.get(id));
+
+  /** The picked cards that are there, in the order they were picked; never the card itself. */
+  const shown = $derived(ids.filter((id) => id !== cardId && cards.has(id)));
+  const full = $derived(shown.length >= RELATION_LIMIT);
+
+  /**
+   * The cards that can be picked, by title, each with the text it is found
+   * by. Worked out once per change of the cards, and only while the list is
+   * open: nothing reads it otherwise.
+   */
+  const candidates = $derived.by(() => {
+    const collator = new Intl.Collator(locale);
+    return [...cards.values()]
+      .filter((card) => card.id !== cardId)
+      .map((card) => ({ card, title: untitled(card), folded: foldCase(untitled(card)) }))
+      .sort(
+        (first, second) =>
+          collator.compare(first.title, second.title) || (first.card.id < second.card.id ? -1 : 1),
+      );
+  });
+
+  /**
+   * What the list offers for what was typed: the cards that can be added
+   * first (Enter on the field adds the first), then the picked ones, which
+   * can always be taken out. Once the value is full, only the picked ones.
+   */
+  const matches = $derived.by(() => {
+    const wanted = foldCase(search.trim());
+    const picked = new Set(shown);
+    const found = candidates.filter(
+      (entry) =>
+        (wanted === '' || entry.folded.includes(wanted)) &&
+        (picked.has(entry.card.id) || (!full && !excluded?.has(entry.card.id))),
+    );
+    return [
+      ...found.filter((entry) => !picked.has(entry.card.id)),
+      ...found.filter((entry) => picked.has(entry.card.id)),
+    ].map((entry) => entry.card);
+  });
+  const listed = $derived(matches.slice(0, LIST_LIMIT));
+  /** How many cards that match what was typed are not offered because they would close a loop. */
+  const leftOut = $derived.by(() => {
+    if (!excluded || full) return 0;
+    const wanted = foldCase(search.trim());
+    const picked = new Set(shown);
+    return candidates.filter(
+      (entry) =>
+        excluded.has(entry.card.id) &&
+        !picked.has(entry.card.id) &&
+        (wanted === '' || entry.folded.includes(wanted)),
+    ).length;
+  });
+  /** What the reader is told about the cards held back: the limit first, then loops. */
+  const heldBack = $derived(
+    full
+      ? m.property_relation_full({ count: RELATION_LIMIT })
+      : leftOut > 0
+        ? m.property_relation_loop({ count: leftOut })
+        : '',
+  );
+
+  /**
+   * The line about held-back cards goes into its live region only after the
+   * region is on the page: one that appears holding its text is not read.
+   */
+  let regionReady = $state(false);
+  const announceLater = (): (() => void) => {
+    const frame = requestAnimationFrame(() => {
+      regionReady = true;
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      regionReady = false;
+    };
+  };
+
+  /** A picked card on a loop that is there already. */
+  const onLoop = (id: string): boolean => excluded?.has(id) ?? false;
+
+  /** Writes the value: only cards that are there, each once, so that the identifiers of deleted ones go. */
+  function write(next: readonly string[]): void {
+    onChange?.([...new Set(next.filter((id) => id !== cardId && cards.has(id)))]);
+  }
+
+  function pick(card: Card): void {
+    if (shown.includes(card.id)) write(shown.filter((id) => id !== card.id));
+    else if (!full && !excluded?.has(card.id)) write([...shown, card.id]);
+  }
+
+  const chipClass =
+    'inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-sm text-foreground';
+</script>
+
+{#snippet loopMark(id: string)}
+  {#if onLoop(id)}
+    <RepeatIcon
+      class="size-3.5 shrink-0 text-destructive"
+      aria-hidden="true"
+      data-slot="relation-loop"
+    />
+  {/if}
+{/snippet}
+
+{#snippet chips()}
+  {#each shown as id (id)}
+    {#if onOpenCard}
+      <button
+        type="button"
+        data-slot="relation-chip"
+        data-card-id={id}
+        data-inner={innerTabindex === undefined ? undefined : ''}
+        tabindex={innerTabindex}
+        class={cn(chipClass, 'underline-offset-2 hover:underline focus-visible:underline')}
+        data-loop={onLoop(id) ? '' : undefined}
+        aria-label={m.property_relation_open({ title: titleOf(id) }) +
+          (onLoop(id) ? `, ${m.property_relation_in_loop()}` : '')}
+        onclick={() => {
+          onOpenCard(id);
+        }}
+      >
+        <span class="truncate">{titleOf(id)}</span>
+        {@render loopMark(id)}
+      </button>
+    {:else}
+      <span
+        data-slot="relation-chip"
+        data-card-id={id}
+        data-loop={onLoop(id) ? '' : undefined}
+        class={chipClass}
+      >
+        <span class="truncate">{titleOf(id)}</span>
+        {@render loopMark(id)}
+        {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
+      </span>
+    {/if}
+  {/each}
+{/snippet}
+
+{#if editable}
+  <div
+    data-slot="property-relation"
+    class="flex min-h-8 w-full min-w-0 flex-wrap items-center gap-1 roomy:min-h-touch"
+  >
+    {@render chips()}
+    <PickerSurface
+      bind:open
+      {presentation}
+      title={name}
+      onOpenChange={(next) => {
+        if (!next) search = '';
+      }}
+    >
+      {#snippet trigger({ props }: { props: Record<string, unknown> })}
+        <button
+          {...props}
+          type="button"
+          data-slot="relation-edit"
+          title={name}
+          class={[
+            'flex min-h-8 items-center rounded-md px-2 py-1 text-left text-muted-foreground hover:bg-muted aria-expanded:bg-muted roomy:min-h-touch',
+            shown.length === 0 ? 'flex-1' : 'min-w-8 justify-center roomy:min-w-touch',
+          ]}
+        >
+          <span class="sr-only">{name}</span>
+          {#if shown.length > 0}
+            <PencilIcon class="size-3.5" aria-hidden="true" />
+          {:else if placeholder !== ''}
+            <span data-slot="property-empty">{placeholder}</span>
+          {/if}
+        </button>
+      {/snippet}
+
+      <div class="flex flex-col gap-1">
+        {#if shown.length > 0}
+          <ul
+            class="m-0 flex list-none flex-wrap gap-1 p-1"
+            aria-label={m.property_relation_picked()}
+          >
+            {#each shown as id (id)}
+              <li class={cn(chipClass, 'pr-0.5')}>
+                <span class="truncate">{titleOf(id)}</span>
+                {@render loopMark(id)}
+                {#if onLoop(id)}<span class="sr-only">{m.property_relation_in_loop()}</span>{/if}
+                <button
+                  type="button"
+                  class="relative inline-flex size-5 shrink-0 items-center justify-center rounded-sm group-data-[presentation=sheet]/surface:size-8 group-data-[presentation=sheet]/surface:after:absolute group-data-[presentation=sheet]/surface:after:-inset-1.5 hover:bg-foreground/10"
+                  aria-label={m.property_option_remove({ name: titleOf(id) })}
+                  onclick={() => {
+                    write(shown.filter((other) => other !== id));
+                  }}
+                >
+                  <XIcon class="size-3.5" aria-hidden="true" />
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <PickList
+          bind:search
+          items={listed}
+          textOf={untitled}
+          selected={shown}
+          multiple
+          label={name}
+          placeholder={m.property_relation_search()}
+          emptyText={m.property_no_matches()}
+          onPick={pick}
+          onBackspaceEmpty={() => {
+            const last = shown.at(-1);
+            if (last !== undefined) write(shown.filter((id) => id !== last));
+          }}
+        >
+          {#snippet row(card: Card)}
+            <span class="truncate">{untitled(card)}</span>
+          {/snippet}
+        </PickList>
+        {#if matches.length > listed.length}
+          <p class="px-2 py-1 text-sm text-muted-foreground" data-slot="relation-more">
+            {m.property_relation_more({ count: matches.length - listed.length })}
+          </p>
+        {/if}
+        <p
+          class={['px-2 text-sm text-muted-foreground', regionReady && heldBack !== '' && 'py-1']}
+          role="status"
+          data-slot="relation-held-back"
+          {@attach announceLater}
+        >
+          {regionReady ? heldBack : ''}
+        </p>
+        {#if shown.length > 0}
+          <Button
+            variant="ghost"
+            class="justify-start group-data-[presentation=sheet]/surface:min-h-touch"
+            onclick={() => {
+              write([]);
+            }}
+          >
+            {m.property_clear()}
+          </Button>
+        {/if}
+      </div>
+    </PickerSurface>
+  </div>
+{:else}
+  <span
+    data-slot="property-relation"
+    class="flex min-h-8 min-w-0 flex-wrap items-center gap-1 px-2 py-1"
+  >
+    {@render chips()}
+    {#if shown.length === 0 && placeholder !== ''}
+      <span data-slot="property-empty" class="text-muted-foreground">{placeholder}</span>
+    {/if}
+  </span>
+{/if}

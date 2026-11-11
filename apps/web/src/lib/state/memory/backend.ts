@@ -48,6 +48,7 @@ import {
   type Attachment,
   type Backend,
   type BoardDraft,
+  type BoardRole,
   type BodyWrite,
   type CardDetail,
   type CardDraft,
@@ -58,7 +59,11 @@ import {
   type CategoryPatch,
   type ChangeListener,
   type Comment,
+  type DownloadedFile,
+  type DownloadOptions,
   type ErrorStatus,
+  type Sharing,
+  type SharingChange,
   type Team,
   type UploadedFile,
   type UploadOptions,
@@ -83,9 +88,13 @@ const SCREEN_STATE_KEY = /^[A-Za-z0-9_.-]{1,64}$/;
 
 const copy = <T>(value: T): T => structuredClone(value);
 
+/** The first line of an archive of the memory backend. */
+const MEMORY_ARCHIVE = 'fvoci-memory-1';
+
 /**
  * Rejects as the server does: with the status and the detail, and, where the
- * refusal is about a member of the request, that member in `errors`.
+ * refusal is about a member of the request, that member in `errors` (with
+ * the reason); a reason about no member is the problem's own (`last_admin`).
  */
 function fail(
   status: ErrorStatus,
@@ -100,6 +109,10 @@ function fail(
     ...problemOf(status, detail),
     ...(limit === undefined ? {} : { limit }),
     ...(entry === undefined ? {} : { errors: [entry] }),
+    // A reason of the problem names its type, as on the server (`last_admin`: `/problems/last-admin`).
+    ...(entry === undefined && reason !== undefined
+      ? { reason, type: `/problems/${reason.replaceAll('_', '-')}` }
+      : {}),
   });
 }
 
@@ -402,7 +415,11 @@ export class MemoryBackend implements Backend {
     return copy(this.#board(boardId));
   }
 
-  async createBoard(teamId: string, draft: BoardDraft): Promise<Board> {
+  async createBoard(
+    teamId: string,
+    draft: BoardDraft,
+    firstView: ViewDraft,
+  ): Promise<{ board: Board; view: BoardView }> {
     await this.#enter('createBoard');
     if (teamId !== this.world.team.id) fail(404, 'no such team');
     const now = this.world.now();
@@ -423,8 +440,14 @@ export class MemoryBackend implements Backend {
     if (draft.cardProperties) board.cardProperties = copy(draft.cardProperties);
     this.world.boards.set(board.id, board);
     this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
+    this.#fileAsNew(this.userId, board);
+    const view = this.#newBlock(board.id, board.id, 'view');
+    view.title = firstView.title;
+    view.fields = copy(firstView.fields);
+    this.world.blocks.set(view.id, view);
     this.#tellBoard(board);
-    return copy(board);
+    this.#tellBlocks(board.id, [view]);
+    return { board: copy(board), view: viewOf(view) };
   }
 
   async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
@@ -449,6 +472,7 @@ export class MemoryBackend implements Backend {
     for (const categories of this.world.categories.values()) {
       for (const category of categories) {
         category.boardIds = category.boardIds.filter((id) => id !== boardId);
+        category.hiddenBoardIds = category.hiddenBoardIds.filter((id) => id !== boardId);
       }
     }
     const userIds = members.map((member) => member.userId);
@@ -465,6 +489,203 @@ export class MemoryBackend implements Backend {
     for (const block of deleted.blocks) this.world.blocks.set(block.id, block);
     this.#tellBoard(deleted.board);
     return copy(deleted.board);
+  }
+
+  /**
+   * As the server matches: every word of the term in the title, whatever the
+   * case; oldest first. Among the boards this backend lists (`boards`: the
+   * reader's), not the team's open ones the server adds.
+   */
+  async searchBoards(teamId: string, query: string): Promise<Board[]> {
+    await this.#enter('searchBoards');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const words = query
+      .toLowerCase()
+      .split(' ')
+      .filter((word) => word !== '');
+    if (words.length === 0) return [];
+    return [...this.world.boards.values()]
+      .filter(
+        (board) =>
+          !board.isTemplate &&
+          this.#memberIds(board.id).includes(this.userId) &&
+          words.every((word) => board.title.toLowerCase().includes(word)),
+      )
+      .sort((first, second) => first.createAt - second.createAt)
+      .map(copy);
+  }
+
+  /** As the server: the team's templates, then the built-in ones, each the oldest first. */
+  async templates(teamId: string): Promise<Board[]> {
+    await this.#enter('templates');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const all = [...this.world.boards.values()]
+      .filter((board) => board.isTemplate)
+      .sort((first, second) => first.createAt - second.createAt);
+    return [
+      ...all.filter((board) => board.isBuiltin !== true),
+      ...all.filter((board) => board.isBuiltin === true),
+    ].map(copy);
+  }
+
+  async duplicateBoard(boardId: string, asTemplate: boolean, teamId: string): Promise<Board> {
+    await this.#enter('duplicateBoard');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    return this.#copyBoard(this.#board(boardId), asTemplate);
+  }
+
+  /** As the server: a copy of the built-in welcome template, without its mark. */
+  async onboard(teamId: string): Promise<string> {
+    await this.#enter('onboard');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const welcome =
+      [...this.world.boards.values()].find(
+        (board) =>
+          board.isTemplate && board.isBuiltin === true && board.properties.onboarding !== undefined,
+      ) ?? fail(404, 'no welcome board');
+    const { onboarding: _onboarding, ...properties } = welcome.properties;
+    return this.#insertBoard({ ...welcome, isTemplate: false, properties }, this.#copied(welcome))
+      .id;
+  }
+
+  /** The blocks a copy of a board takes: all but its comments. */
+  #copied(board: Board): StoredBlock[] {
+    return this.world.blocksOf(board.id).filter((block) => block.type !== 'comment');
+  }
+
+  /**
+   * A copy of a board with its views, cards and attachments (comments stay
+   * behind), every identifier new.
+   */
+  #copyBoard(source: Board, asTemplate: boolean): Board {
+    // The server's titles: a copy of the same kind is "… copy", a template
+    // made from a board "New board template", a board from a template keeps it.
+    const title =
+      source.isTemplate === asTemplate
+        ? `${source.title} copy`
+        : asTemplate
+          ? 'New board template'
+          : source.title;
+    return this.#insertBoard({ ...source, isTemplate: asTemplate, title }, this.#copied(source));
+  }
+
+  /**
+   * Stores a board and its blocks under new identifiers, the reader its
+   * admin. As on the server, only the references it renames follow: a
+   * block's board and parent, and a view's `cardOrder` and `contentOrder`
+   * and `defaultTemplateId`. Anything else keeps naming the source.
+   */
+  #insertBoard(source: Board, blocks: readonly StoredBlock[]): Board {
+    const now = this.world.now();
+    const ids = new Map<string, string>([[source.id, this.world.newId()]]);
+    for (const block of blocks) ids.set(block.id, this.world.newId());
+    const renamed = (id: string): string => ids.get(id) ?? id;
+    const renamedList = (value: unknown): unknown =>
+      Array.isArray(value)
+        ? (value as unknown[]).map((item) => (typeof item === 'string' ? renamed(item) : item))
+        : value;
+    const board: Board = {
+      ...copy(source),
+      id: renamed(source.id),
+      teamId: this.world.team.id,
+      createdBy: this.userId,
+      modifiedBy: this.userId,
+      type: 'P',
+      isBuiltin: false,
+      createAt: now,
+      updateAt: now,
+    };
+    this.world.boards.set(board.id, board);
+    this.world.members.set(board.id, [memberOf(board.id, this.userId, 'admin')]);
+    this.#fileAsNew(this.userId, board);
+    for (const block of blocks) {
+      const made = copy(block);
+      const fields: Record<string, unknown> = made.fields;
+      for (const name of ['cardOrder', 'contentOrder']) {
+        if (name in fields) fields[name] = renamedList(fields[name]);
+      }
+      if (typeof fields.defaultTemplateId === 'string') {
+        fields.defaultTemplateId = renamed(fields.defaultTemplateId);
+      }
+      this.world.blocks.set(renamed(block.id), {
+        ...made,
+        id: renamed(block.id),
+        boardId: board.id,
+        parentId: made.parentId === source.id ? board.id : renamed(made.parentId),
+        createAt: now,
+        updateAt: now,
+      });
+    }
+    this.#tellBoard(board);
+    return copy(board);
+  }
+
+  // ----------------------------------------------------------- archives
+
+  /**
+   * An archive of the memory backend: lines of JSON, as the server's
+   * `board.jsonl` is, but not its ZIP. Only this backend reads it back.
+   */
+  async exportBoard(boardId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    await this.#enter('exportBoard', options?.signal);
+    const board = this.#board(boardId);
+    // For its members, as on the server (an open board is readable, its parts are not).
+    if (!this.#memberIds(boardId).includes(this.userId)) fail(403, 'not a member of the board');
+    return this.#archiveOf([board], options);
+  }
+
+  async exportTeam(teamId: string, options?: DownloadOptions): Promise<DownloadedFile> {
+    await this.#enter('exportTeam', options?.signal);
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    // As the server: the reader's boards and the team's open ones.
+    const boards = [...this.world.boards.values()].filter(
+      (board) =>
+        !board.isTemplate &&
+        (board.type === 'O' || this.#memberIds(board.id).includes(this.userId)),
+    );
+    return this.#archiveOf(boards, options);
+  }
+
+  #archiveOf(boards: readonly Board[], options: DownloadOptions | undefined): DownloadedFile {
+    const lines = [JSON.stringify({ version: MEMORY_ARCHIVE })];
+    for (const board of boards) {
+      lines.push(JSON.stringify({ type: 'board', data: board }));
+      for (const block of this.world.blocksOf(board.id)) {
+        lines.push(JSON.stringify({ type: 'block', data: block }));
+      }
+    }
+    const bytes = new Blob([`${lines.join('\n')}\n`], { type: 'application/octet-stream' });
+    options?.onProgress?.({ sentBytes: bytes.size, totalBytes: bytes.size });
+    const day = new Date(this.world.now()).toISOString().slice(0, 10);
+    return { bytes, name: `archive-${day}.boardarchive` };
+  }
+
+  async importArchive(teamId: string, file: File, options?: UploadOptions): Promise<void> {
+    await this.#enter('importArchive', options?.signal);
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    let lines: { type?: string; version?: string; data?: unknown }[];
+    try {
+      lines = (await file.text())
+        .split('\n')
+        .filter((line) => line.trim() !== '')
+        .map((line) => JSON.parse(line) as { type?: string; version?: string; data?: unknown });
+    } catch {
+      fail(400, 'not an archive');
+    }
+    if (lines[0]?.version !== MEMORY_ARCHIVE) {
+      fail(400, 'not an archive of this app');
+    }
+    options?.onProgress?.({ sentBytes: file.size, totalBytes: file.size });
+    const boards = lines.filter((line) => line.type === 'board').map((line) => line.data as Board);
+    const blocks = lines
+      .filter((line) => line.type === 'block')
+      .map((line) => line.data as StoredBlock);
+    for (const board of boards) {
+      this.#insertBoard(
+        board,
+        blocks.filter((block) => block.boardId === board.id),
+      );
+    }
   }
 
   async joinBoard(boardId: string): Promise<BoardMember> {
@@ -492,6 +713,83 @@ export class MemoryBackend implements Backend {
     return scramble(this.world.members.get(boardId) ?? []).map(copy);
   }
 
+  async addMember(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    await this.#enter('addMember');
+    this.#board(boardId);
+    if (!this.world.users.has(userId)) fail(400, 'no such user', { field: 'userId' });
+    const members = this.world.members.get(boardId) ?? [];
+    const existing = members.find((member) => member.userId === userId);
+    // As the server: somebody who is a member already keeps their role.
+    if (existing) return copy(existing);
+    const member = memberOf(boardId, userId, role);
+    this.#setMembers(boardId, [...members, member]);
+    this.#fileAsNew(userId, this.#board(boardId));
+    this.world.tellUsers([userId], { kind: 'board', board: copy(this.#board(boardId)) });
+    return copy(member);
+  }
+
+  async setMemberRole(boardId: string, userId: string, role: BoardRole): Promise<BoardMember> {
+    await this.#enter('setMemberRole');
+    this.#board(boardId);
+    const members = this.world.members.get(boardId) ?? [];
+    if (!members.some((member) => member.userId === userId)) fail(404, 'no such member');
+    const member = memberOf(boardId, userId, role);
+    const next = members.map((one) => (one.userId === userId ? member : one));
+    this.#keepAnAdmin(next);
+    this.#setMembers(boardId, next);
+    return copy(member);
+  }
+
+  async removeMember(boardId: string, userId: string): Promise<void> {
+    await this.#enter('removeMember');
+    this.#board(boardId);
+    const members = this.world.members.get(boardId) ?? [];
+    const next = members.filter((member) => member.userId !== userId);
+    if (next.length === members.length) return;
+    this.#keepAnAdmin(next);
+    this.#setMembers(boardId, next);
+    this.world.tellUsers([userId], { kind: 'boardDeleted', boardId });
+  }
+
+  /** A board keeps an admin, as on the server (409, `last_admin`). */
+  #keepAnAdmin(members: readonly BoardMember[]): void {
+    if (!members.some((member) => member.schemeAdmin)) {
+      fail(409, 'a board keeps its last admin', { reason: 'last_admin' });
+    }
+  }
+
+  #setMembers(boardId: string, members: BoardMember[]): void {
+    this.world.members.set(boardId, members);
+    this.world.tellBoard(boardId, { kind: 'members', boardId, members: copy(members) });
+  }
+
+  async sharing(boardId: string): Promise<Sharing> {
+    await this.#enter('sharing');
+    this.#board(boardId);
+    return copy(this.world.sharing.get(boardId) ?? { enabled: false, token: '' });
+  }
+
+  async setSharing(boardId: string, change: SharingChange): Promise<Sharing> {
+    await this.#enter('setSharing');
+    this.#board(boardId);
+    const before = this.world.sharing.get(boardId);
+    const token =
+      !before?.token || change.regenerate ? this.world.newId().replaceAll('-', '') : before.token;
+    const sharing = { enabled: change.enabled, token };
+    this.world.sharing.set(boardId, sharing);
+    return copy(sharing);
+  }
+
+  /** As the server: whatever the case, the oldest first, ten at most. */
+  async searchUsers(teamId: string, query: string): Promise<User[]> {
+    await this.#enter('searchUsers');
+    const wanted = query.trim().toLowerCase();
+    return (await this.users(teamId))
+      .filter((user) => user.username.toLowerCase().includes(wanted))
+      .sort((first, second) => first.createAt - second.createAt)
+      .slice(0, 10);
+  }
+
   // --------------------------------------------------------- categories
 
   #categories(): Category[] {
@@ -508,6 +806,19 @@ export class MemoryBackend implements Backend {
       this.#categories().find((category) => category.id === categoryId) ??
       fail(404, 'no such category')
     );
+  }
+
+  /**
+   * Files a board under a user's default category, as the server does for a
+   * new board (not a template) and for a new member of one.
+   */
+  #fileAsNew(userId: string, board: Board): void {
+    if (board.isTemplate) return;
+    const theirs = this.world.categories.get(userId) ?? [];
+    const fallback = theirs.find((category) => category.type === 'system');
+    if (!fallback || theirs.some((category) => category.boardIds.includes(board.id))) return;
+    fallback.boardIds.push(board.id);
+    this.world.tellUsers([userId], { kind: 'categories', categories: copy(theirs) });
   }
 
   #tellCategories(): void {
@@ -549,12 +860,14 @@ export class MemoryBackend implements Backend {
     return copy(category);
   }
 
-  async patchCategory(categoryId: string, patch: CategoryPatch): Promise<Category> {
+  async patchCategory(teamId: string, categoryId: string, patch: CategoryPatch): Promise<Category> {
     await this.#enter('patchCategory');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
     const category = this.#category(categoryId);
     if (patch.name !== undefined) {
       if (patch.name.trim() === '') fail(400, 'a category needs a name', { field: 'name' });
-      category.name = patch.name;
+      // The default category keeps its name, as the server's does.
+      if (category.type !== 'system') category.name = patch.name;
     }
     if (patch.collapsed !== undefined) category.collapsed = patch.collapsed;
     category.updateAt = this.world.now();
@@ -562,14 +875,16 @@ export class MemoryBackend implements Backend {
     return copy(category);
   }
 
-  async deleteCategory(categoryId: string): Promise<void> {
+  async deleteCategory(teamId: string, categoryId: string): Promise<void> {
     await this.#enter('deleteCategory');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
     const category = this.#category(categoryId);
-    if (category.type === 'system') fail(400, 'the default category cannot be deleted');
+    if (category.type === 'system') fail(403, 'the default category cannot be deleted');
     const mine = this.#categories();
-    // Its boards fall back to the default category.
+    // Its boards fall back to the default category, those it hid still hidden.
     const fallback = mine.find((candidate) => candidate.type === 'system');
     fallback?.boardIds.push(...category.boardIds);
+    fallback?.hiddenBoardIds.push(...category.hiddenBoardIds);
     mine.splice(mine.indexOf(category), 1);
     this.#tellCategories();
   }
@@ -585,8 +900,14 @@ export class MemoryBackend implements Backend {
     this.#tellCategories();
   }
 
-  async moveBoardToCategory(boardId: string, categoryId: string, index: number): Promise<void> {
+  async moveBoardToCategory(
+    teamId: string,
+    boardId: string,
+    categoryId: string,
+    index: number,
+  ): Promise<void> {
     await this.#enter('moveBoardToCategory');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
     this.#board(boardId);
     const target = this.#category(categoryId);
     for (const category of this.#categories()) {
@@ -594,6 +915,22 @@ export class MemoryBackend implements Backend {
     }
     const at = Math.max(0, Math.min(index, target.boardIds.length));
     target.boardIds.splice(at, 0, boardId);
+    this.#tellCategories();
+  }
+
+  async setBoardHidden(
+    teamId: string,
+    categoryId: string,
+    boardId: string,
+    hidden: boolean,
+  ): Promise<void> {
+    await this.#enter('setBoardHidden');
+    if (teamId !== this.world.team.id) fail(404, 'no such team');
+    const category = this.#category(categoryId);
+    const others = category.hiddenBoardIds.filter((id) => id !== boardId);
+    // As the server: a board the category does not hold is no error.
+    category.hiddenBoardIds =
+      hidden && category.boardIds.includes(boardId) ? [...others, boardId] : others;
     this.#tellCategories();
   }
 
