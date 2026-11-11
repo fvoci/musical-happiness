@@ -116,7 +116,7 @@ async fn get_templates_has_the_work_template_tracking_ids() {
     for known in [
         "7ba22ccfdfac391d63dea5c4b8cde0de", // Company Goals & OKRs
         "ecc250bb7dff0fe02247f1110f097544", // Sales Pipeline CRM
-        "e4f03181c4ced8edd4d53d33d569a086", // Workspace Retrospective
+        "e4f03181c4ced8edd4d53d33d569a086", // Team Retrospective
     ] {
         assert!(
             tracking_ids.iter().any(|id| id == known),

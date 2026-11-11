@@ -129,10 +129,11 @@ async fn handle_export_board(
 
 /// Export the boards of a workspace
 ///
-/// An archive of all boards of the workspace that `getWorkspaceBoards` lists for the user, offered
-/// as a download with its length, in the format of `exportBoardArchive`, and under its
-/// limits. A workspace that is not there, or that the user is not in, is not refused: its
-/// archive has no boards.
+/// An archive of all boards of the workspace that `getWorkspaceBoards` lists for the
+/// user, offered as a download with its length, in the format of `exportBoardArchive`,
+/// and under its limits. A workspace that is not there, that the user is not in, or that
+/// is of another organization than the server's, is not refused: its archive has no
+/// boards.
 #[utoipa::path(
     get,
     path = "/w/{workspaceId}/archive/export",

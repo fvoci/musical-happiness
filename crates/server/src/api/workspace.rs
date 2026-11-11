@@ -51,6 +51,9 @@ pub(crate) struct Ws {
     pub(crate) workspace_id: String,
     /// What the user is in the workspace.
     pub(crate) role: WorkspaceRole,
+    /// Whether the workspace is in the organization the server stands in, the one the
+    /// routes that name no workspace work in.
+    home: bool,
 }
 
 impl FromRequestParts<App> for Ws {
@@ -108,6 +111,7 @@ impl Ws {
             session,
             workspace_id,
             role: entered.role,
+            home: entered.home,
         })
     }
 
@@ -116,11 +120,16 @@ impl Ws {
     /// board; for the rest of the workspace (its sidebar, its templates, its users,
     /// its archives) a guest is told what anybody else is, that it is not there.
     ///
+    /// The routes that ask this read the workspace, before they moved under `/w/`, in
+    /// the organization the server stands in: a workspace of another organization was
+    /// not there for them, also for its members. That answer is kept until the routes
+    /// are decided anew.
+    ///
     /// # Errors
     ///
-    /// Returns 404 for a guest.
+    /// Returns 404 for a guest, and for a workspace of another organization.
     pub(crate) fn require_works_there(self) -> Result<Self, AppError> {
-        if self.role == WorkspaceRole::Guest {
+        if self.role == WorkspaceRole::Guest || !self.home {
             return Err(workspace_not_found());
         }
         Ok(self)

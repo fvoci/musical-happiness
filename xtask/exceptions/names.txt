@@ -50,7 +50,10 @@ crates/server/tests/regression/golden/files.json | /teams/
 crates/server/tests/regression/golden/search.json | /teams/
 
 # The original's tests, subtests, files and functions that a port names to say what it
-# ports.
+# ports, and the original's spelling of a member, which tests send as one the port
+# does not know.
+crates/server/tests/api/sidebar.rs | "teamID"
+crates/model/tests/wire_format.rs | "teamID"
 crates/server/src/permissions.rs | `TestHasPermissionToTeam`
 crates/server/src/permissions.rs | "all users have all permissions on teams"
 crates/server/src/permissions.rs | "no users have PermissionManageTeam on teams"
@@ -91,6 +94,7 @@ crates/store/tests/store/workspaces.rs | "Insert multiple team and get all teams
 # its title, "Team Retrospective".
 crates/server/assets/templates/**
 crates/server/src/app/templates.rs | 11-team-retrospective
+crates/server/tests/api/templates.rs | Team Retrospective
 crates/server/tests/regression/golden/templates.json | "Team Retrospective"
 crates/server/tests/regression/golden/templates.json | across teams
 

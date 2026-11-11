@@ -768,7 +768,7 @@ fn null_members_decode_as_empty_values() {
     assert_eq!(login.username, "", "null is the empty string");
 
     let category: Category = serde_json::from_value(json!({
-        "id": null, "name": null, "userID": null, "workspaceID": null, "createAt": null,
+        "id": null, "name": null, "userID": null, "teamID": null, "createAt": null,
         "updateAt": null, "deleteAt": null, "collapsed": null, "sortOrder": null, "sorting": null,
     }))
     .expect("a category with null members decodes");

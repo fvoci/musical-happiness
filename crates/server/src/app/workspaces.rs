@@ -21,6 +21,9 @@ pub struct Entered {
     /// What the user is in the workspace's organization; `None` for somebody who is in
     /// the workspace without belonging to the organization.
     pub org_role: Option<OrgRole>,
+    /// Whether the workspace is in the organization this application stood in, the
+    /// one of the routes that name no workspace.
+    pub home: bool,
 }
 
 impl App {
@@ -43,10 +46,13 @@ impl App {
         else {
             return Ok(None);
         };
+        let app = self.in_organization(&access.org_id)?;
+        let home = app.store().tenant() == self.store().tenant();
         Ok(Some(Entered {
-            app: self.in_organization(&access.org_id)?,
+            app,
             role: access.workspace_role,
             org_role: access.org_role,
+            home,
         }))
     }
 

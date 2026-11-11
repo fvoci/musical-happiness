@@ -1670,7 +1670,7 @@ async fn create_category_refuses_invalid_requests() {
         json!({"name": "x", "workspaceId": ROOT_WORKSPACE_ID}),
         json!({"name": "x", "userId": other.id, "workspaceId": ROOT_WORKSPACE_ID, "type": "bogus"}),
         // The user under a name that is no member of a category: no user is named.
-        json!({"name": "x", "userID": user.id, "workspaceID": ROOT_WORKSPACE_ID}),
+        json!({"name": "x", "userID": user.id, "teamID": ROOT_WORKSPACE_ID}),
     ] {
         let response = th.client.post(path, &body).await;
         check_error(
