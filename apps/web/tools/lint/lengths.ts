@@ -51,7 +51,9 @@ const EXTENSIONS = ['.ts', '.svelte', '.js'];
 const UNMEASURED = ['.mts', '.cts', '.mjs', '.cjs', '.tsx', '.jsx'];
 /**
  * What a tool writes and nobody edits: the messages compiled by paraglide
- * and the types made from the server's contract. Not measured.
+ * and the types made from the server's contract. Not measured. The
+ * components that the shadcn-svelte CLI wrote (`src/lib/ui`) are measured:
+ * they are edited by hand after that, and none is near a limit.
  */
 export const GENERATED = ['src/lib/i18n/paraglide/', 'src/lib/api/contract.ts'];
 /** The list of what is over a limit, from the web app's root. */
@@ -62,9 +64,10 @@ export interface Subject {
   kind: 'file' | 'function';
   file: string;
   /**
-   * For a function: its own name, the name of the variable or the member it
-   * is the value of, or `<anonymous>`. Two functions of a file may have one
-   * name; they are told apart by their lengths alone.
+   * For a function: the name `nameOf` gives it, which is its own after the
+   * names of what it is written in (`seedWorld/forEach()`, `Box/method`,
+   * `onclick`). Two functions of a file may still have one name; they are
+   * told apart by their lengths alone.
    */
   name?: string;
 }
@@ -199,10 +202,10 @@ export function judge(measured: readonly Length[], listedText: string): string[]
       } else if (lines < ceiling) {
         const fix =
           lines > limit
-            ? `lower its ceiling of ${ceiling}`
-            : `within the limit of ${limit}: remove its line (${ceiling})`;
+            ? `: lower its ceiling of ${ceiling}`
+            : `, within the limit of ${limit}: remove its line (${ceiling})`;
         const where = length.kind === 'file' ? '' : ` (line ${length.at})`;
-        problems.push(`${EXCEPTIONS}: ${shown(length)}${where} has ${lines} lines now: ${fix}`);
+        problems.push(`${EXCEPTIONS}: ${shown(length)}${where} has ${lines} lines now${fix}`);
       }
     }
   }
@@ -428,9 +431,43 @@ export async function check(root: string): Promise<{ measured: Length[]; problem
   return { measured, problems: judge(measured, readFileSync(path.join(root, EXCEPTIONS), 'utf8')) };
 }
 
-/** Writes the list under `root` anew from the code there; answers what it wrote. */
-export async function rewrite(root: string): Promise<string> {
+/** What the list `after` has above the list `before`: a ceiling that went up, a line that is new. */
+export function raised(before: string, after: string): string[] {
+  const was = parseExceptions(before).over;
+  const now = parseExceptions(after);
+  const lines: string[] = [];
+  for (const [key, ceilings] of now.over) {
+    const subject = now.subjects.get(key);
+    if (subject === undefined) continue;
+    for (const [index, ceiling] of ceilings.entries()) {
+      const old = was.get(key)?.[index];
+      if (old === undefined) lines.push(`added: ${shown(subject)}: ${ceiling}`);
+      else if (ceiling > old) lines.push(`raised: ${shown(subject)}: ${old} -> ${ceiling}`);
+    }
+  }
+  return lines;
+}
+
+/** The list under `root` as it is, or an empty one where there is none that reads. */
+function listAt(root: string): string {
+  try {
+    const list = readFileSync(path.join(root, EXCEPTIONS), 'utf8');
+    parseExceptions(list);
+    return list;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Writes the list under `root` anew from the code there. Answers what it
+ * wrote, and what went up by it: that is said, so that it is seen without
+ * reading the diff. A list that is not there or does not read has nothing to
+ * compare with.
+ */
+export async function rewrite(root: string): Promise<{ list: string; raised: string[] }> {
   const list = renderExceptions(await measure(root));
+  const before = listAt(root);
   writeFileSync(path.join(root, EXCEPTIONS), list);
-  return list;
+  return { list, raised: raised(before, list) };
 }

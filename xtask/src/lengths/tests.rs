@@ -132,6 +132,83 @@ fn only_the_tests_of_a_crate_get_the_limits_of_tests() {
 }
 
 #[test]
+fn what_an_impl_is_for_does_not_make_its_functions_tests() {
+    let limit = |name: &str| function(name, 1, 1).subject.limit();
+    assert_eq!(
+        limit("<Planted as From<crate::support::tests::Marker>>::from"),
+        MAX_FUNCTION_LINES,
+        "a path inside the name of a trait is not around the function"
+    );
+    assert_eq!(
+        limit("tests::<Planted as From<Marker>>::from"),
+        MAX_TEST_FUNCTION_LINES
+    );
+}
+
+#[test]
+fn code_in_a_file_that_is_not_measured_is_refused() {
+    let problems = refused(
+        CODE,
+        "include!(\"generated.rs\");\nconst TEXT: &str = include_str!(\"text.txt\");\n\
+         #[path = \"big.inc\"]\nmod big;\n#[path = \"elsewhere.rs\"]\nmod fine;",
+    );
+    assert_eq!(problems.len(), 2, "{problems:?}");
+    assert!(
+        problems[0].starts_with("crates/a/src/lib.rs:1: include!")
+            && problems[1].starts_with("crates/a/src/lib.rs:4: the module big is kept in big.inc"),
+        "{problems:?}"
+    );
+    let problems = refused(
+        CODE,
+        "#[path = \"billing/tests.rs\"]\nmod ledger;\n#[cfg(test)]\n#[path = \"unit/tests.rs\"]\nmod tests;",
+    );
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert!(
+        problems[0].starts_with(
+            "crates/a/src/lib.rs:2: the module ledger is kept in a file named tests.rs"
+        ),
+        "a file takes the limits of tests by its name only as the test module: {problems:?}"
+    );
+}
+
+#[test]
+fn what_a_rewriting_raises_is_said() {
+    let before =
+        listed("file 1200 crates/a/src/lib.rs\nfunction 150 crates/a/src/lib.rs App::run\n");
+    let after = listed(
+        "file 1300 crates/a/src/lib.rs\nfunction 140 crates/a/src/lib.rs App::run\n\
+         function 101 crates/a/src/lib.rs App::new\n",
+    );
+    assert_eq!(
+        raised(&before, &after),
+        [
+            "raised: crates/a/src/lib.rs: 1200 -> 1300",
+            "added: crates/a/src/lib.rs: fn App::new: 101",
+        ],
+        "a ceiling that went down is not news"
+    );
+}
+
+#[test]
+fn every_member_of_the_workspace_is_measured() {
+    let manifest = std::fs::read_to_string(crate::workspace_root().join("Cargo.toml"))
+        .expect("the manifest is readable");
+    let members = manifest
+        .lines()
+        .find_map(|line| line.strip_prefix("members = ["))
+        .expect("the members are on one line");
+    for member in members.split('"').skip(1).step_by(2) {
+        assert!(
+            DIRECTORIES
+                .iter()
+                .any(|directory| member == *directory
+                    || member.starts_with(&format!("{directory}/"))),
+            "the member {member} is under none of DIRECTORIES, so its files are not measured"
+        );
+    }
+}
+
+#[test]
 fn the_name_of_the_test_module_is_kept_for_it() {
     let source = "
 mod tests { fn production() {} }
@@ -227,7 +304,7 @@ fn what_is_listed_is_held_to_its_ceiling_up_and_down() {
                 "{EXCEPTIONS}: crates/a/src/lib.rs has 1199 lines now: lower its ceiling of 1200"
             ),
             format!(
-                "{EXCEPTIONS}: crates/a/src/lib.rs: fn App::run has 149 lines now: lower its ceiling of 150"
+                "{EXCEPTIONS}: crates/a/src/lib.rs: fn App::run (line 9) has 149 lines now: lower its ceiling of 150"
             ),
         ],
         "shorter than the ceiling"
@@ -240,7 +317,7 @@ fn what_is_listed_is_held_to_its_ceiling_up_and_down() {
                  remove its line (1200)"
             ),
             format!(
-                "{EXCEPTIONS}: crates/a/src/lib.rs: fn App::run has 100 lines now, within the limit of 100: \
+                "{EXCEPTIONS}: crates/a/src/lib.rs: fn App::run (line 9) has 100 lines now, within the limit of 100: \
                  remove its line (150)"
             ),
         ],
@@ -510,7 +587,7 @@ fn planted_long_code_is_found_in_a_workspace_and_the_list_is_rewritten_from_it()
     assert_eq!(
         differences(&root),
         [format!(
-            "{EXCEPTIONS}: crates/a/src/lib.rs: fn planted has 100 lines now, within the limit of 100: \
+            "{EXCEPTIONS}: crates/a/src/lib.rs: fn planted (line 1) has 100 lines now, within the limit of 100: \
              remove its line (101)"
         )],
         "a listed function that came within the limit"

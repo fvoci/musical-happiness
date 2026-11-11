@@ -6,8 +6,13 @@
 //! cannot see is said at [`scan::read_source`].
 //!
 //! What breaks the rule today is listed in [`EXCEPTIONS`], by file and by what is named.
-//! The list only shrinks: a use that is not listed fails the step, and so does a line
-//! whose use is gone, until the line is removed.
+//! A use that is not listed fails the step, and so does a line whose use is gone, until
+//! the line is removed.
+//!
+//! The step holds the code to the list; it cannot tell a line that was added by hand
+//! from one that was there. By hand a line is removed, its count lowered, or moved
+//! with its code to the file the code went to. An added line or a raised count shows
+//! in the diff of the list, and whoever merges looks for it there.
 
 mod scan;
 mod walk;
@@ -73,6 +78,8 @@ pub(crate) const LAYERS: &[Layer] = &[
             "tower_layer",
             "tower_service",
             "utoipa_axum",
+            // The dates of HTTP headers.
+            "httpdate",
             // The HTTP types that the client of the webhooks hands on under its name.
             "reqwest::header",
             "reqwest::Method",
@@ -120,6 +127,40 @@ pub(crate) const CRATES: &[(&str, &str)] = &[
     ("fvoci_model", "crates/model/src"),
 ];
 
+/// The crates the code of [`CRATES`] depends on that are in no layer: any layer may
+/// name them. A dependency that is neither here nor claimed by a layer fails the step,
+/// so that taking one on is a decision about who may name it. (`reqwest` is here for
+/// its client; the HTTP types it hands on are claimed by the HTTP layer.)
+pub(crate) const NO_LAYER: &[&str] = &[
+    "anyhow",
+    "argon2",
+    "base64",
+    "bytes",
+    "chrono_tz",
+    "clap",
+    "flate2",
+    "futures_util",
+    "getrandom",
+    "md_5",
+    "object_store",
+    "reqwest",
+    "serde",
+    "serde_json",
+    "sha2",
+    "sqlx",
+    "subtle",
+    "thiserror",
+    "tokio",
+    "tokio_rustls",
+    "tokio_util",
+    "tracing",
+    "tracing_subscriber",
+    "unicode_segmentation",
+    "utoipa",
+    "uuid",
+    "zip",
+];
+
 /// The file of the uses that break the rule and are still there.
 pub(crate) const EXCEPTIONS: &str = "xtask/exceptions/layers.txt";
 
@@ -147,7 +188,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let listed = parse_exceptions(&text).with_context(|| format!("reading {EXCEPTIONS}"))?;
-    let mut problems = sources.stale_layers();
+    let mut problems = undecided_dependencies(root)?;
+    problems.extend(sources.stale_layers());
     problems.extend(sources.refused());
     problems.extend(judge(&sources.violations(), &listed));
     if problems.is_empty() {
@@ -161,8 +203,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         steps::say(&format!("    {problem}"));
     }
     steps::say(
-        "    the list only shrinks: a use that is not listed moves to a layer that may \
-         name it, and the line of a use that is gone is removed",
+        "    a use that is not listed goes to a layer that may name it, and the line of a \
+         use that is gone is removed; a line moves only with its code, to another file",
     );
     bail!(
         "{} differences between the code and {EXCEPTIONS}",
@@ -400,6 +442,41 @@ impl Sources {
         }
         problems
     }
+}
+
+/// The dependencies of the crates of [`CRATES`] that nobody has placed: neither claimed
+/// by a layer nor in [`NO_LAYER`]. Dependencies of the tests alone are not looked at.
+fn undecided_dependencies(root: &Path) -> Result<Vec<String>> {
+    let mut problems = Vec::new();
+    for (_, directory) in CRATES {
+        let manifest = Path::new(directory).with_file_name("Cargo.toml");
+        let text = std::fs::read_to_string(root.join(&manifest))
+            .with_context(|| format!("reading {}", manifest.display()))?;
+        for name in dependencies(&text) {
+            if layer_of(&name).is_none() && !NO_LAYER.contains(&name.as_str()) {
+                problems.push(format!(
+                    "{}: the dependency {name} is in no layer: claim it for a layer or add it \
+                     to NO_LAYER, in xtask/src/layers.rs",
+                    files::shown_path(root, &root.join(&manifest))
+                ));
+            }
+        }
+    }
+    Ok(problems)
+}
+
+/// The names under `[dependencies]` of a manifest, as paths write them (`tower_http`).
+fn dependencies(manifest: &str) -> Vec<String> {
+    manifest
+        .lines()
+        .map(str::trim)
+        .skip_while(|line| *line != "[dependencies]")
+        .skip(1)
+        .take_while(|line| !line.starts_with('['))
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.split(['=', '.', ' ']).next())
+        .map(|name| name.replace('-', "_"))
+        .collect()
 }
 
 /// The layer whose handle `name` is, if `from` may not name that layer.

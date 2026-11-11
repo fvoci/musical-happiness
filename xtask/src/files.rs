@@ -49,6 +49,25 @@ pub(crate) fn shown_path(root: &Path, file: &Path) -> String {
     parts.join("/")
 }
 
+/// The value of `#[path = "…"]`: the file a module is kept in, where it is not the one
+/// its name gives.
+pub(crate) fn path_attribute(attribute: &syn::Attribute) -> Option<String> {
+    if !attribute.path().is_ident("path") {
+        return None;
+    }
+    match &attribute.meta {
+        syn::Meta::NameValue(syn::MetaNameValue {
+            value:
+                syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(text),
+                    ..
+                }),
+            ..
+        }) => Some(text.value()),
+        _ => None,
+    }
+}
+
 /// What the tests of the checks share.
 #[cfg(test)]
 pub(crate) mod testing {

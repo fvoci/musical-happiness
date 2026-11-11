@@ -477,6 +477,20 @@ fn what_the_reading_cannot_follow_is_refused() {
 }
 
 #[test]
+fn every_dependency_of_the_read_crates_is_placed() {
+    assert_eq!(
+        undecided_dependencies(&crate::workspace_root()).expect("the manifests read"),
+        Vec::<String>::new()
+    );
+    for name in NO_LAYER {
+        assert!(
+            layer_of(name).is_none(),
+            "{name} is in NO_LAYER and claimed by a layer"
+        );
+    }
+}
+
+#[test]
 fn an_entry_of_the_table_that_is_no_module_is_noticed() {
     let logic: Vec<(&str, &str)> = LAYERS
         .iter()
@@ -795,9 +809,10 @@ fn the_modules_of_a_crate_are_found_along_their_declarations() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-#[test]
-fn a_planted_violation_is_found_in_a_workspace() {
-    let root = scratch("layers-workspace");
+/// A workspace with two planted violations: the HTTP layer calls the store, and the
+/// logic names a type of axum.
+fn planted_workspace(name: &str) -> std::path::PathBuf {
+    let root = scratch(name);
     write(
         &root,
         "crates/server/src/lib.rs",
@@ -815,7 +830,12 @@ fn a_planted_violation_is_found_in_a_workspace() {
     );
     write(&root, "crates/store/src/lib.rs", "use fvoci_model::Board;");
     write(&root, "crates/model/src/lib.rs", "");
+    root
+}
 
+#[test]
+fn a_planted_violation_is_found_in_a_workspace() {
+    let root = planted_workspace("layers-workspace");
     let found: Vec<String> = Sources::read(&root)
         .expect("the sources read")
         .violations()
@@ -829,8 +849,28 @@ fn a_planted_violation_is_found_in_a_workspace() {
             "crates/server/src/app.rs:2 axum::response::Response",
         ]
     );
+    let _ = std::fs::remove_dir_all(&root);
+}
 
-    // The step itself, against the list on disk: both ways.
+#[test]
+fn the_step_holds_a_workspace_to_the_list_on_disk() {
+    let root = planted_workspace("layers-step");
+    for (member, dependencies) in [
+        (
+            "server",
+            "fvoci-store.workspace = true\naxum = \"1\"\ntokio = { version = \"1\" }",
+        ),
+        ("store", "sqlx.workspace = true"),
+        ("model", ""),
+    ] {
+        write(
+            &root,
+            &format!("crates/{member}/Cargo.toml"),
+            &format!(
+                "[package]\nname = \"x\"\n\n[dependencies]\n{dependencies}\n\n[dev-dependencies]\nunplaced = \"1\"\n"
+            ),
+        );
+    }
     for module in [
         "auth",
         "config",
@@ -873,5 +913,28 @@ fn a_planted_violation_is_found_in_a_workspace() {
     );
     write(&root, EXCEPTIONS, exact);
     run(&root).expect_err("a module of the table that is gone fails the step");
+
+    write(&root, "crates/server/src/webhook.rs", "");
+    write(
+        &root,
+        "crates/server/src/lib.rs",
+        "pub mod api; pub mod app; mod auth; mod config; mod error; mod permissions; \
+         mod scheduler; mod storage; mod webhook;",
+    );
+    run(&root).expect("the module is back");
+    write(
+        &root,
+        "crates/store/Cargo.toml",
+        "[dependencies]\n# a comment\nsqlx.workspace = true\nbrand-new = \"1\"\n",
+    );
+    assert_eq!(
+        undecided_dependencies(&root).expect("the manifests read"),
+        [
+            "crates/store/Cargo.toml: the dependency brand_new is in no layer: claim it for a layer \
+          or add it to NO_LAYER, in xtask/src/layers.rs"
+        ],
+        "a dependency that nobody has placed"
+    );
+    run(&root).expect_err("and the step fails for it");
     let _ = std::fs::remove_dir_all(&root);
 }

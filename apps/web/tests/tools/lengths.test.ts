@@ -23,6 +23,7 @@ import {
   measuredFiles,
   measuringConfig,
   parseExceptions,
+  raised,
   renderExceptions,
   rewrite,
   type Length,
@@ -81,8 +82,8 @@ describe('the list of exceptions', () => {
       `${EXCEPTIONS}: src/a.ts: function draw (line 9) has 149 lines now: lower its ceiling of 150`,
     ]);
     expect(judge([file('src/a.ts', 500), fn('draw', 100, 9)], list)).toEqual([
-      `${EXCEPTIONS}: src/a.ts has 500 lines now: within the limit of 500: remove its line (600)`,
-      `${EXCEPTIONS}: src/a.ts: function draw (line 9) has 100 lines now: within the limit of 100: remove its line (150)`,
+      `${EXCEPTIONS}: src/a.ts has 500 lines now, within the limit of 500: remove its line (600)`,
+      `${EXCEPTIONS}: src/a.ts: function draw (line 9) has 100 lines now, within the limit of 100: remove its line (150)`,
     ]);
   });
 
@@ -133,6 +134,15 @@ describe('the list of exceptions', () => {
     expect(() => renderExceptions([file('src/my file.ts', 501)])).toThrow(
       'has a space in its path',
     );
+  });
+
+  it('says what a rewriting raised', () => {
+    const before = 'file 600 src/a.ts\nfunction 150 src/a.ts draw\n';
+    const after = 'file 700 src/a.ts\nfunction 140 src/a.ts draw\nfunction 101 src/a.ts add\n';
+    expect(raised(before, after)).toEqual([
+      'raised: src/a.ts: 600 -> 700',
+      'added: src/a.ts: function add: 101',
+    ]);
   });
 
   it('refuses a line it cannot read, and one that is not needed', () => {
@@ -326,8 +336,13 @@ describe('the files that are measured', () => {
       // The check and the rewriting, against a list on disk.
       write(EXCEPTIONS, '');
       expect((await check(root)).problems).toEqual(planted);
-      const list = await rewrite(root);
+      const { list, raised: wentUp } = await rewrite(root);
       expect(readFileSync(path.join(root, EXCEPTIONS), 'utf8')).toBe(list);
+      expect(wentUp).toEqual([
+        'added: src/lib/long.ts: 501',
+        'added: src/lib/plain.js: function plain: 101',
+        'added: src/lib/state/board.svelte.ts: function planted: 101',
+      ]);
       expect(list.split('\n').filter((line) => /^(file|function) /.test(line))).toEqual([
         'file 501 src/lib/long.ts',
         'function 101 src/lib/plain.js plain',

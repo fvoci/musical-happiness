@@ -8,6 +8,7 @@ use syn::spanned::Spanned as _;
 use syn::visit::{self, Visit};
 
 use super::{Length, Measured, Subject, TEST_MODULE, is_test_file};
+use crate::files;
 
 /// The length of the file `file` and of the functions written in it.
 ///
@@ -20,13 +21,16 @@ use super::{Length, Measured, Subject, TEST_MODULE, is_test_file};
 /// Their lines count in the file.
 ///
 /// Refused, whatever the lengths: `rustfmt::skip`, under which a line holds as much as
-/// one likes; and, outside the test directory of a crate, a module named `tests` that
-/// is not `#[cfg(test)]` and a function, a type or a trait of that name, because that
-/// name is what gives a function the limit of tests.
+/// one likes; code that is in a file the measure does not open (`include!`, a module
+/// kept by `#[path]` in a file that is no `.rs`); and, outside the test directory of a
+/// crate, what would take the limit of tests without being tests: a module named
+/// `tests` that is not `#[cfg(test)]`, another module kept in a file `tests.rs`, and a
+/// function, a type or a trait named `tests`.
 ///
 /// # Errors
 ///
-/// Fails if the source is not Rust that parses.
+/// Fails if the source is not Rust that parses, or if one of its lines ends with a
+/// carriage return alone.
 pub(crate) fn measure_source(file: &str, source: &str) -> Result<Measured> {
     let parsed = syn::parse_file(source).map_err(|error| {
         let line = error.span().start().line;
@@ -119,9 +123,44 @@ impl<'ast> Visit<'ast> for Meter<'_> {
         visit::visit_attribute(self, node);
     }
 
+    fn visit_macro(&mut self, node: &'ast syn::Macro) {
+        if node.path.is_ident("include") {
+            self.measured.refused.push(format!(
+                "{}:{}: include! brings in code that is not measured. Make it a module",
+                self.file,
+                node.bang_token.span.start().line
+            ));
+        }
+        visit::visit_macro(self, node);
+    }
+
     fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
-        if !node.attrs.iter().any(is_cfg_test) {
+        let of_tests = node.attrs.iter().any(is_cfg_test);
+        if !of_tests {
             self.keep_for_tests("module that is not #[cfg(test)]", &node.ident);
+        }
+        if let Some(kept_in) = node.attrs.iter().find_map(files::path_attribute) {
+            let line = node.ident.span().start().line;
+            let file_name = kept_in.rsplit(['/', '\\']).next().unwrap_or(&kept_in);
+            if std::path::Path::new(file_name)
+                .extension()
+                .is_none_or(|extension| extension != "rs")
+            {
+                self.measured.refused.push(format!(
+                    "{}:{line}: the module {} is kept in {kept_in}, which is no .rs file and \
+                     is not measured",
+                    self.file, node.ident
+                ));
+            } else if file_name == "tests.rs"
+                && !(of_tests && node.ident == TEST_MODULE)
+                && !self.test_names_are_free
+            {
+                self.measured.refused.push(format!(
+                    "{}:{line}: the module {} is kept in a file named tests.rs, which has the \
+                     limits of tests: the name is kept for the #[cfg(test)] module `{TEST_MODULE}`",
+                    self.file, node.ident
+                ));
+            }
         }
         self.inside(node.ident.unraw().to_string(), |meter| {
             visit::visit_item_mod(meter, node);

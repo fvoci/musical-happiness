@@ -14,7 +14,9 @@ import { EXCEPTIONS, rewrite } from './lengths.ts';
 const WEB_ROOT = path.resolve(import.meta.dirname, '../..');
 
 try {
-  const lines = (await rewrite(WEB_ROOT)).split('\n');
+  const { list, raised } = await rewrite(WEB_ROOT);
+  for (const line of raised) console.log(line);
+  const lines = list.split('\n');
   const count = (kind: string): number => lines.filter((line) => line.startsWith(kind)).length;
   console.log(
     `wrote ${EXCEPTIONS}: ${count('file ')} files and ${count('function ')} functions over their limit`,

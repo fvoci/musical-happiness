@@ -25,7 +25,8 @@ use crate::steps;
 pub(crate) const MAX_FILE_LINES: usize = 1000;
 
 /// The most lines a function may have, from the line of its `fn` to the line of its
-/// closing brace, comments and empty lines included.
+/// closing brace, comments and empty lines included. (clippy's `too_many_lines`, which
+/// the workspace has on as well, counts 100 lines of code alone; this is the stricter.)
 pub(crate) const MAX_FUNCTION_LINES: usize = 100;
 
 /// The most lines a file of tests may have (see [`is_test_file`]). Tests get twice the
@@ -88,14 +89,30 @@ impl Subject {
         match self {
             Self::File(file) if is_test_file(file) => MAX_TEST_FILE_LINES,
             Self::File(_) => MAX_FILE_LINES,
-            Self::Function { file, name }
-                if is_test_file(file) || name.split("::").any(|part| part == TEST_MODULE) =>
-            {
+            Self::Function { file, name } if is_test_file(file) || is_in_test_module(name) => {
                 MAX_TEST_FUNCTION_LINES
             }
             Self::Function { .. } => MAX_FUNCTION_LINES,
         }
     }
+}
+
+/// Whether the name of a function has the test module among what is around it. What
+/// is written inside `<…>` is the type and the trait of an `impl`, not around it.
+fn is_in_test_module(name: &str) -> bool {
+    let mut depth = 0_usize;
+    let outside: String = name
+        .chars()
+        .filter(|character| {
+            match character {
+                '<' => depth += 1,
+                '>' => depth = depth.saturating_sub(1),
+                _ => return depth == 0,
+            }
+            false
+        })
+        .collect();
+    outside.split("::").any(|part| part == TEST_MODULE)
 }
 
 impl std::fmt::Display for Subject {
@@ -182,8 +199,17 @@ pub(crate) fn rewrite(root: &Path) -> Result<()> {
     }
     let over = over_limit(&measured.lengths);
     let path = root.join(EXCEPTIONS);
+    // What goes up is said, so that it is seen without reading the diff. A list that
+    // is not there or does not read has nothing to compare with.
+    let before = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| parse_exceptions(&text).ok())
+        .unwrap_or_default();
     std::fs::write(&path, render_exceptions(&over)?)
         .with_context(|| format!("writing {}", path.display()))?;
+    for line in raised(&before, &over) {
+        steps::say(&format!("    {line}"));
+    }
     steps::say(&format!(
         "wrote {EXCEPTIONS}: {} files and {} functions over their limit",
         over.keys()
@@ -195,6 +221,24 @@ pub(crate) fn rewrite(root: &Path) -> Result<()> {
             .sum::<usize>(),
     ));
     Ok(())
+}
+
+/// What `after` has above `before`: a ceiling that went up, a line that is new.
+fn raised(before: &Over, after: &Over) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (subject, ceilings) in after {
+        let old = before.get(subject).map_or(&[][..], Vec::as_slice);
+        for (index, ceiling) in ceilings.iter().enumerate() {
+            match old.get(index) {
+                Some(was) if ceiling > was => {
+                    lines.push(format!("raised: {subject}: {was} -> {ceiling}"));
+                }
+                None => lines.push(format!("added: {subject}: {ceiling}")),
+                Some(_) => {}
+            }
+        }
+    }
+    lines
 }
 
 /// The length of every `.rs` file under [`DIRECTORIES`] and of every function in them.
@@ -337,15 +381,20 @@ fn judge(measured: &[Length], listed: &Over) -> Vec<String> {
         for (index, length) in lengths.iter().enumerate() {
             let place = format!("{}:{}", subject.file(), length.at);
             let lines = length.lines;
+            // Which of the functions of one name is meant.
+            let at = match subject {
+                Subject::File(_) => String::new(),
+                Subject::Function { .. } => format!(" (line {})", length.at),
+            };
             match ceilings.get(index) {
                 Some(ceiling) if lines > *ceiling => problems.push(format!(
                     "{place}: {subject} has {lines} lines, its ceiling is {ceiling}"
                 )),
                 Some(ceiling) if lines < *ceiling && lines > limit => problems.push(format!(
-                    "{EXCEPTIONS}: {subject} has {lines} lines now: lower its ceiling of {ceiling}"
+                    "{EXCEPTIONS}: {subject}{at} has {lines} lines now: lower its ceiling of {ceiling}"
                 )),
                 Some(ceiling) if lines < *ceiling => problems.push(format!(
-                    "{EXCEPTIONS}: {subject} has {lines} lines now, within the limit of {limit}: \
+                    "{EXCEPTIONS}: {subject}{at} has {lines} lines now, within the limit of {limit}: \
                      remove its line ({ceiling})"
                 )),
                 None if lines > limit => problems.push(format!(

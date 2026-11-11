@@ -98,7 +98,7 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 
 | 무엇 | 결과 |
 |---|---|
-| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이고, 손으로 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
+| `cargo xtask check` | 아홉 단계 PASS. 층의 규칙은 `xtask/src/layers.rs`, 길이의 한도는 `xtask/src/lengths.rs`, 남은 예외는 `xtask/exceptions/`(손으로는 줄이거나, 코드가 옮겨 간 파일로 줄을 함께 옮기기만 한다. 길이의 천장을 올리는 것은 `measure`뿐이다. 손으로 더한 줄이나 올린 수는 검사가 가려내지 못하므로 그 파일의 diff에서 본다) |
 | `cargo xtask test` | SQLite 1,095건, PostgreSQL 956건, S3 7건, 실패 0(2026-11-11, `fvoci/server-next`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
@@ -114,12 +114,12 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 무엇 | 시간 |
 |---|---|
 | `cargo xtask check`, 소스를 고친 뒤 | 30–40초 |
-| `cargo xtask check`, 고친 것이 없을 때 | 5초 |
+| `cargo xtask check`, 고친 것이 없을 때 | 10초(2026-11-11 17시 KST, 층과 길이 단계가 든 뒤) |
 | `cargo xtask test` | 2분 40초–4분 10초 |
 | 회귀 테스트만(`cargo test -p fvoci-server --test regression`) | SQLite 29–30초 |
 | API 테스트만(`--test api`, 487건) | SQLite 15초, PostgreSQL 37초 |
 
-- `check`의 단계별 시간은 clippy 10초, 단위 테스트 3–13초, 문서 4초, 계약 3초, cargo-deny 1–2초다.
+- `check`의 단계별 시간은 clippy 10초, 단위 테스트 3–13초, 문서 4초, 층 2초, 길이 3초, 계약 3초, cargo-deny 1–2초다.
 - `test`의 단계별 시간은 SQLite 65초, PostgreSQL 96–186초, S3 1초 미만이다. PostgreSQL은 기기가 바쁘면 길어진다. 186초였던 실행의 원인은 따로 보지 않았다.
 
 **커밋마다 clippy를 통과시킨다.** 워크스페이스 린트가 엄격해서(`too_many_lines`, `as_conversions`, `print_stderr`, `similar_names` 등) 테스트 코드에서 자주 걸린다. `cargo doc`도 경고가 오류다. 없는 항목을 가리키는 문서 링크 하나로 check가 실패한다.

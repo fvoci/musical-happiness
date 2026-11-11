@@ -558,7 +558,7 @@ impl<'ast> Visit<'ast> for Reader {
         self.declared.push(Declared {
             module,
             inline_parents,
-            path_attribute: node.attrs.iter().find_map(path_attribute),
+            path_attribute: node.attrs.iter().find_map(crate::files::path_attribute),
         });
     }
 
@@ -620,24 +620,6 @@ impl<'ast> Visit<'ast> for Reader {
     fn visit_meta_list(&mut self, node: &'ast syn::MetaList) {
         self.visit_path(&node.path);
         self.read_tokens(node.tokens.clone(), Text::MayBePath);
-    }
-}
-
-/// The value of `#[path = "…"]`.
-fn path_attribute(attribute: &syn::Attribute) -> Option<String> {
-    if !attribute.path().is_ident("path") {
-        return None;
-    }
-    match &attribute.meta {
-        syn::Meta::NameValue(syn::MetaNameValue {
-            value:
-                syn::Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Str(text),
-                    ..
-                }),
-            ..
-        }) => Some(text.value()),
-        _ => None,
     }
 }
 
