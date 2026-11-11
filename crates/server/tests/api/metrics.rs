@@ -59,9 +59,10 @@ async fn the_metrics_are_served_on_a_listener_of_their_own() {
     let server = server_with_metrics().await;
     let body = scrape(&server).await;
     let version = env!("CARGO_PKG_VERSION");
+    let commit = option_env!("FVOCI_BUILD_HASH").unwrap_or_default();
     assert!(
         body.contains(&format!(
-            "fvoci_build_info{{commit=\"\",version=\"{version}\"}} 1"
+            "fvoci_build_info{{commit=\"{commit}\",version=\"{version}\"}} 1"
         )),
         "the build information: {body}"
     );

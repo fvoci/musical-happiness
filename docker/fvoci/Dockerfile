@@ -2,7 +2,8 @@
 #
 # The fvoci board server.
 #
-#   docker build -f docker/fvoci/Dockerfile -t fvoci-server .
+#   docker build -f docker/fvoci/Dockerfile -t fvoci-server \
+#       --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD) .
 #   docker run -p 8000:8000 -v fvoci-data:/data fvoci-server
 #
 # The build context is the repository root. TLS support is rustls throughout, so the
@@ -21,6 +22,10 @@ ARG WEB_BUNDLE=docker/fvoci/web
 # Debian 13 for both stages: a prebuilt part of the TLS library needs its C library
 # (glibc 2.38 or newer); with Debian 12 the link step fails.
 FROM rust:${RUST_VERSION}-trixie AS build
+# The commit the server is built from, for ping and the metrics' fvoci_build_info:
+#   --build-arg FVOCI_BUILD_HASH=$(git rev-parse HEAD)
+ARG FVOCI_BUILD_HASH=
+ENV FVOCI_BUILD_HASH=${FVOCI_BUILD_HASH}
 WORKDIR /src
 COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY crates ./crates

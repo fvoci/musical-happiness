@@ -267,6 +267,11 @@ impl Server {
 
         let service = self.router().into_make_service_with_connect_info::<Peer>();
         let stop = CancellationToken::new();
+        // When the connections have to be closed by, once the server stops: one
+        // deadline for the API's listener and the metrics listener together.
+        let drain_by = std::sync::OnceLock::new();
+        let drain_deadline =
+            || *drain_by.get_or_init(|| tokio::time::Instant::now() + CONNECTION_DRAIN_TIMEOUT);
         let metrics_serving = metrics_listener
             .map(|listener| serve_metrics(listener, self.app.metrics(), stop.clone()));
         let stopped = stop.clone().cancelled_owned();
@@ -289,8 +294,8 @@ impl Server {
             () = shutdown => {
                 stop.cancel();
                 // Requests under way may finish, but a client that stalls must not hold
-                // the server.
-                tokio::time::timeout(CONNECTION_DRAIN_TIMEOUT, &mut serving)
+                // the server. A scrape of the metrics drains in the same time.
+                tokio::time::timeout_at(drain_deadline(), &mut serving)
                     .await
                     .unwrap_or_else(|_| {
                         tracing::warn!("connections still open after the drain timeout; closing them");
@@ -300,12 +305,13 @@ impl Server {
         };
         // Also when serving failed, without a shutdown.
         stop.cancel();
-        if let Some(metrics_serving) = metrics_serving
-            && tokio::time::timeout(CONNECTION_DRAIN_TIMEOUT, metrics_serving)
+        if let Some(mut metrics_serving) = metrics_serving
+            && tokio::time::timeout_at(drain_deadline(), &mut metrics_serving)
                 .await
                 .is_err()
         {
             tracing::warn!("a metrics scrape still open after the drain timeout; closing it");
+            metrics_serving.abort();
         }
         tracing::info!("the server stopped accepting connections");
 

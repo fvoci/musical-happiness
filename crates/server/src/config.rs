@@ -753,6 +753,18 @@ impl Configuration {
         }
 
         let mut warnings = Vec::new();
+        if self.local_only
+            && self
+                .metrics_address()?
+                .is_some_and(|address| address.host.is_none())
+        {
+            warnings.push(
+                "localOnly is set, but prometheusaddress has no host and serves the metrics, \
+                 which have no authentication, on every interface; give it a host such as \
+                 127.0.0.1"
+                    .to_owned(),
+            );
+        }
         // Reached over HTTPS without ending TLS itself: something in front of the server
         // does, and every request arrives from its address. Unless the server is told
         // which address that is, all clients are one client to the login limits: one
@@ -1136,6 +1148,30 @@ mod tests {
             address("metrics.internal:0"),
             expected(Some("metrics.internal"), 0)
         );
+    }
+
+    #[test]
+    fn metrics_on_every_interface_of_a_local_only_server_are_warned_about() {
+        let warnings = |text: &str| {
+            Configuration::parse(text, no_env)
+                .expect("valid")
+                .check()
+                .expect("accepted")
+        };
+        let warned = warnings(r#"{"localOnly": true, "prometheusaddress": ":9092"}"#);
+        assert!(
+            warned
+                .iter()
+                .any(|warning| warning.contains("prometheusaddress")),
+            "{warned:?}"
+        );
+        for quiet in [
+            r#"{"localOnly": true, "prometheusaddress": "127.0.0.1:9092"}"#,
+            r#"{"localOnly": false, "prometheusaddress": ":9092"}"#,
+            r#"{"localOnly": true}"#,
+        ] {
+            assert!(warnings(quiet).is_empty(), "{quiet}");
+        }
     }
 
     #[test]
