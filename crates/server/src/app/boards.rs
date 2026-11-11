@@ -191,6 +191,38 @@ impl App {
         Ok(updated)
     }
 
+    /// Puts the card properties of a board into the order of their identifiers in
+    /// `order`, which names each of them once, tells the board's listeners with the
+    /// board's change as for any change of it, and returns the order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a not-found error if there is no such board, a bad request if `order`
+    /// does not name each property once, and the store's error.
+    pub async fn reorder_card_properties(
+        &self,
+        board_id: &str,
+        order: &[String],
+        user_id: &str,
+    ) -> Result<Vec<String>, AppError> {
+        let board = match self
+            .store()
+            .reorder_card_properties(board_id, order, user_id)
+            .await
+        {
+            Ok(board) => board,
+            Err(error) if error.is_not_found() => return Err(AppError::not_found("board")),
+            Err(error) => return Err(error.into()),
+        };
+        let app = self.clone();
+        self.spawn_background(async move {
+            app.ws()
+                .broadcast_board_change(&board.team_id, &board)
+                .await;
+        });
+        Ok(order.to_vec())
+    }
+
     /// Tells the users of a team who are not members of a template that they gained or
     /// lost access to it, after the template changed between open and private.
     async fn broadcast_team_users(&self, board: &Board, board_type: BoardType) {

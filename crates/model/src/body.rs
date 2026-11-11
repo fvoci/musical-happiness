@@ -155,6 +155,13 @@ impl Body {
         ids
     }
 
+    /// The stored name of the file the body's first image shows, in document order
+    /// (also inside lists and tables), if it has one. Stops at that image.
+    #[must_use]
+    pub fn first_file_id(&self) -> Option<&str> {
+        first_image(&self.document)
+    }
+
     /// Empties the `userId` of every mention: the body as it goes to whoever reads with a
     /// read token alone, who is not told who the server's users are. That is a shape that
     /// is sent, never one that is stored or received: the allowlist refuses a mention
@@ -371,6 +378,16 @@ fn check_size(value: &Value) -> Result<(), BodyError> {
 }
 
 /// Calls `f` for every node of the document, the document first.
+/// The file of the first image at or below `node`, in document order.
+fn first_image(node: &Value) -> Option<&str> {
+    image_file(node).or_else(|| {
+        node.get("content")?
+            .as_array()?
+            .iter()
+            .find_map(first_image)
+    })
+}
+
 fn visit<'v>(node: &'v Value, f: &mut impl FnMut(&'v Value)) {
     f(node);
     if let Some(children) = node.get("content").and_then(Value::as_array) {
@@ -565,5 +582,20 @@ mod tests {
         .expect("a body")
         .expect("not empty");
         assert_eq!(body.tasks(), TaskCount { total: 3, done: 2 });
+    }
+
+    #[test]
+    fn the_first_image_is_the_first_in_document_order() {
+        let image = |file: &str| json!({"type": "image", "attrs": {"fileId": file}});
+        let body = Body::from_stored(json!({"type": "doc", "content": [
+            paragraph("before"),
+            {"type": "bulletList", "content": [
+                {"type": "listItem", "content": [paragraph("item"), image("in-a-list.png")]},
+            ]},
+            image("after.png"),
+        ]}));
+        assert_eq!(body.first_file_id(), Some("in-a-list.png"));
+        let none = Body::from_stored(json!({"type": "doc", "content": [paragraph("text")]}));
+        assert_eq!(none.first_file_id(), None);
     }
 }

@@ -656,7 +656,12 @@ impl From<StoreError> for AppError {
                     | BlockError::InvalidCardProperties(_),
                 ..
             }
-            | StoreError::InvalidBoard(BoardError::InvalidCardProperty(_))
+            | StoreError::InvalidBoard(
+                BoardError::InvalidCardProperty(_)
+                | BoardError::PropertyNamedTwice { .. }
+                | BoardError::PropertyUnknown { .. }
+                | BoardError::PropertiesLeftOut { .. },
+            )
             | StoreError::InvalidBoardsAndBlocks(_)
             | StoreError::BlockNotInDeletedBoards { .. } => Self::bad_request(error),
             StoreError::InvalidCategory(refused) => Self::from(refused),

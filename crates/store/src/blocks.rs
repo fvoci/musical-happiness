@@ -44,12 +44,31 @@ const LISTED_BLOCK_COLUMNS: &str = "id, parent_id, created_by, modified_by, \"sc
                              fields, create_at, update_at, board_id, NULL, \
                              body IS NOT NULL, body_tasks_total, body_tasks_done";
 
+/// When the last comment on the block `blocks.id` was posted, zero for none: its
+/// comments (blocks of the type `comment` whose parent it is; deleted ones are in the
+/// trash) and their `create_at`, which writing a comment again does not change. Read
+/// after [`LISTED_BLOCK_COLUMNS`], at [`LISTED_LAST_COMMENT_AT`], and alone by
+/// [`Store::get_last_comment_at`]. `blocks_parent_type_create_at_idx` answers it.
+const LAST_COMMENT_AT_COLUMN: &str = "COALESCE((SELECT MAX(c.create_at) FROM blocks c \
+                                      WHERE c.parent_id = blocks.id AND c.type = 'comment'), 0)";
+
 /// The column of [`LISTED_BLOCK_COLUMNS`] that says whether there is a body.
 const LISTED_HAS_BODY: usize = 12;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's task items.
 const LISTED_TASKS_TOTAL: usize = 13;
 /// The column of [`LISTED_BLOCK_COLUMNS`] with the body's checked task items.
 const LISTED_TASKS_DONE: usize = 14;
+/// The column of [`LISTED_BLOCK_COLUMNS`] with when the block's last comment was posted.
+const LISTED_LAST_COMMENT_AT: usize = 15;
+/// The columns a list reads for previews, after the last comment's time: the beginning
+/// of the plain text of the body, worked out when it was stored (characters, each of one
+/// or two UTF-16 code units, so the 200 units a preview shows are among them), and the
+/// body.
+const PREVIEW_COLUMNS: &str = "SUBSTR(body_text, 1, 200), body";
+/// The column of the plain text of the body, read for previews.
+const LISTED_BODY_TEXT: usize = 16;
+/// The column of the body, read for previews.
+const LISTED_BODY: usize = 17;
 
 /// The order of every list of blocks.
 const OLDEST_FIRST: &str = " ORDER BY create_at, id";
@@ -114,6 +133,38 @@ pub enum DuplicateAs {
     Template,
 }
 
+/// A block as a list gives it: without its body, with what the list says about it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListedBlock {
+    /// The block, without its body.
+    pub block: Block,
+    /// What the list says about the body.
+    pub summary: BodySummary,
+    /// When the block's last comment was posted; zero if it has none.
+    pub last_comment_at: i64,
+    /// What a preview shows of the body, if the list was asked for previews.
+    pub preview: Option<BodyPreview>,
+}
+
+/// What a list asked for previews reads of a block's body.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BodyPreview {
+    /// The beginning of the body's plain text, as it is searched (a line per paragraph):
+    /// its first 200 characters.
+    pub text: String,
+    /// The stored name of the file of the body's first image, if it has one.
+    pub first_image: Option<String>,
+}
+
+/// Whether a list of blocks reads what previews show of their bodies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Previews {
+    /// It does not.
+    Without,
+    /// It reads the plain text and the first image of each body.
+    With,
+}
+
 impl Store {
     /// Writes the fields of a block as they are, without any check: for tests that need
     /// a block as an older server stored it.
@@ -149,7 +200,7 @@ impl Store {
 
     /// Returns the blocks that match `filter` as [`Store::get_blocks`] does, but without
     /// their bodies: each comes with what a list says about its body instead, read from
-    /// what was worked out when the body was stored.
+    /// what was worked out when the body was stored, and when its last comment was posted.
     ///
     /// # Errors
     ///
@@ -158,9 +209,14 @@ impl Store {
     pub async fn get_listed_blocks(
         &self,
         filter: &BlockFilter,
-    ) -> Result<Vec<(Block, BodySummary)>, StoreError> {
+        previews: Previews,
+    ) -> Result<Vec<ListedBlock>, StoreError> {
         self.with_conn(async |scope| {
-            let sql = filtered_blocks(scope, filter, LISTED_BLOCK_COLUMNS);
+            let mut columns = format!("{LISTED_BLOCK_COLUMNS}, {LAST_COMMENT_AT_COLUMN}");
+            if previews == Previews::With {
+                columns = format!("{columns}, {PREVIEW_COLUMNS}");
+            }
+            let sql = filtered_blocks(scope, filter, &columns);
             scope
                 .fetch_all(sql)
                 .await?
@@ -174,9 +230,36 @@ impl Store {
                         has_body: row.bool(LISTED_HAS_BODY)?,
                         tasks,
                     };
-                    Ok((block_from_row(row)?, summary))
+                    Ok(ListedBlock {
+                        block: block_from_row(row)?,
+                        summary,
+                        last_comment_at: row.int(LISTED_LAST_COMMENT_AT)?,
+                        preview: match previews {
+                            Previews::Without => None,
+                            Previews::With => Some(preview_from_row(row)?),
+                        },
+                    })
                 })
                 .collect()
+        })
+        .await
+    }
+
+    /// Returns when the last comment on a block was posted (its `create_at`); zero if
+    /// it has none. Deleted comments are in the trash and do not count.
+    ///
+    /// # Errors
+    ///
+    /// Returns the database's error.
+    pub async fn get_last_comment_at(&self, block_id: &str) -> Result<i64, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "SELECT {LAST_COMMENT_AT_COLUMN} FROM blocks WHERE id = "
+            ));
+            sql.bind(Id(block_id));
+            // No such block has no comments.
+            let row = scope.fetch_optional(sql).await?;
+            row.map_or(Ok(0), |row| row.int(0))
         })
         .await
     }
@@ -419,6 +502,20 @@ fn block_from_row(row: &Row) -> Result<Block, StoreError> {
             document => Some(Body::from_stored(document)),
         },
         edited_at: 0,
+    })
+}
+
+/// What a preview shows of the body of a listed row read with [`PREVIEW_COLUMNS`].
+fn preview_from_row(row: &Row) -> Result<BodyPreview, StoreError> {
+    let first_image = match row.json(LISTED_BODY, "body")? {
+        Value::Null => None,
+        document => Body::from_stored(document)
+            .first_file_id()
+            .map(str::to_owned),
+    };
+    Ok(BodyPreview {
+        text: row.text(LISTED_BODY_TEXT)?,
+        first_image,
     })
 }
 
@@ -847,6 +944,11 @@ mod tests {
         assert_eq!(columns[LISTED_TASKS_TOTAL], "body_tasks_total");
         assert_eq!(columns[LISTED_TASKS_DONE], "body_tasks_done");
         assert_eq!(columns.len(), LISTED_TASKS_DONE + 1);
+        assert_eq!(LISTED_LAST_COMMENT_AT, columns.len(), "read after them");
+        // The text, then the body, right after the last comment's time.
+        assert_eq!(PREVIEW_COLUMNS, "SUBSTR(body_text, 1, 200), body");
+        assert_eq!(LISTED_BODY_TEXT, LISTED_LAST_COMMENT_AT + 1);
+        assert_eq!(LISTED_BODY, LISTED_BODY_TEXT + 1);
     }
 
     #[test]
