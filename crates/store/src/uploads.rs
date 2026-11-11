@@ -25,7 +25,93 @@ pub enum PartRecord {
 const UPLOAD_COLUMNS: &str = "id, user_id, board_id, name, size, content_type, part_size, \
                               create_at, expires_at, closed_at, multipart_id";
 
+/// What the open upload sessions hold back, for the limits on opening another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UploadUsage {
+    /// How many sessions the user has open.
+    pub user_sessions: i64,
+    /// The sum of the sizes of the user's open sessions, in bytes.
+    pub user_bytes: i64,
+    /// The sum of the sizes of every open session of the server, in bytes.
+    pub server_bytes: i64,
+}
+
 impl Store {
+    /// Returns what the open upload sessions hold back at `now`: those that are not
+    /// closed and have not ended. A session that was closed and is not thrown away yet,
+    /// as after a crash, does not count.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn upload_usage(&self, user_id: &str, now: i64) -> Result<UploadUsage, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql("SELECT CAST(COALESCE(SUM(CASE WHEN user_id = ");
+            sql.bind(Id(user_id))
+                .push(" THEN 1 ELSE 0 END), 0) AS BIGINT), CAST(COALESCE(SUM(CASE WHEN user_id = ")
+                .bind(Id(user_id))
+                .push(
+                    " THEN size ELSE 0 END), 0) AS BIGINT), CAST(COALESCE(SUM(size), 0) AS BIGINT) \
+                     FROM uploads WHERE closed_at = 0 AND expires_at > ",
+                )
+                .bind(now);
+            let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
+            Ok(UploadUsage {
+                user_sessions: row.int(0)?,
+                user_bytes: row.int(1)?,
+                server_bytes: row.int(2)?,
+            })
+        })
+        .await
+    }
+
+    /// Returns the upload sessions to throw away at `now`: those that have ended, and
+    /// those closed before `closed_before` that are still there, as when the server
+    /// stopped between closing a session and throwing it away.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn uploads_to_clean_up(
+        &self,
+        now: i64,
+        closed_before: i64,
+    ) -> Result<Vec<Upload>, StoreError> {
+        self.with_conn(async |scope| {
+            let mut sql = scope.sql(&format!(
+                "SELECT {UPLOAD_COLUMNS} FROM uploads WHERE expires_at <= "
+            ));
+            sql.bind(now)
+                .push_bind(" OR (closed_at <> 0 AND closed_at < ", closed_before)
+                .push(") ORDER BY expires_at");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(upload_from_row)
+                .collect()
+        })
+        .await
+    }
+
+    /// Returns the identifiers of every upload session there is, whatever its state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn upload_ids(&self) -> Result<Vec<String>, StoreError> {
+        self.with_conn(async |scope| {
+            let sql = scope.sql("SELECT id FROM uploads");
+            scope
+                .fetch_all(sql)
+                .await?
+                .iter()
+                .map(|row| row.text(0))
+                .collect()
+        })
+        .await
+    }
+
     /// Stores a new upload session.
     ///
     /// # Errors

@@ -21,10 +21,19 @@ use tokio_util::io::{ReaderStream, StreamReader};
 use super::App;
 use crate::auth::now_millis;
 use crate::auth::secret::new_secret;
-use crate::error::AppError;
+use crate::error::{AppError, Reason};
+use crate::storage::WRITING_DIR;
 
 /// How long a session lasts after it is opened (`docs/s6-design.md` 5.6, 7).
 pub const UPLOAD_LIFETIME_MILLIS: i64 = 24 * 60 * 60 * 1000;
+
+/// How many sessions one user may have open at once (`docs/s6-design.md` 5.6, 8).
+pub const MAX_OPEN_UPLOADS: i64 = 8;
+
+/// How long a closed session that is still there is left to whoever closed it before
+/// the clean-up throws it away: a completion takes far less, and one that takes this
+/// long has failed with the server.
+pub const CLOSED_UPLOAD_GRACE_MILLIS: i64 = 60 * 60 * 1000;
 
 /// The longest file name a session takes, in characters.
 pub const MAX_UPLOAD_NAME_CHARS: usize = 255;
@@ -55,7 +64,13 @@ impl App {
     ///
     /// Returns a bad request for an empty or too long name, a negative size or a content
     /// type that is too long; a 413 for a file larger than `maxfilesize`, or than
-    /// [`MAX_UPLOAD_PARTS`] parts hold; and the store's error.
+    /// [`MAX_UPLOAD_PARTS`] parts hold; a 429 if the user has [`MAX_OPEN_UPLOADS`]
+    /// sessions open, or the open sessions would hold back more bytes than the user's
+    /// share (twice the largest file) or the server's (`max_pending_upload_bytes`); and
+    /// the store's error.
+    ///
+    /// The limits are checked, then the session stored: sessions opened at the same
+    /// moment may pass them together.
     pub async fn create_upload(
         &self,
         user_id: &str,
@@ -77,14 +92,7 @@ impl App {
         if new.size < 0 {
             return Err(AppError::bad_request("the size is 0 or more bytes").with_field("size"));
         }
-        let part_size = i64::try_from(self.config().upload_part_bytes).unwrap_or(i64::MAX);
-        let max_file_size = self.config().max_file_size;
-        let largest = part_size.saturating_mul(MAX_UPLOAD_PARTS);
-        let limit = if max_file_size > 0 {
-            max_file_size.min(largest)
-        } else {
-            largest
-        };
+        let limit = self.largest_upload();
         if new.size > limit {
             return Err(AppError::payload_too_large(
                 u64::try_from(limit).unwrap_or(u64::MAX),
@@ -92,6 +100,32 @@ impl App {
         }
 
         let now = now_millis();
+        let usage = self.store().upload_usage(user_id, now).await?;
+        if usage.user_sessions >= MAX_OPEN_UPLOADS {
+            return Err(AppError::limited(
+                format_args!("{MAX_OPEN_UPLOADS} uploads are open; complete or abandon one first"),
+                Reason::TooManyUploads,
+            ));
+        }
+        let user_share = limit.saturating_mul(2);
+        if usage.user_bytes.saturating_add(new.size) > user_share {
+            return Err(AppError::limited(
+                format_args!(
+                    "the open uploads would hold back more than {user_share} bytes; \
+                     complete or abandon one first"
+                ),
+                Reason::UploadsPending,
+            ));
+        }
+        let server_share =
+            i64::try_from(self.config().max_pending_upload_bytes).unwrap_or(i64::MAX);
+        if usage.server_bytes.saturating_add(new.size) > server_share {
+            return Err(AppError::limited(
+                "the server holds back as many bytes of uploads as it may; try again later",
+                Reason::ServerUploadsPending,
+            ));
+        }
+        let part_size = i64::try_from(self.config().upload_part_bytes).unwrap_or(i64::MAX);
         let upload = Upload {
             id: new_secret(),
             user_id: user_id.to_owned(),
@@ -340,6 +374,66 @@ impl App {
         remove_dir_quietly(&self.upload_dir(&upload.id)).await;
     }
 
+    /// The largest file a session takes: `maxfilesize`, and no more than
+    /// [`MAX_UPLOAD_PARTS`] parts hold.
+    pub fn largest_upload(&self) -> i64 {
+        let part_size = i64::try_from(self.config().upload_part_bytes).unwrap_or(i64::MAX);
+        let largest = part_size.saturating_mul(MAX_UPLOAD_PARTS);
+        match self.config().max_file_size {
+            max_file_size if max_file_size > 0 => max_file_size.min(largest),
+            _ => largest,
+        }
+    }
+
+    /// Throws away the sessions that have ended at `now`, and those closed for longer
+    /// than [`CLOSED_UPLOAD_GRACE_MILLIS`] that are still there. Returns how many.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the sessions cannot be read.
+    pub async fn clean_up_uploads(&self, now: i64) -> Result<usize, AppError> {
+        let uploads = self
+            .store()
+            .uploads_to_clean_up(now, now.saturating_sub(CLOSED_UPLOAD_GRACE_MILLIS))
+            .await?;
+        for upload in &uploads {
+            // Closed first: a part still coming in is refused rather than recorded.
+            self.discard_upload(upload).await;
+        }
+        Ok(uploads.len())
+    }
+
+    /// Removes what the temporary directories hold that nothing will use: the parts of
+    /// sessions that are gone, the directories of completions that were cut off, and the
+    /// files the local storage was writing. Only for when no request is under way, as
+    /// at the start.
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error if the sessions cannot be read.
+    pub async fn sweep_temporary_files(&self) -> Result<usize, AppError> {
+        let sessions: std::collections::HashSet<String> =
+            self.store().upload_ids().await?.into_iter().collect();
+        let mut removed = 0;
+        let uploads = self.config().tmp_dir().join("uploads");
+        for (name, path) in entries(&uploads).await {
+            // A session's directory is named by its identifier; anything else, such as a
+            // directory a completion moved aside, is left over.
+            if !sessions.contains(&name) {
+                remove_entry(&path).await;
+                removed += 1;
+            }
+        }
+        if self.config().files_driver == "local" {
+            let writing = Path::new(&self.config().files_path).join(WRITING_DIR);
+            for (_, path) in entries(&writing).await {
+                remove_entry(&path).await;
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
     /// The directory that holds the parts of an upload.
     pub(crate) fn upload_dir(&self, upload_id: &str) -> PathBuf {
         self.config().tmp_dir().join("uploads").join(upload_id)
@@ -405,6 +499,49 @@ fn closed() -> AppError {
 /// A part that cannot be written: the server's failure.
 fn part_error(error: &io::Error) -> AppError {
     AppError::internal(format_args!("the part could not be stored: {error}"))
+}
+
+/// The entries of a directory with their names; none if it cannot be read.
+async fn entries(directory: &Path) -> Vec<(String, PathBuf)> {
+    let mut found = Vec::new();
+    let mut listing = match fs::read_dir(directory).await {
+        Ok(listing) => listing,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return found,
+        Err(error) => {
+            tracing::warn!(%error, "a temporary directory could not be read");
+            return found;
+        }
+    };
+    loop {
+        match listing.next_entry().await {
+            Ok(Some(entry)) => {
+                found.push((
+                    entry.file_name().to_string_lossy().into_owned(),
+                    entry.path(),
+                ));
+            }
+            Ok(None) => break,
+            Err(error) => {
+                tracing::warn!(%error, "a temporary directory could not be read to its end");
+                break;
+            }
+        }
+    }
+    found
+}
+
+/// Removes a file or a directory that is left over, with what is in it.
+async fn remove_entry(path: &Path) {
+    let removed = match fs::symlink_metadata(path).await {
+        Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path).await,
+        Ok(_) => fs::remove_file(path).await,
+        Err(error) => Err(error),
+    };
+    match removed {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => tracing::warn!(%error, "a left-over temporary file could not be removed"),
+    }
 }
 
 /// Removes a directory of parts that is not to be kept, if it is there.

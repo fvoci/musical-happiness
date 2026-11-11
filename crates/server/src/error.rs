@@ -92,6 +92,14 @@ pub enum Reason {
     AdminRequired,
     /// Public sharing is turned off in the server's configuration.
     SharingDisabled,
+    /// The user has as many uploads in parts open as one may.
+    TooManyUploads,
+    /// The user's open uploads in parts hold back as many bytes as one user's may.
+    UploadsPending,
+    /// The open uploads in parts of the whole server hold back as many bytes as they may.
+    ServerUploadsPending,
+    /// The file is larger than one request takes; it is to be sent in parts.
+    UploadInParts,
 }
 
 impl Reason {
@@ -108,6 +116,10 @@ impl Reason {
             Self::LastAdmin => "last_admin",
             Self::AdminRequired => "admin_required",
             Self::SharingDisabled => "sharing_disabled",
+            Self::TooManyUploads => "too_many_uploads",
+            Self::UploadsPending => "uploads_pending",
+            Self::ServerUploadsPending => "server_uploads_pending",
+            Self::UploadInParts => "upload_in_parts",
         }
     }
 }
@@ -170,6 +182,12 @@ impl AppError {
         let mut error = Self::new(ErrorKind::RateLimited, "too many attempts; try again later");
         error.retry_after = Some(seconds.max(1));
         error
+    }
+
+    /// A 429 error for a limit on what is held at once, rather than on attempts: no
+    /// wait is told, since what frees room is the client's own doing or another's.
+    pub fn limited(message: impl std::fmt::Display, reason: Reason) -> Self {
+        Self::new(ErrorKind::RateLimited, message).with_reason(reason)
     }
 
     /// A 400 error with the given message.

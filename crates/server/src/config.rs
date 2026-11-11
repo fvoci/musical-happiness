@@ -117,7 +117,8 @@ pub struct Configuration {
     /// The directory of the `local` file backend.
     #[serde(rename = "filespath")]
     pub files_path: String,
-    /// The largest accepted upload in bytes; zero for no limit.
+    /// The largest accepted upload in bytes: 100 MiB unless set. Zero or less for none
+    /// beyond what an upload in parts can carry (`upload_part_bytes` × 10,000).
     #[serde(rename = "maxfilesize")]
     pub max_file_size: i64,
     /// The address of the metrics endpoint. Not supported; must be empty.
@@ -187,6 +188,9 @@ pub struct Configuration {
     /// complete yet. Empty for `.tmp` under `filespath`. Not the system's temporary
     /// directory, which may be held in memory.
     pub tmp_path: String,
+    /// The most bytes all open uploads in parts of the server may hold back at once:
+    /// the sum of their declared sizes (`docs/s6-design.md` 5.6, 8).
+    pub max_pending_upload_bytes: u64,
     /// The addresses, and address ranges such as `10.0.0.0/8`, of the reverse proxies
     /// in front of the server. A request from one of them is taken to come from the
     /// address the proxy names in `X-Forwarded-For`; that header is believed from
@@ -236,7 +240,7 @@ impl Default for Configuration {
             files_driver: "local".to_owned(),
             files_s3_config: AmazonS3Config::default(),
             files_path: "./files".to_owned(),
-            max_file_size: 0,
+            max_file_size: DEFAULT_MAX_FILE_SIZE,
             prometheus_address: String::new(),
             webhook_update: Vec::new(),
             allowed_origins: Vec::new(),
@@ -260,6 +264,7 @@ impl Default for Configuration {
             trash_retention_days: 30,
             upload_part_bytes: DEFAULT_UPLOAD_PART_BYTES,
             tmp_path: String::new(),
+            max_pending_upload_bytes: DEFAULT_MAX_PENDING_UPLOAD_BYTES,
             trusted_proxies: Vec::new(),
             login_pair_free_failures: 5,
             login_pair_base_delay_seconds: 30,
@@ -312,6 +317,7 @@ impl std::fmt::Debug for Configuration {
             .field("trash_retention_days", &self.trash_retention_days)
             .field("upload_part_bytes", &self.upload_part_bytes)
             .field("tmp_path", &self.tmp_path)
+            .field("max_pending_upload_bytes", &self.max_pending_upload_bytes)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("login_pair_free_failures", &self.login_pair_free_failures)
             .field(
@@ -356,7 +362,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
-const ENV_KEYS: [(&str, EnvKind); 42] = [
+const ENV_KEYS: [(&str, EnvKind); 43] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -389,6 +395,7 @@ const ENV_KEYS: [(&str, EnvKind); 42] = [
     ("trash_retention_days", EnvKind::Number),
     ("upload_part_bytes", EnvKind::Number),
     ("tmp_path", EnvKind::Text),
+    ("max_pending_upload_bytes", EnvKind::Number),
     ("trusted_proxies", EnvKind::List),
     ("login_pair_free_failures", EnvKind::Number),
     ("login_pair_base_delay_seconds", EnvKind::Number),
@@ -402,6 +409,14 @@ const ENV_KEYS: [(&str, EnvKind); 42] = [
 ];
 
 const MILLIS_PER_DAY: i64 = 24 * 60 * 60 * 1000;
+
+/// The largest file, unless the configuration says otherwise: 100 MiB (decision 16 of
+/// `docs/s6-design.md`).
+const DEFAULT_MAX_FILE_SIZE: i64 = 100 * 1024 * 1024;
+
+/// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB
+/// (`docs/s6-design.md` 5.6, 8).
+const DEFAULT_MAX_PENDING_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 /// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
 /// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
@@ -576,6 +591,10 @@ impl Configuration {
         if self.trash_retention_days == 0 {
             bail!("trash_retention_days must be at least 1");
         }
+        // Zero would refuse every upload in parts.
+        if self.max_pending_upload_bytes == 0 {
+            bail!("max_pending_upload_bytes must be a positive number of bytes, not 0");
+        }
         // An S3 multipart upload takes no smaller part but the last, and none larger.
         if !(MIN_UPLOAD_PART_BYTES..=MAX_UPLOAD_PART_BYTES).contains(&self.upload_part_bytes) {
             bail!(
@@ -746,6 +765,8 @@ mod tests {
         assert_eq!(config.session_max_millis(), 90 * 24 * 60 * 60 * 1000);
         assert_eq!(config.trash_retention_days, 30);
         assert_eq!(config.upload_part_bytes, 8 * 1024 * 1024);
+        assert_eq!(config.max_file_size, 100 * 1024 * 1024);
+        assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
         assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");
         assert_eq!(config.teammate_name_display, "username");
@@ -896,6 +917,7 @@ mod tests {
         assert!(error(r#"{"trash_retention_days": 0}"#).contains("trash_retention_days"));
         assert!(error(r#"{"upload_part_bytes": 5242879}"#).contains("upload_part_bytes"));
         assert!(error(r#"{"upload_part_bytes": 5368709121}"#).contains("upload_part_bytes"));
+        assert!(error(r#"{"max_pending_upload_bytes": 0}"#).contains("max_pending_upload_bytes"));
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));
         assert!(

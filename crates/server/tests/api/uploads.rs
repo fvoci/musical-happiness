@@ -9,6 +9,7 @@ use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
 use futures_util::StreamExt as _;
 use fvoci_model::{BoardMember, BoardType};
+use fvoci_server::app::{CLOSED_UPLOAD_GRACE_MILLIS, UPLOAD_LIFETIME_MILLIS};
 use fvoci_server::auth::now_millis;
 use reqwest::{Method, StatusCode};
 use serde_json::{Value, json};
@@ -86,6 +87,20 @@ async fn put_part(client: &Client, upload_id: &str, number: usize, bytes: &[u8])
         &digest(bytes),
     )
     .await
+}
+
+/// Makes the second client an editor of the board.
+async fn second_editor(ts: &TestServer, board_id: &str) {
+    let user = ts.client2.me().await;
+    ts.client
+        .add_member(&BoardMember {
+            board_id: board_id.to_owned(),
+            user_id: user.id,
+            scheme_editor: true,
+            ..BoardMember::default()
+        })
+        .await
+        .check_ok();
 }
 
 /// The directory that holds the parts of an upload.
@@ -549,4 +564,222 @@ async fn a_late_part_sent_again_leaves_the_recorded_part() {
         "the recorded part is as it was"
     );
     assert_eq!(part_numbers(&parts_dir(&ts, &upload_id)), ["1"]);
+}
+
+/// A user has at most eight uploads open; one that is abandoned, or closed, makes room.
+#[tokio::test]
+async fn a_user_has_at_most_eight_uploads_open() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let mut open_ones = Vec::new();
+    for _ in 0..8 {
+        open_ones.push(opened(&ts.client, &board.id, "a.txt", 1).await);
+    }
+    let response = open(&ts.client, &board.id, "a.txt", 1).await;
+    response.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.error_reason(), "too_many_uploads");
+    second_editor(&ts, &board.id).await;
+    // Another user is not held back by this one.
+    open(&ts.client2, &board.id, "a.txt", 1)
+        .await
+        .check_created();
+
+    ts.client
+        .delete(&format!("/uploads/{}", open_ones[0]))
+        .await
+        .check_no_content();
+    open(&ts.client, &board.id, "a.txt", 1)
+        .await
+        .check_created();
+    // A session that is closed and not thrown away yet, as after a crash, holds nothing.
+    ts.app
+        .store()
+        .close_upload(&open_ones[1], now_millis())
+        .await
+        .expect("the upload is closed");
+    open(&ts.client, &board.id, "a.txt", 1)
+        .await
+        .check_created();
+    open(&ts.client, &board.id, "a.txt", 1)
+        .await
+        .check_status(StatusCode::TOO_MANY_REQUESTS);
+}
+
+/// The open uploads of a user hold back at most twice the largest file, and those of
+/// the server at most `max_pending_upload_bytes`.
+#[tokio::test]
+async fn the_bytes_open_uploads_hold_back_are_limited() {
+    let ts = Setup::native()
+        .configure(|config| {
+            config.max_file_size = 1000;
+            config.max_pending_upload_bytes = 2500;
+        })
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+
+    opened(&ts.client, &board.id, "a.bin", 1000).await;
+    opened(&ts.client, &board.id, "a.bin", 1000).await;
+    let response = open(&ts.client, &board.id, "a.bin", 1).await;
+    response.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.error_reason(), "uploads_pending");
+
+    second_editor(&ts, &board.id).await;
+    opened(&ts.client2, &board.id, "a.bin", 500).await;
+    let response = open(&ts.client2, &board.id, "a.bin", 1).await;
+    response.check_status(StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.error_reason(), "server_uploads_pending");
+}
+
+/// The clean-up throws away the uploads that have ended, and those left closed for an
+/// hour, with their parts; the others stay.
+#[tokio::test]
+async fn ended_uploads_are_thrown_away_with_their_parts() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let ending = opened(&ts.client, &board.id, "a.txt", 3).await;
+    put_part(&ts.client, &ending, 1, b"abc")
+        .await
+        .check_no_content();
+    let now = now_millis();
+    assert_eq!(
+        ts.app
+            .clean_up_uploads(now)
+            .await
+            .expect("the clean-up runs"),
+        0,
+        "nothing has ended"
+    );
+    assert_eq!(
+        ts.app
+            .clean_up_uploads(now + UPLOAD_LIFETIME_MILLIS + 1)
+            .await
+            .expect("the clean-up runs"),
+        1
+    );
+    assert!(!parts_dir(&ts, &ending).exists(), "the parts are gone");
+    ts.client
+        .get(&format!("/uploads/{ending}"))
+        .await
+        .check_not_found();
+
+    let left_closed = opened(&ts.client, &board.id, "a.txt", 3).await;
+    put_part(&ts.client, &left_closed, 1, b"abc")
+        .await
+        .check_no_content();
+    ts.app
+        .store()
+        .close_upload(&left_closed, now)
+        .await
+        .expect("the upload is closed");
+    assert_eq!(
+        ts.app.clean_up_uploads(now + 1000).await.expect("runs"),
+        0,
+        "a closed upload is left to whoever closed it for a while"
+    );
+    assert_eq!(
+        ts.app
+            .clean_up_uploads(now + CLOSED_UPLOAD_GRACE_MILLIS + 1)
+            .await
+            .expect("runs"),
+        1
+    );
+    assert!(!parts_dir(&ts, &left_closed).exists(), "the parts are gone");
+}
+
+/// The sweep of the start removes what no session owns: stray directories, those a
+/// completion moved aside, and the files the local storage was writing.
+#[tokio::test]
+async fn the_sweep_removes_what_no_upload_owns() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let live = opened(&ts.client, &board.id, "a.txt", 3).await;
+    put_part(&ts.client, &live, 1, b"abc")
+        .await
+        .check_no_content();
+    let uploads = ts.app.config().tmp_dir().join("uploads");
+    let writing = Path::new(&ts.app.config().files_path).join(".tmp/writing");
+    let strays = [
+        uploads.join("gone-upload").join("1.abc"),
+        uploads.join(format!("{live}.completing-xyz")).join("1.abc"),
+        writing.join("half-written"),
+    ];
+    for stray in &strays {
+        std::fs::create_dir_all(stray.parent().expect("a parent")).expect("made");
+        std::fs::write(stray, b"left over").expect("written");
+    }
+
+    let removed = ts
+        .app
+        .sweep_temporary_files()
+        .await
+        .expect("the sweep runs");
+    assert_eq!(removed, 3);
+    for stray in &strays {
+        assert!(!stray.exists(), "{} is removed", stray.display());
+    }
+    assert_eq!(
+        files_in(&uploads),
+        std::slice::from_ref(&live),
+        "the live upload's parts stay"
+    );
+    assert_eq!(part_numbers(&parts_dir(&ts, &live)), ["1"]);
+}
+
+/// `uploadFile` takes one part's worth; a larger file is refused with the reason to send
+/// it in parts, whether the request declares it or not, and nothing of it is kept.
+#[tokio::test]
+async fn a_single_upload_takes_one_part() {
+    let ts = server().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let files = Path::new(&ts.app.config().files_path).to_path_buf();
+
+    let response = crate::files::upload(&ts.client, &board.id, "a.bin", &file_of(PART)).await;
+    response.check_created();
+    let stored = stored_files(&files);
+    assert_eq!(stored.len(), 1);
+
+    // Within the allowance for the form, so the file is cut off as it is read; and far
+    // over it, so the request is refused for what it declares.
+    for size in [PART + 1, PART + 1024 * 1024] {
+        let response = crate::files::upload(&ts.client, &board.id, "a.bin", &file_of(size)).await;
+        response.check_request_entity_too_large();
+        assert_eq!(response.error_reason(), "upload_in_parts", "{size} bytes");
+        assert_eq!(
+            stored_files(&files),
+            stored,
+            "nothing of {size} bytes is kept"
+        );
+        assert_eq!(
+            files_in(&files.join(".tmp/writing")),
+            Vec::<String>::new(),
+            "no partial file of {size} bytes is left"
+        );
+    }
+}
+
+/// Every file under the files directory but the temporary ones, by path.
+fn stored_files(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.expect("an entry is read").path();
+            if path.file_name().is_some_and(|name| name == ".tmp") {
+                continue;
+            }
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
 }

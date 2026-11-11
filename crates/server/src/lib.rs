@@ -62,6 +62,10 @@ const CLEAN_UP_SESSIONS_INTERVAL: Duration = Duration::from_hours(1);
 /// How often the trash is looked through for what has been in it for too long.
 const PURGE_TRASH_INTERVAL: Duration = Duration::from_hours(1);
 
+/// How often upload sessions that have ended are thrown away, with their parts. They
+/// are refused from the moment they end; this frees the disk.
+const CLEAN_UP_UPLOADS_INTERVAL: Duration = Duration::from_hours(1);
+
 /// A server that is set up and ready to accept connections.
 #[derive(Debug)]
 pub struct Server {
@@ -104,6 +108,13 @@ impl Server {
         let skip_template_init = config.skip_template_init;
         let app = App::new(config, store, files)?;
         app.root_team().await.context("unable to get root team")?;
+        // Before any request: what is left over from a run that stopped is nobody's.
+        clean_up_uploads(&app).await;
+        match app.sweep_temporary_files().await {
+            Ok(0) => {}
+            Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
+            Err(error) => tracing::error!(%error, "unable to sweep the temporary files"),
+        }
         if !skip_template_init {
             app.init_templates()
                 .await
@@ -222,6 +233,7 @@ impl Server {
         let admin_socket = self.start_admin_socket()?;
         let clean_up = start_session_clean_up(&self.app);
         let purge = start_trash_purge(&self.app);
+        let uploads = start_upload_clean_up(&self.app);
 
         let service = self.router().into_make_service_with_connect_info::<Peer>();
         let stop = CancellationToken::new();
@@ -261,6 +273,7 @@ impl Server {
         }
         clean_up.cancel().await;
         purge.cancel().await;
+        uploads.cancel().await;
         served.context("serving HTTP")
     }
 
@@ -453,6 +466,25 @@ fn start_trash_purge(app: &App) -> RecurringTask {
             // After the purge: what it removed for good shows its files no more.
             collect_unreferenced_files(&app).await;
         }
+    })
+}
+
+/// Throws away the upload sessions that have ended, with their parts.
+async fn clean_up_uploads(app: &App) {
+    match app.clean_up_uploads(auth::now_millis()).await {
+        Ok(0) => {}
+        Ok(removed) => tracing::info!(removed, "threw away the upload sessions that ended"),
+        Err(error) => tracing::error!(%error, "unable to clean up the upload sessions"),
+    }
+}
+
+/// Starts the task that throws away the upload sessions that have ended. The server
+/// does it once before it serves, so the first run is an interval later.
+fn start_upload_clean_up(app: &App) -> RecurringTask {
+    let app = app.clone();
+    RecurringTask::spawn("cleanUpUploads", CLEAN_UP_UPLOADS_INTERVAL, move || {
+        let app = app.clone();
+        async move { clean_up_uploads(&app).await }
     })
 }
 

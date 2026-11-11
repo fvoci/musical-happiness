@@ -61,7 +61,7 @@ struct UploadOpened {
     /// How many parts the file comes in, numbered from 1: none for an empty file.
     part_count: i64,
     /// When the upload ends, in milliseconds since the Unix epoch: 24 hours after it was
-    /// opened. An upload that has ended is 404.
+    /// opened. An upload that has ended is 404, and is thrown away with its parts.
     expires_at: i64,
 }
 
@@ -148,7 +148,12 @@ pub(super) fn part_routes() -> OpenApiRouter<App> {
 /// Opens an upload of a file to the board in parts. The answer says how large the
 /// parts are and how many; send each with `putUploadPart`, in any order and again
 /// after a failure, then `completeUpload`. A file larger than `maxFileSize` of
-/// `getClientConfig`, where that is more than zero, is 413. For editors, as
+/// `getClientConfig`, where that is more than zero, is 413. A user has at most 8
+/// uploads open, holding back at most twice `maxFileSize` together, and the server's
+/// open uploads hold back at most what it is configured for: an upload over one of
+/// these is 429, with the reason `too_many_uploads`, `uploads_pending` or
+/// `server_uploads_pending`. An upload is open until it is completed, abandoned or
+/// ends; one that ends is thrown away with its parts within the hour. For editors, as
 /// `uploadFile`.
 #[utoipa::path(
     post,

@@ -143,7 +143,14 @@
 - **크기.** `size`가 `maxfilesize`(0보다 클 때)를 넘으면 열 때 413이다. `maxfilesize`가 0 이하이거나 `partSize` × 10,000(S3 멀티파트의 부분 수 한도)보다 크면 한도는 `partSize` × 10,000이다. 이름은 1–255자, `contentType`은 255자까지다. 저장된 파일의 `fileId`는 `uploadFile`처럼 이름의 확장자로 끝난다.
 - **부분을 두는 곳.** 끝나지 않은 부분은 설정 `tmp_path`(기본 `filespath` 아래 `.tmp`)의 `uploads/<uploadId>/`에 둔다.
 
-세션 수와 대기 용량의 한도(429), 만료된 세션의 정리, S3 멀티파트, `uploadFile`의 8 MiB 한도와 기본 `maxfilesize` 100 MiB는 tracer-bullet 8에서 들어간다.
+**들어간 것(tracer-bullet 8, 2026-11-11 09:53 KST).** 조작과 모양은 그대로이고, 한도와 정리가 들어갔다.
+
+- **열린 업로드의 한도.** 사용자 한 명은 업로드를 8개까지 열어 둔다. 사용자의 열린 업로드가 걸어 두는 크기(선언한 `size`의 합)는 가장 큰 파일 한도의 두 배까지, 서버 전체는 설정 `max_pending_upload_bytes`(기본 2 GiB)까지다. 넘는 `createUpload`는 429이고 `reason`이 `too_many_uploads`, `uploads_pending`, `server_uploads_pending` 가운데 하나다. `Retry-After`는 없다: 자리는 업로드를 끝내거나 버려야 난다. 완료하는 중인(닫힌) 업로드는 세지 않는다. 한도를 본 뒤에 세션을 만들므로, 같은 순간에 연 세션들은 함께 지나갈 수 있다.
+- **파일 하나의 한도.** `maxFileSize`(설정 `maxfilesize`)의 기본이 0(한도 없음)에서 100 MiB가 됐다(설계 결정 16).
+- **`uploadFile`.** 파일을 메모리에 모으지 않고 저장소로 흘려 쓴다. 부분 하나의 크기(`partSize`, 기본 8 MiB)까지만 받고, 그보다 크면 413이고 `reason`이 `upload_in_parts`다(`maxFileSize`가 그보다 작으면 `maxFileSize`까지이고 413에 `reason`이 없다). 요청이 선언한 길이가 한도를 크게 넘으면 읽기 전에, 아니면 읽다가 거절한다. 거절하거나 끊긴 파일은 남지 않는다.
+- **정리.** 끝난(24시간이 지난) 업로드와, 닫힌 채 한 시간이 지난 업로드(서버가 완료 중에 멈춘 것)는 서버가 한 시간마다, 그리고 시작할 때 부분과 함께 버린다. 시작할 때는 어느 업로드의 것도 아닌 부분과, 로컬 저장소가 쓰다 만 파일도 지운다.
+
+S3 멀티파트(부분을 S3에 바로 올리기)는 tracer-bullet 8b에서 들어간다. 그때까지 S3 설정에서도 부분은 `tmp_path`에 받고, 완료할 때 S3로 흘려 보낸다.
 
 **들어간 것(tracer-bullet 2c).** 올린 파일을 어느 블록도 가리키지 않으면(이미지·첨부 블록의 `fileId`, 카드 본문의 이미지. 휴지통의 블록까지 센다) 그렇게 된 지 `trash_retention_days`(기본 30일)가 지난 뒤 서버가 지운다. 그 뒤 `getFile`은 404다. 올리고 아직 어디에도 넣지 않은 파일도 올린 때부터 센다. 조작과 모양은 바뀌지 않았다.
 
@@ -191,7 +198,7 @@
   - 1절이 끝나면 `UPDATE_BLOCK`이 싣는 블록의 모양이 함께 바뀐다.
 - **오류의 상태 코드.** 조작마다 4xx를 하나씩 적지 않았다.
   - 모든 조작의 `default` 응답이 `ErrorBody`다. 어느 상태가 무슨 뜻인지는 계약의 머리말과 `default`의 설명에 있다.
-  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`.
+  - 조작에 고유한 거절(`reason`)은 그 조작의 설명에 있다: `invalid_credentials`, `signup_token_required`, `signup_token_invalid`, `username_taken`, `email_taken`, `admin_required`, `last_admin`, `sharing_disabled`, `too_many_uploads`, `uploads_pending`, `server_uploads_pending`, `upload_in_parts`.
   - 429와 `Retry-After`는 `login`, `register`, `changePassword`에 따로 적었다.
   - `getFile`의 412와 416만 `ErrorBody`가 아니다. 412는 본문이 없고 416은 `text/plain`이다.
 - **관리자 소켓의 라우트**(`/api/v1/admin/...`). 로컬 유닉스 소켓에서만 받는다. 계약에 없다.

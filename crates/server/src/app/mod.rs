@@ -26,7 +26,10 @@ pub use auth::Admission;
 pub use blocks::ChangeNotification;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub(crate) use files::FILE;
-pub use uploads::{FileToUpload, MAX_UPLOAD_NAME_CHARS, PartDigest, UPLOAD_LIFETIME_MILLIS};
+pub use uploads::{
+    CLOSED_UPLOAD_GRACE_MILLIS, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS, PartDigest,
+    UPLOAD_LIFETIME_MILLIS,
+};
 pub use users::sanitize;
 
 use std::sync::Arc;

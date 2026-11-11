@@ -43,7 +43,7 @@ pub use db::Dialect;
 pub use error::{StoreError, Taken};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
-pub use uploads::PartRecord;
+pub use uploads::{PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};

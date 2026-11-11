@@ -55,7 +55,7 @@
     "body": {
       "enablePublicSharedBoards": true,
       "featureFlags": {},
-      "maxFileSize": 0,
+      "maxFileSize": 104857600,
       "teammateNameDisplay": "username"
     }
   },
@@ -67,7 +67,7 @@
     "body": {
       "enablePublicSharedBoards": true,
       "featureFlags": {},
-      "maxFileSize": 0,
+      "maxFileSize": 104857600,
       "teammateNameDisplay": "username"
     }
   },

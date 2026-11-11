@@ -408,7 +408,7 @@ DB(또는 백업)를 읽기만 한 공격자가 살아 있는 서버에 들어�
 
 ## 4. 크기 한도와 스트리밍 (S5, S17, 의도적 차이 56)
 
-JSON 본문, 세션 없는 요청, WebSocket 메시지의 한도는 구현됐다(`PORTING.md` D절). 파일의 한도와 스트리밍은 구현하는 중이다(구현 순서 9단계, 5.6과 함께. 청크 올리기의 세션과 부분은 tracer-bullet 7에 들어갔다). 제목의 S5, S17과 의도적 차이 56은 `crates/server/PORTING.md`의 항목이다.
+JSON 본문, 세션 없는 요청, WebSocket 메시지의 한도는 구현됐다(`PORTING.md` D절). 파일의 한도와 스트리밍은 구현하는 중이다(구현 순서 9단계, 5.6과 함께. 청크 올리기의 세션과 부분은 tracer-bullet 7에, 파일 100 MiB와 열린 업로드의 한도, `uploadFile`의 스트리밍과 8 MiB 한도는 tracer-bullet 8에 들어갔다. 아카이브의 한도는 남았다). 제목의 S5, S17과 의도적 차이 56은 `crates/server/PORTING.md`의 항목이다.
 
 ### 4.1 잰 것
 
@@ -1052,6 +1052,7 @@ B로 정한 까닭과 딸린 규칙:
 | 세션의 절대 한도 | 90일 | `session_max_days` |
 | 휴지통의 보존 | 30일 | `trash_retention_days` |
 | 업로드의 청크 | 8 MiB | `upload_part_bytes`(5 MiB–5 GiB) |
+| 서버 전체의 열린 업로드가 걸어 두는 크기 | 2 GiB | `max_pending_upload_bytes` |
 | 로그인 제한: 쌍(계정, 주소)의 그냥 두는 실패 수 | 5회 | `login_pair_free_failures` |
 | 로그인 제한: 쌍의 대기 | 30초에서 두 배씩, 한 시간까지 | `login_pair_base_delay_seconds`, `login_pair_max_delay_seconds` |
 | 로그인 제한: 계정 전체의 연속 실패 상한과 잠금 | 100회, 한 시간 | `login_account_max_failures`, `login_account_lock_seconds` |
