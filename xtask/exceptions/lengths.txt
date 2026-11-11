@@ -14,7 +14,6 @@
 # file <lines> <path>
 # function <lines> <path> <name>
 
-file 1384 crates/server/src/api/contract.rs
 file 1114 crates/server/src/app/uploads.rs
 file 1510 crates/server/src/config.rs
 file 1231 crates/server/src/ws.rs
