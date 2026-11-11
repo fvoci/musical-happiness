@@ -44,9 +44,13 @@ impl Drop for Held {
         let (Some(archive), slot) = (self.archive.take(), self.slot.take()) else {
             return;
         };
-        // Without a runtime the archive's drop removes its file as it can.
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(release(archive, slot));
+        } else {
+            // Without a runtime the archive's drop removes its file as it can; then the
+            // place goes.
+            drop(archive);
+            drop(slot);
         }
     }
 }

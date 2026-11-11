@@ -25,8 +25,9 @@ pub(super) fn routes() -> OpenApiRouter<App> {
 /// One page of the board's cards that are in the trash, each with its identifier, its
 /// title, when it was deleted and by whom; `undeleteBlock` brings one back until the
 /// trash is emptied of it. A card that went with the block it was on (another card, a
-/// view) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages
-/// cut that order. A `page` or `perPage` that is no whole number is 400.
+/// view) comes back with that block, and is not listed. For the board's editors. The
+/// last deleted first; the pages cut that order. A `page` or `perPage` that is no whole
+/// number is 400.
 #[utoipa::path(
     get,
     path = "/boards/{boardId}/trash/cards",
