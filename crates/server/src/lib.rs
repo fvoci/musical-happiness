@@ -191,7 +191,10 @@ impl Server {
         // Nesting puts the API's routes into this router, so they get the layer too; its
         // fallbacks do not, and their answers are measured as unmatched.
         let routes = if measured {
-            routes.route_layer(middleware::from_fn(metrics::note_route))
+            routes.route_layer(middleware::from_fn_with_state(
+                self.app.metrics().clone(),
+                metrics::note_route,
+            ))
         } else {
             routes
         };
@@ -293,8 +296,8 @@ impl Server {
         let drain_by = std::sync::OnceLock::new();
         let drain_deadline =
             || *drain_by.get_or_init(|| tokio::time::Instant::now() + CONNECTION_DRAIN_TIMEOUT);
-        let metrics_serving = metrics_listener
-            .map(|listener| serve_metrics(listener, self.app.metrics(), stop.clone()));
+        let metrics_serving =
+            metrics_listener.map(|listener| serve_metrics(listener, &self.app, stop.clone()));
         let stopped = stop.clone().cancelled_owned();
         let serving = async move {
             if let Some(tls) = tls {
@@ -403,10 +406,10 @@ impl Server {
 /// seconds would fill it.
 fn serve_metrics(
     listener: tokio::net::TcpListener,
-    metrics: &metrics::Metrics,
+    app: &App,
     stop: CancellationToken,
 ) -> tokio::task::JoinHandle<()> {
-    let router = metrics::router(metrics.clone());
+    let router = metrics::router(app.clone());
     if let Ok(address) = listener.local_addr() {
         tracing::info!(%address, "metrics server started");
     }

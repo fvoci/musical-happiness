@@ -1000,6 +1000,7 @@ dependencies = [
  "fvoci-model",
  "fvoci-store",
  "getrandom 0.4.3",
+ "http-body",
  "httpdate",
  "object_store",
  "prometheus",

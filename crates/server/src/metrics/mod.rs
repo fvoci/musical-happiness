@@ -19,12 +19,15 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use prometheus::{Encoder as _, IntGaugeVec, Opts, Registry, TextEncoder};
 
+use crate::app::App;
 use crate::config::MetricsAddress;
 
 mod http;
+mod storage;
 mod websocket;
 
 pub(crate) use http::{Measured, measure_requests, note_route};
+pub(crate) use storage::ArchiveWork;
 pub(crate) use websocket::Disconnect;
 
 /// The prefix of the name of every metric of this server's own.
@@ -47,6 +50,7 @@ struct Kept {
     registry: Registry,
     http: http::HttpMetrics,
     websocket: websocket::WebsocketMetrics,
+    storage: storage::StorageMetrics,
 }
 
 impl Metrics {
@@ -82,11 +86,13 @@ impl Metrics {
         ))?;
         let http = http::HttpMetrics::register(&registry)?;
         let websocket = websocket::WebsocketMetrics::register(&registry)?;
+        let storage = storage::StorageMetrics::register(&registry)?;
         Ok(Self {
             kept: Some(Arc::new(Kept {
                 registry,
                 http,
                 websocket,
+                storage,
             })),
         })
     }
@@ -116,15 +122,17 @@ impl Metrics {
 
 /// The router of the metrics listener: [`PATH`] and nothing else. No route of the API,
 /// the websocket or the web app is on it.
-pub(crate) fn router(metrics: Metrics) -> Router {
+pub(crate) fn router(app: App) -> Router {
     Router::new()
         .route(PATH, get(serve_metrics))
         .fallback(|| async { StatusCode::NOT_FOUND })
-        .with_state(metrics)
+        .with_state(app)
 }
 
-/// Answers a scrape.
-async fn serve_metrics(axum::extract::State(metrics): axum::extract::State<Metrics>) -> Response {
+/// Answers a scrape: reads what is measured by asking, then writes all.
+async fn serve_metrics(axum::extract::State(app): axum::extract::State<App>) -> Response {
+    let metrics = app.metrics();
+    metrics.read_storage(&app).await;
     match metrics.render() {
         Some(Ok(text)) => (
             [(

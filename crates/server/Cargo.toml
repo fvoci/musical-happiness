@@ -25,6 +25,7 @@ flate2.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
 httpdate.workspace = true
+http-body.workspace = true
 object_store.workspace = true
 prometheus.workspace = true
 reqwest.workspace = true

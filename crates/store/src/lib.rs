@@ -43,13 +43,24 @@ pub use db::Dialect;
 pub use error::{StoreError, Taken};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
-pub use uploads::{PartRecord, UploadUsage};
+pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};
 
 /// How many connections a store keeps to a file or server database.
 const MAX_CONNECTIONS: u32 = 10;
+
+/// How the connection pool of a [`Store`] stands, as [`Store::pool_status`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolStatus {
+    /// The connections the pool holds, in use or idle.
+    pub connections: u32,
+    /// The connections the pool holds that are idle.
+    pub idle: u32,
+    /// The most connections the pool may hold.
+    pub max_connections: u32,
+}
 
 /// A handle to the database.
 ///
@@ -123,6 +134,28 @@ impl Store {
         schema::migrate(&store).await?;
         data_steps::run(&store).await?;
         Ok(store)
+    }
+
+    /// Returns how the connection pool stands: the connections it holds, those of them
+    /// that are idle, and how many it may hold.
+    pub fn pool_status(&self) -> PoolStatus {
+        let (size, idle, max) = match &self.inner.pool {
+            Pool::Sqlite(pool) => (
+                pool.size(),
+                pool.num_idle(),
+                pool.options().get_max_connections(),
+            ),
+            Pool::Postgres(pool) => (
+                pool.size(),
+                pool.num_idle(),
+                pool.options().get_max_connections(),
+            ),
+        };
+        PoolStatus {
+            connections: size,
+            idle: u32::try_from(idle).unwrap_or(u32::MAX),
+            max_connections: max,
+        }
     }
 
     /// Returns the kind of database this store is connected to.

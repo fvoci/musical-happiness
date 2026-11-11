@@ -380,3 +380,105 @@ async fn websocket_connections_messages_and_disconnections_are_counted() {
     assert_eq!(disconnections(&body, "session_ended"), Some(1.0), "{body}");
     server.teardown().await;
 }
+
+#[tokio::test]
+async fn the_pool_the_open_uploads_and_the_archives_are_measured() {
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .start()
+        .await
+        .init_basic()
+        .await;
+    let body = scrape(&server).await;
+    let max = sample(&body, "fvoci_db_pool_max_connections", &[]).expect("the pool's size");
+    let open = sample(&body, "fvoci_db_pool_connections", &[]).expect("its connections");
+    let idle = sample(&body, "fvoci_db_pool_idle_connections", &[]).expect("its idle ones");
+    assert!(max >= 1.0 && open <= max && idle <= open, "{body}");
+
+    let board = server
+        .create_board(crate::common::TEST_TEAM_ID, fvoci_model::BoardType::Open)
+        .await;
+    let mut uploads = Vec::new();
+    for size in [10, 20] {
+        let opened = server
+            .client
+            .post(
+                &format!("/boards/{}/uploads", board.id),
+                &serde_json::json!({"name": "a.txt", "size": size}),
+            )
+            .await;
+        opened.check_created();
+        uploads.push(
+            opened.value()["uploadId"]
+                .as_str()
+                .expect("an id")
+                .to_owned(),
+        );
+    }
+    let body = scrape(&server).await;
+    assert_eq!(
+        sample(&body, "fvoci_uploads_open", &[]),
+        Some(2.0),
+        "{body}"
+    );
+    assert_eq!(
+        sample(&body, "fvoci_uploads_open_bytes", &[]),
+        Some(30.0),
+        "{body}"
+    );
+    server
+        .client
+        .delete(&format!("/uploads/{}", uploads[0]))
+        .await
+        .check_no_content();
+    let body = scrape(&server).await;
+    assert_eq!(
+        sample(&body, "fvoci_uploads_open", &[]),
+        Some(1.0),
+        "{body}"
+    );
+    assert_eq!(
+        sample(&body, "fvoci_uploads_open_bytes", &[]),
+        Some(20.0),
+        "{body}"
+    );
+
+    let export = server
+        .client
+        .get(&format!("/boards/{}/archive/export", board.id))
+        .await;
+    assert_eq!(export.status, StatusCode::OK);
+    let imported =
+        crate::export::import(&server.client, crate::common::TEST_TEAM_ID, &export.body).await;
+    assert_eq!(
+        imported.status,
+        StatusCode::NO_CONTENT,
+        "the archive is imported"
+    );
+    let archives =
+        |body: &str, work: &str| sample(body, "fvoci_archives_in_progress", &[("work", work)]);
+    let body = scrape_until(&server, |body| archives(body, "export") == Some(0.0)).await;
+    assert_eq!(
+        archives(&body, "export"),
+        Some(0.0),
+        "the export is sent: {body}"
+    );
+    assert_eq!(
+        archives(&body, "import"),
+        Some(0.0),
+        "the import is done: {body}"
+    );
+    let export_route = "/api/v1/boards/{boardId}/archive/export";
+    let import_route = "/api/v1/teams/{teamId}/archive/import";
+    assert_eq!(
+        requests(&body, "GET", export_route, "200"),
+        Some(1.0),
+        "{body}"
+    );
+    assert_eq!(
+        requests(&body, "POST", import_route, "204"),
+        Some(1.0),
+        "{body}"
+    );
+    server.teardown().await;
+}
