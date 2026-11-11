@@ -1,7 +1,7 @@
 //! The metrics of HTTP requests on the API's listener: how many are being answered, and
 //! how long each took, by method, route and status.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use axum::extract::{MatchedPath, Request, State};
@@ -14,7 +14,10 @@ use super::{Metrics, PREFIX};
 
 /// The route of a request that matched none: a page of the web app, a path that is no
 /// route, under the API or elsewhere.
-pub(crate) const UNMATCHED: &str = "unmatched";
+const UNMATCHED: &str = "unmatched";
+
+/// The status of a request whose client went away before it was answered.
+const ABANDONED: &str = "abandoned";
 
 /// The method of a request that is none of the methods the server has routes for.
 const OTHER_METHOD: &str = "other";
@@ -41,8 +44,9 @@ impl HttpMetrics {
             HistogramOpts::new(
                 "http_request_duration_seconds",
                 "How long requests to the API's listener took until the head of their \
-                 answer, by method, route template (or unmatched) and status; its count \
-                 is the number of requests.",
+                 answer, by method, route template (or unmatched) and status (or \
+                 abandoned, when the client went away first); its count is the number \
+                 of requests.",
             )
             .namespace(PREFIX)
             .buckets(DURATION_BUCKETS.to_vec()),
@@ -64,24 +68,24 @@ impl HttpMetrics {
     }
 }
 
-/// The template of the route a request was routed to, as the router knows it: carried
-/// out on the answer from where routing is done to where the request is measured.
-#[derive(Debug, Clone)]
-struct RouteTemplate(Arc<str>);
+/// Where the template of the route a request is routed to is put, once routing has
+/// found it: given to the request by [`measure_requests`] and filled by [`note_route`],
+/// so that it is there also when the answer never comes back up, after a panic or when
+/// the client went away.
+#[derive(Debug, Clone, Default)]
+struct RouteSlot(Arc<OnceLock<MatchedPath>>);
 
-/// Notes on the answer the template of the route that answered, for
-/// [`measure_requests`]. A layer of the routes only: requests that match no route do
-/// not pass here, and are measured as [`UNMATCHED`].
+/// Puts the template of the route that is answering into the request's [`RouteSlot`].
+/// A layer of the routes only: requests that match no route do not pass here, and are
+/// measured as [`UNMATCHED`].
 pub(crate) async fn note_route(request: Request, next: Next) -> Response {
-    let template = request
-        .extensions()
-        .get::<MatchedPath>()
-        .map(|path| RouteTemplate(Arc::from(path.as_str())));
-    let mut response = next.run(request).await;
-    if let Some(template) = template {
-        response.extensions_mut().insert(template);
+    if let (Some(path), Some(RouteSlot(slot))) = (
+        request.extensions().get::<MatchedPath>(),
+        request.extensions().get::<RouteSlot>(),
+    ) {
+        let _ = slot.set(path.clone());
     }
-    response
+    next.run(request).await
 }
 
 /// What [`measure_requests`] needs: the metrics, and the base path the routes are
@@ -95,31 +99,83 @@ pub(crate) struct Measured {
 /// Counts the request as being answered until its answer's head is ready, and then its
 /// duration by method, route template and status. The outermost layer of the API's
 /// listener, so that what the inner layers answer, a contained panic among them, is
-/// measured too.
+/// measured too. A request whose client goes away before the answer is measured with
+/// the status `abandoned`, at the time it was given up.
 pub(crate) async fn measure_requests(
     State(measured): State<Measured>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let Some(kept) = measured.metrics.kept.as_ref() else {
         return next.run(request).await;
     };
-    let http = &kept.http;
-    let method = method_label(request.method());
-    let started = Instant::now();
-    // Dropped also if the request is given up halfway, when the client goes away.
-    let _answering = Answering::start(&http.in_flight);
+    let route = RouteSlot::default();
+    request.extensions_mut().insert(route.clone());
+    let measuring = Measuring::start(
+        &kept.http,
+        method_label(request.method()),
+        route,
+        &measured.base_path,
+    );
     let response = next.run(request).await;
-    let route = response
-        .extensions()
-        .get::<RouteTemplate>()
-        .map_or(UNMATCHED, |RouteTemplate(template)| {
-            route_label(template, &measured.base_path)
-        });
-    http.duration
-        .with_label_values(&[method, route, response.status().as_str()])
-        .observe(started.elapsed().as_secs_f64());
+    measuring.finish(response.status().as_str());
     response
+}
+
+/// A request being measured: counted as being answered while it lives, and measured
+/// as [`ABANDONED`] if it is dropped before it is finished.
+struct Measuring<'a> {
+    http: &'a HttpMetrics,
+    method: &'static str,
+    route: RouteSlot,
+    base_path: &'a str,
+    started: Instant,
+    finished: bool,
+}
+
+impl<'a> Measuring<'a> {
+    fn start(
+        http: &'a HttpMetrics,
+        method: &'static str,
+        route: RouteSlot,
+        base_path: &'a str,
+    ) -> Self {
+        http.in_flight.inc();
+        Self {
+            http,
+            method,
+            route,
+            base_path,
+            started: Instant::now(),
+            finished: false,
+        }
+    }
+
+    /// Measures the request with the status of its answer.
+    fn finish(mut self, status: &str) {
+        self.observe(status);
+        self.finished = true;
+    }
+
+    fn observe(&self, status: &str) {
+        let RouteSlot(slot) = &self.route;
+        let route = slot
+            .get()
+            .map_or(UNMATCHED, |path| route_label(path.as_str(), self.base_path));
+        self.http
+            .duration
+            .with_label_values(&[self.method, route, status])
+            .observe(self.started.elapsed().as_secs_f64());
+    }
+}
+
+impl Drop for Measuring<'_> {
+    fn drop(&mut self) {
+        self.http.in_flight.dec();
+        if !self.finished {
+            self.observe(ABANDONED);
+        }
+    }
 }
 
 /// The method as a label: one of the methods with routes, or [`OTHER_METHOD`], so that
@@ -146,25 +202,95 @@ fn route_label<'a>(template: &'a str, base_path: &str) -> &'a str {
     }
 }
 
-/// A request being answered: counted in the gauge while it lives.
-struct Answering<'a>(&'a IntGauge);
-
-impl<'a> Answering<'a> {
-    fn start(gauge: &'a IntGauge) -> Self {
-        gauge.inc();
-        Self(gauge)
-    }
-}
-
-impl Drop for Answering<'_> {
-    fn drop(&mut self) {
-        self.0.dec();
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use axum::Router;
+    use axum::body::Body;
+    use axum::http::StatusCode;
+    use axum::middleware;
+    use axum::routing::get;
+    use tower::ServiceExt as _;
+
     use super::*;
+
+    /// A router with a route that panics and one that takes a minute, measured as the
+    /// server's router is.
+    fn measured_router(metrics: &Metrics) -> Router {
+        async fn panics() -> &'static str {
+            panic!("the handler panics on purpose")
+        }
+        async fn takes_a_minute() -> &'static str {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            "late"
+        }
+        Router::new()
+            .route("/boards/{boardId}/panic", get(panics))
+            .route("/slow", get(takes_a_minute))
+            .route_layer(middleware::from_fn(note_route))
+            .layer(middleware::from_fn(crate::request_log::contain_panics))
+            .layer(middleware::from_fn_with_state(
+                Measured {
+                    metrics: metrics.clone(),
+                    base_path: Arc::from(""),
+                },
+                measure_requests,
+            ))
+    }
+
+    fn rendered(metrics: &Metrics) -> String {
+        let text = metrics
+            .render()
+            .expect("the metrics are kept")
+            .expect("the metrics encode");
+        String::from_utf8(text).expect("the text format is UTF-8")
+    }
+
+    fn get_request(path: &str) -> Request {
+        Request::get(path).body(Body::empty()).expect("a request")
+    }
+
+    #[tokio::test]
+    async fn a_request_whose_handler_panics_keeps_its_route() {
+        let metrics = Metrics::kept().expect("the metrics register");
+        let response = measured_router(&metrics)
+            .oneshot(get_request("/boards/b1/panic"))
+            .await
+            .expect("an answer");
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let text = rendered(&metrics);
+        assert!(
+            text.contains(
+                "fvoci_http_request_duration_seconds_count{method=\"GET\",\
+                 route=\"/boards/{boardId}/panic\",status=\"500\"} 1"
+            ),
+            "{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_request_the_client_gives_up_is_measured_as_abandoned() {
+        let metrics = Metrics::kept().expect("the metrics register");
+        let answer = tokio::time::timeout(
+            Duration::from_millis(50),
+            measured_router(&metrics).oneshot(get_request("/slow")),
+        )
+        .await;
+        assert!(answer.is_err(), "the request is given up");
+        let text = rendered(&metrics);
+        assert!(
+            text.contains(
+                "fvoci_http_request_duration_seconds_count{method=\"GET\",\
+                 route=\"/slow\",status=\"abandoned\"} 1"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("\nfvoci_http_requests_in_flight 0\n"),
+            "{text}"
+        );
+    }
 
     #[test]
     fn a_method_without_routes_is_one_label() {

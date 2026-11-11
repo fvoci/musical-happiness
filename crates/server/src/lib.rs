@@ -175,11 +175,6 @@ impl Server {
             // Under the API prefix nothing is ever answered with the web app's page.
             .fallback(api_not_found)
             .method_not_allowed_fallback(method_not_allowed);
-        let api = if measured {
-            api.route_layer(middleware::from_fn(metrics::note_route))
-        } else {
-            api
-        };
         let api = if self.app.config().compress_responses {
             api.layer(compression())
                 .layer(middleware::from_fn(identity_is_always_acceptable))
@@ -193,6 +188,8 @@ impl Server {
             .fallback(handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
             .with_state(self.app.clone());
+        // Nesting puts the API's routes into this router, so they get the layer too; its
+        // fallbacks do not, and their answers are measured as unmatched.
         let routes = if measured {
             routes.route_layer(middleware::from_fn(metrics::note_route))
         } else {
@@ -207,11 +204,7 @@ impl Server {
                 .route(&format!("{}/", self.base_path), get(handle_root))
                 .method_not_allowed_fallback(method_not_allowed)
                 .with_state(self.app.clone());
-            let root = if measured {
-                root.route_layer(middleware::from_fn(metrics::note_route))
-            } else {
-                root
-            };
+
             Router::new()
                 .nest(&self.base_path, routes)
                 .merge(root)

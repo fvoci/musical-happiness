@@ -122,7 +122,7 @@ async fn a_metrics_address_that_is_taken_keeps_the_server_from_starting() {
 
 /// The value of the sample of `name` whose labels are exactly `labels`, given in the
 /// order of their names, as the text format writes them.
-pub(crate) fn sample(body: &str, name: &str, labels: &[(&str, &str)]) -> Option<f64> {
+fn sample(body: &str, name: &str, labels: &[(&str, &str)]) -> Option<f64> {
     let labels: Vec<String> = labels
         .iter()
         .map(|(label, value)| format!("{label}=\"{value}\""))
