@@ -312,6 +312,21 @@ fn card_patch_to_block_patch() {
     );
 }
 
+/// Deleting a value of a block without values leaves it without them, not with an
+/// empty object.
+#[test]
+fn deleting_from_no_values_adds_none() {
+    let mut block = fvoci_model::Block::default();
+    let patch = CardPatch {
+        deleted_properties: vec!["x".to_owned()],
+        ..CardPatch::default()
+    }
+    .to_block_patch()
+    .expect("the patch is valid");
+    patch.apply(&mut block);
+    assert!(block.fields.is_empty(), "{:?}", block.fields);
+}
+
 #[test]
 fn card_patch_rejects_an_icon_of_two_graphemes() {
     let patch = CardPatch {

@@ -480,9 +480,9 @@ impl PropertyChanges {
     }
 
     /// Applies the changes to the `properties` field of a block's fields, made an empty
-    /// object first if it is absent or no object.
+    /// object first if it is absent or no object and there is a value to set.
     fn apply_to_fields(&self, fields: &mut JsonMap) {
-        if self.is_empty() {
+        if self.updated.is_empty() && !fields.get("properties").is_some_and(Value::is_object) {
             return;
         }
         let properties = fields

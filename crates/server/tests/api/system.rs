@@ -325,7 +325,9 @@ async fn a_request_is_finished_when_its_client_disconnects() {
 
     // A request whose connection closed before its handler began does nothing at all.
     // Every board that was created must also have been filed under the default
-    // category. Wait until nothing changes any more.
+    // category. A board is stored before it is filed, so under load the two counts can
+    // stay apart for a while: wait until nothing changes any more and every created
+    // board is filed, for ten seconds at most. A board that is never filed fails.
     let mut settled = (0, 0, 0);
     for _ in 0..100 {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -357,7 +359,7 @@ async fn a_request_is_finished_when_its_client_disconnects() {
             created.iter().filter(|id| filed.contains(id)).count(),
             categories.as_array().map_or(0, Vec::len),
         );
-        if counts == settled && counts.0 > 0 {
+        if counts == settled && counts.0 > 0 && counts.0 == counts.1 {
             break;
         }
         settled = counts;

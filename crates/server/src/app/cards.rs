@@ -126,8 +126,9 @@ impl App {
     /// Applies a patch to a card and returns the patched card; listeners are told as
     /// for any patched block.
     ///
-    /// Preserved quirk: updated properties replace all properties of the card, they
-    /// are not merged into them (server/model/card.go:306-308).
+    /// The property values are merged into the stored ones in the store's transaction
+    /// ([`fvoci_model::BlockPatch::property_changes`]). (The original replaces them all,
+    /// server/model/card.go:306-308.)
     ///
     /// # Errors
     ///
