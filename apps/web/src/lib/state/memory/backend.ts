@@ -109,7 +109,10 @@ function fail(
     ...problemOf(status, detail),
     ...(limit === undefined ? {} : { limit }),
     ...(entry === undefined ? {} : { errors: [entry] }),
-    ...(entry === undefined && reason !== undefined ? { reason } : {}),
+    // A reason of the problem names its type, as on the server (`last_admin`: `/problems/last-admin`).
+    ...(entry === undefined && reason !== undefined
+      ? { reason, type: `/problems/${reason.replaceAll('_', '-')}` }
+      : {}),
   });
 }
 

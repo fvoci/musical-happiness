@@ -578,7 +578,7 @@ export class ServerBackend implements Backend, Account {
   async #category(teamId: string, categoryId: string): Promise<Category> {
     const found = (await this.categories(teamId)).find((category) => category.id === categoryId);
     if (!found) {
-      throw new BackendError(404, { detail: 'no such category', reason: 'not_found' });
+      throw new BackendError(404, { detail: 'no such category' });
     }
     return found;
   }

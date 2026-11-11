@@ -25,22 +25,28 @@ describe('a refused change of the password', () => {
   });
 
   it('tells a new password that is too short from one that is too long, by the server’s measures', () => {
-    // Told by the member `errors` points at; the measure decides when the reason does not.
-    const tooShort = refusal(400, { errors: [refusedMember('newPassword', 'no')] });
+    // Told by the member `errors` points at, with the server's reason.
+    const tooShort = refusal(400, { errors: [refusedMember('newPassword', 'no', 'too_short')] });
     expect(passwordProblemOf(tooShort, 'short')).toEqual({
       text: 'The new password needs at least 8 characters.',
       field: 'next',
     });
-    // Seven characters, though fourteen UTF-16 units: too short, as the server counts.
-    expect(passwordProblemOf(tooShort, '😀😀😀😀😀😀😀').text).toBe(
+    // A reason this page does not know: its measures decide. Seven characters,
+    // though fourteen UTF-16 units, are too short, as the server counts.
+    const measured = refusal(400, { errors: [refusedMember('newPassword', 'no')] });
+    expect(passwordProblemOf(measured, '😀😀😀😀😀😀😀').text).toBe(
       'The new password needs at least 8 characters.',
     );
-    expect(passwordProblemOf(tooShort, '가'.repeat(342))).toEqual({
+    expect(passwordProblemOf(measured, '가'.repeat(342))).toEqual({
       text: 'The new password is too long.',
       field: 'next',
     });
     const tooLong = refusal(400, { errors: [refusedMember('newPassword', 'no', 'too_long')] });
     expect(passwordProblemOf(tooLong, 'long enough').text).toBe('The new password is too long.');
+    // The reason decides, whatever this page measured.
+    expect(passwordProblemOf(tooShort, 'long enough').text).toBe(
+      'The new password needs at least 8 characters.',
+    );
   });
 
   it('says what to do after a change elsewhere, too many tries, or anything else', () => {

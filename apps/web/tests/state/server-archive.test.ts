@@ -61,18 +61,21 @@ describe('an export', () => {
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            type: '/problems/forbidden',
-            title: 'Forbidden',
+            type: '/problems/sharing-disabled',
+            title: 'Sharing disabled',
             status: 403,
             detail: 'no',
-            reason: 'x',
+            reason: 'sharing_disabled',
           }),
           { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
         ),
       );
     });
     const refused = await new ServerBackend('').exportTeam('t1').catch((error: unknown) => error);
-    expect(isBackendError(refused) && [refused.status, refused.reason]).toEqual([403, 'x']);
+    expect(isBackendError(refused) && [refused.status, refused.reason]).toEqual([
+      403,
+      'sharing_disabled',
+    ]);
     expect(urls).toEqual(['/api/v1/teams/t1/archive/export']);
   });
 
@@ -95,7 +98,14 @@ describe('an import', () => {
         json: typeof init.body === 'string' ? JSON.parse(init.body) : undefined,
       });
       const answer = (status: number, body?: unknown) =>
-        Promise.resolve(new Response(body === undefined ? null : JSON.stringify(body), { status }));
+        Promise.resolve(
+          new Response(body === undefined ? null : JSON.stringify(body), {
+            status,
+            headers: {
+              'Content-Type': status >= 400 ? 'application/problem+json' : 'application/json',
+            },
+          }),
+        );
       if (url.endsWith('/client-config')) return answer(200, { maxFileSize: 10, maxImportSize });
       if (url.endsWith('/archive/uploads')) {
         return answer(201, { uploadId: 'up9', partSize: 4, partCount: 2, expiresAt: 1 });

@@ -806,7 +806,10 @@ describe('sharing a board', () => {
     await board.setMemberRole(me, 'editor');
     expect(board.role).toBe('admin');
     expect(workspace.problems).toHaveLength(1);
-    expect(workspace.problems[0]?.error?.reason).toBe('last_admin');
+    expect(workspace.problems[0]?.error).toMatchObject({
+      reason: 'last_admin',
+      type: '/problems/last-admin',
+    });
   });
 
   it('opens the board to the team with a minimum role', async () => {
