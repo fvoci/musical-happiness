@@ -589,7 +589,7 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
     .expect("a body");
     let mention = "/block/body/content/0/content/0/attrs/userId";
 
-    let (_reader, message) = follow_block(&th, &block, &token).await;
+    let (mut reader, message) = follow_block(&th, &block, &token).await;
     assert_eq!(message["block"]["id"], json!(block.id), "{message}");
     assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
     assert_eq!(message["block"]["modifiedBy"], json!(""), "{message}");
@@ -615,6 +615,14 @@ async fn a_reader_by_read_token_is_not_told_who_wrote_a_block() {
         Some(&json!(user1.id)),
         "{message}"
     );
+    // The same broadcast, as the reader has it: what the member is told does not reach
+    // the reader, nor the reverse.
+    let message = reader
+        .next_json(PATIENCE)
+        .await
+        .expect("the reader is told too");
+    assert_eq!(message["block"]["createdBy"], json!(""), "{message}");
+    assert_eq!(message.pointer(mention), Some(&json!("")), "{message}");
 
     th.teardown().await;
 }

@@ -369,9 +369,9 @@ impl Block {
     }
 
     /// The block as it goes to whoever reads with a read token alone, who is nobody the
-    /// server knows and is not told who its users are (`docs/s6-design.md`, decision 7):
-    /// no `createdBy` or `modifiedBy`, and no user in the mentions of the body. A user's
-    /// identifier tells when they signed up.
+    /// server knows (`docs/s6-design.md`, decision 7): no `createdBy` or `modifiedBy`, and
+    /// no user in the mentions of the body. A user's identifier tells when they signed
+    /// up. The values of person properties in `fields` go as they are.
     pub fn hide_people(&mut self) {
         self.created_by.clear();
         self.modified_by.clear();
