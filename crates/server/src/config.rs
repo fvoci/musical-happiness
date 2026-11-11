@@ -606,12 +606,12 @@ impl Configuration {
         else {
             bail!("the configuration must be a JSON object");
         };
-        let mut keys = lower_case_keys(file);
+        let mut keys = lower_case_keys(file)?;
         match keys.remove("filess3config") {
             Some(Value::Object(s3)) => {
                 keys.insert(
                     "filess3config".to_owned(),
-                    Value::Object(lower_case_keys(s3)),
+                    Value::Object(lower_case_keys(s3)?),
                 );
             }
             None | Some(Value::Null) => {
@@ -908,10 +908,18 @@ impl Configuration {
     }
 }
 
-fn lower_case_keys(map: Map<String, Value>) -> Map<String, Value> {
-    map.into_iter()
-        .map(|(key, value)| (key.to_lowercase(), value))
-        .collect()
+fn lower_case_keys(map: Map<String, Value>) -> anyhow::Result<Map<String, Value>> {
+    let mut keys = Map::new();
+    for (key, value) in map {
+        let key = key.to_lowercase();
+        // Which of two spellings wins would be the order of the letters: one is refused,
+        // by its name alone (its value may be a secret).
+        if keys.contains_key(&key) {
+            bail!("{key} is given twice, in letters of different cases");
+        }
+        keys.insert(key, value);
+    }
+    Ok(keys)
 }
 
 fn env_value(name: &str, text: &str, kind: EnvKind) -> anyhow::Result<Value> {

@@ -14,7 +14,8 @@
 # without one the server answers every non-API path with a placeholder page.
 #
 # Metrics are off. To serve them, set FVOCI_PROMETHEUSADDRESS=:9092, publish that port to
-# the monitoring network only, and set FVOCI_PROMETHEUSTOKEN: the listener is plain HTTP.
+# the monitoring network only, and set FVOCI_PROMETHEUSTOKEN (at least 32 characters, such
+# as `openssl rand -hex 32`): the listener is plain HTTP.
 
 ARG RUST_VERSION=1
 ARG WEB_BUNDLE=docker/fvoci/web

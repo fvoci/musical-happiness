@@ -219,6 +219,13 @@ mod tests {
             assert!(error.contains("prometheustoken"), "{error}");
             assert!(!error.contains(&refused), "{error}");
         }
+        let only_equals = Configuration {
+            prometheus_token: "=".repeat(MIN_TOKEN_CHARS),
+            ..Configuration::default()
+        };
+        only_equals
+            .check()
+            .expect_err("= only at the end of something");
         for accepted in [
             String::new(),
             TOKEN.to_owned(),
@@ -271,6 +278,24 @@ mod tests {
             empty.metrics_token().is_none(),
             "no token, no authentication"
         );
+    }
+
+    #[test]
+    fn a_key_given_twice_in_different_cases_is_refused_without_its_values() {
+        let text = format!(r#"{{"prometheusToken": "{TOKEN}", "prometheustoken": ""}}"#);
+        let error = format!(
+            "{:#}",
+            Configuration::parse(&text, |_| None).expect_err("given twice")
+        );
+        assert_eq!(
+            error,
+            "prometheustoken is given twice, in letters of different cases"
+        );
+        Configuration::parse(
+            r#"{"filesS3Config": {"Bucket": "a", "bucket": "b"}}"#,
+            |_| None,
+        )
+        .expect_err("given twice in filess3config");
     }
 
     #[test]
