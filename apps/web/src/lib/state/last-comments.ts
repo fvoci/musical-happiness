@@ -16,6 +16,7 @@
  * before the board was read, say) reads the times of all the cards again.
  */
 import type { CardSummary, Comment } from './backend.ts';
+import type { BoardStore } from './board.svelte.ts';
 
 /** What the board gives to keep the times. */
 export interface LastCommentsHost {
@@ -115,4 +116,23 @@ export class LastComments {
     });
     if (cards.some((card, at) => card !== now[at])) this.#host.setCards(cards);
   }
+}
+
+/** The times of a board's cards, kept by the board's own lists and its backend. */
+export function lastCommentsOf(board: BoardStore): LastComments {
+  // Asked each time, as the store does: the workspace's backend is the one of now.
+  const backend = (): BoardStore['workspace']['backend'] => board.workspace.backend;
+  return new LastComments({
+    cards: () => board.cards,
+    setCards: (cards) => {
+      board.cards = cards;
+    },
+    readCard: (cardId) => backend().card(board.boardId, cardId),
+    readCards: () => backend().cards(board.boardId),
+    blockIds: () =>
+      [...board.cards, ...board.views, ...(board.openCard?.attachments ?? [])].map(
+        (block) => block.id,
+      ),
+    openComments: () => board.openCard?.comments ?? [],
+  });
 }

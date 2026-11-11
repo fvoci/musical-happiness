@@ -24,7 +24,9 @@
 
   let { board, view }: { board: BoardStore; view: BoardView } = $props();
 
-  const toggles = $derived(propertyToggles(board.board?.cardProperties ?? []));
+  const toggles = $derived(
+    propertyToggles(board.board?.cardProperties ?? [], view.fields.viewType),
+  );
   const order = $derived(board.board?.cardProperties.map((template) => template.id) ?? []);
 
   let list = $state<HTMLElement>();

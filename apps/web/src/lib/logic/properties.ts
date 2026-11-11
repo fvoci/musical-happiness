@@ -7,12 +7,13 @@
  * up here instead of switching on the name.
  */
 import type { CalculationId } from './calculations.ts';
+import { cardUpdatedAt } from './card-time.ts';
 import { dateOfInstant, daysOf, type CalendarDate, type DatePoint } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
 import { displayCalendarDate, displayDateTime, type DisplayContext } from './format.ts';
 import {
-  cardUpdatedAt,
   parseDateValue,
+  parseRelationValue,
   plainPropertyValue,
   type Card,
   type PropertyTemplate,
@@ -21,7 +22,15 @@ import {
 } from './wire.ts';
 
 /** Which kind of control edits the value of a filter on this property. */
-export type FilterValueType = 'none' | 'options' | 'boolean' | 'text' | 'date' | 'person';
+export type FilterValueType =
+  | 'none'
+  | 'options'
+  | 'boolean'
+  | 'text'
+  | 'date'
+  | 'person'
+  /** Only whether there is a value: "is not empty", "is empty". */
+  | 'presence';
 
 export type CalculationOption = 'none' | CalculationId;
 
@@ -133,6 +142,18 @@ const displayMultiSelect: Display = (stored, card, template) => {
   return options.map((option) => option.value);
 };
 
+/**
+ * The titles of the cards a relation names. A card that is not there
+ * (deleted) is left out; without a way to look titles up, the identifiers.
+ */
+const displayRelation: Display = (value, card, _template, context) => {
+  const ids = parseRelationValue(value).filter((id) => id !== card.id);
+  const { cardTitle } = context;
+  if (!cardTitle) return ids;
+  // An untitled card adds no text, as in a sort.
+  return ids.flatMap((id) => cardTitle(id) || []);
+};
+
 /** A day as a date, a moment as a date with its time. */
 function displayPoint(point: DatePoint, context: DisplayContext): string {
   return point.instant === undefined
@@ -221,6 +242,13 @@ export const PROPERTY_BEHAVIORS: Record<PropertyType, PropertyBehavior> = {
     filterValueType: 'person',
     isReadOnly: true,
   }),
+  // Not grouped by and not calculated; a filter asks only whether there is a value.
+  relation: behavior({
+    canFilter: true,
+    filterValueType: 'presence',
+    calculationOptions: ['none'],
+    displayValue: displayRelation,
+  }),
   file: behavior({}),
   unknown: behavior({}),
 };
@@ -250,4 +278,5 @@ export const SELECTABLE_PROPERTY_TYPES: readonly PropertyType[] = [
   'createdBy',
   'updatedTime',
   'updatedBy',
+  'relation',
 ];

@@ -3,6 +3,7 @@
 //! [`App`] holds the server's shared state. Its operations are spread over the modules of
 //! this directory by area, mirroring the original's `server/app` package.
 
+mod audience;
 mod auth;
 mod blocks;
 mod boards;
@@ -30,13 +31,15 @@ mod trash;
 mod uploads;
 mod users;
 
+pub use audience::Audience;
 pub use auth::Admission;
 pub use blocks::ChangeNotification;
+pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
 pub use uploads::{
-    CLOSED_UPLOAD_GRACE_MILLIS, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
+    CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,
 };
 pub use users::sanitize;
@@ -55,6 +58,7 @@ use crate::auth::hash_queue::HashQueue;
 use crate::auth::limiter::{Limits, LoginLimiter};
 use crate::config::Configuration;
 use crate::error::{AppError, Reason};
+use crate::metrics::{Metrics, OpenUploads, Pool};
 use crate::permissions::{
     BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
 };
@@ -83,6 +87,8 @@ struct Inner {
     files: FileBackend,
     web: WebRoot,
     webhook: Webhook,
+    /// The Prometheus metrics, kept if `prometheusaddress` is set.
+    metrics: Metrics,
     /// Work that continues after a response was sent: websocket broadcasts and webhooks.
     background: TaskTracker,
     /// Held while a user's default category is looked for and created, so that two
@@ -132,12 +138,19 @@ impl App {
     ///
     /// # Errors
     ///
-    /// Returns an error if `serverRoot` or an allowed origin is no URL, or if webhooks
-    /// are configured and their HTTP client cannot be set up.
+    /// Returns an error if `serverRoot` or an allowed origin is no URL, if webhooks
+    /// are configured and their HTTP client cannot be set up, or if `prometheusaddress`
+    /// is no address.
     pub fn new(config: Configuration, store: Store, files: FileBackend) -> anyhow::Result<Self> {
+        let metrics = if config.metrics_address()?.is_some() {
+            Metrics::kept()?
+        } else {
+            Metrics::none()
+        };
         store.set_comment_versions_kept(config.max_comment_versions);
         let auth = Authenticator::new(store.clone(), &config)?;
-        let login_limiter = LoginLimiter::new(Limits::from_config(&config));
+        let login_limiter =
+            LoginLimiter::new(Limits::from_config(&config)).with_metrics(metrics.clone());
         let password_work = HashQueue::new(
             usize::try_from(config.password_hash_concurrency).unwrap_or(usize::MAX),
             usize::try_from(config.password_hash_queue).unwrap_or(usize::MAX),
@@ -145,7 +158,12 @@ impl App {
         );
         let ping_interval = (config.websocket_ping_seconds > 0)
             .then(|| std::time::Duration::from_secs(config.websocket_ping_seconds));
-        let ws = Hub::new(store.clone(), auth.clone(), ping_interval);
+        let ws = Hub::new(
+            Audience::new(store.clone()),
+            auth.clone(),
+            ping_interval,
+            metrics.clone(),
+        );
         let web = WebRoot::new(&config.web_path, &config.server_root);
         let webhook = Webhook::new(config.webhook_update.clone())
             .context("unable to set up the webhook client")?;
@@ -165,6 +183,7 @@ impl App {
                 files,
                 web,
                 webhook,
+                metrics,
                 background: TaskTracker::new(),
                 default_category: tokio::sync::Mutex::new(()),
                 opening_upload: tokio::sync::Mutex::new(()),
@@ -174,6 +193,11 @@ impl App {
                 imports,
             }),
         })
+    }
+
+    /// The Prometheus metrics; they do nothing unless `prometheusaddress` is set.
+    pub fn metrics(&self) -> &Metrics {
+        &self.inner.metrics
     }
 
     /// The server configuration.
@@ -321,6 +345,39 @@ impl App {
                 Reason::ServerExportsBusy,
             ),
         })
+    }
+
+    /// How many exports and how many imports hold their place, as their limits count
+    /// them: for the metrics.
+    fn archives_running(&self) -> (usize, usize) {
+        (self.inner.exports.held(), self.inner.imports.held())
+    }
+
+    /// Reads into the metrics what is measured by asking, for a scrape: the archives
+    /// that hold their place, the connection pool and the open uploads. The uploads
+    /// stay as they were if the database cannot be read in time, which is counted, or
+    /// another scrape is reading them.
+    pub(crate) async fn read_storage_metrics(&self) {
+        let metrics = self.metrics();
+        if !metrics.is_kept() {
+            return;
+        }
+        let (exports, imports) = self.archives_running();
+        metrics.set_archives_running(exports, imports);
+        let pool = self.store().pool_status();
+        metrics.set_pool(Pool {
+            connections: pool.connections,
+            idle: pool.idle,
+            max_connections: pool.max_connections,
+        });
+        let open_uploads = async {
+            let open = self.store().open_uploads(crate::auth::now_millis()).await?;
+            Ok::<_, fvoci_store::StoreError>(OpenUploads {
+                sessions: open.sessions,
+                bytes: open.bytes,
+            })
+        };
+        metrics.read_open_uploads(open_uploads).await;
     }
 
     /// Takes the place of an import of the user's, as [`Self::start_export`] does.

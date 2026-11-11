@@ -53,7 +53,9 @@ import {
   commentOf,
   commentVersionOf,
   memberOf,
+  newBoardAndViewOf,
   newCardOf,
+  boardPatchOf,
   previewsOf,
   settingsChangeOf,
   rolesOf,
@@ -225,31 +227,7 @@ export class ServerBackend implements Backend, Account {
     draft: BoardDraft,
     firstView: ViewDraft,
   ): Promise<{ board: Board; view: BoardView }> {
-    const boardRef = 'new-board';
-    const request: Schemas['NewBoardsAndBlocks'] = {
-      boards: [
-        {
-          id: boardRef,
-          teamId,
-          type: draft.type ?? 'P',
-          title: draft.title,
-          description: draft.description ?? '',
-          icon: draft.icon ?? '',
-          cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
-        },
-      ],
-      blocks: [
-        {
-          id: 'new-view',
-          boardId: boardRef,
-          type: 'view',
-          title: firstView.title,
-          fields: firstView.fields,
-          createAt: 1,
-          updateAt: 1,
-        },
-      ],
-    };
+    const request = newBoardAndViewOf(teamId, draft, firstView);
     const made = await this.#http.request<Schemas['BoardsAndBlocks']>(
       '/api/v1/boards-and-blocks',
       {},
@@ -275,22 +253,7 @@ export class ServerBackend implements Backend, Account {
    * (none, or admin) is refused here as the server would refuse it.
    */
   async patchBoard(boardId: string, patch: BoardPatch): Promise<Board> {
-    const { minimumRole, updatedCardProperties, ...rest } = patch;
-    if (minimumRole === '' || minimumRole === 'admin') {
-      throw new BackendError(400, {
-        detail: 'no such minimum role',
-        errors: [refusedMember('minimumRole', 'no such minimum role')],
-      });
-    }
-    const request: Schemas['BoardPatch'] = {
-      ...rest,
-      ...(minimumRole === undefined ? {} : { minimumRole }),
-      ...(updatedCardProperties === undefined
-        ? {}
-        : {
-            updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[],
-          }),
-    };
+    const request = boardPatchOf(patch);
     return boardOf(
       await this.#http.request<Schemas['Board']>(
         '/api/v1/boards/{boardId}',

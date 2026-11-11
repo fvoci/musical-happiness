@@ -15,7 +15,8 @@ use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 
-use crate::error::{AppError, ErrorKind, PROBLEMS_PATH, Reason, problems_only, type_reference};
+use crate::error::{AppError, ErrorKind, PROBLEMS_PATH, Reason, type_reference};
+use crate::error_response::problems_only;
 
 /// What a kind of problem is the kind of: every error either has a reason, and is the
 /// problem of that reason whatever its status, or has none and is the problem of its
@@ -70,7 +71,7 @@ impl From<ErrorKind> for ProblemType {
         Self {
             name: kind.name().to_owned(),
             title: kind.title(),
-            basis: Basis::Status(kind.status().as_u16()),
+            basis: Basis::Status(kind.status()),
             description: describe_kind(kind),
         }
     }

@@ -533,6 +533,32 @@ describe('changing a view on the server', () => {
     expect(view.fields.cardOrder).toEqual(['c2', 'c1']);
   });
 
+  it('makes a view as a block of the board, and refuses an answer without one', async () => {
+    const sent = serve([{ ...VIEW, fields: { viewType: 'calendar' } }], 201);
+    const view = await new ServerBackend('').createView('b', {
+      title: 'Calendar view',
+      fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' } as never,
+    });
+    expect(sent.map((one) => [one.method, one.url])).toEqual([['POST', '/api/v1/boards/b/blocks']]);
+    expect(sent[0]?.body).toEqual([
+      {
+        boardId: 'b',
+        type: 'view',
+        title: 'Calendar view',
+        fields: { viewType: 'calendar', dateDisplayPropertyId: 'due' },
+        createAt: 1,
+        updateAt: 1,
+      },
+    ]);
+    expect(view.id).toBe('v');
+    expect(view.fields.viewType).toBe('calendar');
+    serve([], 201);
+    const refused = await new ServerBackend('')
+      .createView('b', { title: 'Calendar view', fields: { viewType: 'calendar' } as never })
+      .catch((error: unknown) => error);
+    expect(isBackendError(refused) && refused.status).toBe(500);
+  });
+
   it('sends two quick changes of one view one after the other', async () => {
     const order: string[] = [];
     vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {

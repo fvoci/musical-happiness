@@ -43,6 +43,15 @@ impl Slots {
         }
     }
 
+    /// How many slots are held.
+    pub(crate) fn held(&self) -> usize {
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .users
+            .len()
+    }
+
     /// Takes a slot for the user, held until the [`Slot`] is dropped.
     pub(crate) fn take(&self, user_id: &str) -> Result<Slot, Busy> {
         // The set has nothing a panic could leave half done.

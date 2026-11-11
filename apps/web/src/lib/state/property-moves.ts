@@ -11,6 +11,8 @@
 import { movedProperty, sameOrder, withPropertyOrder } from '../logic/property-order.ts';
 import type { Board } from '../logic/wire.ts';
 
+import type { BoardStore } from './board.svelte.ts';
+
 export interface PropertyMovesHost {
   board(): Board | undefined;
   /** Shows the board with the new order at once. */
@@ -50,4 +52,20 @@ export class PropertyMoves {
     }
     return true;
   }
+}
+
+/** The moves of a board's properties, shown on the board store and sent by its backend. */
+export function propertyMovesOf(board: BoardStore): PropertyMoves {
+  // Asked each time, as the store does: the workspace's backend is the one of now.
+  const backend = (): BoardStore['workspace']['backend'] => board.workspace.backend;
+  return new PropertyMoves({
+    board: () => board.board,
+    show: (shown) => {
+      board.board = shown;
+    },
+    send: (order) => backend().reorderCardProperties(board.boardId, order),
+    reread: async () => {
+      board.board = await backend().board(board.boardId);
+    },
+  });
 }

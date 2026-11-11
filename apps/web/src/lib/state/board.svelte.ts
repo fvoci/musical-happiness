@@ -40,8 +40,9 @@ import {
 } from './backend.ts';
 import { droppedCardOrder, placeAmongAll } from './card-order.ts';
 import { CardStore } from './card.svelte.ts';
-import { LastComments } from './last-comments.ts';
-import { PropertyMoves } from './property-moves.ts';
+import { lastCommentsOf } from './last-comments.ts';
+import { propertyMovesOf } from './property-moves.ts';
+import { newUndoGroup, roleFlags, roleOf, type CardDrop } from './board-parts.ts';
 import { orderMembers, orderViews } from './order.ts';
 import {
   applyBoardPatch,
@@ -56,56 +57,7 @@ import {
 import type { LoadStatus, Workspace } from './workspace.svelte.ts';
 import { PendingWrites, put, reread, take } from './write.ts';
 
-function roleOf(member: BoardMember | undefined): MemberRole {
-  if (!member) return '';
-  if (member.schemeAdmin) return 'admin';
-  if (member.schemeEditor) return 'editor';
-  if (member.schemeCommenter) return 'commenter';
-  return member.schemeViewer ? 'viewer' : '';
-}
-
-/** The flags of a membership with exactly the one role. */
-function roleFlags(
-  role: BoardRole,
-): Pick<BoardMember, 'schemeAdmin' | 'schemeEditor' | 'schemeCommenter' | 'schemeViewer'> {
-  return {
-    schemeAdmin: role === 'admin',
-    schemeEditor: role === 'editor',
-    schemeCommenter: role === 'commenter',
-    schemeViewer: role === 'viewer',
-  };
-}
-
-let groupCounter = 0;
-/** A name for the changes of one gesture, so that undo takes them back together. */
-export function newUndoGroup(): string {
-  groupCounter += 1;
-  return `group-${groupCounter}`;
-}
-
-/** Where dropped cards go: a column (by the value of the grouping property) and a place in it. */
-export interface CardDrop {
-  viewId: string;
-  cardIds: readonly string[];
-  /**
-   * The option of the column they were dropped in; `''` is the column of
-   * cards without a value. Undefined: the view is not grouped, or the column
-   * is not to change.
-   */
-  optionId?: string;
-  /**
-   * The place among the cards of that column, counted without the dropped
-   * ones. Undefined: the view is sorted and places itself.
-   */
-  index?: number;
-  /**
-   * The cards of that column the page shows, in shown order, when a filter,
-   * a search or a folded group may hide some of them: `index` is then a
-   * place among these, and the store finds the place among all of the
-   * column (`placeAmongAll`). Left out: `index` counts every card.
-   */
-  shown?: readonly string[];
-}
+export { newUndoGroup, type CardDrop } from './board-parts.ts';
 
 export class BoardStore {
   readonly workspace: Workspace;
@@ -128,6 +80,11 @@ export class BoardStore {
   readonly orderedViews = $derived.by(() => orderViews(this.views, this.workspace.locale));
   /** The cards that are cards, not templates for new ones. */
   readonly realCards = $derived(this.cards.filter((card) => !card.fields.isTemplate));
+  /** The real cards by identifier: a card a relation names is shown when it is here. */
+  readonly cardsById: ReadonlyMap<string, CardSummary> = $derived(
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- made anew from the cards, never changed
+    new Map(this.realCards.map((card) => [card.id, card])),
+  );
   readonly orderedMembers = $derived.by(() =>
     orderMembers(
       this.members,
@@ -182,19 +139,7 @@ export class BoardStore {
   readonly canReadCommentHistory = $derived(this.role !== '');
 
   /** Keeps the cards' `lastCommentAt` current between readings. */
-  readonly #lastComments = new LastComments({
-    cards: () => this.cards,
-    setCards: (cards) => {
-      this.cards = cards;
-    },
-    readCard: (cardId) => this.#backend.card(this.boardId, cardId),
-    readCards: () => this.#backend.cards(this.boardId),
-    blockIds: () =>
-      [...this.cards, ...this.views, ...(this.openCard?.attachments ?? [])].map(
-        (block) => block.id,
-      ),
-    openComments: () => this.openCard?.comments ?? [],
-  });
+  readonly #lastComments = lastCommentsOf(this);
   readonly #cardWrites = new PendingWrites<CardSummary>();
   readonly #viewWrites = new PendingWrites<BoardView>();
   /** Readings again (`#refresh`) begun: the latest is the one that counts. */
@@ -314,6 +259,7 @@ export class BoardStore {
         usernameOf: (userId) => this.workspace.userName(userId),
         locale: this.workspace.locale,
         timeZone: this.workspace.regional.timeZone,
+        cardTitle: (cardId) => this.cardsById.get(cardId)?.title,
       },
     );
   }
@@ -845,16 +791,7 @@ export class BoardStore {
     );
   }
 
-  readonly #propertyMoves = new PropertyMoves({
-    board: () => this.board,
-    show: (board) => {
-      this.board = board;
-    },
-    send: (order) => this.#backend.reorderCardProperties(this.boardId, order),
-    reread: async () => {
-      this.board = await this.#backend.board(this.boardId);
-    },
-  });
+  readonly #propertyMoves = propertyMovesOf(this);
 
   // ------------------------------------------------------------ sharing
 

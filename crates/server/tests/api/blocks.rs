@@ -2825,6 +2825,123 @@ async fn delete_comment_by_its_author_or_by_an_admin_works() {
     );
 }
 
+/// Not in the original (user decision 2026-11-11 21:00 KST). What comes back is the
+/// whole deletion, so the block that was deleted decides: a block below somebody else's
+/// comment, deleted with it, does not bring the comment back for an editor, and a
+/// comment of somebody else that went with its card comes back with the card, which an
+/// editor may delete and bring back.
+#[tokio::test]
+async fn a_deletion_comes_back_as_its_top_block_allows() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let others = &content.comment;
+
+    // The editor's reply below the commenter's comment, deleted with it by the admin.
+    let reply = insert_one(
+        &boards.editor,
+        &child_of(others, BlockType::Comment, "a reply"),
+    )
+    .await;
+    delete(&th.client, others).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &reply.id), &json!({}))
+        .await
+        .check_error(
+            StatusCode::FORBIDDEN,
+            "access denied to undelete other users' comments",
+        );
+    th.client
+        .post(&undelete_path(board_id, &reply.id), &json!({}))
+        .await
+        .check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"comment") && titles(&read).contains(&"a reply"),
+        "both back by the admin: {:?}",
+        titles(&read)
+    );
+
+    // The card, deleted by the editor with the commenter's comment on it: the editor
+    // brings it back, naming the card or the comment.
+    delete(&boards.editor, &content.card).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &others.id), &json!({}))
+        .await
+        .check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"card") && titles(&read).contains(&"comment"),
+        "{:?}",
+        titles(&read)
+    );
+}
+
+/// Not in the original (user decision 2026-11-11 21:00 KST). A deleted comment is
+/// brought back only by who may delete it: its author with the editor's role, and the
+/// comment of somebody else the board's admins only. An editor is refused another's;
+/// the commenter, who may not delete even their own comment, may not bring it back. A
+/// card is brought back by an editor as before.
+#[tokio::test]
+async fn a_deleted_comment_is_brought_back_only_by_who_may_delete_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let others = undelete_path(board_id, &content.comment.id);
+
+    // The commenter's comment, deleted by the admin.
+    delete(&th.client, &content.comment).await;
+    boards.editor.post(&others, &json!({})).await.check_error(
+        StatusCode::FORBIDDEN,
+        "access denied to undelete other users' comments",
+    );
+    boards
+        .commenter
+        .post(&others, &json!({}))
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    assert!(
+        !titles(&blocks_of(&th.client, board_id).await).contains(&"comment"),
+        "still in the trash"
+    );
+    th.client.post(&others, &json!({})).await.check_ok();
+    assert!(titles(&blocks_of(&th.client, board_id).await).contains(&"comment"));
+
+    // The editor's own comment, and a card, by the editor.
+    let own = insert_one(
+        &boards.editor,
+        &child_of(&content.card, BlockType::Comment, "the editor's"),
+    )
+    .await;
+    delete(&boards.editor, &own).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &own.id), &json!({}))
+        .await
+        .check_ok();
+    let card = insert_one(
+        &th.client,
+        &new_block(board_id, BlockType::Card, "card two"),
+    )
+    .await;
+    delete(&th.client, &card).await;
+    boards
+        .editor
+        .post(&undelete_path(board_id, &card.id), &json!({}))
+        .await
+        .check_ok();
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"the editor's") && titles(&read).contains(&"card two"),
+        "{:?}",
+        titles(&read)
+    );
+}
+
 /// A comment is changed by its author with the commenter's role, and the comment of
 /// somebody else by the board's admins only, as it is deleted; an editor may not change
 /// it. `patchBlock`, `patchBlocks` and `patchBoardsAndBlocks` alike. Who changed it and
@@ -2991,6 +3108,146 @@ async fn a_commenter_changes_no_card_and_makes_none() {
         titles(&read).contains(&"own") && titles(&read).contains(&"card"),
         "nothing changed: {:?}",
         titles(&read)
+    );
+}
+
+/// Not in the original (coordinator's decision 2026-11-11 21:10 KST). The commenter's
+/// role changes the text of the commenter's own comment, its body; moving it to another
+/// card (`parentId`) is for editors, refused as any change the role may not make on
+/// patchBlock and patchBlocks; patchBoardsAndBlocks refuses a commenter before, by the
+/// board's permission. A `parentId` that stays as it was moves nothing. An editor
+/// moves their own comment and not somebody else's; an admin moves anybody's.
+#[tokio::test]
+async fn a_commenter_changes_the_text_of_their_comment_but_does_not_move_it() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
+    let own = &content.comment;
+    let path = block_path(board_id, &own.id);
+    let doc = |text: &str| {
+        json!({"type": "doc", "content": [
+            {"type": "paragraph", "content": [{"type": "text", "text": text}]},
+        ]})
+    };
+
+    boards
+        .commenter
+        .patch(
+            &path,
+            &json!({"body": doc("changed"), "readAt": own.update_at, "parentId": own.parent_id}),
+        )
+        .await
+        .check_no_content();
+    let refused = "access denied to make board changes";
+    boards
+        .commenter
+        .patch(&path, &json!({"parentId": second.id}))
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    boards
+        .commenter
+        .patch(
+            &blocks_path(board_id),
+            &json!({"blockIds": [own.id], "blockPatches": [{"parentId": second.id}]}),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, refused);
+    let moved_together = json!({
+        "boardIds": [board_id], "boardPatches": [{}],
+        "blockIds": [own.id], "blockPatches": [{"parentId": second.id}],
+    });
+    boards
+        .commenter
+        .patch("/boards-and-blocks", &moved_together)
+        .await
+        .check_error(
+            StatusCode::FORBIDDEN,
+            "access denied to modifying board properties",
+        );
+    let read = blocks_of(&th.client, board_id).await;
+    let comment = find(&read, &own.id);
+    assert_eq!(comment.parent_id, content.card.id, "not moved");
+    assert_eq!(
+        comment.body.as_ref().map(|body| body.document().clone()),
+        Some(doc("changed")),
+        "its text changed"
+    );
+}
+
+/// Not in the original (coordinator's decision 2026-11-11 21:10 KST). An editor moves
+/// their own comment to another card, alone or with the board, but not somebody else's;
+/// an admin moves anybody's.
+#[tokio::test]
+async fn an_editor_moves_their_own_comment_and_an_admin_anybodys() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let second = insert_one(&th.client, &new_block(board_id, BlockType::Card, "second")).await;
+    let own = &content.comment;
+    let path = block_path(board_id, &own.id);
+
+    // An editor moves their own comment, alone or with the board.
+    let editors = insert_one(
+        &boards.editor,
+        &child_of(&content.card, BlockType::Comment, "the editor's"),
+    )
+    .await;
+    boards
+        .editor
+        .patch(
+            &block_path(board_id, &editors.id),
+            &json!({"parentId": second.id}),
+        )
+        .await
+        .check_no_content();
+    boards
+        .editor
+        .patch(
+            "/boards-and-blocks",
+            &json!({
+                "boardIds": [board_id], "boardPatches": [{}],
+                "blockIds": [editors.id], "blockPatches": [{"parentId": content.card.id}],
+            }),
+        )
+        .await
+        .check_ok();
+    // A comment on the board itself: naming the board as its parent moves nothing.
+    let on_board = insert_one(
+        &boards.commenter,
+        &new_block(board_id, BlockType::Comment, "on the board"),
+    )
+    .await;
+    boards
+        .commenter
+        .patch(
+            &block_path(board_id, &on_board.id),
+            &json!({"parentId": board_id, "title": "still on the board"}),
+        )
+        .await
+        .check_no_content();
+
+    // Somebody else's comment: not the editor, but the admin.
+    boards
+        .editor
+        .patch(&path, &json!({"parentId": second.id}))
+        .await
+        .check_error(
+            StatusCode::FORBIDDEN,
+            "access denied to change other users' comments",
+        );
+    th.client
+        .patch(&path, &json!({"parentId": second.id}))
+        .await
+        .check_no_content();
+    let read = blocks_of(&th.client, board_id).await;
+    assert_eq!(find(&read, &editors.id).parent_id, content.card.id);
+    assert_eq!(
+        find(&read, &own.id).parent_id,
+        second.id,
+        "moved by the admin"
     );
 }
 

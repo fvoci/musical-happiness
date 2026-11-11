@@ -16,7 +16,8 @@ use uuid::Uuid;
 
 use crate::client_address::{ClientAddress, TrustedProxies};
 use crate::connection::Connection;
-use crate::error::{AppError, PROBLEMS_PATH, ReportedError};
+use crate::error::{AppError, PROBLEMS_PATH};
+use crate::error_response::ReportedError;
 
 /// The response header that carries the identifier of the request.
 const X_REQUEST_ID: &str = "x-request-id";

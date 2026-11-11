@@ -1,0 +1,203 @@
+//! What the editor's schema says that the shared content alone does not: the attributes
+//! each kind of node and mark has, the value an editor gives one that is left out, and
+//! the order in which it stores marks.
+//!
+//! The web app writes its own schema into `contracts/ydoc-vectors.json`; a test holds
+//! these tables to it.
+
+/// The value an editor gives an attribute that is left out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Fallback {
+    /// None: the attribute stays left out.
+    None,
+    /// A whole number.
+    Integer(i64),
+    /// A truth value.
+    Boolean(bool),
+}
+
+/// An attribute a kind of node has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Attribute {
+    /// Its name.
+    pub(crate) name: &'static str,
+    /// What an editor reads when the shared content does not have it.
+    pub(crate) fallback: Fallback,
+}
+
+const fn plain(name: &'static str) -> Attribute {
+    Attribute {
+        name,
+        fallback: Fallback::None,
+    }
+}
+
+/// Every kind of node the editor's schema has, with its attributes in the schema's order.
+pub(crate) const NODES: [(&str, &[Attribute]); 17] = [
+    ("blockMath", &[plain("latex")]),
+    ("blockquote", &[]),
+    ("bulletList", &[]),
+    ("codeBlock", &[plain("language")]),
+    ("doc", &[]),
+    ("hardBreak", &[]),
+    (
+        "heading",
+        &[Attribute {
+            name: "level",
+            fallback: Fallback::Integer(1),
+        }],
+    ),
+    ("horizontalRule", &[]),
+    ("image", &[plain("fileId"), plain("alt")]),
+    ("inlineMath", &[plain("latex")]),
+    ("listItem", &[]),
+    ("mention", &[plain("userId")]),
+    (
+        "orderedList",
+        &[Attribute {
+            name: "start",
+            fallback: Fallback::Integer(1),
+        }],
+    ),
+    ("paragraph", &[]),
+    (
+        "taskItem",
+        &[Attribute {
+            name: "checked",
+            fallback: Fallback::Boolean(false),
+        }],
+    ),
+    ("taskList", &[]),
+    ("text", &[]),
+];
+
+/// The marks in the order the editor stores them on a text, each with its attributes.
+pub(crate) const MARKS: [(&str, &[&str]); 5] = [
+    ("link", &["href"]),
+    ("bold", &[]),
+    ("italic", &[]),
+    ("strike", &[]),
+    ("code", &[]),
+];
+
+/// The attributes of a kind of node; `None` for a kind the schema does not have.
+pub(crate) fn node_attributes(kind: &str) -> Option<&'static [Attribute]> {
+    NODES
+        .iter()
+        .find(|(name, _)| *name == kind)
+        .map(|(_, attributes)| *attributes)
+}
+
+/// Where a mark comes among the marks of a text; `None` for one the schema does not have.
+pub(crate) fn mark_rank(mark: &str) -> Option<usize> {
+    MARKS.iter().position(|(name, _)| *name == mark)
+}
+
+/// The attributes of a mark; none for one the schema does not have.
+pub(crate) fn mark_attributes(mark: &str) -> &'static [&'static str] {
+    MARKS
+        .iter()
+        .find(|(name, _)| *name == mark)
+        .map_or(&[], |(_, attributes)| *attributes)
+}
+
+/// Where a kind of node stands, which decides what is put around one to judge it alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Place {
+    /// Nowhere: the document itself.
+    Document,
+    /// Among the blocks of the document, a quote or a list entry.
+    Block,
+    /// In a line: text, and what stands in a line and is no text.
+    Line,
+    /// In a bullet list or an ordered list.
+    ListEntry,
+    /// In a task list.
+    TaskEntry,
+}
+
+/// Where a kind of node stands. A kind nobody knows is judged as a block, and fails.
+pub(crate) fn place(kind: &str) -> Place {
+    match kind {
+        "doc" => Place::Document,
+        "text" | "hardBreak" | "mention" | "inlineMath" => Place::Line,
+        "listItem" => Place::ListEntry,
+        "taskItem" => Place::TaskEntry,
+        _ => Place::Block,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use serde_json::{Map, Value, json};
+
+    use super::*;
+
+    fn vectors() -> Value {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contracts/ydoc-vectors.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("reading {}: {error}", path.display()));
+        serde_json::from_str(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+    }
+
+    fn fallback(attribute: Attribute) -> Value {
+        match attribute.fallback {
+            Fallback::None => Value::Null,
+            Fallback::Integer(number) => json!(number),
+            Fallback::Boolean(truth) => json!(truth),
+        }
+    }
+
+    /// The tables are the schema the web app wrote down from its editor.
+    #[test]
+    fn the_tables_are_the_editors_schema() {
+        let schema = &vectors()["schema"];
+
+        let marks: Vec<Value> = MARKS
+            .iter()
+            .map(|(name, attributes)| {
+                let attrs: Map<String, Value> = attributes
+                    .iter()
+                    .map(|attribute| ((*attribute).to_owned(), Value::Null))
+                    .collect();
+                json!({"name": name, "attrs": attrs})
+            })
+            .collect();
+        assert_eq!(schema["marks"], Value::from(marks), "the marks, in order");
+
+        // Read as sets: whether a JSON object keeps its order is a setting of the reader.
+        let nodes = schema["nodes"]
+            .as_object()
+            .expect("the nodes of the schema");
+        let mut theirs: Vec<&str> = nodes.keys().map(String::as_str).collect();
+        theirs.sort_unstable();
+        let ours: Vec<&str> = NODES.iter().map(|(name, _)| *name).collect();
+        assert_eq!(ours, theirs, "the kinds of node, by name");
+        for (name, attributes) in NODES {
+            let mut theirs: Vec<(&str, Value)> = nodes[name]
+                .as_object()
+                .expect("the attributes of a node")
+                .iter()
+                .map(|(attribute, value)| (attribute.as_str(), value.clone()))
+                .collect();
+            theirs.sort_by_key(|(attribute, _)| *attribute);
+            let mut ours: Vec<(&str, Value)> = attributes
+                .iter()
+                .map(|one| (one.name, fallback(*one)))
+                .collect();
+            ours.sort_by_key(|(attribute, _)| *attribute);
+            assert_eq!(ours, theirs, "the attributes of {name}");
+        }
+    }
+
+    #[test]
+    fn a_kind_nobody_knows_has_no_attributes_and_no_rank() {
+        assert_eq!(node_attributes("video"), None);
+        assert_eq!(mark_rank("glow"), None);
+        assert!(mark_attributes("glow").is_empty(), "no attributes");
+        assert_eq!(mark_rank("link"), Some(0));
+        assert_eq!(mark_rank("code"), Some(4));
+    }
+}

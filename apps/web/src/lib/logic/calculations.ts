@@ -1,4 +1,5 @@
 /** The summary row of a table and the summary of a board column. */
+import { cardUpdatedAt } from './card-time.ts';
 import { addDays, daysBetween, daysOf, type CalendarDate } from './dates.ts';
 import {
   displayCalendarDate,
@@ -9,7 +10,6 @@ import {
 } from './format.ts';
 import {
   cardProperty,
-  cardUpdatedAt,
   parseDateValue,
   plainPropertyValue,
   TITLE_COLUMN_ID,

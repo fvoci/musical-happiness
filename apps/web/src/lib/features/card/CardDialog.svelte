@@ -35,7 +35,7 @@
     /** The card to show. Undefined: no card is open. */
     cardId: string | undefined;
     onClose: () => void;
-    /** Shows another card in place of this one: the copy that "Duplicate" made. */
+    /** Shows another card in place of this one: the copy "Duplicate" made, a card a relation names. */
     onOpenCard?: (cardId: string) => void;
   }
 
@@ -85,13 +85,14 @@
   let held: unknown;
 
   /**
-   * Closes the card. What is unsaved is stored first. When that does not
-   * work (somebody else wrote the body, the server did not answer), or an
-   * image is still going up for the body (shown in its place), the card
-   * stays open once, so that nothing is lost by a careless tap. Closing
-   * again, or with the notice already there, leaves.
+   * Whether the card may be left, for another card or for the board. What
+   * is unsaved is stored first. When that does not work (somebody else wrote
+   * the body, the server did not answer), or an image is still going up for
+   * the body (shown in its place), the card stays open once, so that nothing
+   * is lost by a careless tap. Leaving again, or with the notice already
+   * there, leaves.
    */
-  async function close(): Promise<void> {
+  async function mayLeave(): Promise<boolean> {
     const open = card;
     // Asked before and after the write: a function, so that the second answer is not taken for the first.
     const unsaved = (): boolean => (open?.dirty ?? false) || (open?.imagesGoingUp ?? false);
@@ -99,10 +100,19 @@
       await open.saveBody();
       if (unsaved() && board.openCard === open) {
         held = open;
-        return;
+        return false;
       }
     }
-    onClose();
+    return true;
+  }
+
+  async function close(): Promise<void> {
+    if (await mayLeave()) onClose();
+  }
+
+  /** Shows another card in place of this one, when this one may be left. */
+  async function openOther(otherId: string): Promise<void> {
+    if (await mayLeave()) onOpenCard?.(otherId);
   }
 
   /**
@@ -148,7 +158,14 @@
     </Dialog.Description>
     {#if card}
       {#key card}
-        <CardContent {board} {view} {card} {frame} onClose={() => void close()} {onOpenCard} />
+        <CardContent
+          {board}
+          {view}
+          {card}
+          {frame}
+          onClose={() => void close()}
+          onOpenCard={(otherId: string) => void openOther(otherId)}
+        />
       {/key}
     {/if}
   </Dialog.Content>

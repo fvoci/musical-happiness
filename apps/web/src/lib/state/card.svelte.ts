@@ -394,7 +394,7 @@ export class CardStore {
 
   async #deleteChild(blockId: string, description: string): Promise<void> {
     const comment = this.#comments.find((existing) => existing.id === blockId);
-    const attachment = this.#attachments.find((existing) => existing.id === blockId);
+    const child = comment ?? this.#attachments.find((existing) => existing.id === blockId);
     try {
       await this.board.workspace.undo.perform(
         async () => {
@@ -404,8 +404,7 @@ export class CardStore {
         },
         async () => {
           await this.#backend.restoreBlock(this.#boardId, blockId);
-          if (comment) this.receive(comment);
-          if (attachment) this.receive(attachment);
+          if (child) this.receive(child);
         },
         description,
       );

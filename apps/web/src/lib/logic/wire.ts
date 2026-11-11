@@ -173,19 +173,7 @@ export type CardFields = {
   contentOrder: ContentOrder;
 };
 
-export type Card = Block & {
-  fields: CardFields;
-  /**
-   * When its newest comment was posted, as the server says (`lastCommentAt`);
-   * 0 or absent: none, or not known.
-   */
-  lastCommentAt?: number;
-};
-
-/** When a card last changed, a comment on it counting as a change: what "last updated time" shows. */
-export function cardUpdatedAt(card: Card): number {
-  return Math.max(card.updateAt, card.lastCommentAt ?? 0);
-}
+export type Card = Block & { fields: CardFields; lastCommentAt?: number };
 
 function readContentOrder(value: unknown): ContentOrder {
   if (!Array.isArray(value)) return [];
@@ -524,6 +512,7 @@ export type PropertyType =
   | 'createdBy'
   | 'updatedTime'
   | 'updatedBy'
+  | 'relation'
   | 'unknown';
 
 export interface PropertyOption {
@@ -728,6 +717,20 @@ export function plainPropertyValue(
   const stored = formatDateValue(parseDateValue(value));
   if (!stored) return undefined;
   return stored.to === undefined ? String(stored.from) : `${stored.from}/${stored.to}`;
+}
+
+/** The most cards one relation value names. */
+export const RELATION_LIMIT = 50;
+
+/**
+ * The cards a relation property names: a list of card identifiers, each
+ * once, in the order they were picked. Whatever else is stored (text left by
+ * another kind, a date) names no card. Identifiers of deleted cards are kept
+ * here; what is shown leaves them out. Written as such a list too.
+ */
+export function parseRelationValue(stored: PropertyValue | undefined): string[] {
+  if (!Array.isArray(stored)) return [];
+  return [...new Set(stored.filter((id) => typeof id === 'string' && id !== ''))];
 }
 
 /** The day a date filter compares with: a filter stores it as `YYYY-MM-DD`. */

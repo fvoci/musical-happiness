@@ -17,23 +17,28 @@ import {
   type BlockType,
   type Board,
   type BoardMember,
+  type BoardPatch,
   type BoardView,
   type PropertyTemplate,
 } from '../logic/wire.ts';
-import type {
-  AccountSettings,
-  AccountSettingsPatch,
-  Attachment,
-  BoardRole,
-  CardDetail,
-  CardDraft,
-  Comment,
-  CommentVersion,
-  CardSummary,
-  Category,
-  Sharing,
-  Team,
-  User,
+import {
+  BackendError,
+  refusedMember,
+  type AccountSettings,
+  type BoardDraft,
+  type AccountSettingsPatch,
+  type Attachment,
+  type BoardRole,
+  type CardDetail,
+  type CardDraft,
+  type Comment,
+  type CommentVersion,
+  type CardSummary,
+  type Category,
+  type Sharing,
+  type Team,
+  type User,
+  type ViewDraft,
 } from '../state/backend.ts';
 
 import type { components } from './contract.ts';
@@ -278,4 +283,59 @@ export function rolesOf(role: BoardRole): Schemas['MemberRoles'] {
 /** A public link; one that was never on has no token. */
 export function sharingOf(sharing: Schemas['Sharing']): Sharing {
   return { enabled: sharing.enabled, token: sharing.token ?? '' };
+}
+
+/** A board and its first view, to be made in one request (`createBoardsAndBlocks`). */
+export function newBoardAndViewOf(
+  teamId: string,
+  draft: BoardDraft,
+  firstView: ViewDraft,
+): Schemas['NewBoardsAndBlocks'] {
+  const boardRef = 'new-board';
+  return {
+    boards: [
+      {
+        id: boardRef,
+        teamId,
+        type: draft.type ?? 'P',
+        title: draft.title,
+        description: draft.description ?? '',
+        icon: draft.icon ?? '',
+        cardProperties: (draft.cardProperties ?? []) as unknown as Record<string, unknown>[],
+      },
+    ],
+    blocks: [
+      {
+        id: 'new-view',
+        boardId: boardRef,
+        type: 'view',
+        title: firstView.title,
+        fields: firstView.fields,
+        createAt: 1,
+        updateAt: 1,
+      },
+    ],
+  };
+}
+
+/**
+ * A change of a board, as `patchBoard` takes it. A minimum role the
+ * contract does not have (none, or admin) is refused here as the server
+ * would refuse it.
+ */
+export function boardPatchOf(patch: BoardPatch): Schemas['BoardPatch'] {
+  const { minimumRole, updatedCardProperties, ...rest } = patch;
+  if (minimumRole === '' || minimumRole === 'admin') {
+    throw new BackendError(400, {
+      detail: 'no such minimum role',
+      errors: [refusedMember('minimumRole', 'no such minimum role')],
+    });
+  }
+  return {
+    ...rest,
+    ...(minimumRole === undefined ? {} : { minimumRole }),
+    ...(updatedCardProperties === undefined
+      ? {}
+      : { updatedCardProperties: updatedCardProperties as unknown as Record<string, unknown>[] }),
+  };
 }

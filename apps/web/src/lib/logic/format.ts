@@ -22,6 +22,8 @@ export interface DisplayContext {
   hourCycle?: HourCycle;
   /** Shown for a select value whose option no longer exists. */
   unknownOption?: string;
+  /** The title of a card of the board; undefined for a card that is not there (deleted). */
+  cardTitle?: (cardId: string) => string | undefined;
 }
 
 const isValid = (instant: number): boolean => Number.isFinite(instant);
@@ -166,4 +168,96 @@ export function humanFileSize(bytes: number, si = false, decimals = 1): string {
     unit += 1;
   } while (Math.round(Math.abs(size) * factor) / factor >= step && unit < units.length - 1);
   return `${size.toFixed(decimals)} ${units[unit] ?? ''}`;
+}
+
+// ------------------------------------------------------- a calendar's names
+
+/*
+ * The names a calendar writes: of a month, of a day, of a weekday. None of
+ * them is a word of ours: `Intl` gives the names and the order of the parts
+ * in the reader's language. A calendar date is formatted as that date in UTC:
+ * it is a day, not a moment, and must not move with anyone's time zone.
+ */
+
+const calendarFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** One formatter per language and shape: a month draws hundreds of names. */
+function calendarFormatter(
+  locale: string,
+  shape: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${locale}\u0000${shape}`;
+  let formatter = calendarFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, { timeZone: 'UTC', ...options });
+    calendarFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+/** Midnight UTC of a date, the years 0 to 99 too (`Date.UTC` would read them as 1900 to 1999). */
+function utcDay(date: CalendarDate): Date {
+  const day = new Date(0);
+  day.setUTCFullYear(
+    Number(date.slice(0, 4)),
+    Number(date.slice(5, 7)) - 1,
+    Number(date.slice(8, 10)),
+  );
+  return day;
+}
+
+/** `November 2026`: the month a date is in. */
+export function displayMonth(date: CalendarDate, locale: string): string {
+  return calendarFormatter(locale, 'month', { year: 'numeric', month: 'long' }).format(
+    utcDay(date),
+  );
+}
+
+/** `November 12`. */
+export function displayDay(date: CalendarDate, locale: string): string {
+  return calendarFormatter(locale, 'day', { month: 'long', day: 'numeric' }).format(utcDay(date));
+}
+
+/** `Thursday, November 12`. */
+export function displayDayLong(date: CalendarDate, locale: string): string {
+  return calendarFormatter(locale, 'day-long', {
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long',
+  }).format(utcDay(date));
+}
+
+/** `November 8 – 14`: from one day to another, the parts they share written once. */
+export function displayDayRange(first: CalendarDate, last: CalendarDate, locale: string): string {
+  return calendarFormatter(locale, 'day', { month: 'long', day: 'numeric' }).formatRange(
+    utcDay(first),
+    utcDay(last),
+  );
+}
+
+/** `Thu`: the short name of the weekday of a date. */
+export function displayWeekday(date: CalendarDate, locale: string): string {
+  return calendarFormatter(locale, 'weekday', { weekday: 'short' }).format(utcDay(date));
+}
+
+/** `12`: the number of a day in its month, without the word for "day" some languages add. */
+export function displayDayNumber(date: CalendarDate, locale: string): string {
+  return (
+    calendarFormatter(locale, 'number', { day: 'numeric' })
+      .formatToParts(utcDay(date))
+      .find((part) => part.type === 'day')?.value ?? ''
+  );
+}
+
+/** `8:00 AM`: the time of a moment on the reader's clock. */
+export function displayTime(instant: number, context: DisplayContext): string {
+  if (!isValid(instant)) return '';
+  const cycle = context.hourCycle ?? '';
+  return calendarFormatter(context.locale, `time\u0000${context.timeZone}\u0000${cycle}`, {
+    timeZone: context.timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(context.hourCycle ? { hourCycle: context.hourCycle } : {}),
+  }).format(instant);
 }

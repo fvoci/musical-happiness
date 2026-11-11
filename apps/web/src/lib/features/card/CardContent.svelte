@@ -143,7 +143,7 @@
         </p>
       {/if}
       <CardTitle {board} card={summary} autofocus={blank} />
-      <CardProperties {board} {view} card={summary} />
+      <CardProperties {board} {view} card={summary} {onOpenCard} />
       {#if ready}
         <CardBody {board} {card} {saver} />
         <CardAttachments {board} {card} />
