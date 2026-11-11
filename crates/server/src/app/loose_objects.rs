@@ -13,11 +13,17 @@
 
 use std::collections::BTreeSet;
 
-use fvoci_store::LooseObject;
-
 use super::App;
+use super::uploads::UPLOAD_LIFETIME_MILLIS;
+use crate::auth::now_millis;
 use crate::error::AppError;
 use crate::storage::StorageError;
+
+/// How long writing an object may take: past it the housekeeping takes the writing for
+/// stopped, and dooms the object. Twice as long as an upload session lasts, which no
+/// write of a file takes, whether a request's body, a completion or an import; one that
+/// takes longer all the same fails, and leaves nothing (`Store::record_written_file`).
+pub const WRITING_GRACE_MILLIS: i64 = 2 * UPLOAD_LIFETIME_MILLIS;
 
 /// How many doomed objects a run reads from the store at once.
 const DOOMED_PER_BATCH: i64 = 200;
@@ -99,9 +105,10 @@ impl App {
                 .filter(|object| seen.insert(object.path.as_str()))
             {
                 let removal = if held.contains(&object.path) {
-                    self.keep_held(object).await
+                    self.keep_held(&object.path).await
                 } else {
-                    self.remove_doomed_object(object, now).await
+                    self.remove_doomed_object(&object.path, object.attempts, now)
+                        .await
                 };
                 match removal {
                     Removal::Removed => done.removed += 1,
@@ -124,9 +131,9 @@ impl App {
 
     /// Keeps a doomed object that something holds, and takes it off the list: whatever
     /// doomed it was wrong, which is logged as an error.
-    async fn keep_held(&self, object: &LooseObject) -> Removal {
+    async fn keep_held(&self, path: &str) -> Removal {
         tracing::error!("a doomed object is held by a record, a write or an upload; it is kept");
-        if self.forget(object).await {
+        if self.forget(path).await {
             Removal::Kept
         } else {
             Removal::Failed
@@ -135,11 +142,11 @@ impl App {
 
     /// Removes one doomed object that nothing holds and takes it off the list. If it
     /// cannot go, the failure is noted on its row, or the row is left as it is.
-    async fn remove_doomed_object(&self, object: &LooseObject, now: i64) -> Removal {
-        let error_kind = match self.files().delete(&object.path).await {
+    async fn remove_doomed_object(&self, path: &str, attempts: i64, now: i64) -> Removal {
+        let error_kind = match self.files().delete(path).await {
             // Gone already is removed: a run cut off after the removal comes here.
             Ok(()) => {
-                return if self.forget(object).await {
+                return if self.forget(path).await {
                     Removal::Removed
                 } else {
                     Removal::Failed
@@ -149,21 +156,21 @@ impl App {
             // for ever.
             Err(error @ StorageError::InvalidPath(_)) => {
                 tracing::error!(%error, "a doomed object has a place no storage takes; it is taken off the list");
-                return if self.forget(object).await {
+                return if self.forget(path).await {
                     Removal::Removed
                 } else {
                     Removal::Failed
                 };
             }
             Err(error) => {
-                tracing::warn!(%error, attempts = object.attempts + 1, "a doomed object could not be removed");
+                tracing::warn!(%error, attempts = attempts + 1, "a doomed object could not be removed");
                 error_kind(&error)
             }
         };
-        let retry_at = now.saturating_add(retry_delay(object.attempts + 1));
+        let retry_at = now.saturating_add(retry_delay(attempts + 1));
         if let Err(error) = self
             .store()
-            .doomed_object_failed(&object.path, now, error_kind, retry_at)
+            .doomed_object_failed(path, now, error_kind, retry_at)
             .await
         {
             tracing::warn!(%error, "a failed removal could not be noted");
@@ -171,9 +178,46 @@ impl App {
         Removal::Failed
     }
 
+    /// Marks the object about to be written at `path`, until it is recorded
+    /// (`Store::record_written_file`) or given up ([`App::give_up_writing`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the store's error; nothing is to be written then.
+    pub(crate) async fn mark_writing(&self, path: &str) -> Result<(), AppError> {
+        let doom_at = now_millis().saturating_add(WRITING_GRACE_MILLIS);
+        Ok(self.store().mark_writing(path, doom_at).await?)
+    }
+
+    /// Gives up the object being written at `path`, which will not be recorded: dooms
+    /// it and removes it now, unless something holds it. What cannot be removed now
+    /// stays doomed for the housekeeping; a mark that cannot be doomed is doomed by the
+    /// housekeeping once its writing is to be over. A place that is no longer marked is
+    /// left alone: it was recorded, with the answer lost, or doomed already.
+    pub(crate) async fn give_up_writing(&self, path: &str) {
+        match self.store().doom_writing(path).await {
+            Ok(true) => match self.store().held_objects(&[path], None).await {
+                Ok(held) if held.is_empty() => {
+                    self.remove_doomed_object(path, 0, now_millis()).await;
+                }
+                Ok(_) => {
+                    self.keep_held(path).await;
+                }
+                // Doomed: the housekeeping asks again.
+                Err(error) => {
+                    tracing::warn!(%error, "whether a given-up object is held could not be read");
+                }
+            },
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(%error, "an object that will not be recorded could not be doomed");
+            }
+        }
+    }
+
     /// Takes a doomed object off the list. Returns whether it went.
-    async fn forget(&self, object: &LooseObject) -> bool {
-        match self.store().forget_doomed_object(&object.path).await {
+    async fn forget(&self, path: &str) -> bool {
+        match self.store().forget_doomed_object(path).await {
             Ok(()) => true,
             Err(error) => {
                 tracing::warn!(%error, "a doomed object could not be taken off the list");

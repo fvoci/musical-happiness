@@ -3,12 +3,13 @@
 //! keeps an object: a record of any board or organization.
 
 use fvoci_model::{BoardType, FileInfo, Team, Upload, UploadPurpose, new_id};
-use fvoci_server::app::RemovedObjects;
+use fvoci_server::app::{RemovedObjects, WRITING_GRACE_MILLIS};
 use fvoci_server::auth::now_millis;
 use fvoci_server::auth::secret::new_secret;
 use fvoci_server::storage::FaultyOp;
 use fvoci_store::testing::db_type_of_the_tests;
 use fvoci_store::{DbType, LooseState, Store};
+use tokio::io::AsyncWriteExt as _;
 
 use crate::common::{Setup, TEST_TEAM_ID, TestServer};
 use crate::files::{upload, uploaded_id};
@@ -342,5 +343,227 @@ async fn a_doomed_object_that_another_organization_holds_is_kept() {
     let (theirs, board_id) = another_organizations_board(&ts).await;
     let path = recorded_file(&ts, &theirs, &board_id).await;
     a_doomed_object_that_is_held_is_kept(&ts, &path).await;
+    ts.teardown().await;
+}
+
+/// A write of a file to a new board that goes on until the test ends it: what is sent
+/// to the returned writer, then its end when it is dropped. Returns the board, the
+/// place the file is being written at (marked once the write began), the writer and
+/// the write.
+async fn slow_write(
+    ts: &TestServer,
+) -> (
+    String,
+    String,
+    tokio::io::DuplexStream,
+    tokio::task::JoinHandle<Result<String, fvoci_server::error::AppError>>,
+) {
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let (mut writer, mut reader) = tokio::io::duplex(64);
+    let app = ts.app.clone();
+    let board_id = board.id.clone();
+    let write =
+        tokio::spawn(async move { app.save_file(&mut reader, &board_id, "slow.txt").await });
+    writer
+        .write_all(b"the first bytes")
+        .await
+        .expect("the write takes them");
+    let mut path = None;
+    for _ in 0..500 {
+        let listed = ts.app.store().loose_objects().await.expect("listed");
+        if let Some(object) = listed.into_iter().find(|o| o.state == LooseState::Writing) {
+            path = Some(object.path);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let path = path.expect("the place is marked before it is written");
+    (board.id, path, writer, write)
+}
+
+/// Ends a slow write and returns what it answered.
+async fn finish(
+    mut writer: tokio::io::DuplexStream,
+    write: tokio::task::JoinHandle<Result<String, fvoci_server::error::AppError>>,
+) -> Result<String, fvoci_server::error::AppError> {
+    writer
+        .write_all(b" and the last")
+        .await
+        .expect("the write takes them");
+    drop(writer);
+    write.await.expect("the write does not panic")
+}
+
+/// A file whose record cannot be written, as its board went to the trash while it was
+/// sent, leaves no object and nothing listed; nor does one the storage fails to write.
+async fn a_file_that_is_not_recorded_leaves_nothing(ts: &TestServer) {
+    let (board_id, path, writer, write) = slow_write(ts).await;
+    ts.client
+        .delete(&format!("/boards/{board_id}"))
+        .await
+        .check_no_content();
+    finish(writer, write)
+        .await
+        .expect_err("the record of a board that went fails");
+    assert!(!exists(ts, &path).await, "the object went with the failure");
+    assert_eq!(
+        ts.app.store().loose_objects().await.expect("listed"),
+        [],
+        "and nothing is left listed"
+    );
+
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let faults = ts
+        .app
+        .files()
+        .faults()
+        .expect("a test's storage takes faults");
+    faults.fail(FaultyOp::Write, 1);
+    ts.app
+        .save_file(&mut &b"never written"[..], &board.id, "a.txt")
+        .await
+        .expect_err("the storage fails");
+    assert_eq!(
+        ts.app.store().loose_objects().await.expect("listed"),
+        [],
+        "a write that failed leaves nothing listed"
+    );
+}
+
+/// The housekeeping leaves a write that is under way alone, however long it takes
+/// within its grace; one that outlasts its grace is doomed, and what it wrote at last
+/// is doomed again and removed, with no record.
+async fn the_housekeeping_leaves_a_slow_write_alone(ts: &TestServer) {
+    let (board_id, path, writer, write) = slow_write(ts).await;
+    let later = now_millis() + WRITING_GRACE_MILLIS - 60_000;
+    assert_eq!(
+        remove_doomed(ts, later).await,
+        RemovedObjects::default(),
+        "nothing is doomed within the grace"
+    );
+    let stored_name = finish(writer, write).await.expect("the file is stored");
+    assert!(exists(ts, &path).await, "the object is there");
+    ts.app
+        .store()
+        .get_file_info(&board_id, &stored_name)
+        .await
+        .expect("and recorded");
+    assert_eq!(
+        ts.app.store().loose_objects().await.expect("listed"),
+        [],
+        "the record took the mark away"
+    );
+
+    let (board_id, path, writer, write) = slow_write(ts).await;
+    let past_the_grace = now_millis() + WRITING_GRACE_MILLIS + 60_000;
+    remove_doomed(ts, past_the_grace).await;
+    finish(writer, write)
+        .await
+        .expect_err("a write doomed while it went on is not recorded");
+    let listed = ts.app.store().loose_objects().await.expect("listed");
+    assert_eq!(
+        paths_of(&listed, LooseState::Doomed),
+        [path.as_str()],
+        "what it wrote is doomed again"
+    );
+    assert_eq!(
+        remove_doomed(ts, past_the_grace).await,
+        RemovedObjects {
+            removed: 1,
+            failed: 0,
+            kept: 0,
+        },
+        "and removed"
+    );
+    assert!(!exists(ts, &path).await, "the object is gone");
+    let files = ts
+        .app
+        .store()
+        .get_file_info(&board_id, path.rsplit('/').next().unwrap_or_default())
+        .await;
+    assert!(files.is_err(), "nothing is recorded: {files:?}");
+}
+
+fn paths_of(objects: &[fvoci_store::LooseObject], state: LooseState) -> Vec<&str> {
+    objects
+        .iter()
+        .filter(|object| object.state == state)
+        .map(|object| object.path.as_str())
+        .collect()
+}
+
+#[tokio::test]
+async fn on_the_disk_a_write_is_marked_until_it_is_recorded() {
+    let ts = Setup::native().start().await.init_basic().await;
+    a_file_that_is_not_recorded_leaves_nothing(&ts).await;
+    the_housekeeping_leaves_a_slow_write_alone(&ts).await;
+    ts.teardown().await;
+}
+
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_a_write_is_marked_until_it_is_recorded() {
+    let ts = s3_server().await;
+    a_file_that_is_not_recorded_leaves_nothing(&ts).await;
+    the_housekeeping_leaves_a_slow_write_alone(&ts).await;
+    ts.teardown().await;
+}
+
+/// A file copied with a card is marked while it is copied and recorded with the mark
+/// taken away; a copy the storage fails leaves nothing listed, and the copied block
+/// names no file.
+#[tokio::test]
+async fn a_copied_file_is_marked_until_it_is_recorded() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let (board_id, path) = uploaded(&ts, b"copied with its card").await;
+    let stored_name = path.rsplit('/').next().unwrap_or_default().to_owned();
+    let attachment = || fvoci_model::Block {
+        id: new_id(),
+        board_id: board_id.clone(),
+        block_type: fvoci_model::BlockType::Attachment,
+        fields: serde_json::json!({ "fileId": stored_name })
+            .as_object()
+            .expect("an object")
+            .clone(),
+        ..fvoci_model::Block::default()
+    };
+    let file_of = |block: &fvoci_model::Block| {
+        block.fields["fileId"]
+            .as_str()
+            .expect("a file name")
+            .to_owned()
+    };
+
+    let mut copied = [attachment()];
+    ts.app.copy_card_files_into(&board_id, &mut copied).await;
+    let copy = file_of(&copied[0]);
+    assert!(!copy.is_empty() && copy != stored_name, "a copy: {copy:?}");
+    let record = ts
+        .app
+        .store()
+        .get_file_info(&board_id, &copy)
+        .await
+        .expect("the copy is recorded");
+    assert!(exists(&ts, &record.path).await, "and there");
+    assert_eq!(
+        ts.app.store().loose_objects().await.expect("listed"),
+        [],
+        "the record took the mark away"
+    );
+
+    let faults = ts
+        .app
+        .files()
+        .faults()
+        .expect("a test's storage takes faults");
+    faults.fail(FaultyOp::Copy, 1);
+    let mut failed = [attachment()];
+    ts.app.copy_card_files_into(&board_id, &mut failed).await;
+    assert_eq!(file_of(&failed[0]), "", "the block names no file");
+    assert_eq!(
+        ts.app.store().loose_objects().await.expect("listed"),
+        [],
+        "a copy that failed leaves nothing listed"
+    );
     ts.teardown().await;
 }

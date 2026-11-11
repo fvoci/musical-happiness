@@ -43,7 +43,7 @@ pub use cards::CardPreviews;
 pub use category_boards::DEFAULT_CATEGORY_BOARDS;
 pub use export::ExportedArchive;
 pub(crate) use files::FILE;
-pub use loose_objects::RemovedObjects;
+pub use loose_objects::{RemovedObjects, WRITING_GRACE_MILLIS};
 pub use uploads::{
     CLOSED_UPLOAD_GRACE_MILLIS, CleanedUp, FileToUpload, MAX_OPEN_UPLOADS, MAX_UPLOAD_NAME_CHARS,
     PARTS_IN_MEMORY, PartDigest, UPLOAD_LIFETIME_MILLIS,

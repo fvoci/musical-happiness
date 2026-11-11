@@ -78,6 +78,11 @@ impl App {
     /// `filename` (`.jpeg` becomes `.jpg`). Nothing of the client's name ends up in a
     /// path: it is kept in the record only.
     ///
+    /// The place is marked as being written before anything is written there, and the
+    /// record takes the mark away in its transaction: a write or a record that fails,
+    /// or a server that stops in between, leaves a mark that is doomed and removed,
+    /// now or by the housekeeping, and no object that nothing names.
+    ///
     /// # Errors
     ///
     /// Returns a server error if the file or its record cannot be written.
@@ -88,20 +93,42 @@ impl App {
         filename: &str,
     ) -> Result<String, AppError> {
         let place = FilePlace::new(board_id, filename);
-        let size = self
-            .files()
-            .write(&place.path, reader)
-            .await
-            .map_err(|error| {
-                AppError::internal(format_args!(
+        self.mark_writing(&place.path).await?;
+        let size = match self.files().write(&place.path, reader).await {
+            Ok(size) => size,
+            Err(error) => {
+                // The object store may have taken it with its answer lost.
+                self.give_up_writing(&place.path).await;
+                return Err(AppError::internal(format_args!(
                     "unable to store the file in the files storage: {error}"
-                ))
-            })?;
-        self.record_file(board_id, place, size).await
+                )));
+            }
+        };
+        let info = file_info(board_id, place, size);
+        self.record_written(&info).await?;
+        Ok(info.stored_name)
+    }
+
+    /// Records a file whose object was written at a marked place; gives the object up
+    /// if it cannot be recorded.
+    async fn record_written(&self, info: &FileInfo) -> Result<(), AppError> {
+        match self.store().record_written_file(info).await {
+            Ok(true) => Ok(()),
+            // Doomed while it was written, which took longer than any write takes: the
+            // store doomed it again, for the housekeeping to remove.
+            Ok(false) => Err(AppError::internal(
+                "the file was given up while it was written",
+            )),
+            Err(error) => {
+                self.give_up_writing(&info.path).await;
+                Err(error.into())
+            }
+        }
     }
 
     /// Records the file of `size` bytes stored at `place` as a file of `board_id`, and
-    /// returns its stored name.
+    /// returns its stored name. For an object whose place an upload session holds,
+    /// which is its mark: the place is not marked as being written.
     ///
     /// # Errors
     ///
@@ -112,18 +139,9 @@ impl App {
         place: FilePlace,
         size: u64,
     ) -> Result<String, AppError> {
-        let info = FileInfo {
-            id: new_id(),
-            board_id: board_id.to_owned(),
-            stored_name: place.stored_name.clone(),
-            path: place.path,
-            size: size_to_i64(size),
-            name: place.name,
-            extension: place.extension,
-            create_at: now_millis(),
-        };
+        let info = file_info(board_id, place, size);
         self.store().save_file_info(&info).await?;
-        Ok(place.stored_name)
+        Ok(info.stored_name)
     }
 
     /// Returns the record of the file a board has under a stored name, or `None` if the
@@ -319,14 +337,6 @@ impl App {
         }
     }
 
-    /// Removes a file that was written but has no record, after the record could not be
-    /// stored. A file that cannot be removed either is logged: nothing names it.
-    async fn remove_stray_file(&self, path: &str) {
-        if let Err(error) = self.files().delete(path).await {
-            tracing::warn!(%error, path, "a file without a record could not be removed");
-        }
-    }
-
     /// Copies each file referred to by an attachment block and returns a map
     /// from the original stored names to those of the copies. Only files of the source
     /// board are copied.
@@ -383,9 +393,11 @@ impl App {
                 create_at: now_millis(),
                 ..source.clone()
             };
-            // The bytes first, then the record that says where they are. A file that
-            // could not be copied gets no record and no name: the block that pointed at
-            // it ends up naming no file, not a file that is not there.
+            // The mark, the bytes, then the record that says where they are and takes
+            // the mark away. A file that could not be copied gets no record and no
+            // name: the block that pointed at it ends up naming no file, not a file
+            // that is not there.
+            self.mark_writing(&copy.path).await?;
             if let Err(error) = self.files().copy(&source.path, &copy.path).await {
                 tracing::error!(
                     %error,
@@ -393,15 +405,27 @@ impl App {
                     destination_path = copy.path,
                     "CopyCardFiles failed to copy file"
                 );
+                self.give_up_writing(&copy.path).await;
                 continue;
             }
-            if let Err(error) = self.store().save_file_info(&copy).await {
-                self.remove_stray_file(&copy.path).await;
-                return Err(error.into());
-            }
+            self.record_written(&copy).await?;
             new_file_names.insert(file_id, stored_name);
         }
         Ok(new_file_names)
+    }
+}
+
+/// The record of a file of `board_id` of `size` bytes stored at `place`, made now.
+fn file_info(board_id: &str, place: FilePlace, size: u64) -> FileInfo {
+    FileInfo {
+        id: new_id(),
+        board_id: board_id.to_owned(),
+        stored_name: place.stored_name,
+        path: place.path,
+        size: size_to_i64(size),
+        name: place.name,
+        extension: place.extension,
+        create_at: now_millis(),
     }
 }
 
