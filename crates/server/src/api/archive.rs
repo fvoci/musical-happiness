@@ -231,7 +231,7 @@ async fn handle_import(
     }
     if let Err(refusal) = require_import_access(&app, user_id, &team_id).await {
         // As for a completion (design 5.6, 2): the upload cannot be imported any more.
-        if refusal.status().is_client_error() {
+        if refusal.is_client_error() {
             app.discard_upload(&upload).await;
         }
         return Err(refusal);

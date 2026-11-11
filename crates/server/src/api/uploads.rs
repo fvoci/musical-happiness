@@ -375,7 +375,7 @@ async fn handle_complete_upload(
         // more, and is thrown away (design 5.6, 2). A completion that began before, with
         // the permission, is let finish first: the throwing away waits for the upload's
         // turn, and finds it gone.
-        if refusal.status().is_client_error() {
+        if refusal.is_client_error() {
             app.discard_upload(&upload).await;
         }
         return Err(refusal);

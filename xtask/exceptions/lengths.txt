@@ -17,7 +17,6 @@
 file 1384 crates/server/src/api/contract.rs
 file 1114 crates/server/src/app/uploads.rs
 file 1510 crates/server/src/config.rs
-file 1217 crates/server/src/error.rs
 file 1240 crates/server/src/ws.rs
 file 3311 crates/server/tests/api/blocks.rs
 file 3963 crates/server/tests/api/boards.rs

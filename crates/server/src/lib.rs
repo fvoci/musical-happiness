@@ -47,7 +47,8 @@ use crate::auth::token::Credential;
 use crate::client_address::TrustedProxies;
 use crate::config::Configuration;
 use crate::connection::{BreakableListener, Connection};
-use crate::error::{AppError, ErrorKind, ReportedError};
+use crate::error::{AppError, ErrorKind};
+use crate::error_response::ReportedError;
 use crate::metrics::{Job, JobOutcome};
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
@@ -179,7 +180,7 @@ impl Server {
             .fallback(api_not_found)
             .method_not_allowed_fallback(method_not_allowed)
             // Nor with an error in the framework's words.
-            .layer(middleware::from_fn(error::problems_only));
+            .layer(middleware::from_fn(error_response::problems_only));
         let api = if self.app.config().compress_responses {
             api.layer(compression())
                 .layer(middleware::from_fn(identity_is_always_acceptable))
@@ -238,7 +239,7 @@ impl Server {
         // the pages its error answers point at.
         self.with_request_layers(
             api::admin_router()
-                .layer(middleware::from_fn(error::problems_only))
+                .layer(middleware::from_fn(error_response::problems_only))
                 .with_state(self.app.clone())
                 .merge(problems::routes()),
             "",
@@ -851,6 +852,7 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
 }
 
 pub mod connection;
+mod error_response;
 mod metrics_listener;
 mod request_log;
 mod request_metrics;
