@@ -905,7 +905,7 @@
             "type": "integer"
           },
           "deletedBy": {
-            "description": "Who deleted it; empty if nobody known.",
+            "description": "The identifier of who deleted it, who may no longer exist; empty if not known.",
             "type": "string"
           },
           "id": {
@@ -3877,7 +3877,7 @@
     },
     "/api/v1/boards/{boardId}/trash/cards": {
       "get": {
-        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. For the board's editors. The last deleted first; the pages\ncut that order. A `page` or `perPage` that is no whole number is 400.",
+        "description": "One page of the board's cards that are in the trash, each with its identifier, its\ntitle, when it was deleted and by whom; `undeleteBlock` brings one back until the\ntrash is emptied of it. A card that went with the block it was on (another card, a\nview) comes back with that block, and is not listed. For the board's editors. The last deleted first; the pages\ncut that order. A `page` or `perPage` that is no whole number is 400.",
         "operationId": "getDeletedCards",
         "parameters": [
           {
@@ -5515,7 +5515,7 @@
     },
     "/api/v1/teams/{teamId}/trash/boards": {
       "get": {
-        "description": "One page of the team's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the team who are not guests.",
+        "description": "One page of the team's boards that are in the trash and that the user was an admin\nof when they were deleted, which is who `undeleteBoard` lets bring them back: each\nwith its identifier, its title, when it was deleted and by whom. The last deleted\nfirst; the pages cut that order. A `page` or `perPage` that is no whole number is\n400. For users of the team.",
         "operationId": "getDeletedBoards",
         "parameters": [
           {

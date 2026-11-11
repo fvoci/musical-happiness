@@ -15,7 +15,7 @@ use fvoci_model::{
     Block, BlockType, Board, BoardMember, BoardSearchField, BoardType, Category, SubscriberType,
     Subscription, User, new_id,
 };
-use fvoci_store::{PublicBoards, Store};
+use fvoci_store::{Paging, PublicBoards, Store};
 
 use crate::common::{self, TestStore};
 
@@ -482,6 +482,29 @@ async fn subscription_ties_fall_back_to_identifiers() {
     test.teardown().await;
 }
 
+/// Stores a board of the team with `admin_id` its admin and `editor_id` an editor.
+async fn board_administered_by(
+    store: &Store,
+    team_id: &str,
+    admin_id: &str,
+    editor_id: &str,
+) -> String {
+    let board_id = stored_board(store, team_id, admin_id, Board::default()).await;
+    for (member, admin) in [(admin_id, true), (editor_id, false)] {
+        store
+            .save_member(&BoardMember {
+                board_id: board_id.clone(),
+                user_id: member.to_owned(),
+                scheme_admin: admin,
+                scheme_editor: !admin,
+                ..BoardMember::default()
+            })
+            .await
+            .expect("the membership is saved");
+    }
+    board_id
+}
+
 /// The lists of the trash come the last deleted first, and by identifier where two
 /// were deleted at once.
 #[tokio::test]
@@ -500,9 +523,10 @@ async fn the_trash_comes_the_last_deleted_first() {
         })
         .collect();
     common::insert_blocks(store, &mut cards, &user_id).await;
+    let other_id = common::user(store, "other").await;
     let mut boards = Vec::new();
     for _ in 0..3 {
-        boards.push(stored_board(store, &team_id, &user_id, Board::default()).await);
+        boards.push(board_administered_by(store, &team_id, &user_id, &other_id).await);
     }
     for (card, board) in cards.iter().zip(&boards) {
         store
@@ -549,13 +573,33 @@ async fn the_trash_comes_the_last_deleted_first() {
         by_id(cards.iter().map(|card| card.id.clone()).collect())
     );
     let listed: Vec<String> = store
-        .get_deleted_boards(&team_id)
+        .get_deleted_boards(&team_id, &user_id, None)
         .await
         .expect("the deleted boards")
         .into_iter()
         .map(|deleted| deleted.board.id)
         .collect();
-    assert_eq!(listed, by_id(boards));
+    assert_eq!(listed, by_id(boards.clone()));
+    let page: Vec<String> = store
+        .get_deleted_boards(
+            &team_id,
+            &user_id,
+            Some(Paging {
+                page: 1,
+                per_page: 2,
+            }),
+        )
+        .await
+        .expect("a page of the deleted boards")
+        .into_iter()
+        .map(|deleted| deleted.board.id)
+        .collect();
+    assert_eq!(page, by_id(boards.clone())[2..], "the pages cut that order");
+    let not_admin = store
+        .get_deleted_boards(&team_id, &other_id, None)
+        .await
+        .expect("the deleted boards of an editor");
+    assert!(not_admin.is_empty(), "only those the user was an admin of");
 
     test.teardown().await;
 }

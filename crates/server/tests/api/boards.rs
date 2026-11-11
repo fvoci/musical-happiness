@@ -3916,6 +3916,8 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
             .delete(&format!("/boards/{}", board.id))
             .await
             .check_no_content();
+        // A millisecond apart at least, so that their order is that of time.
+        tokio::time::sleep(Duration::from_millis(3)).await;
     }
     let trash = format!("/teams/{TEST_TEAM_ID}/trash/boards");
     let names_of = |listed: &[Value]| -> Vec<Value> {
@@ -3930,6 +3932,13 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
     );
     assert_eq!(listed[1]["id"], json!(mine.id));
     assert_eq!(listed[1]["deletedBy"], json!(th.client.me().await.id));
+    let members: Vec<&String> = listed[1].as_object().expect("an entry").keys().collect();
+    assert_eq!(members, ["deletedAt", "deletedBy", "id", "title"]);
+    assert!(
+        listed[1]["deletedAt"].as_i64().unwrap_or(0) > 0
+            && listed[0]["deletedAt"].as_i64() > listed[1]["deletedAt"].as_i64(),
+        "{listed:?}"
+    );
     let listed: Vec<Value> = th.client2.get(&trash).await.ok_json();
     assert_eq!(names_of(&listed), [json!("theirs")]);
     assert_eq!(listed[0]["deletedBy"], json!(user2.id));
@@ -3940,6 +3949,12 @@ async fn the_deleted_boards_are_listed_for_their_former_admins() {
         .await
         .ok_json();
     assert_eq!(names_of(&page), [json!("mine")], "the pages cut that order");
+    let every: Vec<Value> = th.client.get(&format!("{trash}?perPage=0")).await.ok_json();
+    assert_eq!(names_of(&every), [json!("also mine"), json!("mine")]);
+    th.client
+        .get(&format!("{trash}?page=x"))
+        .await
+        .check_bad_request();
     th.anonymous().get(&trash).await.check_unauthorized();
 
     // Brought back, a board is no longer listed.

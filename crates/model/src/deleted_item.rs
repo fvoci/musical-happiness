@@ -13,6 +13,6 @@ pub struct DeletedItem {
     pub title: String,
     /// When it was deleted, in milliseconds since the Unix epoch.
     pub deleted_at: i64,
-    /// Who deleted it; empty if nobody known.
+    /// The identifier of who deleted it, who may no longer exist; empty if not known.
     pub deleted_by: String,
 }
