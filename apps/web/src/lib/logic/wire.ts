@@ -18,6 +18,7 @@
  */
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
+import { optionalViewFields, type GanttViewFields } from './view-members.ts';
 
 // ------------------------------------------------------------ identifiers
 
@@ -284,7 +285,7 @@ export function createFilterGroup(source?: FilterGroup): FilterGroup {
 
 // ------------------------------------------------------------------ views
 
-export type ViewType = 'board' | 'table' | 'gallery' | 'calendar';
+export type ViewType = 'board' | 'table' | 'gallery' | 'calendar' | 'gantt';
 
 /** The pseudo property that stands for the title column in sort options and calculations. */
 export const TITLE_COLUMN_ID = '__title';
@@ -308,7 +309,7 @@ export type BoardViewFields = {
   columnCalculations: Record<string, string>;
   kanbanCalculations: Record<string, KanbanCalculation>;
   defaultTemplateId: string;
-};
+} & GanttViewFields;
 
 export type BoardView = Block & { fields: BoardViewFields };
 
@@ -322,8 +323,7 @@ export function createBoardView(source?: Block): BoardView {
     type: 'view',
     fields: {
       viewType: fields.viewType || 'board',
-      groupById: fields.groupById,
-      dateDisplayPropertyId: fields.dateDisplayPropertyId,
+      ...optionalViewFields(fields),
       sortOptions: (fields.sortOptions ?? []).map((option) => ({ ...option })),
       visiblePropertyIds: copyList(fields.visiblePropertyIds),
       visibleOptionIds: copyList(fields.visibleOptionIds),

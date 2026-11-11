@@ -26,14 +26,13 @@
 
   import { addSort, moveSort, removeSort, reverseSort, sortCandidates } from './sort-edit.ts';
   import { propertyName } from './texts.ts';
-  import { groupingOf } from './view-fields.ts';
 
   let { board, view }: { board: BoardStore; view: BoardView } = $props();
 
   const templates = $derived(board.board?.cardProperties ?? []);
   const options = $derived(view.fields.sortOptions);
   /** The views whose cards are dragged into an order: a sort takes that away. */
-  const dragged = $derived(groupingOf(view.fields.viewType).offered);
+  const dragged = $derived(view.fields.viewType === 'board' || view.fields.viewType === 'table');
 
   let root = $state<HTMLElement | null>(null);
   /** What a screen reader is told after a line moved. */

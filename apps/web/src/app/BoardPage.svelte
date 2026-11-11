@@ -4,7 +4,7 @@
   component keeps the store and the address in step.
 
   The parts are features of their own and meet here (src/lib/README.md):
-  `view-header`, the views (`kanban`, `table`, `gallery`, `calendar`), and `card`.
+  `view-header`, the views (`kanban`, `table`, `gallery`, `calendar`, `gantt`), and `card`.
 -->
 <script lang="ts">
   import { tick } from 'svelte';
@@ -13,6 +13,7 @@
   import ViewHeader from '$lib/features/view-header/ViewHeader.svelte';
   import Calendar from '$lib/features/views/calendar/Calendar.svelte';
   import Gallery from '$lib/features/views/gallery/Gallery.svelte';
+  import Gantt from '$lib/features/views/gantt/Gantt.svelte';
   import Kanban from '$lib/features/views/kanban/Kanban.svelte';
   import Table from '$lib/features/views/table/Table.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
@@ -139,6 +140,11 @@
         <Table {board} {view} {cards} {cardHref} onOpenCard={openCard} />
       {:else if view.fields.viewType === 'gallery'}
         <Gallery {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+      {:else if view.fields.viewType === 'gantt'}
+        <!-- Another Gantt view starts with today in sight: where it is scrolled to is not this one's. -->
+        {#key view.id}
+          <Gantt {board} {view} {cards} {cardHref} onOpenCard={openCard} />
+        {/key}
       {:else}
         <!-- Another calendar view starts at today: its month and day are not this one's. -->
         {#key view.id}

@@ -10,10 +10,13 @@ import {
   cardsClosingLoop,
   closesLoop,
   cutIds,
+  daysOutOfOrder,
   edgesOnLoops,
   edgesOutOfOrder,
+  edgesOutOfOrderByDays,
   isOutOfOrder,
   relationEdges,
+  type Days,
   type RelationEdge,
 } from '$lib/logic/dependencies.ts';
 import {
@@ -219,6 +222,23 @@ describe('dates out of order', () => {
     const byId = new Map(cards.map((each) => [each.id, each]));
     expect(edgesOutOfOrder(byId, relationEdges(cards, AFTER), DUE, 'UTC')).toEqual([
       edge('a', 'b'),
+    ]);
+  });
+
+  it('are the same edges by days worked out already, a card without days never among them', () => {
+    const span = (first: string, last: string): Days => ({ first, last }) as Days;
+    const days: Record<string, Days> = {
+      a: span('2026-03-01', '2026-03-05'),
+      b: span('2026-03-04', '2026-03-09'),
+      c: span('2026-03-05', '2026-03-05'),
+    };
+    // The same day is in order; so is anything with a card that has no days.
+    expect(daysOutOfOrder(days.a, days.c)).toBe(false);
+    expect(daysOutOfOrder(days.a, undefined)).toBe(false);
+    const edges = [edge('a', 'b'), edge('a', 'c'), edge('b', 'c'), edge('a', 'none')];
+    expect(edgesOutOfOrderByDays(edges, (id) => days[id])).toEqual([
+      edge('a', 'b'),
+      edge('b', 'c'),
     ]);
   });
 });

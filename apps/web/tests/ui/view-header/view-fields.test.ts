@@ -12,7 +12,11 @@ import {
   reverseSort,
   sortCandidates,
 } from '$lib/features/view-header/sort-edit.ts';
+import { asideTools, type AsideOffer } from '$lib/features/view-header/texts.ts';
 import {
+  dependenciesChoices,
+  dependenciesName,
+  dependenciesOffered,
   displayByChoices,
   displayByName,
   displayByOffered,
@@ -25,6 +29,8 @@ import {
   sortOffered,
   withPropertyVisible,
 } from '$lib/features/view-header/view-fields.ts';
+import { optionalViewFields } from '$lib/logic/view-members.ts';
+import { applyViewPatch, viewPatches } from '$lib/state/patches.ts';
 import {
   createBoardView,
   TITLE_COLUMN_ID,
@@ -142,6 +148,107 @@ describe('a calendar', () => {
     expect(displayByChoices(view, TEMPLATES, 'Created time')).toEqual([
       { id: '', label: 'Created time', checked: true, write: false },
     ]);
+  });
+});
+
+describe('a Gantt chart', () => {
+  const due: PropertyTemplate = { id: 'due', name: 'Due', type: 'date', options: [] };
+
+  it('when new, is placed by the first date property, not grouped, zoomed to weeks', () => {
+    const fields = newViewFields('gantt', [...TEMPLATES, due]);
+    expect(fields.viewType).toBe('gantt');
+    expect(fields.dateDisplayPropertyId).toBe('due');
+    expect(fields.ganttZoom).toBe('week');
+    expect(fields.groupById).toBe('');
+    expect(fields.visiblePropertyIds).toEqual([TITLE_COLUMN_ID]);
+    expect(newViewFields('gantt', TEMPLATES).dateDisplayPropertyId).toBeUndefined();
+  });
+
+  it('when new, reads the first card relation of the board as its dependencies', () => {
+    const after: PropertyTemplate = { id: 'after', name: 'After', type: 'relation', options: [] };
+    const other: PropertyTemplate = { id: 'see', name: 'See also', type: 'relation', options: [] };
+    expect(newViewFields('gantt', [due, after, other]).dependencyPropertyId).toBe('after');
+    // Named only where there is one: a member with no value is not a missing member.
+    expect('dependencyPropertyId' in newViewFields('gantt', [due])).toBe(false);
+    expect(newViewFields('calendar', [due, after]).dependencyPropertyId).toBeUndefined();
+  });
+
+  it('offers "dependencies": none and every card relation, and writes only a change', () => {
+    const after: PropertyTemplate = { id: 'after', name: 'After', type: 'relation', options: [] };
+    const other: PropertyTemplate = { id: 'see', name: 'See also', type: 'relation', options: [] };
+    const templates = [...TEMPLATES, after, other];
+    expect(dependenciesOffered('gantt')).toBe(true);
+    expect(dependenciesOffered('calendar')).toBe(false);
+    const named = viewOf({ viewType: 'gantt', dependencyPropertyId: 'see' });
+    expect(dependenciesName(named, templates, 'None')).toBe('See also');
+    expect(dependenciesChoices(named, templates, 'None')).toEqual([
+      { id: '', label: 'None', checked: false, write: true },
+      { id: 'after', label: 'After', checked: false, write: true },
+      { id: 'see', label: 'See also', checked: true, write: false },
+    ]);
+    const unnamed = viewOf({ viewType: 'gantt' });
+    expect(dependenciesName(unnamed, templates, 'None')).toBe('None');
+    expect(dependenciesChoices(unnamed, templates, 'None')[0]).toEqual({
+      id: '',
+      label: 'None',
+      checked: true,
+      write: false,
+    });
+  });
+
+  it('has no dependencies by a property that is gone or no card relation, and can clear it', () => {
+    for (const dependencyPropertyId of ['gone', 'status']) {
+      const view = viewOf({ viewType: 'gantt', dependencyPropertyId });
+      expect(dependenciesName(view, TEMPLATES, 'None')).toBe('None');
+      expect(dependenciesChoices(view, TEMPLATES, 'None')).toEqual([
+        { id: '', label: 'None', checked: true, write: true },
+      ]);
+    }
+  });
+
+  it('takes a first choice of "display by" or of a grouping back the same way', () => {
+    const before = createBoardView({ ...createBoardView(), fields: { viewType: 'gantt' } });
+    expect('dateDisplayPropertyId' in before.fields).toBe(false);
+    expect('groupById' in before.fields).toBe(false);
+    const after = createBoardView({
+      ...before,
+      fields: { ...before.fields, dateDisplayPropertyId: 'start', groupById: 'status' },
+    });
+    const [, backward] = viewPatches(after, before);
+    expect([...(backward.deletedFields ?? [])].sort()).toEqual([
+      'dateDisplayPropertyId',
+      'groupById',
+    ]);
+    // A member that is there, the empty one too, is kept as it is.
+    expect(createBoardView(viewOf({ groupById: '' })).fields.groupById).toBe('');
+    expect(optionalViewFields({ groupById: '', ganttZoom: undefined })).toStrictEqual({
+      groupById: '',
+    });
+    expect(optionalViewFields({})).toStrictEqual({});
+  });
+
+  it('takes its first choice of dependencies back by dropping the member, not by emptying it', () => {
+    // A view that names no relation does not have the member at all.
+    const before = createBoardView(viewOf({ viewType: 'gantt' }));
+    expect('dependencyPropertyId' in before.fields).toBe(false);
+    expect('ganttZoom' in before.fields).toBe(false);
+    const after = { ...before, fields: { ...before.fields, dependencyPropertyId: 'after' } };
+    const [forward, backward] = viewPatches(createBoardView(after), before);
+    expect(forward.updatedFields).toEqual({ dependencyPropertyId: 'after' });
+    // What the server is sent for the undo: a name to drop. An empty value would be sent as nothing.
+    expect(backward.deletedFields).toEqual(['dependencyPropertyId']);
+    expect(JSON.parse(JSON.stringify(backward))).toMatchObject({
+      deletedFields: ['dependencyPropertyId'],
+    });
+    expect('dependencyPropertyId' in applyViewPatch(createBoardView(after), backward).fields).toBe(
+      false,
+    );
+  });
+
+  it('has "display by", a sort, and a grouping it can do without', () => {
+    expect(displayByOffered('gantt')).toBe(true);
+    expect(sortOffered('gantt')).toBe(true);
+    expect(groupingOf('gantt')).toEqual({ offered: true, optional: true });
   });
 });
 
@@ -272,5 +379,64 @@ describe('the sort of a view', () => {
     expect(moveSort(options, 1, 1)).toBe(options);
     expect(reverseSort(options, 5)).toBe(options);
     expect(removeSort(options, 5)).toBe(options);
+  });
+});
+
+describe('the lines of "…" for the tools without a button', () => {
+  const open = {
+    sort: () => undefined,
+    'display-by': () => undefined,
+    dependencies: () => undefined,
+    group: () => undefined,
+    properties: () => undefined,
+  };
+  const gantt: AsideOffer = {
+    row: false,
+    sort: 2,
+    displayBy: 'Due',
+    dependencies: 'After',
+    group: 'None',
+  };
+  const ids = (offer: AsideOffer): string[] => asideTools(offer, open).map((line) => line.id);
+
+  it('are every tool the view offers in the folded row, each with its choice', () => {
+    expect(ids(gantt)).toEqual(['sort', 'display-by', 'dependencies', 'group', 'properties']);
+    const lines = asideTools(gantt, open);
+    expect(lines.map((line) => line.hint)).toEqual(['2', 'Due', 'After', 'None', undefined]);
+    // A view without a sort set says no number; a kind of view without a tool has no line.
+    expect(asideTools({ ...gantt, sort: 0 }, open)[0]?.hint).toBeUndefined();
+    expect(
+      ids({
+        row: false,
+        sort: undefined,
+        displayBy: 'Due',
+        dependencies: undefined,
+        group: undefined,
+      }),
+    ).toEqual(['display-by', 'properties']);
+  });
+
+  it('are "dependencies" alone in the whole row, where the other tools have buttons', () => {
+    expect(ids({ ...gantt, row: true })).toEqual(['dependencies']);
+    expect(ids({ ...gantt, row: true, dependencies: undefined })).toEqual([]);
+  });
+
+  it('cut a long name short: the menu does not, and the line has to say what it is', () => {
+    const long = 'The cards that have to be done before this one';
+    const [line] = asideTools({ ...gantt, row: true, dependencies: long }, open);
+    expect(line?.hint).toBe('The cards that have…');
+    expect(asideTools({ ...gantt, row: true, dependencies: '선행 카드' }, open)[0]?.hint).toBe(
+      '선행 카드',
+    );
+  });
+
+  it('open the tool they name', () => {
+    const opened: string[] = [];
+    const lines = asideTools(gantt, {
+      ...open,
+      dependencies: () => void opened.push('dependencies'),
+    });
+    lines.find((line) => line.id === 'dependencies')?.run();
+    expect(opened).toEqual(['dependencies']);
   });
 });
