@@ -14,7 +14,8 @@
  * - `$$x^2$$` alone on a line becomes a block formula;
  * - `$$` and a space on an empty line opens the box for a new block formula.
  */
-import { InputRule, Node, type Editor, type Range } from '@tiptap/core';
+import { InputRule, Node, type Editor, type Range, type NodeViewRenderer } from '@tiptap/core';
+import type { NodeType } from '@tiptap/pm/model';
 import {
   NodeSelection,
   Plugin,
@@ -140,6 +141,89 @@ function replaceableParagraph(state: EditorState, range: Range): Range | undefin
   return { from: $from.before(), to: $from.after() };
 }
 
+/** One formula's DOM and the source last drawn into it. */
+function mathNodeView(
+  name: MathNodeName,
+  slot: (typeof MATH_SLOTS)[MathNodeName],
+): NodeViewRenderer {
+  return ({ node, editor, getPos }) => {
+    // The page the editor is in. (Its view is not there yet while the first nodes are drawn.)
+    const page = document;
+    const dom = page.createElement(slot.tag);
+    let latex = latexOf(node);
+    const show = (): void => {
+      for (const [attribute, value] of Object.entries(mathSlotAttributes(name, latex)))
+        dom.setAttribute(attribute, value);
+      for (const attribute of ['data-state', 'role', 'aria-label']) dom.removeAttribute(attribute);
+      dom.replaceChildren(page.createTextNode(latex));
+      // Without the library the source stays, which is what a failure looks like anyway.
+      fillMath(dom).catch(() => undefined);
+    };
+    show();
+    dom.addEventListener('click', () => {
+      const position = getPos();
+      if (position !== undefined) editFormulaAt(editor, name, position);
+    });
+    return {
+      dom,
+      update: (updated) => {
+        if (updated.type.name !== name) return false;
+        if (latexOf(updated) !== latex) {
+          latex = latexOf(updated);
+          show();
+        }
+        return true;
+      },
+      // What changes inside is the drawing, never the document.
+      ignoreMutation: () => true,
+    };
+  };
+}
+
+/** The typed dollar delimiters that insert inline or block formulas. */
+function mathInputRules(isBlock: boolean, editor: Editor, type: NodeType): InputRule[] {
+  if (!isBlock) {
+    return [
+      // The dollar that opens has no letter, digit, dollar or backslash
+      // in front of it and no space behind it; the one that closes has
+      // no space in front of it. So "$5 and $10" stays text.
+      new InputRule({
+        find: /(?<![\\$\p{L}\p{N}])\$([^\s$](?:[^$\n]*[^\s$])?)\$$/u,
+        handler: ({ state, range, match }) => {
+          const latex = match[1] ?? '';
+          if (latex === '' || latex.length > MAX_LATEX) return null;
+          state.tr.replaceWith(range.from, range.to, type.create({ latex }));
+          return undefined;
+        },
+      }),
+    ];
+  }
+  return [
+    new InputRule({
+      find: /^\$\$([^$]+)\$\$$/,
+      handler: ({ state, range, match }) => {
+        const latex = (match[1] ?? '').trim();
+        const paragraph = replaceableParagraph(state, range);
+        if (latex === '' || latex.length > MAX_LATEX || !paragraph) return null;
+        blockFormulaInto(state.tr, paragraph, latex);
+        return undefined;
+      },
+    }),
+    new InputRule({
+      find: /^\$\$\s$/,
+      handler: ({ state, range }) => {
+        const paragraph = replaceableParagraph(state, range);
+        if (!paragraph) return null;
+        state.tr.delete(range.from, range.to);
+        setTimeout(() => {
+          if (!editor.isDestroyed) editNewBlockFormula(editor, paragraph.from + 1);
+        });
+        return undefined;
+      },
+    }),
+  ];
+}
+
 function mathNode(name: MathNodeName) {
   const slot = MATH_SLOTS[name];
   const isBlock = slot.display;
@@ -183,39 +267,7 @@ function mathNode(name: MathNodeName) {
     },
 
     addNodeView() {
-      return ({ node, editor, getPos }) => {
-        // The page the editor is in. (Its view is not there yet while the first nodes are drawn.)
-        const page = document;
-        const dom = page.createElement(slot.tag);
-        let latex = latexOf(node);
-        const show = (): void => {
-          for (const [attribute, value] of Object.entries(mathSlotAttributes(name, latex)))
-            dom.setAttribute(attribute, value);
-          for (const attribute of ['data-state', 'role', 'aria-label'])
-            dom.removeAttribute(attribute);
-          dom.replaceChildren(page.createTextNode(latex));
-          // Without the library the source stays, which is what a failure looks like anyway.
-          fillMath(dom).catch(() => undefined);
-        };
-        show();
-        dom.addEventListener('click', () => {
-          const position = getPos();
-          if (position !== undefined) editFormulaAt(editor, name, position);
-        });
-        return {
-          dom,
-          update: (updated) => {
-            if (updated.type.name !== name) return false;
-            if (latexOf(updated) !== latex) {
-              latex = latexOf(updated);
-              show();
-            }
-            return true;
-          },
-          // What changes inside is the drawing, never the document.
-          ignoreMutation: () => true,
-        };
-      };
+      return mathNodeView(name, slot);
     },
 
     addProseMirrorPlugins() {
@@ -245,46 +297,7 @@ function mathNode(name: MathNodeName) {
 
     addInputRules() {
       const { editor, type } = this;
-      if (!isBlock) {
-        return [
-          // The dollar that opens has no letter, digit, dollar or backslash
-          // in front of it and no space behind it; the one that closes has
-          // no space in front of it. So "$5 and $10" stays text.
-          new InputRule({
-            find: /(?<![\\$\p{L}\p{N}])\$([^\s$](?:[^$\n]*[^\s$])?)\$$/u,
-            handler: ({ state, range, match }) => {
-              const latex = match[1] ?? '';
-              if (latex === '' || latex.length > MAX_LATEX) return null;
-              state.tr.replaceWith(range.from, range.to, type.create({ latex }));
-              return undefined;
-            },
-          }),
-        ];
-      }
-      return [
-        new InputRule({
-          find: /^\$\$([^$]+)\$\$$/,
-          handler: ({ state, range, match }) => {
-            const latex = (match[1] ?? '').trim();
-            const paragraph = replaceableParagraph(state, range);
-            if (latex === '' || latex.length > MAX_LATEX || !paragraph) return null;
-            blockFormulaInto(state.tr, paragraph, latex);
-            return undefined;
-          },
-        }),
-        new InputRule({
-          find: /^\$\$\s$/,
-          handler: ({ state, range }) => {
-            const paragraph = replaceableParagraph(state, range);
-            if (!paragraph) return null;
-            state.tr.delete(range.from, range.to);
-            setTimeout(() => {
-              if (!editor.isDestroyed) editNewBlockFormula(editor, paragraph.from + 1);
-            });
-            return undefined;
-          },
-        }),
-      ];
+      return mathInputRules(isBlock, editor, type);
     },
   });
 }

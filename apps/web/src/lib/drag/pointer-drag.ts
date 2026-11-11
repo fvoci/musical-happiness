@@ -87,37 +87,49 @@ function buzz(duration: number): void {
   }
 }
 
-export function pointerDrag(
-  root: HTMLElement,
-  source: PointerDragSource,
-  options: Partial<PointerDragOptions> = {},
-): PointerDragHandle {
-  const settings = { ...POINTER_DRAG_DEFAULTS, ...options };
-  const NOT_PASSIVE = { passive: false };
-  // Capturing listeners on the window see the pointer before anything inside
-  // the page can stop the event.
-  const CAPTURE = { capture: true };
-  let press: Press | undefined;
+/** Owns one root's press, its temporary listeners and its cancellation state. */
+class PointerDragController {
+  readonly #root: HTMLElement;
+  readonly #source: PointerDragSource;
+  readonly #settings: PointerDragOptions;
+  readonly #notPassive = { passive: false };
+  // Capture on the window sees input before handlers inside the page.
+  readonly #capture = { capture: true };
+  #press: Press | undefined;
   /** A pointer whose drag was cancelled while it was still down. */
-  let spent: { touch: boolean; forget: () => void } | undefined;
+  #spent: { touch: boolean; forget: () => void } | undefined;
 
-  function finish(): Press | undefined {
-    const ended = press;
+  constructor(root: HTMLElement, source: PointerDragSource, options: Partial<PointerDragOptions>) {
+    this.#root = root;
+    this.#source = source;
+    this.#settings = { ...POINTER_DRAG_DEFAULTS, ...options };
+    this.#root.addEventListener('pointerdown', this.#onPointerDown);
+    this.#root.addEventListener('lostpointercapture', this.#onLostCapture);
+    // Present before any finger lands: a browser decides when the touch begins
+    // whether a listener may cancel its moves.
+    this.#root.addEventListener('touchmove', this.#onTouchMove, this.#notPassive);
+    this.#root.addEventListener('contextmenu', this.#onContextMenu);
+    // Links and images would start the browser's own drag, which cancels the pointer.
+    this.#root.addEventListener('dragstart', this.#preventWhilePressed);
+  }
+
+  #finish(): Press | undefined {
+    const ended = this.#press;
     if (!ended) return undefined;
-    press = undefined;
+    this.#press = undefined;
     clearTimeout(ended.timer);
     ended.release();
-    if (ended.dragging && root.hasPointerCapture(ended.pointerId)) {
-      root.releasePointerCapture(ended.pointerId);
+    if (ended.dragging && this.#root.hasPointerCapture(ended.pointerId)) {
+      this.#root.releasePointerCapture(ended.pointerId);
     }
     return ended;
   }
 
   /** `down`: the pointer is still pressed, as after Escape, and not gone, as after pointercancel. */
-  function cancel(down: boolean): void {
-    const ended = finish();
+  #cancel(down: boolean): void {
+    const ended = this.#finish();
     if (!ended?.dragging) return;
-    if (down) ignoreUntilLifted(ended);
+    if (down) this.#ignoreUntilLifted(ended);
     ended.session.cancel();
   }
 
@@ -125,42 +137,42 @@ export function pointerDrag(
    * The rest of a cancelled press does nothing: the finger still on the
    * screen does not scroll, and the button going up is not a click.
    */
-  function ignoreUntilLifted(ended: Press): void {
+  #ignoreUntilLifted(ended: Press): void {
     const lifted = (event: PointerEvent): void => {
       if (event.pointerId !== ended.pointerId) return;
-      if (event.type === 'pointerup') swallowNextClick();
+      if (event.type === 'pointerup') this.#swallowNextClick();
       forget();
     };
     const forget = (): void => {
-      window.removeEventListener('pointerup', lifted, CAPTURE);
-      window.removeEventListener('pointercancel', lifted, CAPTURE);
-      spent = undefined;
+      window.removeEventListener('pointerup', lifted, this.#capture);
+      window.removeEventListener('pointercancel', lifted, this.#capture);
+      this.#spent = undefined;
     };
-    window.addEventListener('pointerup', lifted, CAPTURE);
-    window.addEventListener('pointercancel', lifted, CAPTURE);
-    spent = { touch: ended.touch, forget };
+    window.addEventListener('pointerup', lifted, this.#capture);
+    window.addEventListener('pointercancel', lifted, this.#capture);
+    this.#spent = { touch: ended.touch, forget };
   }
 
-  function begin(): void {
-    if (!press || press.dragging) return;
-    clearTimeout(press.timer);
-    press.dragging = true;
+  readonly #begin = (): void => {
+    if (!this.#press || this.#press.dragging) return;
+    clearTimeout(this.#press.timer);
+    this.#press.dragging = true;
     // The root takes the pointer: the item under it may leave the document
     // while it is dragged, and events must keep coming when the pointer
     // leaves the window.
     try {
-      root.setPointerCapture(press.pointerId);
+      this.#root.setPointerCapture(this.#press.pointerId);
     } catch {
       // The pointer is already gone; its pointerup or pointercancel follows.
     }
     // Only a finger that rested gets the buzz: it is the one sign that the
     // wait is over. A mouse sees the item move.
-    if (press.touch) buzz(settings.touchVibration);
-    press.session.start(press.last);
-  }
+    if (this.#press.touch) buzz(this.#settings.touchVibration);
+    this.#press.session.start(this.#press.last);
+  };
 
   /** A drag that ends with the button going up would otherwise be followed by a click. */
-  function swallowNextClick(): void {
+  #swallowNextClick(): void {
     const swallow = (event: MouseEvent): void => {
       event.stopPropagation();
       event.preventDefault();
@@ -168,75 +180,79 @@ export function pointerDrag(
     window.addEventListener('click', swallow, { capture: true, once: true });
     // The click, if one comes, is dispatched right after pointerup, before any timer.
     setTimeout(() => {
-      window.removeEventListener('click', swallow, CAPTURE);
+      window.removeEventListener('click', swallow, this.#capture);
     }, 0);
   }
 
-  function onPointerMove(event: PointerEvent): void {
-    if (event.pointerId !== press?.pointerId) return;
-    press.last = pointOf(event);
-    if (press.dragging) {
-      press.session.move(press.last);
+  readonly #onPointerMove = (event: PointerEvent): void => {
+    if (event.pointerId !== this.#press?.pointerId) return;
+    this.#press.last = pointOf(event);
+    if (this.#press.dragging) {
+      this.#press.session.move(this.#press.last);
       return;
     }
-    const travelled = Math.hypot(press.last.x - press.origin.x, press.last.y - press.origin.y);
-    if (press.touch) {
+    const travelled = Math.hypot(
+      this.#press.last.x - this.#press.origin.x,
+      this.#press.last.y - this.#press.origin.y,
+    );
+    if (this.#press.touch) {
       // Moved before the wait was over: this is a scroll, not a drag.
-      if (travelled > settings.touchTolerance) finish();
-    } else if (travelled >= settings.mouseDistance) {
-      begin();
+      if (travelled > this.#settings.touchTolerance) this.#finish();
+    } else if (travelled >= this.#settings.mouseDistance) {
+      this.#begin();
     }
-  }
+  };
 
-  function onPointerUp(event: PointerEvent): void {
-    if (event.pointerId !== press?.pointerId) return;
-    const ended = finish();
+  readonly #onPointerUp = (event: PointerEvent): void => {
+    if (event.pointerId !== this.#press?.pointerId) return;
+    const ended = this.#finish();
     if (!ended?.dragging) return;
-    swallowNextClick();
+    this.#swallowNextClick();
     ended.session.drop(pointOf(event));
-  }
+  };
 
-  function onPointerCancel(event: PointerEvent): void {
-    if (event.pointerId === press?.pointerId) cancel(false);
-  }
+  readonly #onPointerCancel = (event: PointerEvent): void => {
+    if (event.pointerId === this.#press?.pointerId) this.#cancel(false);
+  };
 
-  function onLostCapture(event: PointerEvent): void {
+  readonly #onLostCapture = (event: PointerEvent): void => {
     // After a regular pointerup the press is already over and this is ignored.
-    if (event.pointerId === press?.pointerId && press.dragging) cancel(true);
-  }
+    if (event.pointerId === this.#press?.pointerId && this.#press.dragging) this.#cancel(true);
+  };
 
-  function onKeyDown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape' || !press) return;
-    if (press.dragging) {
+  readonly #onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.#press) return;
+    if (this.#press.dragging) {
       // Escape ends the drag and nothing else, such as a dialog around the board.
       event.preventDefault();
       event.stopPropagation();
     }
-    cancel(true);
-  }
+    this.#cancel(true);
+  };
 
   /**
    * Once a finger drags, the browser must not also scroll with it. Pointer
    * Events offer no way to say so after the touch has begun (`touch-action`
    * is read when the finger lands), so the touch event is cancelled instead.
    */
-  function onTouchMove(event: Event): void {
-    const held = press?.dragging ? press.touch : spent?.touch;
+  readonly #onTouchMove = (event: Event): void => {
+    const held = this.#press?.dragging ? this.#press.touch : this.#spent?.touch;
     if (held && event.cancelable) event.preventDefault();
-  }
+  };
 
-  function preventWhilePressed(event: Event): void {
-    if (press) event.preventDefault();
-  }
+  readonly #preventWhilePressed = (event: Event): void => {
+    if (this.#press) event.preventDefault();
+  };
 
   /** A long press also opens the context menu on touch screens. */
-  function onContextMenu(event: Event): void {
-    if (press?.touch) event.preventDefault();
-  }
+  readonly #onContextMenu = (event: Event): void => {
+    if (this.#press?.touch) event.preventDefault();
+  };
 
-  function onPointerDown(event: PointerEvent): void {
-    if (press || !event.isPrimary || event.button !== 0) return;
-    spent?.forget();
+  readonly #onPointerDown = (event: PointerEvent): void => {
+    if (this.#press || !event.isPrimary || event.button !== 0) return;
+    this.#spent?.forget();
+    const source = this.#source;
     const session = source(event);
     if (!session) return;
 
@@ -244,55 +260,61 @@ export function pointerDrag(
     const origin = pointOf(event);
     const target = event.target;
 
-    window.addEventListener('pointermove', onPointerMove, CAPTURE);
-    window.addEventListener('pointerup', onPointerUp, CAPTURE);
-    window.addEventListener('pointercancel', onPointerCancel, CAPTURE);
-    window.addEventListener('keydown', onKeyDown, CAPTURE);
-    document.addEventListener('selectstart', preventWhilePressed);
+    window.addEventListener('pointermove', this.#onPointerMove, this.#capture);
+    window.addEventListener('pointerup', this.#onPointerUp, this.#capture);
+    window.addEventListener('pointercancel', this.#onPointerCancel, this.#capture);
+    window.addEventListener('keydown', this.#onKeyDown, this.#capture);
+    document.addEventListener('selectstart', this.#preventWhilePressed);
     // Touch events go to the element the finger landed on even after it has
     // left the document, where they no longer reach the root.
-    if (touch) target?.addEventListener('touchmove', onTouchMove, NOT_PASSIVE);
+    if (touch) target?.addEventListener('touchmove', this.#onTouchMove, this.#notPassive);
 
-    press = {
+    this.#press = {
       session,
       pointerId: event.pointerId,
       touch,
       origin,
       last: origin,
       dragging: false,
-      timer: touch ? setTimeout(begin, settings.touchDelay) : undefined,
+      timer: touch ? setTimeout(this.#begin, this.#settings.touchDelay) : undefined,
       release: () => {
-        window.removeEventListener('pointermove', onPointerMove, CAPTURE);
-        window.removeEventListener('pointerup', onPointerUp, CAPTURE);
-        window.removeEventListener('pointercancel', onPointerCancel, CAPTURE);
-        window.removeEventListener('keydown', onKeyDown, CAPTURE);
-        document.removeEventListener('selectstart', preventWhilePressed);
-        target?.removeEventListener('touchmove', onTouchMove);
+        window.removeEventListener('pointermove', this.#onPointerMove, this.#capture);
+        window.removeEventListener('pointerup', this.#onPointerUp, this.#capture);
+        window.removeEventListener('pointercancel', this.#onPointerCancel, this.#capture);
+        window.removeEventListener('keydown', this.#onKeyDown, this.#capture);
+        document.removeEventListener('selectstart', this.#preventWhilePressed);
+        target?.removeEventListener('touchmove', this.#onTouchMove);
       },
     };
+  };
+
+  cancel(): void {
+    this.#cancel(true);
   }
 
-  root.addEventListener('pointerdown', onPointerDown);
-  root.addEventListener('lostpointercapture', onLostCapture);
-  // Present before any finger lands: a browser decides when the touch begins
-  // whether a listener may cancel its moves.
-  root.addEventListener('touchmove', onTouchMove, NOT_PASSIVE);
-  root.addEventListener('contextmenu', onContextMenu);
-  // Links and images would start the browser's own drag, which cancels the pointer.
-  root.addEventListener('dragstart', preventWhilePressed);
+  destroy(): void {
+    this.#cancel(false);
+    this.#spent?.forget();
+    this.#root.removeEventListener('pointerdown', this.#onPointerDown);
+    this.#root.removeEventListener('lostpointercapture', this.#onLostCapture);
+    this.#root.removeEventListener('touchmove', this.#onTouchMove);
+    this.#root.removeEventListener('contextmenu', this.#onContextMenu);
+    this.#root.removeEventListener('dragstart', this.#preventWhilePressed);
+  }
+}
 
+export function pointerDrag(
+  root: HTMLElement,
+  source: PointerDragSource,
+  options: Partial<PointerDragOptions> = {},
+): PointerDragHandle {
+  const controller = new PointerDragController(root, source, options);
   return {
     cancel() {
-      cancel(true);
+      controller.cancel();
     },
     destroy() {
-      cancel(false);
-      spent?.forget();
-      root.removeEventListener('pointerdown', onPointerDown);
-      root.removeEventListener('lostpointercapture', onLostCapture);
-      root.removeEventListener('touchmove', onTouchMove);
-      root.removeEventListener('contextmenu', onContextMenu);
-      root.removeEventListener('dragstart', preventWhilePressed);
+      controller.destroy();
     },
   };
 }

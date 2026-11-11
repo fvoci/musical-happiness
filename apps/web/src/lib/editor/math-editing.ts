@@ -30,15 +30,8 @@ export interface MathEditingOptions {
   page: Document;
 }
 
-let open: { apply: () => void; cancel: () => void } | undefined;
-
-/** Opens the box. Only one is open at a time; opening another applies the first. */
-export function editMath(options: MathEditingOptions): void {
-  open?.apply();
-  const { page } = options;
-  const view = page.defaultView;
-  const block = MATH_SLOTS[options.node].display;
-
+/** Builds the dialog controls before any listeners for its lifetime are installed. */
+function mathDialog(page: Document, block: boolean, options: MathEditingOptions) {
   const box = page.createElement('div');
   box.setAttribute('class', 'doc-math-editing');
   box.setAttribute('role', 'dialog');
@@ -73,6 +66,32 @@ export function editMath(options: MathEditingOptions): void {
     return element;
   };
 
+  return { box, field, preview, hint, buttons, button };
+}
+
+/** Places the dialog near its anchor, keeping it inside the window. */
+function placeMathDialog(box: HTMLElement, options: MathEditingOptions, view: Window | null): void {
+  const rect = options.anchor();
+  if (!rect || !view) return;
+  const size = box.getBoundingClientRect();
+  const left = Math.max(8, Math.min(rect.left, view.innerWidth - size.width - 8));
+  const below = rect.bottom + 6;
+  const fits = below + size.height <= view.innerHeight || rect.top - 6 - size.height < 0;
+  box.style.left = `${left}px`;
+  box.style.top = `${fits ? below : rect.top - 6 - size.height}px`;
+}
+
+let open: { apply: () => void; cancel: () => void } | undefined;
+
+/** Opens the box. Only one is open at a time; opening another applies the first. */
+export function editMath(options: MathEditingOptions): void {
+  open?.apply();
+  const { page } = options;
+  const view = page.defaultView;
+  const block = MATH_SLOTS[options.node].display;
+
+  const { box, field, preview, hint, buttons, button } = mathDialog(page, block, options);
+
   let done = false;
   let sequence = 0;
 
@@ -103,14 +122,7 @@ export function editMath(options: MathEditingOptions): void {
   }
 
   function place(): void {
-    const rect = options.anchor();
-    if (!rect || !view) return;
-    const size = box.getBoundingClientRect();
-    const left = Math.max(8, Math.min(rect.left, view.innerWidth - size.width - 8));
-    const below = rect.bottom + 6;
-    const fits = below + size.height <= view.innerHeight || rect.top - 6 - size.height < 0;
-    box.style.left = `${left}px`;
-    box.style.top = `${fits ? below : rect.top - 6 - size.height}px`;
+    placeMathDialog(box, options, view);
   }
 
   function close(): void {
