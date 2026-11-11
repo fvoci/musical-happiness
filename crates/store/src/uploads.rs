@@ -25,7 +25,9 @@ pub enum PartRecord {
 const UPLOAD_COLUMNS: &str = "id, user_id, board_id, name, size, content_type, part_size, \
                               create_at, expires_at, closed_at, multipart_id, path, purpose";
 
-/// What the open upload sessions hold back, for the limits on opening another.
+/// What the open upload sessions hold back, for the limits on opening another: counted
+/// over the whole server, whatever the organization
+/// ([`Store::upload_usage`](crate::Store::upload_usage)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct UploadUsage {
     /// How many sessions the user has open.
@@ -37,34 +39,6 @@ pub struct UploadUsage {
 }
 
 impl Store {
-    /// Returns what the open upload sessions hold back at `now`: those that are not
-    /// closed and have not ended. A session that was closed and is not thrown away yet,
-    /// as after a crash, does not count.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the query fails.
-    pub async fn upload_usage(&self, user_id: &str, now: i64) -> Result<UploadUsage, StoreError> {
-        self.with_conn(async |scope| {
-            let mut sql = scope.sql("SELECT CAST(COALESCE(SUM(CASE WHEN user_id = ");
-            sql.bind(Id(user_id))
-                .push(" THEN 1 ELSE 0 END), 0) AS BIGINT), CAST(COALESCE(SUM(CASE WHEN user_id = ")
-                .bind(Id(user_id))
-                .push(
-                    " THEN size ELSE 0 END), 0) AS BIGINT), CAST(COALESCE(SUM(size), 0) AS BIGINT) \
-                     FROM uploads WHERE closed_at = 0 AND expires_at > ",
-                )
-                .bind(now);
-            let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
-            Ok(UploadUsage {
-                user_sessions: row.int(0)?,
-                user_bytes: row.int(1)?,
-                server_bytes: row.int(2)?,
-            })
-        })
-        .await
-    }
-
     /// Returns the upload sessions to throw away at `now`: those open that have ended,
     /// and those closed before `closed_before` that are still there, as when the server
     /// stopped between closing a session and throwing it away.

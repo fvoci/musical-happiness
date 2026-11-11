@@ -15,7 +15,8 @@
 //! the organization of the transaction as its default, and every table of an
 //! organization gets its policy; SQLite holds one organization and gets neither. And
 //! SQLite adds no column that both takes no NULL and refers to another table, so where
-//! PostgreSQL alters `teams`, SQLite makes the table again.
+//! PostgreSQL alters `teams`, SQLite makes the table again; and SQLite alone has the
+//! triggers that hold it to one organization.
 
 use sqlx::SqlSafeStr as _;
 use sqlx::migrate::{MigrateError, Migration, MigrationType, Migrator};
@@ -104,13 +105,13 @@ const STEPS: [Step; 11] = [
 
 /// The migration that makes the organizations and, on PostgreSQL, puts up the wall
 /// between them.
+#[cfg(any(test, feature = "test-util"))]
 pub(crate) const ORGANIZATIONS_VERSION: i64 = 90;
 
 /// The tables that are no organization's: the accounts, what is true of the
 /// installation, and the organizations themselves. Every other table of the schema
-/// holds rows of organizations and, on PostgreSQL, is behind the wall: row-level
-/// security enabled and forced, with the policy `org_wall`. A test of the store reads
-/// the catalog to see that it is so.
+/// is one of [`ORG_TABLES`].
+#[cfg(any(test, feature = "test-util"))]
 pub(crate) const GLOBAL_TABLES: [&str; 7] = [
     "_sqlx_migrations",
     "data_steps",
@@ -119,6 +120,31 @@ pub(crate) const GLOBAL_TABLES: [&str; 7] = [
     "preferences",
     "sessions",
     "users",
+];
+
+/// The tables that hold rows of organizations. On PostgreSQL each is behind the wall:
+/// row-level security enabled and forced, with the policy `org_wall`. A test of the
+/// store reads the catalog to see that every table of the schema is in this list or in
+/// [`GLOBAL_TABLES`], and that it is so.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) const ORG_TABLES: [&str; 17] = [
+    "blocks",
+    "board_members",
+    "boards",
+    "categories",
+    "category_boards",
+    "comment_versions",
+    "deleted_blocks",
+    "deleted_boards",
+    "file_info",
+    "file_refs",
+    "organization_members",
+    "sharing",
+    "subscriptions",
+    "teams",
+    "upload_parts",
+    "uploads",
+    "workspace_members",
 ];
 
 /// Tables that only a database of the original server has: the bookkeeping of its
@@ -251,35 +277,36 @@ mod tests {
             .filter(|line| !line.is_empty())
     }
 
-    /// The tables whose rows a migration reads or changes: what follows `FROM`, `JOIN`,
-    /// `UPDATE` and `INTO`. A subquery or a function call there names no table.
-    fn tables_read_or_changed(sql: &str) -> Vec<String> {
-        let words: Vec<&str> = statement_lines(sql)
-            .flat_map(str::split_whitespace)
-            .collect();
-        words
-            .windows(2)
-            .filter(|pair| {
-                ["FROM", "JOIN", "UPDATE", "INTO"]
-                    .iter()
-                    .any(|keyword| pair[0].eq_ignore_ascii_case(keyword))
-            })
-            .map(|pair| pair[1])
-            .filter(|word| !word.contains('('))
-            .map(|word| {
-                word.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                    .to_ascii_lowercase()
-            })
+    /// The words of a migration: its runs of letters, digits and underscores, in lower
+    /// case, comments left out.
+    fn words(sql: &str) -> Vec<String> {
+        statement_lines(sql)
+            .flat_map(|line| line.split(|c: char| !c.is_ascii_alphanumeric() && c != '_'))
             .filter(|word| !word.is_empty())
+            .map(str::to_ascii_lowercase)
             .collect()
     }
 
-    /// The tables of organizations among those a migration reads or changes.
+    /// The tables of organizations whose rows a migration may read or change: every
+    /// one it names anywhere, if it has a statement that reads or changes rows at all.
+    /// More than it must be: a migration that changes the rows of one table and the
+    /// shape of another names both. A line too many at its head costs nothing; a
+    /// statement that finds no row costs the data.
     fn walled_tables(sql: &str) -> Vec<String> {
-        tables_read_or_changed(sql)
+        let words = words(sql);
+        let touches_rows = words
+            .iter()
+            .any(|word| ["select", "insert", "update", "delete"].contains(&word.as_str()));
+        if !touches_rows {
+            return Vec::new();
+        }
+        let mut walled: Vec<String> = words
             .into_iter()
-            .filter(|table| !GLOBAL_TABLES.contains(&table.as_str()))
-            .collect()
+            .filter(|word| ORG_TABLES.contains(&word.as_str()))
+            .collect();
+        walled.sort_unstable();
+        walled.dedup();
+        walled
     }
 
     fn begins_in_the_system_scope(sql: &str) -> bool {
@@ -313,6 +340,9 @@ mod tests {
     #[test]
     fn the_check_of_later_migrations_sees_what_it_is_there_to_see() {
         for touching in [
+            "INSERT INTO data_steps (name) SELECT b.title FROM users AS u, boards AS b;",
+            "DELETE FROM sessions USING boards WHERE sessions.user_id = boards.created_by",
+            "ALTER TABLE boards ADD COLUMN color TEXT; UPDATE users SET email = ''",
             "UPDATE boards SET title = ''",
             "DELETE FROM deleted_blocks WHERE deleted_at < 5;",
             "INSERT INTO file_refs (block_id) VALUES ('x')",
@@ -327,6 +357,7 @@ mod tests {
         for not_touching in [
             "ALTER TABLE boards ADD COLUMN color TEXT NOT NULL DEFAULT '';",
             "CREATE INDEX blocks_title_idx ON blocks (title);",
+            "CREATE TABLE notes (id UUID PRIMARY KEY, board_id UUID REFERENCES boards (id));",
             "INSERT INTO data_steps (name) VALUES ('later');",
             "UPDATE users SET display_name = '' -- not from boards",
             "UPDATE users SET update_at = (EXTRACT(EPOCH FROM now()) * 1000)::BIGINT;",
@@ -344,6 +375,14 @@ mod tests {
             !begins_in_the_system_scope(&format!("UPDATE boards SET title = '';\n{SYSTEM_SCOPE}")),
             "the first statement, not a later one"
         );
+    }
+
+    /// No table is both an organization's and nobody's.
+    #[test]
+    fn the_two_lists_of_tables_share_no_table() {
+        for table in ORG_TABLES {
+            assert!(!GLOBAL_TABLES.contains(&table), "{table} is in both lists");
+        }
     }
 
     /// The migration of the organizations is in the list under the version the rest of

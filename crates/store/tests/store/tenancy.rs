@@ -9,7 +9,7 @@ use fvoci_model::{
     BlockType, Board, BoardMember, BoardType, Category, OrgRole, SubscriberType, Subscription,
     Team, Upload, UploadPart, User, WorkspaceRole, is_id, new_id,
 };
-use fvoci_store::testing::GLOBAL_TABLES;
+use fvoci_store::testing::{GLOBAL_TABLES, ORG_TABLES};
 use fvoci_store::{
     DbType, InstanceRole, SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, SharingChange, Store, StoreError,
     Tenant,
@@ -334,11 +334,15 @@ async fn every_table_is_no_organizations_or_behind_the_wall() {
             "{global} is a table"
         );
     }
-    let walled: Vec<&String> = all
+    let walled: Vec<&str> = all
         .iter()
-        .filter(|table| !GLOBAL_TABLES.contains(&table.as_str()))
+        .map(String::as_str)
+        .filter(|table| !GLOBAL_TABLES.contains(table))
         .collect();
-    assert_eq!(walled.len(), 17, "the tables of organizations: {walled:?}");
+    assert_eq!(
+        walled, ORG_TABLES,
+        "every table that is not nobody's is in the list of the organizations' tables"
+    );
 
     let mut conn = common::connect_past_the_store(&test.dbconfig()).await;
     let policies = policies(&mut conn).await;
@@ -764,15 +768,17 @@ async fn an_sqlite_database_holds_one_organization() {
 
 /// The files that may ask for the system's reach, by which a handle reaches the rows of
 /// every organization: the store itself, the directory, the changes of the data after
-/// a migration, and the server's start, where its housekeeping is set going. Anywhere
-/// else, a request would be let past the wall it is there to be held by.
+/// a migration, and the one function of the server that its housekeeping works
+/// through. Anywhere else, a request would be let past the wall it is there to be held
+/// by. (The system organization, which holds the built-in templates, is an
+/// organization like another to the wall: `Tenant::org(SYSTEM_ORG_ID)` is not this.)
 #[test]
 fn the_systems_reach_is_asked_for_in_few_places() {
     const ALLOWED: [&str; 4] = [
         "store/src/lib.rs",
         "store/src/directory.rs",
         "store/src/data_steps.rs",
-        "server/src/lib.rs",
+        "server/src/housekeeping.rs",
     ];
     fn sources(directory: &Path, found: &mut Vec<std::path::PathBuf>) {
         for entry in std::fs::read_dir(directory).expect("a source directory") {
@@ -803,7 +809,14 @@ fn the_systems_reach_is_asked_for_in_few_places() {
         let asks = text
             .lines()
             .filter(|line| !line.trim_start().starts_with("//"))
-            .any(|line| line.contains("Tenant::System") || line.contains(".system()"));
+            .any(|line| {
+                // By the variant, also where it is imported by its bare name, and by
+                // the method, however it is called.
+                line.contains("Tenant::System")
+                    || (line.contains("Tenant::{") && line.contains("System"))
+                    || line.contains(".system()")
+                    || line.contains("::system(")
+            });
         // The test support is compiled into no server.
         if asks && name != "store/src/testing.rs" {
             asking.push(name);
@@ -1162,4 +1175,136 @@ async fn a_database_from_before_organizations_becomes_one_organization() {
 
     unset.close().await;
     database.remove().await;
+}
+
+/// An upload session of `size` bytes that the user opens through `store`.
+async fn open_upload(store: &Store, user_id: &str, size: i64) {
+    let upload = Upload {
+        id: new_id(),
+        user_id: user_id.to_owned(),
+        board_id: new_id(),
+        name: "upload.bin".to_owned(),
+        size,
+        part_size: size,
+        create_at: 1,
+        expires_at: i64::MAX,
+        ..Upload::default()
+    };
+    store
+        .create_upload(&upload)
+        .await
+        .expect("an upload is opened");
+}
+
+/// The limits on open uploads are a user's and the server's, not an organization's:
+/// what they count is the same through the handle of any organization, with the
+/// sessions of all of them in it.
+#[tokio::test]
+async fn the_open_uploads_are_counted_over_every_organization() {
+    let test = common::setup().await;
+    let user_id = common::user(&test, "uploader").await;
+    let other_user = common::user(&test, "another.uploader").await;
+    open_upload(&test, &user_id, 10).await;
+    open_upload(&test, &other_user, 100).await;
+    let mut handles = vec![test.store.clone(), test.scoped(Tenant::Unset)];
+    let mut expected = (1, 10, 110);
+    if common::db_type() == DbType::Postgres {
+        let (other_org, _) = common::organization(&test.scoped(Tenant::Unset), "the other").await;
+        let theirs = test.for_org(&other_org).expect("an identifier");
+        open_upload(&theirs, &user_id, 1000).await;
+        handles.push(theirs);
+        expected = (2, 1010, 1110);
+    }
+    for store in &handles {
+        let usage = store
+            .upload_usage(&user_id, 5)
+            .await
+            .expect("the usage is read");
+        assert_eq!(
+            (usage.user_sessions, usage.user_bytes, usage.server_bytes),
+            expected,
+            "through {:?}",
+            store.tenant()
+        );
+    }
+    test.teardown().await;
+}
+
+/// The organization of a shared board is told to whoever holds its read token, and to
+/// nobody else; and nothing is shared of the system organization, or of a workspace
+/// that was deleted.
+#[tokio::test]
+async fn the_organization_of_a_shared_board_is_for_the_holder_of_its_token() {
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let user_id = common::user(&test, "sharer").await;
+    let team_id = common::team(&test).await;
+    let shared = board(&test, &team_id, &user_id, "shared").await;
+    let not_shared = board(&test, &team_id, &user_id, "not shared").await;
+    test.set_sharing(&shared, SharingChange::On, "the-token", &user_id)
+        .await
+        .expect("the board is shared");
+    test.set_sharing(&not_shared, SharingChange::On, "another-token", &user_id)
+        .await
+        .expect("the other board is shared");
+    test.set_sharing(&not_shared, SharingChange::Off, "", &user_id)
+        .await
+        .expect("and shared no more");
+    let system_org = test.for_org(SYSTEM_ORG_ID).expect("an identifier");
+    let template = board(&system_org, SYSTEM_WORKSPACE_ID, &user_id, "a template").await;
+    system_org
+        .set_sharing(&template, SharingChange::On, "template-token", &user_id)
+        .await
+        .expect("the template is shared");
+
+    let org_of = async |board_id: &str, token: &str| {
+        unset
+            .org_of_shared_board(board_id, token)
+            .await
+            .expect("the shared board is looked up")
+    };
+    assert_eq!(
+        org_of(&shared, "the-token").await,
+        Some(test.org_id.clone())
+    );
+    for (board_id, token, why) in [
+        (shared.as_str(), "the-toke", "a part of the token"),
+        (shared.as_str(), "", "no token"),
+        (
+            shared.as_str(),
+            "another-token",
+            "the token of another board",
+        ),
+        (
+            not_shared.as_str(),
+            "",
+            "a board that is shared no more has no token",
+        ),
+        (not_shared.as_str(), "another-token", "nor its old one"),
+        (
+            template.as_str(),
+            "template-token",
+            "the system organization's",
+        ),
+        ("no identifier", "the-token", "no board"),
+    ] {
+        assert_eq!(org_of(board_id, token).await, None, "{why}");
+    }
+
+    // A workspace in the trash shares nothing.
+    let trashed = test
+        .system()
+        .execute_unchecked(&format!(
+            "UPDATE teams SET delete_at = 5 WHERE id = '{team_id}'"
+        ))
+        .await
+        .expect("the workspace is put in the trash");
+    assert_eq!(trashed, 1, "the workspace");
+    assert_eq!(
+        org_of(&shared, "the-token").await,
+        None,
+        "a deleted workspace"
+    );
+
+    test.teardown().await;
 }

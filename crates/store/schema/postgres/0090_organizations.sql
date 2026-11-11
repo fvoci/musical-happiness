@@ -33,6 +33,9 @@ CREATE TABLE organizations (
     delete_at BIGINT NOT NULL DEFAULT 0
 );
 
+-- The system organization is one.
+CREATE UNIQUE INDEX organizations_system_key ON organizations (is_system) WHERE is_system;
+
 -- Who belongs to an organization, and whether they administer it.
 CREATE TABLE organization_members (
     org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
@@ -76,6 +79,7 @@ FROM (SELECT id FROM teams ORDER BY create_at, id LIMIT 1) AS oldest,
      (SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT AS millis) AS now;
 UPDATE teams SET org_id = (SELECT id FROM organizations WHERE NOT is_system);
 ALTER TABLE teams ALTER COLUMN org_id SET NOT NULL;
+CREATE INDEX teams_org_id_idx ON teams (org_id);
 
 -- Every user is a member of it and of its workspaces, and an administrator of the
 -- instance administers both.
@@ -126,7 +130,10 @@ BEGIN
     END LOOP;
 
     -- Whose the rows stored so far are: the one organization's, but for the built-in
-    -- templates and what hangs on them, which are the system's.
+    -- templates and what hangs on them, which are the system's. That takes out of a
+    -- user's reach what the user had on a built-in template under a server that let
+    -- one be joined or subscribed to (a membership, a subscription, a file, sharing):
+    -- the template is nobody's to change. SQLite, without a wall, leaves it in reach.
     UPDATE boards SET org_id = CASE WHEN is_builtin THEN system_org ELSE the_org END;
     UPDATE workspace_members SET org_id = the_org;
     UPDATE board_members AS m SET org_id = b.org_id FROM boards AS b WHERE b.id = m.board_id;

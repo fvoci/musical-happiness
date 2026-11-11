@@ -7,7 +7,7 @@
 use fvoci_model::Team;
 
 use crate::Store;
-use crate::db::{Id, OptId, Param, Row, Scope, Sql, now_millis};
+use crate::db::{Bound, Id, OptId, Param, Row, Scope, Sql, now_millis};
 use crate::error::StoreError;
 
 const TEAM_COLUMNS: &str = "id, name, signup_token, settings, modified_by, update_at";
@@ -47,7 +47,8 @@ impl Store {
                 .push_bind(", modified_by = ", OptId(modified_by))
                 .push_bind(", update_at = ", now_millis())
                 .push_bind(" WHERE id = ", Id(team_id))
-                .push_bind(" AND org_id = ", scope.org()?);
+                .push_bind(" AND org_id = ", scope.org()?)
+                .push_bind(" AND delete_at = ", 0_i64);
             if scope.execute(sql).await? == 0 {
                 return Err(team_not_found());
             }
@@ -99,7 +100,7 @@ impl Store {
 pub(crate) async fn insert_team(
     scope: &mut Scope<'_>,
     team: &Team,
-    org: Param,
+    org: impl Into<Bound>,
 ) -> Result<(), StoreError> {
     let now = now_millis();
     let mut sql = scope.sql(

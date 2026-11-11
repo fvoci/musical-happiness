@@ -76,12 +76,12 @@ async fn add_organization_member(
     Ok(())
 }
 
-/// The role in an organization and in its workspaces that goes with being, or not
+/// The roles in an organization and in its workspaces that go with being, or not
 /// being, an administrator of the instance.
-fn role_of(role: InstanceRole) -> &'static str {
+fn roles_of(role: InstanceRole) -> (OrgRole, WorkspaceRole) {
     match role {
-        InstanceRole::Administrator => OrgRole::Admin.as_str(),
-        InstanceRole::User => OrgRole::Member.as_str(),
+        InstanceRole::Administrator => (OrgRole::Admin, WorkspaceRole::Admin),
+        InstanceRole::User => (OrgRole::Member, WorkspaceRole::Member),
     }
 }
 
@@ -95,25 +95,20 @@ pub(crate) async fn join_organization(
     user_id: &str,
     instance_role: InstanceRole,
 ) -> Result<(), StoreError> {
-    let role = role_of(instance_role);
-    let now = now_millis();
-    let mut sql =
-        scope.sql("INSERT INTO organization_members (org_id, user_id, role, create_at) VALUES (");
-    sql.bind(scope.org()?)
-        .push_bind(", ", Id(user_id))
-        .push_bind(", ", role)
-        .push_bind(", ", now)
-        .push(")");
-    scope.execute(sql).await?;
+    let (org_role, workspace_role) = roles_of(instance_role);
+    add_organization_member(scope, user_id, org_role).await?;
     let mut sql = scope.sql(
-        "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) \
-         SELECT default_workspace_id, ",
+        "INSERT INTO workspace_members (workspace_id, user_id, role, create_at) SELECT t.id, ",
     );
     sql.bind(Id(user_id))
-        .push_bind(", ", role)
-        .push_bind(", ", now)
-        .push_bind(" FROM organizations WHERE id = ", scope.org()?)
-        .push(" AND default_workspace_id IS NOT NULL");
+        .push_bind(", ", workspace_role.as_str())
+        .push_bind(", ", now_millis())
+        .push_bind(
+            " FROM organizations AS o JOIN teams AS t ON t.id = o.default_workspace_id \
+             WHERE o.id = ",
+            scope.org()?,
+        )
+        .push_bind(" AND t.delete_at = ", 0_i64);
     scope.execute(sql).await?;
     Ok(())
 }
@@ -129,14 +124,14 @@ pub(crate) async fn follow_instance_role(
     user_id: &str,
     instance_role: InstanceRole,
 ) -> Result<(), StoreError> {
-    let role = role_of(instance_role);
+    let (org_role, workspace_role) = roles_of(instance_role);
     let mut sql = scope.sql("UPDATE organization_members SET role = ");
-    sql.bind(role)
+    sql.bind(org_role.as_str())
         .push_bind(" WHERE user_id = ", Id(user_id))
         .push_bind(" AND org_id = ", scope.org()?);
     scope.execute(sql).await?;
     let mut sql = scope.sql("UPDATE workspace_members SET role = ");
-    sql.bind(role)
+    sql.bind(workspace_role.as_str())
         .push_bind(" WHERE user_id = ", Id(user_id))
         .push_bind(" AND role <> ", WorkspaceRole::Guest.as_str())
         .push_bind(

@@ -24,6 +24,9 @@ CREATE TABLE organizations (
     delete_at BIGINT NOT NULL DEFAULT 0
 );
 
+-- The system organization is one.
+CREATE UNIQUE INDEX organizations_system_key ON organizations (is_system) WHERE is_system;
+
 -- Who belongs to an organization, and whether they administer it.
 CREATE TABLE organization_members (
     org_id TEXT NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
@@ -65,7 +68,9 @@ FROM (SELECT id FROM teams ORDER BY create_at, id LIMIT 1) AS oldest,
 -- trash like a board (delete_at; zero while it is in use). SQLite adds no column that
 -- must have a value and refers to another table, so the table is made again. The rows
 -- that refer to a team (boards, categories, the organization above) are checked when
--- the migration ends, by when their teams are back.
+-- the migration ends, by when their teams are back. Only the checks wait, not what a
+-- key does when its team goes: workspace_members, whose rows go with their team, is
+-- filled after this, and must be.
 PRAGMA defer_foreign_keys = ON;
 CREATE TEMPORARY TABLE teams_before AS SELECT * FROM teams;
 DROP TABLE teams;
@@ -88,6 +93,7 @@ SELECT id, signup_token, settings, modified_by, create_at, update_at,
        (SELECT id FROM organizations WHERE NOT is_system)
 FROM teams_before;
 DROP TABLE teams_before;
+CREATE INDEX teams_org_id_idx ON teams (org_id);
 
 -- Every user is a member of it and of its workspaces, and an administrator of the
 -- instance administers both.

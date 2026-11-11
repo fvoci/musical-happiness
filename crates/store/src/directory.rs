@@ -10,9 +10,10 @@ use fvoci_model::{OrgRole, Team, UserWorkspace, WorkspaceRole, new_id};
 use subtle::ConstantTimeEq as _;
 
 use crate::Store;
-use crate::db::{Dialect, Id, Param, Row, Scope, now_millis};
+use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::teams;
+use crate::uploads::UploadUsage;
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -20,6 +21,11 @@ pub const SYSTEM_ORG_ID: &str = "00000000-0000-7000-8000-00000000a000";
 
 /// The workspace of the system organization, which the built-in templates are in.
 pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
+
+/// The condition every lookup here ends with: the workspace `t` and its organization
+/// `o` are in use, and are not the system's, which is nobody's to work in.
+const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
+                      AND t.is_system = false";
 
 /// What a user is in a workspace, and whose the workspace is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,7 +91,8 @@ impl Store {
     }
 
     /// What the user is in the workspace, and whose the workspace is; `None` if the
-    /// user is no member of it, whether it exists or not.
+    /// user is no member of it, whether it exists or not. The user is the one of a
+    /// session: whether the account is still in use is the session's to say.
     ///
     /// # Errors
     ///
@@ -108,8 +115,7 @@ impl Store {
                 );
                 sql.bind(Id(user_id))
                     .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
-                    .push_bind(" AND t.delete_at = ", 0_i64)
-                    .push_bind(" AND o.delete_at = ", 0_i64);
+                    .push(IN_USE);
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };
@@ -147,8 +153,7 @@ impl Store {
                      WHERE wm.user_id = ",
                 );
                 sql.bind(Id(user_id))
-                    .push_bind(" AND t.delete_at = ", 0_i64)
-                    .push_bind(" AND o.delete_at = ", 0_i64)
+                    .push(IN_USE)
                     .push(" ORDER BY o.create_at, o.id, t.create_at, t.id");
                 scope
                     .fetch_all(sql)
@@ -167,8 +172,44 @@ impl Store {
             .await
     }
 
+    /// Returns what the open upload sessions hold back at `now`: those that are not
+    /// closed and have not ended. A session that was closed and is not thrown away yet,
+    /// as after a crash, does not count.
+    ///
+    /// The limits these figures are for are the user's and the server's, not an
+    /// organization's: the sessions of every organization are counted, the user's own
+    /// by the user's identifier. Nothing of another's session is told but its size in
+    /// the server's sum.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn upload_usage(&self, user_id: &str, now: i64) -> Result<UploadUsage, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql("SELECT CAST(COALESCE(SUM(CASE WHEN user_id = ");
+                sql.bind(Id(user_id))
+                .push(" THEN 1 ELSE 0 END), 0) AS BIGINT), CAST(COALESCE(SUM(CASE WHEN user_id = ")
+                .bind(Id(user_id))
+                .push(
+                    " THEN size ELSE 0 END), 0) AS BIGINT), CAST(COALESCE(SUM(size), 0) AS BIGINT) \
+                     FROM uploads WHERE closed_at = 0 AND expires_at > ",
+                )
+                .bind(now);
+                let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
+                Ok(UploadUsage {
+                    user_sessions: row.int(0)?,
+                    user_bytes: row.int(1)?,
+                    server_bytes: row.int(2)?,
+                })
+            })
+            .await
+    }
+
     /// The organization of a board that is shared, for whoever holds its read token;
     /// `None` if the board is not shared, is not there, or the token is not its own.
+    /// Nothing of the system organization is shared, and nothing of a workspace or an
+    /// organization that was deleted.
     ///
     /// The tokens are compared without showing through timing where they differ.
     ///
@@ -185,9 +226,12 @@ impl Store {
                 let mut sql = scope.sql(
                     "SELECT t.org_id, s.token FROM sharing AS s \
                      JOIN boards AS b ON b.id = s.board_id \
-                     JOIN teams AS t ON t.id = b.team_id WHERE s.board_id = ",
+                     JOIN teams AS t ON t.id = b.team_id \
+                     JOIN organizations AS o ON o.id = t.org_id WHERE s.board_id = ",
                 );
-                sql.bind(Id(board_id)).push_bind(" AND s.enabled = ", true);
+                sql.bind(Id(board_id))
+                    .push_bind(" AND s.enabled = ", true)
+                    .push(IN_USE);
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };
@@ -220,21 +264,12 @@ async fn create_organization(
         .push_bind(", ", now)
         .push(")");
     scope.execute(sql).await?;
-    teams::insert_team(scope, workspace, org_param(&id)?).await?;
+    teams::insert_team(scope, workspace, Id(&id)).await?;
     let mut sql = scope.sql("UPDATE organizations SET default_workspace_id = ");
     sql.bind(Id(&workspace.id))
         .push_bind(" WHERE id = ", Id(&id));
     scope.execute(sql).await?;
     Ok(id)
-}
-
-/// The identifier of an organization as a query parameter.
-fn org_param(org_id: &str) -> Result<Param, StoreError> {
-    if let crate::Tenant::Org(uuid) = crate::Tenant::org(org_id)? {
-        Ok(Param::Id(Some(uuid)))
-    } else {
-        Err(StoreError::NoOrganization)
-    }
 }
 
 /// Reads a role from a column.

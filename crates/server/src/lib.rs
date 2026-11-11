@@ -30,7 +30,7 @@ use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Ve
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use fvoci_store::{DbType, Store, Tenant};
+use fvoci_store::{DbType, Store};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 use tower_http::compression::predicate::{DefaultPredicate, Predicate};
@@ -111,7 +111,7 @@ impl Server {
         let app = App::new(config, store, files)?;
         app.root_team().await.context("unable to get root team")?;
         // Before any request: what is left over from a run that stopped is nobody's.
-        let housekeeping = housekeeping(&app);
+        let housekeeping = housekeeping::reach(&app);
         clean_up_uploads(&housekeeping).await;
         match housekeeping.sweep_temporary_files().await {
             Ok(0) => {}
@@ -240,7 +240,7 @@ impl Server {
             .local_addr()
             .context("reading the listener's address")?;
         let admin_socket = self.start_admin_socket()?;
-        let housekeeping = housekeeping(&self.app);
+        let housekeeping = housekeeping::reach(&self.app);
         let clean_up = start_session_clean_up(&housekeeping);
         let purge = start_trash_purge(&housekeeping);
         let uploads = start_upload_clean_up(&housekeeping);
@@ -391,14 +391,6 @@ async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
     store
         .for_org(&org_id)
         .context("the organization's identifier")
-}
-
-/// The server as its housekeeping uses it: reaching the rows of every organization.
-/// What the server throws away on nobody's behalf (sessions, uploads and temporary
-/// files that ended, what was in the trash too long) is looked for in all of them; as
-/// one organization, a clean-up would take what it does not see of the others for gone.
-fn housekeeping(app: &App) -> App {
-    app.scoped(Tenant::System)
 }
 
 /// Tells browsers not to say where a request comes from when a page of this server
@@ -766,6 +758,8 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
         None => path.to_owned(),
     })
 }
+
+mod housekeeping;
 
 mod request_log;
 

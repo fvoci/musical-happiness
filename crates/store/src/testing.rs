@@ -167,6 +167,9 @@ async fn refuse_a_role_the_policies_pass(connection: &mut PgConnection) {
 /// the wall between organizations.
 pub const GLOBAL_TABLES: [&str; 7] = crate::schema::GLOBAL_TABLES;
 
+/// The tables that hold rows of organizations, each behind the wall on PostgreSQL.
+pub const ORG_TABLES: [&str; 17] = crate::schema::ORG_TABLES;
+
 /// Brings a test database to the schema as a server left it that knew nothing of
 /// organizations: every migration before theirs, and none of the changes of the data
 /// that follow the migrations.
