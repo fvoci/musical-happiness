@@ -4,7 +4,7 @@ use std::num::IntErrorKind;
 
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
-use fvoci_model::{BlockType, Card, CardError, CardPatch, RefusalReason, Refusals};
+use fvoci_model::{Block, BlockType, Card, CardError, CardPatch, RefusalReason, Refusals};
 
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -66,7 +66,7 @@ pub(super) fn int_query_param(
 }
 
 /// Returns the card with the given identifier for a handler of `/cards/{cardId}`, if
-/// the user has the permission on the card's board.
+/// the user has the permission on the card's board: its block, read once.
 ///
 /// The path names a card and no board. So for a user who may not read the card's board
 /// there is no such card, and neither is there for anyone if the block is no card.
@@ -76,7 +76,7 @@ async fn card_with_permission(
     card_id: &str,
     permission: BoardPermission,
     denial: &str,
-) -> Result<Card, AppError> {
+) -> Result<Block, AppError> {
     const WHAT: &str = "card";
     let block = match app.block(card_id).await {
         Ok(block) => block,
@@ -87,7 +87,7 @@ async fn card_with_permission(
     if block.block_type != BlockType::Card {
         return Err(AppError::not_found(WHAT));
     }
-    app.card(card_id).await
+    Ok(block)
 }
 
 /// Make a card
@@ -217,6 +217,7 @@ async fn handle_patch_card(
         "access denied to patch card",
     )
     .await?;
+    // The block, read to check the permission, is the card as it was.
     let (mut patch, document): (CardPatch, _) = decode_with_document(&body)?;
     patch.body = document;
     // Everything of the request's shape that is refused, before the store is asked.
@@ -249,7 +250,7 @@ async fn handle_get_card(
     Path(card_id): Path<String>,
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
-    let card = card_with_permission(
+    let block = card_with_permission(
         &app,
         user_id,
         &card_id,
@@ -257,6 +258,7 @@ async fn handle_get_card(
         "access denied to fetch card",
     )
     .await?;
+    let card = app.card_of_block(&block).await?;
     tracing::debug!(board_id = %card.board_id, card_id = %card.id, user_id, "GetCard");
     Ok(json_response(&card))
 }

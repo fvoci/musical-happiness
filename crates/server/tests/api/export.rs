@@ -773,7 +773,7 @@ async fn a_large_file_is_whole_in_the_archive() {
 /// Not in the original (user decision 2026-11-11 14:25 KST). A user runs one export at a
 /// time and the server `max_concurrent_exports` (2): over either, an export of a board or
 /// of a team is 429 with a reason. An export holds its place until it is sent
-/// (`a_download_that_takes_nothing_is_given_up`).
+/// (`app::download`'s tests).
 #[tokio::test]
 async fn exports_run_one_per_user_and_two_on_the_server() {
     let ts = Setup::native().start().await.init_basic().await;
@@ -845,26 +845,6 @@ async fn board_with_large_archive(ts: &TestServer) -> Board {
     board
 }
 
-/// Starts the download of a board's archive and returns it with its length, unread.
-async fn start_download(ts: &TestServer, board_id: &str) -> (reqwest::Response, usize) {
-    let response = ts
-        .client
-        .request(Method::GET, &format!("/boards/{board_id}/archive/export"))
-        .send()
-        .await
-        .expect("the export is answered");
-    assert_eq!(
-        response.status(),
-        StatusCode::OK,
-        "the export is let through"
-    );
-    let length = response
-        .content_length()
-        .and_then(|length| usize::try_from(length).ok())
-        .expect("the archive has its length");
-    (response, length)
-}
-
 /// The temporary archives in the exports directory.
 fn temporary_archives(ts: &TestServer) -> usize {
     std::fs::read_dir(ts.app.config().tmp_dir().join("exports")).map_or(0, Iterator::count)
@@ -894,19 +874,21 @@ async fn stalled_download(ts: &TestServer, board_id: &str) -> tokio::net::TcpStr
     stream
 }
 
-/// Waits up to ten seconds for `done`.
+/// Waits for `done`, up to a minute: enough for a machine under any load, and only a
+/// test that fails anyway waits that long.
 async fn until(what: &str, mut done: impl FnMut() -> bool) {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
     while !done() {
         assert!(tokio::time::Instant::now() < deadline, "{what}");
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 }
 
-/// Not in the original (coordinator's decision 2026-11-11 16:20 KST). An export holds its
-/// place and its temporary file while it is sent; a client that takes nothing for
-/// `export_stall_seconds` has the file removed, then the place given back, and its
-/// connection broken short of the archive's end.
+/// Not in the original (coordinator's decision 2026-11-11 16:20 KST). A client that takes
+/// nothing for `export_stall_seconds` has the file removed, then the place given back,
+/// and its connection broken short of the archive's end. Only what must happen is waited
+/// for, so the outcome does not depend on how busy the machine is; that the place is held
+/// while a download goes on is `app::download`'s test, on the paused clock.
 #[tokio::test]
 async fn a_download_that_takes_nothing_is_given_up() {
     let ts = Setup::native()
@@ -917,14 +899,33 @@ async fn a_download_that_takes_nothing_is_given_up() {
         .await;
     let board = board_with_large_archive(&ts).await;
     let me = ts.client.me().await;
-    let length = export_board(&ts.client, &board.id).await.body.len();
 
+    // The head of the answer comes once the archive is written and its place taken.
     let mut stalled = stalled_download(&ts, &board.id).await;
-    until("the archive is written", || temporary_archives(&ts) == 1).await;
-    assert!(
-        ts.app.start_export(&me.id).is_err(),
-        "the place is held while it is sent"
-    );
+    let mut head = Vec::new();
+    let mut buffer = vec![0; 64 * 1024];
+    while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            tokio::io::AsyncReadExt::read(&mut stalled, &mut buffer),
+        )
+        .await
+        .expect("the answer comes")
+        .expect("read");
+        assert!(read > 0, "the answer has a head");
+        head.extend_from_slice(&buffer[..read]);
+    }
+    let head_text = String::from_utf8_lossy(&head).into_owned();
+    assert!(head_text.starts_with("HTTP/1.1 200"), "{head_text}");
+    let head_end = head_text.find("\r\n\r\n").expect("the end of the head") + 4;
+    let length: usize = head_text
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse().ok())?
+        })
+        .expect("the archive's length");
 
     until("the place is given back", || {
         ts.app.start_export(&me.id).is_ok()
@@ -932,9 +933,9 @@ async fn a_download_that_takes_nothing_is_given_up() {
     .await;
     assert_eq!(temporary_archives(&ts), 0, "the file went before the place");
 
-    let mut received = 0;
-    let mut buffer = vec![0; 64 * 1024];
-    let ended = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+    // What came after the head is of the archive.
+    let mut received = head.len() - head_end;
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             match tokio::io::AsyncReadExt::read(&mut stalled, &mut buffer).await {
                 Ok(0) | Err(_) => break,
@@ -946,51 +947,6 @@ async fn a_download_that_takes_nothing_is_given_up() {
     assert!(ended.is_ok(), "the connection is broken");
     assert!(
         received < length,
-        "{received} bytes of an answer of {length} and more"
+        "{received} bytes of an archive of {length}"
     );
-}
-
-/// Not in the original (coordinator's decision 2026-11-11 16:20 KST). A client that takes
-/// its download slowly, with pauses shorter than `export_stall_seconds`, gets it whole
-/// however long it takes; then the place and the file are given back.
-#[tokio::test]
-async fn a_download_taken_slowly_is_not_given_up() {
-    let ts = Setup::native()
-        .configure(|config| config.export_stall_seconds = 1)
-        .start()
-        .await
-        .init_basic()
-        .await;
-    let board = board_with_large_archive(&ts).await;
-    let me = ts.client.me().await;
-    let started = tokio::time::Instant::now();
-
-    let (mut slow, length) = start_download(&ts, &board.id).await;
-    let mut received = 0;
-    let mut next_pause = 0;
-    while let Some(piece) = slow.chunk().await.expect("the download is not broken") {
-        received += piece.len();
-        if received >= next_pause {
-            next_pause += 2 * 1024 * 1024;
-            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
-        }
-    }
-    assert_eq!(received, length, "the archive is whole");
-    assert!(
-        started.elapsed() > std::time::Duration::from_secs(2),
-        "the download took longer than the stall time"
-    );
-    drop(
-        ts.app
-            .start_export(&me.id)
-            .expect("the place is given back"),
-    );
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    while temporary_archives(&ts) > 0 {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the file is removed"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
 }

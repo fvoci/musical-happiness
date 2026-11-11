@@ -590,8 +590,12 @@ async fn blocks_stored_before_the_body_migration_have_no_body() {
         .expect("the cards are listed");
     assert_eq!(
         listed,
-        [(read, BodySummary::default())],
-        "no body and no tasks"
+        [fvoci_store::ListedBlock {
+            block: read,
+            summary: BodySummary::default(),
+            last_comment_at: 0,
+        }],
+        "no body, no tasks and no comments"
     );
     store.close().await;
 
