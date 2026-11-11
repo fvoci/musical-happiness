@@ -24,12 +24,16 @@ describe('the search of the sidebar', () => {
     await vi.advanceTimersByTimeAsync(300);
     expect(asked).toEqual(['gar']);
     search.run('garden');
+    // What was found for another query is no answer to this one.
+    expect(search.found).toEqual([]);
+    expect(search.pending).toBe(true);
     await vi.advanceTimersByTimeAsync(300);
     expect(asked).toEqual(['gar', 'garden']);
     answers[1]?.([board('Garden plan')]);
     answers[0]?.([board('Garage')]);
     await vi.advanceTimersByTimeAsync(0);
     expect(search.found.map((one) => one.title)).toEqual(['Garden plan']);
+    expect(search.pending).toBe(false);
   });
 
   it('finds nothing at once for an empty query, and an answer on its way is let go', async () => {

@@ -455,7 +455,11 @@ export class MemoryBackend implements Backend {
     return copy(deleted.board);
   }
 
-  /** As the server: every word of the term in the title, whatever the case; oldest first. */
+  /**
+   * As the server matches: every word of the term in the title, whatever the
+   * case; oldest first. Among the boards this backend lists (`boards`: the
+   * reader's), not the team's open ones the server adds.
+   */
   async searchBoards(teamId: string, query: string): Promise<Board[]> {
     await this.#enter('searchBoards');
     if (teamId !== this.world.team.id) fail(404, 'no such team');

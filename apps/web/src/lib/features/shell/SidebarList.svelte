@@ -60,6 +60,8 @@
     query: string;
     /** What the backend found for the query; those the list shows already are left out. */
     found: readonly Board[];
+    /** The backend has not answered the query yet. */
+    searching: boolean;
     /** Whether the reader may delete the board on the page. Of the others the sidebar does not know. */
     canDeleteOpenBoard: boolean;
     onOpenBoard: (boardId: string) => void;
@@ -75,6 +77,7 @@
     boardHref,
     query,
     found,
+    searching,
     canDeleteOpenBoard,
     onOpenBoard,
     onNewCategory,
@@ -88,12 +91,19 @@
 
   const filtering = $derived(query.trim() !== '');
   const shown = $derived(filterSidebar(workspace.sidebar, query));
-  /** Found by the backend and not in the list as it is narrowed: hidden, or the words in another order. */
+  /**
+   * Found by the backend and not in the list as it is narrowed: hidden, or
+   * the words in another order. Only boards the workspace has, as it has them:
+   * the server searches every team of the reader, and a board may have been
+   * deleted or renamed since it answered.
+   */
   const more = $derived(
     filtering
-      ? found.filter(
-          (board) => !shown.some((entry) => entry.boards.some((one) => one.id === board.id)),
-        )
+      ? found.flatMap((board) => {
+          const known = workspace.boards.find((one) => one.id === board.id);
+          const listed = shown.some((entry) => entry.boards.some((one) => one.id === board.id));
+          return known && !listed ? [known] : [];
+        })
       : [],
   );
   const isHidden = (boardId: string): boolean =>
@@ -424,7 +434,7 @@
     </div>
   {/if}
 
-  {#if filtering && shown.length === 0 && more.length === 0}
+  {#if filtering && shown.length === 0 && more.length === 0 && !searching}
     <p class="px-2 py-3 text-muted-foreground" role="status">{m.shell_no_boards_found()}</p>
   {/if}
 

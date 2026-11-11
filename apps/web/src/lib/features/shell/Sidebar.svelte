@@ -173,6 +173,7 @@
     {boardHref}
     {query}
     found={boardSearch.found}
+    searching={boardSearch.pending}
     {canDeleteOpenBoard}
     {onOpenBoard}
     onNewCategory={() => {

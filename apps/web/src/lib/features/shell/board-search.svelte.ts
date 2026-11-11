@@ -11,6 +11,8 @@ const PAUSE = 250;
 
 export class BoardSearch {
   found = $state.raw<Board[]>([]);
+  /** A query is waiting for its answer: what was found before is no answer to it. */
+  pending = $state(false);
   readonly #search: (query: string) => Promise<Board[]>;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #asked = 0;
@@ -24,13 +26,17 @@ export class BoardSearch {
     clearTimeout(this.#timer);
     this.#asked += 1;
     const asked = this.#asked;
+    this.found = [];
     if (query.trim() === '') {
-      this.found = [];
+      this.pending = false;
       return;
     }
+    this.pending = true;
     this.#timer = setTimeout(() => {
       void this.#search(query).then((found) => {
-        if (asked === this.#asked) this.found = found;
+        if (asked !== this.#asked) return;
+        this.found = found;
+        this.pending = false;
       });
     }, PAUSE);
   }
@@ -38,5 +44,6 @@ export class BoardSearch {
   stop(): void {
     clearTimeout(this.#timer);
     this.#asked += 1;
+    this.pending = false;
   }
 }
