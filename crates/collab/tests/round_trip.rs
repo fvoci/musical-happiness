@@ -1,6 +1,7 @@
 //! Properties over bodies made from seeds: a body goes into a Y document and comes
-//! back as it went (in the stored form, which is no larger), and a Y document from which children were deleted at random, as a
-//! merge of edits may delete them, is repaired to a body.
+//! back as it went (in the stored form, which is no larger), and a Y document from
+//! which children were deleted at random, as a merge of edits may delete them, is
+//! repaired to a body.
 
 mod support;
 

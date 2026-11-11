@@ -17,9 +17,9 @@
 //!   document an update is given for is never changed. The steps are not given on
 //!   their own, so that none is left out or taken in another order.
 //!
-//! Every function here that is given a document takes its lock for as long as it
-//! runs, and waits for it: do not call one while the same thread holds a transaction
-//! on that document. The Y library is given on as [`yrs`], so that what holds a
+//! No function here changes a document it is given: what holds one replaces it with
+//! the document that comes back. Each reads it under its lock, and waits for that: do
+//! not call one while the same thread holds a transaction on that document. The Y library is given on as [`yrs`], so that what holds a
 //! document names its types from the version this crate is built with.
 //!
 //! What the shape is, and what an editor does with shared content, is not assumed here:

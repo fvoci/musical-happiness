@@ -1,5 +1,5 @@
-//! Bytes from anybody, second review: what an update that passes the walk before the
-//! Y library can still do to the document, to what is stored and to the server.
+//! Updates from anybody that passed the walk before the Y library and still broke what
+//! is stored or what the server relies on, each kept as a test of its own.
 //!
 //! Each test here states what the server that calls this crate relies on. One that
 //! fails names a defect; what it shows is in the message of the assertion.

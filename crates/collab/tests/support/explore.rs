@@ -1,7 +1,7 @@
 //! Updates made at random from what an update is made of (clients, changes, their
 //! neighbours and parents, what they hold, what was deleted), and what the server does
-//! with each: the search a second review of the bytes from anybody ran, kept so that it
-//! can be run again and further.
+//! with each, so that the search can be run again and further
+//! (`tests/review_bytes_explore.rs` says how).
 //!
 //! A session is a document and a row of such updates, each made against the document
 //! as the ones before left it, so that an update names changes that are there. Every
