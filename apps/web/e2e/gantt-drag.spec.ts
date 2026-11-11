@@ -42,6 +42,25 @@ async function due(page: Page, title: string): Promise<unknown> {
   }, title);
 }
 
+/**
+ * Something to wait on for the end of the next scroll of the chart: the
+ * browser says so (`scrollend`), once a swipe that goes on by itself after
+ * the finger is up has stopped too. Readings of where it is scrolled to may
+ * stand still while it is still going, on a busy page. Only an end that
+ * leaves the chart elsewhere than it is now counts.
+ */
+async function scrollEnd(page: Page): Promise<() => Promise<void>> {
+  await scroller(page).evaluate((element) => {
+    const from = element.scrollLeft;
+    Reflect.set(window, 'scrollEnded', false);
+    element.addEventListener('scrollend', () => {
+      if (element.scrollLeft !== from) Reflect.set(window, 'scrollEnded', true);
+    });
+  });
+  return () =>
+    expect.poll(() => page.evaluate(() => Reflect.get(window, 'scrollEnded') === true)).toBe(true);
+}
+
 /** Waits for the chart to stop scrolling: a swipe goes on for a while after the finger is up. */
 async function settled(page: Page): Promise<void> {
   let last = -1;
@@ -238,10 +257,19 @@ test.describe('a mouse', () => {
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width - 4, from.y, { steps: 10 });
-    // Held at the edge: the chart scrolls on by itself until it comes to the end of the axis, which grows.
+    // Held at the edge: the chart scrolls on by itself until it comes to the end of the axis,
+    // which grows, and the bar goes on past where the axis ended: let go once it is there.
     await expect
       .poll(async () => (await gantt(page).getAttribute('data-last')) ?? '', { timeout: 10_000 })
       .not.toBe(lastBefore);
+    await expect
+      .poll(
+        async () => ((await dragged(page).getAttribute('data-drag-first')) ?? '') > lastBefore,
+        {
+          timeout: 10_000,
+        },
+      )
+      .toBe(true);
     await page.mouse.up();
     const moved = (await due(page, 'Drag cards')) as { from: string };
     expect(moved.from > lastBefore).toBe(true);
@@ -259,15 +287,17 @@ test.describe('a finger', () => {
 
     // A swipe across a bar scrolls the chart and moves nothing.
     const left = await scroller(page).evaluate((element) => element.scrollLeft);
+    const ended = await scrollEnd(page);
     const start = await pointOn(bar(page, 'Share a board'));
     await finger.down(start);
     await finger.move({ x: start.x - 120, y: start.y });
     await finger.up();
+    // The chart goes on by itself after the finger is up: until the browser says it has stopped.
+    await ended();
     await expect
       .poll(() => scroller(page).evaluate((element) => element.scrollLeft))
       .toBeGreaterThan(left + 40);
     expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-12', to: '2026-11-23' });
-    await settled(page);
     // Away from the edges of the days, where a held bar scrolls them.
     await centre(page, bar(page, 'Share a board'));
 

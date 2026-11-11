@@ -69,6 +69,8 @@
     menu?: Snippet<[string]>;
     /** The bar is being dragged: where it is drawn meanwhile, its days in words, and where they are said. */
     dragged?: {
+      /** The first day it would go to. */
+      first: string;
       box: BarBox;
       days: string;
       label: () => { x: number; part: number } | undefined;
@@ -170,6 +172,7 @@
       data-late={line.late ? '' : undefined}
       data-loop={line.loop ? '' : undefined}
       data-dragged={dragged ? '' : undefined}
+      data-drag-first={dragged?.first}
       tabindex={current ? 0 : -1}
       aria-label={line.name}
       title={line.name}

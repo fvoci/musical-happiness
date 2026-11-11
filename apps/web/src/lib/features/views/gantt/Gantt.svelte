@@ -123,8 +123,16 @@
     const card = chart.placed.card(cardId);
     const template = chart.template;
     if (!card || !template || !datesWritable(template)) return;
-    void writeDays(board, card, template, grip, days, board.workspace.regional.timeZone);
+    writing += 1;
+    void writeDays(board, card, template, grip, days, board.workspace.regional.timeZone).finally(
+      () => {
+        writing -= 1;
+      },
+    );
   }
+
+  /** Drops being written: no step of undo until answered, so the chart says it is settling. */
+  let writing = $state(0);
 
   /** The bar being dragged as it is drawn meanwhile. */
   const dragged = $derived.by(() => {
@@ -133,7 +141,13 @@
     const days = daysLabel(preview.days, locale, Number(today.slice(0, 4)), (first, last) =>
       m.gantt_days_range({ first, last }),
     );
-    return { id: preview.id, box: barBox(axis, preview.days), days, label: () => drag.label };
+    return {
+      id: preview.id,
+      first: preview.days.first,
+      box: barBox(axis, preview.days),
+      days,
+      label: () => drag.label,
+    };
   });
 
   const axis = $derived(chart.axis);
@@ -313,6 +327,7 @@
 
 <div
   data-testid="gantt"
+  data-settling={writing > 0 ? '' : undefined}
   data-zoom={zoom}
   data-first={axis.first}
   data-last={axis.last}

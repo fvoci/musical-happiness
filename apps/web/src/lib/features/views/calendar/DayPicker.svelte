@@ -77,6 +77,12 @@
   const uid = $props.id();
   /** Said to a screen reader once a card has moved. */
   let announced = $state('');
+  /**
+   * Moves being written: until the backend has answered one is not yet
+   * a step that undo takes back. Said as settling (`data-settling`), as a
+   * board says a drop that is being written.
+   */
+  let writing = $state(0);
   let box = $state<HTMLElement | null>(null);
 
   const card = $derived(cardId === undefined ? undefined : placed.card(cardId));
@@ -127,7 +133,13 @@
 
   async function move(moving: Card, property: PropertyTemplate, date: CalendarDate): Promise<void> {
     announced = '';
-    const kept = await moveCard(board, moving, property, date, placed.regional.timeZone);
+    writing += 1;
+    let kept: boolean;
+    try {
+      kept = await moveCard(board, moving, property, date, placed.regional.timeZone);
+    } finally {
+      writing -= 1;
+    }
     if (!kept) return;
     onmoved(date);
     // Emptied first, so that the same words again are said again.
@@ -160,7 +172,14 @@
     'font-semibold not-data-selected:bg-accent not-data-selected:text-accent-foreground';
 </script>
 
-<p class="sr-only" role="status" data-testid="calendar-status">{announced}</p>
+<p
+  class="sr-only"
+  role="status"
+  data-testid="calendar-status"
+  data-settling={writing > 0 ? '' : undefined}
+>
+  {announced}
+</p>
 
 {#snippet picker()}
   <div data-testid="day-picker" class="flex flex-col gap-1 p-1">
