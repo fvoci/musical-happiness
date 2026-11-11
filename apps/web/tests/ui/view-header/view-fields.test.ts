@@ -13,6 +13,9 @@ import {
   sortCandidates,
 } from '$lib/features/view-header/sort-edit.ts';
 import {
+  displayByChoices,
+  displayByName,
+  displayByOffered,
   groupableProperties,
   groupingFields,
   groupingOf,
@@ -90,6 +93,55 @@ describe('a new view', () => {
     expect(first.filter).toEqual({ operation: 'and', filters: [] });
     expect(first.filter).not.toBe(second.filter);
     expect(first.sortOptions).toEqual([]);
+  });
+});
+
+describe('a calendar', () => {
+  const due: PropertyTemplate = { id: 'due', name: 'Due', type: 'date', options: [] };
+  const made: PropertyTemplate = {
+    id: 'created',
+    name: 'Created',
+    type: 'createdTime',
+    options: [],
+  };
+
+  it('when new, is placed by the first date property and shows the titles (C15)', () => {
+    const fields = newViewFields('calendar', [...TEMPLATES, made, due]);
+    expect(fields.viewType).toBe('calendar');
+    expect(fields.dateDisplayPropertyId).toBe('due');
+    expect(fields.visiblePropertyIds).toEqual([TITLE_COLUMN_ID]);
+    expect(newViewFields('calendar', [...TEMPLATES, made]).dateDisplayPropertyId).toBe('created');
+    expect(newViewFields('calendar', TEMPLATES).dateDisplayPropertyId).toBeUndefined();
+  });
+
+  it('has "display by" and no grouping or sort', () => {
+    expect(displayByOffered('calendar')).toBe(true);
+    expect(displayByOffered('board')).toBe(false);
+    expect(groupingOf('calendar').offered).toBe(false);
+    expect(sortOffered('calendar')).toBe(false);
+  });
+
+  it('offers every kind of date, the one in use checked, and writes only a change', () => {
+    const named = viewOf({ viewType: 'calendar', dateDisplayPropertyId: 'created' });
+    expect(displayByChoices(named, [...TEMPLATES, made, due], 'Created time')).toEqual([
+      { id: 'created', label: 'Created', checked: true, write: false },
+      { id: 'due', label: 'Due', checked: false, write: true },
+    ]);
+    expect(displayByName(named, [...TEMPLATES, made, due], 'Created time')).toBe('Created');
+    // A view that names nothing is placed by the first date; choosing it names it.
+    const unnamed = viewOf({ viewType: 'calendar' });
+    expect(displayByChoices(unnamed, [made, due], 'Created time')).toEqual([
+      { id: 'created', label: 'Created', checked: false, write: true },
+      { id: 'due', label: 'Due', checked: true, write: true },
+    ]);
+  });
+
+  it('on a board without any date says it is placed by when cards were made', () => {
+    const view = viewOf({ viewType: 'calendar' });
+    expect(displayByName(view, TEMPLATES, 'Created time')).toBe('Created time');
+    expect(displayByChoices(view, TEMPLATES, 'Created time')).toEqual([
+      { id: '', label: 'Created time', checked: true, write: false },
+    ]);
   });
 });
 

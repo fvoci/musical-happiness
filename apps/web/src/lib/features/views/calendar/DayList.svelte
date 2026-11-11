@@ -1,0 +1,94 @@
+<!--
+  The cards of one day, with their titles in full: what a day of the grid
+  opens. The same content wherever it is put: under the small grid of a
+  narrow box, or in a popover next to the cell (then with a button that
+  closes it; question C3, answer A).
+
+  A line of it is a CardRow: the card's title, time and days, and the
+  properties the view turned on.
+-->
+<script lang="ts">
+  import XIcon from '@lucide/svelte/icons/x';
+
+  import IconButton from '$lib/components/icon-button/IconButton.svelte';
+  import type { PropertyUser } from '$lib/components/properties/index.ts';
+  import { m } from '$lib/i18n/paraglide/messages.js';
+  import type { CalendarDate } from '$lib/logic/dates.ts';
+  import { displayDayLong } from '$lib/logic/format.ts';
+  import type { PropertyTemplate } from '$lib/logic/wire.ts';
+
+  import CardRow from './CardRow.svelte';
+  import type { Placed } from './placed.ts';
+
+  interface Props {
+    date: CalendarDate;
+    placed: Placed;
+    today: CalendarDate;
+    templates: readonly PropertyTemplate[];
+    visiblePropertyIds: readonly string[];
+    users: readonly PropertyUser[];
+    nameFormat: string;
+    cardHref: (cardId: string) => string;
+    onOpenCard: (cardId: string) => void;
+    /** Given where the list can be closed: a popover. */
+    onclose?: () => void;
+  }
+
+  let {
+    date,
+    placed,
+    today,
+    templates,
+    visiblePropertyIds,
+    users,
+    nameFormat,
+    cardHref,
+    onOpenCard,
+    onclose,
+  }: Props = $props();
+
+  const uid = $props.id();
+  const cards = $derived(placed.on(date));
+  const rows = $derived({
+    placed,
+    templates,
+    visiblePropertyIds,
+    users,
+    nameFormat,
+    cardHref,
+    onOpenCard,
+  });
+</script>
+
+<section
+  data-testid="day-list"
+  data-date={date}
+  aria-labelledby="{uid}-title"
+  class="flex min-h-0 flex-1 flex-col"
+>
+  <header class="flex shrink-0 items-center gap-2 py-1 pr-1 pl-4">
+    <h3 id="{uid}-title" class="font-semibold">{displayDayLong(date, placed.locale)}</h3>
+    {#if date === today}
+      <span class="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">
+        {m.calendar_today()}
+      </span>
+    {/if}
+    <div class="flex-1"></div>
+    {#if onclose}
+      <IconButton label={m.calendar_close_day()} data-testid="day-list-close" onclick={onclose}>
+        <XIcon />
+      </IconButton>
+    {:else}
+      <!-- Keeps the row as high as where there is a button. -->
+      <div class="h-8 roomy:h-touch"></div>
+    {/if}
+  </header>
+
+  <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
+    {#each cards as card (card.id)}
+      <CardRow {card} {date} {...rows} />
+    {:else}
+      <li class="px-3 py-2 text-muted-foreground">{m.calendar_no_cards()}</li>
+    {/each}
+  </ul>
+</section>

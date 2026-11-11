@@ -22,6 +22,7 @@
 <script lang="ts">
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import ArrowUpDownIcon from '@lucide/svelte/icons/arrow-up-down';
+  import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days';
   import EyeIcon from '@lucide/svelte/icons/eye';
   import LayersIcon from '@lucide/svelte/icons/layers';
   import ListFilterIcon from '@lucide/svelte/icons/list-filter';
@@ -48,6 +49,9 @@
   import SortEditor from './SortEditor.svelte';
   import { NEW_VIEW_TITLES, viewTitle, type Icon } from './texts.ts';
   import {
+    displayByChoices,
+    displayByName,
+    displayByOffered,
     groupableProperties,
     groupingFields,
     groupingOf,
@@ -83,6 +87,9 @@
   const sorting = $derived(sortOffered(view.fields.viewType));
   const groupedBy = $derived(groupProperty(view, templates));
   const groupName = $derived(groupedBy?.name ?? m.viewheader_group_none());
+  /** A calendar: the date its cards are placed by; when they were made, where the board has none. */
+  const displayBy = $derived(displayByOffered(view.fields.viewType));
+  const placedByName = $derived(displayByName(view, templates, m['PropertyType.CreatedTime']()));
   const filterCount = $derived(conditionCount(view.fields.filter));
   const sortCount = $derived(view.fields.sortOptions.length);
 
@@ -92,6 +99,7 @@
   // surface that is rebuilt when a sheet becomes a popover.
   let propertiesOpen = $state(false);
   let groupOpen = $state(false);
+  let displayOpen = $state(false);
   let filterOpen = $state(false);
   let sortOpen = $state(false);
 
@@ -178,6 +186,18 @@
     })),
   ]);
 
+  // -------------------------------------------------------- display by
+
+  const displayActions = $derived<MenuAction[]>(
+    displayByChoices(view, templates, placedByName).map(({ write, ...line }) => ({
+      ...line,
+      run: () => {
+        if (write)
+          void board.setViewFields(view.id, { dateDisplayPropertyId: line.id }, 'displayBy');
+      },
+    })),
+  );
+
   // ------------------------------------------------------------- "…"
 
   /** The lines of "…" for the tools that have no button of their own in the folded row. */
@@ -192,6 +212,17 @@
         ...(sortCount > 0 ? { hint: String(sortCount) } : {}),
         run: () => {
           sortOpen = true;
+        },
+      });
+    }
+    if (displayBy) {
+      lines.push({
+        id: 'display-by',
+        label: m.viewheader_display_by(),
+        icon: CalendarDaysIcon,
+        hint: placedByName,
+        run: () => {
+          displayOpen = true;
         },
       });
     }
@@ -334,6 +365,27 @@
           {#snippet trigger(props: Record<string, unknown>)}
             {@const word = m['ViewHeader.group-by']({ property: groupName })}
             {@render tool(props, 'group', LayersIcon, word, 0, true)}
+          {/snippet}
+        </ActionMenu>
+      {/if}
+
+      {#if displayBy}
+        <ActionMenu
+          bind:open={
+            () => displayOpen,
+            (open: boolean) => {
+              displayOpen = open;
+              closedAside(open);
+            }
+          }
+          title={m.viewheader_display_by()}
+          subtitle={viewTitle(view)}
+          actions={displayActions}
+          align="start"
+        >
+          {#snippet trigger(props: Record<string, unknown>)}
+            {@const word = m['ViewHeader.display-by']({ property: placedByName })}
+            {@render tool(props, 'display-by', CalendarDaysIcon, word, 0, true)}
           {/snippet}
         </ActionMenu>
       {/if}
