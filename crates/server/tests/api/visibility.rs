@@ -333,6 +333,11 @@ fn cases() -> Vec<Case> {
             |h, i| format!("/boards/{}/blocks/{}/versions", h.board[i], h.card[i]),
             no_body,
         ),
+        case(
+            Method::GET,
+            |h, i| format!("/boards/{}/trash/cards", h.board[i]),
+            no_body,
+        ),
         // Its cards, by the board and by themselves.
         case(
             Method::GET,

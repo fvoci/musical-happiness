@@ -6,17 +6,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::body::Body;
-use axum::extract::connect_info::Connected;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::header::{CONTENT_ENCODING, CONTENT_LENGTH};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::serve::IncomingStream;
 use futures_util::FutureExt as _;
 use uuid::Uuid;
 
 use crate::client_address::{ClientAddress, TrustedProxies};
+use crate::connection::Connection;
 use crate::error::{AppError, ReportedError};
 
 /// The response header that carries the identifier of the request.
@@ -31,16 +30,14 @@ pub enum Peer {
     Unix,
 }
 
-impl Connected<IncomingStream<'_, tokio::net::TcpListener>> for Peer {
-    fn connect_info(stream: IncomingStream<'_, tokio::net::TcpListener>) -> Self {
-        Self::Tcp(*stream.remote_addr())
-    }
-}
-
-#[cfg(unix)]
-impl Connected<IncomingStream<'_, tokio::net::UnixListener>> for Peer {
-    fn connect_info(_stream: IncomingStream<'_, tokio::net::UnixListener>) -> Self {
-        Self::Unix
+impl Peer {
+    /// Where the connection of a request comes from, if the server said
+    /// ([`Connection`]).
+    pub(crate) fn of(request: &Request) -> Option<Self> {
+        request
+            .extensions()
+            .get::<ConnectInfo<Connection>>()
+            .map(|ConnectInfo(connection)| connection.peer)
     }
 }
 
@@ -80,10 +77,7 @@ pub(crate) async fn log_request(
     let request_id = Uuid::now_v7().to_string();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
-    let peer = request
-        .extensions()
-        .get::<ConnectInfo<Peer>>()
-        .map(|ConnectInfo(peer)| *peer);
+    let peer = Peer::of(&request);
     let (address, client) = client_of(&proxies, request.headers(), peer);
     // For the handlers that count by where a request comes from: the same address the
     // log shows.
@@ -302,7 +296,10 @@ mod tests {
                 .header(X_FORWARDED_FOR, "203.0.113.7")
                 .body(Body::empty())
                 .expect("a valid request");
-        request.extensions_mut().insert(ConnectInfo(socket_peer()));
+        request.extensions_mut().insert(ConnectInfo(Connection {
+            peer: socket_peer(),
+            breaker: None,
+        }));
 
         let (status, body, log) = logged(proxies(&[]), request).await;
 
@@ -328,7 +325,10 @@ mod tests {
             .header(X_FORWARDED_FOR, "203.0.113.7, 10.0.0.1")
             .body(Body::empty())
             .expect("a valid request");
-        request.extensions_mut().insert(ConnectInfo(socket_peer()));
+        request.extensions_mut().insert(ConnectInfo(Connection {
+            peer: socket_peer(),
+            breaker: None,
+        }));
 
         let (_, _, log) = logged(proxies(&["192.0.2.1", "10.0.0.0/8"]), request).await;
 

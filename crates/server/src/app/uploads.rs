@@ -877,7 +877,7 @@ impl App {
                 removed += 1;
             }
         }
-        // Archives being written when the server stopped.
+        // Archives being written or sent when the server stopped.
         let exports = self.config().tmp_dir().join(super::export::EXPORTS_DIR);
         for (_, path) in entries(&exports).await {
             if remove_entry(&path).await {

@@ -258,6 +258,11 @@ pub(crate) struct SettingsChange {
     density: Option<Density>,
     /// Whether a device that can do so answers touches with a vibration.
     haptics: Option<bool>,
+    /// `auto`, for the language of the browser, or a language tag such as `ko` or
+    /// `en-US`, in the shape the browsers' `Intl` reads (Unicode BCP 47), at most 64
+    /// characters; the server keeps no list of languages, and keeps a tag as given.
+    #[schema(max_length = 64)]
+    language: Option<String>,
 }
 
 /// The bytes of a file, as the body of an answer.

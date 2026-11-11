@@ -16,7 +16,8 @@ const UPLOADS_READ_TIMEOUT: Duration = Duration::from_secs(2);
 /// The work on archives that is counted while it holds its place.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ArchiveWork {
-    /// An archive is written.
+    /// An archive is written and sent: its place is held until the download ends, is
+    /// given up, or stalls for `export_stall_seconds` (`app/download.rs`).
     Export,
     /// An archive is read and its boards are made.
     Import,
@@ -89,8 +90,8 @@ impl StorageMetrics {
             Opts::new(
                 "archives_in_progress",
                 "How many exports and imports of archives hold their place, as \
-                 max_concurrent_exports and max_concurrent_imports count them, by work: \
-                 export, import.",
+                 max_concurrent_exports and max_concurrent_imports count them (an export \
+                 until its download ends), by work: export, import.",
             )
             .namespace(PREFIX),
             &["work"],

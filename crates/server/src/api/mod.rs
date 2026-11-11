@@ -26,6 +26,7 @@ mod subscriptions;
 mod system;
 mod teams;
 mod templates;
+mod trash;
 mod uploads;
 mod users;
 
@@ -93,6 +94,7 @@ fn routes() -> Routes {
         .merge(boards::routes())
         .merge(boards_and_blocks::routes())
         .merge(cards::routes())
+        .merge(trash::routes())
         .merge(categories::routes())
         .merge(config::routes())
         .merge(files::routes())
