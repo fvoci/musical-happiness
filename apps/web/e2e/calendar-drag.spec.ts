@@ -125,6 +125,8 @@ test.describe('a mouse', () => {
       await shoot(page, 'undated-dragging');
     });
     expect(await dueOf(page, title)).toEqual({ from: '2026-11-04' });
+    // Its line has left the list: the focus is on "No date", not lost.
+    await expect(page.getByTestId('calendar-undated')).toBeFocused();
     await expect(page.getByTestId('undated-panel').getByText(title, { exact: true })).toHaveCount(
       0,
     );

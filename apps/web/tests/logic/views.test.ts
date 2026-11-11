@@ -363,6 +363,11 @@ describe('CSV rows', () => {
     ).toHaveLength(5);
   });
 
+  it('adds the date a calendar falls back to where it names none', () => {
+    const calendar = { ...view, viewType: 'calendar' as const };
+    expect(tableRows([], templates, calendar, 'Name', context)[0]?.at(-1)).toBe('"Due"');
+  });
+
   it('adds the date a Gantt view places its cards by, the one it falls back to too', () => {
     const gantt = { ...view, viewType: 'gantt' as const };
     expect(tableRows([], templates, gantt, 'Name', context)[0]?.at(-1)).toBe('"Due"');

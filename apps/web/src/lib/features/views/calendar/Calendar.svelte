@@ -207,14 +207,17 @@
   const drag = new CardDrag({
     days: (cardId: string) => placed.span(cardId),
     enabled: () => writable && board.canEdit,
-    ondrop: dropCard,
+    ondrop: (cardId: string, grip: BarGrip, days: Days) => void dropCard(cardId, grip, days),
   });
 
   /** A card let go on other days: its date is written, and the board shows it at once. */
-  function dropCard(cardId: string, grip: BarGrip, days: Days): void {
+  async function dropCard(cardId: string, grip: BarGrip, days: Days): Promise<void> {
     const card = placed.card(cardId);
     if (!card || !template || !datesWritable(template)) return;
     void writeDays(board, card, template, grip, days, regional.timeZone);
+    // A card given a date leaves "No date", and the focus on its line with it.
+    await tick();
+    if (document.activeElement === document.body) undated.button?.focus();
   }
 
   /** What the chip that follows a dragged card says: its title and the days it would go to. */

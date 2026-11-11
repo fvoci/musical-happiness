@@ -67,8 +67,12 @@
     draggable?: boolean;
     /** The card's "…", over the end of the title: given the card. */
     menu?: Snippet<[string]>;
-    /** The bar is being dragged: where it is drawn meanwhile, and its days in words. */
-    dragged?: { box: BarBox; days: string };
+    /** The bar is being dragged: where it is drawn meanwhile, its days in words, and where they are said. */
+    dragged?: {
+      box: BarBox;
+      days: string;
+      label: () => { x: number; part: number } | undefined;
+    };
   }
 
   let {
@@ -171,7 +175,10 @@
       title={line.name}
       class={[
         'absolute top-1/2 flex h-6 -translate-y-1/2 items-center gap-1 rounded-sm bg-primary/80 text-left text-xs text-primary-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-dragged:z-5 data-dragged:bg-primary data-dragged:shadow-lg data-dragged:ring-2 data-dragged:ring-ring can-hover:hover:bg-primary roomy:h-8 roomy:after:absolute roomy:after:-inset-y-1.5',
-        draggable ? 'roomy:after:inset-x-0' : 'roomy:after:-inset-x-3',
+        // The room at the sides is the grips', where there are grips for a finger.
+        draggable && bar.width >= GRIPS_MIN_WIDTH
+          ? 'roomy:after:inset-x-0'
+          : 'roomy:after:-inset-x-3',
         labelled && 'px-1.5',
         pointed && 'focus:ring-2 focus:ring-ring focus:ring-offset-1 focus:ring-offset-background',
         bar.fromBefore && 'rounded-l-none',
@@ -197,12 +204,19 @@
       {/if}
     </button>
     {#if dragged}
-      <!-- The days it would go to, over it: a day is a few pixels at a far zoom. -->
+      <!--
+        The days it would go to, by the pointer (which is always in sight; an
+        end of a long bar may not be): a day is a few pixels at a far zoom.
+        In its own row: a row is drawn in a block that cuts off what goes
+        above or below it.
+      -->
+      {@const label = dragged.label()}
       <span
         data-testid="gantt-drag-days"
         aria-hidden="true"
-        class="pointer-events-none absolute bottom-full z-5 mb-0.5 rounded-sm bg-popover px-1.5 py-0.5 text-xs whitespace-nowrap text-popover-foreground shadow-md"
-        style:left="{bar.x}rem"
+        class="pointer-events-none absolute top-1/2 z-5 rounded-sm bg-popover px-1.5 py-0.5 text-xs whitespace-nowrap text-popover-foreground shadow-md"
+        style:left="{label?.x ?? bar.x + bar.width}rem"
+        style:transform="translate({-(label?.part ?? 0) * 100}%, -50%)"
       >
         {dragged.days}
       </span>

@@ -133,7 +133,7 @@
     const days = daysLabel(preview.days, locale, Number(today.slice(0, 4)), (first, last) =>
       m.gantt_days_range({ first, last }),
     );
-    return { id: preview.id, box: barBox(axis, preview.days), days };
+    return { id: preview.id, box: barBox(axis, preview.days), days, label: () => drag.label };
   });
 
   const axis = $derived(chart.axis);

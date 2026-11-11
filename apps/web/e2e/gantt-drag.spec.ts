@@ -178,14 +178,18 @@ test.describe('a mouse', () => {
   });
 
   test('at 390 pixels wide, a bar and its end are dragged the same way', async ({ page }, info) => {
-    await page.setViewportSize({ width: 390, height: 844 });
     await openGantt(page, info);
+    // After opening: the page is opened at the width of the project's pane.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(scroller(page)).toBeVisible();
     await centre(page, bar(page, 'Share a board'));
     await dragBy(page, bar(page, 'Share a board'), 2, async () => {
       await expect(dragged(page)).toHaveCount(1);
       await shoot(page, '390-dragging');
     });
     expect(await due(page, 'Share a board')).toEqual({ from: '2026-11-14', to: '2026-11-25' });
+    // Away from the right edge, where a held end scrolls the days.
+    await centre(page, grip(page, 'Share a board', 'end'));
     await row(page, 'Share a board').hover();
     await dragBy(page, grip(page, 'Share a board', 'end'), 2, async () => {
       await shoot(page, '390-resizing');

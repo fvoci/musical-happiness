@@ -88,6 +88,14 @@ export class BarDrag {
   readonly #source: BarDragSource;
   /** The bar being dragged and where it would go; none while nothing is dragged far enough to show. */
   preview = $state.raw<BarPreview | undefined>(undefined);
+  /**
+   * Where the days of the dragged bar are said: at the pointer (`x`, in rem
+   * from the start of the axis), which lies as far along the words (`part`,
+   * 0 to 1) as it is across the days in sight. The pointer is always in
+   * sight, and so are the words, as long as they are no wider than the days
+   * in sight; an end of a long bar may not be.
+   */
+  label = $state.raw<{ x: number; part: number } | undefined>(undefined);
   /** Days the axis shows beyond the cards' while a bar is dragged near or past its ends. */
   reach = $state.raw<Days | undefined>(undefined);
   #drag: Drag | undefined;
@@ -200,6 +208,7 @@ export class BarDrag {
       this.preview = { id: drag.id, grip: drag.grip, days };
     }
     this.#grow(days, Math.floor(at));
+    this.#place(at, drag.last);
   }
 
   /**
@@ -256,11 +265,23 @@ export class BarDrag {
     drag.frame = requestAnimationFrame(this.#frame);
   };
 
+  /** The label goes by the pointer, `at` days from FROM. */
+  #place(at: number, point: Point): void {
+    const scroller = this.#source.scroller();
+    const axis = this.#source.axis();
+    if (!scroller) return;
+    const box = scroller.getBoundingClientRect();
+    const left = box.left + this.#source.titles();
+    const part = Math.min(1, Math.max(0, (point.x - left) / Math.max(1, box.right - left)));
+    this.label = { x: (at - daysBetween(FROM, axis.first)) * axis.dayWidth, part };
+  }
+
   #end(): void {
     const drag = this.#drag;
     this.#drag = undefined;
     if (drag?.frame !== undefined) cancelAnimationFrame(drag.frame);
     this.preview = undefined;
     this.reach = undefined;
+    this.label = undefined;
   }
 }
