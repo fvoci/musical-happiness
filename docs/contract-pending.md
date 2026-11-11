@@ -256,10 +256,9 @@
 | 빈 목록을 넣는 `createBlocks` | 201과 `[]` |
 | 이미 있는 구독을 다시 만드는 `createSubscription` | 201 |
 | 이미 멤버인 사용자를 넣는 `addMember` | 200과 지금의 멤버십. 역할은 바뀌지 않는다 |
-| `patchCard`의 `updatedProperties` | 이름과 달리 합치지 않고 전체를 바꾼다. 아래 (5) |
+| `patchCard`의 `updatedProperties`와 `patchBlock`의 `updatedFields.properties` | 앞의 것은 보낸 값만 합치고, 뒤의 것은 값 전체를 바꾼다. 아래 (5) |
 | `getFile`의 `Content-Type` | 모든 파일이 `application/octet-stream`으로 나간다. 아래 (6) |
 | `searchTeamBoards`의 `field=property_name` | 카드 속성의 이름이 아니라 보드 자신의 `properties` 객체에 그 이름의 멤버가 있는지를 본다. 정확히 같은 이름만 찾는다 |
-| 검색어의 `%`, `_` | `searchBoards`, `searchTeamBoards`, `getTeamUsers`의 검색어에서 와일드카드로 읽힌다. 빈칸 둘을 이어 쓰면 모든 제목이 맞는다 |
 | 역할이 하나도 없는 멤버 | `addMember`, `updateMember`에 역할을 모두 빼고 보내면 보기 권한도 없는 멤버가 된다 |
 | `removeMember`와 `updateMember` | 멤버가 아닌 사용자를 빼면 204, 고치면 404다 |
 | `createCategory`의 `sortOrder` | 보낸 값에 10을 더해 저장하고, 그 사용자의 다른 카테고리도 모두 10씩 민다 |
@@ -282,7 +281,7 @@
    - 스키마가 필수로 적은 멤버가 빠져도 거절하지 않고 빈 값으로 읽는 곳이 있다. `login`의 `password`가 없으면 401이고, `patchBlocks`의 목록이 없으면 204다.
    - 그러니 클라이언트는 계약에 없는 멤버를 보내지 않는다.
 4. **카테고리 요청의 `userId`, `teamId`.** 세션과 경로가 이미 말하는 값이다. 세션과 다른 `userId`는 만들 때 403, 고칠 때 400이다.
-5. **`patchCard`의 `updatedProperties`.** 비어 있지 않으면 카드의 속성 값 전체를 그것으로 바꾼다. 비어 있으면 아무것도 바꾸지 않는다. 그래서 마지막 값을 이 길로는 지울 수 없다. 합치도록 바꿀 후보다.
+5. **카드의 속성 값을 고치는 두 길.** `patchCard`는 `updatedProperties`의 값을 저장된 값에 합치고 `deletedProperties`에 적힌 속성의 값을 지운다(둘에 다 적힌 속성은 지워진다). 보내지 않은 값은 그대로라, 같은 카드의 다른 속성을 거의 동시에 고친 두 요청이 둘 다 남고, 같은 속성이면 나중 것이 남는다. 합치기는 저장소가 보드를 잡은 한 트랜잭션에서 한다. `patchBlock`의 `updatedFields`에 `properties`를 보내면 값 전체가 그것으로 바뀐다(블록의 필드 하나를 바꾸는 규칙 그대로).
 6. **`getFile`의 머리글.** 모든 파일이 `application/octet-stream`과 `Content-Disposition: attachment`로 나간다. 파일 이름은 올린 이름이 아니라 `fileId`다. `Last-Modified`가 응답 시각이라 재검증으로 내려받기를 아끼지 못한다.
 7. **`importArchive`.** 모든 보드를 읽고 검사한 뒤 하나씩 만든다. 검사는 줄의 모양, 블록의 종류, 보드와 블록이 맞는지, 그리고 저장소가 보는 것(보드의 속성 정의, 블록의 제목·`fields`의 종류별 한도·속성 값·본문)이다. 그 검사에 걸리면 아무것도 만들지 않는다. 그 뒤에 실패하면(DB의 오류, 그리고 `board.jsonl` 하나에 보드가 여럿이고 블록의 부모가 자기 것이 아닌 보드인 경우. 이 서버의 아카이브에는 없다) 앞의 보드는 남는다. 요청 크기의 한도가 아직 없다(4절에서 생긴다).
 8. **`onboard`의 200.** 만든 것을 201로 답하는 규칙의 예외다(`PORTING.md` N절).
@@ -301,7 +300,7 @@
 | 항목 | 답 |
 |---|---|
 | A1 | 이름은 가정대로 `hasBody`, `tasksTotal`, `tasksDone`(`Card`) |
-| A2, H6 | **결정됨(11:05 KST).** `patchCard`는 보낸 속성만 합치고, 지울 속성은 `deletedProperties`로 따로 받는다. 웹앱은 카드를 읽어 전부를 보내지 않고, 마지막 값을 `patchBlock`으로 비우는 길도 쓰지 않는다. 바뀐 점은 그 tracer-bullet이 이 표의 이 줄에 적는다 |
+| A2, H6 | **결정됨(11:05 KST), 구현됨.** `patchCard`의 `updatedProperties`는 보낸 값만 저장된 값에 합치고, 값을 지울 속성은 `deletedProperties`(속성 식별자의 목록)로 받는다(7절 (5)). 웹앱에 달라지는 것: (1) 읽은 뒤 값 전부를 `updatedProperties`로 보내도 저장은 되지만 그것으로 값이 지워지지 않는다. 빠진 속성은 그대로 남는다. 값을 지우려면 그 속성을 `deletedProperties`에 적는다. (2) 마지막 값을 `patchBlock`의 `updatedFields.properties`로 비우는 길은 필요 없다(그 길은 여전히 값 전체를 바꾼다). (3) 고친 속성만 보내면 남이 다른 속성을 고친 것을 덮지 않는다. 한 카드의 고치기를 차례로 보낼 까닭이 사라진다. 메시지(`UPDATE_BLOCK`)는 전처럼 합친 뒤의 블록 전체다 |
 | A3 | 본문은 `patchCard`(와 `patchBlock`)의 `body`로, 같은 라우트다. `body`에는 `readAt`이 있어야 하고, 제목·속성 패치에는 없어도 되지만 보내면 늘 비교한다 |
 | A4 | 409의 기준은 블록의 `updateAt` 하나다. 본문만의 판은 없다. **사용자 결정 필요**(권고: 두고, 웹앱의 "다시 읽고 같으면 한 번 다시 보내기"를 쓴다) |
 | A5 | 된다. `createCard`의 `NewCard`에 `body`가 있다 |

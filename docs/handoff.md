@@ -44,10 +44,10 @@
   | 9b | 가져오기를 올리기 세션(용도 `import`)으로, 아카이브를 디스크에서 읽고 한도(256 MiB, 풀린 합계 1 GiB, 항목 수, `board.jsonl`, 파일 항목) | 끝 |
   | 10 | 응답 압축(정적 `.zst`, API의 gzip·brotli·zstd) | 끝 |
   | 11 | `cargo xtask test`가 띄운 컨테이너를 멈춘다, 이름에서 `hafgufa-`를 뗀다 | 끝 |
-  | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | 다음 |
-  | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | |
+  | 12 | 남은 결함(`docs/contract-pending.md` 8절), 끝난 세션의 WebSocket | 끝 |
+  | 13 | 웹앱의 질문에 답한다(`docs/contract-pending.md`의 새 절) | 끝 |
   | 14 | 빌드 크기(디버그 정보 수준) | 끝 |
-  | 15 | 사용자 결정 1(11:05 KST): `patchCard`가 바뀐 속성만 받아 합치고 지울 속성을 따로 받는다 | |
+  | 15 | 사용자 결정 1(11:05 KST): `patchCard`가 바뀐 속성만 받아 합치고 지울 속성을 따로 받는다 | 다음 |
   | 16 | 사용자 결정 2: 저장된 옛 콘텐츠 블록을 데이터 단계로 지우고(파일은 수거의 길로) 그것을 다루던 코드를 걷는다 | |
   | 17 | 사용자 결정 3: 공유 링크의 익명 독자에게 나가는 본문의 멘션에서 사용자 ID를 비운다(HTTP와 WebSocket) | |
   | 18 | 사용자 결정 4: `logging_cfg_*`, `audit_cfg_*`, `filess3config.trace`를 없앤 키로 | |

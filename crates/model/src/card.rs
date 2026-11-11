@@ -6,7 +6,7 @@ use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::JsonMap;
-use crate::block::{Block, BlockPatch, BlockType};
+use crate::block::{Block, BlockPatch, BlockType, PropertyChanges};
 use crate::body::{Body, BodyChange, BodySummary};
 use crate::id::new_id;
 use crate::serde_util::null_as_default;
@@ -241,13 +241,20 @@ pub struct CardPatch {
     /// The new icon; at most one grapheme.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
-    /// The property values the card is to have, by property identifier. With any
-    /// member, this replaces every value of the card: a property that is not named
-    /// loses its value. Left out or empty, the values stay, so the last value of a card
-    /// cannot be taken away this way.
+    /// Property values to set, by property identifier, each replacing the card's value
+    /// for that property. The card's other values stay as they are: two patches that
+    /// set different properties of a card at about the same time both keep theirs, and
+    /// of two that set the same property the later one wins.
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = Object)]
     pub updated_properties: JsonMap,
+    /// Identifiers of properties whose value the card is to lose. A property named here
+    /// and in `updatedProperties` loses its value.
+    #[serde(
+        deserialize_with = "null_as_default",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub deleted_properties: Vec<String>,
     /// The new body; `null` takes the body away. Sent only with `readAt`.
     #[serde(skip_serializing_if = "BodyChange::is_keep")]
     #[schema(value_type = Option<Body>)]
@@ -260,7 +267,8 @@ pub struct CardPatch {
 }
 
 impl CardPatch {
-    /// Applies the patch to `card`, adding or replacing the updated properties.
+    /// Applies the patch to `card`: the updated properties are set, then the deleted ones
+    /// removed.
     pub fn apply(&self, card: &mut Card) {
         if let Some(title) = &self.title {
             card.title.clone_from(title);
@@ -268,10 +276,16 @@ impl CardPatch {
         if let Some(icon) = &self.icon {
             card.icon.clone_from(icon);
         }
-        for (id, value) in &self.updated_properties {
-            card.properties.insert(id.clone(), value.clone());
-        }
+        self.property_changes().apply_to(&mut card.properties);
         self.body.apply_to(&mut card.body);
+    }
+
+    /// The changes of the patch to the card's property values.
+    fn property_changes(&self) -> PropertyChanges {
+        PropertyChanges {
+            updated: self.updated_properties.clone(),
+            deleted: self.deleted_properties.clone(),
+        }
     }
 
     /// Checks that the patch may be applied.
@@ -290,11 +304,9 @@ impl CardPatch {
         }
     }
 
-    /// Converts the patch to the equivalent patch of the card's block.
-    ///
-    /// Preserved quirk: the block patch sets the whole `properties` field to the updated
-    /// properties, so applying it to a block drops the card's other property values,
-    /// whereas [`CardPatch::apply`] merges them.
+    /// Converts the patch to the equivalent patch of the card's block. The property
+    /// values go in [`BlockPatch::property_changes`], to be merged into the values the
+    /// block has when it is patched.
     ///
     /// # Errors
     ///
@@ -306,16 +318,11 @@ impl CardPatch {
         if let Some(icon) = &self.icon {
             updated_fields.insert("icon".to_owned(), Value::from(icon.clone()));
         }
-        if !self.updated_properties.is_empty() {
-            updated_fields.insert(
-                "properties".to_owned(),
-                Value::Object(self.updated_properties.clone()),
-            );
-        }
 
         Ok(BlockPatch {
             title: self.title.clone(),
             updated_fields,
+            property_changes: self.property_changes(),
             body: self.body.clone(),
             read_at: self.read_at,
             ..BlockPatch::default()

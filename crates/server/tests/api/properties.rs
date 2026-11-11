@@ -369,7 +369,13 @@ async fn well_formed_property_values_are_stored_as_sent() {
         )
         .await
         .ok_json();
-    assert_eq!(patched["properties"], values, "and patched with them");
+    for (id, value) in values.as_object().expect("an object") {
+        assert_eq!(
+            patched["properties"].get(id),
+            Some(value),
+            "patched with {id}, merged into the values the card had"
+        );
+    }
 
     let inserted = th
         .client

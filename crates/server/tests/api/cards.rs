@@ -1399,6 +1399,78 @@ async fn patch_card_refusals() {
     th.teardown().await;
 }
 
+/// Two patches that set different properties of a card at about the same time both keep
+/// their value; of two that set the same property, the later one wins.
+#[tokio::test]
+async fn patches_of_different_properties_at_the_same_time_both_stay() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let card = create_card(&th.client, &board.id, &json!({"title": "t"})).await;
+    let path = card_path(&card.id);
+    for round in 0..10 {
+        let first = json!({"updatedProperties": {"a": format!("a{round}")}});
+        let second = json!({"updatedProperties": {"b": format!("b{round}")}});
+        let (one, two) = tokio::join!(
+            th.client.patch(&path, &first),
+            th.client.patch(&path, &second),
+        );
+        one.check_ok();
+        two.check_ok();
+        let read: Card = th.client.get(&path).await.ok_json();
+        assert_eq!(
+            serde_json::to_value(&read.properties).expect("properties are JSON"),
+            json!({"a": format!("a{round}"), "b": format!("b{round}")}),
+            "both values of round {round}"
+        );
+    }
+
+    for value in ["first", "later"] {
+        th.client
+            .patch(&path, &json!({"updatedProperties": {"a": value}}))
+            .await
+            .check_ok();
+    }
+    let read: Card = th.client.get(&path).await.ok_json();
+    assert_eq!(read.properties["a"], json!("later"), "the later one wins");
+    th.teardown().await;
+}
+
+/// `updatedProperties` is merged into the values a card has; `deletedProperties` takes
+/// values away, also the last one, and wins over `updatedProperties`.
+#[tokio::test]
+async fn patch_card_merges_and_deletes_values() {
+    let th = Setup::native().start().await.init_basic().await;
+    let board = th.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let card = create_card(
+        &th.client,
+        &board.id,
+        &json!({"title": "t", "properties": {"p": "v", "q": ["1", "2"]}}),
+    )
+    .await;
+    let path = card_path(&card.id);
+    let send = async |body: Value| -> Value {
+        let card: Card = th.client.patch(&path, &body).await.ok_json();
+        serde_json::to_value(&card.properties).expect("properties are JSON")
+    };
+
+    let values = send(json!({"updatedProperties": {"z": "only", "p": "w"}})).await;
+    assert_eq!(
+        values,
+        json!({"p": "w", "q": ["1", "2"], "z": "only"}),
+        "the others stay"
+    );
+    let values = send(json!({"deletedProperties": ["p", "q"]})).await;
+    assert_eq!(values, json!({"z": "only"}), "deleted");
+    let values =
+        send(json!({"updatedProperties": {"z": "again"}, "deletedProperties": ["z"]})).await;
+    assert_eq!(
+        values,
+        json!({}),
+        "set and deleted: deleted, the last value too"
+    );
+    th.teardown().await;
+}
+
 /// What a patch changes and what it leaves alone.
 #[tokio::test]
 async fn patch_card_changes() {
@@ -1440,7 +1512,9 @@ async fn patch_card_changes() {
         json!({"updatedProperties": {}}),
         json!({"updatedProperties": null}),
         json!({"title": null, "contentOrder": null, "icon": null}),
-        json!({"isTemplate": false, "deleteAt": 5, "boardId": "x", "deletedProperties": ["p"]}),
+        json!({"isTemplate": false, "deleteAt": 5, "boardId": "x"}),
+        json!({"deletedProperties": ["none"]}),
+        json!({"deletedProperties": null}),
     ] {
         let patched = send(&th.client, &path, body.clone()).await;
         let expected = Card {
@@ -1450,17 +1524,18 @@ async fn patch_card_changes() {
         assert_eq!(patched, expected, "nothing changed by {body}");
     }
 
-    // Preserved quirk: updated properties replace all properties.
+    // The values that are not named stay; the deleted ones go (merging is tested on its
+    // own below).
     let patched = send(
         &th.client,
         &path,
-        json!({"updatedProperties": {"z": "only"}}),
+        json!({"updatedProperties": {"z": "only"}, "deletedProperties": ["p", "q"]}),
     )
     .await;
     assert_eq!(
         serde_json::to_value(&patched.properties).expect("properties are JSON"),
         json!({"z": "only"}),
-        "the other properties are gone"
+        "the values"
     );
 
     // The icon, by an editor, without notification. A content order is not a member

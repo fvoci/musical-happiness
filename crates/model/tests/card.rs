@@ -265,13 +265,16 @@ fn card_patch_apply_merges_properties() {
     patch
         .updated_properties
         .insert("added".to_owned(), json!(["4"]));
+    patch.deleted_properties = vec!["gone".to_owned(), "added".to_owned()];
+    card.properties.insert("gone".to_owned(), json!("5"));
     patch.apply(&mut card);
 
     assert_eq!(card.title, "new");
     assert_eq!(card.icon, "a");
     assert_eq!(
         Value::Object(card.properties),
-        json!({ "kept": "1", "replaced": "3", "added": ["4"] })
+        json!({ "kept": "1", "replaced": "3" }),
+        "a property both set and deleted loses its value"
     );
 }
 
@@ -290,7 +293,13 @@ fn card_patch_to_block_patch() {
     assert_eq!(block_patch.parent_id, None);
     assert_eq!(
         Value::Object(block_patch.updated_fields),
-        json!({ "icon": "🎨", "properties": { "p": "v" } })
+        json!({ "icon": "🎨" }),
+        "the values are not set as a whole field"
+    );
+    assert_eq!(
+        Value::Object(block_patch.property_changes.updated.clone()),
+        json!({ "p": "v" }),
+        "they are merged"
     );
     assert!(block_patch.deleted_fields.is_empty(), "nothing is deleted");
 

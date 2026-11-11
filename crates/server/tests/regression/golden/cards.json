@@ -312,6 +312,7 @@
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
+        "p1": "v1",
         "p2": "v2"
       },
       "tasksDone": 0,
@@ -370,6 +371,7 @@
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
+        "p1": "v1",
         "p2": "v2"
       },
       "tasksDone": 0,
@@ -448,6 +450,7 @@
       "isTemplate": false,
       "modifiedBy": "<id:1>",
       "properties": {
+        "p1": "v1",
         "p2": "v2"
       },
       "tasksDone": 0,

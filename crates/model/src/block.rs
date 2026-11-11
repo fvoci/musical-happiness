@@ -446,6 +446,55 @@ pub struct BlockPatch {
     /// since, the patch is refused.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_at: Option<i64>,
+    /// Card property values to set and remove, merged into the values the block has
+    /// when it is patched: what `patchCard` sends. Not a member of a block patch's JSON.
+    #[serde(skip)]
+    pub property_changes: PropertyChanges,
+}
+
+/// Changes to the property values of a card, by property identifier: the values to set,
+/// then the ones to remove. The values that are named in neither stay.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PropertyChanges {
+    /// Values to set, each replacing the value of its property.
+    pub updated: JsonMap,
+    /// Properties whose value is removed.
+    pub deleted: Vec<String>,
+}
+
+impl PropertyChanges {
+    /// Whether there is nothing to change.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.updated.is_empty() && self.deleted.is_empty()
+    }
+
+    /// Sets the updated values in `values`, then removes the deleted ones.
+    pub fn apply_to(&self, values: &mut JsonMap) {
+        for (id, value) in &self.updated {
+            values.insert(id.clone(), value.clone());
+        }
+        for id in &self.deleted {
+            values.remove(id);
+        }
+    }
+
+    /// Applies the changes to the `properties` field of a block's fields, made an empty
+    /// object first if it is absent or no object.
+    fn apply_to_fields(&self, fields: &mut JsonMap) {
+        if self.is_empty() {
+            return;
+        }
+        let properties = fields
+            .entry("properties")
+            .or_insert_with(|| Value::Object(JsonMap::new()));
+        if !properties.is_object() {
+            *properties = Value::Object(JsonMap::new());
+        }
+        if let Value::Object(values) = properties {
+            self.apply_to(values);
+        }
+    }
 }
 
 impl BlockPatch {
@@ -472,6 +521,7 @@ impl BlockPatch {
         for key in &self.deleted_fields {
             block.fields.remove(key);
         }
+        self.property_changes.apply_to_fields(&mut block.fields);
         self.body.apply_to(&mut block.body);
     }
 
