@@ -182,7 +182,9 @@ impl Store {
     ///
     /// Returns [`StoreError::NotFound`] if no block of that identifier is in the trash,
     /// or there is nothing to restore it to: its board does not exist (any more, or is
-    /// in the trash itself), or the block it was on does not.
+    /// in the trash itself), or the block it was on does not. Returns
+    /// [`StoreError::NotRestorable`] if a block at the top would come back where it may
+    /// not be: a comment off a card, or any block below a comment.
     pub async fn undelete_block(&self, block_id: &str, user_id: &str) -> Result<Block, StoreError> {
         self.transaction(async |scope| undelete_block(scope, block_id, user_id).await)
             .await
@@ -533,14 +535,19 @@ pub(crate) async fn undelete_block(
         .collect::<Result<_, StoreError>>()?;
     let coming_back: HashSet<&str> = family.iter().map(|block| block.id.as_str()).collect();
     for block in &family {
-        if block.parent_id.is_empty() || coming_back.contains(block.parent_id.as_str()) {
+        if coming_back.contains(block.parent_id.as_str()) {
             continue;
         }
-        let Some(parent) = blocks::find_block(scope, &block.parent_id).await? else {
-            return Err(block_not_in_trash());
+        let parent = if block.parent_id.is_empty() {
+            None
+        } else {
+            let Some(parent) = blocks::find_block(scope, &block.parent_id).await? else {
+                return Err(block_not_in_trash());
+            };
+            Some(parent)
         };
-        if let Some(source) = comment_places::restore_refusal(&block.block_type, &parent.block_type)
-        {
+        let parent_type = parent.as_ref().map(|parent| &parent.block_type);
+        if let Some(source) = comment_places::restore_refusal(&block.block_type, parent_type) {
             return Err(StoreError::NotRestorable {
                 id: block.id.clone(),
                 source,

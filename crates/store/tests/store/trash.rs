@@ -157,4 +157,33 @@ async fn a_comment_does_not_come_back_onto_what_is_no_card() {
         .get_deleted_block(&comment_id)
         .await
         .expect("still in the trash");
+
+    // A comment stored on the board itself before the rule does not come back either.
+    let other_card = new_id();
+    let mut old = [
+        block(&other_card, &board.id, "", BlockType::Card),
+        block(&new_id(), &board.id, &other_card, BlockType::Comment),
+    ];
+    common::insert_blocks(store, &mut old, &user_id).await;
+    let old = &old[1];
+    let on_board = format!("UPDATE blocks SET parent_id = NULL WHERE id = '{}'", old.id);
+    common::execute_raw(&test.dbconfig(), &on_board).await;
+    store
+        .delete_block(&old.id, &user_id)
+        .await
+        .expect("deleted");
+    let error = store
+        .undelete_block(&old.id, &user_id)
+        .await
+        .expect_err("not onto the board");
+    assert!(
+        matches!(
+            &error,
+            StoreError::NotRestorable {
+                source: BlockError::CommentNotOnCard,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
 }

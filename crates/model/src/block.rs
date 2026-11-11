@@ -183,7 +183,8 @@ pub enum BlockError {
     #[error("a comment is the parent of no block")]
     ParentIsComment,
     /// A change of type that would leave a comment off a card: a block with blocks
-    /// below it becomes a comment, or a card with comments becomes another type.
+    /// below it becomes a comment, a block off a card becomes a comment where it
+    /// stands, or a card with comments becomes another type.
     #[error("the type would leave a comment off a card")]
     TypeStrandsComments,
     /// The title is longer than [`BLOCK_TITLE_MAX_CHARS`].

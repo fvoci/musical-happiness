@@ -77,15 +77,16 @@ pub(crate) async fn check(
     Ok(())
 }
 
-/// What a block that comes back from the trash onto `parent_type` would break, if
-/// anything: the parent may have changed type since the block was deleted.
+/// What a block that comes back from the trash onto a parent of `parent_type` (`None`
+/// for none) would break, if anything: the parent may have changed type since the
+/// block was deleted, and a block stored before the rule may never have kept it.
 pub(crate) fn restore_refusal(
     block_type: &BlockType,
-    parent_type: &BlockType,
+    parent_type: Option<&BlockType>,
 ) -> Option<BlockError> {
-    if *block_type == BlockType::Comment && *parent_type != BlockType::Card {
+    if *block_type == BlockType::Comment && parent_type != Some(&BlockType::Card) {
         Some(BlockError::CommentNotOnCard)
-    } else if *parent_type == BlockType::Comment {
+    } else if parent_type == Some(&BlockType::Comment) {
         Some(BlockError::ParentIsComment)
     } else {
         None
