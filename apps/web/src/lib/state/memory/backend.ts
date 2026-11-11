@@ -29,6 +29,7 @@ import {
   isTimeZone,
   readRegionalSettings,
 } from '../../logic/regional.ts';
+import { DEFAULT_LANGUAGE_SETTINGS, readLanguageSettings } from '../../logic/language.ts';
 import { readDisplayName } from '../../logic/users.ts';
 import {
   createBoard,
@@ -342,6 +343,7 @@ export class MemoryBackend implements Backend {
       this.world.settings.get(this.userId) ?? {
         ...DEFAULT_REGIONAL_SETTINGS,
         ...DEFAULT_DISPLAY_SETTINGS,
+        ...DEFAULT_LANGUAGE_SETTINGS,
       }
     );
   }
@@ -353,7 +355,11 @@ export class MemoryBackend implements Backend {
 
   async patchSettings(patch: AccountSettingsPatch): Promise<AccountSettings> {
     await this.#enter('patchSettings');
-    const defaults: AccountSettings = { ...DEFAULT_REGIONAL_SETTINGS, ...DEFAULT_DISPLAY_SETTINGS };
+    const defaults: AccountSettings = {
+      ...DEFAULT_REGIONAL_SETTINGS,
+      ...DEFAULT_DISPLAY_SETTINGS,
+      ...DEFAULT_LANGUAGE_SETTINGS,
+    };
     const merged: Record<string, unknown> = { ...this.#settings() };
     for (const [name, value] of Object.entries(patch)) {
       if (!(name in defaults)) fail(400, `unknown setting ${name}`, { field: name });
@@ -365,7 +371,7 @@ export class MemoryBackend implements Backend {
     }
     const display: DisplaySettings = readDisplaySettings(merged);
     const regional = readRegionalSettings(merged);
-    const next: AccountSettings = { ...regional, ...display };
+    const next: AccountSettings = { ...regional, ...display, ...readLanguageSettings(merged) };
     // A value the reader functions fell back on was not one of the allowed ones.
     for (const name of Object.keys(patch) as (keyof AccountSettings)[]) {
       if (patch[name] !== null && patch[name] !== undefined && next[name] !== patch[name]) {

@@ -8,9 +8,9 @@
     answers are shown, so that the place is known, and cannot be chosen.
   - Time zone, first day of the week, way of writing hours: `Automatic`
     follows the device and the language.
-  - Language: kept on the device, not in the account; the page loads again in
-    the chosen one. The list and the function that changes it come from the
-    app (a feature cannot import them).
+  - Language: an account setting, `Automatic` following the browser; the page
+    loads again in the chosen one. The list and the function that changes it
+    come from the app (a feature cannot import them).
   - The layout readout: for whoever works on the layout (dev.svelte.ts).
   - Archives: every board of the team exported, an archive imported; the
     progress shows at the foot of the page (`Transfers.svelte`).
@@ -70,10 +70,12 @@
     workspace: Workspace;
     /** The languages the app has, as tags. Without them the language is not offered. */
     locales?: readonly string[];
-    /** The language the app is shown in. */
-    locale?: string;
-    /** Changes the language; the page is loaded again in it. */
-    onChooseLocale?: (locale: string) => void;
+    /** The reader's language setting: `auto`, or the one of `locales` it is shown in. */
+    language?: string;
+    /** The one of `locales` that `auto` shows the app in. */
+    autoLocale?: string;
+    /** Changes the language setting; the page is loaded again in it. */
+    onChooseLanguage?: (setting: string) => void;
     /** Signs the reader out. Without it there is no account to leave (the backend in memory). */
     onSignOut?: () => void;
     /** Changes the password. Without it there is no account (the backend in memory). */
@@ -84,8 +86,9 @@
     open = $bindable(),
     workspace,
     locales = [],
-    locale,
-    onChooseLocale,
+    language,
+    autoLocale,
+    onChooseLanguage,
     onSignOut,
     onChangePassword,
   }: Props = $props();
@@ -145,9 +148,13 @@
     })),
   ]);
 
-  const languages = $derived(
-    locales.map((tag) => ({ id: tag, label: languageName(tag), also: [tag] })),
-  );
+  const languages = $derived([
+    {
+      id: AUTO,
+      label: m.shell_settings_language_auto({ language: languageName(autoLocale ?? '') }),
+    },
+    ...locales.map((tag) => ({ id: tag, label: languageName(tag), also: [tag] })),
+  ]);
 
   /** How long the change of language waits for the history at most, in milliseconds. */
   const GIVE_BACK_LIMIT = 2000;
@@ -157,7 +164,7 @@
    * their entries of the history back: the page is loaded again right after,
    * and entries left behind would make "back" do nothing a few times.
    */
-  function chooseLocale(tag: string): void {
+  function chooseLanguage(tag: string): void {
     open = false;
     const started = performance.now();
     const whenGivenBack = (): void => {
@@ -165,7 +172,7 @@
       if (isOverlayEntry(history.state) && performance.now() - started < GIVE_BACK_LIMIT) {
         requestAnimationFrame(whenGivenBack);
       } else {
-        onChooseLocale?.(tag);
+        onChooseLanguage?.(tag);
       }
     };
     requestAnimationFrame(whenGivenBack);
@@ -264,14 +271,14 @@
         onChange={(hourCycle: HourCycleSetting) => void workspace.changeSettings({ hourCycle })}
       />
 
-      {#if languages.length > 0 && locale !== undefined && onChooseLocale}
+      {#if locales.length > 0 && language !== undefined && onChooseLanguage}
         <SettingPicker
           name="language"
           label={m.shell_settings_language()}
           searchLabel={m.shell_settings_language_search()}
           items={languages}
-          value={locale}
-          onPick={chooseLocale}
+          value={language}
+          onPick={chooseLanguage}
         />
       {/if}
 

@@ -18,6 +18,7 @@
  */
 import type { DocNode } from '../editor/schema.ts';
 import type { DisplaySettings } from '../logic/display.ts';
+import type { LanguageSettings } from '../logic/language.ts';
 import type { RegionalSettings } from '../logic/regional.ts';
 import type { UserNames } from '../logic/users.ts';
 import type {
@@ -159,11 +160,11 @@ export interface Team {
 }
 
 /**
- * The reader's account settings: the three of the server design (5.8) and
- * the four display settings the plan adds to them. The answer always holds
- * every member.
+ * The reader's account settings: the three of the server design (5.8), the
+ * four display settings the plan adds to them, and the language of the
+ * interface. The answer always holds every member.
  */
-export type AccountSettings = RegionalSettings & DisplaySettings;
+export type AccountSettings = RegionalSettings & DisplaySettings & LanguageSettings;
 
 /** A member set to `null` goes back to its default. */
 export type AccountSettingsPatch = { [K in keyof AccountSettings]?: AccountSettings[K] | null };

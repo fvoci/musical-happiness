@@ -291,6 +291,7 @@
   "shell_settings_hour_cycle_h12": "12시간",
   "shell_settings_hour_cycle_h23": "24시간",
   "shell_settings_language": "언어",
+  "shell_settings_language_auto": "자동 ({language})",
   "shell_settings_language_search": "언어 찾기",
   "shell_settings_dev": "개발용 표시",
   "shell_settings_dev_hint": "창의 너비, 단계, 칸의 너비를 화면 구석에 보여 줍니다. 개발할 때 씁니다.",

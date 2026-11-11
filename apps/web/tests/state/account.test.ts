@@ -109,3 +109,21 @@ describe('the display name, on the server', () => {
     ]);
   });
 });
+
+describe('the language setting, in memory', () => {
+  it('starts at auto, keeps a tag as it was given, and goes back with null', async () => {
+    const { backend } = setup();
+    expect((await backend.settings()).language).toBe('auto');
+    expect((await backend.patchSettings({ language: 'PT-br' })).language).toBe('PT-br');
+    expect((await backend.settings()).language).toBe('PT-br');
+    expect((await backend.patchSettings({ language: null })).language).toBe('auto');
+  });
+
+  it('refuses a tag without the shape, at the member, as the server does', async () => {
+    const { backend } = setup();
+    const refused = await rejection(backend.patchSettings({ language: 'en-US-US' }));
+    expect(refused.status).toBe(400);
+    expect(refused.refusalAt('/language')).toBeDefined();
+    expect((await backend.settings()).language).toBe('auto');
+  });
+});

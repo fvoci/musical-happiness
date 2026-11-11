@@ -291,6 +291,7 @@
   "shell_settings_hour_cycle_h12": "12-hour",
   "shell_settings_hour_cycle_h23": "24-hour",
   "shell_settings_language": "Language",
+  "shell_settings_language_auto": "Automatic ({language})",
   "shell_settings_language_search": "Search languages",
   "shell_settings_dev": "Layout readout",
   "shell_settings_dev_hint": "Shows the width of the window, the stage and the width of the pane in a corner. For development.",

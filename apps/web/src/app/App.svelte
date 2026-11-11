@@ -21,7 +21,13 @@
 
   import { startBackend } from './backend.ts';
   import BoardPage from './BoardPage.svelte';
-  import { chooseLocale, currentLocale, locales } from './locale.ts';
+  import {
+    browserLocale,
+    currentLocale,
+    followAccountLanguage,
+    localeOfSetting,
+    locales,
+  } from './locale.ts';
   import Problems from './Problems.svelte';
   import type { Router } from './router.svelte.ts';
 
@@ -50,11 +56,31 @@
       const dev = (window as unknown as { fvociDev?: object }).fvociDev;
       if (dev) Object.assign(dev, { workspace: made });
       await made.load();
+      followLanguage(made);
     });
     return () => {
       workspace?.close();
     };
   });
+
+  /**
+   * The page in the language of the account, once its settings are read:
+   * another device may have chosen it. A page that loads again for it says
+   * so; nothing else is to be done on this one.
+   */
+  function followLanguage(loaded: Workspace): boolean {
+    return loaded.status === 'ready' && followAccountLanguage(loaded.settings.language);
+  }
+
+  /**
+   * Saves the language to the account and shows the page in it. A refusal
+   * leaves the page as it is, and says so (`changeSettings`).
+   */
+  async function chooseLanguage(setting: string): Promise<void> {
+    if (!workspace) return;
+    await workspace.changeSettings({ language: setting });
+    if (workspace.settings.language === setting) followAccountLanguage(setting);
+  }
 
   /**
    * Signs out, and starts the page again at its root: nothing of the
@@ -120,6 +146,8 @@
           if (welcome && router.route.boardId !== welcome) router.openBoard(welcome);
         }
       }
+      // Last: the page may load again in the account's language.
+      if (workspace) followLanguage(workspace);
     }}
     onRegister={async (registration: Registration) => {
       await account?.register(registration);
@@ -144,11 +172,11 @@
       router.openBoard(boardId);
     }}
     {locales}
-    locale={currentLocale()}
-    onChooseLocale={(tag: string) => {
-      const known = locales.find((locale) => locale === tag);
-      if (known) chooseLocale(known);
-    }}
+    language={workspace.settings.language === 'auto'
+      ? 'auto'
+      : localeOfSetting(workspace.settings.language)}
+    autoLocale={browserLocale()}
+    onChooseLanguage={(setting: string) => void chooseLanguage(setting)}
     onSignOut={account ? () => void signOut() : undefined}
     onChangePassword={account
       ? async (oldPassword: string, newPassword: string) => {

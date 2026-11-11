@@ -9,6 +9,7 @@
  */
 import { setDisplaySettings } from '../display.svelte.ts';
 import { DEFAULT_DISPLAY_SETTINGS } from '../logic/display.ts';
+import { DEFAULT_LANGUAGE_SETTINGS } from '../logic/language.ts';
 import { DEFAULT_REGIONAL_SETTINGS, resolveRegional, type Regional } from '../logic/regional.ts';
 import { UndoManager } from '../logic/undo.ts';
 import { userDisplayName } from '../logic/users.ts';
@@ -69,6 +70,7 @@ const TRANSFER_STAYS = 6000;
 const DEFAULT_SETTINGS: AccountSettings = {
   ...DEFAULT_REGIONAL_SETTINGS,
   ...DEFAULT_DISPLAY_SETTINGS,
+  ...DEFAULT_LANGUAGE_SETTINGS,
 };
 
 export class Workspace {

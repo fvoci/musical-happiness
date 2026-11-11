@@ -13,6 +13,7 @@
  */
 import type { DocNode } from '../../editor/schema.ts';
 import { DEFAULT_DISPLAY_SETTINGS } from '../../logic/display.ts';
+import { DEFAULT_LANGUAGE_SETTINGS } from '../../logic/language.ts';
 import { DEFAULT_REGIONAL_SETTINGS } from '../../logic/regional.ts';
 import {
   createBoard,
@@ -185,7 +186,11 @@ export function seedWorld(templates: readonly SeedTemplate[]): SeededWorld {
   for (const user of users) world.users.set(user.id, user);
   const reader = users[0];
   if (!reader) throw new Error('the seed has no people');
-  world.settings.set(reader.id, { ...DEFAULT_REGIONAL_SETTINGS, ...DEFAULT_DISPLAY_SETTINGS });
+  world.settings.set(reader.id, {
+    ...DEFAULT_REGIONAL_SETTINGS,
+    ...DEFAULT_DISPLAY_SETTINGS,
+    ...DEFAULT_LANGUAGE_SETTINGS,
+  });
 
   const boardIdOf = new Map<string, string>();
   templates.forEach((template, templateIndex) => {

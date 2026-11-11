@@ -8,6 +8,7 @@
  */
 import { countTasks, type DocNode } from '../editor/schema.ts';
 import { readDisplaySettings } from '../logic/display.ts';
+import { readLanguageSettings } from '../logic/language.ts';
 import { readRegionalSettings } from '../logic/regional.ts';
 import {
   createBoardView,
@@ -234,7 +235,11 @@ export function categoryOf(category: Schemas['CategoryBoards']): Category {
 
 /** The settings, under the names of the contract. */
 export function settingsOf(settings: Schemas['UserSettings']): AccountSettings {
-  return { ...readRegionalSettings(settings), ...readDisplaySettings(settings) };
+  return {
+    ...readRegionalSettings(settings),
+    ...readDisplaySettings(settings),
+    ...readLanguageSettings(settings),
+  };
 }
 
 export function settingsChangeOf(patch: AccountSettingsPatch): Schemas['SettingsChange'] {

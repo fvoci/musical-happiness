@@ -175,7 +175,16 @@ describe('settings', () => {
     const { backend } = setup();
     const start = await backend.settings();
     expect(Object.keys(start).sort()).toEqual(
-      ['theme', 'cardOpen', 'density', 'hourCycle', 'timeZone', 'haptics', 'weekStart'].sort(),
+      [
+        'theme',
+        'cardOpen',
+        'density',
+        'hourCycle',
+        'timeZone',
+        'haptics',
+        'weekStart',
+        'language',
+      ].sort(),
     );
     const changed = await backend.patchSettings({ theme: 'dark', timeZone: 'Asia/Seoul' });
     expect(changed).toMatchObject({ theme: 'dark', timeZone: 'Asia/Seoul', density: 'auto' });
