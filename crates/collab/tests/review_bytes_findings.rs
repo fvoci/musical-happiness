@@ -7,7 +7,10 @@
 mod support;
 
 use fvoci_collab::testing::{repair, to_body, with_update};
-use fvoci_collab::{TakeError, UpdateError, new_doc, state_of, take_update};
+use fvoci_collab::{
+    TakeError, UpdateError, from_body_by, from_state, new_doc, state_of, take_update,
+};
+use support::explore::session;
 use support::wire::{Change, Content, Parent, Update, value};
 use support::{ROOMY, from_base64};
 
@@ -135,4 +138,48 @@ fn a_repair_that_fails_leaves_the_document_as_it_was() {
         Err(TakeError::Body(_))
     ));
     assert_eq!(state_of(&doc), state, "the document is as it was");
+}
+
+/// The search found it at seed 19562: a client deletes one letter, the document then
+/// needs a repair, and the repaired copy, as the library held it, put the letters of
+/// a text in another order than the same document read from its state. An editor that
+/// took the update and the deletions held another body than the server stored.
+#[test]
+fn a_repaired_document_is_the_one_its_state_reads_to() {
+    let (failure, _) = session(19_562, 14);
+    assert!(failure.is_none(), "{failure:?}");
+}
+
+/// The review found it at seed 1109793 (before the search's bodies changed): an update
+/// whose text the library places in one of two places in turn, each time the document
+/// is read from its state, so that the same stored bytes would open to two bodies.
+/// Such an update is not taken; one that is taken opens to its body every time. (Here
+/// it is taken, and opens to the same body each time.)
+#[test]
+fn a_document_that_reads_to_another_each_time_is_not_taken() {
+    let before = from_base64(concat!(
+        "ASEHAAcBB2RlZmF1bHQDC29yZGVyZWRMaXN0BwAHAAMIbGlzdEl0ZW0HAAcBAwlwYXJhZ3JhcGhHBwED",
+        "CGxpc3RJdGVtBwAHAwMJcGFyYWdyYXBoBwAHBAYEAAcFIPCfkanigI3wn5Gp4oCN8J+Rp+KAjfCfkabt",
+        "lZzquIAKhAcTCzxiPiJc7ZWc6riARgcGBGJvbGQCe33GBxMHFARib2xkBG51bGxGBxsGc3RyaWtlAnt9",
+        "xgccBxQGc3RyaWtlBG51bGxGBx0EY29kZQJ7fcYHHgcUBGNvZGUEbnVsbMYHEwccBGxpbmsUeyJocmVm",
+        "IjoiL2JvYXJkcy83In2GBxoEbGluawRudWxshgciBGJvbGQEbnVsbMYHEwchBml0YWxpYwJ7fYYHIwZp",
+        "dGFsaWMEbnVsbEcHBQMKaW5saW5lTWF0aCgAByYFbGF0ZXgBdwRhPGI+KAAHAAVzdGFydAF9BEcHAAMJ",
+        "cGFyYWdyYXBoBwAHKQYEAAcqCyDtlZzquIB3b3JkRgcrBGJvbGQCe32GBzEEYm9sZARudWxsRgcyBml0",
+        "YWxpYwJ7fYYHMwZpdGFsaWMEbnVsbEYHNARjb2RlAnt9hgc1BGNvZGUEbnVsbEcHKQMFaW1hZ2UoAAc4",
+        "BmZpbGVJZAF3CGZpbGUucG5nAQcBHAE=",
+    ));
+    let update =
+        from_base64("AgEAAMEHEgcLBQMBAAcBB2RlZmF1bHQDCGxpc3RJdGVtiAAAAXtDQAAAAAAAAIQAAAV3b3JkIAA=");
+    let opened = from_state(&before, &ROOMY).expect("a body");
+    // The document as the server made it of its body, by the writer the search gives.
+    let base = from_body_by(opened.repair.body.as_ref().expect("a body"), 7);
+    assert_eq!(state_of(&base), before);
+    if let Ok(taken) = take_update(&base, &update, &ROOMY) {
+        let mut state = state_of(&taken.doc);
+        for time in 0..3 {
+            let opened = from_state(&state, &ROOMY).expect("opened");
+            assert_eq!(opened.repair.body, taken.repair.body, "opened {time} times");
+            state = state_of(&opened.doc);
+        }
+    }
 }

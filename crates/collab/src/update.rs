@@ -164,26 +164,67 @@ pub(crate) fn with_update(
         txn.apply_update(update)
             .map_err(|error| UpdateError::Unappliable(error.to_string()))?;
     }
-    let txn = copy.transact();
-    if txn.has_missing_updates() {
-        return Err(UpdateError::MissingChanges);
-    }
-    for (name, root) in txn.root_refs() {
-        if name != FIELD || !matches!(root, Out::YXmlFragment(_)) {
-            return Err(UpdateError::UnexpectedRoot(name.to_owned()));
+    {
+        let txn = copy.transact();
+        if txn.has_missing_updates() {
+            return Err(UpdateError::MissingChanges);
+        }
+        for (name, root) in txn.root_refs() {
+            if name != FIELD || !matches!(root, Out::YXmlFragment(_)) {
+                return Err(UpdateError::UnexpectedRoot(name.to_owned()));
+            }
         }
     }
-    let state = txn.encode_state_as_update_v1(&StateVector::default());
+    settled(&copy, limits)
+}
+
+/// A document as a server that stored it reads it: its state within the limit of
+/// size, read again, and reading again to the same state at the latest the second
+/// time.
+///
+/// What the library took it may write in a form it does not read: the walk keeps out
+/// what is known of that, and this is for what is not. And with changes no editor
+/// makes (origins that do not lie where the change does) the library can read a state
+/// to a document whose own state is another, which reads back to the first: the same
+/// stored bytes would open to two documents in turn. Such a document is not taken.
+///
+/// # Errors
+///
+/// Returns [`UpdateError::DocumentTooLarge`] past [`UpdateLimits::state_bytes`], and
+/// [`UpdateError::LeavesUnreadable`] for a state that does not read again to itself.
+pub(crate) fn settled(doc: &Doc, limits: &UpdateLimits) -> Result<Doc, UpdateError> {
+    let state = state_of(doc);
     if state.len() > limits.state_bytes {
         return Err(UpdateError::DocumentTooLarge {
             size: state.len(),
             limit: limits.state_bytes,
         });
     }
-    // What the library took it may write in a form it does not read: the walk keeps
-    // out what is known of that, and this is for what is not. The document given back
-    // is the one read from the state, which is what a server that stored it would read.
-    doc_of_state(&state).map_err(UpdateError::LeavesUnreadable)
+    let again = doc_of_state(&state).map_err(UpdateError::LeavesUnreadable)?;
+    let state_again = state_of(&again);
+    if same_state(&state_again, &state) {
+        return Ok(again);
+    }
+    // A first reading may write the same document otherwise (neighbouring changes it
+    // joins); a second must not.
+    let settled = doc_of_state(&state_again).map_err(UpdateError::LeavesUnreadable)?;
+    if !same_state(&state_of(&settled), &state_again) {
+        return Err(UpdateError::LeavesUnreadable(
+            "its state reads to a document whose state reads to another".to_owned(),
+        ));
+    }
+    Ok(settled)
+}
+
+/// Whether two states are the same: the same bytes, or the same changes and deletions
+/// in another order (the library writes the deletions of each client in the order of
+/// a table, which differs from one document to the next).
+fn same_state(one: &[u8], other: &[u8]) -> bool {
+    one == other
+        || matches!(
+            (Update::decode_v1(one), Update::decode_v1(other)),
+            (Ok(one), Ok(other)) if one == other
+        )
 }
 
 #[cfg(test)]

@@ -139,7 +139,10 @@ fn a_body_past_its_limit_is_refused() {
     };
     assert_eq!(
         take_update(&doc, &update, &tight).map(|_| ()),
-        Err(TakeError::Body(BodyError::TooLarge))
+        Err(TakeError::BodyTooLarge {
+            size,
+            limit: size - 1
+        })
     );
     // A repaired body is held to it as well.
     let stray = stray_entry(&doc);
@@ -152,7 +155,10 @@ fn a_body_past_its_limit_is_refused() {
     };
     assert_eq!(
         take_update(&doc, &stray, &tight).map(|_| ()),
-        Err(TakeError::Body(BodyError::TooLarge))
+        Err(TakeError::BodyTooLarge {
+            size: kept,
+            limit: kept - 1
+        })
     );
 }
 
@@ -183,4 +189,24 @@ fn a_stored_state_is_opened_as_an_update_to_an_empty_document_is_taken() {
     let empty = from_state(&state_of(&new_doc()), &ROOMY).expect("opened");
     assert_eq!(empty.repair.body, None);
     assert!(empty.doc.transact().get_xml_fragment(FIELD).is_some());
+}
+
+/// A repaired document is held to the limit of the state as well: the deletions of a
+/// repair add to it.
+#[test]
+fn a_repaired_document_past_the_limit_of_its_state_is_refused() {
+    let doc = from_body(&body_of(&paragraphs(&["first"])));
+    let stray = stray_entry(&doc);
+    let with = with_update(&doc, &stray, &ROOMY).expect("taken as it is");
+    let taken = take_update(&doc, &stray, &ROOMY).expect("taken, repaired");
+    let (unrepaired, repaired) = (state_of(&with).len(), state_of(&taken.doc).len());
+    assert!(repaired > unrepaired, "{repaired} > {unrepaired}");
+    let tight = UpdateLimits {
+        state_bytes: unrepaired,
+        ..ROOMY
+    };
+    assert!(matches!(
+        take_update(&doc, &stray, &tight),
+        Err(TakeError::Update(UpdateError::DocumentTooLarge { .. }))
+    ));
 }

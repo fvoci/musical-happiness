@@ -6,8 +6,9 @@ use thiserror::Error;
 use yrs::Doc;
 
 use crate::build::new_doc;
+use crate::project::to_body;
 use crate::repair::{Repair, repaired};
-use crate::update::{UpdateError, UpdateLimits, with_update};
+use crate::update::{UpdateError, UpdateLimits, settled, with_update};
 
 /// A document that took an update, with its body.
 #[derive(Debug)]
@@ -29,10 +30,17 @@ pub enum TakeError {
     /// The update cannot be taken at all.
     #[error(transparent)]
     Update(#[from] UpdateError),
-    /// With the update the document is no body, and no repair makes it one; or its body
-    /// is larger than [`UpdateLimits::body_bytes`] ([`BodyError::TooLarge`]).
+    /// With the update the document is no body, and no repair makes it one.
     #[error(transparent)]
     Body(#[from] BodyError),
+    /// With the update the body would be larger than [`UpdateLimits::body_bytes`].
+    #[error("with the update the body would be {size} bytes, more than the {limit} allowed")]
+    BodyTooLarge {
+        /// The size the body would have, in bytes of its stored JSON.
+        size: usize,
+        /// The limit.
+        limit: usize,
+    },
 }
 
 /// Takes a client's update into a document, as the server does with every one: the
@@ -53,8 +61,18 @@ pub enum TakeError {
 /// # Errors
 ///
 /// Returns [`TakeError::Update`] if the update cannot be taken at all (see
-/// [`UpdateError`]), and [`TakeError::Body`] if the document with it is no body and a
-/// repair does not make it one, or its body is past [`UpdateLimits::body_bytes`].
+/// [`UpdateError`]), [`TakeError::Body`] if the document with it is no body and a
+/// repair does not make it one, and [`TakeError::BodyTooLarge`] if its body is past
+/// [`UpdateLimits::body_bytes`].
+///
+/// A document keeps what was deleted from it, so it grows with every edit: typing and
+/// deleting 10 kB a hundred times leaves a body of two letters in a state of 1 MB. Once
+/// it is near [`UpdateLimits::state_bytes`], every update is refused with
+/// [`UpdateError::DocumentTooLarge`], deletions too. What holds the document then makes
+/// it again from its body ([`crate::from_body`]), which starts without what was
+/// deleted, and has the editors that hold the old one load the new one: an update made
+/// against the old document is refused by the new one
+/// ([`UpdateError::MissingChanges`]).
 pub fn take_update(doc: &Doc, update: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeError> {
     let with = with_update(doc, update, limits)?;
     to_taken(with, limits)
@@ -77,17 +95,33 @@ pub fn from_state(state: &[u8], limits: &UpdateLimits) -> Result<Taken, TakeErro
 }
 
 /// The document an update left, as a body: as it is, or repaired.
+///
+/// A repaired copy is held to the limit of size and read again from its state, as the
+/// document an update leaves is ([`with_update`]): with changes no editor makes (origins that do not lie where the
+/// change does), the library can place letters otherwise when it reads a whole state
+/// than when it deletes in a document it holds. What is given back is what a server
+/// that stored it reads, with the body of that; if that is no body, the update is
+/// refused.
 fn to_taken(with: Doc, limits: &UpdateLimits) -> Result<Taken, TakeError> {
-    let (repair, repaired) = repaired(&with)?;
-    if let Some(body) = &repair.body
-        && size_of(body) > limits.body_bytes
-    {
-        return Err(BodyError::TooLarge.into());
+    let (mut repair, repaired) = repaired(&with)?;
+    let doc = match repaired {
+        None => with,
+        Some(copy) => {
+            let again = settled(&copy, limits)?;
+            repair.body = to_body(&again)?;
+            again
+        }
+    };
+    if let Some(body) = &repair.body {
+        let size = size_of(body);
+        if size > limits.body_bytes {
+            return Err(TakeError::BodyTooLarge {
+                size,
+                limit: limits.body_bytes,
+            });
+        }
     }
-    Ok(Taken {
-        doc: repaired.unwrap_or(with),
-        repair,
-    })
+    Ok(Taken { doc, repair })
 }
 
 /// The size of a body as JSON without whitespace, as its limit is measured.

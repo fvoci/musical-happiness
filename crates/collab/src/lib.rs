@@ -19,8 +19,9 @@
 //!
 //! No function here changes a document it is given: what holds one replaces it with
 //! the document that comes back. Each reads it under its lock, and waits for that: do
-//! not call one while the same thread holds a transaction on that document. The Y library is given on as [`yrs`], so that what holds a
-//! document names its types from the version this crate is built with.
+//! not call one while the same thread holds a transaction on that document. The Y
+//! library is given on as [`yrs`], so that what holds a document names its types from
+//! the version this crate is built with.
 //!
 //! What the shape is, and what an editor does with shared content, is not assumed here:
 //! the web app's tests state it (`apps/web/spikes/collab`) and write it down as vectors
