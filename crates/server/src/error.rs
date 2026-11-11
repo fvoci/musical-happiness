@@ -233,6 +233,14 @@ impl AppError {
         error
     }
 
+    /// A 413 error for what the request names, not its body, being over `limit`: an
+    /// archive's entries, for one.
+    pub fn too_large(message: impl std::fmt::Display, limit: u64) -> Self {
+        let mut error = Self::new(ErrorKind::PayloadTooLarge, message);
+        error.limit = Some(limit);
+        error
+    }
+
     /// A 500 error with the given cause, which is logged and not sent to the client.
     pub fn internal(cause: impl std::fmt::Display) -> Self {
         Self::from(anyhow::anyhow!("{cause}"))

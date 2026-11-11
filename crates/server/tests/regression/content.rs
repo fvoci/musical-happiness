@@ -7,11 +7,14 @@
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read as _};
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
 use crate::common::ROOT_TEAM_ID;
 use crate::fixtures::{PNG, block, has_extension, id_of, new_blocks, new_board};
-use crate::harness::{API, OCTET_STREAM, Session, multipart, string_member};
+use crate::harness::{API, OCTET_STREAM, Payload, Session, multipart, string_member};
 
 pub(crate) async fn templates(s: &mut Session) {
     let [alice] = s.users("tpl", ["alice"]).await;
@@ -439,39 +442,24 @@ pub(crate) async fn archive(s: &mut Session) {
     }
 
     let import = format!("{API}/teams/{ROOT_TEAM_ID}/archive/import");
+    let upload = upload_archive(s, &bob, &exported).await;
     s.post("import", &import)
-        .payload(multipart(
-            "file",
-            "export.boardarchive",
-            &exported,
-            OCTET_STREAM,
-        ))
+        .json(json!({"uploadId": upload}))
         .user(&bob)
         .await;
-    s.post("import: anonymous", &import)
-        .payload(multipart(
-            "file",
-            "export.boardarchive",
-            &exported,
-            OCTET_STREAM,
-        ))
-        .await;
+    s.post(
+        "import: anonymous",
+        &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+    )
+    .json(json!({"name": "export.boardarchive", "size": exported.len()}))
+    .await;
+    let upload = upload_archive(s, &bob, b"this is not an archive").await;
     s.post("import: not an archive", &import)
-        .payload(multipart(
-            "file",
-            "broken.boardarchive",
-            b"this is not an archive",
-            OCTET_STREAM,
-        ))
+        .json(json!({"uploadId": upload}))
         .user(&bob)
         .await;
-    s.post("import: wrong field", &import)
-        .payload(multipart(
-            "other",
-            "export.boardarchive",
-            &exported,
-            OCTET_STREAM,
-        ))
+    s.post("import: no such upload", &import)
+        .json(json!({"uploadId": "no-such-upload"}))
         .user(&bob)
         .await;
     let imported = s
@@ -530,13 +518,9 @@ pub(crate) async fn archive(s: &mut Session) {
         .map(Value::to_string)
         .collect::<Vec<_>>()
         .join("\n");
+    let upload = upload_archive(s, &bob, legacy.as_bytes()).await;
     s.post("import: legacy format", &import)
-        .payload(multipart(
-            "file",
-            "legacy.boardarchive",
-            legacy.as_bytes(),
-            OCTET_STREAM,
-        ))
+        .json(json!({"uploadId": upload}))
         .user(&bob)
         .await;
     let boards = s
@@ -555,4 +539,42 @@ pub(crate) async fn archive(s: &mut Session) {
         .filter_map(|board| board["title"].as_str())
         .collect();
     s.note("board titles after legacy import", &json!(titles));
+}
+
+/// Opens an upload of an archive into the root team as `user`, sends its parts, and
+/// returns its identifier. Nothing of it is recorded: the upload's identifier and end
+/// differ from run to run.
+async fn upload_archive(s: &mut Session, user: &str, bytes: &[u8]) -> String {
+    let opened = s
+        .post(
+            "open an upload of an archive",
+            &format!("{API}/teams/{ROOT_TEAM_ID}/archive/uploads"),
+        )
+        .json(json!({"name": "export.boardarchive", "size": bytes.len()}))
+        .user(user)
+        .unrecorded()
+        .await;
+    let upload = string_member(opened.json(), "uploadId");
+    let part_size = opened.json()["partSize"]
+        .as_u64()
+        .and_then(|size| usize::try_from(size).ok())
+        .expect("an upload has a part size");
+    for (index, part) in bytes.chunks(part_size).enumerate() {
+        let digest = format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(part)));
+        let sent = s
+            .put(
+                "send a part of an archive",
+                &format!("{API}/uploads/{upload}/parts/{}", index + 1),
+            )
+            .payload(Payload::Raw {
+                bytes: part.to_vec(),
+                content_type: Some(OCTET_STREAM.to_owned()),
+            })
+            .header("Content-Digest", &digest)
+            .user(user)
+            .unrecorded()
+            .await;
+        assert_eq!(sent.status, 204, "the part is received");
+    }
+    upload
 }

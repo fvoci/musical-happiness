@@ -192,6 +192,9 @@ pub struct Configuration {
     /// The most bytes all open uploads in parts of the server may hold back at once:
     /// the sum of their declared sizes (`docs/s6-design.md` 5.6, 8).
     pub max_pending_upload_bytes: u64,
+    /// The largest archive an import takes, in bytes: 256 MiB unless set. At least 1,
+    /// and at most what an upload in parts carries (`upload_part_bytes` × 10,000).
+    pub max_import_bytes: u64,
     /// The addresses, and address ranges such as `10.0.0.0/8`, of the reverse proxies
     /// in front of the server. A request from one of them is taken to come from the
     /// address the proxy names in `X-Forwarded-For`; that header is believed from
@@ -266,6 +269,7 @@ impl Default for Configuration {
             upload_part_bytes: DEFAULT_UPLOAD_PART_BYTES,
             tmp_path: String::new(),
             max_pending_upload_bytes: DEFAULT_MAX_PENDING_UPLOAD_BYTES,
+            max_import_bytes: DEFAULT_MAX_IMPORT_BYTES,
             trusted_proxies: Vec::new(),
             login_pair_free_failures: 5,
             login_pair_base_delay_seconds: 30,
@@ -319,6 +323,7 @@ impl std::fmt::Debug for Configuration {
             .field("upload_part_bytes", &self.upload_part_bytes)
             .field("tmp_path", &self.tmp_path)
             .field("max_pending_upload_bytes", &self.max_pending_upload_bytes)
+            .field("max_import_bytes", &self.max_import_bytes)
             .field("trusted_proxies", &self.trusted_proxies)
             .field("login_pair_free_failures", &self.login_pair_free_failures)
             .field(
@@ -363,7 +368,7 @@ enum EnvKind {
 
 /// The configuration keys that an environment variable can override. The variable is the
 /// key in upper case after [`ENV_PREFIX`], for example `FVOCI_SESSION_IDLE_DAYS`.
-const ENV_KEYS: [(&str, EnvKind); 43] = [
+const ENV_KEYS: [(&str, EnvKind); 44] = [
     ("serverroot", EnvKind::Text),
     ("port", EnvKind::Number),
     ("dbtype", EnvKind::Text),
@@ -397,6 +402,7 @@ const ENV_KEYS: [(&str, EnvKind); 43] = [
     ("upload_part_bytes", EnvKind::Number),
     ("tmp_path", EnvKind::Text),
     ("max_pending_upload_bytes", EnvKind::Number),
+    ("max_import_bytes", EnvKind::Number),
     ("trusted_proxies", EnvKind::List),
     ("login_pair_free_failures", EnvKind::Number),
     ("login_pair_base_delay_seconds", EnvKind::Number),
@@ -418,6 +424,9 @@ const DEFAULT_MAX_FILE_SIZE: i64 = 100 * 1024 * 1024;
 /// What all open uploads may hold back, unless the configuration says otherwise: 2 GiB
 /// (`docs/s6-design.md` 5.6, 8).
 const DEFAULT_MAX_PENDING_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// The largest archive an import takes unless configured (`docs/s6-design.md` 4.2).
+const DEFAULT_MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
 
 /// The size of the parts of an upload, unless the configuration says otherwise: 8 MiB
 /// (`docs/s6-design.md` 5.6). A file of 100 MiB comes in 13 parts.
@@ -580,6 +589,21 @@ impl Configuration {
             bail!(
                 "max_pending_upload_bytes must be at least maxfilesize ({max_file_size}), \
                  not {}",
+                self.max_pending_upload_bytes
+            );
+        }
+        // An archive comes as an upload in parts too.
+        if self.max_import_bytes == 0 || self.max_import_bytes > largest {
+            bail!(
+                "max_import_bytes must be 1 to {largest} bytes (upload_part_bytes times \
+                 10,000 parts), not {}",
+                self.max_import_bytes
+            );
+        }
+        if self.max_pending_upload_bytes < self.max_import_bytes {
+            bail!(
+                "max_pending_upload_bytes must be at least max_import_bytes ({}), not {}",
+                self.max_import_bytes,
                 self.max_pending_upload_bytes
             );
         }
@@ -792,6 +816,7 @@ mod tests {
         assert_eq!(config.upload_part_bytes, 8 * 1024 * 1024);
         assert_eq!(config.max_file_size, 100 * 1024 * 1024);
         assert_eq!(config.max_pending_upload_bytes, 2 * 1024 * 1024 * 1024);
+        assert_eq!(config.max_import_bytes, 256 * 1024 * 1024);
         assert_eq!(config.tmp_dir(), std::path::Path::new("./files/.tmp"));
         assert_eq!(config.auth_mode, "native");
         assert_eq!(config.teammate_name_display, "username");
@@ -952,6 +977,16 @@ mod tests {
         assert!(
             error(r#"{"maxfilesize": 2000, "max_pending_upload_bytes": 1999}"#)
                 .contains("max_pending_upload_bytes")
+        );
+        for size in ["0", "83886080001"] {
+            assert!(
+                error(&format!(r#"{{"max_import_bytes": {size}}}"#)).contains("max_import_bytes"),
+                "{size}"
+            );
+        }
+        assert!(
+            error(r#"{"maxfilesize": 2000, "max_import_bytes": 3000, "max_pending_upload_bytes": 2500}"#)
+                .contains("max_import_bytes")
         );
         assert!(error(r#"{"session_idle_days": 0}"#).contains("session_idle_days"));
         assert!(error(r#"{"session_max_days": 0}"#).contains("session_max_days"));

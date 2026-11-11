@@ -792,6 +792,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "maxImportSize": {
+            "description": "The largest archive an import takes, in bytes; always more than zero (256 MiB\nunless the server is configured otherwise).",
+            "format": "int64",
+            "type": "integer"
+          },
           "teammateNameDisplay": {
             "description": "How other users' names are displayed.",
             "type": "string"
@@ -801,6 +806,7 @@
           "enablePublicSharedBoards",
           "featureFlags",
           "maxFileSize",
+          "maxImportSize",
           "teammateNameDisplay"
         ],
         "type": "object"
@@ -951,6 +957,20 @@
           "h23"
         ],
         "type": "string"
+      },
+      "ImportRequest": {
+        "additionalProperties": false,
+        "description": "An archive to import: one sent in parts with `createImportUpload`.",
+        "properties": {
+          "uploadId": {
+            "description": "The upload of the archive, every part of it received. It is thrown away by the\nimport, whether the import succeeds or not.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uploadId"
+        ],
+        "type": "object"
       },
       "LoginRequest": {
         "description": "A login request.",
@@ -1815,7 +1835,7 @@
         "description": "An upload that is open, with what it has received.",
         "properties": {
           "boardId": {
-            "description": "The board the file is for.",
+            "description": "The board the file is for; empty for an archive.",
             "type": "string"
           },
           "expiresAt": {
@@ -1844,10 +1864,31 @@
             },
             "type": "array"
           },
+          "purpose": {
+            "allOf": [
+              {
+                "description": "What an upload is for.",
+                "enum": [
+                  "file",
+                  "import"
+                ],
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "description": "What the upload is for: `file`, a file of a board (`completeUpload`), or\n`import`, an archive to import into a team (`importArchive`).",
+                "type": "object"
+              }
+            ]
+          },
           "size": {
             "description": "The size of the file in bytes.",
             "format": "int64",
             "type": "integer"
+          },
+          "teamId": {
+            "description": "The team the archive is for; empty for a file.",
+            "type": "string"
           },
           "uploadId": {
             "description": "The identifier of the upload.",
@@ -1861,7 +1902,9 @@
           "partCount",
           "partSize",
           "parts",
+          "purpose",
           "size",
+          "teamId",
           "uploadId"
         ],
         "type": "object"
@@ -4419,7 +4462,7 @@
     },
     "/api/v1/teams/{teamId}/archive/import": {
       "post": {
-        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are users of this server. The request is a `multipart/form-data` form\nwhose part `file` carries the archive; the part needs no file name. A request\nwithout that part, or with what is no archive, is 400.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. The blocks that show files\nare pointed at the board's new copies of them, the images of bodies included; a\ncard value that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.",
+        "description": "Makes the boards of an archive in the team, with the user as their admin. The\nmembers the archive names for a board become members of it with the roles they had,\nwhere they are users of this server. The archive is sent before in parts: open an\nupload with `createImportUpload`, send its parts with `putUploadPart`, then name\nthe upload here, in place of `completeUpload`. A part missing is 400 and the upload\nstays open for it; otherwise the upload ends with the import, whether it succeeds or\nnot. Another user's upload, or one that has ended, is 404; an upload of a file, or\none for another team, is 400. For users of the team who are not guests, at the\nimport as when the upload was opened: a user who may not import any more is\nrefused, and the upload is thrown away.\n\nThe archive is of version 3, as the export routes write it. The formats of the\noriginal (the line-based version 1 and the ZIP of version 2) and a ZIP without\n`version.json` are 400, and nothing of them is stored. An archive of more than\n10,000 entries, whose entries unpack to more than 1 GiB together, or with a\n`board.jsonl` of more than 64 MiB or a file larger than `maxFileSize` is 413 with\nthe `limit` passed, and nothing of it is stored. The blocks that show files are\npointed at the board's new copies of them, the images of bodies included; a card\nvalue that does not fit its property's kind is cleared, as a copy does.\n\nThe boards are made one after the other, not all or none: when one of them fails,\nthose before it stay.",
         "operationId": "importArchive",
         "parameters": [
           {
@@ -4434,9 +4477,9 @@
         ],
         "requestBody": {
           "content": {
-            "multipart/form-data": {
+            "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FileForm"
+                "$ref": "#/components/schemas/ImportRequest"
               }
             }
           },
@@ -4458,6 +4501,59 @@
           }
         },
         "summary": "Import an archive",
+        "tags": [
+          "archives"
+        ]
+      }
+    },
+    "/api/v1/teams/{teamId}/archive/uploads": {
+      "post": {
+        "description": "Opens an upload of an archive to import into the team, sent in parts as a file is\nwith `createUpload`, and imported with `importArchive` once every part is received.\nAn archive larger than `maxImportSize` of `getClientConfig` is 413. It counts\ntoward the same limits as the uploads of files, which hold back at most twice the\nlarger of `maxFileSize` and `maxImportSize` for a user. For users of the team who\nare not guests, as `importArchive`.",
+        "operationId": "createImportUpload",
+        "parameters": [
+          {
+            "description": "The identifier of the team.",
+            "in": "path",
+            "name": "teamId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadOpened"
+                }
+              }
+            },
+            "description": "The upload is open."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The request was refused, or failed. The status says the kind: 400 for a request that is malformed or asks for what cannot be, 401 without a session, 403 for what the user may not do, 404 for what is not there for them, 405 for a method the path does not have, 409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 for a failure of the server."
+          }
+        },
+        "summary": "Open an upload of an archive",
         "tags": [
           "archives"
         ]
@@ -5387,7 +5483,7 @@
     },
     "/api/v1/uploads/{uploadId}/complete": {
       "post": {
-        "description": "Makes the file of the upload from its parts and ends the upload. Every part must\nhave been received; a part missing is 400, and the upload stays open for it. The\nanswer is the one of `uploadFile`. For editors of the board, at completion as when\nthe upload was opened: a user who may not upload to the board any more is refused,\nand the upload is thrown away. An upload that is being completed is 409.",
+        "description": "Makes the file of the upload from its parts and ends the upload. Every part must\nhave been received; a part missing is 400, and the upload stays open for it. The\nanswer is the one of `uploadFile`. For editors of the board, at completion as when\nthe upload was opened: a user who may not upload to the board any more is refused,\nand the upload is thrown away. An upload that is being completed is 409; an upload\nof an archive is 400, and is imported with `importArchive`.",
         "operationId": "completeUpload",
         "parameters": [
           {

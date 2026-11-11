@@ -46,7 +46,7 @@ files: download                             401        403        200        200
 files: info                                 401        403        200        200        200        200
 uploads: open                               401        403        403        403        201        201
 archive: export board                       401        403        200        200        200        200
-archive: import                             401        204        204        204        204        204
+archive: open an upload                     401        201        201        201        201        201
 archive: export team                        401        200        200        200        200        200
 categories: list                            401        200        200        200        200        200
 team: boards                                401        200        200        200        200        200

@@ -613,6 +613,7 @@ async fn the_bytes_open_uploads_hold_back_are_limited() {
     let ts = Setup::native()
         .configure(|config| {
             config.max_file_size = 1000;
+            config.max_import_bytes = 1000;
             config.max_pending_upload_bytes = 2500;
         })
         .start()

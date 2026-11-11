@@ -4,6 +4,37 @@
 /// The largest number of parts an upload has: what an S3 multipart upload takes.
 pub const MAX_UPLOAD_PARTS: i64 = 10_000;
 
+/// What an upload is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UploadPurpose {
+    /// A file of a board.
+    #[default]
+    File,
+    /// An archive to import into a team.
+    Import,
+}
+
+impl UploadPurpose {
+    /// The name the store and the contract give it.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::File => "file",
+            Self::Import => "import",
+        }
+    }
+
+    /// The purpose of a name, if it is one.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "file" => Some(Self::File),
+            "import" => Some(Self::Import),
+            _ => None,
+        }
+    }
+}
+
 /// An upload session as it is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Upload {
@@ -11,8 +42,12 @@ pub struct Upload {
     pub id: String,
     /// The user who opened the session; nobody else may use it.
     pub user_id: String,
-    /// The board the file is for.
+    /// What the upload is for.
+    pub purpose: UploadPurpose,
+    /// The board the file is for; empty for an import.
     pub board_id: String,
+    /// The team an archive is imported into; empty for a file.
+    pub team_id: String,
     /// The name of the file as the client gave it.
     pub name: String,
     /// The size of the file in bytes.

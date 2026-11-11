@@ -6,9 +6,11 @@
 use std::io::{Cursor, Read as _, Write as _};
 
 use crate::common::{ApiResponse, Client, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use fvoci_model::{Block, BlockType, Board, BoardType, new_id};
-use reqwest::Method;
-use reqwest::multipart::{Form, Part};
+use reqwest::{Method, StatusCode};
+use sha2::{Digest as _, Sha256};
 
 /// `GET /boards/{id}/archive/export` for a board.
 async fn export_board(client: &Client, board_id: &str) -> ApiResponse {
@@ -17,13 +19,59 @@ async fn export_board(client: &Client, board_id: &str) -> ApiResponse {
         .await
 }
 
-/// Imports archive bytes into a team.
+/// Imports archive bytes into a team: opens an upload of the archive, sends its parts
+/// and imports it. The first answer that is not a success is returned, else the
+/// import's.
 pub(crate) async fn import(client: &Client, team_id: &str, bytes: &[u8]) -> ApiResponse {
-    let part = Part::bytes(bytes.to_vec()).file_name("archive.boardarchive".to_owned());
-    let form = Form::new().part("file", part);
+    let opened = client
+        .post(
+            &format!("/teams/{team_id}/archive/uploads"),
+            &serde_json::json!({"name": "archive.boardarchive", "size": bytes.len()}),
+        )
+        .await;
+    if opened.status != StatusCode::CREATED {
+        return opened;
+    }
+    let upload_id = opened.value()["uploadId"]
+        .as_str()
+        .expect("an upload has an identifier")
+        .to_owned();
+    let part_size = opened.value()["partSize"]
+        .as_u64()
+        .and_then(|size| usize::try_from(size).ok())
+        .expect("an upload has a part size");
+    for (index, part) in bytes.chunks(part_size).enumerate() {
+        let sent = put_part(client, &upload_id, index + 1, part).await;
+        if sent.status != StatusCode::NO_CONTENT {
+            return sent;
+        }
+    }
+    import_upload(client, team_id, &upload_id).await
+}
+
+/// `importArchive` of an upload.
+pub(crate) async fn import_upload(client: &Client, team_id: &str, upload_id: &str) -> ApiResponse {
+    client
+        .post(
+            &format!("/teams/{team_id}/archive/import"),
+            &serde_json::json!({"uploadId": upload_id}),
+        )
+        .await
+}
+
+/// Sends `bytes` as part `number` of an upload, with their digest.
+pub(crate) async fn put_part(
+    client: &Client,
+    upload_id: &str,
+    number: usize,
+    bytes: &[u8],
+) -> ApiResponse {
+    let digest = format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(bytes)));
     let request = client
-        .request(Method::POST, &format!("/teams/{team_id}/archive/import"))
-        .multipart(form);
+        .request(Method::PUT, &format!("/uploads/{upload_id}/parts/{number}"))
+        .header("Content-Type", "application/octet-stream")
+        .header("Content-Digest", digest)
+        .body(bytes.to_vec());
     Client::send(request).await
 }
 
@@ -357,7 +405,7 @@ async fn export_of_a_board_whose_blocks_share_a_file() {
 }
 
 /// The boards of a team that the first client sees.
-async fn boards_of(ts: &TestServer) -> Vec<Board> {
+pub(crate) async fn boards_of(ts: &TestServer) -> Vec<Board> {
     ts.client
         .get(&format!("/teams/{TEST_TEAM_ID}/boards"))
         .await

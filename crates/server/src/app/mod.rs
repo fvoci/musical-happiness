@@ -310,6 +310,7 @@ impl App {
             teammate_name_display: config.teammate_name_display.clone(),
             feature_flags: config.feature_flags.clone(),
             max_file_size: config.max_file_size,
+            max_import_size: i64::try_from(config.max_import_bytes).unwrap_or(i64::MAX),
         }
     }
 

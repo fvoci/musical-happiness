@@ -106,8 +106,7 @@ fn routes() -> Routes {
         .merge(users::routes());
     let uploads = OpenApiRouter::new()
         .merge(files::upload_routes())
-        .merge(uploads::part_routes())
-        .merge(archive::upload_routes());
+        .merge(uploads::part_routes());
     // What asks whether the server is there needs no session either.
     let unauthenticated = OpenApiRouter::new()
         .merge(auth::unauthenticated_routes())

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt as _, TryStreamExt as _};
-use fvoci_model::{Upload, UploadPart};
+use fvoci_model::{Upload, UploadPart, UploadPurpose};
 use fvoci_store::PartRecord;
 use sha2::{Digest as _, Sha256};
 use tokio::fs;
@@ -143,12 +143,43 @@ impl App {
     /// Returns a bad request for an empty or too long name, a negative size or a content
     /// type that is too long; a 413 for a file larger than `maxfilesize`; a 429 if the
     /// user has [`MAX_OPEN_UPLOADS`] sessions open, or the open sessions would hold back
-    /// more bytes than the user's share (twice the largest file) or the server's
-    /// (`max_pending_upload_bytes`); and the store's error.
+    /// more bytes than the user's share (twice the largest upload, a file or an archive)
+    /// or the server's (`max_pending_upload_bytes`); and the store's error.
     pub async fn create_upload(
         &self,
         user_id: &str,
         board_id: &str,
+        new: FileToUpload,
+    ) -> Result<Upload, AppError> {
+        self.open_upload(user_id, UploadPurpose::File, board_id, new)
+            .await
+    }
+
+    /// Opens a session for `user_id` to upload an archive to import into `team_id`
+    /// (`docs/s6-design.md` 5.6, 9). Its parts are kept on the local disk whatever the
+    /// file storage: the import reads the archive at random. The caller has checked that
+    /// the user may import into the team.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`App::create_upload`], with a 413 for an archive larger than
+    /// `max_import_bytes`.
+    pub async fn create_import_upload(
+        &self,
+        user_id: &str,
+        team_id: &str,
+        new: FileToUpload,
+    ) -> Result<Upload, AppError> {
+        self.open_upload(user_id, UploadPurpose::Import, team_id, new)
+            .await
+    }
+
+    /// Opens a session for a purpose, to a board (a file) or a team (an import).
+    async fn open_upload(
+        &self,
+        user_id: &str,
+        purpose: UploadPurpose,
+        target: &str,
         new: FileToUpload,
     ) -> Result<Upload, AppError> {
         if new.name.trim().is_empty() || new.name.chars().count() > MAX_UPLOAD_NAME_CHARS {
@@ -166,7 +197,10 @@ impl App {
         if new.size < 0 {
             return Err(AppError::bad_request("the size is 0 or more bytes").with_field("size"));
         }
-        let limit = self.largest_upload();
+        let limit = match purpose {
+            UploadPurpose::File => self.largest_upload(),
+            UploadPurpose::Import => self.largest_import(),
+        };
         if new.size > limit {
             return Err(AppError::payload_too_large(
                 u64::try_from(limit).unwrap_or(u64::MAX),
@@ -184,7 +218,10 @@ impl App {
                 Reason::TooManyUploads,
             ));
         }
-        let user_share = limit.saturating_mul(2);
+        let user_share = self
+            .largest_upload()
+            .max(self.largest_import())
+            .saturating_mul(2);
         if usage.user_bytes.saturating_add(new.size) > user_share {
             return Err(AppError::limited(
                 format_args!(
@@ -204,14 +241,24 @@ impl App {
         }
         let part_size = i64::try_from(self.config().upload_part_bytes).unwrap_or(i64::MAX);
         // An empty file has no part to send; its parts, none, are kept as on the disk.
-        let multipart = self.files().multipart().filter(|_| new.size > 0);
+        // An archive's parts are on the disk too.
+        let multipart = self
+            .files()
+            .multipart()
+            .filter(|_| new.size > 0 && purpose == UploadPurpose::File);
         let path = multipart
-            .map(|_| FilePlace::new(board_id, &new.name).path)
+            .map(|_| FilePlace::new(target, &new.name).path)
             .unwrap_or_default();
+        let (board_id, team_id) = match purpose {
+            UploadPurpose::File => (target.to_owned(), String::new()),
+            UploadPurpose::Import => (String::new(), target.to_owned()),
+        };
         let upload = Upload {
             id: new_secret(),
             user_id: user_id.to_owned(),
-            board_id: board_id.to_owned(),
+            purpose,
+            board_id,
+            team_id,
             name: new.name,
             size: new.size,
             content_type: new.content_type,
@@ -484,6 +531,11 @@ impl App {
     /// as it is; a conflict if the session is being completed or thrown away already;
     /// and a server error if the file cannot be made, with the session thrown away.
     pub async fn complete_upload(&self, upload: &Upload) -> Result<String, AppError> {
+        if upload.purpose != UploadPurpose::File {
+            return Err(AppError::bad_request(
+                "the upload is of an archive; import it with importArchive",
+            ));
+        }
         // Before the session is closed, so that a missing part leaves it open.
         self.check_parts(upload).await?;
         let _turn = self.upload_turns().take(&upload.id).await;
@@ -605,28 +657,66 @@ impl App {
         parts: &[UploadPart],
         directory: &Path,
     ) -> Result<String, AppError> {
-        let mut paths = Vec::with_capacity(parts.len());
-        for part in parts {
-            let path = directory.join(&part.part_id);
-            let on_disk = fs::metadata(&path)
-                .await
-                .map_err(|error| part_error(&error))?
-                .len();
-            if Some(on_disk) != u64::try_from(part.size).ok() {
-                return Err(AppError::internal(format_args!(
-                    "part {} of an upload has {on_disk} bytes on the disk, not {}",
-                    part.number, part.size
-                )));
-            }
-            paths.push(path);
-        }
-        let bytes = futures_util::stream::iter(paths)
-            .then(|path| async move { fs::File::open(path).await })
-            .map_ok(ReaderStream::new)
-            .try_flatten();
-        let mut reader = StreamReader::new(Box::pin(bytes));
+        let mut reader = parts_reader(parts, directory).await?;
         self.save_file(&mut reader, &upload.board_id, &upload.name)
             .await
+    }
+
+    /// Imports the archive of an upload into its team, as its user, and throws the
+    /// upload away: checks that every part is there, joins them into one file on the
+    /// local disk, and imports from that. The caller has checked again that the user may
+    /// import into the team.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bad request for an upload of a file, or one that misses parts (left as
+    /// it is); a conflict if it is being completed or thrown away already; and the
+    /// errors of the import, with the upload thrown away.
+    pub async fn import_upload(&self, upload: &Upload) -> Result<(), AppError> {
+        if upload.purpose != UploadPurpose::Import {
+            return Err(AppError::bad_request(
+                "the upload is of a file; complete it with completeUpload",
+            )
+            .with_field("uploadId"));
+        }
+        // Before the session is closed, so that a missing part leaves it open.
+        self.check_parts(upload).await?;
+        let turn = self.upload_turns().take(&upload.id).await;
+        if !self.store().close_upload(&upload.id, now_millis()).await? {
+            return Err(closed());
+        }
+        let parts = match self.check_parts(upload).await {
+            Ok(parts) => parts,
+            Err(error) => {
+                self.discard_in_turn(upload).await;
+                return Err(error);
+            }
+        };
+        // Moved aside, as for a completion: the session's directory goes with it, the
+        // archive stays until it is imported. A server that stops meanwhile leaves a
+        // directory that is no session's, which the start-up sweep removes.
+        let directory = self.upload_dir(&upload.id);
+        let working = directory.with_extension(format!("importing-{}", new_secret()));
+        let moved = match fs::create_dir_all(&directory).await {
+            Ok(()) => fs::rename(&directory, &working).await,
+            Err(error) => Err(error),
+        };
+        let archive = working.join("archive.boardarchive");
+        let joined = match moved {
+            Ok(()) => join_parts(&parts, &working, &archive).await,
+            Err(error) => Err(part_error(&error)),
+        };
+        self.discard_in_turn(upload).await;
+        drop(turn);
+        let imported = match joined {
+            Ok(()) => {
+                self.import_team_archive(&archive, &upload.team_id, &upload.user_id)
+                    .await
+            }
+            Err(error) => Err(error),
+        };
+        remove_dir_quietly(&working).await;
+        imported
     }
 
     /// Abandons a session at the request of its user, and throws it away.
@@ -708,6 +798,12 @@ impl App {
         self.config().max_file_size
     }
 
+    /// The largest archive an import takes: `max_import_bytes`, which the configuration
+    /// keeps positive and within what [`fvoci_model::MAX_UPLOAD_PARTS`] parts hold.
+    pub fn largest_import(&self) -> i64 {
+        i64::try_from(self.config().max_import_bytes).unwrap_or(i64::MAX)
+    }
+
     /// Throws away the sessions that have ended at `now`, and those closed for longer
     /// than [`CLOSED_UPLOAD_GRACE_MILLIS`] that are still there. Returns how many.
     ///
@@ -770,6 +866,47 @@ impl App {
     pub(crate) fn upload_dir(&self, upload_id: &str) -> PathBuf {
         self.config().tmp_dir().join("uploads").join(upload_id)
     }
+}
+
+/// The parts in `directory` read one after the other, after checking that each is the
+/// size it was received with.
+async fn parts_reader(
+    parts: &[UploadPart],
+    directory: &Path,
+) -> Result<impl tokio::io::AsyncRead + Send + Unpin + use<>, AppError> {
+    let mut paths = Vec::with_capacity(parts.len());
+    for part in parts {
+        let path = directory.join(&part.part_id);
+        let on_disk = fs::metadata(&path)
+            .await
+            .map_err(|error| part_error(&error))?
+            .len();
+        if Some(on_disk) != u64::try_from(part.size).ok() {
+            return Err(AppError::internal(format_args!(
+                "part {} of an upload has {on_disk} bytes on the disk, not {}",
+                part.number, part.size
+            )));
+        }
+        paths.push(path);
+    }
+    let bytes = futures_util::stream::iter(paths)
+        .then(|path| async move { fs::File::open(path).await })
+        .map_ok(ReaderStream::new)
+        .try_flatten();
+    Ok(StreamReader::new(Box::pin(bytes)))
+}
+
+/// Joins the parts in `directory` into the file `to`.
+async fn join_parts(parts: &[UploadPart], directory: &Path, to: &Path) -> Result<(), AppError> {
+    let mut reader = parts_reader(parts, directory).await?;
+    let mut file = fs::File::create(to)
+        .await
+        .map_err(|error| part_error(&error))?;
+    tokio::io::copy(&mut reader, &mut file)
+        .await
+        .map_err(|error| part_error(&error))?;
+    file.flush().await.map_err(|error| part_error(&error))?;
+    Ok(())
 }
 
 /// Writes the body to `path`, checking its length and digest as it goes.

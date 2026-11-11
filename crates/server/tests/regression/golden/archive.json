@@ -308,7 +308,7 @@
   },
   {
     "name": "import: anonymous",
-    "request": "POST /api/v1/teams/<id:3>/archive/import as anonymous",
+    "request": "POST /api/v1/teams/<id:3>/archive/uploads as anonymous",
     "status": 401,
     "content_type": "application/json",
     "body": {
@@ -329,14 +329,13 @@
     }
   },
   {
-    "name": "import: wrong field",
+    "name": "import: no such upload",
     "request": "POST /api/v1/teams/<id:3>/archive/import as arch-bob",
-    "status": 400,
+    "status": 404,
     "content_type": "application/json",
     "body": {
-      "error": "bad_request",
-      "field": "file",
-      "message": "the request has no part named `file`",
+      "error": "not_found",
+      "message": "upload not found",
       "request_id": "<request-id>"
     }
   },

@@ -8,14 +8,15 @@ use axum::http::HeaderMap;
 use axum::http::header::CONTENT_LENGTH;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use fvoci_model::{Upload, UploadPart};
+use fvoci_model::{Upload, UploadPart, UploadPurpose};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+use super::archive::require_import_access;
 use super::contract::bodies::Binary;
-use super::contract::params::{BoardId, ContentDigest, PartNumber, UploadId};
+use super::contract::params::{BoardId, ContentDigest, PartNumber, TeamId, UploadId};
 use super::contract::tag;
 use super::files::UploadedFile;
 use super::limits::discard;
@@ -71,8 +72,14 @@ struct UploadOpened {
 struct UploadState {
     /// The identifier of the upload.
     upload_id: String,
-    /// The board the file is for.
+    /// What the upload is for: `file`, a file of a board (`completeUpload`), or
+    /// `import`, an archive to import into a team (`importArchive`).
+    #[schema(inline)]
+    purpose: Purpose,
+    /// The board the file is for; empty for an archive.
     board_id: String,
+    /// The team the archive is for; empty for a file.
+    team_id: String,
     /// The name of the file.
     name: String,
     /// The size of the file in bytes.
@@ -85,6 +92,14 @@ struct UploadState {
     expires_at: i64,
     /// The parts received, by number. A part sent again replaces the one received.
     parts: Vec<ReceivedPart>,
+}
+
+/// What an upload is for.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+enum Purpose {
+    File,
+    Import,
 }
 
 /// A part that was received.
@@ -113,7 +128,12 @@ impl UploadState {
         let part_count = upload.part_count();
         Self {
             upload_id: upload.id,
+            purpose: match upload.purpose {
+                UploadPurpose::File => Purpose::File,
+                UploadPurpose::Import => Purpose::Import,
+            },
             board_id: upload.board_id,
+            team_id: upload.team_id,
             name: upload.name,
             size: upload.size,
             part_size: upload.part_size,
@@ -134,6 +154,7 @@ impl UploadState {
 pub(super) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::new()
         .routes(routes!(handle_create_upload))
+        .routes(routes!(handle_create_import_upload))
         .routes(routes!(handle_get_upload, handle_delete_upload))
         .routes(routes!(handle_complete_upload))
 }
@@ -188,6 +209,50 @@ async fn handle_create_upload(
         .create_upload(
             user_id,
             &board_id,
+            FileToUpload {
+                name,
+                size,
+                content_type,
+            },
+        )
+        .await?;
+    Ok(created(&UploadOpened::new(&upload)))
+}
+
+/// Open an upload of an archive
+///
+/// Opens an upload of an archive to import into the team, sent in parts as a file is
+/// with `createUpload`, and imported with `importArchive` once every part is received.
+/// An archive larger than `maxImportSize` of `getClientConfig` is 413. It counts
+/// toward the same limits as the uploads of files, which hold back at most twice the
+/// larger of `maxFileSize` and `maxImportSize` for a user. For users of the team who
+/// are not guests, as `importArchive`.
+#[utoipa::path(
+    post,
+    path = "/teams/{teamId}/archive/uploads",
+    operation_id = "createImportUpload",
+    tag = tag::ARCHIVES,
+    params(TeamId),
+    request_body = NewUpload,
+    responses((status = 201, description = "The upload is open.", body = UploadOpened)),
+)]
+async fn handle_create_import_upload(
+    State(app): State<App>,
+    RequiredSession(session): RequiredSession,
+    Path(team_id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    let user_id = session.user_id.as_str();
+    require_import_access(&app, user_id, &team_id).await?;
+    let NewUpload {
+        name,
+        size,
+        content_type,
+    } = decode_object(&body)?;
+    let upload = app
+        .create_import_upload(
+            user_id,
+            &team_id,
             FileToUpload {
                 name,
                 size,
@@ -274,7 +339,8 @@ async fn handle_put_upload_part(
 /// have been received; a part missing is 400, and the upload stays open for it. The
 /// answer is the one of `uploadFile`. For editors of the board, at completion as when
 /// the upload was opened: a user who may not upload to the board any more is refused,
-/// and the upload is thrown away. An upload that is being completed is 409.
+/// and the upload is thrown away. An upload that is being completed is 409; an upload
+/// of an archive is 400, and is imported with `importArchive`.
 #[utoipa::path(
     post,
     path = "/uploads/{uploadId}/complete",
@@ -290,6 +356,12 @@ async fn handle_complete_upload(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let (upload, _) = app.upload(&upload_id, user_id).await?;
+    if upload.purpose != UploadPurpose::File {
+        return Err(AppError::bad_request(
+            "the upload is of an archive; import it with importArchive",
+        )
+        .with_field("uploadId"));
+    }
     if let Err(refusal) = require_board_permission(
         &app,
         user_id,

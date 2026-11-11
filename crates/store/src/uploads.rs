@@ -3,7 +3,7 @@
 //! A session is the user's who opened it: every lookup names the user, and another
 //! user's session is not found, like one that does not exist.
 
-use fvoci_model::{Upload, UploadPart};
+use fvoci_model::{Upload, UploadPart, UploadPurpose};
 
 use crate::Store;
 use crate::db::{Id, Row};
@@ -23,7 +23,7 @@ pub enum PartRecord {
 }
 
 const UPLOAD_COLUMNS: &str = "id, user_id, board_id, name, size, content_type, part_size, \
-                              create_at, expires_at, closed_at, multipart_id, path";
+                              create_at, expires_at, closed_at, multipart_id, path, purpose";
 
 /// What the open upload sessions hold back, for the limits on opening another.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -123,10 +123,15 @@ impl Store {
     /// user or a board that does not exist.
     pub async fn create_upload(&self, upload: &Upload) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
+            // An upload goes to a board or a team, which `board_id` names.
+            let target = match upload.purpose {
+                UploadPurpose::File => &upload.board_id,
+                UploadPurpose::Import => &upload.team_id,
+            };
             let mut sql = scope.sql(&format!("INSERT INTO uploads ({UPLOAD_COLUMNS}) VALUES ("));
             sql.bind(&upload.id)
                 .push_bind(", ", Id(&upload.user_id))
-                .push_bind(", ", Id(&upload.board_id))
+                .push_bind(", ", Id(target))
                 .push_bind(", ", &upload.name)
                 .push_bind(", ", upload.size)
                 .push_bind(", ", &upload.content_type)
@@ -136,6 +141,7 @@ impl Store {
                 .push_bind(", ", upload.closed_at)
                 .push_bind(", ", &upload.multipart_id)
                 .push_bind(", ", &upload.path)
+                .push_bind(", ", upload.purpose.as_str())
                 .push(")");
             scope.execute(sql).await?;
             Ok(())
@@ -317,10 +323,22 @@ impl Store {
 }
 
 fn upload_from_row(row: &Row) -> Result<Upload, StoreError> {
+    let purpose = row.text(12)?;
+    let purpose = UploadPurpose::from_name(&purpose).ok_or_else(|| StoreError::Corrupt {
+        column: "purpose",
+        reason: format!("{purpose:?} is no purpose of an upload"),
+    })?;
+    let target = row.id(2)?;
+    let (board_id, team_id) = match purpose {
+        UploadPurpose::File => (target, String::new()),
+        UploadPurpose::Import => (String::new(), target),
+    };
     Ok(Upload {
         id: row.text(0)?,
         user_id: row.id(1)?,
-        board_id: row.id(2)?,
+        purpose,
+        board_id,
+        team_id,
         name: row.text(3)?,
         size: row.int(4)?,
         content_type: row.text(5)?,

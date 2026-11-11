@@ -20,4 +20,7 @@ pub struct ClientConfig {
     /// The largest upload the server accepts, in bytes; always more than zero (100 MiB
     /// unless the server is configured otherwise).
     pub max_file_size: i64,
+    /// The largest archive an import takes, in bytes; always more than zero (256 MiB
+    /// unless the server is configured otherwise).
+    pub max_import_size: i64,
 }

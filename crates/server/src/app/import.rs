@@ -5,8 +5,11 @@
 //! importing user as an admin. The formats of the original (the line-based version 1
 //! and the ZIP of version 2) are refused (`docs/s6-design.md` 3.10).
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::io::{Cursor, Read as _};
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::Path;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use fvoci_model::{
@@ -21,14 +24,18 @@ use crate::auth::now_millis;
 use crate::error::AppError;
 use fvoci_store::StoreError;
 
-/// The largest a single archive entry may decompress to. The original bounds only its
-/// `board.jsonl`; this bounds every entry, so that a small upload cannot unfold into an
-/// arbitrarily large file. It is a bound per entry, not for the archive as a whole.
-const MAX_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
+/// The most an archive's entries may decompress to together (`docs/s6-design.md` 4.2):
+/// what keeps a small archive from unfolding into a disk's worth.
+const MAX_UNPACKED_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// The largest `board.jsonl` that is read: the original's
-/// `importMaxFileSize` (`server/app/import.go:24`).
-const MAX_JSONL_BYTES: usize = 70 * 1024 * 1024;
+/// The most entries an archive has (`docs/s6-design.md` 4.2).
+const MAX_ENTRIES: usize = 10_000;
+
+/// The largest `board.jsonl` that is read (`docs/s6-design.md` 4.2).
+const MAX_JSONL_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The largest `version.json` that is read: it is one small object.
+const MAX_VERSION_BYTES: u64 = 64 * 1024;
 
 /// How an archive is imported.
 #[derive(Debug, Default)]
@@ -40,15 +47,15 @@ pub(crate) struct ImportOptions {
 }
 
 impl App {
-    /// Imports an archive into a team on behalf of a user. The entry point for the
-    /// import route.
+    /// Imports the archive in the file at `path` into a team on behalf of a user. The
+    /// entry point for the import of an upload.
     ///
     /// # Errors
     ///
     /// Returns the errors of [`App::import_archive`].
     pub(crate) async fn import_team_archive(
         &self,
-        archive: Bytes,
+        path: &Path,
         team_id: &str,
         modified_by: &str,
     ) -> Result<(), AppError> {
@@ -56,32 +63,36 @@ impl App {
             team_id: team_id.to_owned(),
             modified_by: modified_by.to_owned(),
         };
-        self.import_archive(archive, &options).await
+        self.import_archive(path, &options).await
     }
 
-    /// Imports an archive of zero or more boards with their blocks and files.
+    /// Imports the archive in the file at `path`, of zero or more boards with their
+    /// blocks and files. The archive is read from the file at random, an entry at a time.
     ///
     /// # Errors
     ///
-    /// Returns a bad request if the buffer is not a ZIP, has no `version.json` or one of
-    /// another version, or holds what does not fit together, and the store's error if a
-    /// board cannot be stored.
+    /// Returns a bad request if the file is not a ZIP, has no `version.json` or one of
+    /// another version, or holds what does not fit together; a 413 for an archive of
+    /// more than 10,000 entries, whose entries unpack to more than 1 GiB together, or
+    /// with a `board.jsonl` of more than 64 MiB or a file larger than `maxfilesize`; and
+    /// the store's error if a board cannot be stored.
     pub(crate) async fn import_archive(
         &self,
-        archive: Bytes,
+        path: &Path,
         options: &ImportOptions,
     ) -> Result<(), AppError> {
-        if archive.starts_with(br#"{"version":1"#) {
-            return Err(AppError::bad_request(format_args!(
-                "an archive of version 1 is not read; this server reads version {ARCHIVE_VERSION}"
-            )));
-        }
-        let zip = zip::ZipArchive::new(Cursor::new(archive))
-            .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
+        let zip = open_archive(path).await?;
         // The original's streaming reader rejects a ZIP with no entries as invalid.
         if zip.is_empty() {
             return Err(AppError::bad_request("zip: not a valid zip file"));
         }
+        if zip.len() > MAX_ENTRIES {
+            return Err(AppError::too_large(
+                format_args!("the archive has more than {MAX_ENTRIES} entries"),
+                u64::try_from(MAX_ENTRIES).unwrap_or(u64::MAX),
+            ));
+        }
+        let largest_file = u64::try_from(self.largest_upload()).unwrap_or(0);
 
         // The version first: nothing of an archive of another version is stored.
         let version = (0..zip.len())
@@ -95,11 +106,23 @@ impl App {
                     "the archive has no version.json; this server reads version {ARCHIVE_VERSION}"
                 ))
             })?;
-        check_version(&read_entry(&zip, version).await?)?;
+        check_version(&read_entry(&zip, version, MAX_VERSION_BYTES).await?)?;
         // Every entry is read through once before anything is stored: an entry that is
-        // broken or too large refuses the archive while nothing of it is stored yet.
+        // broken or too large, or all of them unpacking to too much, refuses the archive
+        // while nothing of it is stored yet.
+        let mut unpacked: u64 = 0;
         for index in 0..zip.len() {
-            check_entry(&zip, index).await?;
+            let (_, filename) = entry_name(&zip, index)?;
+            let limit = entry_limit(&filename, largest_file);
+            unpacked = unpacked.saturating_add(check_entry(&zip, index, limit).await?);
+            if unpacked > MAX_UNPACKED_BYTES {
+                return Err(AppError::too_large(
+                    format_args!(
+                        "the archive's entries unpack to more than {MAX_UNPACKED_BYTES} bytes"
+                    ),
+                    MAX_UNPACKED_BYTES,
+                ));
+            }
         }
 
         // Every board is read and checked as the store checks it before the first is
@@ -113,13 +136,14 @@ impl App {
             }
         }
         for (index, _) in &boards {
-            parse_board_jsonl(read_entry(&zip, *index).await?, options).await?;
+            parse_board_jsonl(read_entry(&zip, *index, MAX_JSONL_BYTES).await?, options).await?;
         }
 
         // First pass: the boards; a file entry needs its board already known.
         let mut board_map: HashMap<String, Board> = HashMap::new();
         for (index, dir) in boards {
-            let board = parse_board_jsonl(read_entry(&zip, index).await?, options).await?;
+            let jsonl = read_entry(&zip, index, MAX_JSONL_BYTES).await?;
+            let board = parse_board_jsonl(jsonl, options).await?;
             let board = self.store_archive_board(board, options).await?;
             board_map.insert(dir, board);
         }
@@ -136,7 +160,7 @@ impl App {
                 tracing::warn!(dir, filename, "skipping orphan image in archive");
                 continue;
             };
-            let bytes = read_entry(&zip, index).await?;
+            let bytes = read_entry(&zip, index, largest_file).await?;
             let new_name = self
                 .save_file(&mut bytes.as_ref(), &board.id, &filename)
                 .await
@@ -315,15 +339,10 @@ struct ParsedBoard {
 ///
 /// # Errors
 ///
-/// Returns a bad request if the file is too large, a line is malformed or of an unknown
+/// Returns a bad request if a line is malformed or of an unknown
 /// type, a block has a type that no new block has, the boards and blocks do not fit
 /// together, or a board or block is not one the store takes, with the store's message.
 async fn parse_board_jsonl(jsonl: Bytes, options: &ImportOptions) -> Result<ParsedBoard, AppError> {
-    if jsonl.len() > MAX_JSONL_BYTES {
-        return Err(AppError::bad_request(
-            "error parsing archive line 1: size limit exceeded",
-        ));
-    }
     // Parsing tens of megabytes of JSON would hold up a worker of the runtime.
     let (team_id, modified_by) = (options.team_id.clone(), options.modified_by.clone());
     let (mut boards_and_blocks, members) =
@@ -500,8 +519,88 @@ fn board_blocks(board_id: &str) -> fvoci_store::BlockFilter {
     fvoci_store::BlockFilter::board(board_id)
 }
 
-/// The archive as it is held while it is imported. Cloning it copies no content.
-type Archive = zip::ZipArchive<Cursor<Bytes>>;
+/// The archive as it is read while it is imported. Cloning it copies no content.
+type Archive = zip::ZipArchive<SharedFile>;
+
+/// A file read at positions of its own: each clone has its own position over the one
+/// open file, so that the archive can be cloned into each task that reads an entry.
+#[derive(Debug, Clone)]
+struct SharedFile {
+    file: Arc<std::fs::File>,
+    len: u64,
+    position: u64,
+}
+
+impl Read for SharedFile {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        #[cfg(unix)]
+        let read = std::os::unix::fs::FileExt::read_at(&*self.file, buf, self.position)?;
+        #[cfg(windows)]
+        let read = std::os::windows::fs::FileExt::seek_read(&*self.file, buf, self.position)?;
+        self.position = self
+            .position
+            .saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
+        Ok(read)
+    }
+}
+
+impl Seek for SharedFile {
+    fn seek(&mut self, to: SeekFrom) -> io::Result<u64> {
+        let position = match to {
+            SeekFrom::Start(offset) => Some(offset),
+            SeekFrom::End(offset) => self.len.checked_add_signed(offset),
+            SeekFrom::Current(offset) => self.position.checked_add_signed(offset),
+        };
+        self.position = position.ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "a seek before the start")
+        })?;
+        Ok(self.position)
+    }
+}
+
+/// Opens the archive in the file at `path` and reads its directory, off the runtime's
+/// workers.
+async fn open_archive(path: &Path) -> Result<Archive, AppError> {
+    let path = path.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::File::open(&path).map_err(|error| {
+            AppError::internal(format_args!("cannot open the archive: {error}"))
+        })?;
+        let len = file
+            .metadata()
+            .map_err(|error| AppError::internal(format_args!("cannot read the archive: {error}")))?
+            .len();
+        let mut file = SharedFile {
+            file: Arc::new(file),
+            len,
+            position: 0,
+        };
+        let mut start = [0; 12];
+        let read = file.read(&mut start).unwrap_or(0);
+        if start
+            .get(..read)
+            .is_some_and(|start| start.starts_with(br#"{"version":1"#))
+        {
+            return Err(AppError::bad_request(format_args!(
+                "an archive of version 1 is not read; this server reads version {ARCHIVE_VERSION}"
+            )));
+        }
+        file.position = 0;
+        zip::ZipArchive::new(file).map_err(|error| AppError::bad_request(format_args!("{error}")))
+    })
+    .await
+    .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
+}
+
+/// The most the entry of a file name may unpack to: a `board.jsonl`, a `version.json`,
+/// or a file, which is held to the limit of an upload.
+fn entry_limit(filename: &str, largest_file: u64) -> u64 {
+    match filename {
+        "board.jsonl" => MAX_JSONL_BYTES,
+        "version.json" => MAX_VERSION_BYTES,
+        _ => largest_file,
+    }
+}
 
 /// Returns the cleaned directory and the base file name of an archive entry, without
 /// reading its content.
@@ -515,13 +614,13 @@ fn entry_name(zip: &Archive, index: usize) -> Result<(String, String), AppError>
     Ok(split_entry_name(&name))
 }
 
-/// Reads the content of an archive entry, bounding how much it may decompress to.
-/// Decompression is done off the runtime's workers, which it would hold up.
-async fn read_entry(zip: &Archive, index: usize) -> Result<Bytes, AppError> {
+/// Reads the content of an archive entry, at most `limit` bytes of it. Decompression is
+/// done off the runtime's workers, which it would hold up.
+async fn read_entry(zip: &Archive, index: usize, limit: u64) -> Result<Bytes, AppError> {
     let mut zip = zip.clone();
     tokio::task::spawn_blocking(move || {
         let mut bytes = Vec::new();
-        decompress(&mut zip, index, &mut bytes)?;
+        decompress(&mut zip, index, limit, &mut bytes)?;
         Ok(Bytes::from(bytes))
     })
     .await
@@ -529,34 +628,37 @@ async fn read_entry(zip: &Archive, index: usize) -> Result<Bytes, AppError> {
 }
 
 /// Reads an archive entry through without keeping it, as [`read_entry`] would read it:
-/// its checksum and its bound are checked.
-async fn check_entry(zip: &Archive, index: usize) -> Result<(), AppError> {
+/// its checksum and its bound are checked. Returns how much it unpacks to.
+async fn check_entry(zip: &Archive, index: usize, limit: u64) -> Result<u64, AppError> {
     let mut zip = zip.clone();
-    tokio::task::spawn_blocking(move || decompress(&mut zip, index, &mut std::io::sink()))
+    tokio::task::spawn_blocking(move || decompress(&mut zip, index, limit, &mut io::sink()))
         .await
         .map_err(|error| AppError::internal(format_args!("archive task failed: {error}")))?
 }
 
-/// Decompresses an archive entry into `out`, at most [`MAX_ENTRY_BYTES`] of it. The
-/// reader checks the entry's checksum when it reaches the end.
+/// Decompresses an archive entry into `out`, at most `limit` bytes of it, and returns
+/// how many. The reader checks the entry's checksum when it reaches the end.
 fn decompress(
     zip: &mut Archive,
     index: usize,
-    out: &mut impl std::io::Write,
-) -> Result<(), AppError> {
+    limit: u64,
+    out: &mut impl io::Write,
+) -> Result<u64, AppError> {
     let mut entry = zip
         .by_index(index)
         .map_err(|error| AppError::bad_request(format_args!("{error}")))?;
+    let name = entry.name().map(Cow::into_owned).unwrap_or_default();
     let read =
-        std::io::copy(&mut entry.by_ref().take(MAX_ENTRY_BYTES + 1), out).map_err(|error| {
+        io::copy(&mut entry.by_ref().take(limit.saturating_add(1)), out).map_err(|error| {
             AppError::bad_request(format_args!("cannot read archive entry: {error}"))
         })?;
-    if read > MAX_ENTRY_BYTES {
-        return Err(AppError::bad_request(
-            "archive entry exceeds the size limit",
+    if read > limit {
+        return Err(AppError::too_large(
+            format_args!("the archive entry {name} unpacks to more than {limit} bytes"),
+            limit,
         ));
     }
-    Ok(())
+    Ok(read)
 }
 
 /// Splits an archive entry name into its cleaned directory and its base file name, as
