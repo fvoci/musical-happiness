@@ -22,7 +22,7 @@ import {
 } from './dependencies.ts';
 import type { Weekday } from './regional.ts';
 import type { GanttZoom } from './view-members.ts';
-import type { BoardView, Card, PropertyTemplate } from './wire.ts';
+import type { Card, PropertyTemplate } from './wire.ts';
 
 // ---------------------------------------------------------------- zoom
 
@@ -294,13 +294,14 @@ export function dependencyProperty(
  * the screen is kept out; one made elsewhere is only shown.
  */
 export function orderingRelations(
-  views: readonly BoardView[],
+  /** The fields of the board's views. */
+  views: readonly { viewType: string; dependencyPropertyId?: string }[],
   templates: readonly PropertyTemplate[],
 ): Set<string> {
   const ids = new Set<string>();
   for (const view of views) {
-    if (view.fields.viewType !== 'gantt') continue;
-    const relation = dependencyProperty(view.fields.dependencyPropertyId, templates);
+    if (view.viewType !== 'gantt') continue;
+    const relation = dependencyProperty(view.dependencyPropertyId, templates);
     if (relation) ids.add(relation.id);
   }
   return ids;

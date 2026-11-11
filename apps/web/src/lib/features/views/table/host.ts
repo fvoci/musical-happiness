@@ -7,8 +7,10 @@
 import type { MenuAction } from '$lib/components/menu/actions.ts';
 import type { Presentation } from '$lib/components/picker-surface/presentation.ts';
 import type { PropertyUser } from '$lib/components/properties/index.ts';
+import { orderingRelations } from '$lib/logic/gantt.ts';
 import type { Regional } from '$lib/logic/regional.ts';
 import type { Card, PropertyTemplate, PropertyType, PropertyValue } from '$lib/logic/wire.ts';
+import type { BoardStore } from '$lib/state/index.ts';
 
 /** How values are shown and edited for the reader. */
 export interface TableReader {
@@ -99,3 +101,9 @@ export const CELL_FOCUS = 'outline-ring focus-visible:outline-2 focus-visible:-o
 /** A line across the top of a row: where the dragged row would land. */
 export const DROP_LINE_ROW =
   'before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:z-20 before:h-0.5 before:-translate-y-1/2 before:bg-ring';
+
+/** Whether a Gantt view of the board reads the relation `propertyId` as an order (`orderingRelations`). */
+export function readAsOrder(board: BoardStore, propertyId: string): boolean {
+  const views = board.views.map((view) => view.fields);
+  return orderingRelations(views, board.board?.cardProperties ?? []).has(propertyId);
+}

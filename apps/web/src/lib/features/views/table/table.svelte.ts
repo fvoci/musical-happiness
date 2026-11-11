@@ -16,7 +16,6 @@ import { m } from '$lib/i18n/paraglide/messages.js';
 import { moveItems, type ListOrder } from '$lib/logic/drop-target.ts';
 import { propertiesThatMeetFilterGroup } from '$lib/logic/filter.ts';
 import type { DisplayContext } from '$lib/logic/format.ts';
-import { orderingRelations } from '$lib/logic/gantt.ts';
 import type { BoardGroup } from '$lib/logic/group.ts';
 import { propertyBehavior, type CalculationOption } from '$lib/logic/properties.ts';
 import {
@@ -42,7 +41,7 @@ import {
 } from './columns.ts';
 import { COLUMN_DRAG_MESSAGES, rowDragMessages } from './drag-messages.ts';
 import { GridFocus } from './grid-focus.ts';
-import { isEditableKind, type RowHost, type TableReader } from './host.ts';
+import { isEditableKind, readAsOrder, type RowHost, type TableReader } from './host.ts';
 import { headerMenu, rowMenu } from './menus.ts';
 import { ScrollKeeper } from './scroll-keeper.ts';
 
@@ -460,10 +459,7 @@ export class TableController {
     get cards() {
       return table.#board.cardsById;
     },
-    ordering: (propertyId) =>
-      orderingRelations(table.#board.views, table.#board.board?.cardProperties ?? []).has(
-        propertyId,
-      ),
+    ordering: (id) => readAsOrder(table.#board, id),
     cardHref: (cardId) => table.#source.cardHref(cardId),
     open: (cardId) => {
       table.#source.openCard(cardId);

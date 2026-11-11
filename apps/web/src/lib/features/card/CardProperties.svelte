@@ -41,7 +41,12 @@
   const templates = $derived(board.board?.cardProperties ?? []);
   const editable = $derived(board.canEdit);
   /** The relations a Gantt view reads as an order: no card that closes a loop is offered. */
-  const ordering = $derived(orderingRelations(board.views, templates));
+  const ordering = $derived(
+    orderingRelations(
+      board.views.map((each) => each.fields),
+      templates,
+    ),
+  );
   const presentation = $derived(overlayPresentation(page.stage));
   /** The people a person property can be set to: the members of the board. */
   const users = $derived<readonly PropertyUser[]>(board.people);
