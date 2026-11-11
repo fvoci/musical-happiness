@@ -616,11 +616,14 @@ export class Workspace {
   }
 
   /**
-   * Brings a deleted board back. It shows where the reader had filed it
-   * once the sidebar is told (a category message). A refusal is thrown.
+   * Brings a deleted board back. The sidebar is read before it shows, so
+   * that it shows where the reader had filed it, not first unfiled. A
+   * refusal is thrown.
    */
   async restoreBoard(boardId: string): Promise<void> {
-    this.#apply({ kind: 'board', board: await this.backend.restoreBoard(boardId) });
+    const board = await this.backend.restoreBoard(boardId);
+    await this.#refresh();
+    this.#apply({ kind: 'board', board });
   }
 
   // --------------------------------------------------------- categories

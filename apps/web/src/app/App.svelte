@@ -72,6 +72,13 @@
     return loaded.status === 'ready' && followAccountLanguage(loaded.settings.language);
   }
 
+  /** Reads the workspace again after a failure, and follows its language as the first load does. */
+  async function retryLoad(): Promise<void> {
+    if (!workspace) return;
+    await workspace.load();
+    followLanguage(workspace);
+  }
+
   /**
    * Saves the language to the account and shows the page in it. A refusal
    * leaves the page as it is, and says so (`changeSettings`).
@@ -158,7 +165,7 @@
   <main class="grid min-h-dvh place-items-center p-4">
     <div class="text-center">
       <p class="text-lg font-medium" role="alert">{m.app_load_failed()}</p>
-      <Button class="mt-4 roomy:min-h-touch" onclick={() => void workspace?.load()}>
+      <Button class="mt-4 roomy:min-h-touch" onclick={() => void retryLoad()}>
         {m.app_retry()}
       </Button>
     </div>

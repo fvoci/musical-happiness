@@ -52,6 +52,12 @@ export class Trash {
     await this.#read();
   }
 
+  /** Reads again what was asked for last, after a failure: the pages shown stay asked for. */
+  async retry(): Promise<void> {
+    if (this.status === 'loading') return;
+    await this.#read();
+  }
+
   /** Reads one page more. */
   async more(): Promise<void> {
     if (this.status === 'loading' || !this.hasMore) return;

@@ -248,3 +248,28 @@ describe('the trash, on the server', () => {
     ]);
   });
 });
+
+describe('a trash read again after a failure', () => {
+  it('keeps the pages asked for: a failed "more" is tried again as more', async () => {
+    const { workspace } = await openFirstBoard();
+    const items = Array.from({ length: 60 }, (_, at) => ({
+      id: `b${at}`,
+      title: `Board ${at}`,
+      deletedAt: 1000 - at,
+      deletedBy: '',
+    }));
+    const asked: unknown[] = [];
+    vi.spyOn(workspace.backend, 'deletedBoards').mockImplementation((_teamId, paging) => {
+      asked.push(paging);
+      if (asked.length === 2) return Promise.reject(new BackendError(500));
+      return Promise.resolve(items.slice(0, paging?.perPage ?? 100));
+    });
+    const trash = boardTrash(workspace);
+    await trash.read();
+    await trash.more();
+    expect(trash.status).toBe('failed');
+    await trash.retry();
+    expect(trash.items).toHaveLength(60);
+    expect(asked.at(-1)).toEqual({ page: 0, perPage: 100 });
+  });
+});

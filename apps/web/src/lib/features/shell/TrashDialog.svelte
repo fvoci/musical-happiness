@@ -113,7 +113,7 @@
         {:else if trash.status === 'failed'}
           <div class="grid justify-items-center gap-2 py-4 text-center">
             <p role="alert">{m.shell_trash_failed()}</p>
-            <Button variant="outline" class="roomy:min-h-touch" onclick={() => void trash.read()}>
+            <Button variant="outline" class="roomy:min-h-touch" onclick={() => void trash.retry()}>
               {m.app_retry()}
             </Button>
           </div>

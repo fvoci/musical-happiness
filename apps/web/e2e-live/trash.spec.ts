@@ -48,6 +48,8 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
   await register(base, helper);
   const api = await signedIn(base, owner);
   const helperApi = await signedIn(base, helper);
+  // A row names who deleted it as people are named everywhere.
+  await api.patch('/api/v1/users/me', { data: { displayName: 'Kay Keeper' } });
   const alpha = await makeBoard(api, { title: 'Alpha' });
   const beta = await makeBoard(api, {
     title: 'Beta',
@@ -116,7 +118,7 @@ test('a deleted board is listed for who was its admin, and comes back to its pla
 
   await openTrash(page);
   const row = page.locator('[data-trash-item="Beta"]');
-  await expect(row).toContainText(`Deleted by ${owner.username}`);
+  await expect(row).toContainText(`Deleted by Kay Keeper (@${owner.username})`);
   await row.getByRole('button', { name: 'Restore Beta' }).click();
   await expect(row).toHaveCount(0);
   await expect.poll(order).toEqual(ids);
