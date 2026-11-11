@@ -96,6 +96,8 @@ impl App {
         if zip.is_empty() {
             return Err(AppError::bad_request("zip: not a valid zip file"));
         }
+        // Not reached while the headers are counted before the directory is read (see
+        // `open_archive`); kept as the check of what was read.
         if u64::try_from(zip.len()).map_or(true, |entries| entries > MAX_ENTRIES) {
             return Err(too_many_entries());
         }
@@ -612,8 +614,11 @@ async fn open_archive(path: &Path) -> Result<Archive, AppError> {
             )));
         }
         // Counted before the directory is read, as reading it holds every entry in memory.
-        // Every entry the reader takes begins with the central header's signature, so
-        // there are at most as many entries as signatures, whatever the end records say.
+        // Every entry the reader keeps begins with the central header's signature, so it
+        // keeps at most as many entries as signatures, whatever the end records say. The
+        // capacity it reserves first follows the declared count, which the crate bounds
+        // only by the file's length (about a 47th of it, as entries): that reservation is
+        // not bounded here (`docs/contract-pending.md` 5).
         file.position = 0;
         let headers = count_central_headers(&mut file, MAX_ENTRIES).map_err(|error| {
             AppError::internal(format_args!("cannot read the archive: {error}"))
@@ -846,7 +851,7 @@ fn clear_values_of_another_kind(boards_and_blocks: &mut BoardsAndBlocks) {
 
 #[cfg(test)]
 mod tests {
-    use super::{CENTRAL_HEADER, SCAN_CHUNK_BYTES, count_central_headers};
+    use super::*;
 
     /// The central headers are counted wherever they are, a chunk's end included, and
     /// the count stops once it is over the limit.
@@ -868,7 +873,40 @@ mod tests {
         assert_eq!(count(&many, 5), in_a_chunk, "stops after the chunk");
     }
 
-    use super::*;
+    /// A reader that gives a few bytes at a time, as a file may.
+    struct Trickle<'b>(&'b [u8], usize);
+
+    impl Read for Trickle<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = self.1.min(buf.len()).min(self.0.len());
+            let (head, rest) = self.0.split_at(n);
+            buf.get_mut(..n).unwrap_or_default().copy_from_slice(head);
+            self.0 = rest;
+            Ok(n)
+        }
+    }
+
+    /// Short reads count as whole ones: a signature split between reads is found once.
+    #[test]
+    fn central_headers_are_counted_over_short_reads() {
+        let mut bytes = Vec::new();
+        for gap in 0..200 {
+            bytes.extend_from_slice(CENTRAL_HEADER);
+            bytes.extend(std::iter::repeat_n(b'x', gap % 9));
+        }
+        let expected = u64::try_from(
+            bytes
+                .windows(4)
+                .filter(|window| window == CENTRAL_HEADER)
+                .count(),
+        )
+        .expect("a small count");
+        for step in [1, 2, 3, 5, 7, 4096] {
+            let counted = count_central_headers(&mut Trickle(&bytes, step), u64::MAX)
+                .expect("a reader that does not fail");
+            assert_eq!(counted, expected, "{step} bytes a read");
+        }
+    }
 
     fn block(id: &str, parent_id: &str) -> Block {
         Block {
