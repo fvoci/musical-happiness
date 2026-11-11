@@ -39,7 +39,7 @@ pub enum BodyError {
     #[error("the body has more than {BODY_MAX_NODES} nodes")]
     TooManyNodes,
     /// A node is malformed.
-    #[error("invalid body node at {path}: {problem}")]
+    #[error("invalid body node: {problem}")]
     InvalidNode {
         /// Where the node is, as a JSON pointer.
         path: String,

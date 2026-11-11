@@ -9,13 +9,16 @@ pub mod auth;
 pub mod client_address;
 pub mod config;
 pub mod error;
+pub mod metrics;
 pub mod permissions;
+pub mod problems;
 pub mod scheduler;
 pub mod storage;
 pub mod web;
 pub mod webhook;
 pub mod ws;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,7 +33,6 @@ use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, Uri, Ve
 use axum::middleware;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use fvoci_store::{DbType, Store};
 use tokio_util::sync::CancellationToken;
 use tower_http::compression::CompressionLayer;
 use tower_http::compression::predicate::{DefaultPredicate, Predicate};
@@ -44,7 +46,9 @@ use crate::auth::token::Credential;
 use crate::client_address::TrustedProxies;
 use crate::config::Configuration;
 use crate::connection::{BreakableListener, Connection};
-use crate::error::{AppError, ErrorKind, ReportedError};
+use crate::error::{AppError, ErrorKind};
+use crate::error_response::ReportedError;
+use crate::metrics::{Job, JobOutcome};
 use crate::scheduler::RecurringTask;
 use crate::storage::FileBackend;
 use crate::tls::TlsListener;
@@ -75,6 +79,8 @@ pub struct Server {
     app: App,
     base_path: String,
     tls_files: TlsFiles,
+    /// The listener of the metrics, if `prometheusaddress` is set.
+    metrics_listener: Option<tokio::net::TcpListener>,
 }
 
 impl Server {
@@ -85,8 +91,9 @@ impl Server {
     ///
     /// # Errors
     ///
-    /// Returns an error if the configuration asks for something unsupported, or the
-    /// database or the file storage cannot be set up.
+    /// Returns an error if the configuration asks for something unsupported, the
+    /// database or the file storage cannot be set up, or the metrics listener cannot
+    /// listen at `prometheusaddress`.
     pub async fn new(config: Configuration, base_path: &str) -> anyhow::Result<Self> {
         for warning in config.check()? {
             tracing::warn!("{warning}");
@@ -105,23 +112,20 @@ impl Server {
                 "{BASE_PATH_ENV} must be empty or an absolute path such as /boards, not {base_path:?}"
             );
         }
-        // The role is looked at before anything is made as it: a start that is refused
-        // leaves the database as it was.
-        let store = open_store(&config).await?;
-        check_the_wall_holds(&store, &config).await?;
-        store
-            .migrate()
-            .await
-            .context("bringing the database's schema up to date")?;
-        let store = only_organization_scope(store).await?;
+        let store = app::open_store(&config).await?;
         let files =
             FileBackend::from_config(&config).context("unable to initialize the files storage")?;
         let skip_template_init = config.skip_template_init;
         let app = App::new(config, store, files)?;
+        // Before the slow work below: an address that is taken is reported at once.
+        let metrics_listener = match app.config().metrics_address()? {
+            Some(address) => Some(metrics_listener::bind(&address).await?),
+            None => None,
+        };
         app.root_team().await.context("unable to get root team")?;
         // Before any request: what is left over from a run that stopped is nobody's.
         clean_up_uploads(&app).await;
-        match housekeeping::reach(&app).sweep_temporary_files().await {
+        match app.housekeeping().sweep_temporary_files().await {
             Ok(0) => {}
             Ok(removed) => tracing::info!(removed, "removed left-over temporary files"),
             Err(error) => tracing::error!(%error, "unable to sweep the temporary files"),
@@ -135,6 +139,7 @@ impl Server {
             app,
             base_path: base_path.to_owned(),
             tls_files: TlsFiles::default(),
+            metrics_listener,
         })
     }
 
@@ -146,6 +151,14 @@ impl Server {
         self
     }
 
+    /// The address the metrics are served at; `None` if `prometheusaddress` is empty,
+    /// and nothing listens for them.
+    pub fn metrics_address(&self) -> Option<SocketAddr> {
+        self.metrics_listener
+            .as_ref()
+            .and_then(|listener| listener.local_addr().ok())
+    }
+
     /// The application state.
     pub fn app(&self) -> &App {
         &self.app
@@ -153,8 +166,10 @@ impl Server {
 
     /// The router that serves the API, the websocket and the web app.
     ///
-    /// Every request is logged, and a handler that panics answers with a 500.
+    /// Every request is logged, and a handler that panics answers with a 500. If the
+    /// metrics are kept, every request is measured.
     pub fn router(&self) -> Router {
+        let measured = self.app.metrics().is_kept();
         let api = api::router(&self.app)
             .route_layer(middleware::from_fn_with_state(
                 self.app.clone(),
@@ -162,7 +177,9 @@ impl Server {
             ))
             // Under the API prefix nothing is ever answered with the web app's page.
             .fallback(api_not_found)
-            .method_not_allowed_fallback(method_not_allowed);
+            .method_not_allowed_fallback(method_not_allowed)
+            // Nor with an error in the framework's words.
+            .layer(middleware::from_fn(error_response::problems_only));
         let api = if self.app.config().compress_responses {
             api.layer(compression())
                 .layer(middleware::from_fn(identity_is_always_acceptable))
@@ -172,10 +189,19 @@ impl Server {
         let routes = Router::new()
             .nest(api::PREFIX, api)
             .route("/ws", get(handle_websocket))
+            // What the `type` of a problem points at.
+            .merge(problems::routes())
             .route("/static/{*path}", get(handle_static))
             .fallback(handle_fallback)
             .method_not_allowed_fallback(method_not_allowed)
             .with_state(self.app.clone());
+        // Nesting puts the API's routes into this router, so they get the layer too; its
+        // fallbacks do not, and their answers are measured as unmatched.
+        let routes = if measured {
+            routes.route_layer(middleware::from_fn(request_metrics::note_route))
+        } else {
+            routes
+        };
         let routes = if self.base_path.is_empty() {
             routes
         } else {
@@ -185,30 +211,53 @@ impl Server {
                 .route(&format!("{}/", self.base_path), get(handle_root))
                 .method_not_allowed_fallback(method_not_allowed)
                 .with_state(self.app.clone());
+
             Router::new()
                 .nest(&self.base_path, routes)
                 .merge(root)
                 .fallback(|| async { web::not_found() })
         };
-        self.with_request_layers(routes)
+        let routes = self.with_request_layers(routes, &self.base_path);
+        if measured {
+            routes.layer(middleware::from_fn_with_state(
+                request_metrics::Measured {
+                    metrics: self.app.metrics().clone(),
+                    base_path: self.base_path.as_str().into(),
+                },
+                request_metrics::measure_requests,
+            ))
+        } else {
+            routes
+        }
     }
 
     /// The router of the administration socket. It must never be served on a TCP
     /// listener; its routes refuse requests that did not arrive through a Unix socket.
     pub fn admin_router(&self) -> Router {
-        self.with_request_layers(api::admin_router().with_state(self.app.clone()))
+        // The socket has no base path: its routes are at their full paths, and so are
+        // the pages its error answers point at.
+        self.with_request_layers(
+            api::admin_router()
+                .layer(middleware::from_fn(error_response::problems_only))
+                .with_state(self.app.clone())
+                .merge(problems::routes()),
+            "",
+        )
     }
 
     /// Wraps `router` in the layers every listener has: outermost the request log, then
     /// the containment of handler panics, so that a contained panic is logged as a 500.
-    fn with_request_layers(&self, router: Router) -> Router {
+    fn with_request_layers(&self, router: Router, base_path: &str) -> Router {
         // The configuration was checked when the application was put together.
         let proxies = TrustedProxies::parse(&self.app.config().trusted_proxies).unwrap_or_default();
         router
             .layer(middleware::from_fn(send_no_referrer))
             .layer(middleware::from_fn(request_log::contain_panics))
             .layer(middleware::from_fn_with_state(
-                Arc::new(proxies),
+                Arc::new(request_log::Served {
+                    proxies,
+                    base_path: base_path.to_owned(),
+                }),
                 request_log::log_request,
             ))
     }
@@ -218,8 +267,9 @@ impl Server {
     ///
     /// Connections are served over TLS if the configuration has `usessl`. While serving,
     /// the administration socket is open if the configuration has `enablelocalmode`,
-    /// and once at the start and then every hour the sessions that have ended are
-    /// deleted and the trash is purged of what has been in it for too long.
+    /// the metrics are served, over plain HTTP, if it has `prometheusaddress`, and once
+    /// at the start and then every hour the sessions that have ended are deleted and
+    /// the trash is purged of what has been in it for too long.
     ///
     /// # Errors
     ///
@@ -227,11 +277,12 @@ impl Server {
     /// certificate or the key is missing or cannot be used, or the administration socket
     /// cannot be opened. Returns an error if accepting connections fails.
     pub async fn serve(
-        self,
+        mut self,
         listener: tokio::net::TcpListener,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<()> {
-        let result = self.run(listener, shutdown).await;
+        let metrics_listener = self.metrics_listener.take();
+        let result = self.run(listener, metrics_listener, shutdown).await;
         self.shutdown().await;
         result
     }
@@ -241,6 +292,7 @@ impl Server {
     async fn run(
         &self,
         listener: tokio::net::TcpListener,
+        metrics_listener: Option<tokio::net::TcpListener>,
         shutdown: impl Future<Output = ()> + Send + 'static,
     ) -> anyhow::Result<()> {
         let tls = self.tls_config()?;
@@ -256,6 +308,13 @@ impl Server {
             .router()
             .into_make_service_with_connect_info::<Connection>();
         let stop = CancellationToken::new();
+        // When the connections have to be closed by, once the server stops: one
+        // deadline for the API's listener and the metrics listener together.
+        let drain_by = std::sync::OnceLock::new();
+        let drain_deadline =
+            || *drain_by.get_or_init(|| tokio::time::Instant::now() + CONNECTION_DRAIN_TIMEOUT);
+        let metrics_serving = metrics_listener
+            .map(|listener| spawn_metrics_server(listener, &self.app, stop.clone()));
         let stopped = stop.clone().cancelled_owned();
         let serving = async move {
             if let Some(tls) = tls {
@@ -276,8 +335,8 @@ impl Server {
             () = shutdown => {
                 stop.cancel();
                 // Requests under way may finish, but a client that stalls must not hold
-                // the server.
-                tokio::time::timeout(CONNECTION_DRAIN_TIMEOUT, &mut serving)
+                // the server. A scrape of the metrics drains in the same time.
+                tokio::time::timeout_at(drain_deadline(), &mut serving)
                     .await
                     .unwrap_or_else(|_| {
                         tracing::warn!("connections still open after the drain timeout; closing them");
@@ -285,6 +344,16 @@ impl Server {
                     })
             }
         };
+        // Also when serving failed, without a shutdown.
+        stop.cancel();
+        if let Some(mut metrics_serving) = metrics_serving
+            && tokio::time::timeout_at(drain_deadline(), &mut metrics_serving)
+                .await
+                .is_err()
+        {
+            tracing::warn!("a metrics scrape still open after the drain timeout; closing it");
+            metrics_serving.abort();
+        }
         tracing::info!("the server stopped accepting connections");
 
         if let Some(admin_socket) = admin_socket {
@@ -349,6 +418,28 @@ impl Server {
     }
 }
 
+/// Serves the metrics from `listener` until `stop` is cancelled, in a task of its own.
+/// Plain HTTP, whatever `usessl` says, and without the request log: a scrape every few
+/// seconds would fill it.
+fn spawn_metrics_server(
+    listener: tokio::net::TcpListener,
+    app: &App,
+    stop: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let router = metrics_listener::router(app.clone());
+    if let Ok(address) = listener.local_addr() {
+        tracing::info!(%address, "metrics server started");
+    }
+    tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, router)
+            .with_graceful_shutdown(stop.cancelled_owned())
+            .await
+        {
+            tracing::error!(%error, "the metrics server stopped");
+        }
+    })
+}
+
 /// Returns the address the server listens on, in the original's notation: `localhost:8000`
 /// for a local-only server, `:8000` for all interfaces.
 pub fn listen_address(config: &Configuration) -> String {
@@ -357,87 +448,6 @@ pub fn listen_address(config: &Configuration) -> String {
     } else {
         format!(":{}", config.port)
     }
-}
-
-/// Connects to the database, trying up to `dbpingattempts` times a second apart, so that
-/// a server started together with its database waits for it.
-async fn open_store(config: &Configuration) -> anyhow::Result<Store> {
-    let db_type: DbType = config.db_type.parse()?;
-    let attempts = config.db_ping_attempts.max(1);
-    let mut attempt = 1;
-    loop {
-        match Store::open(db_type, &config.db_config).await {
-            Ok(store) => return Ok(store),
-            Err(fvoci_store::StoreError::Database(error)) if attempt < attempts => {
-                tracing::warn!(%error, attempt, attempts, "the database is not reachable yet");
-                attempt += 1;
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-            Err(error) => return Err(error).context("connecting to the database"),
-        }
-    }
-}
-
-/// Looks at the role the server connects to PostgreSQL as: a superuser, or a role with
-/// `BYPASSRLS`, passes the policies that keep the rows of the organizations apart, and
-/// the safety net below the server's own checks is not there.
-///
-/// # Errors
-///
-/// Fails for such a role if `org_creation` is `open`: a server that takes in several
-/// organizations does not start without the net. With the one organization of
-/// `first_user_only` it starts, and says so (the default user of a database container
-/// is a superuser, and a server set up that way goes on working).
-async fn check_the_wall_holds(store: &Store, config: &Configuration) -> anyhow::Result<()> {
-    let Some(role) = store
-        .role_past_the_wall()
-        .await
-        .context("reading the role of the database connection")?
-    else {
-        return Ok(());
-    };
-    if config.takes_several_organizations() {
-        bail!(
-            "the database role {role:?} is a superuser or has BYPASSRLS, so the row-level \
-             security policies that keep organizations apart do not hold it; with \
-             org_creation \"open\" the server connects as a role made for it (LOGIN, \
-             NOSUPERUSER, NOBYPASSRLS) that owns its tables"
-        );
-    }
-    tracing::warn!(
-        role,
-        "the database role is a superuser or has BYPASSRLS: the row-level security \
-         policies that keep organizations apart do not hold it. The server works; the \
-         safety net below its own checks is off"
-    );
-    Ok(())
-}
-
-/// A handle to the store that reaches the rows of the one organization the server
-/// works in: the oldest, made now, with its first workspace, if the database has none.
-///
-/// TEMPORARY. Every route that names no workspace works in this organization, as do
-/// the websocket connections. A route that names its workspace gets its organization
-/// from there; when all do, this function and its one call go. On PostgreSQL what is
-/// left without an organization then shows by reaching nothing; SQLite has no wall, and
-/// shows only the statements that name the organization themselves (the teams and the
-/// members), so that run tells less. The first organization of an empty database is
-/// made here too, and needs another place then.
-async fn only_organization_scope(store: Store) -> anyhow::Result<Store> {
-    // The first workspace of an organization that is made now: the root team, with a
-    // fresh signup token.
-    let workspace = fvoci_model::Team {
-        id: fvoci_model::new_id(),
-        signup_token: auth::secret::new_secret(),
-        ..fvoci_model::Team::default()
-    };
-    let org_id = store
-        .only_organization(&workspace)
-        .await
-        .context("unable to get the organization")?;
-    store
-        .for_org(&org_id)
-        .context("the organization's identifier")
 }
 
 /// Tells browsers not to say where a request comes from when a page of this server
@@ -456,15 +466,16 @@ async fn send_no_referrer(request: Request, next: middleware::Next) -> Response 
 /// while it serves; this is for its tests.
 pub async fn keep_house(app: &App) {
     clean_up_sessions(app).await;
-    purge_trash(app).await;
-    collect_unreferenced_files(app).await;
+    // What became of each job is the metrics' to count, where the tasks run them.
+    let _ = purge_trash(app).await;
+    let _ = collect_unreferenced_files(app).await;
     clean_up_uploads(app).await;
 }
 
 /// Deletes the sessions that have ended: unused for the idle limit, or past their
 /// absolute limit. What such a session still has open is closed.
 async fn clean_up_sessions(app: &App) {
-    let app = &housekeeping::reach(app);
+    let app = &app.housekeeping();
     let now = auth::now_millis();
     let idle_since = now.saturating_sub(app.config().session_idle_millis());
     match app.store().clean_up_sessions(now, idle_since).await {
@@ -482,14 +493,14 @@ async fn clean_up_sessions(app: &App) {
 
 /// Removes for good what has been in the trash for longer than `trash_retention_days`,
 /// and the files of the boards that go: nothing says where they are afterwards.
-async fn purge_trash(app: &App) {
-    let app = &housekeeping::reach(app);
+async fn purge_trash(app: &App) -> JobOutcome {
+    let app = &app.housekeeping();
     let deleted_before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let purged = match app.store().purge_trash(deleted_before).await {
         Ok(purged) => purged,
         Err(error) => {
             tracing::error!(%error, "unable to purge the trash");
-            return;
+            return JobOutcome::Failed;
         }
     };
     let mut files_left = 0_usize;
@@ -507,19 +518,20 @@ async fn purge_trash(app: &App) {
             "removed old boards and blocks from the trash"
         );
     }
+    JobOutcome::from_left(files_left)
 }
 
 /// Removes the files that no block, live or in the trash, has shown for as long as the
 /// trash keeps what is deleted (`docs/s6-design.md` 5.7). A file whose record went but
 /// that cannot be removed from the storage is logged: nothing names it any more.
-async fn collect_unreferenced_files(app: &App) {
-    let app = &housekeeping::reach(app);
+async fn collect_unreferenced_files(app: &App) -> JobOutcome {
+    let app = &app.housekeeping();
     let before = auth::now_millis().saturating_sub(app.config().trash_retention_millis());
     let files = match app.store().collect_unreferenced_files(before).await {
         Ok(files) => files,
         Err(error) => {
             tracing::error!(%error, "unable to collect the files no block shows");
-            return;
+            return JobOutcome::Failed;
         }
     };
     let mut files_left = 0_usize;
@@ -536,6 +548,7 @@ async fn collect_unreferenced_files(app: &App) {
             "removed the files no block has shown for the grace period"
         );
     }
+    JobOutcome::from_left(files_left)
 }
 
 /// Starts the task that deletes the sessions that have ended. It runs once at the
@@ -556,21 +569,34 @@ fn start_trash_purge(app: &App) -> RecurringTask {
     RecurringTask::spawn_starting_now("purgeTrash", PURGE_TRASH_INTERVAL, move || {
         let app = app.clone();
         async move {
-            purge_trash(&app).await;
+            let purged = purge_trash(&app).await;
             // After the purge: what it removed for good shows its files no more.
-            collect_unreferenced_files(&app).await;
+            let collected = collect_unreferenced_files(&app).await;
+            app.metrics()
+                .job_ran(Job::PurgeTrash, purged.and(collected));
         }
     })
 }
 
 /// Throws away the upload sessions that have ended, with their parts.
 async fn clean_up_uploads(app: &App) {
-    let app = &housekeeping::reach(app);
-    match app.clean_up_uploads(auth::now_millis()).await {
-        Ok(0) => {}
-        Ok(removed) => tracing::info!(removed, "threw away the upload sessions that ended"),
-        Err(error) => tracing::error!(%error, "unable to clean up the upload sessions"),
-    }
+    let app = &app.housekeeping();
+    let outcome = match app.clean_up_uploads(auth::now_millis()).await {
+        Ok(cleaned) => {
+            if cleaned.removed > 0 {
+                tracing::info!(
+                    removed = cleaned.removed,
+                    "threw away the upload sessions that ended"
+                );
+            }
+            JobOutcome::from_left(cleaned.left)
+        }
+        Err(error) => {
+            tracing::error!(%error, "unable to clean up the upload sessions");
+            JobOutcome::Failed
+        }
+    };
+    app.metrics().job_ran(Job::CleanUpUploads, outcome);
 }
 
 /// Starts the task that throws away the upload sessions that have ended. The server
@@ -821,9 +847,10 @@ fn without_trailing_slash(uri: &Uri) -> Option<String> {
 }
 
 pub mod connection;
-mod housekeeping;
-
+mod error_response;
+mod metrics_listener;
 mod request_log;
+mod request_metrics;
 
 mod tls;
 

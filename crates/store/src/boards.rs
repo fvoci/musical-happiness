@@ -153,9 +153,7 @@ impl Store {
         user_id: &str,
     ) -> Result<Board, StoreError> {
         self.transaction(async |scope| {
-            if !lock_board(scope, board_id).await? {
-                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
-            }
+            hold_board(scope, board_id).await?;
             let mut board = get_board(scope, board_id).await?;
             board.reorder_card_properties(order)?;
             insert_board(scope, &mut board, user_id).await?;
@@ -258,12 +256,7 @@ impl Store {
             // Held so that "there was one already" is still true when it is answered:
             // without the lock a removal in between would make this say "new" of a
             // membership that does not exist.
-            if !lock_board(scope, &member.board_id).await? {
-                return Err(StoreError::not_found(format_args!(
-                    "board ID={}",
-                    member.board_id
-                )));
-            }
+            hold_board(scope, &member.board_id).await?;
             let mut sql = scope.sql(
                 "INSERT INTO board_members (board_id, user_id, scheme_admin, scheme_editor, \
                  scheme_commenter, scheme_viewer) VALUES (",
@@ -300,11 +293,8 @@ impl Store {
     /// Returns [`StoreError::NotFound`] if there is no such board or no such user.
     pub async fn join_board(&self, board_id: &str, user_id: &str) -> Result<Joined, StoreError> {
         self.transaction(async |scope| {
-            // A board that is not this handle's to change is joined by nobody through
-            // it: the lock finds no row of a built-in template, which the handle reads.
-            if !lock_board(scope, board_id).await? {
-                return Err(StoreError::not_found(format_args!("board ID={board_id}")));
-            }
+            // Nobody joins a board the handle reads and may not change (a built-in template).
+            hold_board(scope, board_id).await?;
             let board = get_board(scope, board_id).await?;
             let minimum = BoardRole::from(board.minimum_role);
             let with_minimum = BoardMember {
@@ -809,9 +799,7 @@ pub(crate) async fn patch_board(
     patch.validate().map_err(BoardError::from)?;
     // Held before the board is read: of two patches at once, the second is applied to
     // what the first left.
-    if !lock_board(scope, board_id).await? {
-        return Err(StoreError::not_found(format_args!("board ID={board_id}")));
-    }
+    hold_board(scope, board_id).await?;
     let mut board = get_board(scope, board_id).await?;
     patch.apply(&mut board);
     insert_board(scope, &mut board, user_id).await?;
@@ -932,6 +920,14 @@ pub(crate) async fn lock_board(scope: &mut Scope<'_>, board_id: &str) -> Result<
         sql.push(" FOR NO KEY UPDATE");
     }
     Ok(scope.fetch_optional(sql).await?.is_some())
+}
+
+/// Locks a board as [`lock_board`] does; one that is not there is not found.
+async fn hold_board(scope: &mut Scope<'_>, board_id: &str) -> Result<(), StoreError> {
+    if lock_board(scope, board_id).await? {
+        return Ok(());
+    }
+    Err(StoreError::not_found(format_args!("board ID={board_id}")))
 }
 
 /// Holds a board that is about to be deleted against everything that is stored for it:

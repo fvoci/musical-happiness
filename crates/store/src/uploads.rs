@@ -38,6 +38,15 @@ pub struct UploadUsage {
     pub server_bytes: i64,
 }
 
+/// The open upload sessions of the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OpenUploads {
+    /// How many there are.
+    pub sessions: i64,
+    /// The sum of their sizes, in bytes: what they hold back.
+    pub bytes: i64,
+}
+
 impl Store {
     /// Returns the upload sessions to throw away at `now`: those open that have ended,
     /// and those closed before `closed_before` that are still there, as when the server

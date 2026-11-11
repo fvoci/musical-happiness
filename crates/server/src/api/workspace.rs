@@ -8,7 +8,6 @@ use axum::extract::rejection::RawPathParamsRejection;
 use axum::extract::{FromRequestParts, RawPathParams, State};
 use axum::http::request::Parts;
 use fvoci_model::{Board, Session, UserWorkspace, WorkspaceRole};
-use fvoci_store::{PublicBoards, Tenant, WorkspaceAccess};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -44,8 +43,8 @@ pub(crate) struct Ws {
     pub(crate) session: Session,
     /// The workspace the path names.
     pub(crate) workspace_id: String,
-    /// What the user is in the workspace and in its organization.
-    pub(crate) access: WorkspaceAccess,
+    /// What the user is in the workspace.
+    pub(crate) role: WorkspaceRole,
 }
 
 impl FromRequestParts<App> for Ws {
@@ -66,22 +65,15 @@ impl FromRequestParts<App> for Ws {
             .find(|(name, _)| *name == WORKSPACE_ID)
             .map(|(_, value)| value.to_owned())
             .ok_or_else(|| AppError::internal("the route names no workspace"))?;
-        let access = app
-            .store()
-            .resolve_workspace(&session.user_id, &workspace_id)
+        let entered = app
+            .enter_workspace(&session.user_id, &workspace_id)
             .await?
             .ok_or_else(workspace_not_found)?;
-        // What the store answered is an identifier; one that is none is the server's
-        // fault, not the request's.
-        let tenant = Tenant::org(&access.org_id).map_err(|error| {
-            AppError::from(error).context("the organization of a workspace as the store has it")
-        })?;
-        let app = app.scoped(tenant);
         Ok(Self {
-            app,
+            app: entered.app,
             session,
             workspace_id,
-            access,
+            role: entered.role,
         })
     }
 }
@@ -106,7 +98,7 @@ async fn handle_get_my_workspaces(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
 ) -> ApiResult {
-    let workspaces = app.store().workspaces_of_user(&session.user_id).await?;
+    let workspaces = app.workspaces_of_user(&session.user_id).await?;
     Ok(json_response(&workspaces))
 }
 
@@ -124,13 +116,9 @@ async fn handle_get_my_workspaces(
     responses((status = 200, description = "The boards.", body = Vec<Board>)),
 )]
 async fn handle_get_workspace_boards(ws: Ws) -> ApiResult {
-    let public_boards = match ws.access.workspace_role {
-        WorkspaceRole::Guest => PublicBoards::Exclude,
-        WorkspaceRole::Admin | WorkspaceRole::Member => PublicBoards::Include,
-    };
     let boards = ws
         .app
-        .boards_for_user_and_team(&ws.session.user_id, &ws.workspace_id, public_boards)
+        .workspace_boards(&ws.session.user_id, &ws.workspace_id, ws.role)
         .await?;
     Ok(json_response(&boards))
 }

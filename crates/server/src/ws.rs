@@ -7,7 +7,7 @@
 //! shared board the blocks belong to.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::extract::ws::{Message, Utf8Bytes, WebSocket};
@@ -16,13 +16,14 @@ use fvoci_model::{
     Block, Board, BoardCategoryWebsocketData, BoardMember, Category, ClientConfig,
     PersonProperties, Session,
 };
-use fvoci_store::Store;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::app::Audience;
 use crate::auth::{Authenticator, now_millis};
 use crate::error::ErrorKind;
+use crate::metrics::{Disconnect, Metrics};
 use crate::permissions::{
     BoardPermission, TeamPermission, has_permission_to_team, member_has_permission,
 };
@@ -135,6 +136,31 @@ struct UpdateClientConfigMessage<'a> {
     client_config: &'a ClientConfig,
 }
 
+/// A message the hub sends, with the action it names: the label it is counted under.
+trait Outgoing: Serialize {
+    fn action(&self) -> &'static str;
+}
+
+macro_rules! outgoing {
+    ($($message:ident),* $(,)?) => {
+        $(impl Outgoing for $message<'_> {
+            fn action(&self) -> &'static str {
+                self.action
+            }
+        })*
+    };
+}
+
+outgoing!(
+    UpdateBlockMessage,
+    UpdateBoardMessage,
+    UpdateMemberMessage,
+    UpdateCategoryMessage,
+    CategoryReorderMessage,
+    CategoryBoardsReorderMessage,
+    UpdateClientConfigMessage,
+);
+
 type ListenerId = u64;
 
 #[derive(Debug)]
@@ -147,6 +173,8 @@ struct Listener {
     outbox: mpsc::Sender<Utf8Bytes>,
     /// Cancelled when the hub gives the connection up; ends its reading side.
     closed: CancellationToken,
+    /// Why the hub gave the connection up, set before `closed` is cancelled.
+    closed_because: Arc<OnceLock<Disconnect>>,
     teams: Vec<String>,
     blocks: Vec<String>,
     /// The shared boards whose read token this connection subscribed to blocks with.
@@ -160,6 +188,14 @@ struct Listeners {
     by_id: HashMap<ListenerId, Listener>,
     by_team: HashMap<String, Vec<ListenerId>>,
     by_block: HashMap<String, Vec<ListenerId>>,
+}
+
+impl Listener {
+    /// Gives the connection up, for `reason`; the first reason given is the one counted.
+    fn close(&self, reason: Disconnect) {
+        let _ = self.closed_because.set(reason);
+        self.closed.cancel();
+    }
 }
 
 impl Listeners {
@@ -203,14 +239,10 @@ fn remove_from(index: &mut HashMap<String, Vec<ListenerId>>, key: &str, id: List
 }
 
 /// The set of open websocket connections and what each is subscribed to.
-///
-/// A handle reads the store as it was given it: the connections are the same for every
-/// handle, and whose rows a handle reaches when it looks up who is to be told is the
-/// organization of the [`App`](crate::app::App) it belongs to.
 #[derive(Debug, Clone)]
 pub struct Hub {
     inner: Arc<HubInner>,
-    store: Store,
+    pub(crate) audience: Audience,
 }
 
 #[derive(Debug)]
@@ -218,27 +250,26 @@ struct HubInner {
     listeners: Mutex<Listeners>,
     auth: Authenticator,
     ping_interval: Option<Duration>,
+    metrics: Metrics,
 }
 
 impl Hub {
-    /// Creates a hub. `ping_interval` is how often each connection is pinged, if at all.
-    pub fn new(store: Store, auth: Authenticator, ping_interval: Option<Duration>) -> Self {
+    /// Creates a hub. `ping_interval` is how often each connection is pinged, if at all;
+    /// the connections, the messages and why connections end are counted in `metrics`.
+    pub fn new(
+        audience: Audience,
+        auth: Authenticator,
+        ping_interval: Option<Duration>,
+        metrics: Metrics,
+    ) -> Self {
         Self {
             inner: Arc::new(HubInner {
                 listeners: Mutex::new(Listeners::default()),
                 auth,
                 ping_interval,
+                metrics,
             }),
-            store,
-        }
-    }
-
-    /// The same hub, reading `store`.
-    #[must_use]
-    pub fn scoped(&self, store: Store) -> Self {
-        Self {
-            inner: Arc::clone(&self.inner),
-            store,
+            audience,
         }
     }
 
@@ -256,6 +287,7 @@ impl Hub {
         let (mut sink, mut stream) = socket.split();
         let (outbox, mut inbox) = mpsc::channel::<Utf8Bytes>(OUTBOX_CAPACITY);
         let closed = CancellationToken::new();
+        let closed_because = Arc::new(OnceLock::new());
         let (user_id, session_id, token) = match identity {
             Some(identity) => (
                 identity.session.user_id,
@@ -276,6 +308,7 @@ impl Hub {
                     session_id,
                     outbox,
                     closed: closed.clone(),
+                    closed_because: Arc::clone(&closed_because),
                     teams: Vec::new(),
                     blocks: Vec::new(),
                     shared_boards: Vec::new(),
@@ -283,6 +316,8 @@ impl Hub {
             );
             id
         };
+        let metrics = &self.inner.metrics;
+        let _open = metrics.websocket_opened();
 
         // The sessions of a user can be ended between the handshake and the lines above
         // that made this a connection of that user; the closing of the user's
@@ -295,6 +330,7 @@ impl Hub {
                 tracing::warn!(%error, "a websocket connection ends: its session could not be read");
             }
             self.listeners().remove(id);
+            metrics.websocket_closed(Disconnect::SessionEnded);
             return;
         }
 
@@ -322,31 +358,21 @@ impl Hub {
             let _ = sink.close().await;
         });
 
-        let reading = async {
-            while let Some(Ok(message)) = stream.next().await {
-                let text = match message {
-                    Message::Text(text) => text,
-                    Message::Close(_) => break,
-                    Message::Binary(_) | Message::Ping(_) | Message::Pong(_) => continue,
-                };
-                let Ok(command) = serde_json::from_str::<Command>(&text) else {
-                    tracing::error!("websocket: a command could not be parsed");
-                    continue;
-                };
-                if !self.handle(id, command).await {
-                    break;
-                }
-            }
-        };
-        tokio::select! {
-            () = reading => {}
+        let reason = tokio::select! {
+            // First: when the hub gave the connection up, its reason is the one counted,
+            // also if the client closed it at the same moment.
+            biased;
             // The hub gave the connection up: it does not keep up, or its session or its
             // read token ended.
-            () = closed.cancelled() => {}
+            () = closed.cancelled() => {
+                closed_because.get().copied().unwrap_or(Disconnect::Shutdown)
+            }
+            reason = self.read_commands(id, &mut stream) => reason,
             // The session ended by its idle or absolute limit, which nobody announces:
             // the sessions that ended so are deleted only by the hourly clean-up.
-            () = self.session_ends(token.as_deref(), session_check) => {}
-        }
+            () = self.session_ends(token.as_deref(), session_check) => Disconnect::SessionEnded,
+        };
+        metrics.websocket_closed(reason);
 
         // Removing the listener drops its outbox, which ends the writer once it has sent
         // what was queued. A peer that does not read would hold the writer forever.
@@ -356,6 +382,31 @@ impl Hub {
             .is_err()
         {
             writer.abort();
+        }
+    }
+
+    /// Reads the commands of a connection and carries them out, until the client
+    /// closes it, goes away or sends what is no websocket frame; returns which.
+    async fn read_commands(
+        &self,
+        id: ListenerId,
+        stream: &mut (impl futures_util::Stream<Item = Result<Message, axum::Error>> + Unpin),
+    ) -> Disconnect {
+        loop {
+            let text = match stream.next().await {
+                Some(Ok(Message::Text(text))) => text,
+                Some(Ok(Message::Close(_))) | None => return Disconnect::ClientClosed,
+                Some(Ok(Message::Binary(_) | Message::Ping(_) | Message::Pong(_))) => continue,
+                Some(Err(_)) => return Disconnect::ReadError,
+            };
+            let Ok(command) = serde_json::from_str::<Command>(&text) else {
+                tracing::error!("websocket: a command could not be parsed");
+                continue;
+            };
+            // No command closes a connection now; were one to, the client asked for it.
+            if !self.handle(id, command).await {
+                return Disconnect::ClientClosed;
+            }
         }
     }
 
@@ -384,14 +435,16 @@ impl Hub {
     /// Closes every connection. For shutdown: the connections are not part of the HTTP
     /// server's own connection handling once they are upgraded.
     pub fn close(&self) {
-        self.close_where(|_| true);
+        self.close_where(Disconnect::Shutdown, |_| true);
     }
 
     /// Closes every connection of the user. For when the user's sessions are ended: a
     /// connection asks for its session once, when it is made, and whoever ends a session
     /// closes its connections.
     pub fn close_user(&self, user_id: &str) {
-        self.close_where(|listener| listener.user_id == user_id);
+        self.close_where(Disconnect::SessionEnded, |listener| {
+            listener.user_id == user_id
+        });
     }
 
     /// Closes the connections that follow blocks of a board by its read token. For when
@@ -399,25 +452,30 @@ impl Hub {
     /// anew under another token, or the board is deleted. A reader with the new link
     /// connects again.
     pub fn close_readers_of_board(&self, board_id: &str) {
-        self.close_where(|listener| listener.shared_boards.iter().any(|board| board == board_id));
+        self.close_where(Disconnect::ShareEnded, |listener| {
+            listener.shared_boards.iter().any(|board| board == board_id)
+        });
     }
 
     /// Closes the connections of a session. For when the session ends: at logout, and
     /// when it has gone unused for too long or reached its end.
     pub fn close_session(&self, session_id: &str) {
-        self.close_where(|listener| listener.session_id == session_id);
+        self.close_where(Disconnect::SessionEnded, |listener| {
+            listener.session_id == session_id
+        });
     }
 
     /// Closes the connections of the user that authenticated with another session than
     /// the given one. For when a user changes their password: the session it was
     /// changed through stays, and so do its connections.
     pub fn close_other_sessions_of_user(&self, user_id: &str, kept_session_id: &str) {
-        self.close_where(|listener| {
+        self.close_where(Disconnect::SessionEnded, |listener| {
             listener.user_id == user_id && listener.session_id != kept_session_id
         });
     }
 
-    fn close_where(&self, closes: impl Fn(&Listener) -> bool) {
+    /// Closes the connections `closes` picks, for `reason`.
+    fn close_where(&self, reason: Disconnect, closes: impl Fn(&Listener) -> bool) {
         let mut listeners = self.listeners();
         let ids: Vec<ListenerId> = listeners
             .by_id
@@ -427,7 +485,7 @@ impl Hub {
             .collect();
         for id in ids {
             if let Some(listener) = listeners.by_id.get(&id) {
-                listener.closed.cancel();
+                listener.close(reason);
             }
             listeners.remove(id);
         }
@@ -496,10 +554,10 @@ impl Hub {
         }
         let mut board_id = String::new();
         for block_id in &command.block_ids {
-            let block = self.store.get_block(block_id).await.ok()?;
+            let of_block = self.audience.board_of_block(block_id).await.ok()?;
             if board_id.is_empty() {
-                board_id = block.board_id;
-            } else if board_id != block.board_id {
+                board_id = of_block;
+            } else if board_id != of_block {
                 return None;
             }
         }
@@ -532,7 +590,7 @@ impl Hub {
         if followers.is_empty() && !self.listeners().by_team.contains_key(team_id) {
             return;
         }
-        let members = match self.store.get_members_for_board(&block.board_id).await {
+        let members = match self.audience.members(&block.board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id = %block.board_id, "websocket: reading the board's members failed");
@@ -568,10 +626,7 @@ impl Hub {
         let people = if block.fields.is_empty() {
             Ok(PersonProperties::default())
         } else {
-            self.store
-                .get_board(&block.board_id)
-                .await
-                .map(|board| board.person_properties())
+            self.audience.person_properties(&block.board_id).await
         };
         let people = match people {
             Ok(people) => people,
@@ -807,7 +862,7 @@ impl Hub {
         if !self.listeners().by_team.contains_key(team_id) {
             return Vec::new();
         }
-        let members = match self.store.get_members_for_board(board_id).await {
+        let members = match self.audience.members(board_id).await {
             Ok(members) => members,
             Err(error) => {
                 tracing::error!(%error, team_id, board_id, "websocket: reading the board's members failed");
@@ -844,14 +899,14 @@ impl Hub {
 
     /// Sends a message to every connection of the user that is subscribed to the team:
     /// every tab of the user is told. (The original tells the first one only.)
-    fn send_to_user(&self, team_id: &str, user_id: &str, message: &impl Serialize) {
+    fn send_to_user(&self, team_id: &str, user_id: &str, message: &impl Outgoing) {
         let recipients = self.listeners().of_user(team_id, user_id);
         self.send(&recipients, message);
     }
 
     /// Queues a message for the given listeners. A listener whose queue is full is
     /// dropped and its connection closed.
-    fn send(&self, recipients: &[ListenerId], message: &impl Serialize) {
+    fn send(&self, recipients: &[ListenerId], message: &impl Outgoing) {
         if recipients.is_empty() {
             return;
         }
@@ -864,22 +919,26 @@ impl Hub {
             }
         };
         let mut listeners = self.listeners();
+        let mut queued = 0;
         for id in recipients {
-            let delivered = listeners
-                .by_id
-                .get(id)
-                .is_none_or(|listener| listener.outbox.try_send(text.clone()).is_ok());
-            if !delivered {
+            let Some(listener) = listeners.by_id.get(id) else {
+                continue;
+            };
+            if listener.outbox.try_send(text.clone()).is_ok() {
+                queued += 1;
+            } else {
                 tracing::warn!(
                     listener = id,
                     "websocket: dropping a connection that does not keep up"
                 );
-                if let Some(listener) = listeners.by_id.get(id) {
-                    listener.closed.cancel();
-                }
+                listener.close(Disconnect::SlowConsumer);
                 listeners.remove(*id);
             }
         }
+        drop(listeners);
+        self.inner
+            .metrics
+            .websocket_queued(message.action(), queued);
     }
 }
 
@@ -950,6 +1009,7 @@ mod tests {
                 session_id: String::new(),
                 outbox,
                 closed: CancellationToken::new(),
+                closed_because: Arc::default(),
                 teams: Vec::new(),
                 blocks: Vec::new(),
                 shared_boards: Vec::new(),

@@ -8,7 +8,7 @@
 
 ## 1. 핸드셰이크와 인증
 
-주소는 `{base}/ws`이고 `GET`의 WebSocket 업그레이드만 받는다. 그 밖의 메서드는 405(`Allow`에 `GET`이 있다. `HEAD`가 함께 있을 수 있다), 업그레이드가 아닌 `GET`은 400이다. 둘 다 API의 오류 본문(`ErrorBody`)이다.
+주소는 `{base}/ws`이고 `GET`의 WebSocket 업그레이드만 받는다. 그 밖의 메서드는 405(`Allow`에 `GET`이 있다. `HEAD`가 함께 있을 수 있다), 업그레이드가 아닌 `GET`은 400이다. 둘 다 API의 오류 본문(`application/problem+json`의 `Problem`)이다.
 
 누구의 연결인지는 **핸드셰이크에서 한 번** 정해진다. 연결한 뒤에 로그인하는 메시지는 없다(옛 `AUTH`는 모르는 명령으로 무시된다).
 

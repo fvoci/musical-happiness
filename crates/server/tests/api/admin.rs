@@ -22,7 +22,7 @@ mod socket {
     use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
     use std::path::{Path, PathBuf};
 
-    use fvoci_model::{ErrorBody, new_id};
+    use fvoci_model::{Problem, new_id};
     use reqwest::{Method, StatusCode};
     use serde_json::json;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -74,26 +74,34 @@ mod socket {
             );
         }
 
-        /// Checks an error answer: the status, its code, the message, and that it is
-        /// JSON with the identifier of the request.
+        /// Checks an error answer: the status, the name of its type, the detail, and
+        /// that it is a problem with the identifier of the request.
         #[track_caller]
-        fn check_error(&self, status: u16, code: &str, message: &str) {
+        fn check_error(&self, status: u16, name: &str, message: &str) {
             assert_eq!(self.status, status, "the status; body: {}", self.body);
-            assert!(self.is_json(), "an error is JSON: {}", self.head);
-            let body: ErrorBody = serde_json::from_str(&self.body).expect("an error body");
-            assert_eq!(body.error, code, "{}", self.body);
-            assert_eq!(body.message, message, "{}", self.body);
             assert!(
-                body.request_id.is_some_and(|id| !id.is_empty()),
-                "the request is identified: {}",
+                self.head
+                    .to_lowercase()
+                    .contains("content-type: application/problem+json"),
+                "an error is a problem: {}",
+                self.head
+            );
+            let body: Problem = serde_json::from_str(&self.body).expect("an error body");
+            assert_eq!(body.status, status, "{}", self.body);
+            assert_eq!(
+                body.problem_type,
+                format!("/problems/{name}"),
+                "{}",
                 self.body
             );
-        }
-
-        fn is_json(&self) -> bool {
-            self.head
-                .to_lowercase()
-                .contains("content-type: application/json")
+            assert_eq!(body.detail, message, "{}", self.body);
+            let request_id = body.request_id.expect("the request is identified");
+            assert_eq!(
+                body.instance,
+                Some(format!("urn:uuid:{request_id}")),
+                "{}",
+                self.body
+            );
         }
     }
 
@@ -264,11 +272,11 @@ mod socket {
 
         set_password(&socket, USER1_USERNAME, r#"{"password":""}"#)
             .await
-            .check_error(400, "bad_request", "password is required");
+            .check_error(400, "bad-request", "password is required");
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         set_password(&socket, "nobody", &body).await.check_error(
             404,
-            "not_found",
+            "not-found",
             "user not found",
         );
 
@@ -303,7 +311,7 @@ mod socket {
 
         for body in [r#"{"password":""}"#, "{}", r#"{"password":null}"#, "null"] {
             let response = set_password(&socket, USER1_USERNAME, body).await;
-            response.check_error(400, "bad_request", "password is required");
+            response.check_error(400, "bad-request", "password is required");
         }
 
         assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
@@ -324,7 +332,7 @@ mod socket {
         ] {
             let body = json!({ "password": password }).to_string();
             let response = set_password(&socket, USER1_USERNAME, &body).await;
-            response.check_error(400, "bad_request", message);
+            response.check_error(400, "bad-request", message);
             assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
         }
 
@@ -356,7 +364,7 @@ mod socket {
         let body = json!({ "password": NEW_PASSWORD }).to_string();
         let response = set_password(&socket, "nobody", &body).await;
 
-        response.check_error(404, "not_found", "user not found");
+        response.check_error(404, "not-found", "user not found");
         th.teardown().await;
     }
 
@@ -369,7 +377,10 @@ mod socket {
         for body in ["", r#"{"password":"#, r#"{"password":5}"#, "5"] {
             let response = set_password(&socket, USER1_USERNAME, body).await;
             assert_eq!(response.status, 400, "{body}: {}", response.body);
-            assert!(response.body.contains(r#""error":"bad_request""#), "{body}");
+            assert!(
+                response.body.contains(r#""type":"/problems/bad-request""#),
+                "{body}"
+            );
         }
 
         assert!(can_log_in(&th, PASSWORD).await, "the password is unchanged");
@@ -384,7 +395,7 @@ mod socket {
 
         for method in ["GET", "PUT", "DELETE"] {
             let response = socket_request(&socket, method, ADMIN_PASSWORD_ROUTE, "").await;
-            response.check_error(405, "method_not_allowed", "method not allowed");
+            response.check_error(405, "method-not-allowed", "method not allowed");
             assert!(
                 response.head.to_lowercase().contains("allow: post"),
                 "{method}: {}",
@@ -400,8 +411,22 @@ mod socket {
             "/api/v1/admin/boards",
         ] {
             let response = socket_request(&socket, "GET", target, "").await;
-            response.check_error(404, "not_found", "route not found");
+            response.check_error(404, "not-found", "route not found");
         }
+
+        // The `type` of such an answer is the address of a page on this socket too,
+        // whatever path the server's other listener is served under.
+        let response = socket_request(&socket, "GET", "/problems/not-found", "").await;
+        assert_eq!(response.status, 200, "{}", response.body);
+        assert!(
+            response
+                .body
+                .starts_with("Not found\n\ntype: /problems/not-found\nstatus: 404\n"),
+            "{}",
+            response.body
+        );
+        let response = socket_request(&socket, "GET", "/problems/%FF", "").await;
+        response.check_error(400, "bad-request", "the request is malformed");
         th.teardown().await;
     }
 
@@ -711,7 +736,7 @@ async fn routes_of_the_host_application_do_not_exist() {
             response.check_error(StatusCode::NOT_FOUND, "route not found");
             assert_eq!(
                 response.header("content-type"),
-                "application/json",
+                "application/problem+json",
                 "{path}"
             );
         }

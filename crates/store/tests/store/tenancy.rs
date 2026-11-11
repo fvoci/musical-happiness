@@ -893,7 +893,7 @@ fn the_systems_reach_is_asked_for_in_few_places() {
         "store/src/lib.rs",
         "store/src/directory.rs",
         "store/src/data_steps.rs",
-        "server/src/housekeeping.rs",
+        "server/src/app/housekeeping.rs",
     ];
     let crates = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -933,19 +933,19 @@ fn the_systems_reach_is_asked_for_in_few_places() {
     assert_eq!(asking, allowed, "the files that ask for the system's reach");
 }
 
-/// The files of the server that say whose rows a handle reaches: the extractor of the
-/// workspace routes, the templates (as the system organization), the start (the one
+/// The files of the server that say whose rows a handle reaches: the way into a
+/// workspace, the templates (as the system organization), the start (the one
 /// organization of the routes that name no workspace), the housekeeping, and the
-/// application's own `scoped`. A handler that named an organization by what a request
+/// application's own `scoped`. All of them are the logic's; no handler names one. A handler that named an organization by what a request
 /// says, past the extractor, would open the wall from the inside.
 #[test]
 fn the_server_names_an_organization_for_a_handle_in_few_places() {
     const ALLOWED: [&str; 5] = [
-        "api/workspace.rs",
+        "app/housekeeping.rs",
         "app/mod.rs",
+        "app/startup.rs",
         "app/templates.rs",
-        "housekeeping.rs",
-        "lib.rs",
+        "app/workspaces.rs",
     ];
     let server = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

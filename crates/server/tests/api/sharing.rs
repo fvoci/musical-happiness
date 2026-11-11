@@ -200,7 +200,7 @@ async fn a_request_cannot_set_the_read_token() {
             StatusCode::BAD_REQUEST,
             "the server makes the read token; a request cannot set it",
         );
-        assert_eq!(response.value()["field"], json!("token"), "the member");
+        assert_eq!(response.refused_at(), "/token", "the member");
     }
     assert_eq!(
         sharing_of(&th.client, &board.id).await,
@@ -474,10 +474,14 @@ async fn post_sharing_wants_a_boolean_and_refuses_the_rest() {
             .send_raw_body(Method::POST, &path, malformed)
             .await;
         response.check_bad_request();
-        assert_eq!(response.error_code(), "bad_request", "{malformed}");
         assert_eq!(
-            response.value().get("field").and_then(Value::as_str),
-            field,
+            response.problem_type(),
+            "/problems/bad-request",
+            "{malformed}"
+        );
+        assert_eq!(
+            response.refused_place(),
+            field.map(|member| format!("/{member}")),
             "the member that is wrong in {malformed}"
         );
     }

@@ -285,7 +285,7 @@ async fn a_part_that_fails_a_check_is_not_kept() {
         .body(last.to_vec());
     let response = Client::send(request).await;
     response.check_bad_request();
-    assert_eq!(response.value()["field"], "Content-Digest");
+    assert_eq!(response.refused_at(), "header Content-Digest");
 
     // Completing with a part missing names it, and the upload stays open for it.
     put_part(&ts.client, &upload_id, 2, last)
@@ -394,7 +394,7 @@ async fn opening_an_upload_is_checked() {
             .await;
         response.check_bad_request();
         if !field.is_empty() {
-            assert_eq!(response.value()["field"], field, "{body}");
+            assert_eq!(response.refused_at(), format!("/{field}"), "{body}");
         }
     }
 
@@ -650,7 +650,8 @@ async fn ended_uploads_are_thrown_away_with_their_parts() {
         ts.app
             .clean_up_uploads(now)
             .await
-            .expect("the clean-up runs"),
+            .expect("the clean-up runs")
+            .removed,
         0,
         "nothing has ended"
     );
@@ -658,7 +659,8 @@ async fn ended_uploads_are_thrown_away_with_their_parts() {
         ts.app
             .clean_up_uploads(now + UPLOAD_LIFETIME_MILLIS + 1)
             .await
-            .expect("the clean-up runs"),
+            .expect("the clean-up runs")
+            .removed,
         1
     );
     assert!(!parts_dir(&ts, &ending).exists(), "the parts are gone");
@@ -677,7 +679,11 @@ async fn ended_uploads_are_thrown_away_with_their_parts() {
         .await
         .expect("the upload is closed");
     assert_eq!(
-        ts.app.clean_up_uploads(now + 1000).await.expect("runs"),
+        ts.app
+            .clean_up_uploads(now + 1000)
+            .await
+            .expect("runs")
+            .removed,
         0,
         "a closed upload is left to whoever closed it for a while"
     );
@@ -685,7 +691,8 @@ async fn ended_uploads_are_thrown_away_with_their_parts() {
         ts.app
             .clean_up_uploads(now + CLOSED_UPLOAD_GRACE_MILLIS + 1)
             .await
-            .expect("runs"),
+            .expect("runs")
+            .removed,
         1
     );
     assert!(!parts_dir(&ts, &left_closed).exists(), "the parts are gone");
@@ -831,14 +838,16 @@ async fn an_upload_closed_just_before_its_end_gets_the_grace() {
         .app
         .clean_up_uploads(expires_at + 30_000)
         .await
-        .expect("the clean-up runs");
+        .expect("the clean-up runs")
+        .removed;
     assert_eq!(removed, 0, "the completion is left alone");
     assert_eq!(part_numbers(&parts_dir(&ts, &upload_id)), ["1"]);
     let removed = ts
         .app
         .clean_up_uploads(expires_at - 1000 + CLOSED_UPLOAD_GRACE_MILLIS + 1)
         .await
-        .expect("the clean-up runs");
+        .expect("the clean-up runs")
+        .removed;
     assert_eq!(removed, 1, "after the grace it is thrown away");
     assert!(!parts_dir(&ts, &upload_id).exists());
 }
@@ -1205,7 +1214,8 @@ async fn with_s3_a_completion_without_record_leaves_no_object() {
         .app
         .clean_up_uploads(now_millis() + CLOSED_UPLOAD_GRACE_MILLIS + 1000)
         .await
-        .expect("the clean-up runs");
+        .expect("the clean-up runs")
+        .removed;
     assert_eq!(removed, 1);
     assert_eq!(
         ts.app.files().size(&path).await.expect("the size is read"),

@@ -13,7 +13,7 @@ use crate::Store;
 use crate::db::{Dialect, Id, Row, Scope, now_millis};
 use crate::error::StoreError;
 use crate::teams;
-use crate::uploads::UploadUsage;
+use crate::uploads::{OpenUploads, UploadUsage};
 
 /// The organization that holds what the server ships with and is nobody's: the
 /// built-in templates. The schema makes it, under this identifier.
@@ -170,6 +170,30 @@ impl Store {
                         })
                     })
                     .collect()
+            })
+            .await
+    }
+
+    /// Returns the upload sessions open at `now`, all users' together and of every
+    /// organization, as [`Store::upload_usage`] counts them for the server: a number
+    /// of the whole server, for its metrics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn open_uploads(&self, now: i64) -> Result<OpenUploads, StoreError> {
+        self.system()
+            .with_conn(async |scope| {
+                let mut sql = scope.sql(
+                    "SELECT CAST(COUNT(*) AS BIGINT), CAST(COALESCE(SUM(size), 0) AS BIGINT) \
+                 FROM uploads WHERE closed_at = 0 AND expires_at > ",
+                );
+                sql.bind(now);
+                let row = scope.fetch_optional(sql).await?.ok_or(StoreError::NoRows)?;
+                Ok(OpenUploads {
+                    sessions: row.int(0)?,
+                    bytes: row.int(1)?,
+                })
             })
             .await
     }

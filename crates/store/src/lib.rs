@@ -47,7 +47,7 @@ pub use directory::{SYSTEM_ORG_ID, SYSTEM_WORKSPACE_ID, WorkspaceAccess};
 pub use error::{StoreError, Taken};
 pub use sharing::SharingChange;
 pub use trash::{DeletedBlock, DeletedBoard, Purged};
-pub use uploads::{PartRecord, UploadUsage};
+pub use uploads::{OpenUploads, PartRecord, UploadUsage};
 pub use users::{AdminChange, InstanceRole, Preference};
 
 use db::{ConnRef, Scope};
@@ -120,6 +120,17 @@ impl Tenant {
 /// organization whose rows it reaches, and `on` if it reaches those of all.
 const ORG_SETTING: &str = "fvoci.org";
 const SYSTEM_SETTING: &str = "fvoci.system";
+
+/// How the connection pool of a [`Store`] stands, as [`Store::pool_status`] reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PoolStatus {
+    /// The connections the pool holds, in use or idle.
+    pub connections: u32,
+    /// The connections the pool holds that are idle.
+    pub idle: u32,
+    /// The most connections the pool may hold.
+    pub max_connections: u32,
+}
 
 /// A handle to the database.
 ///
@@ -262,6 +273,30 @@ impl Store {
     /// Whose rows this handle reaches.
     pub fn tenant(&self) -> Tenant {
         self.tenant
+    }
+
+    /// Returns how the connection pool stands: the connections it holds, those of them
+    /// that are idle, and how many it may hold.
+    pub fn pool_status(&self) -> PoolStatus {
+        let (size, idle, max) = match &self.inner.pool {
+            Pool::Sqlite(pool) => (
+                pool.size(),
+                pool.num_idle(),
+                pool.options().get_max_connections(),
+            ),
+            Pool::Postgres(pool) => (
+                pool.size(),
+                pool.num_idle(),
+                pool.options().get_max_connections(),
+            ),
+        };
+        // Read one after the other, the two can pass each other: no more are idle than
+        // there are.
+        PoolStatus {
+            connections: size,
+            idle: u32::try_from(idle).unwrap_or(u32::MAX).min(size),
+            max_connections: max,
+        }
     }
 
     /// Returns the kind of database this store is connected to.

@@ -1,0 +1,56 @@
+# Uses that break the rule of the layers (xtask/src/layers.rs) and are still in the
+# code: a file, what it names, and how many times.
+#
+# `cargo xtask check` fails for a use that is not here, and for a line whose use is
+# gone, until the line is removed or its count lowered.
+#
+# By hand a line is removed, its count lowered, or moved with its code to the file the
+# code went to; never added for a new use, and a count is never raised. The check
+# cannot tell an added line from one that was here: the diff of this file shows it.
+#
+# http -> store: the HTTP layer names the store, or reaches it through `.store()`.
+# logic -> http: the logic names axum, HTTP types, or a module of the HTTP layer.
+
+crates/server/src/api/archive.rs     fvoci_store::PublicBoards                            1
+crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Exclude                   1
+crates/server/src/api/archive.rs     fvoci_store::PublicBoards::Include                   1
+crates/server/src/api/auth.rs        .store().is_bootstrapped                             1
+crates/server/src/api/boards.rs      fvoci_store::PublicBoards                            1
+crates/server/src/api/boards.rs      fvoci_store::PublicBoards::Exclude                   1
+crates/server/src/api/boards.rs      fvoci_store::PublicBoards::Include                   1
+crates/server/src/api/categories.rs  fvoci_store::BoardVisibility                         2
+crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Hidden                 1
+crates/server/src/api/categories.rs  fvoci_store::BoardVisibility::Visible                1
+crates/server/src/api/mod.rs         fvoci_store::DuplicateAs                             2
+crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Copy                       1
+crates/server/src/api/mod.rs         fvoci_store::DuplicateAs::Template                   1
+crates/server/src/api/search.rs      fvoci_store::PublicBoards                            1
+crates/server/src/api/search.rs      fvoci_store::PublicBoards::Exclude                   1
+crates/server/src/api/search.rs      fvoci_store::PublicBoards::Include                   1
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange                           2
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange::Off                      1
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange::On                       1
+crates/server/src/api/sharing.rs     fvoci_store::SharingChange::OnWithNewToken           1
+crates/server/src/api/users.rs       .store().get_members_for_user                        1
+crates/server/src/api/users.rs       fvoci_store::InstanceRole                            1
+crates/server/src/api/users.rs       fvoci_store::InstanceRole::Administrator             1
+crates/server/src/api/users.rs       fvoci_store::InstanceRole::User                      1
+crates/server/src/api/users.rs       fvoci_store::Preference                              2
+crates/server/src/app/mod.rs         fvoci_server::web::WebRoot                           3
+crates/server/src/app/mod.rs         fvoci_server::web::WebRoot::new                      1
+crates/server/src/app/mod.rs         fvoci_server::ws::Hub                                3
+crates/server/src/app/mod.rs         fvoci_server::ws::Hub::new                           1
+crates/server/src/auth/token.rs      axum::http::HeaderMap                                6
+crates/server/src/auth/token.rs      axum::http::HeaderMap::new                           1
+crates/server/src/auth/token.rs      axum::http::HeaderValue                              6
+crates/server/src/auth/token.rs      axum::http::HeaderValue::from_static                 6
+crates/server/src/auth/token.rs      axum::http::HeaderValue::from_str                    1
+crates/server/src/auth/token.rs      axum::http::Uri                                      2
+crates/server/src/auth/token.rs      axum::http::header::AUTHORIZATION                    2
+crates/server/src/auth/token.rs      axum::http::header::COOKIE                           2
+crates/server/src/auth/token.rs      axum::http::header::ORIGIN                           2
+crates/server/src/config.rs          fvoci_server::client_address::TrustedProxies::parse  1
+crates/server/src/lib.rs             .store().clean_up_sessions                           1
+crates/server/src/lib.rs             .store().close                                       1
+crates/server/src/lib.rs             .store().collect_unreferenced_files                  1
+crates/server/src/lib.rs             .store().purge_trash                                 1

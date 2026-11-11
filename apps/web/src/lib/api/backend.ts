@@ -12,6 +12,7 @@ import type { BlockPatch, Board, BoardMember, BoardPatch, BoardView } from '../l
 import { applyViewPatch } from '../state/patches.ts';
 import {
   BackendError,
+  refusedMember,
   type Account,
   type AccountSettings,
   type AccountSettingsPatch,
@@ -64,7 +65,7 @@ import { uploadInParts } from './upload.ts';
  */
 export function notWired(operation: string): never {
   throw new BackendError(405, {
-    message: `${operation} is not wired to the server yet`,
+    detail: `${operation} is not wired to the server yet`,
     reason: 'not_wired',
   });
 }
@@ -311,7 +312,7 @@ export class ServerBackend implements Backend, Account {
       { query: { blockId: viewId } },
     );
     if (view?.type !== 'view') {
-      throw new BackendError(404, { message: 'no such view on this board', reason: 'not_found' });
+      throw new BackendError(404, { detail: 'no such view on this board' });
     }
     return viewOf(view);
   }
@@ -339,7 +340,7 @@ export class ServerBackend implements Backend, Account {
   async #card(boardId: string, cardId: string): Promise<Schemas['Card']> {
     const card = await this.#http.request<Schemas['Card']>('/api/v1/cards/{cardId}', { cardId });
     if (card.boardId !== boardId) {
-      throw new BackendError(404, { message: 'no such card on this board', reason: 'not_found' });
+      throw new BackendError(404, { detail: 'no such card on this board' });
     }
     return card;
   }
@@ -447,7 +448,7 @@ export class ServerBackend implements Backend, Account {
       { boardId },
       { method: 'POST', json: [block] },
     );
-    if (!made) throw new BackendError(500, { message: 'the server made no comment' });
+    if (!made) throw new BackendError(500, { detail: 'the server made no comment' });
     return commentOf(made);
   }
 
@@ -461,7 +462,10 @@ export class ServerBackend implements Backend, Account {
     if (!write.body) {
       // The server would take it and leave a comment with no text.
       return Promise.reject(
-        new BackendError(400, { message: 'a comment needs a text', field: 'body' }),
+        new BackendError(400, {
+          detail: 'a comment needs a text',
+          errors: [refusedMember('body', 'a comment needs a text', 'required')],
+        }),
       );
     }
     return this.#inTurn(commentId, async () => {
@@ -491,10 +495,7 @@ export class ServerBackend implements Backend, Account {
       { query: { blockId: commentId } },
     );
     if (block?.type !== 'comment') {
-      throw new BackendError(404, {
-        message: 'no such comment on this board',
-        reason: 'not_found',
-      });
+      throw new BackendError(404, { detail: 'no such comment on this board' });
     }
     return commentOf(block);
   }
@@ -534,7 +535,7 @@ export class ServerBackend implements Backend, Account {
       { boardId },
       { method: 'POST', json: [block] },
     );
-    if (!made) throw new BackendError(500, { message: 'the server made no attachment' });
+    if (!made) throw new BackendError(500, { detail: 'the server made no attachment' });
     return attachmentOf(made);
   }
 
@@ -568,7 +569,7 @@ export class ServerBackend implements Backend, Account {
   async upload(boardId: string, file: File, options?: UploadOptions): Promise<UploadedFile> {
     const limit = (await this.#clientConfig()).maxFileSize;
     if (file.size > limit) {
-      throw new BackendError(413, { message: 'the file is too large', limit });
+      throw new BackendError(413, { detail: 'the file is too large', limit });
     }
     // A few at a time: the server keeps only so many open uploads of a reader (429).
     await this.#uploadTurn(options?.signal);

@@ -15,12 +15,13 @@ pub(crate) mod params;
 
 use std::collections::BTreeSet;
 
-use fvoci_model::ErrorBody;
+use fvoci_model::{InvalidInput, PROBLEM_MEDIA_TYPE, Problem};
 use serde_json::{Map, Value, json};
 use utoipa::PartialSchema;
 use utoipa_axum::router::OpenApiRouter;
 
 use crate::app::App;
+use crate::problems::Basis;
 
 /// The names operations are grouped under.
 pub(crate) mod tag {
@@ -110,10 +111,18 @@ the browser posts itself), which is refused as a foreign origin.
 ## Answers
 
 An operation answers 200 with a body, 201 with what it made, or 204 with no body. Every \
-other status comes with an `ErrorBody`, unless the operation says otherwise (`getFile` \
-does): `error` names the kind of the refusal and goes with the status, `reason` tells apart \
-causes a client must tell apart, `field` names the member of the request that was refused, \
-and `limit` is the number of bytes a body that was too large (413) may have. A session that \
+other status comes with a `Problem`, the problem details of RFC 9457, as \
+`application/problem+json`: `type` names the kind of the problem and is the same for every \
+problem of the kind, `title` is its name, `status` repeats the status and `detail` says what \
+went wrong this time. `type` is `/problems/<name>` under the path the server is served at, \
+the address of a page of text about the kind; `/problems` lists them, and so does \
+`x-problem-types` of the schema `Problem`, as they are on a server at the root of its host \
+(a server under a path has that path before each). `reason` tells apart causes a client must tell apart; a \
+problem with a `reason` has the `type` of that name, written with hyphens, and any other the \
+`type` of its status. `errors` lists what of the request was refused, each by a JSON Pointer \
+into the body (`pointer`), the name of a parameter of the query or the path (`parameter`), or \
+the name of a header (`header`). `limit` is the limit that was exceeded: bytes for a body \
+that was too large (413), a count for too many of something. `instance` is the request, `urn:uuid:` and its `requestId`. A session that \
 is missing or over is 401. What the user may not see is 404, as if it were not there; what \
 they may see but not do is 403. A path that is no operation is 404 too, and a method an \
 operation's path does not have is 405.
@@ -145,8 +154,9 @@ members the schema does not list is mostly not refused for them. The exceptions:
 const REFUSAL: &str = "The request was refused, or failed. The status says the kind: 400 for a \
 request that is malformed or asks for what cannot be, 401 without a session, 403 for what the \
 user may not do, 404 for what is not there for them, 405 for a method the path does not have, \
-409 for what is in the way, 413 for a body that is too large, 429 for too many requests, 500 \
-for a failure of the server.";
+409 for what is in the way, 412 for a condition of the request that does not hold, 413 for a \
+body that is too large, 416 for a range that is not there, 429 for too many requests, 500 for \
+a failure of the server.";
 
 /// Which members of a schema are always there.
 #[derive(Debug, Clone, Copy)]
@@ -182,9 +192,13 @@ const SCHEMAS: &[(&str, Members)] = &[
     ("ClientConfig", Members::All),
     ("CommentVersion", Members::All),
     ("DeletedItem", Members::All),
-    ("ErrorBody", Members::Only(&["error", "message"])),
     ("FileInfo", Members::All),
+    ("InvalidInput", Members::Only(&["detail", "reason"])),
     ("OnboardingStart", Members::AsWritten),
+    (
+        "Problem",
+        Members::Only(&["type", "title", "status", "detail"]),
+    ),
     ("ServerMetadata", Members::AsWritten),
     ("Sharing", Members::AllBut(&["token", "updateAt"])),
     ("Subscription", Members::All),
@@ -350,14 +364,20 @@ fn object_at<'v>(
         .ok_or_else(|| ContractError(format!("the document has no object at {pointer}")))
 }
 
-/// Brings the schemas to what the contract says: `ErrorBody` is among them, none
+/// Brings the schemas to what the contract says: `Problem` is among them, none
 /// carries the defaults of the decoding, and each has the members [`SCHEMAS`] says are
 /// always there.
 fn finish_schemas(document: &mut Value) -> Result<(), ContractError> {
     let schemas = object_at(document, "/components/schemas")?;
-    let error_body = serde_json::to_value(ErrorBody::schema())
-        .map_err(|error| ContractError(format!("the error body has no schema: {error}")))?;
-    schemas.insert("ErrorBody".to_owned(), error_body);
+    for (name, schema) in [
+        ("Problem", Problem::schema()),
+        ("InvalidInput", InvalidInput::schema()),
+    ] {
+        let schema = serde_json::to_value(schema)
+            .map_err(|error| ContractError(format!("{name} has no schema: {error}")))?;
+        schemas.insert(name.to_owned(), schema);
+    }
+    schemas["Problem"]["x-problem-types"] = problem_types();
 
     let listed: BTreeSet<&str> = SCHEMAS.iter().map(|(name, _)| *name).collect();
     if let Some(unlisted) = schemas.keys().find(|name| !listed.contains(name.as_str())) {
@@ -376,6 +396,26 @@ fn finish_schemas(document: &mut Value) -> Result<(), ContractError> {
         require_members(name, schema, *members)?;
     }
     Ok(())
+}
+
+/// Every kind of problem, as the contract lists them: the `type` on a server at the
+/// root of its host (a server under a base path has the base path before it), the
+/// `title`, and the `status` or the `reason` the kind is of.
+fn problem_types() -> Value {
+    crate::problems::all()
+        .into_iter()
+        .map(|problem| {
+            let mut listed = json!({
+                "type": problem.type_reference(),
+                "title": problem.title,
+            });
+            match problem.basis {
+                Basis::Status(status) => listed["status"] = json!(status),
+                Basis::Reason(reason) => listed["reason"] = json!(reason),
+            }
+            listed
+        })
+        .collect()
 }
 
 /// Does for the schemas that are written where they are used, in the parameters, the
@@ -574,7 +614,7 @@ fn finish_operations(document: &mut Value) -> Result<(), ContractError> {
     let refusal = json!({
         "description": REFUSAL,
         "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/ErrorBody" } },
+            PROBLEM_MEDIA_TYPE: { "schema": { "$ref": "#/components/schemas/Problem" } },
         },
     });
     let mut names = BTreeSet::new();
@@ -678,626 +718,4 @@ fn sorted(value: Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Value, json};
-
-    use super::{
-        Members, document, finish_inline_schemas, finish_operations, open_free_objects,
-        path_parameters, rename_paths, require_members, sorted, strip_defaults,
-    };
-
-    #[test]
-    fn the_document_can_be_made() {
-        let text = document().expect("the routes and schemas are fit for the contract");
-        let document: Value = serde_json::from_str(&text).expect("the document is JSON");
-        assert_eq!(
-            document["openapi"], "3.1.0",
-            "the version of OpenAPI the document is written in"
-        );
-        assert!(text.ends_with("}\n"), "the text ends with one line break");
-    }
-
-    #[test]
-    fn every_operation_answers_a_refusal_with_the_error_body() {
-        let text = document().expect("the document");
-        let document: Value = serde_json::from_str(&text).expect("JSON");
-        let paths = document["paths"].as_object().expect("paths");
-        let mut operations = 0;
-        for (path, item) in paths {
-            for (method, operation) in item.as_object().expect("a path item") {
-                operations += 1;
-                assert_eq!(
-                    operation["responses"]["default"]["content"]["application/json"]["schema"]["$ref"],
-                    "#/components/schemas/ErrorBody",
-                    "the refusal of {method} {path}"
-                );
-            }
-        }
-        assert!(operations > 70, "the document has {operations} operations");
-    }
-
-    /// The operations that need no session at all.
-    const NO_SESSION: [&str; 5] = ["getClientConfig", "hello", "login", "ping", "register"];
-    /// The operations that are read with a session or with the read token of a board.
-    const READ_TOKEN: [&str; 5] = [
-        "getBlocks",
-        "getBoard",
-        "getCards",
-        "getFile",
-        "getFileInfo",
-    ];
-
-    #[test]
-    fn what_needs_no_session_says_so() {
-        let text = document().expect("the document");
-        let document: Value = serde_json::from_str(&text).expect("JSON");
-        let mut no_session = Vec::new();
-        let mut read_token = Vec::new();
-        for item in document["paths"].as_object().expect("paths").values() {
-            for operation in item.as_object().expect("a path item").values() {
-                let name = operation["operationId"].as_str().expect("a name");
-                let security = &operation["security"];
-                if *security == json!([{}]) {
-                    no_session.push(name);
-                } else if *security == json!([{}, { "sessionCookie": [] }, { "bearerToken": [] }]) {
-                    read_token.push(name);
-                } else {
-                    assert_eq!(
-                        *security,
-                        Value::Null,
-                        "{name}: what says nothing needs what the document says for all"
-                    );
-                }
-            }
-        }
-        no_session.sort_unstable();
-        read_token.sort_unstable();
-        assert_eq!(
-            no_session, NO_SESSION,
-            "these need no session, and no others"
-        );
-        assert_eq!(
-            read_token, READ_TOKEN,
-            "these are read with a session or a read token, and no others"
-        );
-        assert_eq!(
-            document["security"],
-            json!([{ "sessionCookie": [] }, { "bearerToken": [] }]),
-            "what every operation needs unless it says otherwise"
-        );
-    }
-
-    #[test]
-    fn an_answer_has_every_member_and_a_patch_needs_none() {
-        let text = document().expect("the document");
-        let document: Value = serde_json::from_str(&text).expect("JSON");
-        let schemas = &document["components"]["schemas"];
-        let board = &schemas["Board"];
-        assert_eq!(
-            board["required"].as_array().map(Vec::len),
-            board["properties"].as_object().map(serde_json::Map::len),
-            "every member of a board is always there"
-        );
-        assert_eq!(
-            schemas["BoardPatch"]["required"],
-            Value::Null,
-            "a patch needs no member"
-        );
-        assert_eq!(
-            schemas["Sharing"]["required"],
-            json!(["enabled"]),
-            "the token and the time are left out while a board is not shared"
-        );
-        assert_eq!(
-            schemas["CategoryBoards"]["allOf"][1]["required"],
-            json!(["boardMetadata"]),
-            "the members of a category with its boards, beside those of the category"
-        );
-        assert!(board["required"].is_array() && board["properties"].is_object());
-        assert_eq!(
-            defaults_in(schemas, "components.schemas"),
-            Vec::<String>::new(),
-            "no schema carries the defaults of the decoding"
-        );
-        assert_eq!(
-            defaults_in(&document["paths"], "paths"),
-            Vec::<String>::new(),
-            "nor does a schema that is written where it is used"
-        );
-    }
-
-    /// Where below `value` something has a `default` that is no member of a schema's
-    /// `properties`, and no `default` answer of an operation.
-    fn defaults_in(value: &Value, place: &str) -> Vec<String> {
-        match value {
-            Value::Object(members) => members
-                .iter()
-                .flat_map(|(name, member)| {
-                    let inner = format!("{place}.{name}");
-                    let is_schema_default = name == "default"
-                        && !place.ends_with(".properties")
-                        && !place.ends_with(".responses");
-                    if is_schema_default {
-                        vec![inner]
-                    } else {
-                        defaults_in(member, &inner)
-                    }
-                })
-                .collect(),
-            Value::Array(items) => items
-                .iter()
-                .flat_map(|item| defaults_in(item, place))
-                .collect(),
-            _ => Vec::new(),
-        }
-    }
-
-    /// The members a value is written with.
-    fn sent<T: serde::Serialize>(value: &T) -> Vec<String> {
-        serde_json::to_value(value)
-            .expect("JSON")
-            .as_object()
-            .expect("an object")
-            .keys()
-            .cloned()
-            .collect()
-    }
-
-    /// The members a schema says are always there, with those of the schemas it has
-    /// inline.
-    fn required_of(schemas: &Value, schema: &Value) -> Vec<String> {
-        let mut required: Vec<String> = schema["required"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|name| name.as_str().map(str::to_owned))
-            .collect();
-        for part in schema["allOf"].as_array().into_iter().flatten() {
-            let part = match part["$ref"].as_str() {
-                Some(reference) => &schemas[reference.rsplit('/').next().expect("a name")],
-                None => part,
-            };
-            required.extend(required_of(schemas, part));
-        }
-        required.sort_unstable();
-        required
-    }
-
-    /// The table of schemas says by hand which members are always there. What the
-    /// server writes says it too: a value with nothing in it is written with exactly
-    /// the members that are never left out. A member that is given a
-    /// `skip_serializing_if` and forgotten in the table fails here.
-    #[test]
-    fn what_is_always_there_is_what_the_server_writes() {
-        use fvoci_model::{
-            Block, Board, BoardMember, BoardsAndBlocks, Card, Category, CategoryBoardMetadata,
-            CategoryBoards, ClientConfig, FileInfo, Sharing, Team, User,
-        };
-
-        let text = document().expect("the document");
-        let document: Value = serde_json::from_str(&text).expect("JSON");
-        let schemas = &document["components"]["schemas"];
-        let written = [
-            ("Block", sent(&Block::default())),
-            ("Board", sent(&Board::default())),
-            ("BoardMember", sent(&BoardMember::default())),
-            ("BoardsAndBlocks", sent(&BoardsAndBlocks::default())),
-            ("Card", sent(&Card::default())),
-            ("Category", sent(&Category::default())),
-            (
-                "CategoryBoardMetadata",
-                sent(&CategoryBoardMetadata::default()),
-            ),
-            ("CategoryBoards", sent(&CategoryBoards::default())),
-            ("ClientConfig", sent(&ClientConfig::default())),
-            ("FileInfo", sent(&FileInfo::default())),
-            ("Sharing", sent(&Sharing::default())),
-            ("Team", sent(&Team::default())),
-            ("User", sent(&User::default())),
-        ];
-        for (name, mut members) in written {
-            members.sort_unstable();
-            assert_eq!(
-                required_of(schemas, &schemas[name]),
-                members,
-                "the members of {name} that are always there"
-            );
-        }
-    }
-
-    /// The words of a closed set are those the server writes, letter for letter.
-    #[test]
-    fn a_closed_set_of_words_lists_the_words_as_they_are_written() {
-        use fvoci_model::{CardOpen, Density, HourCycle, Theme, UserSettings, WeekStart};
-
-        let text = document().expect("the document");
-        let document: Value = serde_json::from_str(&text).expect("JSON");
-        let schemas = &document["components"]["schemas"];
-        for (name, words) in [
-            ("CardOpen", CardOpen::WORDS),
-            ("Density", Density::WORDS),
-            ("HourCycle", HourCycle::WORDS),
-            ("Theme", Theme::WORDS),
-            ("WeekStart", WeekStart::WORDS),
-        ] {
-            assert_eq!(schemas[name]["enum"], json!(words), "{name}");
-            assert!(schemas[name]["description"].is_string(), "{name}");
-        }
-        // Both the answer and the change name every setting there is.
-        let mut every: Vec<&str> = fvoci_model::SettingName::ALL
-            .iter()
-            .map(|name| name.as_str())
-            .collect();
-        every.sort_unstable();
-        for schema in ["UserSettings", "SettingsChange"] {
-            let mut members: Vec<&str> = schemas[schema]["properties"]
-                .as_object()
-                .expect("members")
-                .keys()
-                .map(String::as_str)
-                .collect();
-            members.sort_unstable();
-            assert_eq!(members, every, "{schema} names every setting");
-        }
-        // And what an answer carries is among them.
-        let settings = serde_json::to_value(UserSettings::default()).expect("JSON");
-        for (member, set) in [
-            ("cardOpen", "CardOpen"),
-            ("density", "Density"),
-            ("hourCycle", "HourCycle"),
-            ("theme", "Theme"),
-            ("weekStart", "WeekStart"),
-        ] {
-            let words = schemas[set]["enum"].as_array().expect("words");
-            assert!(
-                words.contains(&settings[member]),
-                "{member} is {}, which is none of {words:?}",
-                settings[member]
-            );
-        }
-        for (set, value) in [
-            ("BoardType", json!(fvoci_model::BoardType::Open)),
-            ("BoardType", json!(fvoci_model::BoardType::Private)),
-            ("MinimumRole", json!(fvoci_model::MinimumRole::default())),
-            ("CategoryType", json!(fvoci_model::CategoryType::default())),
-            ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Admin)),
-            ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Member)),
-            ("WorkspaceRole", json!(fvoci_model::WorkspaceRole::Guest)),
-        ] {
-            let words = schemas[set]["enum"].as_array().expect("words");
-            assert!(words.contains(&value), "{value} is none of {words:?}");
-        }
-    }
-
-    /// A document with one operation, for what [`finish_operations`] refuses.
-    fn with_operation(path: &str, operation: &Value) -> Value {
-        json!({
-            "paths": { path: { "get": operation } },
-            "components": { "securitySchemes": { "sessionCookie": {} } },
-        })
-    }
-
-    #[test]
-    fn an_operation_that_is_not_fit_for_the_contract_is_refused_with_the_reason() {
-        let good = json!({
-            "operationId": "getThing",
-            "summary": "A thing",
-            "tags": ["things"],
-            "parameters": [{ "in": "path", "name": "thingId" }],
-            "responses": { "200": {} },
-        });
-        let path = "/things/{thingId}";
-        finish_operations(&mut with_operation(path, &good)).expect("this one is fit");
-
-        let without = |member: &str| {
-            let mut operation = good.clone();
-            operation.as_object_mut().expect("an object").remove(member);
-            operation
-        };
-        let with = |member: &str, value: Value| {
-            let mut operation = good.clone();
-            operation[member] = value;
-            operation
-        };
-        for (operation, reason) in [
-            (without("operationId"), "has no operationId"),
-            (without("summary"), "has no summary"),
-            (without("tags"), "has no tags"),
-            (
-                without("parameters"),
-                "does not describe its path parameter thingId",
-            ),
-            (
-                with(
-                    "parameters",
-                    json!([{ "in": "path", "name": "thingId" }, { "in": "path", "name": "other" }]),
-                ),
-                "describes a path parameter other that its path does not have",
-            ),
-            (
-                with("responses", json!({ "404": {} })),
-                "has no answer of success",
-            ),
-            (
-                with("security", json!([{ "sessionCooky": [] }])),
-                "asks for sessionCooky, which is no security scheme",
-            ),
-        ] {
-            let error = finish_operations(&mut with_operation(path, &operation))
-                .expect_err(reason)
-                .to_string();
-            assert!(error.contains(reason), "{error}");
-        }
-
-        let mut twice = json!({
-            "paths": { "/things": { "get": without("parameters"), "post": without("parameters") } },
-        });
-        let error = finish_operations(&mut twice)
-            .expect_err("one name for two")
-            .to_string();
-        assert!(
-            error.contains("two operations have the operationId getThing"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn a_path_that_is_not_there_cannot_be_renamed() {
-        let error = rename_paths(&mut json!({ "paths": {} }))
-            .expect_err("nothing to rename")
-            .to_string();
-        assert!(error.contains("there is no path"), "{error}");
-    }
-
-    #[test]
-    fn a_schema_that_is_written_where_it_is_used_is_finished_too() {
-        let mut paths = json!({
-            "/things": { "post": {
-                "parameters": [{ "name": "limit", "schema": { "type": "integer", "default": 100 } }],
-                "requestBody": { "content": { "application/json": {
-                    "schema": { "type": "object", "default": {} },
-                } } },
-                "responses": { "200": { "content": { "application/json": {
-                    "schema": { "type": "array", "items": { "type": "object" } },
-                } } } },
-            } },
-        });
-        finish_inline_schemas(paths.as_object_mut().expect("an object"));
-        let operation = &paths["/things"]["post"];
-        assert_eq!(
-            operation["parameters"][0]["schema"],
-            json!({ "type": "integer" })
-        );
-        assert_eq!(
-            operation["requestBody"]["content"]["application/json"]["schema"],
-            json!({ "type": "object", "additionalProperties": true })
-        );
-        assert_eq!(
-            operation["responses"]["200"]["content"]["application/json"]["schema"]["items"],
-            json!({ "type": "object", "additionalProperties": true })
-        );
-    }
-
-    /// What each operation that answers a list says about the order of the list: words
-    /// of its description, or of the description of its answer.
-    const ORDERS: &[(&str, &str)] = &[
-        ("createBlocks", "in the order of the request"),
-        (
-            "createBoardsAndBlocks",
-            "The boards in the order of the request",
-        ),
-        ("duplicateBlock", "the copy of the block first"),
-        (
-            "duplicateBoard",
-            "in the order of the original's, oldest first",
-        ),
-        (
-            "getBlocks",
-            "Oldest first; the blocks that one request made come in the order that request had them in",
-        ),
-        ("getBoards", "Oldest first"),
-        ("getCards", "Oldest first; the pages cut that order"),
-        ("getCategories", "by `sortOrder`, lowest first"),
-        ("getCommentVersions", "The first one first"),
-        (
-            "getDeletedBoards",
-            "The last deleted first; the pages cut that order",
-        ),
-        (
-            "getDeletedCards",
-            "The last deleted first; the pages cut that order",
-        ),
-        ("getMembers", "By the identifier of the user"),
-        ("getMyMemberships", "By the identifier of the board"),
-        ("getMyWorkspaces", "the oldest workspace first"),
-        (
-            "getSubscriptions",
-            "Oldest first, and by the identifier of the block",
-        ),
-        ("getTeamUsers", "Oldest account first"),
-        (
-            "getTeamUsersById",
-            "Oldest account first, not in the order of the request",
-        ),
-        ("getTeams", "oldest first"),
-        ("getTemplates", "Each of the two oldest first"),
-        (
-            "getUsers",
-            "Oldest account first, not in the order of the request",
-        ),
-        ("getWorkspaceBoards", "Oldest first"),
-        ("patchBoardsAndBlocks", "each in the order of the request"),
-        ("reorderCardProperties", "in their new order"),
-        ("reorderCategories", "in their new order"),
-        ("reorderCategoryBoards", "in their new order"),
-        ("searchBoards", "Oldest first"),
-        ("searchTeamBoards", "Oldest first"),
-    ];
-
-    /// Whether what an operation answers is a list, or boards with their blocks.
-    fn answers_a_list(responses: &Value) -> bool {
-        responses
-            .as_object()
-            .expect("responses")
-            .iter()
-            .filter(|(status, _)| status.starts_with('2'))
-            .any(|(_, response)| {
-                let schema = &response["content"]["application/json"]["schema"];
-                schema["type"] == "array"
-                    || schema["$ref"] == "#/components/schemas/BoardsAndBlocks"
-            })
-    }
-
-    #[test]
-    fn every_list_says_its_order() {
-        let text = document().expect("the document");
-        let document: Value = serde_json::from_str(&text).expect("JSON");
-        let mut lists = Vec::new();
-        for item in document["paths"].as_object().expect("paths").values() {
-            for operation in item.as_object().expect("a path item").values() {
-                if !answers_a_list(&operation["responses"]) {
-                    continue;
-                }
-                let id = operation["operationId"].as_str().expect("an operation id");
-                let said: String = [&operation["description"]]
-                    .into_iter()
-                    .chain(
-                        operation["responses"]
-                            .as_object()
-                            .expect("responses")
-                            .values()
-                            .map(|response| &response["description"]),
-                    )
-                    .filter_map(Value::as_str)
-                    .flat_map(str::split_whitespace)
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                let order = ORDERS
-                    .iter()
-                    .find(|(operation, _)| *operation == id)
-                    .map(|(_, order)| *order);
-                let Some(order) = order else {
-                    panic!("{id} answers a list and ORDERS does not say in which order");
-                };
-                assert!(
-                    said.contains(order),
-                    "{id} is to say its list comes {order:?}; it says: {said}"
-                );
-                lists.push(id.to_owned());
-            }
-        }
-        lists.sort_unstable();
-        let named: Vec<&str> = ORDERS.iter().map(|(operation, _)| *operation).collect();
-        assert_eq!(lists, named, "the operations that answer a list");
-    }
-
-    #[test]
-    fn the_routes_that_share_a_position_are_named_apart() {
-        let text = document().expect("the document");
-        let document: Value = serde_json::from_str(&text).expect("JSON");
-        let paths = document["paths"].as_object().expect("paths");
-        assert!(
-            paths.contains_key("/api/v1/subscriptions/{blockId}/{subscriberId}"),
-            "the path that ends a subscription"
-        );
-        assert!(
-            paths.contains_key("/api/v1/subscriptions/{subscriberId}"),
-            "the path that lists subscriptions"
-        );
-        assert!(
-            !text.contains("blockOrSubscriberId"),
-            "the router's name for the shared position is not in the document"
-        );
-    }
-
-    #[test]
-    fn path_parameters_are_the_names_in_braces() {
-        let names: Vec<&str> = path_parameters("/boards/{boardId}/blocks/{blockId}").collect();
-        assert_eq!(names, ["boardId", "blockId"], "the names in the path");
-        assert_eq!(
-            path_parameters("/boards").count(),
-            0,
-            "a path without parameters"
-        );
-    }
-
-    #[test]
-    fn defaults_are_removed_at_every_depth_but_a_member_named_default_stays() {
-        let mut schema = json!({
-            "default": {},
-            "properties": {
-                "default": { "type": "string", "default": "" },
-                "list": { "type": "array", "default": [], "items": { "default": 0 } },
-            },
-            "allOf": [{ "default": 1 }],
-        });
-        strip_defaults(&mut schema);
-        assert_eq!(
-            schema,
-            json!({
-                "properties": {
-                    "default": { "type": "string" },
-                    "list": { "type": "array", "items": {} },
-                },
-                "allOf": [{}],
-            }),
-            "the schema without the defaults"
-        );
-    }
-
-    #[test]
-    fn an_object_without_members_may_have_any() {
-        let mut schema = json!({
-            "type": "object",
-            "properties": {
-                "fields": { "type": "object" },
-                "maybe": { "type": ["object", "null"] },
-                "list": { "type": "array", "items": { "type": "object" } },
-                "counts": { "type": "object", "additionalProperties": { "type": "integer" } },
-                "title": { "type": "string" },
-            },
-        });
-        open_free_objects(&mut schema);
-        assert_eq!(
-            schema,
-            json!({
-                "type": "object",
-                "properties": {
-                    "fields": { "type": "object", "additionalProperties": true },
-                    "maybe": { "type": ["object", "null"], "additionalProperties": true },
-                    "list": {
-                        "type": "array",
-                        "items": { "type": "object", "additionalProperties": true },
-                    },
-                    "counts": { "type": "object", "additionalProperties": { "type": "integer" } },
-                    "title": { "type": "string" },
-                },
-            }),
-            "only the objects that say nothing about their members are opened"
-        );
-    }
-
-    #[test]
-    fn a_member_that_is_not_there_cannot_be_required() {
-        let mut schema = json!({ "properties": { "a": {}, "b": {} } });
-        let error =
-            require_members("Thing", &mut schema, Members::Only(&["c"])).expect_err("no member c");
-        assert_eq!(
-            error.to_string(),
-            "the API contract cannot be made: the schema Thing has no member c",
-            "what is wrong"
-        );
-        require_members("Thing", &mut schema, Members::AllBut(&["b"])).expect("a member b");
-        assert_eq!(schema["required"], json!(["a"]), "all members but b");
-    }
-
-    #[test]
-    fn members_are_written_in_the_order_of_their_names() {
-        let value = sorted(json!({ "b": [{ "d": 1, "c": 2 }], "a": 0 }));
-        assert_eq!(
-            serde_json::to_string(&value).expect("JSON"),
-            r#"{"a":0,"b":[{"c":2,"d":1}]}"#,
-            "the members in order"
-        );
-    }
-}
+mod tests;

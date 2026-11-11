@@ -62,89 +62,119 @@
     "name": "upload: wrong field",
     "request": "POST /api/v1/boards/<id:2>/files as files-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "field": "file",
-      "message": "the request has no part named `file` with a file name",
-      "request_id": "<request-id>"
+      "detail": "the request has no part named `file` with a file name",
+      "errors": [
+        {
+          "detail": "the request has no part named `file` with a file name",
+          "parameter": "file",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "upload: non-member",
     "request": "POST /api/v1/boards/<id:2>/files as files-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "upload: anonymous",
     "request": "POST /api/v1/boards/<id:2>/files as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "no session token",
-      "request_id": "<request-id>"
+      "detail": "no session token",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "upload: unknown board",
     "request": "POST /api/v1/boards/unknown-board/files as files-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "upload: not multipart",
     "request": "POST /api/v1/boards/<id:2>/files as files-alice",
     "status": 400,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "bad_request",
-      "message": "request Content-Type isn't multipart/form-data",
-      "request_id": "<request-id>"
+      "detail": "request Content-Type isn't multipart/form-data",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 400,
+      "title": "Bad request",
+      "type": "/problems/bad-request"
     }
   },
   {
     "name": "old path: upload",
     "request": "POST /api/v1/teams/<id:3>/<id:2>/files as files-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "old path: download",
     "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png as files-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "old path: info",
     "request": "GET /api/v1/files/teams/<id:3>/<id:2>/<secret:1>.png/info as files-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "route not found",
-      "request_id": "<request-id>"
+      "detail": "route not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -194,54 +224,80 @@
     "name": "download: range past the end",
     "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as files-alice",
     "status": 416,
-    "content_type": "text/plain",
+    "content_type": "application/problem+json",
     "headers": {
       "Content-Range": "bytes */67"
     },
-    "body": "invalid range: failed to overlap\n"
+    "body": {
+      "detail": "the range is not in the file",
+      "errors": [
+        {
+          "detail": "the range is not in the file",
+          "header": "Range",
+          "reason": "invalid"
+        }
+      ],
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 416,
+      "title": "Range not satisfiable",
+      "type": "/problems/range-not-satisfiable"
+    }
   },
   {
     "name": "download: non-member",
     "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as files-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "download: anonymous",
     "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {
     "name": "download: unknown file",
     "request": "GET /api/v1/boards/<id:2>/files/7unknownfile.png as files-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "file not found",
-      "request_id": "<request-id>"
+      "detail": "file not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "download: traversal",
     "request": "GET /api/v1/boards/<id:2>/files/..%2F..%2Fconfig.json as files-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "file not found",
-      "request_id": "<request-id>"
+      "detail": "file not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -261,22 +317,28 @@
     "name": "info: non-member",
     "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png/info as files-bob",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "board not found",
-      "request_id": "<request-id>"
+      "detail": "board not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
     "name": "info: unknown file",
     "request": "GET /api/v1/boards/<id:2>/files/7unknownfile.png/info as files-alice",
     "status": 404,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "not_found",
-      "message": "file not found",
-      "request_id": "<request-id>"
+      "detail": "file not found",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 404,
+      "title": "Not found",
+      "type": "/problems/not-found"
     }
   },
   {
@@ -304,11 +366,14 @@
     "name": "download with a wrong read token",
     "request": "GET /api/v1/boards/<id:2>/files/<secret:1>.png?readToken=wrong as anonymous",
     "status": 401,
-    "content_type": "application/json",
+    "content_type": "application/problem+json",
     "body": {
-      "error": "unauthorized",
-      "message": "access denied to board",
-      "request_id": "<request-id>"
+      "detail": "access denied to board",
+      "instance": "urn:uuid:<request-id>",
+      "requestId": "<request-id>",
+      "status": 401,
+      "title": "No valid session",
+      "type": "/problems/unauthorized"
     }
   },
   {

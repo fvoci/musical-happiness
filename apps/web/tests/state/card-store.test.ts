@@ -122,7 +122,7 @@ describe('an open card', () => {
     expect(card.dirty).toBe(true);
     expect(workspace.problems.at(-1)).toMatchObject({
       action: 'save',
-      error: { status: 400, field: 'body' },
+      error: { status: 400, errors: [{ pointer: '/body', reason: 'invalid' }] },
     });
   });
 
@@ -348,7 +348,7 @@ describe('deleted and brought back', () => {
   it('undo of a delete counts once the card is restored, even if reading it fails', async () => {
     const { board, workspace, backend, cardId } = await openAlpha();
     await board.deleteCards([cardId]);
-    vi.spyOn(backend, 'card').mockRejectedValueOnce(new BackendError(500, { message: 'down' }));
+    vi.spyOn(backend, 'card').mockRejectedValueOnce(new BackendError(500, { detail: 'down' }));
     await workspace.undoLast();
     expect(workspace.problems).toHaveLength(1);
     // Not undone again: the next undo would restore it twice.

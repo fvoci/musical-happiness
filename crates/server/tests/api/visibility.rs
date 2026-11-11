@@ -619,7 +619,8 @@ fn told(response: &ApiResponse) -> (StatusCode, Value) {
     let mut body = response.value();
     if let Some(body) = body.as_object_mut() {
         // Every request has its own identifier.
-        body.remove("request_id");
+        body.remove("requestId");
+        body.remove("instance");
     }
     (response.status, body)
 }
@@ -666,8 +667,8 @@ async fn what_a_user_cannot_see_answers_as_what_does_not_exist() {
             (case.path)(&hidden, 2)
         );
         assert_eq!(
-            existing.value()["error"],
-            json!("not_found"),
+            existing.value()["type"],
+            json!("/problems/not-found"),
             "{} {path}",
             case.method
         );

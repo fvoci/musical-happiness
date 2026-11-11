@@ -13,6 +13,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 use crate::JsonMap;
+use crate::refusal::{RefusalReason, Refusals, shown_name};
 
 /// The text is no value of the setting it was read as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -478,6 +479,48 @@ impl SettingsError {
             Self::InvalidValue { name, .. } => name,
         }
     }
+
+    /// Why a client is told the member was refused.
+    fn reason(&self) -> RefusalReason {
+        match self {
+            Self::UnknownSetting { .. } => RefusalReason::Unknown,
+            Self::InvalidValue { .. } => RefusalReason::Invalid,
+        }
+    }
+}
+
+/// What a member of a change to the settings asks for.
+enum SettingChange {
+    /// The setting gets this value, as it is stored.
+    Set(SettingName, String),
+    /// The setting goes back to its default.
+    Reset(SettingName),
+}
+
+impl SettingChange {
+    /// Reads one member of a request.
+    fn read(name: &str, value: &serde_json::Value) -> Result<Self, SettingsError> {
+        let setting =
+            SettingName::from_name(name).ok_or_else(|| SettingsError::UnknownSetting {
+                name: shown_name(name),
+            })?;
+        let invalid = || SettingsError::InvalidValue {
+            name: setting.as_str(),
+            expected: setting.expectation(),
+        };
+        let stored = match (setting, value) {
+            (_, serde_json::Value::Null) => return Ok(Self::Reset(setting)),
+            (SettingName::Haptics, serde_json::Value::Bool(flag)) => flag.to_string(),
+            (SettingName::Haptics, _) => return Err(invalid()),
+            (_, serde_json::Value::String(text)) => text.clone(),
+            _ => return Err(invalid()),
+        };
+        // Whatever is stored must read back: checked with the reader itself.
+        UserSettings::default()
+            .set(setting, &stored)
+            .map_err(|ParseSettingError| invalid())?;
+        Ok(Self::Set(setting, stored))
+    }
 }
 
 impl UserSettingsPatch {
@@ -487,34 +530,24 @@ impl UserSettingsPatch {
     ///
     /// # Errors
     ///
-    /// Returns the first member, in the order of the names, that is no setting or whose
-    /// value the setting cannot have.
-    pub fn from_members(members: &JsonMap) -> Result<Self, SettingsError> {
+    /// Returns every member, in the order of the names, that is no setting (the reason
+    /// `unknown`) or whose value the setting cannot have (`invalid`), each with the
+    /// words of its [`SettingsError`].
+    pub fn from_members(members: &JsonMap) -> Result<Self, Refusals> {
         let mut patch = Self::default();
+        let mut refused = Refusals::new();
         for (name, value) in members {
-            let setting = SettingName::from_name(name)
-                .ok_or_else(|| SettingsError::UnknownSetting { name: name.clone() })?;
-            let invalid = || SettingsError::InvalidValue {
-                name: setting.as_str(),
-                expected: setting.expectation(),
-            };
-            let stored = match (setting, value) {
-                (_, serde_json::Value::Null) => {
-                    patch.reset.insert(setting);
-                    continue;
+            match SettingChange::read(name, value) {
+                Ok(SettingChange::Set(setting, stored)) => {
+                    patch.set.insert(setting, stored);
                 }
-                (SettingName::Haptics, serde_json::Value::Bool(flag)) => flag.to_string(),
-                (SettingName::Haptics, _) => return Err(invalid()),
-                (_, serde_json::Value::String(text)) => text.clone(),
-                _ => return Err(invalid()),
-            };
-            // Whatever is stored must read back: checked with the reader itself.
-            UserSettings::default()
-                .set(setting, &stored)
-                .map_err(|ParseSettingError| invalid())?;
-            patch.set.insert(setting, stored);
+                Ok(SettingChange::Reset(setting)) => {
+                    patch.reset.insert(setting);
+                }
+                Err(error) => refused.refuse(name, error.reason(), error.to_string()),
+            }
         }
-        Ok(patch)
+        refused.into_result().map(|()| patch)
     }
 
     /// Whether the change changes nothing.
@@ -681,13 +714,16 @@ mod tests {
         ];
         for case in cases {
             let name = case.as_object().expect("an object").keys().next().cloned();
-            let error = UserSettingsPatch::from_members(&members(case.clone()))
+            let refused = UserSettingsPatch::from_members(&members(case.clone()))
                 .expect_err("no value of the setting");
-            assert!(
-                matches!(error, SettingsError::InvalidValue { .. }),
-                "{case}: {error:?}"
+            let refused: Vec<_> = refused.into_iter().collect();
+            assert_eq!(refused.len(), 1, "{case}: {refused:?}");
+            assert_eq!(refused[0].reason, RefusalReason::Invalid, "{case}");
+            assert_eq!(
+                Some(refused[0].pointer.trim_start_matches('/')),
+                name.as_deref(),
+                "{case}"
             );
-            assert_eq!(Some(error.field()), name.as_deref(), "{case}");
         }
         let message = UserSettingsPatch::from_members(&members(json!({"cardOpen": "auto"})))
             .expect_err("no value")
@@ -701,16 +737,39 @@ mod tests {
     #[test]
     fn a_name_that_is_no_setting_is_refused() {
         for name in ["timezone", "locale", "", "TimeZone"] {
-            let error = UserSettingsPatch::from_members(&members(json!({name: "auto"})))
+            let refused = UserSettingsPatch::from_members(&members(json!({name: "auto"})))
                 .expect_err("no such setting");
-            assert_eq!(
-                error,
-                SettingsError::UnknownSetting {
-                    name: name.to_owned()
-                }
-            );
-            assert_eq!(error.field(), name);
+            let wanted = SettingsError::UnknownSetting {
+                name: name.to_owned(),
+            };
+            assert_eq!(wanted.field(), name);
+            let refused: Vec<_> = refused.into_iter().collect();
+            assert_eq!(refused.len(), 1, "{refused:?}");
+            assert_eq!(refused[0].pointer, format!("/{name}"));
+            assert_eq!(refused[0].reason, RefusalReason::Unknown);
+            assert_eq!(refused[0].detail, wanted.to_string());
         }
+    }
+
+    #[test]
+    fn every_member_that_is_wrong_is_refused_and_nothing_is_changed() {
+        let refused = UserSettingsPatch::from_members(&members(json!({
+            "theme": "sepia", "locale": "ko", "density": "compact", "haptics": 1,
+        })))
+        .expect_err("three members are wrong");
+        let refused: Vec<(String, RefusalReason)> = refused
+            .into_iter()
+            .map(|refusal| (refusal.pointer, refusal.reason))
+            .collect();
+        assert_eq!(
+            refused,
+            [
+                ("/haptics".to_owned(), RefusalReason::Invalid),
+                ("/locale".to_owned(), RefusalReason::Unknown),
+                ("/theme".to_owned(), RefusalReason::Invalid),
+            ],
+            "in the order of the names; the one that is fine is not among them"
+        );
     }
 
     #[test]

@@ -165,6 +165,12 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | `localModeSocketLocation` | `FVOCI_LOCALMODESOCKETLOCATION` | 문자열 | `"/var/tmp/fvoci_local.socket"` | 그 소켓의 경로 |
 | `webhook_update` | `FVOCI_WEBHOOK_UPDATE` | 문자열 목록 | `[]` | 바뀐 블록마다 그 블록을 `POST`로 받는 주소들 |
 
+## 키: 지표
+
+| 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
+|---|---|---|---|---|
+| `prometheusaddress` | `FVOCI_PROMETHEUSADDRESS` | 문자열(`호스트:포트`) | `""` | Prometheus 지표를 내는 주소. 비어 있으면 지표를 모으지 않고 아무것도 듣지 않는다. 주소가 있으면 API와 **다른 리스너**를 그 주소에 열고 `GET /metrics`만 Prometheus의 글 형식으로 답한다(그 밖의 길은 404이고, 거절은 API와 같은 `application/problem+json`이며 그것이 가리키는 `/problems`의 글도 여기서 내준다). API의 리스너에는 지표의 길이 없다. 호스트는 이름, IPv4, 괄호 안의 IPv6(`[::1]:9092`)이고, 비우면(`:9092`) 모든 인터페이스이고, `localOnly`가 참이면 API처럼 루프백(`localhost`가 풀리는 주소 하나)이다. 포트 0은 빈 포트 아무것이고 고른 주소를 로그에 남긴다. 꼴이 틀리면, 그 주소에서 들을 수 없으면(이미 쓰임, 이 기기의 주소가 아님) 시작하지 않는다. **인증이 없고** `usessl`과 관계없이 평문 HTTP다. 모니터링만 닿는 안쪽 주소(루프백, 사설망)에 묶는다. 요청 로그에 남기지 않는다. 한 번 긁을 때마다 열린 업로드를 세는 DB 조회가 하나 있다(2초까지, 동시에 하나) |
+
 ## 키: 예약된 키
 
 **아직 아무 일도 하지 않는다.** 뒤에 쓰기로 정해 둔 키다(사용자 결정, 2026-11-11 05:04 KST). 그때까지는 기본값이 아닌 값을 주면 서버가 시작하지 않는다. 쓰지 않는 기능을 켰다고 믿고 돌지 않게 하려는 것이다.
@@ -172,7 +178,6 @@ Cloudflare R2는 같은 규칙이 기본으로 7일이다. 다른 S3 호환 저�
 | 키 | 환경 변수 | 타입 | 기본값 | 뜻과 범위 |
 |---|---|---|---|---|
 | `authmode` | `FVOCI_AUTHMODE` | 문자열 | `"native"` | 로그인 방식. 뒤에 OIDC 로그인을 넣을 자리다. 지금은 `native`(이 서버의 사용자 이름과 비밀번호)만 받는다 |
-| `prometheusaddress` | `FVOCI_PROMETHEUSADDRESS` | 문자열 | `""` | Prometheus 지표를 내는 주소. 뒤에 넣을 자리다. 지금은 비어 있어야 한다 |
 
 ## 없앤 키
 

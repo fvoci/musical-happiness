@@ -10,16 +10,16 @@ use serde_json::Value;
 use crate::common::{ApiResponse, ROOT_TEAM_ID, Setup, TEST_TEAM_ID, TestServer, UNKNOWN_ID};
 
 /// The answer to a request for the boards of a workspace that is not there for the
-/// user: 404, and the same words whatever the reason. The identifier of the request is
-/// the one member that differs.
+/// user: the problem `not-found`, and the same words whatever the reason. What names
+/// the one request (`instance`, `requestId`) is the only thing that differs.
 #[track_caller]
 fn not_there(response: &ApiResponse) -> Value {
     response.check_not_found();
-    let mut body = response.value();
-    body.as_object_mut()
-        .expect("an error body")
-        .remove("request_id");
-    assert_eq!(body["error"], "not_found", "{body}");
+    let mut body = response.check_problem();
+    assert_eq!(body["type"], "/problems/not-found", "{body}");
+    let members = body.as_object_mut().expect("a problem");
+    members.remove("instance");
+    members.remove("requestId");
     body
 }
 
@@ -118,7 +118,7 @@ async fn the_boards_of_a_workspace_are_for_its_members() {
     // Nobody is a member of the second team: it is there for neither user, though the
     // first made a board in it through the team's route.
     let hidden = not_there(&ts.client.get(&format!("/w/{TEST_TEAM_ID}/boards")).await);
-    assert_eq!(hidden["message"], "workspace not found", "{hidden}");
+    assert_eq!(hidden["detail"], "workspace not found", "{hidden}");
     // The system's workspace is nobody's to work in, a member's neither.
     let user1 = ts.client.me().await.id;
     ts.system_store()

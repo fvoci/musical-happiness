@@ -1,0 +1,33 @@
+# Files and functions of src that are over the limit of their length
+# (tools/lint/lengths.ts), each with the number of lines it has: its ceiling.
+#
+# Written by `pnpm run lengths:measure` (tools/lint/measure-lengths.ts). `check` fails
+# when the code is longer than its ceiling, when something not listed is over the
+# limit, and when the code got shorter, until the number here is lowered (or the line
+# removed, once the code is within the limit).
+#
+# By hand a line is lowered, removed, or renamed with its code; never raised or added.
+# The check cannot tell a raised number from a measured one: the diff of this file
+# shows it. `lengths:measure` is run once after work that was measured apart is
+# merged, not to make a check pass.
+#
+# file <lines> <path>
+# function <lines> <path> <name>
+
+file 646 src/lib/api/backend.ts
+file 741 src/lib/drag/sortable.svelte.ts
+file 563 src/lib/logic/drop-target.ts
+file 886 src/lib/logic/wire.ts
+file 790 src/lib/state/board.svelte.ts
+file 529 src/lib/state/card.svelte.ts
+file 851 src/lib/state/memory/backend.ts
+function 209 src/lib/drag/pointer-drag.ts pointerDrag
+function 139 src/lib/editor/math-editing.ts editMath
+function 148 src/lib/editor/math-nodes.ts mathNode
+function 203 src/lib/editor/render.ts draw
+function 114 src/lib/editor/schema.ts validateDoc
+function 104 src/lib/editor/schema.ts validateDoc/visit
+function 105 src/lib/editor/suggestion-list.ts suggestionList
+function 103 src/lib/editor/suggestion-list.ts suggestionList/<anonymous>
+function 223 src/lib/state/memory/seed.ts seedWorld
+function 139 src/lib/state/memory/seed.ts seedWorld/forEach()
