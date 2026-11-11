@@ -65,6 +65,18 @@ describe('the cards in the trash, in memory', () => {
     await backend.setMemberRole(boardId, otherId, 'editor');
     expect(await other.deletedCards(boardId)).toEqual([]);
   });
+
+  it('is brought back by editors only, and a private board is not there for a non-member', async () => {
+    const { backend, other, world, boardId, otherId, id } = await firstBoard();
+    await backend.deleteBlock(boardId, id('Alpha'));
+    await backend.setMemberRole(boardId, otherId, 'commenter');
+    expect((await rejection(other.restoreBlock(boardId, id('Alpha')))).status).toBe(403);
+    const strangerId = [...world.users.keys()].find(
+      (userId) => !(world.members.get(boardId) ?? []).some((member) => member.userId === userId),
+    );
+    const stranger = backend.as(strangerId ?? '');
+    expect((await rejection(stranger.deletedCards(boardId))).status).toBe(404);
+  });
 });
 
 describe('the boards in the trash, in memory', () => {
@@ -182,12 +194,35 @@ describe('the list of a trash', () => {
     ]);
   });
 
-  it('says a list that could not be read failed', async () => {
+  it('says a list that could not be read failed, once: in the list, not also on the page', async () => {
     const { workspace } = await openFirstBoard();
     vi.spyOn(workspace.backend, 'deletedBoards').mockRejectedValue(new BackendError(500));
     const trash = boardTrash(workspace);
     await trash.read();
     expect(trash.status).toBe('failed');
+    expect(trash.items).toEqual([]);
+    expect(workspace.problems).toEqual([]);
+  });
+
+  it('does not show again one brought back while a reading begun before was on its way', async () => {
+    const { workspace } = await openFirstBoard();
+    const item = { id: 'b1', title: 'One', deletedAt: 1, deletedBy: '' };
+    let answer: (items: (typeof item)[]) => void = () => undefined;
+    vi.spyOn(workspace.backend, 'deletedBoards')
+      .mockResolvedValueOnce([item])
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+    vi.spyOn(workspace, 'restoreBoard').mockResolvedValue();
+    const trash = boardTrash(workspace);
+    await trash.read();
+    const reading = trash.read();
+    expect(await trash.restore('b1')).toBe(true);
+    answer([item]);
+    await reading;
     expect(trash.items).toEqual([]);
   });
 });

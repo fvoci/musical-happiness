@@ -13,6 +13,7 @@
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
 
   import { m } from '$lib/i18n/paraglide/messages.js';
+  import { closeOnBack } from '$lib/layout/back.svelte.ts';
   import { displayDateTime, relativeTime } from '$lib/logic/format.ts';
   import type { Trash, Workspace } from '$lib/state/index.ts';
   import { Button } from '$lib/ui/button/index.js';
@@ -39,6 +40,14 @@
     untitled,
     testId,
   }: Props = $props();
+
+  // The back button closes it, as the other dialogs: the page under it stays.
+  closeOnBack(
+    () => open,
+    () => {
+      open = false;
+    },
+  );
 
   const context = $derived({
     locale: workspace.locale,

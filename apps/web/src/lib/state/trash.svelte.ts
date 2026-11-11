@@ -24,6 +24,8 @@ export class Trash {
   hasMore = $state(false);
   /** Those on their way back. */
   restoring = $state.raw<string[]>([]);
+  /** Those brought back: a reading begun before may still have them. */
+  readonly #restored: string[] = [];
 
   readonly #workspace: Workspace;
   readonly #list: (paging: Paging) => Promise<DeletedItem[]>;
@@ -65,16 +67,19 @@ export class Trash {
     try {
       const items = await this.#list({ page: 0, perPage: length });
       if (reading !== this.#readings) return;
-      // One that is on its way back is not shown again by a reading that began before.
-      this.items = items.filter((item) => !this.restoring.includes(item.id));
+      // One on its way back, or back, is not shown again by a reading that began before.
+      this.items = items.filter(
+        (item) => !this.restoring.includes(item.id) && !this.#restored.includes(item.id),
+      );
       this.hasMore = items.length === length;
       this.status = 'ready';
       const deleters = items.map((item) => item.deletedBy).filter((userId) => userId !== '');
       void this.#workspace.learnUsers(deleters);
     } catch (error) {
       if (reading !== this.#readings) return;
+      // The list says it failed; a session that is over is the page's to tell.
       this.status = 'failed';
-      this.#workspace.report('load', error);
+      if (isBackendError(error) && error.status === 401) this.#workspace.report('load', error);
     }
   }
 
@@ -87,6 +92,7 @@ export class Trash {
     this.restoring = [...this.restoring, id];
     try {
       await this.#restore(id);
+      this.#restored.push(id);
       this.items = this.items.filter((item) => item.id !== id);
       return true;
     } catch (error) {
@@ -113,15 +119,11 @@ export function boardTrash(workspace: Workspace): Trash {
   );
 }
 
-/**
- * The cards of a board in the trash. A card that comes back is told to the
- * board as any change of a card is (`watchBoard`), and shows where it was.
- */
+/** The cards of a board in the trash. One that comes back is read again, and shows where it was. */
 export function cardTrash(board: BoardStore): Trash {
-  const { backend } = board.workspace;
   return new Trash(
     board.workspace,
-    (paging) => backend.deletedCards(board.boardId, paging),
-    (cardId) => backend.restoreBlock(board.boardId, cardId),
+    (paging) => board.workspace.backend.deletedCards(board.boardId, paging),
+    (cardId) => board.restoreCard(cardId),
   );
 }

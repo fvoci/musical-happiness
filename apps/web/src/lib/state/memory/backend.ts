@@ -1156,6 +1156,7 @@ export class MemoryBackend implements Backend {
     await this.#enter('restoreBlock');
     const deleted = this.world.deletedBlocks.get(blockId);
     if (deleted?.boardId !== boardId) fail(404, 'no such block in the trash');
+    this.#mayManageCards(boardId, 'access denied to undelete block');
     const parent = deleted.blocks[0]?.parentId;
     // A block comes back only under a living parent (or the board itself).
     if (parent !== boardId && parent !== undefined && !this.world.blocks.has(parent)) {
@@ -1167,15 +1168,21 @@ export class MemoryBackend implements Backend {
     this.#tellBlocks(boardId, deleted.blocks);
   }
 
-  /** As the server: for the board's editors and admins. */
+  /**
+   * As the server: for the board's editors and admins; a private board the
+   * reader is no member of is not there for them.
+   */
   async deletedCards(boardId: string, paging?: Paging): Promise<DeletedItem[]> {
     await this.#enter('deletedCards');
-    this.#board(boardId);
-    const member = this.world.members.get(boardId)?.find((each) => each.userId === this.userId);
-    if (!member?.schemeAdmin && !member?.schemeEditor) {
-      fail(403, 'access denied to the trash of the board');
-    }
+    this.#mayManageCards(boardId, 'access denied to the trash of the board');
     return deletedCardsOf(this.world, boardId, paging);
+  }
+
+  #mayManageCards(boardId: string, refusal: string): void {
+    const board = this.#board(boardId);
+    const member = this.world.members.get(boardId)?.find((each) => each.userId === this.userId);
+    if (!member && board.type !== 'O') fail(404, 'no such board');
+    if (!member?.schemeAdmin && !member?.schemeEditor) fail(403, refusal);
   }
 
   // -------------------------------------------------------------- files
