@@ -83,12 +83,13 @@ const LOOSE_COLUMNS: &str =
 impl Store {
     /// Lists the object about to be written at `path`, with its record not there yet.
     /// From `doom_at` on, the housekeeping takes the object for one whose writing
-    /// stopped, and dooms it unless it is recorded.
+    /// stopped, and dooms it.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError::Database`] if the statement fails, as it does when the
-    /// path is listed already.
+    /// organization lists the path already. Another organization's row of the same path
+    /// is no hindrance (PostgreSQL; SQLite holds one organization).
     pub async fn mark_writing(&self, path: &str, doom_at: i64) -> Result<(), StoreError> {
         self.with_conn(async |scope| {
             let mut sql =
@@ -319,8 +320,13 @@ pub(crate) async fn doom(
         }
         // A mark of writing of the same place, which no record should outlive, gives
         // way.
+        // The key: on PostgreSQL a place is listed once by an organization.
+        let key = match scope.dialect() {
+            Dialect::Sqlite => "path",
+            Dialect::Postgres => "org_id, path",
+        };
         sql.push_bind(
-            " ON CONFLICT (path) DO UPDATE SET state = ",
+            &format!(" ON CONFLICT ({key}) DO UPDATE SET state = "),
             LooseState::Doomed.as_str(),
         )
         .push(", retry_at = excluded.retry_at");

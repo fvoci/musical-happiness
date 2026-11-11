@@ -2,7 +2,9 @@
 //! never had one (`fvoci_store::LooseObject`).
 //!
 //! The store lists an object as doomed in the transaction that removes its record. The
-//! housekeeping removes it here, and takes it off the list only once it is gone: a
+//! housekeeping removes it here, unless a record or an upload session of any
+//! organization names its place (`fvoci_store::Store::held_objects`), and takes it off
+//! the list only once it is gone: a
 //! server that stops in between finds it listed again and removes it again, which for
 //! an object that is gone already is nothing. A removal that fails is tried again
 //! later, each time later still, up to [`RETRY_CAP_MILLIS`]; and a run takes the due
@@ -36,6 +38,16 @@ pub struct RemovedObjects {
     /// The objects that could not be removed, or taken off the list, and wait for
     /// another try.
     pub failed: usize,
+    /// The doomed objects that a record or an upload session holds, which are kept and
+    /// taken off the list: something doomed what it should not have, an error.
+    pub kept: usize,
+}
+
+/// What became of one doomed object.
+enum Removal {
+    Removed,
+    Failed,
+    Kept,
 }
 
 impl App {
@@ -56,7 +68,7 @@ impl App {
             }
         }
         let mut done = RemovedObjects::default();
-        while done.removed + done.failed < DOOMED_PER_RUN {
+        while done.removed + done.failed + done.kept < DOOMED_PER_RUN {
             let due = self
                 .store()
                 .due_doomed_objects(now, DOOMED_PER_BATCH)
@@ -64,12 +76,13 @@ impl App {
             let last_batch = i64::try_from(due.len()).unwrap_or(i64::MAX) < DOOMED_PER_BATCH;
             let mut removed = 0;
             for object in &due {
-                if self.remove_doomed_object(object, now).await {
-                    removed += 1;
+                match self.remove_doomed_object(object, now).await {
+                    Removal::Removed => removed += 1,
+                    Removal::Failed => done.failed += 1,
+                    Removal::Kept => done.kept += 1,
                 }
             }
             done.removed += removed;
-            done.failed += due.len() - removed;
             // A batch of which nothing went says that the storage or the store is
             // failing: the rest waits for the next run rather than fail as well.
             if last_batch || removed == 0 {
@@ -79,28 +92,47 @@ impl App {
         Ok(done)
     }
 
-    /// Removes one doomed object and takes it off the list. Returns whether both went;
-    /// if not, the failure is noted on its row, or the row is left as it is.
-    async fn remove_doomed_object(&self, object: &LooseObject, now: i64) -> bool {
+    /// Removes one doomed object and takes it off the list, unless it is held. If it
+    /// cannot go, the failure is noted on its row, or the row is left as it is.
+    async fn remove_doomed_object(&self, object: &LooseObject, now: i64) -> Removal {
+        // Asked of every organization before anything is removed: a record or a session
+        // that names the place keeps the object, whatever doomed it.
+        let held = match self
+            .store()
+            .held_objects(std::slice::from_ref(&object.path), None)
+            .await
+        {
+            Ok(held) => !held.is_empty(),
+            Err(error) => {
+                tracing::warn!(%error, "whether a doomed object is held could not be read");
+                return Removal::Failed;
+            }
+        };
+        if held {
+            tracing::error!("a doomed object is held by a record or an upload; it is kept");
+            return if self.forget(object).await {
+                Removal::Kept
+            } else {
+                Removal::Failed
+            };
+        }
         let error_kind = match self.files().delete(&object.path).await {
             // Gone already is removed: a run cut off after the removal comes here.
-            Ok(()) => match self.store().forget_doomed_object(&object.path).await {
-                Ok(()) => return true,
-                Err(error) => {
-                    tracing::warn!(%error, "a removed object could not be taken off the list");
-                    return false;
-                }
-            },
+            Ok(()) => {
+                return if self.forget(object).await {
+                    Removal::Removed
+                } else {
+                    Removal::Failed
+                };
+            }
             // A place no storage takes is none to remove: tried again, it would fail
             // for ever.
             Err(error @ StorageError::InvalidPath(_)) => {
                 tracing::error!(%error, "a doomed object has a place no storage takes; it is taken off the list");
-                return match self.store().forget_doomed_object(&object.path).await {
-                    Ok(()) => true,
-                    Err(error) => {
-                        tracing::warn!(%error, "a doomed object could not be taken off the list");
-                        false
-                    }
+                return if self.forget(object).await {
+                    Removal::Removed
+                } else {
+                    Removal::Failed
                 };
             }
             Err(error) => {
@@ -116,7 +148,18 @@ impl App {
         {
             tracing::warn!(%error, "a failed removal could not be noted");
         }
-        false
+        Removal::Failed
+    }
+
+    /// Takes a doomed object off the list. Returns whether it went.
+    async fn forget(&self, object: &LooseObject) -> bool {
+        match self.store().forget_doomed_object(&object.path).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(%error, "a doomed object could not be taken off the list");
+                false
+            }
+        }
     }
 }
 

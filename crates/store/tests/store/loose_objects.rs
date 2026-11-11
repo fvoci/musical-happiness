@@ -292,3 +292,44 @@ async fn the_system_dooms_each_object_as_its_organizations() {
     }
     test.teardown().await;
 }
+
+/// A mark of writing that one organization puts at a place, as a wrong call of the store
+/// could, does not keep another organization from marking the place and recording its
+/// file there: a place is listed once by an organization.
+#[tokio::test]
+async fn a_mark_of_one_organization_does_not_block_anothers_write() {
+    if common::db_type() != DbType::Postgres {
+        return;
+    }
+    let test = common::setup().await;
+    let unset = test.scoped(Tenant::Unset);
+    let (other_org, _) = common::organization(&unset, "the other").await;
+    let theirs = test.for_org(&other_org).expect("an identifier");
+    let (board_id, _) = board(&theirs).await;
+    let path = format!("boards/20261112/{board_id}/theirs.png");
+    test.mark_writing(&path, i64::MAX)
+        .await
+        .expect("ours, at their place");
+    theirs
+        .mark_writing(&path, i64::MAX)
+        .await
+        .expect("their mark is not kept out by ours");
+    assert!(
+        theirs
+            .record_written_file(&file_at(&board_id, &path))
+            .await
+            .expect("recorded"),
+        "their file is recorded"
+    );
+    let ours = test.loose_objects().await.expect("listed");
+    assert_eq!(paths_in(&ours, LooseState::Writing), [path.as_str()]);
+    assert_eq!(theirs.loose_objects().await.expect("listed"), []);
+    // Ours, gone stale and doomed, is one row of the place; theirs a record of it.
+    assert_eq!(test.doom_stale_writing(i64::MAX).await.expect("doomed"), 1);
+    let held = test
+        .held_objects(std::slice::from_ref(&path), None)
+        .await
+        .expect("read");
+    assert!(held.contains(&path), "their record holds it, asked of all");
+    test.teardown().await;
+}

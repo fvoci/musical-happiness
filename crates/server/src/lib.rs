@@ -545,14 +545,15 @@ async fn remove_doomed_objects(app: &App) -> JobOutcome {
     let app = &app.housekeeping();
     match app.remove_doomed_objects(auth::now_millis()).await {
         Ok(done) => {
-            if done.removed > 0 || done.failed > 0 {
+            if done.removed > 0 || done.failed > 0 || done.kept > 0 {
                 tracing::info!(
                     removed = done.removed,
                     failed = done.failed,
+                    kept = done.kept,
                     "removed the doomed objects of the file storage"
                 );
             }
-            JobOutcome::from_left(done.failed)
+            JobOutcome::from_left(done.failed + done.kept)
         }
         Err(error) => {
             tracing::error!(%error, "unable to remove the doomed objects");

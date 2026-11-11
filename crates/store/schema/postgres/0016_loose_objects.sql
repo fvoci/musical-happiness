@@ -12,8 +12,10 @@
 -- check of later migrations sees the word of its subquery (crates/store/src/schema.rs).
 SELECT set_config('fvoci.system', 'on', true);
 CREATE TABLE loose_objects (
-    -- The place in the file storage, as a file's record names it.
-    path TEXT NOT NULL PRIMARY KEY,
+    -- The place in the file storage, as a file's record names it. A place is listed once
+    -- by an organization (the key below): a row of one organization never keeps another
+    -- from listing the place, as a wrong call of the store could otherwise make it do.
+    path TEXT NOT NULL,
     state TEXT NOT NULL CHECK (state IN ('writing', 'doomed')),
     create_at BIGINT NOT NULL,
     -- When the housekeeping next looks at it: for a mark of writing, when it is old
@@ -26,9 +28,16 @@ CREATE TABLE loose_objects (
     last_error TEXT NOT NULL DEFAULT '',
     -- The organization of the transaction that lists it; the housekeeping, which
     -- reaches every organization, names the one of the record that went.
-    org_id UUID NOT NULL DEFAULT (NULLIF(current_setting('fvoci.org', true), ''))::uuid
+    org_id UUID NOT NULL DEFAULT (NULLIF(current_setting('fvoci.org', true), ''))::uuid,
+    PRIMARY KEY (org_id, path)
 );
+CREATE INDEX loose_objects_path_idx ON loose_objects (path);
 CREATE INDEX loose_objects_state_retry_at_idx ON loose_objects (state, retry_at);
+
+-- Whether something holds an object is asked by its place, of the records and of the
+-- upload sessions.
+CREATE INDEX file_info_path_idx ON file_info (path);
+CREATE INDEX uploads_path_idx ON uploads (path);
 
 ALTER TABLE loose_objects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE loose_objects FORCE ROW LEVEL SECURITY;

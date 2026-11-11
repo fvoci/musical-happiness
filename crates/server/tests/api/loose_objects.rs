@@ -1,11 +1,14 @@
 //! The objects of the file storage whose record went: removed by the housekeeping,
-//! tried again when the removal fails, and finished when a run was cut off.
+//! tried again when the removal fails, and finished when a run was cut off. And what
+//! keeps an object: a record of any board or organization.
 
-use fvoci_model::BoardType;
+use fvoci_model::{BoardType, FileInfo, Team, Upload, UploadPurpose, new_id};
 use fvoci_server::app::RemovedObjects;
 use fvoci_server::auth::now_millis;
+use fvoci_server::auth::secret::new_secret;
 use fvoci_server::storage::FaultyOp;
-use fvoci_store::LooseState;
+use fvoci_store::testing::db_type_of_the_tests;
+use fvoci_store::{DbType, LooseState, Store};
 
 use crate::common::{Setup, TEST_TEAM_ID, TestServer};
 use crate::files::{upload, uploaded_id};
@@ -82,7 +85,8 @@ async fn doomed_objects_are_removed_and_tried_again(ts: &TestServer) {
         first,
         RemovedObjects {
             removed: 1,
-            failed: 1
+            failed: 1,
+            kept: 0,
         },
         "one removal fails"
     );
@@ -106,7 +110,8 @@ async fn doomed_objects_are_removed_and_tried_again(ts: &TestServer) {
         remove_doomed(ts, now + DAY_MILLIS).await,
         RemovedObjects {
             removed: 1,
-            failed: 0
+            failed: 0,
+            kept: 0,
         },
         "and then it goes"
     );
@@ -140,7 +145,8 @@ async fn a_run_cut_off_after_the_removal_is_finished_by_the_next(ts: &TestServer
         remove_doomed(ts, now_millis()).await,
         RemovedObjects {
             removed: 1,
-            failed: 0
+            failed: 0,
+            kept: 0,
         },
         "the object is found gone"
     );
@@ -165,5 +171,176 @@ async fn with_s3_doomed_objects_are_removed_and_tried_again() {
     let ts = s3_server().await;
     doomed_objects_are_removed_and_tried_again(&ts).await;
     a_run_cut_off_after_the_removal_is_finished_by_the_next(&ts).await;
+    ts.teardown().await;
+}
+
+/// Writes a file of `board_id` and records it through `owner`, and returns its place.
+async fn recorded_file(ts: &TestServer, owner: &Store, board_id: &str) -> String {
+    let stored_name = format!("{}.txt", new_secret());
+    let path = format!("boards/20261112/{board_id}/{stored_name}");
+    ts.app
+        .files()
+        .write(&path, &mut &b"recorded"[..])
+        .await
+        .expect("the file is written");
+    owner
+        .save_file_info(&FileInfo {
+            id: new_id(),
+            board_id: board_id.to_owned(),
+            stored_name,
+            path: path.clone(),
+            size: 8,
+            create_at: 1,
+            ..FileInfo::default()
+        })
+        .await
+        .expect("the file is recorded");
+    path
+}
+
+/// An upload session of the second user, on a board of the test's organization, that
+/// makes its file at `path`: as only a wrong call of the store could store one.
+async fn misbound_upload(ts: &TestServer, path: &str) -> Upload {
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let upload = Upload {
+        id: new_secret(),
+        user_id: ts.client2.me().await.id,
+        purpose: UploadPurpose::File,
+        board_id: board.id,
+        name: "misbound.txt".to_owned(),
+        size: 8,
+        part_size: 8,
+        create_at: now_millis(),
+        expires_at: now_millis() + 60_000,
+        multipart_id: "left-over-multipart".to_owned(),
+        path: path.to_owned(),
+        ..Upload::default()
+    };
+    ts.app
+        .store()
+        .create_upload(&upload)
+        .await
+        .expect("the session is stored");
+    upload
+}
+
+/// Abandons a session that makes its file at the place of a recorded file of another
+/// board, and checks that the file is still there.
+async fn abandoning_it_keeps_the_file(ts: &TestServer, path: &str) {
+    let upload = misbound_upload(ts, path).await;
+    ts.client2
+        .delete(&format!("/uploads/{}", upload.id))
+        .await
+        .check_no_content();
+    assert!(
+        exists(ts, path).await,
+        "the recorded file is still there after the session that named its place went"
+    );
+}
+
+/// A session that names the place of another board's recorded file does not take the
+/// file with it when it is abandoned: whether an object may go is asked of every
+/// record, whatever board the session names.
+#[tokio::test]
+async fn abandoning_a_misbound_upload_keeps_another_boards_file() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let path = recorded_file(&ts, ts.app.store(), &board.id).await;
+    abandoning_it_keeps_the_file(&ts, &path).await;
+    ts.teardown().await;
+}
+
+/// The same across organizations: a session of one organization that names the place
+/// of another organization's file does not take it with it (an object's place is one
+/// across organizations).
+#[tokio::test]
+async fn abandoning_a_misbound_upload_keeps_another_organizations_file() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let ts = Setup::native().start().await.init_basic().await;
+    let (theirs, board_id) = another_organizations_board(&ts).await;
+    let path = recorded_file(&ts, &theirs, &board_id).await;
+    abandoning_it_keeps_the_file(&ts, &path).await;
+    ts.teardown().await;
+}
+
+/// A second organization, a board of it, and the handle that reaches its rows.
+async fn another_organizations_board(ts: &TestServer) -> (Store, String) {
+    let workspace = Team {
+        id: new_id(),
+        signup_token: new_secret(),
+        ..Team::default()
+    };
+    let org_id = ts
+        .app
+        .store()
+        .create_organization("another", &workspace)
+        .await
+        .expect("a second organization is made");
+    let theirs = ts.app.store().for_org(&org_id).expect("an identifier");
+    let mut board = fvoci_model::Board {
+        id: new_id(),
+        team_id: workspace.id.clone(),
+        board_type: BoardType::Open,
+        ..fvoci_model::Board::default()
+    };
+    theirs
+        .insert_board(&mut board, &ts.client.me().await.id)
+        .await
+        .expect("their board is stored");
+    (theirs, board.id)
+}
+
+/// The test's organization dooms the place of a recorded file, as a wrong call of the
+/// store could (a mark of writing at the place, gone stale): the housekeeping asks of
+/// every organization before it removes anything, keeps the file, takes the row off the
+/// list and counts it as an error.
+async fn a_doomed_object_that_is_held_is_kept(ts: &TestServer, path: &str) {
+    ts.app
+        .store()
+        .mark_writing(path, 0)
+        .await
+        .expect("the place is marked");
+    assert_eq!(
+        remove_doomed(ts, now_millis()).await,
+        RemovedObjects {
+            removed: 0,
+            failed: 0,
+            kept: 1,
+        },
+        "the held object is kept, as an error"
+    );
+    assert!(exists(ts, path).await, "the recorded file is still there");
+    assert_eq!(
+        ts.app
+            .housekeeping()
+            .store()
+            .loose_objects()
+            .await
+            .expect("listed"),
+        [],
+        "and taken off the list"
+    );
+}
+
+#[tokio::test]
+async fn a_doomed_object_that_another_board_holds_is_kept() {
+    let ts = Setup::native().start().await.init_basic().await;
+    let board = ts.create_board(TEST_TEAM_ID, BoardType::Open).await;
+    let path = recorded_file(&ts, ts.app.store(), &board.id).await;
+    a_doomed_object_that_is_held_is_kept(&ts, &path).await;
+    ts.teardown().await;
+}
+
+#[tokio::test]
+async fn a_doomed_object_that_another_organization_holds_is_kept() {
+    if db_type_of_the_tests() != DbType::Postgres {
+        return;
+    }
+    let ts = Setup::native().start().await.init_basic().await;
+    let (theirs, board_id) = another_organizations_board(&ts).await;
+    let path = recorded_file(&ts, &theirs, &board_id).await;
+    a_doomed_object_that_is_held_is_kept(&ts, &path).await;
     ts.teardown().await;
 }

@@ -21,3 +21,8 @@ CREATE TABLE loose_objects (
     last_error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX loose_objects_state_retry_at_idx ON loose_objects (state, retry_at);
+
+-- Whether something holds an object is asked by its place, of the records and of the
+-- upload sessions.
+CREATE INDEX file_info_path_idx ON file_info (path);
+CREATE INDEX uploads_path_idx ON uploads (path);
