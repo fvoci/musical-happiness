@@ -10,8 +10,7 @@
 use std::collections::HashMap;
 
 use fvoci_model::{
-    Block, BlockPatch, BlockPatchBatch, BlockType, Board, Body, BodyChange, FileInfo, JsonMap,
-    new_id,
+    Block, BlockPatch, BlockPatchBatch, Board, Body, BodyChange, FileInfo, JsonMap, new_id,
 };
 use serde_json::Value;
 use tokio::io::AsyncRead;
@@ -194,7 +193,7 @@ impl App {
         Ok(Some(self.files().read(&info.path, None).await?))
     }
 
-    /// Copies the files that duplicated image and attachment blocks refer to and points
+    /// Copies the files that duplicated attachment blocks refer to and points
     /// each block at its copy.
     ///
     /// `board_id` is the board the blocks were copied from; `blocks` are the copies, as
@@ -244,10 +243,7 @@ impl App {
                 });
                 continue;
             }
-            if block.block_type != BlockType::Attachment {
-                continue;
-            }
-            let Some(Value::String(file_id)) = block.fields.get("fileId") else {
+            let Some(file_id) = block.attachment_file() else {
                 continue;
             };
             let new_name = new_file_names.get(file_id).cloned().unwrap_or_default();
@@ -293,7 +289,7 @@ impl App {
         Ok(())
     }
 
-    /// Copies the files that image and attachment blocks refer to, for blocks that are
+    /// Copies the files that attachment blocks refer to, for blocks that are
     /// about to be stored as copies of blocks of `source_board_id`, and points each block
     /// at its copy. Nothing is written to the blocks' store: the caller stores them.
     ///
@@ -312,10 +308,7 @@ impl App {
                 .body
                 .take()
                 .and_then(|body| rename_body_files(body, &new_file_names));
-            if block.block_type != BlockType::Attachment {
-                continue;
-            }
-            let Some(Value::String(file_id)) = block.fields.get("fileId") else {
+            let Some(file_id) = block.attachment_file() else {
                 continue;
             };
             let new_name = new_file_names.get(file_id).cloned().unwrap_or_default();

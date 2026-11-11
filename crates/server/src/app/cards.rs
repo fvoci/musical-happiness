@@ -112,9 +112,9 @@ impl App {
         blocks
             .iter()
             .map(|(block, summary)| {
-                // Preserved quirk: one card block that is no well-formed card fails the
-                // whole list (server/app/cards.go:54-60). What is stored is no card, so
-                // this is a server error.
+                // The fields of a card that are not of their kind are left out
+                // (`card_from_stored_block`), so no stored card fails the list; an
+                // error here would be the server's.
                 // A list says whether a card has a body; the body is read with the card.
                 card_from_stored_block(block, now)
                     .map(|card| card.listed(*summary))

@@ -577,7 +577,7 @@ impl Configuration {
         // the other S3 settings would otherwise be passed over without a word.
         for key in ["filess3config.accesskeyid", "filess3config.secretaccesskey"] {
             let name = env_name(key);
-            if env(&name).is_some() {
+            if env(&name).is_some_and(|text| !text.trim().is_empty()) {
                 bail!(
                     "{name} is not read: leave filess3config.accesskeyid empty and give the \
                      credentials as AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
@@ -1003,6 +1003,9 @@ mod tests {
             let error = Configuration::parse("{}", credentials).expect_err("not read, refused");
             assert!(error.to_string().contains("AWS_ACCESS_KEY_ID"), "{name}");
         }
+        let blank =
+            |asked: &str| (asked == "FVOCI_FILESS3CONFIG_SECRETACCESSKEY").then(String::new);
+        Configuration::parse("{}", blank).expect("a blank credential variable is not in the way");
     }
 
     #[test]

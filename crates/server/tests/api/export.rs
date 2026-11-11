@@ -566,10 +566,10 @@ async fn an_archive_with_a_broken_entry_stores_nothing() {
     ts.teardown().await;
 }
 
-/// An image block may name its file as a client wrote it. A name that cannot be a
+/// An attachment block may name its file as a client wrote it. A name that cannot be a
 /// stored name gets no entry, so the archive is exported and read back.
 #[tokio::test]
-async fn an_archive_reads_back_whatever_an_image_block_names() {
+async fn an_archive_reads_back_whatever_an_attachment_names() {
     let ts = Setup::native().start().await.init_basic().await;
     let board = board_with_card(&ts, TEST_TEAM_ID).await;
     let image = |file: &str| {

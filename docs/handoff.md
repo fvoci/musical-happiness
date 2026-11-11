@@ -15,7 +15,7 @@
   | 서버 | `cargo xtask check`, `cargo xtask test` | 이 문서의 1절 |
   | 웹앱 | `pnpm install --frozen-lockfile` 뒤에 `pnpm --filter web run check`, `test`, `build`, `e2e` | `apps/web/PORTING.md`의 "검증 명령"과 "마지막 검증". `pnpm`을 놓는 법은 `apps/web/docs/handoff.md`의 "도구가 있는 곳" |
 
-- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브를 놓아야 컴파일되고, 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
+- **보관 폴더.** 커밋되지 않는 파일은 이 기기의 보관 폴더(`musical-happiness-carry/`) 아래에 있다. `server/`에는 템플릿 아카이브와 조사 자료가, `web/`에는 글꼴 산출물과 그 원본, 마지막 검증의 출력이 있다. 새 워크트리에 놓는 명령은 각 폴더의 `README.md` 3절에 있다. 서버는 템플릿 아카이브 없이 컴파일되고(템플릿은 저장소의 산출물이다), 웹앱은 글꼴을 놓으면 `build`가 글꼴을 받으러 네트워크에 나가지 않는다.
 - **무시 규칙.** 저장소 루트의 `.gitignore`가 `target/`, `node_modules/`, 템플릿 아카이브를 무시한다. 웹앱의 빌드 산출물과 글꼴은 `apps/web/.gitignore`가 맡는다.
 - **컨테이너.** 필요할 때 만들고 그 일이 끝나면 닫는다. `cargo xtask test`가 PostgreSQL과 S3 컨테이너를 스스로 준비하고, 돌린 세션이 일을 마칠 때 멈춘다(2절). 웹앱의 검증은 컨테이너를 쓰지 않는다.
 
@@ -81,7 +81,7 @@
 | 라우트와 영역별 세부, 결정 대기 항목의 지금 동작 | `crates/server/PORTING.md` |
 | 스토어, 모델 | `crates/store/PORTING.md`, `crates/model/PORTING.md` |
 | CDN과 프록시 뒤에 둘 때 | `docs/fvoci-cdn.md` |
-| 웹앱의 계획 | 저장소 밖 `~/.claude/plans/fvoci-web-svelte.md` |
+| 웹앱의 계획 | 저장소 밖, 사용자의 계획 폴더의 `fvoci-web-svelte.md` |
 | 웹앱의 편집기 스파이크, 날짜 모델, 계약에 대한 가정 | 웹앱의 문서 `apps/web/docs/spike-editor.md`, `apps/web/PORTING.md`, `apps/web/docs/contract-assumptions.md` |
 | 원본(Focalboard의 Go 서버)과 견줄 때 쓰던 도구 | 7절 |
 
@@ -98,15 +98,15 @@ cargo xtask openapi  # contracts/openapi.json 이 서버가 내는 것과 다르
 | 무엇 | 결과 |
 |---|---|
 | `cargo xtask check` | 일곱 단계 PASS |
-| `cargo xtask test` | SQLite 991건, PostgreSQL 883건, S3 1건, 실패 0 |
+| `cargo xtask test` | SQLite 1,095건, PostgreSQL 956건, S3 7건, 실패 0(2026-11-11, `fvoci/server-next`) |
 | 회귀 스냅샷 | 591단계(시나리오 21개) |
 | 권한 표 | 636칸 |
 
-- SQLite 실행의 `ignored` 1건은 S3 테스트다. 세 번째 단계가 그것을 돌린다.
+- 앞 두 실행의 `ignored` 7건은 S3 테스트다. 세 번째 단계가 그것을 돌린다.
 - 수는 커밋마다 달라진다. 문서보다 실행 결과를 믿는다.
 - 건너뛴 단계는 요약에 `SKIP`으로 나온다(`--skip-licenses`, `--database sqlite|postgres`). `SKIP`이 있는 실행을 전체 통과로 보고하지 않는다.
 - `cargo xtask test`는 `FVOCI_REGRESSION_UPDATE`가 설정돼 있으면 시작하지 않는다(아래의 갱신 절차).
-- `cargo xtask test`는 컨테이너를 띄운 채로 끝난다. 작업 묶음이 끝나면 띄운 세션이 멈춘다(2절의 규칙).
+- `cargo xtask test`는 스스로 띄운 컨테이너를, 마지막으로 쓴 실행이 끝날 때 멈춘다(tracer-bullet 11).
 - 환경 변수로 다른 PostgreSQL·S3·컨테이너 이름·포트를 주는 법은 `xtask/src/test.rs`와 `xtask/src/containers.rs`의 머리 주석에 있다.
 
 **걸리는 시간.** 이 기기에서 빌드 캐시가 있을 때, 2026-11-11 02–03시 KST에 잰 값이다.
@@ -192,7 +192,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 - **빌드 크기.** `[profile.dev]`의 `debug = "line-tables-only"`(2026-11-11 12:49 KST). 깨끗한 빌드에서 잰 값: 디버그 정보 전부(2) 빌드 89초·`target` 6.6 GB·서버 바이너리 317 MB, `line-tables-only` 56초·3.78 GB·124 MB, `1` 59초·4.41 GB·185 MB, `0` 57초·2.80 GB·76 MB. clippy는 어느 것이나 28–34초.
 - 태그 `parity-s5`는 이 저장소의 원격에도 있다.
 
-컨테이너를 만드는 명령과 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `~/atlas/musical-happiness-carry/server/README.md` 4–5절에 있다. 그 문서는 컨테이너를 지우기 전(03:12–03:19 KST)에 쓰였다. 컨테이너가 떠 있다는 말과 스키마의 수는 지금과 다르다.
+컨테이너를 만드는 명령과 새 클론에서 처음 빌드할 때 알아 둘 것은 보관 폴더의 `server/README.md` 4–5절에 있다. 그 문서는 컨테이너를 지우기 전(03:12–03:19 KST)에 쓰였다. 컨테이너가 떠 있다는 말과 스키마의 수는 지금과 다르다.
 
 ## 3. 걸렸던 함정
 
@@ -246,7 +246,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 ## 5. `target/s6/`의 조사 자료 (커밋되지 않는다)
 
-이 자료는 저장소에 없다. 이 기기의 보관 폴더 `~/atlas/musical-happiness-carry/server/target/s6/`에 있다. 무엇을 옮겼고 무엇을 옮기지 않았는지는 그 폴더의 `README.md` 1–2절에 있다. 아래에는 다음 단계에 쓰는 것만 적는다.
+이 자료는 저장소에 없다. 이 기기의 보관 폴더 `server/target/s6/`에 있다. 무엇을 옮겼고 무엇을 옮기지 않았는지는 그 폴더의 `README.md` 1–2절에 있다. 아래에는 다음 단계에 쓰는 것만 적는다.
 
 | 파일 | 무엇 | 언제 쓰나 |
 |---|---|---|
@@ -265,11 +265,11 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 
 ## 6. 다음 세션이 먼저 볼 것
 
-**다음 작업 묶음.** 이 저장소에서 한다. 설계의 "구현 순서" 8단계와 9단계다. 계약에서 바뀔 조작과 멤버는 `docs/contract-pending.md`에 있다. 묶음의 커밋마다 계약 파일과 그 문서를 함께 고친다.
+**끝난 작업 묶음.** 설계의 "구현 순서" 8단계와 9단계는 `fvoci/server-next`가 했다. 바뀐 조작과 멤버는 `docs/contract-pending.md`에 있다. 커밋마다 계약 파일과 그 문서를 함께 고친다.
 
-1. **본문 저장과 날짜 값**(설계 3.7, 5.7). 이 묶음이 하는 중이다. 허용 목록 판 2와 공유 벡터 `contracts/body-vectors.json`은 들어갔다(맨 앞 "지금 상태"의 tracer-bullet 목록).
-2. **템플릿 받기**(설계 3.10, 5.7). 웹앱의 변환기가 낸 산출물을 받아 넣고, 저장소 밖의 템플릿 아카이브에 대한 의존을 끊는다. 이것이 끝나야 새 클론에서 서버가 그대로 컴파일된다.
-3. **청크 업로드, 스트리밍, 파일 한도**(설계 4.3, 5.6).
+1. **(끝났다)** **본문 저장과 날짜 값**(설계 3.7, 5.7). 허용 목록 판 2와 공유 벡터 `contracts/body-vectors.json`이 들어갔다(맨 앞 "지금 상태"의 tracer-bullet 목록).
+2. **(끝났다)** **템플릿 받기**(설계 3.10, 5.7). 웹앱의 변환기가 낸 산출물을 받아 넣고, 저장소 밖의 템플릿 아카이브에 대한 의존을 끊었다. 새 클론에서 서버가 그대로 컴파일된다.
+3. **(끝났다)** **청크 업로드, 스트리밍, 파일 한도**(설계 4.3, 5.6).
 4. **(끝났다, tracer-bullet 10)** **응답 압축에 zstd를 더한다.** 결정된 것은 gzip, brotli, zstd 셋이다. 정적 파일은 웹앱의 빌드가 `.zst`를 이미 만든다. 서버는 지금 미리 압축된 brotli와 gzip 파일만 골라 보낸다(`crates/server/src/web.rs`). `.zst`를 골라 보내는 일이 남았다.
 5. **(끝났다, tracer-bullet 11)** **`cargo xtask test`가 스스로 띄운 컨테이너를 끝날 때 멈추게 한다.** 함께 컨테이너 이름에서 옛 워크트리 이름(`hafgufa-`)을 뗀다. 이름의 기본값은 `xtask/src/containers.rs`에 있다.
 
@@ -290,7 +290,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 **남은 문제를 찾는 곳.**
 
 - 마지막 리뷰의 지적과 반영, 남긴 것과 까닭: `PORTING.md` P절.
-- 서버의 결함으로 남은 것: `docs/contract-pending.md` 8절. 예: 카드가 아닌 모양의 카드 블록이 `getCards`를 500으로 만든다. 다음 묶음에서 고칠 후보다.
+- 서버의 결함으로 남은 것: `docs/contract-pending.md` 8절.
 - 알려진 채로 남긴 불규칙: `docs/contract-pending.md` 7절과 `PORTING.md`의 S6 각 절.
 - 사용자의 확인이 필요한 채로 남은 것: `PORTING.md`의 "S6: 서버 정리" 머리에 모았다.
 - 큰 것 셋: 요청 스키마를 손으로 쓴 것(해석 쪽과 어긋나도 검사가 없다), 멤버십에 시각이 없어 멤버 목록이 ID 순서인 것, WebSocket 메시지가 계약 밖인 것.
@@ -303,7 +303,7 @@ DOCKER_BUILDKIT=1 docker build -f docker/fvoci/Dockerfile -t fvoci-server:s5 .  
 |---|---|
 | 원본 서버(오라클)를 다시 빌드하는 법, 차등 비교 스크립트, 개발 서버 스크립트의 전문 | 앞선 판의 1절 "레거시", 3절, 4절 |
 | 스크립트 자체(`scripts/`) | 태그 `parity-s5` |
-| S5의 검증 결과, DB 왕복의 데이터, Cypress 로그, 플러그인 저장소 PR의 사본(`target/reference/`), 하위 에이전트에게 준 지침서(`target/agent-brief.md`) | 보관 폴더 `~/atlas/musical-happiness-carry/server/` 아래의 같은 경로 |
+| S5의 검증 결과, DB 왕복의 데이터, Cypress 로그, 플러그인 저장소 PR의 사본(`target/reference/`), 하위 에이전트에게 준 지침서(`target/agent-brief.md`) | 보관 폴더 `server/` 아래의 같은 경로 |
 | 회귀 테스트를 세울 때 Python 차등 비교와 대조한 기록(`baseline-differential.txt`, `baseline-permissions.txt`, `crosscheck.txt`) | 보관 폴더의 `target/s6/` |
 | 원본 서버의 바이너리와 Go 캐시(`target/oracle/`), 원본 화면을 눌러 보던 개발 서버 둘의 데이터(`target/dev/`) | 옛 저장소의 서버 워크트리에만 있다. 옮기지 않았다 |
 

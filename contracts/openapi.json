@@ -73,7 +73,7 @@
             "type": "string"
           },
           "type": {
-            "description": "The block type: `card`, `view`, `comment` or `attachment`. A database of the\noriginal may also hold a legacy `board` block. No request makes a block of another\ntype or patches one into it (400 naming `type`).",
+            "description": "The block type: `card`, `view`, `comment` or `attachment`. No request makes a\nblock of another type or patches one into it (400 naming `type`).",
             "type": "string"
           },
           "updateAt": {
@@ -151,7 +151,7 @@
             ]
           },
           "type": {
-            "description": "The new block type: `card`, `view`, `comment` or `attachment`, or the type the\nblock has. Any other is refused (400 naming `type`).",
+            "description": "The new block type: `card`, `view`, `comment` or `attachment`. Any other is\nrefused (400 naming `type`).",
             "type": [
               "string",
               "null"
@@ -2484,7 +2484,7 @@
     },
     "/api/v1/boards/{boardId}/blocks": {
       "get": {
-        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed; who reads that way is not told who made a\nblock or changed it last (`createdBy` and `modifiedBy` are empty).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
+        "description": "For the board's members, and for an open template everyone in its team. With the\nboard's read token no session is needed; who reads that way is not told who made a\nblock or changed it last (`createdBy` and `modifiedBy` are empty), nor who is\nmentioned in a body (the `userId` of every mention is empty).\n\n`all` asks for every block and `blockId` for one, which is 404 if the board has no\nsuch block. Otherwise `parentId` and `type` narrow the list, and without either the\nlist is every block of the board. A parameter with an empty value counts as left\nout. Oldest first; the blocks that one request made come in the order that request\nhad them in.",
         "operationId": "getBlocks",
         "parameters": [
           {

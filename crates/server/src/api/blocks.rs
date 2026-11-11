@@ -117,7 +117,8 @@ async fn require_source_board_access(
 ///
 /// For the board's members, and for an open template everyone in its team. With the
 /// board's read token no session is needed; who reads that way is not told who made a
-/// block or changed it last (`createdBy` and `modifiedBy` are empty).
+/// block or changed it last (`createdBy` and `modifiedBy` are empty), nor who is
+/// mentioned in a body (the `userId` of every mention is empty).
 ///
 /// `all` asks for every block and `blockId` for one, which is 404 if the board has no
 /// such block. Otherwise `parentId` and `type` narrow the list, and without either the

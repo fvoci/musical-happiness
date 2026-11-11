@@ -263,9 +263,8 @@ pub struct Block {
     /// The schema version of the block.
     #[serde(deserialize_with = "null_as_default")]
     pub schema: i64,
-    /// The block type: `card`, `view`, `comment` or `attachment`. A database of the
-    /// original may also hold a legacy `board` block. No request makes a block of another
-    /// type or patches one into it (400 naming `type`).
+    /// The block type: `card`, `view`, `comment` or `attachment`. No request makes a
+    /// block of another type or patches one into it (400 naming `type`).
     #[serde(rename = "type")]
     #[serde(deserialize_with = "null_as_default")]
     #[schema(value_type = String)]
@@ -387,10 +386,8 @@ impl Block {
     #[must_use]
     pub fn shown_files(&self) -> Vec<String> {
         if self.block_type == BlockType::Attachment {
-            return ["fileId", "attachmentId"]
-                .iter()
-                .find_map(|key| self.fields.get(*key).and_then(serde_json::Value::as_str))
-                .filter(|name| !name.is_empty())
+            return self
+                .attachment_file()
                 .map(str::to_owned)
                 .into_iter()
                 .collect();
@@ -399,6 +396,19 @@ impl Block {
             .as_ref()
             .map(|body| body.file_ids().into_iter().map(str::to_owned).collect())
             .unwrap_or_default()
+    }
+
+    /// The stored name of the file of an attachment block: its `fileId`, or failing that
+    /// its `attachmentId`; `None` for an empty name and for a block of another type.
+    #[must_use]
+    pub fn attachment_file(&self) -> Option<&str> {
+        if self.block_type != BlockType::Attachment {
+            return None;
+        }
+        ["fileId", "attachmentId"]
+            .iter()
+            .find_map(|key| self.fields.get(*key).and_then(serde_json::Value::as_str))
+            .filter(|name| !name.is_empty())
     }
 }
 
@@ -412,8 +422,8 @@ pub struct BlockPatch {
     /// The new schema version.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<i64>,
-    /// The new block type: `card`, `view`, `comment` or `attachment`, or the type the
-    /// block has. Any other is refused (400 naming `type`).
+    /// The new block type: `card`, `view`, `comment` or `attachment`. Any other is
+    /// refused (400 naming `type`).
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
     pub block_type: Option<BlockType>,
@@ -453,12 +463,6 @@ pub struct PropertyChanges {
 }
 
 impl PropertyChanges {
-    /// Whether there is nothing to change.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.updated.is_empty() && self.deleted.is_empty()
-    }
-
     /// Sets the updated values in `values`, then removes the deleted ones.
     pub fn apply_to(&self, values: &mut JsonMap) {
         for (id, value) in &self.updated {

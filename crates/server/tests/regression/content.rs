@@ -252,7 +252,7 @@ pub(crate) async fn files(s: &mut Session) {
     )
     .await;
 
-    // An image block that points at the file, then deleting it.
+    // An attachment block that points at the file, then deleting it.
     let created = new_blocks(
         s,
         &alice,

@@ -91,7 +91,7 @@
 AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… fvoci-server --config config.json
 ```
 
-`filess3config`의 키 가운데 자격(`accesskeyid`, `secretaccesskey`)이 아닌 것은 `FVOCI_FILESS3CONFIG_`에 키를 대문자로 이은 환경 변수로도 바꾼다(표의 "환경 변수" 칸). 컨테이너 하나를 여러 환경에 띄울 때 쓴다. 자격은 `FVOCI_*`로 받지 않는다(`FVOCI_FILESS3CONFIG_ACCESSKEYID`나 `…_SECRETACCESSKEY`가 있으면 시작하지 않는다). `accesskeyid`를 비우고 위처럼 표준 `AWS_*` 변수로 준다.
+`filess3config`의 키 가운데 자격(`accesskeyid`, `secretaccesskey`)이 아닌 것은 `FVOCI_FILESS3CONFIG_`에 키를 대문자로 이은 환경 변수로도 바꾼다(표의 "환경 변수" 칸). 컨테이너 하나를 여러 환경에 띄울 때 쓴다. 자격은 `FVOCI_*`로 받지 않는다(`FVOCI_FILESS3CONFIG_ACCESSKEYID`나 `…_SECRETACCESSKEY`가 공백만이 아니면 시작하지 않는다). `accesskeyid`를 비우고 위처럼 표준 `AWS_*` 변수로 준다.
 
 청크로 올리는 파일(`createUpload`)은 S3에서 멀티파트 업로드가 된다. 세션을 열 때 최종 자리에 멀티파트 업로드를 시작하고, 부분마다 확인한 뒤 버킷으로 보내고, 완료할 때 객체로 만든다. 버리거나 끝난 세션은 서버가 중단(abort)하고, 그 자리에 파일의 기록이 없는 객체가 있으면(완료의 답을 잃었거나 기록하기 전에 서버가 멈춘 것) 그것도 지운다. 서버가 멈춰 세션이 남으면 다음 정리에서 그렇게 한다. 서버가 그 사이에 멈추면 중단하지 못한 멀티파트 업로드가 버킷에 남아 저장 요금이 나가므로(S3의 멀티파트 업로드에는 만료가 없다), 버킷에 수명 주기 규칙 `AbortIncompleteMultipartUpload`를 둔다. 세션은 24시간까지이므로 2일이면 넉넉하다. AWS CLI로는:
 

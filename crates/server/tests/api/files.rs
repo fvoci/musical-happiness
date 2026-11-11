@@ -528,20 +528,42 @@ async fn duplicating_a_board_copies_its_files() {
     ts.teardown().await;
 }
 
-/// `TestCopyCard`: duplicating a single card copies the files its attachment blocks refer to.
+/// `TestCopyCard`: duplicating a single card copies the files its attachment blocks refer
+/// to, whether a block names its file as `fileId` or as `attachmentId` alone.
 #[tokio::test]
 async fn duplicating_a_card_copies_its_files() {
     let ts = Setup::native().start().await.init_basic().await;
-    let (board, file_id) = board_with_attachment(&ts).await;
-    let card_id = ts
+    for key in ["fileId", "attachmentId"] {
+        duplicate_a_card_whose_attachment_names_its_file_as(&ts, key).await;
+    }
+    ts.teardown().await;
+}
+
+async fn duplicate_a_card_whose_attachment_names_its_file_as(ts: &TestServer, key: &str) {
+    let (board, file_id) = board_with_attachment(ts).await;
+    let blocks = ts
         .client
         .get(&format!("/boards/{}/blocks", board.id))
         .await
-        .ok_json::<Vec<Block>>()
-        .into_iter()
-        .find(|block| block.block_type == BlockType::Card)
-        .expect("the board has a card")
-        .id;
+        .ok_json::<Vec<Block>>();
+    let id_of = |block_type: BlockType| {
+        blocks
+            .iter()
+            .find(|block| block.block_type == block_type)
+            .map(|block| block.id.clone())
+            .expect("the board has the block")
+    };
+    let card_id = id_of(BlockType::Card);
+    if key == "attachmentId" {
+        let attachment_id = id_of(BlockType::Attachment);
+        ts.client
+            .patch(
+                &format!("/boards/{}/blocks/{attachment_id}", board.id),
+                &json!({"updatedFields": {"attachmentId": file_id}, "deletedFields": ["fileId"]}),
+            )
+            .await
+            .check_no_content();
+    }
 
     let copies = ts
         .client
@@ -560,13 +582,15 @@ async fn duplicating_a_card_copies_its_files() {
         .get("fileId")
         .and_then(Value::as_str)
         .expect("a copied file id");
-    assert_ne!(new_file_id, file_id, "a copy of the attachment's file");
+    assert_ne!(
+        new_file_id, file_id,
+        "a copy of the attachment's file ({key})"
+    );
     let download = ts
         .client
         .get(&format!("/boards/{}/files/{new_file_id}", board.id))
         .await;
     download.check_ok();
-    ts.teardown().await;
 }
 
 // -- the legacy reader fallback (ported but unreachable from the route) -----------------

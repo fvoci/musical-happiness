@@ -3,7 +3,7 @@
 적은 때: 2026-11-11 04:14 KST. 서버가 **지금** 주고받는 것을 모양을 바꾸지 않고 적었다(`crates/server/src/ws.rs`, 핸드셰이크는 `crates/server/src/lib.rs`의 `handle_websocket`). OpenAPI는 WebSocket을 적지 못하므로 계약 파일 `contracts/openapi.json` 밖에 둔다.
 
 - 메시지마다의 멤버와 타입은 기계가 읽는 `contracts/websocket.json`에 있다. 서버의 테스트(`crates/server/tests/api/websocket.rs`의 `messages_match_the_websocket_contract`)가 서버가 실제로 보낸 메시지를 그 파일과 견준다: 맨 위 멤버가 정확히 그 이름들이고, 실린 객체(`board`, `block` 등)의 멤버는 계약 파일의 같은 이름의 스키마에 있는 것들이다. 테스트가 보는 것은 **메시지**뿐이다. 명령(2절)과 `session`·`sent` 표시는 이 문서와 코드를 사람이 맞춰 둔다. 실린 객체의 멤버는 이름만 견주고 타입은 계약 파일의 스키마를 따른다.
-- 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. 본문 저장(`docs/contract-pending.md` 1절)이 들어가면 `Block`의 모양이 함께 바뀌고, 그 변경은 계약 파일의 차이로 보인다.
+- 메시지가 싣는 보드, 블록, 멤버, 카테고리는 계약의 `Board`, `Block`, `BoardMember`, `Category`와 같은 모양이다. `Block`은 본문(`body`, `docs/contract-pending.md` 1절)을 싣는다.
 - 이 문서의 모양을 바꾸는 일은 계약을 바꾸는 일이다. 바꿀 때는 이 문서, `websocket.json`, `docs/contract-pending.md`를 같은 커밋에서 고친다.
 
 ## 1. 핸드셰이크와 인증
@@ -76,7 +76,7 @@
 | `patchBoardsAndBlocks` | 바뀐 블록마다 `UPDATE_BLOCK`, 바뀐 보드마다 `UPDATE_BOARD` |
 | `deleteBoard`, `deleteBoardsAndBlocks` | `UPDATE_BOARD`, `board`는 `id`, `teamId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. 받는 사람은 지우기 직전의 멤버. `deleteBoardsAndBlocks`는 그 앞에 블록마다 삭제 `UPDATE_BLOCK`(모양은 아래 `deleteBlock`)을 내는데, 이것도 지우기 직전의 멤버에게만 가고 `SUBSCRIBE_BLOCKS`로 따라가던 연결은 받지 않는다. 둘 다 보드의 공유 토큰으로 따라가던 연결을 닫는다 |
 | `undeleteBoard` | 돌아온 보드의 `UPDATE_BOARD` 하나. **함께 돌아온 블록과 멤버의 메시지는 없다** |
-| `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `moveContentBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
+| `createBlocks`, `patchBlock`, `patchBlocks`, `createCard`, `patchCard`, `duplicateBlock`, `undeleteBlock` | 바뀌거나 생긴 블록마다 `UPDATE_BLOCK`. `undeleteBlock`은 되살린 블록 하나만 알린다(함께 돌아온 아래 블록은 알리지 않는다) |
 | `deleteBlock` | `UPDATE_BLOCK`, `block`은 `id`, `boardId`, `updateAt`, `deleteAt`(0이 아님)만 뜻이 있고 나머지는 빈 값. **지운 블록 하나만** 알린다. 함께 휴지통에 간 아래 블록(카드의 댓글·첨부)은 따로 알리지 않는다 |
 | `addMember`, `joinBoard`, `updateMember` | `UPDATE_MEMBER`. 이미 멤버인 사용자의 `addMember`·`joinBoard`, 멤버가 아닌 사용자의 `updateMember`는 아무것도 내지 않는다. 템플릿이 아닌 보드에 새로 든 멤버는 기본 카테고리에 들어가며 `UPDATE_BOARD_CATEGORY`도 받는다 |
 | `removeMember`, `leaveBoard` | `DELETE_MEMBER` |
