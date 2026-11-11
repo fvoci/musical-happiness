@@ -471,7 +471,9 @@ async fn the_archives_that_hold_their_place_are_counted() {
     );
     let archives =
         |body: &str, work: &str| sample(body, "fvoci_archives_in_progress", &[("work", work)]);
-    let body = scrape(&server).await;
+    // The export's place is given back once its file is removed, in a task after the
+    // download.
+    let body = scrape_until(&server, |body| archives(body, "export") == Some(0.0)).await;
     assert_eq!(
         archives(&body, "export"),
         Some(0.0),
