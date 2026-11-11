@@ -20,9 +20,18 @@ import {
   type DatePoint,
   type DateValue,
 } from './dates.ts';
+import { propertiesThatMeetFilterGroup } from './filter.ts';
 import { propertyBehavior } from './properties.ts';
 import type { Weekday } from './regional.ts';
-import { cardProperty, parseDateValue, type Card, type PropertyTemplate } from './wire.ts';
+import {
+  cardProperty,
+  formatDateValue,
+  parseDateValue,
+  type Card,
+  type FilterGroup,
+  type PropertyTemplate,
+  type PropertyValue,
+} from './wire.ts';
 
 // ------------------------------------------------------------- months
 
@@ -331,4 +340,27 @@ export function movedValue(value: DateValue, first: CalendarDate, timeZone: stri
     return { from, to: { instant: from.instant + (end.instant - start.instant) } };
   }
   return { from, to };
+}
+
+/**
+ * The values of a card made on a day of the calendar (question C11): the
+ * values the view's filter asks for, as a new card on a board or in a table
+ * gets them, and that day for the date the calendar is placed by. The day
+ * wins over the filter: where the filter asks for another date, the card is
+ * made on the day it was asked on and the filter hides it, as it would hide
+ * any card that does not meet it.
+ */
+export function newCardProperties(
+  filter: FilterGroup | undefined,
+  templates: readonly PropertyTemplate[],
+  template: PropertyTemplate | undefined,
+  day: CalendarDate,
+): Record<string, PropertyValue> {
+  const properties: Record<string, PropertyValue> = propertiesThatMeetFilterGroup(
+    filter,
+    templates,
+  );
+  const value = formatDateValue({ from: { date: day } });
+  if (template && datesWritable(template) && value) properties[template.id] = value;
+  return properties;
 }

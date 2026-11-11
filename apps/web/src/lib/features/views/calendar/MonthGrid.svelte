@@ -12,7 +12,10 @@
   What can be pressed depends on the pointer, not on the width (C2):
 
   - With a mouse, the number of a day opens the cards of the day, a bar
-    opens its card, "+N" opens the cards of the day.
+    opens its card, "+N" opens the cards of the day. A "+" at the top right
+    of a cell, there while it is pointed at, makes a card on that day
+    (question C11, answer B); it is no stop of the Tab key, as the cards of
+    the day end with "New card on …".
   - With a finger, the whole cell is one button that opens the cards of the
     day. A bar is a picture.
 
@@ -20,6 +23,8 @@
   the arrow keys move it a day or a week (`onmove`).
 -->
 <script lang="ts">
+  import PlusIcon from '@lucide/svelte/icons/plus';
+
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { foldWeek, inMonth, layWeek, type Month } from '$lib/logic/calendar.ts';
   import type { CalendarDate } from '$lib/logic/dates.ts';
@@ -50,6 +55,8 @@
     onpick: (date: CalendarDate) => void;
     /** An arrow key moves the picked day by this many days. */
     onmove: (by: number) => void;
+    /** Makes a card on a day; none where no card can be made here. */
+    oncreate?: (date: CalendarDate) => void;
   }
 
   let {
@@ -63,6 +70,7 @@
     onOpenCard,
     onpick,
     onmove,
+    oncreate,
   }: Props = $props();
 
   const locale = $derived(placed.locale);
@@ -150,7 +158,7 @@
               {@render number()}
             </button>
           {:else}
-            <div data-day={date} class={[cell, 'p-0.5']} style:grid-column={column + 1}>
+            <div data-day={date} class={[cell, 'group/day p-0.5']} style:grid-column={column + 1}>
               <button
                 type="button"
                 data-day-button
@@ -168,6 +176,22 @@
               >
                 {@render number()}
               </button>
+              {#if oncreate}
+                {@const create = oncreate}
+                <button
+                  type="button"
+                  tabindex={-1}
+                  data-new-card={date}
+                  aria-label={m.calendar_new_card_on({ day: displayDay(date, locale) })}
+                  title={m.calendar_new_card_on({ day: displayDay(date, locale) })}
+                  class="ml-auto flex size-6 items-center justify-center rounded-sm text-muted-foreground opacity-0 group-hover/day:opacity-100 hover:bg-muted hover:text-foreground"
+                  onclick={() => {
+                    create(date);
+                  }}
+                >
+                  <PlusIcon class="size-4" aria-hidden="true" />
+                </button>
+              {/if}
             </div>
           {/if}
 

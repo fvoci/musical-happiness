@@ -1,6 +1,6 @@
 /**
- * Changing dates on the calendar (lib/logic/calendar.ts): which calendars
- * let a date be changed, and a value moved whole to another first day,
+ * Writing on the calendar (lib/logic/calendar.ts): which calendars let a
+ * date be changed, the values of a card made on a day, and a value moved whole to another first day,
  * keeping its length in days and the time of day of a moment on the
  * reader's clock, over the edges of months and years and the nights the
  * clocks change.
@@ -11,7 +11,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 
-import { datesWritable, movedValue } from '$lib/logic/calendar.ts';
+import { datesWritable, movedValue, newCardProperties } from '$lib/logic/calendar.ts';
 import { wallTimeOf } from '$lib/logic/date-entry.ts';
 import {
   addDays,
@@ -21,7 +21,7 @@ import {
   type CalendarDate,
   type DateValue,
 } from '$lib/logic/dates.ts';
-import type { PropertyTemplate } from '$lib/logic/wire.ts';
+import type { FilterGroup, PropertyTemplate } from '$lib/logic/wire.ts';
 
 import { at, ZONES } from '../support/zones.ts';
 
@@ -212,5 +212,48 @@ describe('a moved value, for any reader', () => {
       ),
       { numRuns: 500 },
     );
+  });
+});
+
+describe('a card made on a day', () => {
+  const due = template('date');
+  const status: PropertyTemplate = {
+    id: 'status',
+    name: 'Status',
+    type: 'select',
+    options: [
+      { id: 'todo', value: 'To do', color: 'propColorDefault' },
+      { id: 'done', value: 'Done', color: 'propColorGreen' },
+    ],
+  };
+  const templates = [status, due];
+  const filter = (filters: FilterGroup['filters']): FilterGroup => ({ operation: 'and', filters });
+
+  it('has the day as the date the calendar is placed by', () => {
+    expect(newCardProperties(undefined, templates, due, day('2026-11-25'))).toEqual({
+      due: { from: '2026-11-25' },
+    });
+  });
+
+  it('gets the values the view’s filter asks for, as on a board', () => {
+    const asks = filter([{ propertyId: 'status', condition: 'includes', values: ['done'] }]);
+    expect(newCardProperties(asks, templates, due, day('2026-11-25'))).toEqual({
+      status: 'done',
+      due: { from: '2026-11-25' },
+    });
+  });
+
+  it('keeps the day where the filter would give the date another value', () => {
+    const asks = filter([{ propertyId: 'due', condition: 'includes', values: ['2026-01-01'] }]);
+    expect(newCardProperties(asks, templates, due, day('2026-11-25'))).toEqual({
+      due: { from: '2026-11-25' },
+    });
+  });
+
+  it('has no date of its own where the calendar is placed by when cards were made', () => {
+    expect(
+      newCardProperties(undefined, templates, template('createdTime'), day('2026-11-25')),
+    ).toEqual({});
+    expect(newCardProperties(undefined, templates, undefined, day('2026-11-25'))).toEqual({});
   });
 });

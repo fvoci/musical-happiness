@@ -6,16 +6,19 @@
 
   A line of it is a CardRow: the card's title, time and days, the
   properties the view turned on, and its "…". Where dates cannot be changed
-  here, a line under the heading says why.
+  here, a line under the heading says why. Last, for someone who may make
+  cards there, "New card on …" (question C11, answer B): the way to make a
+  card on a day that every pointer and the keys reach.
 -->
 <script lang="ts">
+  import PlusIcon from '@lucide/svelte/icons/plus';
   import XIcon from '@lucide/svelte/icons/x';
 
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import type { PropertyUser } from '$lib/components/properties/index.ts';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { CalendarDate } from '$lib/logic/dates.ts';
-  import { displayDayLong } from '$lib/logic/format.ts';
+  import { displayDay, displayDayLong } from '$lib/logic/format.ts';
   import type { PropertyTemplate } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
 
@@ -40,6 +43,8 @@
      * placed by when cards were made or changed (question C14).
      */
     fixed?: string;
+    /** Makes a card on the day; none where no card can be made here. */
+    oncreate?: (date: CalendarDate) => void;
     /** Given where the list can be closed: a popover. */
     onclose?: () => void;
   }
@@ -57,6 +62,7 @@
     board,
     onChangeDate,
     fixed,
+    oncreate,
     onclose,
   }: Props = $props();
 
@@ -112,4 +118,22 @@
       <li class="px-3 py-2 text-muted-foreground">{m.calendar_no_cards()}</li>
     {/each}
   </ul>
+  {#if oncreate}
+    {@const create = oncreate}
+    <div class="shrink-0 px-1 pb-1">
+      <button
+        type="button"
+        data-testid="day-new-card"
+        class="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring roomy:min-h-12"
+        onclick={() => {
+          create(date);
+        }}
+      >
+        <PlusIcon class="size-4 shrink-0" aria-hidden="true" />
+        <span class="truncate"
+          >{m.calendar_new_card_on({ day: displayDay(date, placed.locale) })}</span
+        >
+      </button>
+    </div>
+  {/if}
 </section>

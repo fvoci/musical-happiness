@@ -12,6 +12,8 @@
   - narrower: a small grid of numbers, dots and lines over the list of the
     picked day (question C1, answer A).
 
+  A card is made on a day from "New card on …" at the end of the day's list,
+  or with a mouse from the "+" of its cell (question C11, answer B).
   A card's date is changed from the "…" of its line in a list: a picker of
   days (DayPicker) moves it whole (questions C9, C10). Where the cards are
   placed by a date nobody sets, no line offers it and the lists say why.
@@ -31,6 +33,7 @@
   import {
     datesWritable,
     displayProperty,
+    newCardProperties,
     firstOf,
     inMonth,
     monthOf,
@@ -81,8 +84,11 @@
    * device turned on its side does not raise a sheet unasked.
    */
   let undatedOpen = $derived<boolean>(sheet && false);
-  /** A card chosen in the popover of a day, opened once the popover has closed. Not reactive. */
-  let chosenCard: string | undefined;
+  /**
+   * What a choice in the popover of a day does once the popover has closed:
+   * open a card, or make one. Not reactive.
+   */
+  let afterClose: (() => void) | undefined;
   let dayPopover = $state<HTMLElement | null>(null);
 
   /** The focus went somewhere else while the popover closed: a field, "No date". */
@@ -233,7 +239,41 @@
   /** A card opened from the list of a day: the list closes behind it. */
   function openFromList(cardId: string): void {
     dayOpen = false;
-    chosenCard = cardId;
+    afterClose = () => {
+      onOpenCard(cardId);
+    };
+  }
+
+  // -------------------------------------------------------- making a card
+
+  /** Cards can be made on a day: by someone who may edit, where the day is a date to set. */
+  const creatable = $derived(writable && board.canEdit);
+
+  /**
+   * Makes a card on a day (question C11): the values the view's filter asks
+   * for, and the day. It opens, as a card made on a board does (C12); the
+   * calendar goes to its day.
+   */
+  async function createOn(date: CalendarDate): Promise<void> {
+    const properties = newCardProperties(view.fields.filter, templates, template, date);
+    const card = await board.createCard({ properties });
+    if (!card) return;
+    // The focus on the day first: where the card gives it back, unless it has a bar to go to.
+    select(date);
+    await tick();
+    focusDay();
+    onOpenCard(card.id);
+  }
+
+  /** "New card on …" in the popover of a day: made once the popover has closed. */
+  function createFromList(date: CalendarDate): void {
+    dayOpen = false;
+    afterClose = () => void createOn(date);
+  }
+
+  function createFromSheet(date: CalendarDate): void {
+    dayOpen = false;
+    void createOn(date);
   }
 
   // ------------------------------------------------------ changing a date
@@ -314,6 +354,7 @@
           {onOpenCard}
           onpick={pick}
           onmove={(by: number) => void move(by)}
+          oncreate={creatable ? (date: CalendarDate) => void createOn(date) : undefined}
         />
       {:else}
         <MiniMonth
@@ -326,7 +367,12 @@
           onmove={(by: number) => void move(by)}
         />
         <div class="flex min-h-36 flex-1 flex-col border-t pb-(--safe-bottom)">
-          <DayList date={selected} {...lists} {onOpenCard} />
+          <DayList
+            date={selected}
+            {...lists}
+            {onOpenCard}
+            oncreate={creatable ? (date: CalendarDate) => void createOn(date) : undefined}
+          />
         </div>
       {/if}
     </div>
@@ -375,7 +421,12 @@
 
 {#if bars && sheet}
   <BottomSheet bind:open={dayOpen} title={displayDayLong(selected, locale)}>
-    <DayList date={selected} {...lists} onOpenCard={openFromSheet} />
+    <DayList
+      date={selected}
+      {...lists}
+      onOpenCard={openFromSheet}
+      oncreate={creatable ? createFromSheet : undefined}
+    />
   </BottomSheet>
 {:else if bars}
   <Popover.Root bind:open={dayOpen}>
@@ -397,18 +448,19 @@
         // unless the reader has put it somewhere else (a field, "No date").
         event.preventDefault();
         if (!undatedOpen && !focusElsewhere()) focusDay();
-        // A card chosen in the list opens now, with the focus on its day: that
-        // is where the card gives it back when it closes, unless the card has
-        // a bar to go back to (card/CardDialog.svelte, `data-card`).
-        const chosen = chosenCard;
-        chosenCard = undefined;
-        if (chosen) onOpenCard(chosen);
+        // A card chosen in the list opens now (or is made), with the focus on
+        // its day: that is where the card gives it back when it closes,
+        // unless the card has a bar to go back to (CardDialog, `data-card`).
+        const then = afterClose;
+        afterClose = undefined;
+        then?.();
       }}
     >
       <DayList
         date={selected}
         {...lists}
         onOpenCard={openFromList}
+        oncreate={creatable ? createFromList : undefined}
         onclose={() => {
           dayOpen = false;
         }}

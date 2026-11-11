@@ -107,6 +107,7 @@
   "calendar_set_hint": "고른 날이 {property} 값이 됩니다.",
   "calendar_moved": "{title}: 이제 {day}에 있습니다.",
   "calendar_dates_fixed": "카드가 {property} 기준으로 놓여 있어 여기서는 날짜를 바꿀 수 없습니다.",
+  "calendar_new_card_on": "{day}에 새 카드",
   "card_menu": "카드 메뉴",
   "card_location": "{board}, {view}",
   "card_saving": "저장 중…",

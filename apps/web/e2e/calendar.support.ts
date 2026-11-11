@@ -61,3 +61,39 @@ export async function openCalendar(page: Page, info: TestInfo): Promise<void> {
   });
   await expect(calendar(page)).toHaveAttribute('data-layout', wide(info) ? 'bars' : 'mini');
 }
+
+export const focused = (page: Page): Locator => page.locator(':focus');
+
+/** The button of a day, whatever the layout draws. */
+export const dayButton = (page: Page, date: string): Locator =>
+  calendar(page).locator(
+    `[data-day="${date}"][data-day-button], [data-day="${date}"] [data-day-button]`,
+  );
+
+/** The value of "Due Date" of a card, as the board store has it. */
+export async function dueOf(page: Page, title: string): Promise<unknown> {
+  return page.evaluate((wanted) => {
+    interface Store {
+      board: { cardProperties: { id: string; name: string }[] };
+      cards: { title: string; fields: { properties: Record<string, unknown> } }[];
+    }
+    const store = (window as unknown as { fvociDev: { workspace: { board: Store } } }).fvociDev
+      .workspace.board;
+    const due = store.board.cardProperties.find((property) => property.name === 'Due Date');
+    const card = store.cards.find((each) => each.title === wanted);
+    return due && card ? (card.fields.properties[due.id] ?? null) : 'missing';
+  }, title);
+}
+
+/** Presses Tab until the focus is on `target`; fails after `most` presses. */
+export async function tabTo(page: Page, target: Locator, most = 12): Promise<void> {
+  for (let press = 0; press < most; press += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+    await page.keyboard.press('Tab');
+  }
+  await expect(target).toBeFocused();
+}
+
+/** The list a day's cards are in: the popover next to it, or the list under the small grid. */
+export const listOf = (page: Page, info: TestInfo): Locator =>
+  wide(info) ? page.getByTestId('day-popover') : dayList(page);
