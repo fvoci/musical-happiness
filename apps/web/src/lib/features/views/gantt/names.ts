@@ -8,7 +8,7 @@
  */
 import type { CalendarDate } from '$lib/logic/dates.ts';
 import { displayDayNumber, displayMonth } from '$lib/logic/format.ts';
-import type { GanttZoom } from '$lib/logic/wire.ts';
+import type { GanttZoom } from '$lib/logic/view-members.ts';
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
 

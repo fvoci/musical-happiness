@@ -1,0 +1,46 @@
+/**
+ * The members of a view's `fields` that a view has only where it was given
+ * a value for them: what it is grouped by, the date it is placed by, and,
+ * for a Gantt view, the card relation it reads and its zoom.
+ *
+ * A view is copied from what was stored member by member (wire.ts,
+ * `createBoardView`). These members are copied only where they are there: a
+ * member that is present with no value is not "missing" to a patch, and the
+ * patch that takes a first choice back (an undo) would name nothing to drop
+ * and send nothing, so that the server kept the choice.
+ */
+
+/** How far in a Gantt view is zoomed: what one mark of its axis is. */
+export type GanttZoom = 'day' | 'week' | 'month';
+
+/** What a Gantt view has beside the members every view has. */
+export interface GanttViewFields {
+  /**
+   * The card relation property whose value on a card names the cards that
+   * come before it. Missing or empty: no card comes after another.
+   */
+  dependencyPropertyId?: string;
+  /** The zoom. Missing, or a word this version does not know: `week`. */
+  ganttZoom?: GanttZoom;
+}
+
+export interface OptionalViewFields extends GanttViewFields {
+  groupById?: string;
+  dateDisplayPropertyId?: string;
+}
+
+const OPTIONAL = [
+  'groupById',
+  'dateDisplayPropertyId',
+  'dependencyPropertyId',
+  'ganttZoom',
+] as const;
+
+/** Those of the optional members that `fields` has a value for, and no others. */
+export function optionalViewFields(fields: OptionalViewFields): OptionalViewFields {
+  const given: Record<string, unknown> = {};
+  for (const member of OPTIONAL) {
+    if (fields[member] !== undefined) given[member] = fields[member];
+  }
+  return given;
+}

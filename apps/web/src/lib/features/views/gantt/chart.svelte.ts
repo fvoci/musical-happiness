@@ -26,7 +26,8 @@ import {
   type RowList,
   type Scale,
 } from '$lib/logic/gantt.ts';
-import type { BoardView, Card, GanttZoom, PropertyTemplate } from '$lib/logic/wire.ts';
+import type { GanttZoom } from '$lib/logic/view-members.ts';
+import type { BoardView, Card, PropertyTemplate } from '$lib/logic/wire.ts';
 import type { BoardStore } from '$lib/state/index.ts';
 
 import { Placed } from '../calendar/placed.ts';

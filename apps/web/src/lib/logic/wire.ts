@@ -18,6 +18,7 @@
  */
 import { parseCalendarDate, type CalendarDate, type DatePoint, type DateValue } from './dates.ts';
 import { diagnostics } from './diagnostics.ts';
+import { optionalViewFields, type GanttViewFields } from './view-members.ts';
 
 // ------------------------------------------------------------ identifiers
 
@@ -286,9 +287,6 @@ export function createFilterGroup(source?: FilterGroup): FilterGroup {
 
 export type ViewType = 'board' | 'table' | 'gallery' | 'calendar' | 'gantt';
 
-/** How far in a Gantt view is zoomed: what one mark of its axis is. */
-export type GanttZoom = 'day' | 'week' | 'month';
-
 /** The pseudo property that stands for the title column in sort options and calculations. */
 export const TITLE_COLUMN_ID = '__title';
 
@@ -300,13 +298,6 @@ export type BoardViewFields = {
   viewType: ViewType;
   groupById?: string;
   dateDisplayPropertyId?: string;
-  /**
-   * A Gantt view: the card relation property whose value on a card names the
-   * cards that come before it. Missing or empty: no card comes after another.
-   */
-  dependencyPropertyId?: string;
-  /** A Gantt view: its zoom. Missing, or a word this version does not know: `week`. */
-  ganttZoom?: GanttZoom;
   sortOptions: SortOption[];
   visiblePropertyIds: string[];
   visibleOptionIds: string[];
@@ -318,7 +309,7 @@ export type BoardViewFields = {
   columnCalculations: Record<string, string>;
   kanbanCalculations: Record<string, KanbanCalculation>;
   defaultTemplateId: string;
-};
+} & GanttViewFields;
 
 export type BoardView = Block & { fields: BoardViewFields };
 
@@ -332,14 +323,7 @@ export function createBoardView(source?: Block): BoardView {
     type: 'view',
     fields: {
       viewType: fields.viewType || 'board',
-      groupById: fields.groupById,
-      dateDisplayPropertyId: fields.dateDisplayPropertyId,
-      // Only where the view has them: a member that is there with no value is
-      // not "missing" to a patch, and taking it back (an undo) would send nothing.
-      ...(fields.dependencyPropertyId === undefined
-        ? {}
-        : { dependencyPropertyId: fields.dependencyPropertyId }),
-      ...(fields.ganttZoom === undefined ? {} : { ganttZoom: fields.ganttZoom }),
+      ...optionalViewFields(fields),
       sortOptions: (fields.sortOptions ?? []).map((option) => ({ ...option })),
       visiblePropertyIds: copyList(fields.visiblePropertyIds),
       visibleOptionIds: copyList(fields.visibleOptionIds),

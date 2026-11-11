@@ -25,7 +25,7 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import { m } from '$lib/i18n/paraglide/messages.js';
   import { GANTT_ZOOMS } from '$lib/logic/gantt.ts';
-  import type { GanttZoom } from '$lib/logic/wire.ts';
+  import type { GanttZoom } from '$lib/logic/view-members.ts';
   import { Button } from '$lib/ui/button/index.js';
 
   interface Props {

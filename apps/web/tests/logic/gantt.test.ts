@@ -28,12 +28,8 @@ import {
   type Axis,
 } from '$lib/logic/gantt.ts';
 import type { Weekday } from '$lib/logic/regional.ts';
-import {
-  createCard,
-  setCardProperty,
-  type GanttZoom,
-  type PropertyTemplate,
-} from '$lib/logic/wire.ts';
+import type { GanttZoom } from '$lib/logic/view-members.ts';
+import { createCard, setCardProperty, type PropertyTemplate } from '$lib/logic/wire.ts';
 
 const day = (text: string): CalendarDate => text as CalendarDate;
 const days = (first: string, last = first): Days => ({ first: day(first), last: day(last) });

@@ -38,7 +38,7 @@
   import { page, Room } from '$lib/layout/room.svelte.ts';
   import { dateOfInstant, type CalendarDate } from '$lib/logic/dates.ts';
   import { DAY_WIDTH, xOfDay, zoomOf } from '$lib/logic/gantt.ts';
-  import type { GanttZoom } from '$lib/logic/wire.ts';
+  import type { GanttZoom } from '$lib/logic/view-members.ts';
 
   import { MinuteClock } from '../calendar/clock.svelte.ts';
   import Undated from '../calendar/Undated.svelte';

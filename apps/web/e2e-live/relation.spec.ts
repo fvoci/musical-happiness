@@ -3,8 +3,8 @@
  * of the kind `relation` and its value as a list of card identifiers, and the
  * value picked in the card is there after the page is loaded again.
  *
- * The definition is made through the API: the app does not send changes of a
- * board's definitions to the server yet (`patchBoard` is not wired).
+ * The first test makes the definition through the API; the second makes it
+ * on the page, from the card, as a reader does.
  */
 import { expect, test, type Page } from '@playwright/test';
 
@@ -85,6 +85,81 @@ test('cards picked into a relation are stored as a list of identifiers and stay 
   await expect(after.locator('[data-slot="relation-chip"]')).toHaveText([
     'Pour the foundation',
     'Order the bricks',
+  ]);
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
+  await api.dispose();
+  expect(errors).toEqual([]);
+});
+
+test('a relation made on the page from a card, and the cards picked into it, stay after a reload', async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL ?? '';
+  const owner = person('relation-maker');
+  await register(base, owner);
+  const api = await signedIn(base, owner);
+  const board = await makeBoard(api, {
+    title: 'Relations made here',
+    cards: [
+      { title: 'Dig the trench', status: 'To do' },
+      { title: 'Lay the pipe', status: 'To do' },
+      { title: 'Fill the trench', status: 'To do' },
+    ],
+  });
+  const fill = board.cards['Fill the trench'] ?? '';
+  /** The definition of "After" as the server keeps it, once the page has made it. */
+  const defined = async (): Promise<{ id: string; type: string } | undefined> => {
+    const answer = await api.get(`/api/v1/boards/${board.boardId}`);
+    const properties = ((await answer.json()) as Schemas['Board']).cardProperties as {
+      id: string;
+      name: string;
+      type: string;
+    }[];
+    return properties.find((each) => each.name === 'After');
+  };
+
+  const errors = watchErrors(page);
+  await page.goto(`/board/${board.boardId}/${board.viewId}/${fill}`);
+  await signInOnPage(page, owner);
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
+
+  // The property is made from the card: "add a property", the kind, its name.
+  await page.getByTestId('add-property').click();
+  await page.locator('[data-action="relation"]').click();
+  const nameField = page
+    .getByTestId('property-menu')
+    .getByRole('textbox', { name: 'Property name' });
+  await expect(nameField).toHaveValue('Card relation');
+  await nameField.fill('After');
+  await nameField.press('Enter');
+  const after = property(page, 'After');
+  await expect(after).toHaveAttribute('data-property-type', 'relation');
+  await expect.poll(async () => (await defined())?.type).toBe('relation');
+  const propertyId = (await defined())?.id ?? '';
+  expect(propertyId).not.toBe('');
+
+  for (const title of ['Dig the trench', 'Lay the pipe']) {
+    await after.locator('[data-slot="relation-edit"]').click();
+    const search = page.getByRole('combobox', { name: 'After' });
+    await search.fill(title);
+    await expect(page.getByRole('listbox', { name: 'After' }).getByRole('option')).toHaveCount(1);
+    await search.press('Enter');
+    await closePicker(page);
+  }
+  const value = async (): Promise<unknown> =>
+    ((await (await api.get(`/api/v1/cards/${fill}`)).json()) as Schemas['Card']).properties[
+      propertyId
+    ];
+  await expect.poll(value).toEqual([board.cards['Dig the trench'], board.cards['Lay the pipe']]);
+
+  // After a reload the property and what was picked are there, as the server keeps them.
+  await page.reload();
+  await expect(page.getByTestId('card-dialog')).toBeVisible();
+  await expect(after).toHaveAttribute('data-property-type', 'relation');
+  await expect(after.locator('[data-slot="relation-chip"]')).toHaveText([
+    'Dig the trench',
+    'Lay the pipe',
   ]);
   await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();

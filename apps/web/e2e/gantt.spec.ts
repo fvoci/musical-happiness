@@ -341,6 +341,22 @@ test('the chart in light and dark, and at 390 pixels', async ({ page }, info) =>
   await expect(page.getByTestId('gantt-loops')).toBeVisible();
   await shoot(`${info.project.name}-loop`);
 
+  // Grouped, and the cards without a date: a column beside the chart, or a sheet on the phone.
+  await page.evaluate(async () => {
+    const store = (window as unknown as { fvociDev: Dev }).fvociDev.workspace.board;
+    const select = store.board.cardProperties.find((property) => property.type === 'select');
+    const view = store.views.find((each) => each.fields.viewType === 'gantt');
+    if (!select || !view) throw new Error('nothing to group by');
+    await store.setViewFields(view.id, { groupById: select.id });
+  });
+  await expect(gantt(page).locator('[data-group]').first()).toBeVisible();
+  await shoot(`${info.project.name}-grouped`);
+  await page.getByTestId('gantt-undated').click();
+  await expect(page.getByTestId('undated-list')).toBeVisible();
+  await shoot(`${info.project.name}-undated`);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('undated-list')).toHaveCount(0);
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByTestId('gantt-today').click();
   await expect(page.getByTestId('gantt-today-line')).toBeInViewport();

@@ -21,7 +21,8 @@ import {
   type RelationEdge,
 } from './dependencies.ts';
 import type { Weekday } from './regional.ts';
-import type { Card, GanttZoom, PropertyTemplate } from './wire.ts';
+import type { GanttZoom } from './view-members.ts';
+import type { Card, PropertyTemplate } from './wire.ts';
 
 // ---------------------------------------------------------------- zoom
 

@@ -29,6 +29,7 @@ import {
   sortOffered,
   withPropertyVisible,
 } from '$lib/features/view-header/view-fields.ts';
+import { optionalViewFields } from '$lib/logic/view-members.ts';
 import { applyViewPatch, viewPatches } from '$lib/state/patches.ts';
 import {
   createBoardView,
@@ -203,6 +204,24 @@ describe('a Gantt chart', () => {
         { id: '', label: 'None', checked: true, write: true },
       ]);
     }
+  });
+
+  it('takes a first choice of "display by" or of a grouping back the same way', () => {
+    const before = createBoardView({ ...createBoardView(), fields: { viewType: 'gantt' } });
+    expect('dateDisplayPropertyId' in before.fields).toBe(false);
+    expect('groupById' in before.fields).toBe(false);
+    const after = createBoardView({
+      ...before,
+      fields: { ...before.fields, dateDisplayPropertyId: 'start', groupById: 'status' },
+    });
+    const [, backward] = viewPatches(after, before);
+    expect([...(backward.deletedFields ?? [])].sort()).toEqual([
+      'dateDisplayPropertyId',
+      'groupById',
+    ]);
+    // A member that is there, the empty one too, is kept as it is.
+    expect(createBoardView(viewOf({ groupById: '' })).fields.groupById).toBe('');
+    expect(optionalViewFields({ groupById: '', ganttZoom: undefined })).toEqual({ groupById: '' });
   });
 
   it('takes its first choice of dependencies back by dropping the member, not by emptying it', () => {
