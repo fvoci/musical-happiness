@@ -39,9 +39,10 @@ async fn handle_hello() -> &'static str {
 /// Whether the server can serve
 ///
 /// The check that the server is ready: the database answers a statement, and the file
-/// storage can be used, each within two seconds. The checks are made at most every
-/// five seconds; who asks in between gets the last answer. Neither answer says why a
-/// check failed: the log does.
+/// storage can be used, each within two seconds. The checks are made anew at most
+/// every five seconds, in the background: only the first request after the start waits
+/// for them (a probe's timeout of three seconds is enough), the others get the last
+/// answer. Neither answer says why a check failed: the log does.
 #[utoipa::path(
     get,
     path = "/ready",
@@ -60,15 +61,10 @@ async fn handle_hello() -> &'static str {
 )]
 async fn handle_ready(State(app): State<App>) -> ApiResult {
     let readiness = app.readiness().await;
-    if readiness.is_ready() {
-        return Ok(json_response(&readiness));
+    match readiness.refusal() {
+        None => Ok(json_response(&readiness)),
+        Some(refusal) => Err(AppError::service_unavailable(refusal)),
     }
-    let failing: Vec<&str> = readiness.failing().collect();
-    Err(AppError::service_unavailable(match failing.as_slice() {
-        ["database"] => "not ready: database",
-        ["files"] => "not ready: files",
-        _ => "not ready: database, files",
-    }))
 }
 
 /// What the server is

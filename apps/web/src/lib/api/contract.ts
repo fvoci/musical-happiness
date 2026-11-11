@@ -834,9 +834,10 @@ export interface paths {
         /**
          * Whether the server can serve
          * @description The check that the server is ready: the database answers a statement, and the file
-         *     storage can be used, each within two seconds. The checks are made at most every
-         *     five seconds; who asks in between gets the last answer. Neither answer says why a
-         *     check failed: the log does.
+         *     storage can be used, each within two seconds. The checks are made anew at most
+         *     every five seconds, in the background: only the first request after the start waits
+         *     for them (a probe's timeout of three seconds is enough), the others get the last
+         *     answer. Neither answer says why a check failed: the log does.
          */
         get: operations["ready"];
         put?: never;

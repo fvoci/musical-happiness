@@ -27,6 +27,10 @@ async fn a_server_that_can_serve_is_ready_and_says_so_without_a_session() {
             "{check}: {body}"
         );
     }
+    assert!(
+        !body.contains("fvoci_files_operation_duration_seconds_count"),
+        "the check of the files is no operation on them: {body}"
+    );
     server.teardown().await;
 }
 
@@ -92,5 +96,39 @@ async fn the_checks_are_kept_for_a_few_seconds() {
     ready(&server).await.check_ok();
     server.app.store().close().await;
     ready(&server).await.check_ok();
+    server.teardown().await;
+}
+
+/// With S3, a bucket that answers is ready, and one that is not there is not: a look at
+/// a key would find both alike.
+#[tokio::test]
+#[ignore = "needs an S3-compatible server; see tests/storage.rs"]
+async fn with_s3_a_bucket_that_is_not_there_is_not_ready() {
+    assert!(
+        std::env::var("FVOCI_S3_TEST_ENDPOINT").is_ok()
+            && std::env::var("FVOCI_S3_TEST_BUCKET").is_ok(),
+        "set FVOCI_S3_TEST_ENDPOINT and FVOCI_S3_TEST_BUCKET to run this test"
+    );
+    let server = Setup::native()
+        .configure(|config| {
+            let bucket = std::env::var("FVOCI_S3_TEST_BUCKET").unwrap_or_default();
+            crate::uploads::configure_s3(config, &bucket);
+        })
+        .start()
+        .await;
+    ready(&server).await.check_ok();
+    server.teardown().await;
+
+    let server = Setup::native()
+        .configure(|config| crate::uploads::configure_s3(config, "fvoci-no-such-bucket"))
+        .start()
+        .await;
+    let response = ready(&server).await;
+    response.check_error(StatusCode::SERVICE_UNAVAILABLE, "not ready: files");
+    assert!(
+        !response.text().contains("no-such-bucket"),
+        "no bucket in the answer: {}",
+        response.text()
+    );
     server.teardown().await;
 }

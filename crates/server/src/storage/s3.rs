@@ -154,6 +154,16 @@ impl S3Files {
         Ok(written)
     }
 
+    /// Whether the bucket is there and answers with these credentials: a list under
+    /// `path`, which need not be there. A look at a key would not do: the object store
+    /// answers a missing bucket and a missing key alike to it.
+    pub(super) async fn check(&self, path: &str) -> Result<(), StorageError> {
+        match self.store.list(Some(&self.key(path)?)).next().await {
+            None | Some(Ok(_)) => Ok(()),
+            Some(Err(error)) => Err(StorageError::ObjectStore(error)),
+        }
+    }
+
     pub(super) async fn size(&self, path: &str) -> Result<Option<u64>, StorageError> {
         match self.store.head(&self.key(path)?).await {
             Ok(meta) => Ok(Some(meta.size)),

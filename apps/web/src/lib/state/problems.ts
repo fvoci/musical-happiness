@@ -4,7 +4,7 @@
  * rejects with. `backend.ts` re-exports them.
  */
 /** The statuses the server answers an error with (server design 1.3). */
-export const ERROR_STATUSES = [400, 401, 403, 404, 405, 409, 412, 413, 416, 429, 500] as const;
+export const ERROR_STATUSES = [400, 401, 403, 404, 405, 409, 412, 413, 416, 429, 500, 503] as const;
 
 export type ErrorStatus = (typeof ERROR_STATUSES)[number];
 
@@ -57,6 +57,7 @@ const STATUS_PROBLEMS: Record<ErrorStatus, readonly [name: string, title: string
   416: ['range-not-satisfiable', 'Range not satisfiable'],
   429: ['rate-limited', 'Too many requests'],
   500: ['internal', 'Internal server error'],
+  503: ['service-unavailable', 'Service unavailable'],
 };
 
 /** The problem the server answers with for a status that has no `reason`. */
