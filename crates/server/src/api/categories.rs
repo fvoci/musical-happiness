@@ -243,7 +243,8 @@ async fn handle_get_user_category_boards(
 /// File a board under a category
 ///
 /// Puts a board the user may see under one of the user's categories; it leaves the
-/// category it was under.
+/// category it was under. A category takes the boards of its own workspace and the
+/// built-in templates: a board of another workspace answers as one that is not there.
 #[utoipa::path(
     post,
     path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}",
@@ -336,7 +337,8 @@ async fn handle_reorder_category_boards(
 ///
 /// Hides a board of one of the user's categories from the user's sidebar. The board
 /// stays where it is filed, and nothing changes for anybody else. For a board that is
-/// not filed under the category nothing changes, and the answer is 204 all the same.
+/// not filed under the category nothing changes, and the answer is 204 all the same; a
+/// board of another workspace than the category's answers as one that is not there.
 #[utoipa::path(
     put,
     path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}/hide",
@@ -356,7 +358,8 @@ async fn handle_hide_board(
 /// Show a hidden board again
 ///
 /// Ends the hiding of a board of one of the user's categories. For a board that is not
-/// filed under the category nothing changes, and the answer is 204 all the same.
+/// filed under the category nothing changes, and the answer is 204 all the same; a
+/// board of another workspace than the category's answers as one that is not there.
 #[utoipa::path(
     put,
     path = "/teams/{teamId}/categories/{categoryId}/boards/{boardId}/unhide",

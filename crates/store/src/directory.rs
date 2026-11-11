@@ -33,21 +33,6 @@ pub const SYSTEM_WORKSPACE_ID: &str = "00000000-0000-7000-8000-00000000a001";
 const IN_USE: &str = " AND t.delete_at = 0 AND o.delete_at = 0 AND o.is_system = false \
                       AND t.is_system = false";
 
-/// Where rows carry their organization (PostgreSQL), a member's row counts only as the
-/// row of its workspace's organization, and the sharing of a board as the row of the
-/// board's and the board as its team's. The keys of the schema hold the rows to that;
-/// these lookups reach across every organization and do not take it on trust.
-fn same_organization(scope: &Scope<'_>, pairs: &[(&str, &str)]) -> String {
-    if scope.dialect() == Dialect::Sqlite {
-        return String::new();
-    }
-    let mut conditions = String::new();
-    for (row, parent) in pairs {
-        conditions.push_str(&[" AND ", row, ".org_id = ", parent, ".org_id"].concat());
-    }
-    conditions
-}
-
 /// What a user is in a workspace, and whose the workspace is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceAccess {
@@ -150,7 +135,7 @@ impl Store {
                 sql.bind(Id(user_id))
                     .push_bind(" AND wm.workspace_id = ", Id(workspace_id))
                     .push(IN_USE)
-                    .push(&same_organization(scope, &[("wm", "t")]));
+                    .push(&scope.same_organization(&[("wm", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };
@@ -189,7 +174,7 @@ impl Store {
                 );
                 sql.bind(Id(user_id))
                     .push(IN_USE)
-                    .push(&same_organization(scope, &[("wm", "t")]))
+                    .push(&scope.same_organization(&[("wm", "t")]))
                     .push(" ORDER BY o.create_at, o.id, t.create_at, t.id");
                 scope
                     .fetch_all(sql)
@@ -347,7 +332,7 @@ impl Store {
                 sql.bind(Id(board_id))
                     .push_bind(" AND s.enabled = ", true)
                     .push(IN_USE)
-                    .push(&same_organization(scope, &[("s", "b"), ("b", "t")]));
+                    .push(&scope.same_organization(&[("s", "b"), ("b", "t")]));
                 let Some(row) = scope.fetch_optional(sql).await? else {
                     return Ok(None);
                 };

@@ -1,5 +1,5 @@
 //! `cargo xtask test`: every test, on SQLite and on PostgreSQL, and the S3 storage test
-//! with the uploads in parts that go to S3.
+//! with the uploads in parts that go to S3 and the files of two organizations there.
 //!
 //! The containers are prepared first unless the environment already names the services:
 //! `FVOCI_STORE_TEST_CONN_STRING` for PostgreSQL, `FVOCI_S3_TEST_ENDPOINT` together with
@@ -54,6 +54,16 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
     // Declared before the steps, so dropped after them: the containers the steps start
     // are stopped when the run ends, however it ends.
     let uses = std::cell::RefCell::new(containers::Uses::new()?);
+    // Found once and shared by the steps that need it: the container is claimed once.
+    let postgres = std::cell::RefCell::new(None);
+    let shared_postgres = || -> Result<containers::PostgresUrls> {
+        if let Some(urls) = postgres.borrow().clone() {
+            return Ok(urls);
+        }
+        let urls = postgres_urls(&mut uses.borrow_mut())?;
+        *postgres.borrow_mut() = Some(urls.clone());
+        Ok(urls)
+    };
     let mut parts = Vec::new();
 
     if databases == Databases::Postgres {
@@ -73,26 +83,7 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
 
     if matches!(databases, Databases::All | Databases::Postgres) {
         parts.push(Step::new("tests on PostgreSQL", || {
-            let urls = match env(CONN_STRING_ENV) {
-                Some(url) => {
-                    steps::say(&format!(
-                        "    using the PostgreSQL of {CONN_STRING_ENV}; its role must be no \
-                         superuser, have NOBYPASSRLS and have CREATE on the database"
-                    ));
-                    let Some(superuser_url) = env(SUPERUSER_CONN_STRING_ENV) else {
-                        bail!(
-                            "{CONN_STRING_ENV} is set without {SUPERUSER_CONN_STRING_ENV}: \
-                             the tests of a role the policies do not hold need the URL of a \
-                             superuser of the same database"
-                        );
-                    };
-                    containers::PostgresUrls {
-                        tests: url,
-                        superuser: superuser_url,
-                    }
-                }
-                None => containers::prepare_postgres(&mut uses.borrow_mut())?,
-            };
+            let urls = shared_postgres()?;
             steps::run(
                 root,
                 &cargo,
@@ -121,7 +112,9 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
     }
     if databases == Databases::All {
         parts.push(Step::new("S3 storage test", || {
-            s3_tests(root, &cargo, &mut uses.borrow_mut())
+            // Before the object store's turn of `uses`: finding PostgreSQL may take it.
+            let postgres = shared_postgres()?;
+            s3_tests(root, &cargo, &mut uses.borrow_mut(), &postgres)
         }));
     }
 
@@ -130,10 +123,37 @@ pub(crate) fn run(root: &Path, databases: Databases) -> Result<()> {
     result
 }
 
-/// The tests that need an S3-compatible server: the storage test, and the uploads in
-/// parts that go to S3 as multipart uploads. Runs against the object store of the
+/// The PostgreSQL of the environment, or of the container prepared for the tests.
+fn postgres_urls(uses: &mut containers::Uses) -> Result<containers::PostgresUrls> {
+    let Some(url) = env(CONN_STRING_ENV) else {
+        return containers::prepare_postgres(uses);
+    };
+    steps::say(&format!(
+        "    using the PostgreSQL of {CONN_STRING_ENV}; its role must be no superuser, have \
+         NOBYPASSRLS and have CREATE on the database"
+    ));
+    let Some(superuser_url) = env(SUPERUSER_CONN_STRING_ENV) else {
+        bail!(
+            "{CONN_STRING_ENV} is set without {SUPERUSER_CONN_STRING_ENV}: the tests of a \
+             role the policies do not hold need the URL of a superuser of the same database"
+        );
+    };
+    Ok(containers::PostgresUrls {
+        tests: url,
+        superuser: superuser_url,
+    })
+}
+
+/// The tests that need an S3-compatible server: the storage test, the uploads in parts
+/// that go to S3 as multipart uploads, and the files of two organizations of one server
+/// in one bucket, which needs PostgreSQL too. Runs against the object store of the
 /// environment, or the container prepared for them.
-fn s3_tests(root: &Path, cargo: &std::ffi::OsStr, uses: &mut containers::Uses) -> Result<()> {
+fn s3_tests(
+    root: &Path,
+    cargo: &std::ffi::OsStr,
+    uses: &mut containers::Uses,
+    postgres: &containers::PostgresUrls,
+) -> Result<()> {
     let (endpoint, bucket) =
         if let (Some(endpoint), Some(bucket)) = (env(S3_ENDPOINT_ENV), env(S3_BUCKET_ENV)) {
             steps::say(&format!("    using the object store of {S3_ENDPOINT_ENV}"));
@@ -161,5 +181,29 @@ fn s3_tests(root: &Path, cargo: &std::ffi::OsStr, uses: &mut containers::Uses) -
         steps::run(root, cargo, &arguments, &s3)
     };
     ignored("storage", None)?;
-    ignored("api", Some("with_s3"))
+    ignored("api", Some("with_s3"))?;
+
+    let mut both = s3.to_vec();
+    both.extend([
+        (DB_TYPE_ENV, "postgres"),
+        (CONN_STRING_ENV, postgres.tests.as_str()),
+        (SUPERUSER_CONN_STRING_ENV, postgres.superuser.as_str()),
+    ]);
+    steps::run(
+        root,
+        cargo,
+        &[
+            "test",
+            "--locked",
+            "--package",
+            "fvoci-server",
+            "--test",
+            "organization_boundary_round2",
+            "--",
+            "--ignored",
+            "--exact",
+            "media::s3_files_tokens_uploads_and_housekeeping_stay_in_their_organizations",
+        ],
+        &both,
+    )
 }

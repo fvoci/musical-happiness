@@ -1198,7 +1198,8 @@ export interface paths {
         /**
          * File a board under a category
          * @description Puts a board the user may see under one of the user's categories; it leaves the
-         *     category it was under.
+         *     category it was under. A category takes the boards of its own workspace and the
+         *     built-in templates: a board of another workspace answers as one that is not there.
          */
         post: operations["setBoardCategory"];
         delete?: never;
@@ -1219,7 +1220,8 @@ export interface paths {
          * Hide a board in the sidebar
          * @description Hides a board of one of the user's categories from the user's sidebar. The board
          *     stays where it is filed, and nothing changes for anybody else. For a board that is
-         *     not filed under the category nothing changes, and the answer is 204 all the same.
+         *     not filed under the category nothing changes, and the answer is 204 all the same; a
+         *     board of another workspace than the category's answers as one that is not there.
          */
         put: operations["hideBoard"];
         post?: never;
@@ -1240,7 +1242,8 @@ export interface paths {
         /**
          * Show a hidden board again
          * @description Ends the hiding of a board of one of the user's categories. For a board that is not
-         *     filed under the category nothing changes, and the answer is 204 all the same.
+         *     filed under the category nothing changes, and the answer is 204 all the same; a
+         *     board of another workspace than the category's answers as one that is not there.
          */
         put: operations["unhideBoard"];
         post?: never;

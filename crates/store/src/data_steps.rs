@@ -35,7 +35,11 @@ const KEPT_TYPES: [BlockType; 5] = [
 /// Returns [`StoreError::Database`] if a statement fails, and [`StoreError::Corrupt`] if
 /// stored JSON cannot be read; nothing of the failed step is kept then.
 pub(crate) async fn run(store: &Store) -> Result<(), StoreError> {
-    // The steps change what is stored, whosever it is.
+    // The steps change what is stored, whosever it is. They name the rows of the trash
+    // and the boards by identifier alone, which since the keys of the organizations
+    // (migration 15) may name one row of each organization: each step is done once,
+    // just after the migrations of the server that brought it, on a database that
+    // holds one organization then.
     store
         .system()
         .transaction(async |scope| {

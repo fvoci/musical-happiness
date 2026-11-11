@@ -190,13 +190,18 @@ pub(crate) async fn files_of(
 }
 
 /// Forgets the versions of the comments that are gone for good: neither on a board nor
-/// in the trash.
+/// in the trash of the organization of the version.
 pub(crate) async fn forget_gone_comments(scope: &mut Scope<'_>) -> Result<(), StoreError> {
-    let sql = scope.sql(
+    let statement = [
         "DELETE FROM comment_versions WHERE NOT EXISTS \
-         (SELECT 1 FROM blocks b WHERE b.id = comment_versions.block_id) \
-         AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = comment_versions.block_id)",
-    );
+         (SELECT 1 FROM blocks b WHERE b.id = comment_versions.block_id",
+        &scope.same_organization(&[("b", "comment_versions")]),
+        ") AND NOT EXISTS (SELECT 1 FROM deleted_blocks d WHERE d.id = comment_versions.block_id",
+        &scope.same_organization(&[("d", "comment_versions")]),
+        ")",
+    ]
+    .concat();
+    let sql = scope.sql(&statement);
     scope.execute(sql).await?;
     Ok(())
 }
