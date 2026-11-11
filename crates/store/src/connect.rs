@@ -1,7 +1,7 @@
 //! Turning the server's `dbtype` and `dbconfig` settings into connection options.
 //!
-//! `dbconfig` is written for the database drivers of the original server, so existing
-//! configuration files keep working: a file path with optional `?_busy_timeout=...` for
+//! `dbconfig` keeps the form that existing configuration files use, so they keep
+//! working: a file path with optional `?_busy_timeout=...` for
 //! SQLite, and a `postgres://` URL or a `key=value` list for PostgreSQL. Parameters this
 //! server does not understand are an error rather than silently dropped, so a setting
 //! that has no effect is noticed at startup.

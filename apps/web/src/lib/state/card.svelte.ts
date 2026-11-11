@@ -178,6 +178,7 @@ export class CardStore {
     this.#writing ??= this.#drain().finally(() => {
       this.#writing = undefined;
       this.saving = false;
+      this.#catchUp();
     });
     await this.#writing;
   }
@@ -252,6 +253,7 @@ export class CardStore {
       this.#unsaved = undefined;
       this.dirty = false;
       this.bodyRevision += 1;
+      this.#catchUp();
       return;
     }
     await this.saveBody(conflict.mine);
@@ -266,17 +268,42 @@ export class CardStore {
     // A card that was deleted and is back (restored) is read again whatever its time.
     const back = this.missing;
     if (card.id !== this.cardId || (!back && card.updateAt <= this.#readAt)) return;
-    if (this.dirty || this.saving || this.#closed || this.#imageUploads.length > 0) return;
+    if (this.#busy()) {
+      this.#news = card;
+      return;
+    }
     void this.#backend
       .card(this.#boardId, this.cardId)
       .then((detail) => {
-        if (this.dirty || this.saving || this.#closed || this.#imageUploads.length > 0) return;
+        if (this.#busy()) {
+          this.#news = card;
+          return;
+        }
         if (!back && detail.updateAt <= this.#readAt) return;
         this.#takeDetail(detail);
       })
       .catch(() => {
         // The next change, or the next write, will tell.
       });
+  }
+
+  /**
+   * The latest news of the card heard while the body could not be read again
+   * (`#busy`): it is read once the store is idle again (`#catchUp`), so that
+   * somebody else's writing is not missed until the reader next types.
+   */
+  #news: CardSummary | undefined;
+
+  /** The reader's body is unsaved or on its way, or an image is going up for it. */
+  #busy(): boolean {
+    return this.dirty || this.saving || this.#closed || this.#imageUploads.length > 0;
+  }
+
+  #catchUp(): void {
+    const news = this.#news;
+    if (!news || this.#busy()) return;
+    this.#news = undefined;
+    this.cardChanged(news);
   }
 
   // ------------------------------------------- comments and attachments
@@ -460,7 +487,7 @@ export class CardStore {
    */
   async uploadImage(file: File): Promise<string> {
     const controller = new AbortController();
-    this.#imageUploads.push(controller);
+    this.#imageUploads = [...this.#imageUploads, controller];
     try {
       const uploaded = await this.#backend.upload(this.#boardId, file, {
         signal: controller.signal,
@@ -471,11 +498,17 @@ export class CardStore {
       throw error;
     } finally {
       this.#imageUploads = this.#imageUploads.filter((other) => other !== controller);
+      this.#catchUp();
     }
   }
 
-  /** The uploads of images for the body under way (no state: nothing shows them). */
-  #imageUploads: AbortController[] = [];
+  /** The uploads of images for the body under way. */
+  #imageUploads = $state.raw<AbortController[]>([]);
+
+  /** An image is going up for the body: closing the card now would give it up. */
+  get imagesGoingUp(): boolean {
+    return this.#imageUploads.length > 0;
+  }
 
   /** The bytes of a file of this board; undefined (and told) when they could not be read. */
   async fileBytes(fileId: string): Promise<Blob | undefined> {

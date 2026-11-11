@@ -86,14 +86,15 @@
 
   /**
    * Closes the card. What is unsaved is stored first. When that does not
-   * work (somebody else wrote the body, the server did not answer) the card
-   * stays open once, on the notice of it, so that nothing is lost by a
-   * careless tap. Closing again, or with the notice already there, leaves.
+   * work (somebody else wrote the body, the server did not answer), or an
+   * image is still going up for the body (shown in its place), the card
+   * stays open once, so that nothing is lost by a careless tap. Closing
+   * again, or with the notice already there, leaves.
    */
   async function close(): Promise<void> {
     const open = card;
     // Asked before and after the write: a function, so that the second answer is not taken for the first.
-    const unsaved = (): boolean => open?.dirty ?? false;
+    const unsaved = (): boolean => (open?.dirty ?? false) || (open?.imagesGoingUp ?? false);
     if (open && unsaved() && !open.conflict && held !== open) {
       await open.saveBody();
       if (unsaved() && board.openCard === open) {

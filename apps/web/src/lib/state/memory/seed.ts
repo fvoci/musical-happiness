@@ -2,8 +2,8 @@
  * The data the in-memory backend starts with: the built-in templates, as
  * boards a small team is working on.
  *
- * The boards, views, cards and bodies are the committed output of the
- * template converter (`tools/templates/output/`), read as it is. What a
+ * The boards, views, cards and bodies are the built-in templates the server
+ * embeds (`crates/server/assets/templates/`), read as they are. What a
  * template does not have is added here so that the screens have something to
  * show: six people, who made and was last on each card, the people a person
  * property points at, a few comments, one attachment, and a sidebar.
@@ -26,7 +26,7 @@ import type { Category, User } from '../backend.ts';
 import { memberOf } from './backend.ts';
 import { World, type StoredBlock } from './world.ts';
 
-/** One template as the converter writes it (`tools/templates/output.ts`). */
+/** One template file of `crates/server/assets/templates/`. */
 export interface SeedTemplate {
   key: string;
   onboarding: boolean;
@@ -54,7 +54,7 @@ export interface SeedTemplate {
 }
 
 const templateFiles = import.meta.glob<SeedTemplate>(
-  '../../../../tools/templates/output/[0-9]*.json',
+  '../../../../../../crates/server/assets/templates/[0-9]*.json',
   { import: 'default' },
 );
 
