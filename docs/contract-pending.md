@@ -54,7 +54,7 @@
 - 서버가 저장할 때 `body_version`(2)과 검색용 평문 `body_text`를 함께 적는다. 평문은 문단·제목·코드 블록·수식 블록마다 한 줄이고 글자가 없는 블록의 줄은 뺀다. 줄바꿈(`hardBreak`)은 그 블록의 줄 안의 줄바꿈으로 남는다. 인라인 수식은 제자리에 원문으로 들어가고, 멘션은 아무것도 남기지 않는다(이름을 저장하지 않는다). 웹앱의 `plainText`는 멘션을 `@이름`으로 쓰므로 다르다. 평문은 아직 어느 응답에도 실리지 않는다.
 - 블록의 경로(`createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`)도 카드의 본문을 받는다(tracer-bullet 2b, 2026-11-11 05:55 KST). 검증과 거절(400, `field: body`)은 카드의 경로와 같다. 패치가 `body`를 바꾸려면(`null`도) `readAt`이 있어야 하고, 없으면 400이고 `field`가 `readAt`이다. **본문은 카드와 댓글만 갖는다.** 다른 블록에 본문이 있으면 400이고 `field`가 `body`다.
 - **본문의 이미지는 그 블록의 보드의 파일이다**(설계 5.7). `image`의 `fileId`가 그 보드가 가진 파일의 저장 이름이 아니면 400이고 `field`가 `body`다. 본문을 받는 경로가 모두 같다(아카이브 가져오기는 아직 아니다. 8절). `createBlocks`에 `sourceBoardId`를 주면 그 보드의 파일이어야 하고(받는 보드에 이미 있는 파일이어도 거절한다), 블록과 함께 파일이 복사된다. `createBoardsAndBlocks`의 보드는 새것이라 파일이 없으므로 이미지가 있는 본문을 무엇도 찾아보지 않고 거절한다. 본문이 있는 카드나 댓글을 그 둘이 아닌 `type`으로 바꾸는 패치는 본문을 보내지 않았어도 400이고 `field`가 `body`다.
-- **댓글의 본문**(tracer-bullet 3). 댓글 블록도 `createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`로 `body`를 받는다. 검증, `readAt`, 이미지가 그 보드의 파일이어야 하는 규칙, 저장되는 평문까지 카드와 같다. 댓글의 권한(누가 만들고 고치고 지우는가)은 그대로다. 그래서 댓글만 쓸 수 있는 멤버(commenter)는 파일을 올리지 못해 댓글에 새 그림을 넣지 못하고, `sourceBoardId`로 파일을 복사하게 되는 요청은 편집 권한을 요구한다(없으면 403). 댓글의 `title`은 아직 받고 돌려준다(웹앱이 `body`로 옮겨 간 뒤에 걷어 낼지는 5절의 콘텐츠 블록과 함께 본다). 카드·보드 복제는 지금처럼 댓글을 복사하지 않는다. `sourceBoardId`로 다른 보드의 댓글을 만들면 그 본문의 파일도 복사된다.
+- **댓글의 본문**(tracer-bullet 3). 댓글 블록도 `createBlocks`, `patchBlock`, `patchBlocks`, `createBoardsAndBlocks`, `patchBoardsAndBlocks`로 `body`를 받는다. 검증, `readAt`, 이미지가 그 보드의 파일이어야 하는 규칙, 저장되는 평문까지 카드와 같다. 댓글을 고치는 권한은 9절의 B1이다. 댓글만 쓸 수 있는 멤버(commenter)는 파일을 올리지 못해 댓글에 새 그림을 넣지 못하고, `sourceBoardId`로 파일을 복사하게 되는 요청은 편집 권한을 요구한다(없으면 403). 댓글의 `title`은 아직 받고 돌려준다(웹앱이 `body`로 옮겨 간 뒤에 걷어 낼지는 5절의 콘텐츠 블록과 함께 본다). 카드·보드 복제는 지금처럼 댓글을 복사하지 않는다. `sourceBoardId`로 다른 보드의 댓글을 만들면 그 본문의 파일도 복사된다.
 - 카드를 복제하면(블록·보드 복제, 템플릿에서 보드 만들기) 본문의 이미지가 가리키는 파일도 복사되고, 복사본의 본문은 새 파일을 가리킨다.
 - `BlockPatch.readAt`은 지금 쓰인다: `patchBlock`, `patchBlocks`, `patchBoardsAndBlocks`의 패치에 있으면 `patchCard`처럼 검사하고 어긋나면 409다.
 - 있는 블록을 고칠 때마다 `updateAt`이 앞의 값보다 커진다(같은 밀리초여도). `readAt`이 그 사이의 변경을 놓치지 않는다.
@@ -306,7 +306,7 @@
 | A4 | 409의 기준은 블록의 `updateAt` 하나다. 본문만의 판은 없다. **사용자 결정 필요**(권고: 두고, 웹앱의 "다시 읽고 같으면 한 번 다시 보내기"를 쓴다) |
 | A5 | 된다. `createCard`의 `NewCard`에 `body`가 있다 |
 | A8 | 댓글은 카드의 `updateAt`을 올리지 않고, 목록에 마지막 댓글의 시각이 없다. **사용자 결정 필요** |
-| B1, H4 | 댓글은 `type=comment`, `parentId`=카드인 블록이고 `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 허용 목록의 `body`(문서)를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`(`readAt`과 함께). `patchBlock`은 보드 편집자부터라, 댓글만 달 수 있는 사람은 자기 댓글도 고치지 못하고 편집자는 남의 댓글도 고친다. 고치는 권한은 **사용자 결정 필요**(권고: `deleteBlock`처럼 자기 댓글은 댓글 권한으로, 남의 것은 관리자만) |
+| B1, H4 | 댓글은 `type=comment`, `parentId`=카드인 블록이고 `getBlocks?parentId=&type=comment`로 읽는다. 댓글도 카드와 같은 허용 목록의 `body`(문서)를 가진다(1절). 쓰기는 `createBlocks`(댓글 권한부터)와 `patchBlock`·`patchBlocks`(`readAt`과 함께). **결정됨(14:25 KST), 구현됨**: 자기 댓글은 댓글 권한으로, 남의 댓글은 보드 관리자만 고친다(편집자는 403, `access denied to change other users' comments`). `patchBoardsAndBlocks`도 같다. 댓글을 다른 종류로 바꾸는 패치는 편집자부터다. 고친 사람과 시각은 댓글의 `modifiedBy`·`updateAt`이다 |
 | B2 | 블록에는 `fileId`뿐이다. 이름·크기·확장자는 `getFileInfo`(`FileInfo`). 종류(MIME)는 없다 |
 | B3 | 아니다. `completeUpload`·`uploadFile`은 파일만 만들고(`UploadedFile`의 `fileId`) 첨부 블록은 클라이언트가 만든다 |
 | B4 | 답(`UploadedFile`)은 `fileId`뿐이다. 이름·크기는 `getFileInfo` |

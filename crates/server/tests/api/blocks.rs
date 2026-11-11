@@ -1809,14 +1809,10 @@ async fn patch_block_refusals() {
     let board_id = &boards.board.id;
     let card_path = block_path(board_id, &content.card.id);
 
-    // Preserved quirk: a commenter may not patch anything, their own comment included.
+    // A commenter changes their own comment only
+    // (`a_comment_is_changed_by_its_author_or_an_admin`), a viewer nothing.
     for (who, client, path) in [
         ("commenter, card", &boards.commenter, card_path.clone()),
-        (
-            "commenter, own comment",
-            &boards.commenter,
-            block_path(board_id, &content.comment.id),
-        ),
         ("viewer", &boards.viewer, card_path.clone()),
     ] {
         let response = client.patch(&path, &title_patch("x")).await;
@@ -2818,6 +2814,153 @@ async fn delete_comment_by_its_author_or_by_an_admin_works() {
         response.error_message(),
         "access denied to make board changes",
         "a commenter cannot delete at all"
+    );
+}
+
+/// A comment is changed by its author with the commenter's role, and the comment of
+/// somebody else by the board's admins only, as it is deleted; an editor may not change
+/// it. `patchBlock`, `patchBlocks` and `patchBoardsAndBlocks` alike. Who changed it and
+/// when is what its `modifiedBy` and `updateAt` say to the members.
+#[tokio::test]
+async fn a_comment_is_changed_by_its_author_or_an_admin() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let commenter = boards.commenter.me().await;
+    let admin = th.client.me().await;
+    let comment = &content.comment;
+    let path = block_path(board_id, &comment.id);
+    let many = format!("/boards/{board_id}/blocks");
+    let together = |patch: Value| {
+        json!({
+            "boardIds": [board_id], "boardPatches": [{}],
+            "blockIds": [comment.id], "blockPatches": [patch],
+        })
+    };
+    let others_refused = "access denied to change other users' comments";
+    let stored = |blocks: &[Block]| {
+        blocks
+            .iter()
+            .find(|block| block.id == comment.id)
+            .cloned()
+            .expect("the comment is there")
+    };
+
+    // The author, with no more than the commenter's role, on both routes.
+    let mut member = Socket::subscribed_to_team(&th, &th.client, TEST_TEAM_ID).await;
+    boards
+        .commenter
+        .patch(&path, &title_patch("by its author"))
+        .await
+        .check_no_content();
+    let told = member.next_block().await;
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(read.title, "by its author");
+    assert_eq!(read.modified_by, commenter.id, "who changed it");
+    assert!(read.update_at > comment.update_at, "and when: later");
+    assert_eq!(told["modifiedBy"], json!(commenter.id), "{told}");
+    assert_eq!(told["updateAt"], json!(read.update_at), "{told}");
+    boards
+        .commenter
+        .patch(&many, &batch(&[(comment, "again by its author")]))
+        .await
+        .check_no_content();
+
+    // An editor is refused, on every route, and nothing changes.
+    let response = boards
+        .editor
+        .patch(&path, &title_patch("by an editor"))
+        .await;
+    response.check_error(StatusCode::FORBIDDEN, others_refused);
+    let response = boards
+        .editor
+        .patch(&many, &batch(&[(comment, "by an editor")]))
+        .await;
+    response.check_error(StatusCode::FORBIDDEN, others_refused);
+    let response = boards
+        .editor
+        .patch(
+            "/boards-and-blocks",
+            &together(json!({"title": "by an editor"})),
+        )
+        .await;
+    response.check_error(StatusCode::FORBIDDEN, others_refused);
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(
+        read.title, "again by its author",
+        "the editors changed nothing"
+    );
+    assert_eq!(read.modified_by, commenter.id);
+
+    // The board's admin changes it, and is who changed it last.
+    while member.next_json(QUIET).await.is_some() {}
+    th.client
+        .patch(&path, &title_patch("by the admin"))
+        .await
+        .check_no_content();
+    let told = member.next_block().await;
+    assert_eq!(told["modifiedBy"], json!(admin.id), "{told}");
+    th.client
+        .patch(
+            "/boards-and-blocks",
+            &together(json!({"title": "by the admin again"})),
+        )
+        .await
+        .check_ok();
+    let read = stored(&blocks_of(&th.client, board_id).await);
+    assert_eq!(read.title, "by the admin again");
+    assert_eq!(read.modified_by, admin.id);
+}
+
+/// The commenter's role changes the commenter's own comment, not a card, and makes no
+/// card of a comment; a viewer changes nothing.
+#[tokio::test]
+async fn a_commenter_changes_no_card_and_makes_none() {
+    let th = Setup::native().start().await.init_basic().await;
+    let boards = boards_with_roles(&th).await;
+    let content = card_with_content(&th, &boards).await;
+    let board_id = &boards.board.id;
+    let path = block_path(board_id, &content.comment.id);
+    let many = format!("/boards/{board_id}/blocks");
+
+    boards
+        .commenter
+        .patch(&path, &json!({"type": "card"}))
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    boards
+        .commenter
+        .patch(
+            &block_path(board_id, &content.card.id),
+            &title_patch("a card"),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    let own = insert_one(
+        &boards.commenter,
+        &child_of(&content.card, BlockType::Comment, "own"),
+    )
+    .await;
+    boards
+        .commenter
+        .patch(
+            &many,
+            &batch(&[(&own, "own, changed"), (&content.card, "x")]),
+        )
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    // A viewer changes nothing.
+    boards
+        .viewer
+        .patch(&block_path(board_id, &own.id), &title_patch("by a viewer"))
+        .await
+        .check_error(StatusCode::FORBIDDEN, "access denied to make board changes");
+    let read = blocks_of(&th.client, board_id).await;
+    assert!(
+        titles(&read).contains(&"own") && titles(&read).contains(&"card"),
+        "nothing changed: {:?}",
+        titles(&read)
     );
 }
 

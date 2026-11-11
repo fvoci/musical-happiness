@@ -1047,6 +1047,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
         .created_json();
     assert_eq!(made[0]["body"], with_image(&file_id), "{made:?}");
     let comment_id = made[0]["id"].as_str().expect("an id");
+    // The commenter changes the body of their own comment.
     let read = block_of(&th.client, &board.id, comment_id).await;
     th.client2
         .patch(
@@ -1054,7 +1055,7 @@ async fn a_commenter_posts_a_body_but_copies_no_files() {
             &json!({"body": document(), "readAt": read["updateAt"]}),
         )
         .await
-        .check_forbidden();
+        .check_no_content();
     // The commenter may not upload, and so may not copy another board's files in.
     crate::files::upload(&th.client2, &board.id, "mine.png", b"png")
         .await

@@ -1,6 +1,6 @@
 //! Checks that many handlers share: who may do what on a board or in a team.
 
-use fvoci_model::BoardType;
+use fvoci_model::{Block, BlockPatch, BlockType, BoardType};
 
 use crate::app::App;
 use crate::error::{AppError, Reason};
@@ -61,6 +61,60 @@ pub(crate) async fn board_refusal(
         Ok(false) => AppError::not_found("board"),
         Err(error) => error,
     }
+}
+
+/// The refusal of a change to a comment of somebody else, which only the board's admins
+/// may make.
+const OTHERS_COMMENTS_DENIED: &str = "access denied to change other users' comments";
+
+/// Checks that the user may change the block, of a board the request names: a comment
+/// is its author's to change with the commenter's role, and somebody else's only the
+/// board's admins change (as only they delete it); any other block is the editors'.
+/// [`require_block_type_change_permission`] checks the patch itself.
+pub(crate) async fn require_block_change_permission(
+    app: &App,
+    user_id: &str,
+    block: &Block,
+    denial: &str,
+) -> Result<(), AppError> {
+    let (permission, denial) = match block.block_type {
+        BlockType::Comment if block.created_by == user_id => {
+            (BoardPermission::CommentBoardCards, denial)
+        }
+        BlockType::Comment => (
+            BoardPermission::ManageOthersComments,
+            OTHERS_COMMENTS_DENIED,
+        ),
+        _ => (BoardPermission::ManageBoardCards, denial),
+    };
+    require_board_permission(app, user_id, &block.board_id, permission, denial).await
+}
+
+/// Checks that a patch which makes a comment a block of another type comes from an
+/// editor: a commenter may change their comment, not make a card of it.
+pub(crate) async fn require_block_type_change_permission(
+    app: &App,
+    user_id: &str,
+    block: &Block,
+    patch: &BlockPatch,
+    denial: &str,
+) -> Result<(), AppError> {
+    let leaves_comments = block.block_type == BlockType::Comment
+        && patch
+            .block_type
+            .as_ref()
+            .is_some_and(|block_type| *block_type != BlockType::Comment);
+    if leaves_comments {
+        require_board_permission(
+            app,
+            user_id,
+            &block.board_id,
+            BoardPermission::ManageBoardCards,
+            denial,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Checks that the user has the permission on a board that the request does not name

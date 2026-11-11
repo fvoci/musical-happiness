@@ -26,6 +26,7 @@ use super::{change_notification, duplicate_as, require_board_permission, user_is
 use super::{
     decode_object_with, objects_mut, put_patch_bodies, take_block_bodies, take_patch_bodies,
 };
+use super::{require_block_change_permission, require_block_type_change_permission};
 use crate::app::App;
 use crate::auth::now_millis;
 use crate::error::AppError;
@@ -395,7 +396,7 @@ async fn handle_delete_block(
             &app,
             user_id,
             &board_id,
-            BoardPermission::DeleteOthersComments,
+            BoardPermission::ManageOthersComments,
             "access denied to delete other users' comments",
         )
         .await?;
@@ -446,8 +447,10 @@ async fn handle_undelete_block(
 
 /// Change a block
 ///
-/// For editors, also for a comment: a commenter cannot change their own comment this
-/// way.
+/// For editors. A comment is changed by its author with the commenter's role, and the
+/// comment of somebody else by the board's admins only (as `deleteBlock` has it): an
+/// editor may not change it. Making a comment a block of another type is for editors.
+/// The block's `modifiedBy` and `updateAt` say who changed it and when.
 #[utoipa::path(
     patch,
     path = "/boards/{boardId}/blocks/{blockId}",
@@ -466,18 +469,21 @@ async fn handle_patch_block(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
+    // Who cannot even comment changes nothing, whatever the block.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
-    block_on_board(&app, &block_id, &board_id).await?;
+    let block = block_on_board(&app, &block_id, &board_id).await?;
+    require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
     let (mut patch, changes): (BlockPatch, _) =
         decode_object_with(&body, |patch| take_patch_bodies([Some(patch)]))?;
     put_patch_bodies([&mut patch], changes?)?;
+    require_block_type_change_permission(&app, user_id, &block, &patch, CHANGES_DENIED).await?;
     app.check_body_files(&board_id, patch.body.new_body())
         .await?;
 
@@ -490,7 +496,9 @@ async fn handle_patch_block(
 /// Change several blocks
 ///
 /// Applies a patch to each of several blocks of the board, all or none. A body that
-/// names no block changes nothing and is answered 204 too. For editors.
+/// names no block changes nothing and is answered 204 too. Each block needs what
+/// `patchBlock` needs: the editor's role, for a comment its author's commenter role or
+/// for the comment of somebody else the board's admin role.
 #[utoipa::path(
     patch,
     path = "/boards/{boardId}/blocks",
@@ -509,11 +517,12 @@ async fn handle_patch_blocks(
 ) -> ApiResult {
     let user_id = session.user_id.as_str();
     let notification = change_notification(query.as_deref());
+    // Who cannot even comment changes nothing, whatever the blocks.
     require_board_permission(
         &app,
         user_id,
         &board_id,
-        BoardPermission::ManageBoardCards,
+        BoardPermission::CommentBoardCards,
         CHANGES_DENIED,
     )
     .await?;
@@ -540,7 +549,11 @@ async fn handle_patch_blocks(
                     .with_field("blockIds"),
             );
         }
-        block_on_board(&app, block_id, &board_id).await?;
+    }
+    for (block_id, patch) in batch.block_ids.iter().zip(&batch.block_patches) {
+        let block = block_on_board(&app, block_id, &board_id).await?;
+        require_block_change_permission(&app, user_id, &block, CHANGES_DENIED).await?;
+        require_block_type_change_permission(&app, user_id, &block, patch, CHANGES_DENIED).await?;
     }
 
     app.patch_blocks(&board.team_id, &batch, user_id, notification)

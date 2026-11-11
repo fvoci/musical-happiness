@@ -2582,7 +2582,7 @@
         ]
       },
       "patch": {
-        "description": "Applies a patch to each of several blocks of the board, all or none. A body that\nnames no block changes nothing and is answered 204 too. For editors.",
+        "description": "Applies a patch to each of several blocks of the board, all or none. A body that\nnames no block changes nothing and is answered 204 too. Each block needs what\n`patchBlock` needs: the editor's role, for a comment its author's commenter role or\nfor the comment of somebody else the board's admin role.",
         "operationId": "patchBlocks",
         "parameters": [
           {
@@ -2764,7 +2764,7 @@
         ]
       },
       "patch": {
-        "description": "For editors, also for a comment: a commenter cannot change their own comment this\nway.",
+        "description": "For editors. A comment is changed by its author with the commenter's role, and the\ncomment of somebody else by the board's admins only (as `deleteBlock` has it): an\neditor may not change it. Making a comment a block of another type is for editors.\nThe block's `modifiedBy` and `updateAt` say who changed it and when.",
         "operationId": "patchBlock",
         "parameters": [
           {
