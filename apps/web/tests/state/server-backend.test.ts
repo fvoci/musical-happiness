@@ -144,6 +144,14 @@ describe('the server backend', () => {
     expect(sent[1]?.body).toEqual({ body, readAt: 7 });
     expect(changed).toMatchObject({ id: 'm', body, updateAt: 9 });
 
+    // No text is no comment: refused before anything is sent.
+    const none = serve([]);
+    const empty = await new ServerBackend('')
+      .patchComment('b', 'm', { body: null, readAt: 1 })
+      .catch((error: unknown) => error);
+    expect(isBackendError(empty) && empty.status).toBe(400);
+    expect(none).toHaveLength(0);
+
     // A block that is not a comment is not changed.
     const other = serve([{ ...BLOCK, id: 'c', type: 'card', title: 'x' }]);
     const refused = await new ServerBackend('')

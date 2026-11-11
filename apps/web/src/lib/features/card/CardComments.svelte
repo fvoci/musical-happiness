@@ -12,7 +12,7 @@
 <script lang="ts">
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
 
   import Avatar from '$lib/components/avatar/Avatar.svelte';
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
@@ -48,18 +48,50 @@
     };
   });
 
-  /** The comment whose text is being changed, and the text as it is now. */
-  let editing = $state<{ id: string; text: string } | undefined>();
+  /**
+   * The comment whose text is being changed: the text as it is now, and the
+   * version it was begun from. `theirs`: saving was refused because somebody
+   * else changed the comment since; their text is shown, and saving again
+   * writes over it.
+   */
+  let editing = $state<{ id: string; text: string; readAt: number; theirs: boolean } | undefined>();
   let saving = $state(false);
   const edited = $derived(editing ? commentDoc(editing.text) : null);
+  /** The comment being changed, as it is stored now. */
+  const current = $derived(editing ? card.comment(editing.id) : undefined);
+
+  let list = $state<HTMLElement>();
+
+  /** Closes the field and gives the focus back to the comment's edit button. */
+  async function close(id: string): Promise<void> {
+    if (editing?.id !== id) return;
+    editing = undefined;
+    await tick();
+    list
+      ?.querySelector<HTMLElement>(`[data-comment="${CSS.escape(id)}"] [data-action="edit"]`)
+      ?.focus();
+  }
+
+  /** `editing` as it is now (read after a wait, when it may have changed). */
+  const editingNow = (): typeof editing => editing;
 
   async function save(): Promise<void> {
     if (!editing || !edited || saving) return;
-    const { id } = editing;
+    const { id, readAt } = editing;
     saving = true;
     try {
-      // When it was not stored the field stays, with what was written.
-      if (await card.editComment(id, edited)) editing = undefined;
+      const outcome = await card.editComment(id, edited, readAt);
+      if (outcome === 'saved') await close(id);
+      else if (outcome === 'conflict') {
+        // The field may have been closed, or another opened, while it was sent.
+        const open = editingNow();
+        if (open?.id === id) {
+          // Shown now, theirs is what the next save knowingly writes over.
+          open.theirs = true;
+          open.readAt = card.comment(id)?.updateAt ?? readAt;
+        }
+      }
+      // Failed: the field stays, with what was written.
     } finally {
       saving = false;
     }
@@ -70,11 +102,11 @@
     if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       void save();
-    } else if (event.key === 'Escape') {
+    } else if (event.key === 'Escape' && editing) {
       // Leaves the field, not the card.
       event.preventDefault();
       event.stopPropagation();
-      editing = undefined;
+      void close(editing.id);
     }
   }
 
@@ -97,7 +129,12 @@
   {#if card.comments.length === 0}
     <p class="text-muted-foreground">{m.card_comments_none()}</p>
   {/if}
-  <ol class="flex flex-col gap-4 empty:hidden" aria-live="polite" aria-relevant="additions">
+  <ol
+    bind:this={list}
+    class="flex flex-col gap-4 empty:hidden"
+    aria-live="polite"
+    aria-relevant="additions"
+  >
     {#each card.comments as comment (comment.id)}
       {@const author = workspace.userName(comment.createdBy) ?? m['centerPanel.unknown-user']()}
       {@const text = commentText(comment.body)}
@@ -129,6 +166,16 @@
                 void save();
               }}
             >
+              {#if editing.theirs}
+                <div
+                  class="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+                  role="status"
+                  data-testid="comment-theirs"
+                >
+                  <p class="font-medium">{m.card_comment_conflict()}</p>
+                  <BodyView doc={current?.body ?? null} {resolveUser} class="mt-1 text-sm" />
+                </div>
+              {/if}
               <!-- The field opens on the reader's own press, to be typed in. -->
               <!-- svelte-ignore a11y_autofocus -->
               <textarea
@@ -141,13 +188,7 @@
                 {onkeydown}
                 {@attach autosize(() => editing?.text ?? '')}></textarea>
               <div class="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onclick={() => {
-                    editing = undefined;
-                  }}
-                >
+                <Button type="button" variant="ghost" onclick={() => void close(comment.id)}>
                   {m.shared_cancel()}
                 </Button>
                 <Button type="submit" disabled={!edited || saving}>
@@ -169,8 +210,9 @@
               when: displayDateTime(comment.createAt, context),
             })}
             class="shrink-0 text-muted-foreground"
+            data-action="edit"
             onclick={() => {
-              editing = { id: comment.id, text };
+              editing = { id: comment.id, text, readAt: comment.updateAt, theirs: false };
             }}
           >
             <PencilIcon aria-hidden="true" />

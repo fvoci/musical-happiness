@@ -117,6 +117,7 @@
   "card_comment_edit_from": "Edit the comment from {when}",
   "card_comment_edit_field": "Comment text",
   "card_comment_save": "Save",
+  "card_comment_conflict": "Someone else changed this comment. Saving replaces their text:",
   "editor_body_label": "Body",
   "editor_body_unreadable": "This body cannot be edited here. It was saved by a newer version of the app, or it is damaged.",
   "editor_suggest_people": "People",

@@ -117,6 +117,7 @@
   "card_comment_edit_from": "{when}에 쓴 댓글 고치기",
   "card_comment_edit_field": "댓글 내용",
   "card_comment_save": "저장",
+  "card_comment_conflict": "다른 사람이 이 댓글을 바꿨습니다. 저장하면 이 글을 바꿉니다:",
   "editor_body_label": "본문",
   "editor_body_unreadable": "이 본문은 여기서 고칠 수 없습니다. 더 새로운 버전에서 저장했거나 손상된 본문입니다.",
   "editor_suggest_people": "사람",

@@ -1,7 +1,7 @@
 /**
  * Comments on the real server: written, changed and deleted from the card,
  * their text a body document; seen by another person as they happen; and a
- * change made on a stale version not stored over somebody else's.
+ * change begun before somebody else's not stored over it unseen.
  */
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 
@@ -127,6 +127,9 @@ test('a commenter’s comment shows on the owner’s open card, and only its wri
   await send(guestPage, 'No mushrooms, please');
   const onHost = hostPage.getByTestId('card-comments').locator('[data-comment]');
   await expect(onHost).toHaveText(/No mushrooms, please/);
+  await expect(guestPage.getByTestId('card-comments').locator('[data-comment]')).toHaveText(
+    /No mushrooms, please/,
+  );
   // The owner does not change somebody else's words; the commenter cannot change any.
   await expect(hostPage.getByRole('button', { name: /^Edit the comment from/ })).toHaveCount(0);
   await expect(guestPage.getByRole('button', { name: /^Edit the comment from/ })).toHaveCount(0);
@@ -140,7 +143,7 @@ test('a commenter’s comment shows on the owner’s open card, and only its wri
   expect(errors).toEqual([]);
 });
 
-test('a comment changed on a stale version is refused, shows theirs, and keeps the text to save again', async ({
+test('a comment changed elsewhere while its field is open is not written over unseen', async ({
   page,
   baseURL,
 }) => {
@@ -164,37 +167,33 @@ test('a comment changed on a stale version is refused, shows theirs, and keeps t
   await send(page, 'First words');
   const comments = page.getByTestId('card-comments');
   await expect(comments.locator('[data-comment]')).toHaveText(/First words/);
-  const [comment] = await stored();
-  const commentId = comment?.id ?? '';
-
-  // The page's change waits until the comment was changed elsewhere (as the same person, in another tab).
-  let first = true;
-  await page.route(`**/api/v1/boards/${board.boardId}/blocks/${commentId}`, async (route) => {
-    if (route.request().method() === 'PATCH' && first) {
-      first = false;
-      const [now] = await stored();
-      const changed = await api.patch(`/api/v1/boards/${board.boardId}/blocks/${commentId}`, {
-        data: { body: paragraph('Words from the other tab'), readAt: now?.updateAt },
-      });
-      expect(changed.status()).toBe(204);
-    }
-    await route.continue();
-  });
-
   await comments.getByRole('button', { name: /^Edit the comment from/ }).click();
   const field = comments.getByTestId('comment-edit').locator('textarea');
   await field.fill('Better words');
+
+  // Meanwhile the same person changes it in another tab; the page hears of it.
+  const [comment] = await stored();
+  const changed = await api.patch(`/api/v1/boards/${board.boardId}/blocks/${comment?.id ?? ''}`, {
+    data: { body: paragraph('Words from the other tab'), readAt: comment?.updateAt },
+  });
+  expect(changed.status()).toBe(204);
+
+  // Saving on the version the field was opened on is refused: theirs is shown, nothing written over.
   await comments.getByRole('button', { name: 'Save' }).click();
-  await expect(page.locator('[data-problem]')).toBeVisible();
-  // Not stored over theirs; the field keeps what was written.
+  const theirs = comments.getByTestId('comment-theirs');
+  await expect(theirs).toContainText('Words from the other tab');
   expect((await stored()).map((one) => lines(one.body))).toEqual([['Words from the other tab']]);
   await expect(field).toHaveValue('Better words');
 
+  // Seen, saving again writes over it.
   await comments.getByRole('button', { name: 'Save' }).click();
   await expect(comments.getByTestId('comment-edit')).toHaveCount(0);
   await expect
     .poll(async () => (await stored()).map((one) => lines(one.body)))
     .toEqual([['Better words']]);
+  // The focus is back on the comment's edit button.
+  await expect(comments.getByRole('button', { name: /^Edit the comment from/ })).toBeFocused();
+  await expect(page.locator('[data-problem]')).toHaveCount(0);
   await api.dispose();
   expect(errors).toEqual([]);
 });

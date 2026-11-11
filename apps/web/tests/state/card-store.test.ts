@@ -190,21 +190,37 @@ describe('comments and attachments', () => {
     expect(card.comments).toHaveLength(4);
   });
 
-  it('changes the text of a comment, and on a stale version reads the comments again', async () => {
-    const { card, backend, workspace } = await openAlpha();
+  it('changes the text of a comment from the version it was begun on, and refuses to write over a newer one', async () => {
+    const { card, other, board } = await openAlpha();
     expect(await card.addComment(text('mine'))).toBe(true);
     const mine = card.comments.at(-1);
     if (!mine) throw new Error('no comment');
-    expect(await card.editComment(mine.id, text('mine, changed'))).toBe(true);
-    expect(card.comments.at(-1)?.body).toEqual(text('mine, changed'));
+    expect(await card.editComment(mine.id, text('mine, changed'), mine.updateAt)).toBe('saved');
+    expect(card.comment(mine.id)?.body).toEqual(text('mine, changed'));
 
-    // Refused as stale: the comments are read again, and nothing is written.
+    // The reader begins on this version; somebody else changes it, and that is heard.
+    const begun = card.comment(mine.id)?.updateAt ?? 0;
+    await other.patchComment(board.boardId, mine.id, { body: text('theirs'), readAt: begun });
+    await settle();
+    expect(card.comment(mine.id)?.body).toEqual(text('theirs'));
+    // Saved on the version begun from: refused, theirs stays.
     const refresh = vi.spyOn(card, 'refresh');
-    backend.failNext('patchComment', new BackendError(409));
-    expect(await card.editComment(mine.id, text('again'))).toBe(false);
+    expect(await card.editComment(mine.id, text('again'), begun)).toBe('conflict');
     expect(refresh).toHaveBeenCalledOnce();
-    expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 409 } });
-    expect(card.comments.at(-1)?.body).toEqual(text('mine, changed'));
+    expect(card.comment(mine.id)?.body).toEqual(text('theirs'));
+    // On the version shown now it goes.
+    const now = card.comment(mine.id)?.updateAt ?? 0;
+    expect(await card.editComment(mine.id, text('again'), now)).toBe('saved');
+    expect(card.comment(mine.id)?.body).toEqual(text('again'));
+  });
+
+  it('tells a comment change that failed for another reason', async () => {
+    const { card, backend, workspace } = await openAlpha();
+    const first = card.comments[0];
+    if (!first) throw new Error('no comment');
+    backend.failNext('patchComment', new BackendError(500));
+    expect(await card.editComment(first.id, text('x'), first.updateAt)).toBe('failed');
+    expect(workspace.problems.at(-1)).toMatchObject({ action: 'save', error: { status: 500 } });
   });
 
   it('uploads a file, shows its progress, and attaches it', async () => {

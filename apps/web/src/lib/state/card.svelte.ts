@@ -37,6 +37,9 @@ export interface BodyConflict {
   theirs: CardDetail;
 }
 
+/** How a change of a comment ended: stored, refused for a newer version, or failed (and told). */
+export type CommentEdit = 'saved' | 'conflict' | 'failed';
+
 export interface Upload {
   id: number;
   name: string;
@@ -328,27 +331,28 @@ export class CardStore {
   }
 
   /**
-   * Changes the text of a comment, on the version shown. When somebody
-   * changed it meanwhile (409) nothing is overwritten: the comments are read
-   * again, so that theirs shows, and the reader's text stays with the caller
-   * to be saved again. True when it was stored.
+   * Changes the text of a comment, written over the version `readAt` (the
+   * one the reader began from). When somebody changed it since (409) nothing
+   * is overwritten: the comments are read again, so that the caller can show
+   * theirs, and the reader's text stays with the caller to be saved again.
    */
-  async editComment(commentId: string, body: DocNode): Promise<boolean> {
-    const comment = this.#comments.find((existing) => existing.id === commentId);
-    if (!comment) return false;
+  async editComment(commentId: string, body: DocNode, readAt: number): Promise<CommentEdit> {
     try {
-      this.receive(
-        await this.#backend.patchComment(this.#boardId, commentId, {
-          body,
-          readAt: comment.updateAt,
-        }),
-      );
-      return true;
+      this.receive(await this.#backend.patchComment(this.#boardId, commentId, { body, readAt }));
+      return 'saved';
     } catch (error) {
-      if (isConflict(error)) await this.refresh();
-      this.board.workspace.report('save', error);
-      return false;
+      if (!isConflict(error)) {
+        this.board.workspace.report('save', error);
+        return 'failed';
+      }
+      await this.refresh();
+      return 'conflict';
     }
+  }
+
+  /** A comment as this store has it now. */
+  comment(commentId: string): Comment | undefined {
+    return this.#comments.find((existing) => existing.id === commentId);
   }
 
   async #deleteChild(blockId: string, description: string): Promise<void> {

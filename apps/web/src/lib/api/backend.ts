@@ -442,6 +442,12 @@ export class ServerBackend implements Backend, Account {
    * is. The changes of one comment go in turn.
    */
   patchComment(boardId: string, commentId: string, write: BodyWrite): Promise<Comment> {
+    if (!write.body) {
+      // The server would take it and leave a comment with no text.
+      return Promise.reject(
+        new BackendError(400, { message: 'a comment needs a text', field: 'body' }),
+      );
+    }
     return this.#inTurn(commentId, async () => {
       const before = await this.#comment(boardId, commentId);
       const patch: Schemas['BlockPatch'] = {
