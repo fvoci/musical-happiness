@@ -20,6 +20,7 @@ pub const ENV_PREFIX: &str = "FVOCI_";
 /// so every single valid block fits. Requests of the web app measured below 1 kB.
 pub const DEFAULT_MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
+mod keys;
 mod scrapes;
 
 pub use scrapes::{MetricsAddress, MetricsToken};
@@ -598,20 +599,25 @@ impl Configuration {
     ///
     /// # Errors
     ///
-    /// Returns an error if `text` is not a JSON object, holds a value of the wrong type,
-    /// sets a key this server no longer has, or an environment override cannot be parsed.
+    /// Returns an error if `text` is not a JSON object, gives a key twice (also in
+    /// letters of different cases), holds a value of the wrong type, sets a key this
+    /// server no longer has, or an environment override cannot be parsed.
     pub fn parse(text: &str, env: impl Fn(&str) -> Option<String>) -> anyhow::Result<Self> {
         let Value::Object(file) =
             serde_json::from_str(text).context("the file is not valid JSON")?
         else {
             bail!("the configuration must be a JSON object");
         };
-        let mut keys = lower_case_keys(file)?;
+        // Which of two values of a key would win is the order of the text, or of the
+        // letters: a key given twice is refused, by its name alone (its value may be a
+        // secret, such as the token of the metrics).
+        keys::check_each_once(text)?;
+        let mut keys = lower_case_keys(file);
         match keys.remove("filess3config") {
             Some(Value::Object(s3)) => {
                 keys.insert(
                     "filess3config".to_owned(),
-                    Value::Object(lower_case_keys(s3)?),
+                    Value::Object(lower_case_keys(s3)),
                 );
             }
             None | Some(Value::Null) => {
@@ -908,18 +914,12 @@ impl Configuration {
     }
 }
 
-fn lower_case_keys(map: Map<String, Value>) -> anyhow::Result<Map<String, Value>> {
-    let mut keys = Map::new();
-    for (key, value) in map {
-        let key = key.to_lowercase();
-        // Which of two spellings wins would be the order of the letters: one is refused,
-        // by its name alone (its value may be a secret).
-        if keys.contains_key(&key) {
-            bail!("{key} is given twice, in letters of different cases");
-        }
-        keys.insert(key, value);
-    }
-    Ok(keys)
+/// The keys of `map` in small letters; [`keys::check_each_once`] has seen that no two
+/// become one.
+fn lower_case_keys(map: Map<String, Value>) -> Map<String, Value> {
+    map.into_iter()
+        .map(|(key, value)| (key.to_lowercase(), value))
+        .collect()
 }
 
 fn env_value(name: &str, text: &str, kind: EnvKind) -> anyhow::Result<Value> {

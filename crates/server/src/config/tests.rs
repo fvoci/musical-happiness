@@ -364,10 +364,13 @@ fn a_wait_is_at_least_a_second_and_at_most_ten_years() {
         assert!(error(&format!(r#"{{"{key}": 0}}"#)).contains(key));
         // More than the clock can be moved ahead by: the limiter would have
         // panicked on the first failure it counted.
-        let message = error(&format!(
-            r#"{{"login_pair_max_delay_seconds": {max}, "{key}": {max}}}"#,
-            max = u64::MAX
-        ));
+        let max = u64::MAX;
+        let text = if key == "login_pair_max_delay_seconds" {
+            format!(r#"{{"{key}": {max}}}"#)
+        } else {
+            format!(r#"{{"login_pair_max_delay_seconds": {max}, "{key}": {max}}}"#)
+        };
+        let message = error(&text);
         assert!(message.contains("ten years"), "{key}: {message}");
     }
 }

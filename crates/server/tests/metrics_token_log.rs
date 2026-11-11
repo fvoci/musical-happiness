@@ -116,6 +116,7 @@ async fn a_token_of_fewer_than_thirty_two_characters_keeps_the_server_from_start
         .expect("the server's task ends")
         .expect("the server stops");
     database.remove().await;
+    let _ = std::fs::remove_dir_all(&directory);
 
     let log = captured.text();
     assert!(

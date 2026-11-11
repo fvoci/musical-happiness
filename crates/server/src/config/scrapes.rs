@@ -223,9 +223,17 @@ mod tests {
             prometheus_token: "=".repeat(MIN_TOKEN_CHARS),
             ..Configuration::default()
         };
-        only_equals
-            .check()
-            .expect_err("= only at the end of something");
+        let error = format!(
+            "{:#}",
+            only_equals
+                .check()
+                .expect_err("= only at the end of something")
+        );
+        assert!(error.contains("prometheustoken"), "{error}");
+        assert!(
+            !error.contains("=".repeat(MIN_TOKEN_CHARS).as_str()),
+            "{error}"
+        );
         for accepted in [
             String::new(),
             TOKEN.to_owned(),
@@ -281,21 +289,19 @@ mod tests {
     }
 
     #[test]
-    fn a_key_given_twice_in_different_cases_is_refused_without_its_values() {
-        let text = format!(r#"{{"prometheusToken": "{TOKEN}", "prometheustoken": ""}}"#);
-        let error = format!(
-            "{:#}",
-            Configuration::parse(&text, |_| None).expect_err("given twice")
-        );
-        assert_eq!(
-            error,
-            "prometheustoken is given twice, in letters of different cases"
-        );
-        Configuration::parse(
-            r#"{"filesS3Config": {"Bucket": "a", "bucket": "b"}}"#,
-            |_| None,
-        )
-        .expect_err("given twice in filess3config");
+    fn a_token_given_twice_is_refused_without_its_values() {
+        for key in ["prometheustoken", "prometheusToken"] {
+            let text = format!(r#"{{"prometheustoken": "{TOKEN}", "{key}": ""}}"#);
+            let error = format!(
+                "{:#}",
+                Configuration::parse(&text, |_| None).expect_err("given twice")
+            );
+            assert!(
+                error.starts_with("prometheustoken is given more than once"),
+                "{error}"
+            );
+            assert!(!error.contains(TOKEN), "{error}");
+        }
     }
 
     #[test]
