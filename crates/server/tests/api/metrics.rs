@@ -672,7 +672,7 @@ async fn a_local_only_server_serves_metrics_without_a_host_on_its_loopback() {
 
 #[tokio::test]
 async fn with_a_token_set_a_scrape_must_send_it() {
-    const TOKEN: &str = "a-token-for-the-scrapes";
+    const TOKEN: &str = "a-token-for-the-scrapes-of-32-chars";
     let server = Setup::native()
         .metrics_at("127.0.0.1:0")
         .configure(|config| TOKEN.clone_into(&mut config.prometheus_token))
@@ -721,4 +721,75 @@ async fn with_a_token_set_a_scrape_must_send_it() {
     let body = response.text().await.expect("a body");
     assert!(body.contains("fvoci_build_info"), "{body}");
     server.teardown().await;
+}
+
+/// What a subscriber of the log writes.
+#[derive(Clone, Default)]
+struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .expect("lock poisoned")
+            .extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_token_of_fewer_than_thirty_two_characters_keeps_the_server_from_starting() {
+    // 31 and 32 characters; neither is to be in an error or the log.
+    const SHORT: &str = "short-token-of-31-characters-xx";
+    const ENOUGH: &str = "token-of-exactly-32-characters-x";
+    assert_eq!((SHORT.len(), ENOUGH.len()), (31, 32));
+    let captured = Captured::default();
+    let writer = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_ansi(false)
+        .with_max_level(tracing::Level::TRACE)
+        .with_writer(move || writer.clone())
+        .finish();
+    let _logging = tracing::subscriber::set_default(subscriber);
+
+    let error = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| SHORT.clone_into(&mut config.prometheus_token))
+        .try_start()
+        .await
+        .err()
+        .expect("the server does not start");
+    let error = format!("{error:#}");
+    assert!(
+        error.contains("prometheustoken must be at least 32 characters"),
+        "{error}"
+    );
+    assert!(!error.contains(SHORT), "{error}");
+
+    let server = Setup::native()
+        .metrics_at("127.0.0.1:0")
+        .configure(|config| ENOUGH.clone_into(&mut config.prometheus_token))
+        .start()
+        .await;
+    let address = server.metrics_address.expect("the server keeps metrics");
+    let response = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("an HTTP client")
+        .get(format!("http://{address}/metrics"))
+        .header("authorization", format!("Bearer {ENOUGH}"))
+        .send()
+        .await
+        .expect("an answer");
+    assert_eq!(response.status(), StatusCode::OK);
+    server.teardown().await;
+
+    let log = String::from_utf8_lossy(&captured.0.lock().expect("lock poisoned")).into_owned();
+    for token in [SHORT, ENOUGH] {
+        assert!(!log.contains(token), "the token is not logged: {log}");
+    }
 }

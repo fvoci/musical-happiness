@@ -11,6 +11,10 @@ use super::Configuration;
 /// The key of the token, as the file and the environment have it.
 const TOKEN_KEY: &str = "prometheustoken";
 
+/// The fewest characters a token may have: a guess at it must not be feasible, and
+/// the listener does not limit how often a scrape is refused.
+const MIN_TOKEN_CHARS: usize = 32;
+
 /// Whether the environment's `text` for `key` leaves the key as the file has it: an
 /// empty token. A variable set to nothing (a template whose value is missing) would
 /// otherwise turn the token of the file off, and the listener would ask for none.
@@ -137,17 +141,23 @@ impl Configuration {
         (!self.prometheus_token.is_empty()).then(|| MetricsToken::new(&self.prometheus_token))
     }
 
-    /// Checks that `prometheustoken` can be sent as a bearer token. The error does not
-    /// repeat it.
+    /// Checks that `prometheustoken`, if it is set, has at least [`MIN_TOKEN_CHARS`]
+    /// characters and can be sent as a bearer token. The error does not repeat it.
     pub(super) fn check_metrics_token(&self) -> anyhow::Result<()> {
-        if self.prometheus_token.is_empty() || is_bearer_token(&self.prometheus_token) {
-            Ok(())
-        } else {
-            anyhow::bail!(
-                "prometheustoken must be empty or a bearer token: letters, digits and \
-                 -._~+/, with = only at its end"
-            )
+        let token = self.prometheus_token.as_str();
+        if token.is_empty() {
+            return Ok(());
         }
+        if token.chars().count() < MIN_TOKEN_CHARS {
+            anyhow::bail!("{TOKEN_KEY} must be at least {MIN_TOKEN_CHARS} characters");
+        }
+        if !is_bearer_token(token) {
+            anyhow::bail!(
+                "{TOKEN_KEY} must be a bearer token: letters, digits and -._~+/, with = \
+                 only at its end"
+            );
+        }
+        Ok(())
     }
 }
 
@@ -155,7 +165,8 @@ impl Configuration {
 mod tests {
     use super::*;
 
-    const TOKEN: &str = "s3cr3t-T0ken_of.the~scrapes+/=";
+    /// A token of 34 characters.
+    const TOKEN: &str = "s3cr3t-T0ken_of.the~scrapes+/abc==";
 
     #[test]
     fn only_the_token_itself_is_admitted() {
@@ -198,22 +209,68 @@ mod tests {
 
     #[test]
     fn a_token_that_is_no_bearer_token_is_refused_without_repeating_it() {
-        for refused in ["has space", "tab\there", "ünïcode", "a=b", "==", "quote\"d"] {
+        let long = |text: &str| format!("{}{text}", "x".repeat(MIN_TOKEN_CHARS));
+        for refused in ["has space", "tab\there", "ünïcode", "a=b", "quote\"d"].map(long) {
             let config = Configuration {
-                prometheus_token: refused.to_owned(),
+                prometheus_token: refused.clone(),
                 ..Configuration::default()
             };
             let error = format!("{:#}", config.check().expect_err("not a bearer token"));
             assert!(error.contains("prometheustoken"), "{error}");
-            assert!(!error.contains(refused), "{error}");
+            assert!(!error.contains(&refused), "{error}");
         }
-        for accepted in ["", TOKEN, "abc", "abc==", "A-Z_0.9~+/"] {
+        for accepted in [
+            String::new(),
+            TOKEN.to_owned(),
+            long("abc=="),
+            long("A-Z_0.9~+/"),
+        ] {
             let config = Configuration {
                 prometheus_token: accepted.to_owned(),
                 ..Configuration::default()
             };
             config.check().expect("a bearer token");
         }
+    }
+
+    #[test]
+    fn a_token_has_at_least_thirty_two_characters_from_the_file_or_the_environment() {
+        let short = "a".repeat(MIN_TOKEN_CHARS - 1);
+        let enough = "a".repeat(MIN_TOKEN_CHARS);
+        let file = |token: &str| format!(r#"{{"prometheustoken": "{token}"}}"#);
+        let env_with = |token: String| {
+            move |name: &str| (name == "FVOCI_PROMETHEUSTOKEN").then(|| token.clone())
+        };
+        let refused = [
+            Configuration::parse(&file(&short), |_| None),
+            Configuration::parse("{}", env_with(short.clone())),
+        ];
+        for config in refused {
+            let error = format!(
+                "{:#}",
+                config
+                    .expect("read")
+                    .check()
+                    .expect_err("31 characters are too few")
+            );
+            assert_eq!(error, "prometheustoken must be at least 32 characters");
+            assert!(!error.contains(&short), "{error}");
+        }
+        let accepted = [
+            Configuration::parse(&file(&enough), |_| None),
+            Configuration::parse("{}", env_with(enough.clone())),
+        ];
+        for config in accepted {
+            let config = config.expect("read");
+            config.check().expect("32 characters are enough");
+            assert!(config.metrics_token().is_some());
+        }
+        let empty = Configuration::parse(&file(""), |_| None).expect("read");
+        empty.check().expect("no token");
+        assert!(
+            empty.metrics_token().is_none(),
+            "no token, no authentication"
+        );
     }
 
     #[test]
