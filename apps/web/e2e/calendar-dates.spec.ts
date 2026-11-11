@@ -52,9 +52,13 @@ const listOf = (page: Page, info: TestInfo): Locator =>
 async function changeDateByKeys(page: Page, info: TestInfo, title: string): Promise<void> {
   await page.getByTestId('calendar-undated').focus();
   await page.keyboard.press('Tab');
-  await expect(focused(page)).toHaveAccessibleName(/Tuesday, November 10/);
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
+  // The picked day takes the focus: today, the 10th, two days before the 12th, at first.
+  if ((await calendar(page).getAttribute('data-selected')) === '2026-11-10') {
+    await expect(focused(page)).toHaveAccessibleName(/Tuesday, November 10/);
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+  }
+  await expect(focused(page)).toHaveAccessibleName(/^Thursday, November 12/);
   if (wide(info)) await page.keyboard.press('Enter');
   const list = listOf(page, info);
   await expect(list.locator('[data-card]').filter({ hasText: title })).toBeVisible();
@@ -110,6 +114,18 @@ test('Escape leaves the date as it was and gives the focus back to the day', asy
   await expect(page.getByTestId('day-picker')).toBeHidden();
   expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
   await expect(focused(page)).toHaveAccessibleName(/^Thursday, November 12/);
+
+  // Enter on the day the card is on already: the picker closes, and nothing changes.
+  await changeDateByKeys(page, info, 'Drag cards');
+  const twelfth = page
+    .getByTestId('day-picker')
+    .locator('[data-bits-day][data-value="2026-11-12"]');
+  if (info.project.name === 'mobile') await tabTo(page, twelfth);
+  await expect(twelfth).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('day-picker')).toBeHidden();
+  expect(await dueOf(page, 'Drag cards')).toEqual({ from: '2026-11-12' });
+  await expect(page.getByTestId('calendar-status')).toHaveText('');
 });
 
 test('a range keeps its length and a moment its time, into the next month', async ({
@@ -166,6 +182,10 @@ test('a calendar placed by when cards were changed offers no change, and says wh
     'The cards are placed by Last updated time, which cannot be changed here.',
   );
   const menu = list.getByRole('button', { name: /^Card menu: / }).first();
+  // What a screen reader hears on the "…" says why, as the list does.
+  await expect(menu).toHaveAccessibleDescription(
+    'The cards are placed by Last updated time, which cannot be changed here.',
+  );
   await list.locator('[data-card]').first().hover();
   await menu.click();
   await expect(page.locator('[data-action="duplicate"]')).toBeVisible();

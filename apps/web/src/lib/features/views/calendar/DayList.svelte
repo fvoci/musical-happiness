@@ -79,6 +79,7 @@
   data-testid="day-list"
   data-date={date}
   aria-labelledby="{uid}-title"
+  aria-describedby={fixed ? `${uid}-fixed` : undefined}
   class="flex min-h-0 flex-1 flex-col"
 >
   <header class="flex shrink-0 items-center gap-2 py-1 pr-1 pl-4">
@@ -99,12 +100,14 @@
     {/if}
   </header>
   {#if fixed}
-    <p data-testid="dates-fixed" class="px-4 pb-1 text-xs text-muted-foreground">{fixed}</p>
+    <p id="{uid}-fixed" data-testid="dates-fixed" class="px-4 pb-1 text-xs text-muted-foreground">
+      {fixed}
+    </p>
   {/if}
 
   <ul class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 pb-2">
     {#each cards as card (card.id)}
-      <CardRow {card} {date} {...rows} />
+      <CardRow {card} {date} {...rows} describedBy={fixed ? `${uid}-fixed` : undefined} />
     {:else}
       <li class="px-3 py-2 text-muted-foreground">{m.calendar_no_cards()}</li>
     {/each}

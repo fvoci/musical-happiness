@@ -251,6 +251,17 @@
     pickerOpen = true;
   }
 
+  /**
+   * The board kept a card's move: the calendar goes to its day, and the
+   * focus with it if it is on the day the card was on.
+   */
+  async function moved(date: CalendarDate): Promise<void> {
+    const onDay = body?.contains(document.activeElement) ?? false;
+    select(date);
+    await tick();
+    if (onDay) focusDay();
+  }
+
   /** The picker has closed: the focus goes to the card's day, or back to "No date". */
   async function pickerClosed(dated: boolean): Promise<void> {
     await tick();
@@ -349,7 +360,7 @@
   {selected}
   {today}
   {sheet}
-  onmoved={select}
+  onmoved={(date: CalendarDate) => void moved(date)}
   onclosed={(dated: boolean) => void pickerClosed(dated)}
 />
 

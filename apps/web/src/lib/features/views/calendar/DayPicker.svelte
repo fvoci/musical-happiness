@@ -3,15 +3,20 @@
   first day from (question C9, answer B). The card moves whole: a range
   keeps its length and a moment its time of day on the reader's clock
   (C10; `movedValue`), in one change that one undo takes back. A card
-  without a date gets the day picked. Picking a day is the change; Escape or
-  a press outside leaves the card as it was. Other ends and times are edited
-  in the card itself, with the date property's own picker.
+  without a date gets the day picked. Picking a day is the change; picking
+  the day it is on, Escape or a press outside leave the card as it was.
+  Other ends and times are edited in the card itself, with the date
+  property's own picker.
 
   The calendar names the card (`cardId`) from its menu, once the list the
-  menu was in has closed, and then opens it. A popover next to the picked day (or "No date", for a card
-  without one), or a sheet on a compact page. The focus goes to the card's
-  day, where the arrow keys walk the month; once closed, the calendar puts it
-  where the card is now (`onclosed`). A screen reader hears where it went.
+  menu was in has closed, and then opens it: a popover next to the picked
+  day (or "No date", for a card without one), or a sheet on a compact page.
+  In the popover the focus goes to the card's day, where the arrow keys walk
+  the month; a sheet takes it itself, as every sheet does. Once closed, the
+  calendar puts the focus on the card's day, or on "No date" (`onclosed`).
+  Once the board has kept the change, the calendar goes to the new day
+  (`onmoved`) and a screen reader hears where the card went; a change the
+  board refuses is put back by the board, and nothing moves or is said.
 -->
 <script lang="ts">
   import { parseDate, type DateValue as PickedDay } from '@internationalized/date';
@@ -21,7 +26,7 @@
   import { insets } from '$lib/layout/room.svelte.ts';
   import type { CalendarDate } from '$lib/logic/dates.ts';
   import { displayDay, displayDayLong } from '$lib/logic/format.ts';
-  import type { PropertyTemplate } from '$lib/logic/wire.ts';
+  import type { Card, PropertyTemplate } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
   import { Calendar, Day as CalendarDay } from '$lib/ui/calendar/index.js';
   import * as Popover from '$lib/ui/popover/index.js';
@@ -41,7 +46,7 @@
     selected: CalendarDate;
     today: CalendarDate;
     sheet: boolean;
-    /** The card was moved to a day: the calendar goes there. */
+    /** The board kept the card's move to a day: the calendar goes there. */
     onmoved: (date: CalendarDate) => void;
     /** Closed. `dated`: the card has a date now, else the focus goes back to "No date". */
     onclosed: (dated: boolean) => void;
@@ -88,20 +93,30 @@
   );
   const weekStartsOn = $derived((placed.regional.weekStart % 7) as 0 | 1 | 2 | 3 | 4 | 5 | 6);
 
+  /**
+   * A day was picked. The card's own day comes back as none (the calendar
+   * takes a second press on it for "pick nothing"): that closes as Escape does.
+   */
   function pick(picked: PickedDay | undefined): void {
-    if (!picked || !card) return;
-    const date = picked.toString() as CalendarDate;
+    const date = picked?.toString() as CalendarDate | undefined;
     open = false;
-    if (date !== span?.first && template?.type === 'date') {
-      void moveCard(board, card, template, date, placed.regional.timeZone);
-      onmoved(date);
-      announced = m.calendar_moved({
-        title: placed.title(card),
-        day: displayDayLong(date, locale),
-      });
+    if (card && date !== undefined && date !== span?.first && template?.type === 'date') {
+      void move(card, template, date);
     }
     // A sheet closed by its owner does not say so; a popover does, on giving up the focus.
     if (sheet) closed();
+  }
+
+  async function move(moving: Card, property: PropertyTemplate, date: CalendarDate): Promise<void> {
+    announced = '';
+    const kept = await moveCard(board, moving, property, date, placed.regional.timeZone);
+    if (!kept) return;
+    onmoved(date);
+    // Emptied first, so that the same words again are said again.
+    announced = m.calendar_moved({
+      title: placed.title(moving),
+      day: displayDayLong(date, locale),
+    });
   }
 
   function closed(): void {
@@ -146,7 +161,8 @@
   </div>
 {/snippet}
 
-{#if card}
+<!-- Kept while a card is named, even one that has just gone: the surface closes, and says so. -->
+{#if cardId !== undefined}
   {#if sheet}
     <BottomSheet
       bind:open

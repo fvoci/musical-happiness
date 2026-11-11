@@ -34,6 +34,8 @@
     board: BoardStore;
     /** Opens the picker of a day for a card; none where dates cannot be set. */
     onChangeDate?: (cardId: string) => void;
+    /** The id of what the card's "…" is described by: why its date cannot be changed here. */
+    describedBy?: string;
   }
 
   let {
@@ -48,6 +50,7 @@
     onOpenCard,
     board,
     onChangeDate,
+    describedBy,
   }: Props = $props();
 
   const span = $derived(date ? placed.span(card.id) : undefined);
@@ -97,6 +100,7 @@
         title={placed.title(card)}
         dated={placed.span(card.id) !== undefined}
         {onChangeDate}
+        {describedBy}
       />
     {/if}
   </div>

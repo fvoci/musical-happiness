@@ -9,6 +9,11 @@
   Only for someone who may edit. Where the device can hover, the button waits
   for its line to be pointed at or focused; anywhere else it is always there.
   The line carries the class `group/card`.
+
+  A list can hold hundreds of lines: each is a plain button until it is
+  pointed at or pressed, and only then the menu behind it is made (in its
+  place, with the focus moved onto it), so a long list does not build a menu
+  for every line.
 -->
 <script lang="ts">
   import CalendarClockIcon from '@lucide/svelte/icons/calendar-clock';
@@ -19,6 +24,8 @@
   import IconButton from '$lib/components/icon-button/IconButton.svelte';
   import ActionMenu from '$lib/components/menu/ActionMenu.svelte';
   import type { MenuAction } from '$lib/components/menu/actions.ts';
+  import { tick } from 'svelte';
+
   import { m } from '$lib/i18n/paraglide/messages.js';
   import type { Card } from '$lib/logic/wire.ts';
   import type { BoardStore } from '$lib/state/index.ts';
@@ -31,11 +38,24 @@
     dated: boolean;
     /** Opens the picker of a day for the card; none where dates cannot be set. */
     onChangeDate?: (cardId: string) => void;
+    /** The id of what the button is described by: why the date cannot be changed here. */
+    describedBy?: string;
   }
 
-  let { board, card, title, dated, onChangeDate }: Props = $props();
+  let { board, card, title, dated, onChangeDate, describedBy }: Props = $props();
 
   let open = $state(false);
+  /** The menu is made: the line was pointed at, or the button pressed. */
+  let armed = $state(false);
+
+  /** Pressed before it was pointed at (the keys, a finger): the menu is made and opened. */
+  async function arm(event: MouseEvent): Promise<void> {
+    const holder = (event.currentTarget as HTMLElement | null)?.parentElement;
+    armed = true;
+    await tick();
+    holder?.querySelector<HTMLElement>('[data-card-menu]')?.focus();
+    open = true;
+  }
 
   const actions = $derived.by((): MenuAction[] => {
     const list: MenuAction[] = [];
@@ -73,15 +93,32 @@
   });
 </script>
 
-<ActionMenu bind:open title={m.kanban_card_menu({ title })} subtitle={title} {actions}>
-  {#snippet trigger(props: Record<string, unknown>)}
-    <IconButton
-      {...props}
-      label={m.kanban_card_menu({ title })}
-      data-card-menu={card.id}
-      class="shrink-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/card:opacity-100 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100"
-    >
-      <EllipsisIcon aria-hidden="true" />
-    </IconButton>
-  {/snippet}
-</ActionMenu>
+{#snippet button(props: Record<string, unknown>)}
+  <IconButton
+    {...props}
+    label={m.kanban_card_menu({ title })}
+    aria-describedby={describedBy}
+    data-card-menu={card.id}
+    class="shrink-0 text-muted-foreground can-hover:opacity-0 can-hover:group-focus-within/card:opacity-100 can-hover:group-hover/card:opacity-100 can-hover:focus-visible:opacity-100 can-hover:aria-expanded:opacity-100"
+  >
+    <EllipsisIcon aria-hidden="true" />
+  </IconButton>
+{/snippet}
+
+<span class="contents">
+  {#if armed}
+    <ActionMenu bind:open title={m.kanban_card_menu({ title })} subtitle={title} {actions}>
+      {#snippet trigger(props: Record<string, unknown>)}
+        {@render button(props)}
+      {/snippet}
+    </ActionMenu>
+  {:else}
+    {@render button({
+      'aria-haspopup': 'menu',
+      onpointerenter: () => {
+        armed = true;
+      },
+      onclick: (event: MouseEvent) => void arm(event),
+    })}
+  {/if}
+</span>
