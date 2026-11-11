@@ -5,8 +5,9 @@
 
 use std::time::Duration;
 
+use axum::Extension;
 use axum::body::{Body, Bytes};
-use axum::extract::{Path, State};
+use axum::extract::{ConnectInfo, Path, State};
 use axum::response::{IntoResponse, Response};
 use fvoci_model::UploadPurpose;
 use fvoci_store::PublicBoards;
@@ -22,6 +23,7 @@ use super::contract::tag;
 use super::{ApiResult, RequiredSession, no_content};
 use super::{require_board_permission, require_team_access, user_is_guest};
 use crate::app::{App, ExportedArchive, Slot, download};
+use crate::connection::{Breaker, Connection};
 use crate::error::AppError;
 use crate::permissions::BoardPermission;
 
@@ -96,6 +98,7 @@ pub(super) async fn require_import_access(
 async fn handle_export_board(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
+    connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(board_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
@@ -114,7 +117,12 @@ async fn handle_export_board(
     let archive = app
         .export_archive(&board.team_id, std::slice::from_ref(&board.id))
         .await?;
-    Ok(archive_response(&app, archive, slot))
+    Ok(archive_response(
+        &app,
+        archive,
+        slot,
+        breaker_of(connection),
+    ))
 }
 
 /// Export the boards of a team
@@ -142,6 +150,7 @@ async fn handle_export_board(
 async fn handle_export_team(
     State(app): State<App>,
     RequiredSession(session): RequiredSession,
+    connection: Option<Extension<ConnectInfo<Connection>>>,
     Path(team_id): Path<String>,
 ) -> ApiResult {
     let user_id = &session.user_id;
@@ -156,7 +165,12 @@ async fn handle_export_team(
     let ids: Vec<String> = boards.into_iter().map(|board| board.id).collect();
     let slot = app.start_export(user_id)?;
     let archive = app.export_archive(&team_id, &ids).await?;
-    Ok(archive_response(&app, archive, slot))
+    Ok(archive_response(
+        &app,
+        archive,
+        slot,
+        breaker_of(connection),
+    ))
 }
 
 /// Import an archive
@@ -233,7 +247,12 @@ async fn handle_import(
 /// Sends an archive, written whole before, as the download the original sends, with its
 /// length. The export's `slot` and its file are held until the archive is sent, the
 /// client goes away, or the download stalls (`app::download`).
-fn archive_response(app: &App, archive: ExportedArchive, slot: Slot) -> Response {
+fn archive_response(
+    app: &App,
+    archive: ExportedArchive,
+    slot: Slot,
+    breaker: Option<Breaker>,
+) -> Response {
     let stall = Duration::from_secs(app.config().export_stall_seconds);
     let size = archive.size;
     let filename = export_filename(crate::auth::now_millis());
@@ -247,9 +266,14 @@ fn archive_response(app: &App, archive: ExportedArchive, slot: Slot) -> Response
             ("content-transfer-encoding", "binary".to_owned()),
             ("content-length", size.to_string()),
         ],
-        Body::from_stream(download(archive, slot, stall)),
+        Body::from_stream(download(archive, slot, stall, breaker)),
     )
         .into_response()
+}
+
+/// The breaker of the connection a request came on, if it has one.
+fn breaker_of(connection: Option<Extension<ConnectInfo<Connection>>>) -> Option<Breaker> {
+    connection.and_then(|Extension(ConnectInfo(connection))| connection.breaker)
 }
 
 /// The file name an export is offered under: `archive-YYYY-MM-DD.boardarchive` for today

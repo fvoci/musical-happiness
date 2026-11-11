@@ -40,8 +40,20 @@ pub struct ExportedArchive {
     pub file: fs::File,
     /// Its size in bytes.
     pub size: u64,
-    /// Where the file is; held only to remove it.
+    /// Where the file is; held only to remove it. After `file`, so that the file is
+    /// closed before it is removed.
     _path: Doomed,
+}
+
+impl ExportedArchive {
+    /// Closes the file and removes it, and waits for that.
+    pub(crate) async fn remove(self) {
+        let Self {
+            file, _path: path, ..
+        } = self;
+        drop(file);
+        path.remove().await;
+    }
 }
 
 impl App {
@@ -50,9 +62,9 @@ impl App {
     ///
     /// Each board is written with its blocks and members; a file a block shows is added
     /// if it exists and left as an empty entry if it is missing, as the original does.
-    /// The file is removed from its directory once it is open, so that nothing of it is
-    /// left however the sending ends; what a stopped server leaves is removed when it
-    /// starts again.
+    /// The file stays in its directory while it is sent and is removed with the
+    /// [`ExportedArchive`] (sent, given up, or the client gone); what a stopped server
+    /// leaves is removed when it starts again.
     ///
     /// # Errors
     ///

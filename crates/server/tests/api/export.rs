@@ -855,9 +855,43 @@ fn temporary_archives(ts: &TestServer) -> usize {
     std::fs::read_dir(ts.app.config().tmp_dir().join("exports")).map_or(0, Iterator::count)
 }
 
+/// Asks for a board's archive on a connection of its own that takes little (a small
+/// receive buffer, whatever the host's defaults), and reads nothing of the answer.
+async fn stalled_download(ts: &TestServer, board_id: &str) -> tokio::net::TcpStream {
+    let address: std::net::SocketAddr = ts
+        .base_url
+        .trim_start_matches("http://")
+        .parse()
+        .expect("the test server listens on an address");
+    let socket = tokio::net::TcpSocket::new_v4().expect("a socket");
+    socket
+        .set_recv_buffer_size(16 * 1024)
+        .expect("a small receive buffer");
+    let mut stream = socket.connect(address).await.expect("connected");
+    let request = format!(
+        "GET /api/v1/boards/{board_id}/archive/export HTTP/1.1\r\nHost: localhost\r\n\
+         Authorization: Bearer {}\r\nX-Requested-With: XMLHttpRequest\r\n\r\n",
+        ts.client.token
+    );
+    tokio::io::AsyncWriteExt::write_all(&mut stream, request.as_bytes())
+        .await
+        .expect("the request is sent");
+    stream
+}
+
+/// Waits up to ten seconds for `done`.
+async fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !done() {
+        assert!(tokio::time::Instant::now() < deadline, "{what}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
 /// Not in the original (coordinator's decision 2026-11-11 16:20 KST). An export holds its
 /// place and its temporary file while it is sent; a client that takes nothing for
-/// `export_stall_seconds` has both taken away, and the rest of its download is broken.
+/// `export_stall_seconds` has the file removed, then the place given back, and its
+/// connection broken short of the archive's end.
 #[tokio::test]
 async fn a_download_that_takes_nothing_is_given_up() {
     let ts = Setup::native()
@@ -868,41 +902,36 @@ async fn a_download_that_takes_nothing_is_given_up() {
         .await;
     let board = board_with_large_archive(&ts).await;
     let me = ts.client.me().await;
+    let length = export_board(&ts.client, &board.id).await.body.len();
 
-    let (mut stalled, length) = start_download(&ts, &board.id).await;
+    let mut stalled = stalled_download(&ts, &board.id).await;
+    until("the archive is written", || temporary_archives(&ts) == 1).await;
     assert!(
         ts.app.start_export(&me.id).is_err(),
         "the place is held while it is sent"
     );
-    assert_eq!(temporary_archives(&ts), 1, "and so is the file");
 
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-    while ts.app.start_export(&me.id).is_err() {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the place is given back"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    while temporary_archives(&ts) > 0 {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the file is removed"
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    until("the place is given back", || {
+        ts.app.start_export(&me.id).is_ok()
+    })
+    .await;
+    assert_eq!(temporary_archives(&ts), 0, "the file went before the place");
 
     let mut received = 0;
-    let broken = loop {
-        match stalled.chunk().await {
-            Ok(Some(piece)) => received += piece.len(),
-            Ok(None) => break false,
-            Err(_) => break true,
+    let mut buffer = vec![0; 64 * 1024];
+    let ended = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            match tokio::io::AsyncReadExt::read(&mut stalled, &mut buffer).await {
+                Ok(0) | Err(_) => break,
+                Ok(read) => received += read,
+            }
         }
-    };
+    })
+    .await;
+    assert!(ended.is_ok(), "the connection is broken");
     assert!(
-        broken && received < length,
-        "{received} of {length} bytes, broken: {broken}"
+        received < length,
+        "{received} bytes of an answer of {length} and more"
     );
 }
 
